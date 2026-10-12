@@ -106,6 +106,14 @@ library
                      , API.BatchImpacts
                      , API.Csv
                      , API.Types
+                     , API.Types.Activity
+                     , API.Types.Authoring
+                     , API.Types.Common
+                     , API.Types.Comparison
+                     , API.Types.Database
+                     , API.Types.Impacts
+                     , API.Types.MethodComparison
+                     , API.Types.MethodEdit
                      , API.JsonOptions
                      , API.DatabaseHandlers
                      , API.Auth

@@ -1,0 +1,387 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+module API.Types.Authoring where
+
+import API.JsonOptions (Stripped (..))
+import Data.Aeson
+import Data.Bifunctor (first)
+import Data.Either (partitionEithers)
+import Data.Maybe (maybeToList)
+import Data.OpenApi (ToSchema (..))
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.UUID as UUID
+import Database.Author (
+    ActivityText (..),
+    AuthoredActivity (..),
+    AuthoredExchange (..),
+    ExchangeEdit (..),
+    ExchangeSelector (..),
+    FlowRef (..),
+ )
+import GHC.Generics
+import Types (
+    BioDirection (..),
+    Compartment (..),
+    parseMedium,
+    unknownMedium,
+ )
+
+{- | Request for delete-by-selection. Two exclusive selection modes: the
+filter fields select the whole matching set (pagination ignored), or @dsqIds@
+names the set exactly – the filter fields must then be absent. @dsqKeep@
+spares selected process ids and @dsqExtra@ adds ones the selection missed.
+Process ids are the canonical @activityUUID_productUUID@ strings the UI/CLI
+carry, not matrix indices.
+-}
+
+{- | One technosphere input: a product this activity consumes, named by the
+process that supplies it.
+
+@tiProvider@ is a @process_id@ (@activityUUID_productUUID@, or a bare activity
+UUID when that activity has a single product) – the same currency the read
+endpoints hand out. The flow follows from the supplier, so it is never stated
+separately. @tiUnit@ defaults to the supplier's own reference unit; stating
+another one is allowed as long as it converts.
+-}
+data TechInputAPI = TechInputAPI
+    { tiProvider :: Text
+    , tiAmount :: Double
+    , tiUnit :: Maybe Text
+    , tiComment :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped TechInputAPI)
+
+{- | One biosphere exchange: a resource taken from the environment or an
+emission released into it.
+
+Either @beFlow@ names a flow by its identifier, or @beName@ with
+@beCompartment@ and @beUnit@ names one in words, which reaches the flow the
+vocabulary already declares under them and introduces one only when nothing
+answers to them. Giving both is refused rather than guessed at. A biosphere
+amount is never converted, so an exchange states its amount in the flow's own
+unit.
+-}
+data BioExchangeAPI = BioExchangeAPI
+    { beFlow :: Maybe Text
+    , beName :: Maybe Text
+    , beCompartment :: Maybe Text
+    , beSubCompartment :: Maybe Text
+    , beDirection :: Text
+    -- ^ @resource@ (taken from the environment) or @emission@ (released into it)
+    , beAmount :: Double
+    , beUnit :: Maybe Text
+    , beComment :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped BioExchangeAPI)
+
+{- | One waste output: a residue this activity hands to a treatment process.
+@woProvider@ names that treatment process, exactly as a technosphere input
+names its producer.
+-}
+data WasteOutputAPI = WasteOutputAPI
+    { woProvider :: Text
+    , woAmount :: Double
+    , woUnit :: Maybe Text
+    , woComment :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped WasteOutputAPI)
+
+{- | An activity as a client writes it.
+
+The inventory arrives as three lists rather than one tagged list, so a field
+that makes sense for a supplier link cannot be sent on an emission and back
+again. One reference product per activity: coproducts and allocation are a
+later phase, and this shape does not pretend to accept them.
+
+Identity is not sent. It is minted from the name, location, product and unit
+below, so writing the same activity twice addresses the same row instead of
+creating a second one.
+-}
+data ActivityInput = ActivityInput
+    { aiName :: Text
+    , aiLocation :: Text
+    , aiDescription :: [Text]
+    , aiProductName :: Text
+    , aiProductAmount :: Double
+    , aiProductUnit :: Text
+    , aiInputs :: [TechInputAPI]
+    , aiBiosphere :: [BioExchangeAPI]
+    , aiWasteOutputs :: [WasteOutputAPI]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ActivityInput)
+
+-- | A batch of activities to write.
+newtype ActivityWriteRequest = ActivityWriteRequest
+    { awrActivities :: [ActivityInput]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ActivityWriteRequest)
+
+{- | What a write produced: the process ids now addressable, whether they
+survive an unload, and everything the engine wants the author to know but did
+not refuse over.
+-}
+data ActivityWriteResponse = ActivityWriteResponse
+    { awpWritten :: [Text]
+    , awpTransient :: Bool
+    {- ^ True when the write lives in memory only, because the database is one
+    the engine reads from configuration rather than owns.
+    -}
+    , awpWarnings :: [Text]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ActivityWriteResponse)
+
+{- | Which lines of an inventory an edit addresses.
+
+@esKind@ is @input@, @waste@ or @biosphere@: the first two name their provider
+by process id, the third names its flow by identity. The product side – the
+reference product, coproducts, a treatment's reference input – has no kind
+here, because changing those changes what the activity /is/, not what it
+consumes.
+
+A selector naming several lines applies to all of them, and the answer says
+how many. Naming none is refused: an edit that quietly did nothing reads
+exactly like one that worked.
+-}
+data ExchangeSelectorAPI = ExchangeSelectorAPI
+    { esKind :: Text
+    , esProvider :: Maybe Text
+    , esFlow :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExchangeSelectorAPI)
+
+-- | The lines to restate, and the amount to restate them to.
+data SetAmountAPI = SetAmountAPI
+    { saSelect :: ExchangeSelectorAPI
+    , saAmount :: Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetAmountAPI)
+
+{- | Changes to one activity: lines to drop, lines to restate, lines to add,
+and the texts to restate.
+
+Five lists rather than one tagged list, for the reason 'ActivityInput' has
+three: what makes sense on an addition cannot be sent on a removal and back
+again. They apply in the order they are listed here, so an edit that drops one
+supplier and adds another is never ambiguous about which happened first.
+
+A text left unstated stays as it is. A description of no paragraphs clears it.
+
+Added lines are resolved exactly as written ones are – same provider lookup,
+same unit rules – because an inventory should not be able to tell how a line
+got there.
+-}
+data ExchangeEditRequest = ExchangeEditRequest
+    { eerRemove :: [ExchangeSelectorAPI]
+    , eerSetAmounts :: [SetAmountAPI]
+    , eerAddInputs :: [TechInputAPI]
+    , eerAddBiosphere :: [BioExchangeAPI]
+    , eerAddWasteOutputs :: [WasteOutputAPI]
+    , eerSetName :: Maybe Text
+    , eerSetLocation :: Maybe Text
+    , eerSetDescription :: Maybe [Text]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ExchangeEditRequest)
+
+{- | A list left unstated is a list of nothing – a document that only removes
+a line should not have to say four times that it does nothing else. The
+assistant tool already reads its arguments this way.
+-}
+instance FromJSON ExchangeEditRequest where
+    parseJSON = withObject "ExchangeEditRequest" $ \o ->
+        ExchangeEditRequest
+            <$> o .:? "remove" .!= []
+            <*> o .:? "setAmounts" .!= []
+            <*> o .:? "addInputs" .!= []
+            <*> o .:? "addBiosphere" .!= []
+            <*> o .:? "addWasteOutputs" .!= []
+            <*> o .:? "setName"
+            <*> o .:? "setLocation"
+            <*> o .:? "setDescription"
+
+{- | What an inventory edit produced: one count per selector, in the order the
+selectors were stated. A caller that meant to drop one line and reads three
+learns it here, rather than from a score that moved more than it should have.
+-}
+data ExchangeEditResponse = ExchangeEditResponse
+    { eepRemoved :: [Int]
+    , eepAmountsSet :: [Int]
+    , eepAdded :: Int
+    , eepTextsSet :: [Text]
+    -- ^ The texts rewritten: @name@, @location@, @description@.
+    , eepTransient :: Bool
+    -- ^ True when the edit lives in memory only and an unload would undo it.
+    , eepWarnings :: [Text]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExchangeEditResponse)
+
+-- ---------------------------------------------------------------------------
+-- Wire → authoring input
+-- ---------------------------------------------------------------------------
+
+{- | Translate the request activities into authoring inputs. Shared by the
+HTTP endpoints and the command line, which read the same JSON document.
+
+What can fail here is only shape – a biosphere line that names its flow in
+two ways at once or in none, a direction that is neither of the two, a flow
+introduced without the unit that is part of its identity; every value is the
+validator's to judge. Complaints accumulate across the whole batch and name
+the activity they belong to, exactly as the validator's do, so a batch is
+fixed in one round trip whichever layer refused it.
+-}
+toAuthoredActivities :: [ActivityInput] -> Either [Text] [AuthoredActivity]
+toAuthoredActivities inputs = case partitionEithers (map toAuthoredActivity inputs) of
+    ([], authored) -> Right authored
+    (errs, _) -> Left (concat errs)
+
+toAuthoredActivity :: ActivityInput -> Either [Text] AuthoredActivity
+toAuthoredActivity ai = case partitionEithers (map toBio (aiBiosphere ai)) of
+    (errs@(_ : _), _) -> Left (map here (concat errs))
+    ([], bio) ->
+        Right
+            AuthoredActivity
+                { aaName = aiName ai
+                , aaLocation = aiLocation ai
+                , aaDescription = aiDescription ai
+                , aaProductName = aiProductName ai
+                , aaProductAmount = aiProductAmount ai
+                , aaProductUnit = aiProductUnit ai
+                , aaExchanges = map toTechInput (aiInputs ai) <> bio <> map toWasteOutput (aiWasteOutputs ai)
+                }
+  where
+    here msg = aiName ai <> " {" <> aiLocation ai <> "}: " <> msg
+
+toTechInput :: TechInputAPI -> AuthoredExchange
+toTechInput ti =
+    AuthoredTechInput
+        { atiProvider = tiProvider ti
+        , atiAmount = tiAmount ti
+        , atiUnit = tiUnit ti
+        , atiComment = tiComment ti
+        }
+
+toWasteOutput :: WasteOutputAPI -> AuthoredExchange
+toWasteOutput wo =
+    AuthoredWasteOutput
+        { awProvider = woProvider wo
+        , awAmount = woAmount wo
+        , awUnit = woUnit wo
+        , awComment = woComment wo
+        }
+
+-- | One bad line can be bad both ways at once; both complaints travel.
+toBio :: BioExchangeAPI -> Either [Text] AuthoredExchange
+toBio be = case (bioFlowRef be, bioDirection (beDirection be)) of
+    (Right flow, Right direction) ->
+        Right
+            AuthoredBio
+                { abFlow = flow
+                , abDirection = direction
+                , abAmount = beAmount be
+                , abUnit = beUnit be
+                , abComment = beComment be
+                }
+    (flow, direction) -> Left (leftList flow <> leftList direction)
+  where
+    leftList = either pure (const [])
+
+{- | Translate an edit request into the changes the domain applies, in the
+order the request lists them. Shared by the HTTP endpoint, the command line and
+the assistant tool, which all read the same document.
+
+What can fail here is only shape – a selector naming its provider where its
+kind names a flow, a kind that is none of the three. Whether a selector reaches
+anything is the domain's to judge, and its complaints accumulate the same way,
+so a request is fixed in one round trip whichever layer refused it.
+-}
+toExchangeEdits :: ExchangeEditRequest -> Either [Text] [ExchangeEdit]
+toExchangeEdits req = case partitionEithers stated of
+    ([], edits) -> Right edits
+    (errs, _) -> Left (concat errs)
+  where
+    stated =
+        map (fmap RemoveExchange . toSelector) (eerRemove req)
+            <> map toSetAmount (eerSetAmounts req)
+            <> map (Right . AddExchange . toTechInput) (eerAddInputs req)
+            <> map (fmap AddExchange . toBio) (eerAddBiosphere req)
+            <> map (Right . AddExchange . toWasteOutput) (eerAddWasteOutputs req)
+            <> map (Right . SetText) texts
+    texts =
+        concat
+            [ ActivityName <$> maybeToList (eerSetName req)
+            , ActivityLocation <$> maybeToList (eerSetLocation req)
+            , ActivityDescription <$> maybeToList (eerSetDescription req)
+            ]
+    toSetAmount sa = flip SetAmount (saAmount sa) <$> toSelector (saSelect sa)
+
+{- | A selector names a provider or a flow, according to its kind. Sending the
+other one, or both, is refused rather than resolved by precedence: a caller who
+meant a flow and typed a provider would otherwise edit whatever the provider
+happened to name.
+-}
+toSelector :: ExchangeSelectorAPI -> Either [Text] ExchangeSelector
+toSelector es = case (T.toLower (T.strip (esKind es)), esProvider es, esFlow es) of
+    ("input", Just provider, Nothing) -> Right (SelectInput provider)
+    ("waste", Just provider, Nothing) -> Right (SelectWaste provider)
+    ("biosphere", Nothing, Just flowId) ->
+        maybe (Left ["not a flow identifier: " <> flowId]) (Right . SelectBiosphere) (UUID.fromText flowId)
+    (kind, _, _)
+        | kind `elem` ["input", "waste"] ->
+            Left ["a selector of kind " <> kind <> " names its provider, and nothing else"]
+        | kind == "biosphere" ->
+            Left ["a biosphere selector names its flow, and nothing else"]
+        | otherwise ->
+            Left ["unknown selector kind: " <> kind <> " (expected input|waste|biosphere)"]
+
+{- | A biosphere line names a flow by identifier, or in words. Both at once is
+ambiguous and neither says nothing, so both are refused instead of picking a
+winner.
+-}
+bioFlowRef :: BioExchangeAPI -> Either Text FlowRef
+bioFlowRef be = case (beFlow be, beName be) of
+    (Just _, Just _) -> Left "a biosphere exchange names its flow by identifier or in words, not both"
+    (Nothing, Nothing) -> Left "a biosphere exchange needs either a flow identifier or a name, a compartment and a unit"
+    (Just flowId, Nothing) ->
+        maybe (Left (notAnIdentifier flowId)) (Right . FlowById) (UUID.fromText flowId)
+    (Nothing, Just name) -> case (beCompartment be, beUnit be) of
+        (Nothing, _) -> Left ("biosphere flow \"" <> name <> "\" needs a compartment (air, water, soil, natural resource)")
+        -- The unit is half of what makes a flow named in words that flow, both
+        -- when the words reach one the database declares and when they mint a
+        -- new one (see 'Database.Author.authoredBioFlowUUID'), so it cannot be
+        -- defaulted.
+        (_, Nothing) -> Left ("biosphere flow \"" <> name <> "\" needs a unit")
+        (Just medium, Just unit) -> do
+            reading <- first (T.pack . unknownMedium) (parseMedium medium)
+            Right $
+                FlowByName
+                    name
+                    Compartment{compartmentName = reading, compartmentSub = beSubCompartment be}
+                    unit
+
+{- | A name written into the identifier field is the common mistake, so the
+refusal says where identifiers come from and how a name is written instead.
+-}
+notAnIdentifier :: Text -> Text
+notAnIdentifier flowId =
+    "not a flow identifier: "
+        <> flowId
+        <> " (an identifier is the UUID a flow search returns; a flow written in words is stated as its name, compartment and unit instead)"
+
+bioDirection :: Text -> Either Text BioDirection
+bioDirection raw = case T.toLower (T.strip raw) of
+    "resource" -> Right Resource
+    "emission" -> Right Emission
+    other -> Left ("unknown biosphere direction: " <> other <> " (expected resource|emission)")
