@@ -33,7 +33,7 @@ jobs:
   build:
     uses: ./.github/workflows/_build-matrix.yml
     with:
-      release: false
+      release: true
 
   # data/VERSION is the bundle's identity (the asset name, the install
   # directory, the dataVersion an engine reports), so a PR that changes
