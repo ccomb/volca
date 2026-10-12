@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The three climate change sub-categories of EF 3.1 (fossil, biogenic, land
+  use) add up to the climate change total again, in the ILCD package as in
+  the adapted SimaPro CSV method. On a bread wheat at farm gate, the land use
+  row of the ILCD package read -1.38 kg CO2-eq where it is 0.09: the carbon a
+  crop takes from the air, and its ecoinvent 2 correction, are now read as
+  biogenic carbon dioxide, which counts zero, instead of borrowing the land
+  use change factor through their CAS number. Peat oxidation now counts with
+  fossil emissions, as the adapted method files it, rather than with land
+  transformation: under the adapted method the fossil row read 0.477 where
+  it is 0.392, because it also counted land transformation. Totals do not
+  move, except the plain `Fossil CO2` indicator, which now counts the carbon
+  dioxide from peat oxidation (data version 11).
+
 ## [0.15.0] - 2026-10-11
 
 ### Added

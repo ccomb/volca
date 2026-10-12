@@ -31,6 +31,7 @@ import SynonymDB (
     SynEdge (..),
     SynonymDB (..),
     buildFromEdges,
+    inputView,
     lookupSynonymGroup,
     normalizeName,
     outputView,
@@ -137,6 +138,31 @@ spec = do
                     filter ((== emitted "Antimony, ion") . emitted) ["Stibnite", "antimony sulfide"]
                         `shouldBe` []
 
+                -- The carbon a crop takes from the air counts zero under EF, as
+                -- biogenic carbon dioxide. A name of it the registry did not
+                -- know was bound by its CAS number to the land use change line
+                -- (-1), and the CAS bridge then lent that factor to every
+                -- carbon dioxide taken from the air.
+                it "reads the carbon a crop takes from the air as biogenic" $ do
+                    let taken = lookupSynonymGroup (inputView db)
+                        biogenic = taken "Carbon dioxide, biogenic"
+                    biogenic `shouldNotBe` Nothing
+                    filter ((/= biogenic) . taken) ["Carbon dioxide, in air", "Carbon dioxide, non-fossil, resource correction"]
+                        `shouldBe` []
+                    taken "Carbon dioxide (land use change)" `shouldNotBe` biogenic
+
+                -- The adapted EF 3.1 method counts peat oxidation in its fossil
+                -- sub-category and land transformation in its land use one.
+                -- One class for both made each sub-category also count the
+                -- other's flows, so the two no longer added up to the total.
+                it "keeps peat oxidation with fossil emissions, apart from land transformation" $
+                    [ gas
+                    | gas <- ["Carbon dioxide", "Methane"]
+                    , classOf (gas <> ", peat oxidation") /= classOf (gas <> ", fossil")
+                        || classOf (gas <> ", peat oxidation") == classOf (gas <> ", land transformation")
+                    ]
+                        `shouldBe` []
+
                 -- Older SimaPro exports write trivalent chromium as bare
                 -- Chromium. Bridged to Chromium, ion, the form EF 3.1
                 -- characterizes as hexavalent, it scored cancer toxicity from
@@ -240,7 +266,7 @@ originQualifiers = S.fromList . concatMap families
             <> ["biogenic" | "biogenic" `T.isInfixOf` n || "non-fossil" `T.isInfixOf` n]
             <> ["luluc" | any (`T.isInfixOf` n) lulucPhrases]
     lulucPhrases =
-        ["land transformation", "land use change", "peat oxidation", "soil or biomass stock"]
+        ["land transformation", "land use change", "soil or biomass stock"]
 
 {- | CAS numbers declared for a class's member names, in canonical form
 ('normalizeCAS' strips ecoinvent-style zero-padding, so padded spellings of one

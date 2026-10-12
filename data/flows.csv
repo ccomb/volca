@@ -266,8 +266,10 @@ Carbendazim,methyl benzimidazol-2-ylcarbamate
 Carbon,Elemental carbon
 Carbon dioxide,"Carbon dioxide, fossil"
 "Carbon dioxide, biogenic","Carbon dioxide, non-fossil"
+"Carbon dioxide, in air","Carbon dioxide, biogenic",input,124-38-9,"the carbon a crop takes from the air; the EF 3.1 mapping of ecoinvent reads it as biogenic carbon dioxide from air, which counts zero"
+"Carbon dioxide, non-fossil, resource correction","Carbon dioxide, biogenic",input,,ecoinvent 2 correction of the carbon a crop takes from the air; left unknown its CAS number bound it to the land use change factor
 "Carbon dioxide, from soil or biomass stock","Carbon dioxide, land transformation"
-"Carbon dioxide, from soil or biomass stock","Carbon dioxide, peat oxidation"
+"Carbon dioxide, fossil","Carbon dioxide, peat oxidation",,,"the adapted EF 3.1 method counts peat oxidation as fossil, apart from land transformation"
 "Carbon dioxide, from soil or biomass stock","Carbon dioxide (land use change)"
 Carbon disulfide,Dithiocarbonic Anhydride
 Carbon disulfide,dithiocarbonic anhydride
@@ -502,7 +504,7 @@ Methane,"Methane, fossil"
 "Methane, chloro-fluoro-, HCFC-31","Methane, chlorofluoro-, HCFC-31"
 "Methane, dichloro-, HCC-30",methylenchlorid
 "Methane, from soil or biomass stock","Methane, land transformation"
-"Methane, from soil or biomass stock","Methane, peat oxidation"
+"Methane, fossil","Methane, peat oxidation",,,"the adapted EF 3.1 method counts peat oxidation as fossil, apart from land transformation"
 "Methane, from soil or biomass stock","methane (land use change)"
 "Methane, monochloro-, R-40",Methyl Chloride
 "Methane, monochloro-, R-40",Monochloromethane
