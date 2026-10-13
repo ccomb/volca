@@ -18,6 +18,16 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
+## [0.13.1] - 2026-10-13
+
+### Fixed
+
+- `Server.stop()` no longer raises when the engine takes more than five
+  seconds to answer the shutdown request: it stops the process all the same,
+  and kills it if it is still running ten seconds later. A script that stops
+  its engine on the way out of a `with` block used to lose the results it had
+  just computed.
+
 ## [0.13.0] - 2026-10-11
 
 ### Added
