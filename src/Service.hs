@@ -1950,7 +1950,7 @@ data ConsumerLink = ConsumerLink
     { clConsumer :: !Text -- as the chain names it
     , clConsumerDb :: !Text
     , clSupplier :: !(UUID, UUID)
-    , clPerUnit :: !(Double, Text)
+    , clPerUnit :: !StatedAmount
     }
 
 -- | A dependency a level reaches: its name, what it is asked for, and the links that ask.
@@ -2002,7 +2002,7 @@ consumerLinks minQ consumer extras =
             { clConsumer = nameAt (coLevel consumer) (coName consumer) db pid
             , clConsumerDb = coName consumer
             , clSupplier = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
-            , clPerUnit = (cdlCoefficient link / normFactor, cdlExchangeUnit link)
+            , clPerUnit = StatedAmount{saUnit = cdlExchangeUnit link, saAmount = cdlCoefficient link / normFactor}
             }
 
     db :: Database
@@ -2415,7 +2415,7 @@ walkDepLevels unitCfg geographies depLookup consumer extras scf depth visited
                     , dcDemands = demands
                     , dcLinks = M.findWithDefault [] name links
                     , -- A substitution's cancelling link nets a supplier's demand to zero: not bought, not an entry.
-                      dcEntered = M.restrictKeys (M.findWithDefault M.empty name entered) (M.keysSet (M.filter ((/= 0) . fst) demands))
+                      dcEntered = M.restrictKeys (M.findWithDefault M.empty name entered) (M.keysSet (M.filter ((/= 0) . saAmount) demands))
                     }
                 | (name, demands) <- M.toList (accumulateDepDemandsWith (coDb consumer) extras (coScaling consumer))
                 ]

@@ -122,4 +122,4 @@ spec = do
                     , dbCrossDBLinks = []
                     }
         accumulateDepDemandsWith twoKg [link] (U.singleton 1)
-            `shouldBe` M.singleton "dep" (M.singleton (cdlSupplierActUUID link, cdlSupplierProdUUID link) (0.5, "kg"))
+            `shouldBe` M.singleton "dep" (M.singleton (cdlSupplierActUUID link, cdlSupplierProdUUID link) StatedAmount{saUnit = "kg", saAmount = 0.5})

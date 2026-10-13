@@ -116,10 +116,10 @@ newtype Demand = Demand {unDemand :: Vector}
 -- | Final inventory vector mapping biosphere flow UUIDs to quantities.
 type Inventory = M.Map UUID Double
 
-{- | Demand a consumer DB places on one supplier @(activityUUID, productUUID)@:
-the amount plus the consumer's exchange unit (for cross-DB unit conversion).
+{- | Demand a consumer DB places on one supplier @(activityUUID, productUUID)@,
+stated in the consumer's exchange unit (for cross-DB unit conversion).
 -}
-type SupplierDemands = M.Map (UUID, UUID) (Double, Text)
+type SupplierDemands = M.Map (UUID, UUID) StatedAmount
 
 -- | Per-dependency-DB supplier demands, keyed by source database name.
 type DepDemands = M.Map Text SupplierDemands
@@ -861,7 +861,7 @@ accumulateDepDemandsWith db extraLinks scalingVec =
                     consumerScale = scalingVec U.! consumerIdx
                     demand = cdlCoefficient link * consumerScale / normFactor
                     supplierKey = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
-                    entry = (demand, cdlExchangeUnit link)
+                    entry = StatedAmount{saUnit = cdlExchangeUnit link, saAmount = demand}
                  in if demand == 0
                         then acc
                         else
@@ -875,7 +875,8 @@ accumulateDepDemandsWith db extraLinks scalingVec =
     -- in that product's unit). Keep the first; conversion will catch any
     -- inconsistency because depDemandsToVector converts exchangeUnit →
     -- supplierRefUnit per entry.
-    mergeEntry (a, u) (b, _) = (a + b, u)
+    mergeEntry :: StatedAmount -> StatedAmount -> StatedAmount
+    mergeEntry new old = new{saAmount = saAmount new + saAmount old}
 
 {- | A link's consumer in its own database, and the factor its matrix column
 is normalized by: what one unit of the consumer takes from the supplier is the
@@ -947,9 +948,9 @@ inSupplierUnit ::
     Text ->
     Database ->
     (UUID, UUID) ->
-    (Double, Text) ->
+    StatedAmount ->
     Either Text (Maybe (ProcessId, Double))
-inSupplierUnit unitConfig depDbName depDb supplierKey (amt, exchangeUnit) =
+inSupplierUnit unitConfig depDbName depDb supplierKey StatedAmount{saUnit = exchangeUnit, saAmount = amt} =
     case M.lookup supplierKey (dbProcessIdLookup depDb) of
         Nothing -> Right Nothing -- supplier absent in dep DB; drop
         Just pid ->
