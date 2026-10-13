@@ -547,7 +547,10 @@ description r = case r of
     GetActivity ->
         "LCA / ACV: get detailed information about an activity: name, location, \
         \exchanges, reference product, metadata. Use exchange_type / is_input / flow \
-        \to filter exchanges and reduce response size."
+        \to filter exchanges and reduce response size. Metadata (description, \
+        \documentation, source) comes back with every filter; to read it without \
+        \the hundreds of exchanges, pass exchange_type=technosphere with \
+        \is_input=false."
     Aggregate ->
         "LCA / ACV: aggregate exchanges, supply chain entries, or biosphere flows \
         \with SQL group-by-style filters. One primitive replaces ad-hoc decomposition \
