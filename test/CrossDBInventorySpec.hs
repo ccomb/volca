@@ -35,9 +35,9 @@ import SharedSolver (
  )
 import qualified SharedSolver
 import Test.Hspec
-import TestHelpers (loadSampleDatabase)
+import TestHelpers (loadSampleDatabase, unitDef)
 import Types
-import UnitConversion (defaultUnitConfig)
+import UnitConversion (defaultDimensionOrder, defaultUnitConfig, mkUnitConfig)
 
 spec :: Spec
 spec = do
@@ -84,6 +84,17 @@ spec = do
                     case depDemandsToVector defaultUnitConfig "SAMPLE.min3" db demands of
                         Right (Demand vec) -> vec U.! supplierIdx `shouldBe` 7.5
                         Left err -> expectationFailure (T.unpack err)
+
+        it "converts an amount stated in grams to the supplier's kilograms" $ do
+            db <- loadSampleDatabase "SAMPLE.min3"
+            case firstActivityWithRefUnit db of
+                Just (supplierKey, supplierIdx, "kg") -> do
+                    let demands = M.singleton supplierKey (1000.0, "g")
+                        withGrams = mkUnitConfig defaultDimensionOrder (M.fromList [("kg", unitDef "mass" 1), ("g", unitDef "mass" 0.001)])
+                    case depDemandsToVector withGrams "SAMPLE.min3" db demands of
+                        Right (Demand vec) -> vec U.! supplierIdx `shouldBe` 1.0
+                        Left err -> expectationFailure (T.unpack err)
+                _ -> pendingWith "SAMPLE.min3 has no activity whose reference output is in kg"
 
         it "fails hard when the unit pair is unknown" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
