@@ -20,8 +20,8 @@
   at farm gate, 272 of them, mostly pesticide emissions), and its full answer
   ran to 168,000 characters, more than an agent can read in one reply, so an
   agent asked for the source of a figure could not find it. Exchange type
-  `technosphere` with `is_input` false keeps the metadata and the reference
-  product only, 6,600 characters.
+  `technosphere` with `is_input` false keeps the metadata and the products
+  the activity makes, 6,600 characters for that wheat.
 
 - The three climate change sub-categories of EF 3.1 (fossil, biogenic, land
   use) add up to the climate change total again, in the ILCD package as in
