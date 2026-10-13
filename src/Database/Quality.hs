@@ -17,7 +17,8 @@ inputs a dataset the source retired supplies,
 geography no dataset declared (read off the name
 or filled in by the loader instead), land transformation whose "to" and
 "from" areas don't balance within an activity, oxygen-demand or
-organic-carbon measures reported in a physically impossible order, CAS
+organic-carbon measures reported in a physically impossible order, water released to
+rivers and soil far beyond the water an activity takes in, CAS
 numbers whose check digit doesn't confirm them, allocation percentages
 outside the 0-100% range, and amounts too small to have been measured.
 
@@ -46,14 +47,17 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import Database.Allocation (asAllocated, describeRefusal)
 import Numeric (showFFloat, showGFloat)
+import SubstanceRegistry (normalizeCAS)
 
 import Types (
     Activity (..),
     BiosphereFlow (..),
+    Compartment (..),
     DeclaredShare (..),
     Exchange (..),
     FormulaCheck (..),
     LocationSource (..),
+    Medium (..),
     ProcessRef (..),
     Severity (..),
     SimpleDatabase (..),
@@ -65,6 +69,7 @@ import Types (
     activityIsObsolete,
     exchangeAmount,
     exchangeFlowId,
+    exchangeIsInput,
     exchangeIsReference,
     exchangePedigree,
     exchangeUnitId,
@@ -127,6 +132,7 @@ data QualityReport = QualityReport
     , qrAllocationOutOfRange :: !QualityCheck
     , qrUnallocated :: !QualityCheck
     , qrUnmeasurableAmounts :: !QualityCheck
+    , qrWaterBalance :: !QualityCheck
     }
     deriving (Show, Eq)
 
@@ -155,6 +161,7 @@ qualityChecks r =
     , qrAllocationOutOfRange r
     , qrUnallocated r
     , qrUnmeasurableAmounts r
+    , qrWaterBalance r
     ]
 
 {- | Allowed drift when summing coproduct allocation percentages. Sources round
@@ -235,6 +242,31 @@ check accuses only what no instrument could have produced.
 measurableMagnitudeFloor :: Double
 measurableMagnitudeFloor = 1e-27
 
+{- | How many times the water an activity takes in its releases to rivers and
+soil may reach before the balance is called broken. Generous on purpose: what
+the check hunts is a unit slip (litres written as cubic metres makes a thousand
+times too much), not a modelling choice about where rain or product moisture
+goes. At twice the intake, a large published database showed dozens of
+smelters and steelworks whose water balance is only loosely kept.
+-}
+waterImbalanceFactor :: Double
+waterImbalanceFactor = 10
+
+{- | Releases under one litre are not worth a finding whatever the balance:
+they cannot carry the factor-of-a-thousand slip the check is for.
+-}
+waterReleaseFloor :: Double
+waterReleaseFloor = 1e-3
+
+{- | Cubic metres of water in an amount, for the units water is written in.
+Masses count at 1000 kg per m³. Any other unit says nothing about volume, so
+the line stays out of the balance.
+-}
+waterCubicMetres :: Text -> Double -> Maybe Double
+waterCubicMetres unit amount = (* amount) <$> lookup (T.toLower unit) perUnit
+  where
+    perUnit = [("m3", 1), ("l", 1e-3), ("kg", 1e-3), ("g", 1e-6), ("t", 1), ("ton", 1), ("tonne", 1)]
+
 -- | Run every check over a database.
 qualityReport :: Text -> SimpleDatabase -> QualityReport
 qualityReport dbName db =
@@ -260,6 +292,7 @@ qualityReport dbName db =
         , qrAllocationOutOfRange = QualityCheck allocationApplicable (worstFirst allocationRangeOffenders)
         , qrUnallocated = QualityCheck True (worstFirst unallocatedOffenders)
         , qrUnmeasurableAmounts = QualityCheck True (worstFirst unmeasurableOffenders)
+        , qrWaterBalance = QualityCheck waterBalanceApplicable (worstFirst waterBalanceOffenders)
         }
   where
     entries = M.toList (sdbActivities db)
@@ -692,6 +725,72 @@ qualityReport dbName db =
         | startsWithField "Transformation, from" nm = Just (amt, 0)
         | startsWithField "Transformation, to" nm = Just (0, amt)
         | otherwise = Nothing
+
+    -- Water is conserved: what an activity releases to rivers and soil came in
+    -- as a withdrawal or as purchased water. Released far beyond that, the
+    -- release is almost always a unit slip – and water-use methods credit a
+    -- release, so the slip turns into a large negative score. Water to air is
+    -- left out on both sides: a rain-fed crop evaporates rain nobody declares,
+    -- and evaporation earns no credit. The intake counts generously (any input
+    -- or reference line named after water, and any reference measured as a
+    -- volume – the wastewater or landfill leachate a treatment takes in,
+    -- whichever way the format signs it), so it can hide a finding but never
+    -- invent one. One direction only: taking in water
+    -- without releasing it is common and credits nothing.
+    waterBalanceApplicable = any ((> 0) . fst . waterSides) acts
+    waterBalanceOffenders =
+        [ offender WarningSev key act Nothing $
+            "releases "
+                <> formatAmount released
+                <> " m3 of water to water and soil but takes in "
+                <> intake
+                <> "; a release counts as a credit in water-use methods"
+        | (key, act) <- entries
+        , let (released, takenIn) = waterSides act
+        , released > waterReleaseFloor
+        , released > waterImbalanceFactor * takenIn
+        , let intake
+                | takenIn > 0 =
+                    "only "
+                        <> formatAmount takenIn
+                        <> " m3 ("
+                        <> T.pack (show (round (released / takenIn) :: Int))
+                        <> " times as much out as in)"
+                | otherwise = "none"
+        ]
+    -- (released, taken in), in m³.
+    waterSides act =
+        foldr
+            (\(r, i) (r', i') -> (r + r', i + i'))
+            (0, 0)
+            [side | ex <- exchanges act, Just side <- [waterSide ex]]
+    waterSide ex = do
+        m3 <- waterCubicMetres (unitLabel (exchangeUnitId ex)) (abs (exchangeAmount ex))
+        case ex of
+            BiosphereExchange{} -> do
+                flow <- M.lookup (exchangeFlowId ex) (sdbBioFlows db)
+                if isWater flow
+                    then case compartmentName <$> bfCompartment flow of
+                        Just NaturalResource -> Just (0, m3)
+                        Just Water | not (exchangeIsInput ex) -> Just (m3, 0)
+                        Just Soil | not (exchangeIsInput ex) -> Just (m3, 0)
+                        _ -> Nothing
+                    else Nothing
+            _
+                | exchangeIsReference ex && isVolume (exchangeUnitId ex) -> Just (0, m3)
+                | exchangeIsInput ex || exchangeIsReference ex
+                , Just name <- techOrWasteFlowName (exchangeFlowId ex)
+                , isPurchasedWater (T.toLower name) ->
+                    Just (0, m3)
+                | otherwise -> Nothing
+    isWater flow =
+        maybe False ((== "7732-18-5") . normalizeCAS) (bfCAS flow)
+            || startsWithField "Water" (bfName flow)
+    isVolume uid = T.toLower (unitLabel uid) `elem` ["m3", "l"]
+    -- "Disposal, polyethylene, 0.4% water, …" names a waste, not water.
+    isPurchasedWater name =
+        not ("disposal" `T.isPrefixOf` name)
+            && ("water" `T.isInfixOf` name || "irrigat" `T.isPrefixOf` name)
 
     -- The biological oxygen demand is a fraction of the chemical one, and
     -- dissolved organic carbon a fraction of the total: BOD5 ≤ COD and

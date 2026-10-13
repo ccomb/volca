@@ -29,10 +29,12 @@ import Types (
     Activity (..),
     BioDirection (..),
     BiosphereFlow (..),
+    Compartment (..),
     DeclaredShare (..),
     Exchange (..),
     FormulaCheck (..),
     LocationSource (..),
+    Medium (..),
     NativeProcessId (..),
     Severity (..),
     SimpleDatabase (..),
@@ -72,6 +74,20 @@ codFlow = u "0c"
 docFlow = u "0d"
 tocFlow = u "0e"
 mercuryFlow = u "0f"
+
+m3Unit, litreUnit, riverWaterFlow, airWaterFlow, withdrawnWaterFlow, h2oFlow :: UUID
+m3Unit = u "10"
+litreUnit = u "11"
+riverWaterFlow = u "12"
+airWaterFlow = u "13"
+withdrawnWaterFlow = u "14"
+h2oFlow = u "15"
+
+tapWaterFlow, irrigationFlow, wastewaterFlow, disposalFlow :: UUID
+tapWaterFlow = u "16"
+irrigationFlow = u "17"
+wastewaterFlow = u "18"
+disposalFlow = u "19"
 
 actA, actB, actC, prodA, prodB, prodC :: UUID
 actA = u "0a"
@@ -186,6 +202,10 @@ dbOf acts =
             M.fromList
                 [ (breadFlow, TechnosphereFlow breadFlow "bread" kgUnit M.empty Nothing Nothing)
                 , (flourFlow, TechnosphereFlow flourFlow "flour" kgUnit M.empty Nothing Nothing)
+                , (tapWaterFlow, TechnosphereFlow tapWaterFlow "Tap water, desalinated sea water, at user" kgUnit M.empty Nothing Nothing)
+                , (irrigationFlow, TechnosphereFlow irrigationFlow "Irrigating" m3Unit M.empty Nothing Nothing)
+                , (wastewaterFlow, TechnosphereFlow wastewaterFlow "wastewater, average" m3Unit M.empty Nothing Nothing)
+                , (disposalFlow, TechnosphereFlow disposalFlow "Disposal, polyethylene, 0.4% water, to municipal incineration" kgUnit M.empty Nothing Nothing)
                 ]
         , sdbBioFlows =
             M.fromList
@@ -195,9 +215,19 @@ dbOf acts =
                 , (codFlow, BiosphereFlow codFlow "COD, Chemical Oxygen Demand" kgUnit M.empty Nothing Nothing Nothing)
                 , (docFlow, BiosphereFlow docFlow "DOC, Dissolved Organic Carbon" kgUnit M.empty Nothing Nothing Nothing)
                 , (tocFlow, BiosphereFlow tocFlow "TOC, Total Organic Carbon" kgUnit M.empty Nothing Nothing Nothing)
+                , (riverWaterFlow, BiosphereFlow riverWaterFlow "Water, ES" m3Unit M.empty (Just "007732-18-5") Nothing (Just (Compartment Water Nothing)))
+                , (airWaterFlow, BiosphereFlow airWaterFlow "Water, ES" kgUnit M.empty (Just "007732-18-5") Nothing (Just (Compartment Air Nothing)))
+                , (withdrawnWaterFlow, BiosphereFlow withdrawnWaterFlow "Water, unspecified natural origin, ES" m3Unit M.empty (Just "7732-18-5") Nothing (Just (Compartment NaturalResource (Just "in water"))))
+                , (h2oFlow, BiosphereFlow h2oFlow "H2O" m3Unit M.empty (Just "7732-18-5") Nothing (Just (Compartment Soil Nothing)))
                 ]
         , sdbWasteFlows = M.fromList [(wasteFlow, WasteFlow wasteFlow "municipal waste" kgUnit M.empty Nothing Nothing)]
-        , sdbUnits = M.fromList [(kgUnit, Unit kgUnit "kg" "kg" ""), (m2Unit, Unit m2Unit "m2" "m2" "")]
+        , sdbUnits =
+            M.fromList
+                [ (kgUnit, Unit kgUnit "kg" "kg" "")
+                , (m2Unit, Unit m2Unit "m2" "m2" "")
+                , (m3Unit, Unit m3Unit "m3" "m3" "")
+                , (litreUnit, Unit litreUnit "l" "l" "")
+                ]
         , sdbDocumentation = noDocumentation
         }
 
@@ -229,6 +259,8 @@ casDbWith cas =
                 [ (breadFlow, TechnosphereFlow breadFlow "bread" kgUnit M.empty Nothing Nothing)
                 , (mercuryFlow, TechnosphereFlow mercuryFlow "mercury" kgUnit M.empty cas Nothing)
                 ]
+        , -- The shared water flows carry a CAS number, which would make the check applicable.
+          sdbBioFlows = M.empty
         }
 
 -- | An activity carrying an allocation percentage and a source block identity.
@@ -770,6 +802,60 @@ spec = do
 
         it "passes an amount of exactly zero, which says the input is absent" $
             qcOffenders (qrUnmeasurableAmounts (reportOf (mkActivity "bread" [reference breadFlow, input flourFlow 0]))) `shouldBe` []
+
+    describe "water balance check" $ do
+        let released fid amount = (mkBio m3Unit fid amount){bioDirection = Emission}
+            withdrawn = mkBio m3Unit withdrawnWaterFlow
+            inM3 ex = ex{techUnitId = m3Unit}
+            -- A published greenhouse tomato: 3.2581 m3 out against 0.0155 m3 and 3.162 kg in.
+            tomato =
+                [ reference breadFlow
+                , released riverWaterFlow 3.2581
+                , withdrawn 0.015484
+                , input tapWaterFlow 3.162
+                ]
+            waterCheck = qrWaterBalance . reportOf . mkActivity "tomato"
+        it "flags water released far beyond the water taken in" $ do
+            let check = waterCheck tomato
+            details check `shouldBe` ["releases 3.258 m3 of water to water and soil but takes in only 1.865e-2 m3 (175 times as much out as in); a release counts as a credit in water-use methods"]
+            severities check `shouldBe` [WarningSev]
+
+        it "says when nothing at all comes in, rather than dividing by zero" $
+            details (waterCheck [reference breadFlow, released riverWaterFlow 6.42])
+                `shouldBe` ["releases 6.420 m3 of water to water and soil but takes in none; a release counts as a credit in water-use methods"]
+
+        it "passes a balance that closes once purchased water in kg is counted" $
+            qcOffenders (waterCheck [reference breadFlow, released riverWaterFlow 0.03, withdrawn 0.001, input tapWaterFlow 3.162]) `shouldBe` []
+
+        it "converts litres" $
+            qcOffenders (waterCheck [reference breadFlow, released riverWaterFlow 0.01, mkBio litreUnit withdrawnWaterFlow 10]) `shouldBe` []
+
+        it "ignores water evaporated to air, which no rain-fed crop declares coming in" $
+            qcOffenders (waterCheck [reference breadFlow, (mkBio kgUnit airWaterFlow 119.2){bioDirection = Emission}]) `shouldBe` []
+
+        it "recognises water by its CAS number under another name, released to soil" $
+            length (qcOffenders (waterCheck [reference breadFlow, released h2oFlow 2])) `shouldBe` 1
+
+        it "counts irrigation as water taken in" $
+            qcOffenders (waterCheck [reference breadFlow, released riverWaterFlow 3, inM3 (input irrigationFlow 0.4)]) `shouldBe` []
+
+        it "passes a wastewater treatment whose reference is the incoming water, signed negative" $
+            qcOffenders (waterCheck [inM3 (techExchange wastewaterFlow (-1) ReferenceProduct), released riverWaterFlow 0.9]) `shouldBe` []
+
+        it "passes the treatment of a liquid not named after water, measured in m3" $
+            qcOffenders (waterCheck [inM3 (techExchange flourFlow (-1) ReferenceProduct), released riverWaterFlow 0.9]) `shouldBe` []
+
+        it "tolerates a release up to ten times the intake" $
+            qcOffenders (waterCheck [reference breadFlow, released riverWaterFlow 0.09, withdrawn 0.01]) `shouldBe` []
+
+        it "does not count a waste disposal as water taken in" $
+            length (qcOffenders (waterCheck [reference breadFlow, released riverWaterFlow 0.01, input disposalFlow 1000])) `shouldBe` 1
+
+        it "passes a release under one litre" $
+            qcOffenders (waterCheck [reference breadFlow, released riverWaterFlow 0.0009]) `shouldBe` []
+
+        it "is not applicable to a database that releases no water" $
+            qcApplicable (waterCheck [reference breadFlow, withdrawn 1]) `shouldBe` False
 
     describe "report header" $
         it "counts one process per (activity, product) entry" $ do

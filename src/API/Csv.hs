@@ -68,6 +68,7 @@ qualityReportCsv r =
         , ("allocation_out_of_range", qraAllocationOutOfRange r)
         , ("unallocated", qraUnallocated r)
         , ("unmeasurable_amounts", qraUnmeasurableAmounts r)
+        , ("water_balance", qraWaterBalance r)
         ]
 
 -- | The computed report as CSV: same columns, same guards, its own checks.

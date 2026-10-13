@@ -265,6 +265,7 @@ data QualityReportAPI = QualityReportAPI
     , qraAllocationOutOfRange :: QualityCheckAPI
     , qraUnallocated :: QualityCheckAPI
     , qraUnmeasurableAmounts :: QualityCheckAPI
+    , qraWaterBalance :: QualityCheckAPI
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped QualityReportAPI)

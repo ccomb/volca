@@ -448,6 +448,7 @@ qualityReportToAPI mLimit r =
         , qraAllocationOutOfRange = checkToAPI mLimit (Quality.qrAllocationOutOfRange r)
         , qraUnallocated = checkToAPI mLimit (Quality.qrUnallocated r)
         , qraUnmeasurableAmounts = checkToAPI mLimit (Quality.qrUnmeasurableAmounts r)
+        , qraWaterBalance = checkToAPI mLimit (Quality.qrWaterBalance r)
         }
 
 {- | Same projection for the computed report: one wire cap, one offender

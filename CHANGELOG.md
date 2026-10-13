@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- The database quality report now checks the water balance of each
+  activity: water released to rivers and soil should not exceed, by far, the
+  water the activity withdraws or buys. A published greenhouse tomato
+  releases 3.26 m3 of water per kg while taking in 0.019 m3, a unit slip
+  (kilograms written as cubic metres). Water-use methods credit
+  water released, so that one line gave the tomato a negative PEF score.
+  Water evaporated to air is left out, since rain-fed crops evaporate rain
+  that nobody declares as an input.
+
 ### Fixed
 
 - The three climate change sub-categories of EF 3.1 (fossil, biogenic, land

@@ -67,6 +67,7 @@ everyCheck =
         , qraAllocationOutOfRange = finding "allocation out of range"
         , qraUnallocated = finding "unallocated"
         , qraUnmeasurableAmounts = finding "unmeasurable amounts"
+        , qraWaterBalance = finding "water balance"
         }
 
 -- | The structural report with exactly one check reporting the given detail.
@@ -94,6 +95,7 @@ oneFinding detail =
         , qraAllocationOutOfRange = quiet
         , qraUnallocated = quiet
         , qraUnmeasurableAmounts = quiet
+        , qraWaterBalance = quiet
         }
 
 -- | A report whose every check passed.
@@ -161,6 +163,7 @@ spec = describe "Quality report CSV" $ do
                        , "allocation_out_of_range"
                        , "unallocated"
                        , "unmeasurable_amounts"
+                       , "water_balance"
                        ]
 
     it "gives a check with nothing to report no row of its own" $
