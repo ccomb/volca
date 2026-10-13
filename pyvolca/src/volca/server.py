@@ -281,17 +281,21 @@ class Server:
                 headers=self._auth_headers(),
                 timeout=5,
             )
-        except requests.RequestException:
-            # an engine that does not answer in time is stopped below all the same;
-            # raising here would throw away the caller's finished work
+        except requests.ConnectionError:
             pass
+        except requests.RequestException:
+            # an engine of ours that does not answer in time is stopped below all the
+            # same, and raising would throw away the caller's finished work; one we
+            # did not start would keep running, which the caller must hear
+            if self._process is None:
+                raise
         if self._process:
             self._process.terminate()
             try:
                 self._process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self._process.kill()
-                self._process.wait()
+                self._process.wait(timeout=10)
             self._process = None
 
     def __enter__(self) -> "Server":

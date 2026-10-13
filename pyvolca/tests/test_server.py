@@ -194,3 +194,11 @@ def test_stop_survives_an_engine_slow_to_answer_shutdown():
     process.terminate.assert_called_once()
     process.kill.assert_called_once()
     assert srv._process is None
+
+
+def test_stop_reports_an_engine_it_did_not_start_still_running():
+    """A slow shutdown of an engine someone else started is not hidden: it keeps running."""
+    srv = Server(config="absent.toml")
+    with mock.patch("volca.server.requests.post", side_effect=requests.ReadTimeout), \
+         pytest.raises(requests.ReadTimeout):
+        srv.stop()
