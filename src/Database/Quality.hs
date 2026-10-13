@@ -36,6 +36,7 @@ module Database.Quality (
 ) where
 
 import Control.Applicative ((<|>))
+import Control.Monad (guard)
 import Data.Char (digitToInt, isAlphaNum, isDigit)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
@@ -731,12 +732,14 @@ qualityReport dbName db =
     -- release is almost always a unit slip – and water-use methods credit a
     -- release, so the slip turns into a large negative score. Water to air is
     -- left out on both sides: a rain-fed crop evaporates rain nobody declares,
-    -- and evaporation earns no credit. The intake counts generously (any input
-    -- or reference line named after water, and any reference measured as a
-    -- volume – the wastewater or landfill leachate a treatment takes in,
-    -- whichever way the format signs it), so it can hide a finding but never
-    -- invent one. One direction only: taking in water
-    -- without releasing it is common and credits nothing.
+    -- and evaporation earns no credit. The intake counts generously (water
+    -- bought, a reference named after water, and any reference measured as a
+    -- volume that the activity takes in – the wastewater or landfill leachate
+    -- of a treatment, a negative output or a reference input), so it can hide
+    -- a finding but never invent one. Water the activity sends away is not
+    -- intake: a negative input (an EcoSpold 2 discharge) or a bought sewage
+    -- treatment (EcoSpold 1). One direction only: taking in water without
+    -- releasing it is common and credits nothing.
     waterBalanceApplicable = any ((> 0) . fst . waterSides) acts
     waterBalanceOffenders =
         [ offender WarningSev key act Nothing $
@@ -754,7 +757,7 @@ qualityReport dbName db =
                     "only "
                         <> formatAmount takenIn
                         <> " m3 ("
-                        <> T.pack (show (round (released / takenIn) :: Int))
+                        <> T.pack (show (round (released / takenIn) :: Integer))
                         <> " times as much out as in)"
                 | otherwise = "none"
         ]
@@ -769,28 +772,47 @@ qualityReport dbName db =
         case ex of
             BiosphereExchange{} -> do
                 flow <- M.lookup (exchangeFlowId ex) (sdbBioFlows db)
-                if isWater flow
-                    then case compartmentName <$> bfCompartment flow of
-                        Just NaturalResource -> Just (0, m3)
-                        Just Water | not (exchangeIsInput ex) -> Just (m3, 0)
-                        Just Soil | not (exchangeIsInput ex) -> Just (m3, 0)
-                        _ -> Nothing
-                    else Nothing
-            _
-                | exchangeIsReference ex && isVolume (exchangeUnitId ex) -> Just (0, m3)
-                | exchangeIsInput ex || exchangeIsReference ex
-                , Just name <- techOrWasteFlowName (exchangeFlowId ex)
-                , isPurchasedWater (T.toLower name) ->
-                    Just (0, m3)
-                | otherwise -> Nothing
+                guard (isWater flow)
+                medium <- compartmentName <$> bfCompartment flow
+                case medium of
+                    NaturalResource -> Just (0, m3)
+                    Water -> released m3
+                    Soil -> released m3
+                    Air -> Nothing
+                    InventoryIndicator -> Nothing
+                    Economic -> Nothing
+                    Waste -> Nothing
+                    Social -> Nothing
+            TechnosphereExchange{} -> boughtOrTreated m3
+            WasteExchange{} -> boughtOrTreated m3
+      where
+        released m3 = if exchangeIsInput ex then Nothing else Just (m3, 0)
+        name = T.toLower <$> techOrWasteFlowName (exchangeFlowId ex)
+        boughtOrTreated m3
+            | exchangeIsReference ex
+            , treatsVolume || maybe False carriesWater name =
+                Just (0, m3)
+            | exchangeIsInput ex
+            , exchangeAmount ex > 0
+            , Just n <- name
+            , carriesWater n
+            , not (sendsWaterAway n) =
+                Just (0, m3)
+            | otherwise = Nothing
+        -- A reference the activity takes in: an EcoSpold 2 treatment's negative
+        -- output, or a reference input.
+        treatsVolume =
+            isVolume (exchangeUnitId ex)
+                && (exchangeAmount ex < 0 || exchangeIsInput ex)
     isWater flow =
         maybe False ((== "7732-18-5") . normalizeCAS) (bfCAS flow)
             || startsWithField "Water" (bfName flow)
     isVolume uid = T.toLower (unitLabel uid) `elem` ["m3", "l"]
     -- "Disposal, polyethylene, 0.4% water, …" names a waste, not water.
-    isPurchasedWater name =
-        not ("disposal" `T.isPrefixOf` name)
-            && ("water" `T.isInfixOf` name || "irrigat" `T.isPrefixOf` name)
+    carriesWater n =
+        not ("disposal" `T.isPrefixOf` n)
+            && (any (`T.isInfixOf` n) ["water", "sewage", "leachate"] || "irrigat" `T.isPrefixOf` n)
+    sendsWaterAway n = any (`T.isInfixOf` n) ["wastewater", "waste water", "sewage", "leachate"]
 
     -- The biological oxygen demand is a fraction of the chemical one, and
     -- dissolved organic carbon a fraction of the total: BOD5 ≤ COD and

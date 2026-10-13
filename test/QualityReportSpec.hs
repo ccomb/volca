@@ -845,6 +845,18 @@ spec = do
         it "passes the treatment of a liquid not named after water, measured in m3" $
             qcOffenders (waterCheck [inM3 (techExchange flourFlow (-1) ReferenceProduct), released riverWaterFlow 0.9]) `shouldBe` []
 
+        it "passes the treatment of a liquid taken in as a reference input" $
+            qcOffenders (waterCheck [inM3 (techExchange flourFlow 1 ReferenceInput), released riverWaterFlow 0.9]) `shouldBe` []
+
+        it "does not count a product the activity makes in m3 as water taken in" $
+            length (qcOffenders (waterCheck [inM3 (techExchange flourFlow 1 ReferenceProduct), released riverWaterFlow 8])) `shouldBe` 1
+
+        it "does not count wastewater sent away, signed negative, as water taken in" $
+            length (qcOffenders (waterCheck (tomato ++ [inM3 (input wastewaterFlow (-0.5))]))) `shouldBe` 1
+
+        it "does not count a bought wastewater treatment as water taken in" $
+            length (qcOffenders (waterCheck (tomato ++ [inM3 (input wastewaterFlow 0.5)]))) `shouldBe` 1
+
         it "tolerates a release up to ten times the intake" $
             qcOffenders (waterCheck [reference breadFlow, released riverWaterFlow 0.09, withdrawn 0.01]) `shouldBe` []
 

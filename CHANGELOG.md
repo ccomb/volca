@@ -11,7 +11,7 @@
   (kilograms written as cubic metres). Water-use methods credit
   water released, so that one line gave the tomato a negative PEF score.
   Water evaporated to air is left out, since rain-fed crops evaporate rain
-  that nobody declares as an input.
+  that nobody declares as an input. Wire revision 63.
 
 ### Fixed
 
