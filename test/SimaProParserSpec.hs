@@ -394,6 +394,62 @@ parseParamCSV = withSystemTempFile "param-test.csv" $ \path handle -> do
     hClose handle
     parseOrFail defaultUnitConfig path
 
+{- | One process whose resources are SimaPro formulas, as SimaPro 10.3 exports
+them with either separator: with commas, a field holding one is quoted. With
+a = 3 and b = 7, SimaPro shows 1, 2, 3, 2 and 0 for them.
+-}
+formulaCSV :: Bool -> BS.ByteString
+formulaCSV comma =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 10.3.0.1}"
+        , if comma then "{CSV separator: Comma}" else "{CSV separator: Semicolon}"
+        , "{Decimal separator: .}"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "material"
+        , ""
+        , "Process name"
+        , "Formulas"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Products"
+        , row ["Formula product", "kg", "1", "100", "not defined", "Others", ""]
+        , ""
+        , "Resources"
+        , row ["Air", "", "kg", "iff(a>1,1,2 )", "Undefined", "0", "0", "0", ""]
+        , row ["Aluminium", "", "kg", "log(100)", "Undefined", "0", "0", "0", ""]
+        , row ["Anhydrite", "", "kg", "max(1,2,3)", "Undefined", "0", "0", "0", ""]
+        , row ["Antimony", "", "kg", "round(2.5)", "Undefined", "0", "0", "0", ""]
+        , row ["Bauxite", "", "kg", "iff(a=1 and b<>2,1,0)", "Undefined", "0", "0", "0", ""]
+        , ""
+        , "Input parameters"
+        , row ["a", "3", "Undefined", "1", "0", "0", "No", ""]
+        , row ["b", "7", "Undefined", "1", "0", "0", "No", ""]
+        , ""
+        , "End"
+        ]
+  where
+    row :: [BS.ByteString] -> BS.ByteString
+    row = BS.intercalate (if comma then "," else ";") . map quoted
+
+    quoted :: BS.ByteString -> BS.ByteString
+    quoted field
+        | comma && BS8.elem ',' field = "\"" <> field <> "\""
+        | otherwise = field
+
+-- | The resources of 'formulaCSV' by flow name, with their amounts.
+parseFormulaCSV :: Bool -> IO [(Text, Double)]
+parseFormulaCSV comma = withSystemTempFile "formula-test.csv" $ \path handle -> do
+    BS.hPut handle (formulaCSV comma)
+    hClose handle
+    (activities, _, bioFlows, _, _) <- parseOrFail defaultUnitConfig path
+    pure [(maybe "?" bfName (M.lookup (exchangeFlowId ex) bioFlows), bioAmount ex) | a <- activities, ex@BiosphereExchange{} <- exchanges a]
+
 -- | Test CSV with database-level parameters
 dbParamTestCSV :: BS.ByteString
 dbParamTestCSV =
@@ -1030,6 +1086,16 @@ spec = do
             -- CO2 = 0.5 * allocButter/100 ≈ 0.5 * 0.25285 ≈ 0.1264
             bioAmount (head bioExchanges) `shouldSatisfy` (\x -> abs (x - 0.1264) < 0.01)
 
+        it "computes SimaPro's functions, comparisons and and/or as SimaPro does, whatever the separator" $ do
+            let shown = [("Air", 1), ("Aluminium", 2), ("Anhydrite", 3), ("Antimony", 2), ("Bauxite", 0)]
+            (before, _) <- getLogLines 0
+            semicolon <- parseFormulaCSV False
+            comma <- parseFormulaCSV True
+            (_, newLines) <- getLogLines before
+            M.fromList semicolon `shouldBe` M.fromList shown
+            M.fromList comma `shouldBe` M.fromList shown
+            [l | l <- newLines, "iff(" `isInfixOf` llText l] `shouldBe` []
+
     -- The conversion falls back to a lenient numeric parse when an amount is
     -- neither a number nor an evaluable expression; 'fallbackAmounts' is the
     -- pure list of those replacements, reported as warnings on import.
@@ -1206,6 +1272,16 @@ spec = do
                         , prCategory = "waste treatment"
                         , prComment = "comment"
                         }
+
+        -- SimaPro joins conditions with and/or, so these words read as a
+        -- formula; a waste type must not be taken for an allocation.
+        it "keeps a waste type made of words joined by and as the waste type" $
+            fmap (\r -> (prAllocRaw r, prWasteType r, prCategory r)) (parseProductRow defaultConfig "Paper sack;kg;1.0;Paper and board;Others;comment")
+                `shouldBe` Just ("100", "Paper and board", "Others")
+
+        it "reads an allocation formula joining conditions with and" $
+            fmap prAllocRaw (parseProductRow defaultConfig "Steel;kg;1.0;\"iff(a>1 and b<2;60;40)\";not defined;material;comment")
+                `shouldBe` Just "iff(a>1 and b<2;60;40)"
 
         it "returns Nothing for too-short row" $
             parseProductRow defaultConfig "name;kg" `shouldBe` Nothing

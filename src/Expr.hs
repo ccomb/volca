@@ -53,10 +53,13 @@ type Parser = Parsec Void Text
 Four, because four are what the callers actually have.
 -}
 data Dialect
-    = {- | SimaPro's own, as its Delphi formula parser reads it: @\/\/@ opens a
-      comment and the expression ends there. Its text reaches the evaluator
-      already through 'normalizeExpr', which is where the file's decimal
-      separator is known.
+    = {- | SimaPro's own, as its expression editor lists it: @iff@, the
+      comparisons, @and@ and @or@ between them (@and@ binding tighter), @min@
+      and @max@ of any number of arguments, @log@ decimal, and names matched
+      whatever their case. @\/\/@ opens a comment and the expression ends
+      there. Its text reaches the evaluator already through 'normalizeExpr',
+      which is where the file's decimal separator is known. A parameter named
+      @and@ or @or@ cannot be read.
       -}
       SimaPro
     | {- | Arithmetic with no comment and a comma between two arguments: the
@@ -166,7 +169,7 @@ readFormula dialect = first (Unreadable . refusalReason) . parse (sc *> grammar 
 -- | The grammar a dialect is read with.
 grammar :: Dialect -> Parser Formula
 grammar = \case
-    SimaPro -> pFormula arithmeticLanguage
+    SimaPro -> pFormula simaProLanguage
     Arithmetic -> pFormula arithmeticLanguage
     EcoSpold2 -> pFormula ecoSpold2Language
     OpenLca -> pOlca
@@ -243,34 +246,54 @@ symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
 {- | What a language read by 'pFormula' adds to the arithmetic they all share:
-the function a name calls, and whether it has OpenFormula's comparisons and
-postfix @%@.
+the function a name calls, the comparisons it has, whether @and@ and @or@ join
+them, and whether it has OpenFormula's postfix @%@.
 -}
 data Language = Language
     { calls :: Text -> Maybe Function
-    , openFormula :: Bool
+    , comparisons :: [(Text, Double -> Double -> Bool)]
+    , connectives :: Bool
+    , percent :: Bool
     }
 
--- | SimaPro's and a scoring set's: 'arithmeticFunctions', matched in lower case only.
+-- | A scoring set's: 'arithmeticFunctions', matched in lower case only, and nothing more.
 arithmeticLanguage :: Language
-arithmeticLanguage = Language{calls = (`lookup` arithmeticFunctions), openFormula = False}
+arithmeticLanguage = Language{calls = (`lookup` arithmeticFunctions), comparisons = [], connectives = False, percent = False}
 
--- | EcoSpold 2's: 'ecoSpold2Functions', matched whatever their case.
+-- | EcoSpold 2's: 'ecoSpold2Functions', matched whatever their case, with comparisons and @%@.
 ecoSpold2Language :: Language
-ecoSpold2Language = Language{calls = (`lookup` ecoSpold2Functions) . T.toLower, openFormula = True}
+ecoSpold2Language = Language{calls = (`lookup` ecoSpold2Functions) . T.toLower, comparisons = written, connectives = False, percent = True}
 
--- | Precedence-climbing formula parser. OpenFormula compares below the arithmetic, giving 1 or 0.
+-- | SimaPro's: 'simaProFunctions', matched whatever their case, with comparisons joined by @and@ and @or@.
+simaProLanguage :: Language
+simaProLanguage = Language{calls = (`lookup` simaProFunctions) . T.toLower, comparisons = written, connectives = True, percent = False}
+
+-- | The comparisons EcoSpold 2 and SimaPro write. Longer operators first: a symbol that is a prefix of another would take its first character.
+written :: [(Text, Double -> Double -> Bool)]
+written = [("<=", (<=)), ("<>", (/=)), ("<", (<)), (">=", (>=)), (">", (>)), ("=", (==))]
+
+-- | Precedence-climbing formula parser, lowest first: @or@, @and@, then the comparisons, each giving 1 or 0, then the arithmetic.
 pFormula :: Language -> Parser Formula
 pFormula language
-    | openFormula language = pAddSub language >>= go
-    | otherwise = pAddSub language
+    | connectives language = joined "or" (||) (joined "and" (&&) (pComparison language))
+    | otherwise = pComparison language
+
+-- | Operands joined by a word, grouped from the left: 1 when the word holds of the two operands, read as true unless 0.
+joined :: Text -> (Bool -> Bool -> Bool) -> Parser Formula -> Parser Formula
+joined word holds operand = operand >>= go
   where
     go :: Formula -> Parser Formula
-    go acc = choice [symbol op *> pAddSub language >>= go . Apply2 (truth holds) acc | (op, holds) <- comparisons] <|> pure acc
+    go acc = (connective word *> operand >>= go . Apply2 (truth (\x y -> holds (x /= 0) (y /= 0))) acc) <|> pure acc
 
-    -- Longer operators first: a symbol that is a prefix of another would take its first character.
-    comparisons :: [(Text, Double -> Double -> Bool)]
-    comparisons = [("<=", (<=)), ("<>", (/=)), ("<", (<)), (">=", (>=)), (">", (>)), ("=", (==))]
+-- | A word operator in any case, which a longer name merely starting with it (@order@) is not.
+connective :: Text -> Parser Text
+connective word = lexeme (try (string' word <* notFollowedBy (alphaNumChar <|> char '_')))
+
+pComparison :: Language -> Parser Formula
+pComparison language = pAddSub language >>= go
+  where
+    go :: Formula -> Parser Formula
+    go acc = choice [symbol op *> pAddSub language >>= go . Apply2 (truth holds) acc | (op, holds) <- comparisons language] <|> pure acc
 
 pAddSub :: Language -> Parser Formula
 pAddSub language = pMulDiv language >>= go
@@ -311,7 +334,7 @@ pPower language = do
 -- | OpenFormula's postfix @%@, a hundredth, binding tighter than @^@: ecoinvent writes @0.06072*83.3%@.
 pPercent :: Language -> Parser Formula
 pPercent language
-    | openFormula language = foldl' (\x _ -> Apply1 (/ 100) x) <$> pPrimary language <*> many (symbol "%")
+    | percent language = foldl' (\x _ -> Apply1 (/ 100) x) <$> pPrimary language <*> many (symbol "%")
     | otherwise = pPrimary language
 
 pPrimary :: Language -> Parser Formula
@@ -536,9 +559,10 @@ olcaFunctions =
     , ("random", Refused "a load must give the same numbers twice")
     , ("rand", Refused "a load must give the same numbers twice")
     ]
-  where
-    truncated :: Double -> Double
-    truncated = fromInteger . truncate
+
+-- | The whole part, toward zero.
+truncated :: Double -> Double
+truncated = fromInteger . truncate
 
 -- | Of any number of numbers, none giving 0.
 smallest, largest, mean :: [Double] -> Double
@@ -630,7 +654,7 @@ data Function
     | -- | A condition, the value when it holds (any number but 0), and the value otherwise, 0 when left out.
       IfThen
 
--- | The functions SimaPro and scoring-set formulas know, by the lower-case name a formula calls them with.
+-- | The functions scoring-set formulas know, by the lower-case name a formula calls them with.
 arithmeticFunctions :: [(Text, Function)]
 arithmeticFunctions =
     [ ("abs", OneArg abs)
@@ -657,6 +681,40 @@ ecoSpold2Functions =
     , ("sum", AnyArgs sum)
     , ("average", AnyArgs mean)
     , ("if", IfThen)
+    ]
+
+-- | SimaPro's, from the list its expression editor gives, by lower-case name. It has @iff@ and no @if@.
+simaProFunctions :: [(Text, Function)]
+simaProFunctions =
+    [ ("abs", OneArg abs)
+    , ("sqr", OneArg (\x -> x * x))
+    , ("sqrt", OneArg sqrt)
+    , ("exp", OneArg exp)
+    , ("ln", OneArg log)
+    , ("log", OneArg (logBase 10))
+    , ("trunc", OneArg truncated)
+    , ("int", OneArg truncated)
+    , ("frac", OneArg (\x -> x - truncated x))
+    , -- Half to even, as SimaPro rounds: round(2.5) is 2.
+      ("round", OneArg (fromInteger . round))
+    , ("ceil", OneArg (fromInteger . ceiling))
+    , ("floor", OneArg (fromInteger . floor))
+    , ("power", TwoArgs (**))
+    , ("ipower", TwoArgs (\x y -> x ^^ (truncate y :: Integer)))
+    , ("sin", OneArg sin)
+    , ("cos", OneArg cos)
+    , ("tan", OneArg tan)
+    , ("cotan", OneArg (recip . tan))
+    , ("arcsin", OneArg asin)
+    , ("arccos", OneArg acos)
+    , ("arctan", OneArg atan)
+    , ("sinh", OneArg sinh)
+    , ("cosh", OneArg cosh)
+    , ("tanh", OneArg tanh)
+    , ("min", AnyArgs smallest)
+    , ("max", AnyArgs largest)
+    , ("not", OneArg (\x -> if x == 0 then 1 else 0))
+    , ("iff", IfThen)
     ]
 
 functionNames :: [Text]
@@ -716,7 +774,8 @@ collectIdentifiers dialect input =
 -- | Whether a name read in this dialect is a variable rather than one of its function or operator words.
 isVariable :: Dialect -> Text -> Bool
 isVariable dialect name = case dialect of
-    SimaPro -> isNothing (calls arithmeticLanguage name)
+    -- A name SimaPro calls is told by the parenthesis after it ('pToken'); and and or join.
+    SimaPro -> T.toLower name `notElem` ["and", "or"]
     Arithmetic -> isNothing (calls arithmeticLanguage name)
     -- A name EcoSpold 2 calls is told by the parenthesis after it ('pToken').
     EcoSpold2 -> True
@@ -730,10 +789,10 @@ pToken dialect =
         <|> (Nothing <$ try (lexeme pNumber))
         <|> (Nothing <$ anySingle)
   where
-    -- An openLCA or EcoSpold 2 name followed by a parenthesis is a call, not a variable.
+    -- An openLCA, EcoSpold 2 or SimaPro name followed by a parenthesis is a call, not a variable.
     name :: Parser Text
     name = case dialect of
-        SimaPro -> pIdentTok
+        SimaPro -> pIdentTok <* notFollowedBy (symbol "(")
         Arithmetic -> pIdentTok
         EcoSpold2 -> pIdentTok <* notFollowedBy (symbol "(")
         OpenLca -> pOlcaName <* notFollowedBy (symbol "(")

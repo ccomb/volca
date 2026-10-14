@@ -144,6 +144,34 @@ spec = do
             collectIdentifiers EcoSpold2 "IF(RP_1; 0.8) + Average(a; b)" `shouldBe` ["RP_1", "a", "b"]
             collectIdentifiers EcoSpold2 "power * 2" `shouldBe` ["power"]
 
+    describe "SimaPro's own formula language" $ do
+        -- As SimaPro 10.3 shows them, a = 3 and b = 7, commas made ';' as the loader does.
+        let simapro formula = Expr.evaluate SimaPro (M.fromList [("a", 3), ("b", 7)]) (Expr.normalizeExpr '.' formula)
+        it "computes what SimaPro shows for its functions, comparisons and and" $ do
+            simapro "iff(a>1,1,2 )" `shouldBe` Right 1
+            simapro "log(100)" `shouldBe` Right 2
+            simapro "max(1,2,3)" `shouldBe` Right 3
+            simapro "round(2.5)" `shouldBe` Right 2
+            simapro "iff(a=1 and b<>2,1,0)" `shouldBe` Right 0
+        it "binds and below the comparisons and above or" $ do
+            simapro "iff(a=3 and b=7,1,0)" `shouldBe` Right 1
+            simapro "iff(1 or 0 and 0,1,0)" `shouldBe` Right 1
+        it "reads function and operator names whatever their case" $ do
+            simapro "IFF(a>1 AND b>1, Max(1,4), 0)" `shouldBe` Right 4
+            near 3 (simapro "LOG(1000)")
+        it "rounds half to even and has not as a function" $ do
+            simapro "round(3.5)" `shouldBe` Right 4
+            simapro "not(0) + not(5)" `shouldBe` Right 1
+        it "has no if, which SimaPro refuses" $
+            unreadableNaming "if" (simapro "if(a>1,1,2)")
+        it "does not read words alone as a formula, a waste type staying a waste type" $
+            Expr.isExpression SimaPro "not defined" `shouldBe` False
+        it "collects a parameter named like a function, and not and or" $
+            collectIdentifiers SimaPro "iff(a=1 AND b<>2;1;0) + int" `shouldBe` ["a", "b", "int"]
+        it "leaves scoring sets without comparisons or connectives" $ do
+            unreadableNaming "" (Expr.evaluate Arithmetic M.empty "1 < 2")
+            unreadableNaming "" (Expr.evaluate Arithmetic (M.fromList [("a", 1), ("b", 1)]) "a and b")
+
     describe "the older dialects keep a non-finite result" $
         it "gives Infinity for 1/0" $ do
             Expr.evaluate Arithmetic M.empty "1/0" `shouldBe` Right (1 / 0)
@@ -155,7 +183,6 @@ spec = do
             Expr.evaluate Arithmetic M.empty "2^3^2" `shouldBe` Right 512
             near (log 1000) (Expr.evaluate Arithmetic M.empty "log(1000)")
             unreadableNaming "LOG" (Expr.evaluate Arithmetic M.empty "LOG(1000)")
-            unreadableNaming "IF" (Expr.evaluate SimaPro M.empty "IF(1; 2; 3)")
             unreadableNaming "max takes two arguments" (Expr.evaluate Arithmetic M.empty "max(1; 2; 3)")
             -- Windows' pow rounds 10^-3 differently in the last digit.
             near 5.0e-2 (Expr.evaluate SimaPro M.empty "1*10^-3*50 // a comment")

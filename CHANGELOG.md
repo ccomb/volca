@@ -15,6 +15,14 @@
 
 ### Fixed
 
+- SimaPro formulas are now read in SimaPro's own language. An amount written
+  `log(100)` was read as 4.6, the natural logarithm, where SimaPro reads 2,
+  the decimal one. Amounts using `iff`, a comparison, `and` or `or`, `min` or
+  `max` of more than two values, `round`, `sqr` or any other function of
+  SimaPro's expression editor were refused, and the loader fell back on a
+  guessed amount with a warning: SimaPro's `iff(a>1,1,2)` with `a` at 3 now
+  gives 1, as SimaPro shows it. Scoring-set formulas are unchanged.
+
 - Loading a SimaPro file no longer warns that it sizes units differently
   from the engine's table when its unit block only rounds the constants (a
   mile of 1609.35 m for 1609.344) or takes the calorie at 15 °C (4.1855 J for

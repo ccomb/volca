@@ -63,7 +63,7 @@ import Control.Monad (foldM, forM_, mfilter)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isAlpha, isDigit, isUpper, toLower)
+import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace, isUpper, toLower)
 import qualified Data.Csv as Csv
 import Data.Functor ((<&>))
 import Data.List (dropWhileEnd, sortOn)
@@ -668,10 +668,19 @@ parseProductRow cfg line =
 {- | Check if a ByteString field is a valid expression (number, variable, or formula).
 Uses the Megaparsec expression parser syntactically – accepts any identifier without
 needing parameter values. Waste type descriptions ("All waste types") fail to parse.
+
+Words and nothing else are a waste type even when they read as a formula: since
+SimaPro joins conditions with @and@ and @or@, @Paper and board@ would otherwise
+be taken for an allocation, and every column after it would shift by one.
 -}
 isAllocationField :: SimaProConfig -> BS.ByteString -> Bool
-isAllocationField cfg bs =
-    Expr.isExpression Expr.SimaPro (Expr.normalizeExpr (spDecimal cfg) (decodeBS (BS8.strip bs)))
+isAllocationField cfg bs = not prose && Expr.isExpression Expr.SimaPro (Expr.normalizeExpr (spDecimal cfg) field)
+  where
+    field :: Text
+    field = decodeBS (BS8.strip bs)
+
+    prose :: Bool
+    prose = length (T.words field) > 1 && T.all (\c -> isAlphaNum c || c == '_' || isSpace c) field
 
 -- | Parse a technosphere exchange row (ByteString input, Text output)
 
