@@ -424,11 +424,16 @@ data UnitDeclaration = UnitDeclaration
 
 The shipped table wins wherever it has a row: its constants are exact where a
 published list often rounds them, and a file that disagrees is reported rather
-than followed. What the file adds is the spellings no shipped table can
-enumerate, @tn.sh@ or @cm2a@ or @gal*@, sized against a unit already known. A
-declaration is placed once the unit it is given in is known, whether from the
-shipped table or from a declaration placed before it, so the pass repeats until
-it places nothing new.
+than followed. Only a disagreement of a percent or more is reported: a rounded
+constant, or another definition of the same unit (the calorie at 15 °C rather
+than the thermochemical one, one Btu table or another), stays under half a
+percent, while another unit under the same name (a short ton written @ton@, a
+US gallon against an imperial one) is several percent off.
+
+What the file adds is the spellings no shipped table can enumerate, @tn.sh@ or
+@cm2a@ or @gal*@, sized against a unit already known. A declaration is placed
+once the unit it is given in is known, whether from the shipped table or from a
+declaration placed before it, so the pass repeats until it places nothing new.
 
 A file that spells one unit twice for two sizes has said nothing this can
 read, so neither is placed and the pair is named. A published list stating both
@@ -528,7 +533,7 @@ addDeclaredUnits cfg decls = (laid{ucCanonical = canonicals}, notes)
         , d <- take 1 ds
         , Just shipped <- [M.lookup (T.strip (declName d)) (ucUnits cfg)]
         , Just mine <- [against (ucUnits cfg) d]
-        , abs (udFactor mine - udFactor shipped) > abs (udFactor shipped) * 1.0e-9
+        , abs (udFactor mine - udFactor shipped) >= abs (udFactor shipped) * 1.0e-2
         ]
 
 {- | Merge multiple UnitConfigs (later entries override earlier ones).

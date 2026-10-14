@@ -550,14 +550,28 @@ spec = do
             isKnownUnit with "PMH" `shouldBe` False
             notes `shouldSatisfy` any (T.isInfixOf "PMH")
 
-        -- A published list rounds its constants where the shipped table is
-        -- exact, so the shipped one is kept and the disagreement is read out
-        -- rather than acted on.
+        -- The shipped size is kept whatever the file says. A short ton written
+        -- `ton` is another unit under the same name, and is read out.
         it "keeps the shipped size where the file gives another, and says so" $ do
             cfg <- loadFullUnitConfig
-            let (with, notes) = addDeclaredUnits cfg [declaring "kcal" "MJ" 0.0041855]
+            let (with, notes) = addDeclaredUnits cfg [declaring "ton" "kg" 907.1848]
+            convertUnit with "ton" "kg" 1.0 `shouldBe` Just 1000.0
+            notes `shouldSatisfy` any (T.isInfixOf "ton")
+
+        -- Rows a published SimaPro unit block writes: rounded constants, and
+        -- the calorie at 15 °C. None changes an amount by a percent.
+        it "keeps the shipped size without a word where the file only rounds it" $ do
+            cfg <- loadFullUnitConfig
+            let (with, notes) =
+                    addDeclaredUnits
+                        cfg
+                        [ declaring "kcal" "MJ" 0.0041855
+                        , declaring "Btu" "MJ" 0.001055696
+                        , declaring "mile" "m" 1609.35
+                        , declaring "kg*day" "kgy" 0.00274
+                        ]
             convertUnit with "kcal" "MJ" 1.0 `shouldBe` Just 0.004184
-            notes `shouldSatisfy` any (T.isInfixOf "kcal")
+            notes `shouldBe` []
 
         -- The case that costs a factor of a billion. One published list states
         -- both `Mg` and `mg` against a lookup that folds their case, so placing

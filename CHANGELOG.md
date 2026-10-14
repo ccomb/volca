@@ -15,6 +15,13 @@
 
 ### Fixed
 
+- Loading a SimaPro file no longer warns that it sizes units differently
+  from the engine's table when its unit block only rounds the constants (a
+  mile of 1609.35 m for 1609.344) or takes the calorie at 15 °C (4.1855 J for
+  4.184). That changes no amount by more than a thousandth, and the engine's
+  table was used anyway. The warning now speaks only when a file's unit is a
+  percent or more away from the engine's, such as a short ton written `ton`.
+
 - The `get_activity` tool now says how to read an activity's description and
   source alone. An Agribalyse crop holds hundreds of exchanges (a bread wheat
   at farm gate, 272 of them, mostly pesticide emissions), and its full answer
