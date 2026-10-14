@@ -394,15 +394,15 @@ parseParamCSV = withSystemTempFile "param-test.csv" $ \path handle -> do
     hClose handle
     parseOrFail defaultUnitConfig path
 
-{- | One process whose resources are SimaPro formulas, as SimaPro 10.3 exports
-them with either separator: with commas, a field holding one is quoted. With
-a = 3 and b = 7, SimaPro shows 1, 2, 3, 2 and 0 for them.
+{- | One process whose resources are SimaPro formulas, with either separator:
+with commas, a field holding one is quoted. With a = 3 and b = 7, they are
+worth 1, 2, 3, 2 and 0.
 -}
 formulaCSV :: Bool -> BS.ByteString
 formulaCSV comma =
     BS.intercalate
         "\r\n"
-        [ "{SimaPro 10.3.0.1}"
+        [ "{SimaPro 9.6.0.1}"
         , if comma then "{CSV separator: Comma}" else "{CSV separator: Semicolon}"
         , "{Decimal separator: .}"
         , ""
@@ -1086,7 +1086,7 @@ spec = do
             -- CO2 = 0.5 * allocButter/100 ≈ 0.5 * 0.25285 ≈ 0.1264
             bioAmount (head bioExchanges) `shouldSatisfy` (\x -> abs (x - 0.1264) < 0.01)
 
-        it "computes SimaPro's functions, comparisons and and/or as SimaPro does, whatever the separator" $ do
+        it "computes SimaPro's functions, comparisons and and/or, whatever the separator" $ do
             let shown = [("Air", 1), ("Aluminium", 2), ("Anhydrite", 3), ("Antimony", 2), ("Bauxite", 0)]
             (before, _) <- getLogLines 0
             semicolon <- parseFormulaCSV False
@@ -1278,6 +1278,10 @@ spec = do
         it "keeps a waste type made of words joined by and as the waste type" $
             fmap (\r -> (prAllocRaw r, prWasteType r, prCategory r)) (parseProductRow defaultConfig "Paper sack;kg;1.0;Paper and board;Others;comment")
                 `shouldBe` Just ("100", "Paper and board", "Others")
+
+        it "keeps a waste type with a slash and an and as the waste type" $
+            fmap (\r -> (prAllocRaw r, prWasteType r, prCategory r)) (parseProductRow defaultConfig "Pallet;p;1;Wood/paper and board;Others;comment")
+                `shouldBe` Just ("100", "Wood/paper and board", "Others")
 
         it "reads an allocation formula joining conditions with and" $
             fmap prAllocRaw (parseProductRow defaultConfig "Steel;kg;1.0;\"iff(a>1 and b<2;60;40)\";not defined;material;comment")

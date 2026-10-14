@@ -145,9 +145,9 @@ spec = do
             collectIdentifiers EcoSpold2 "power * 2" `shouldBe` ["power"]
 
     describe "SimaPro's own formula language" $ do
-        -- As SimaPro 10.3 shows them, a = 3 and b = 7, commas made ';' as the loader does.
+        -- a = 3 and b = 7, commas made ';' as the loader does.
         let simapro formula = Expr.evaluate SimaPro (M.fromList [("a", 3), ("b", 7)]) (Expr.normalizeExpr '.' formula)
-        it "computes what SimaPro shows for its functions, comparisons and and" $ do
+        it "computes its functions, comparisons and and" $ do
             simapro "iff(a>1,1,2 )" `shouldBe` Right 1
             simapro "log(100)" `shouldBe` Right 2
             simapro "max(1,2,3)" `shouldBe` Right 3
@@ -162,7 +162,7 @@ spec = do
         it "rounds half to even and has not as a function" $ do
             simapro "round(3.5)" `shouldBe` Right 4
             simapro "not(0) + not(5)" `shouldBe` Right 1
-        it "has no if, which SimaPro refuses" $
+        it "has no if" $
             unreadableNaming "if" (simapro "if(a>1,1,2)")
         it "does not read words alone as a formula, a waste type staying a waste type" $
             Expr.isExpression SimaPro "not defined" `shouldBe` False

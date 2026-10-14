@@ -63,7 +63,7 @@ import Control.Monad (foldM, forM_, mfilter)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace, isUpper, toLower)
+import Data.Char (isAlpha, isAlphaNum, isDigit, isUpper, toLower)
 import qualified Data.Csv as Csv
 import Data.Functor ((<&>))
 import Data.List (dropWhileEnd, sortOn)
@@ -669,9 +669,10 @@ parseProductRow cfg line =
 Uses the Megaparsec expression parser syntactically – accepts any identifier without
 needing parameter values. Waste type descriptions ("All waste types") fail to parse.
 
-Words and nothing else are a waste type even when they read as a formula: since
-SimaPro joins conditions with @and@ and @or@, @Paper and board@ would otherwise
-be taken for an allocation, and every column after it would shift by one.
+An @and@ or @or@ outside every parenthesis makes a waste type, even when the
+field reads as a formula: such a formula is worth 0 or 1, never a share, while
+@Paper and board@ or @Wood/paper and board@ taken for an allocation would shift
+every column after it by one. @iff(a and b;60;40)@ stays an allocation.
 -}
 isAllocationField :: SimaProConfig -> BS.ByteString -> Bool
 isAllocationField cfg bs = not prose && Expr.isExpression Expr.SimaPro (Expr.normalizeExpr (spDecimal cfg) field)
@@ -680,7 +681,14 @@ isAllocationField cfg bs = not prose && Expr.isExpression Expr.SimaPro (Expr.nor
     field = decodeBS (BS8.strip bs)
 
     prose :: Bool
-    prose = length (T.words field) > 1 && T.all (\c -> isAlphaNum c || c == '_' || isSpace c) field
+    prose = any ((`elem` ["and", "or"]) . T.toLower) (T.split (\c -> not (isAlphaNum c || c == '_')) outside)
+
+    outside :: Text
+    outside = snd (T.mapAccumL blank (0 :: Int) field)
+    blank depth c = case c of
+        '(' -> (depth + 1, ' ')
+        ')' -> (depth - 1, ' ')
+        _ -> (depth, if depth == 0 then c else ' ')
 
 -- | Parse a technosphere exchange row (ByteString input, Text output)
 

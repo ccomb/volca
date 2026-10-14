@@ -584,6 +584,9 @@ History of manual bumps:
 - 58: a SimaPro block with no Process line above its Process name is read as
      a process. Nothing changes type, so a cache written just before this
      would keep the database without it.
+- 59: SimaPro formulas are read in SimaPro's own language (decimal log, iff,
+     comparisons). Nothing changes type, so a cache written just before this
+     would keep the amounts computed the old way.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -591,7 +594,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 58
+     in hi `xor` lo `xor` 59
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

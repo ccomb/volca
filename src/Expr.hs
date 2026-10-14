@@ -53,10 +53,7 @@ type Parser = Parsec Void Text
 Four, because four are what the callers actually have.
 -}
 data Dialect
-    = {- | SimaPro's own, as its expression editor lists it: @iff@, the
-      comparisons, @and@ and @or@ between them (@and@ binding tighter), @min@
-      and @max@ of any number of arguments, @log@ decimal, and names matched
-      whatever their case. @\/\/@ opens a comment and the expression ends
+    = {- | SimaPro's own: @\/\/@ opens a comment and the expression ends
       there. Its text reaches the evaluator already through 'normalizeExpr',
       which is where the file's decimal separator is known. A parameter named
       @and@ or @or@ cannot be read.
@@ -245,10 +242,7 @@ lexeme = L.lexeme sc
 symbol :: Text -> Parser Text
 symbol = L.symbol sc
 
-{- | What a language read by 'pFormula' adds to the arithmetic they all share:
-the function a name calls, the comparisons it has, whether @and@ and @or@ join
-them, and whether it has OpenFormula's postfix @%@.
--}
+-- | What a language read by 'pFormula' adds to the arithmetic they all share.
 data Language = Language
     { calls :: Text -> Maybe Function
     , comparisons :: [(Text, Double -> Double -> Bool)]
@@ -256,29 +250,28 @@ data Language = Language
     , percent :: Bool
     }
 
--- | A scoring set's: 'arithmeticFunctions', matched in lower case only, and nothing more.
+-- | A scoring set's: 'arithmeticFunctions', matched in lower case only.
 arithmeticLanguage :: Language
 arithmeticLanguage = Language{calls = (`lookup` arithmeticFunctions), comparisons = [], connectives = False, percent = False}
 
--- | EcoSpold 2's: 'ecoSpold2Functions', matched whatever their case, with comparisons and @%@.
+-- | EcoSpold 2's: 'ecoSpold2Functions', matched whatever their case.
 ecoSpold2Language :: Language
 ecoSpold2Language = Language{calls = (`lookup` ecoSpold2Functions) . T.toLower, comparisons = written, connectives = False, percent = True}
 
--- | SimaPro's: 'simaProFunctions', matched whatever their case, with comparisons joined by @and@ and @or@.
+-- | SimaPro's: 'simaProFunctions', matched whatever their case.
 simaProLanguage :: Language
 simaProLanguage = Language{calls = (`lookup` simaProFunctions) . T.toLower, comparisons = written, connectives = True, percent = False}
 
--- | The comparisons EcoSpold 2 and SimaPro write. Longer operators first: a symbol that is a prefix of another would take its first character.
+-- | Longer operators first: a symbol that is a prefix of another would take its first character.
 written :: [(Text, Double -> Double -> Bool)]
 written = [("<=", (<=)), ("<>", (/=)), ("<", (<)), (">=", (>=)), (">", (>)), ("=", (==))]
 
--- | Precedence-climbing formula parser, lowest first: @or@, @and@, then the comparisons, each giving 1 or 0, then the arithmetic.
+-- | Precedence-climbing formula parser.
 pFormula :: Language -> Parser Formula
 pFormula language
     | connectives language = joined "or" (||) (joined "and" (&&) (pComparison language))
     | otherwise = pComparison language
 
--- | Operands joined by a word, grouped from the left: 1 when the word holds of the two operands, read as true unless 0.
 joined :: Text -> (Bool -> Bool -> Bool) -> Parser Formula -> Parser Formula
 joined word holds operand = operand >>= go
   where
@@ -560,7 +553,6 @@ olcaFunctions =
     , ("rand", Refused "a load must give the same numbers twice")
     ]
 
--- | The whole part, toward zero.
 truncated :: Double -> Double
 truncated = fromInteger . truncate
 
@@ -683,7 +675,6 @@ ecoSpold2Functions =
     , ("if", IfThen)
     ]
 
--- | SimaPro's, from the list its expression editor gives, by lower-case name. It has @iff@ and no @if@.
 simaProFunctions :: [(Text, Function)]
 simaProFunctions =
     [ ("abs", OneArg abs)
@@ -695,7 +686,7 @@ simaProFunctions =
     , ("trunc", OneArg truncated)
     , ("int", OneArg truncated)
     , ("frac", OneArg (\x -> x - truncated x))
-    , -- Half to even, as SimaPro rounds: round(2.5) is 2.
+    , -- Half to even: round(2.5) is 2.
       ("round", OneArg (fromInteger . round))
     , ("ceil", OneArg (fromInteger . ceiling))
     , ("floor", OneArg (fromInteger . floor))
