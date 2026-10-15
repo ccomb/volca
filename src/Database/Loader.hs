@@ -593,8 +593,9 @@ History of manual bumps:
      before this would keep the amounts computed the old way.
 - 61: an activity keeps its parameters in one map, and every exchange has room
      for the formula its amount follows.
-- 62: EcoSpold 2 exchanges keep their formula and name, and parameters their
-     formula, in VoLCA's language; a named property is a parameter.
+- 62: EcoSpold 2 exchanges keep their formula and name, in VoLCA's language,
+     as calculated parameters of every format now do; a named EcoSpold 2
+     property is a parameter.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.

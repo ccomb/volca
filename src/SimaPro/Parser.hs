@@ -1431,7 +1431,11 @@ buildParamEnv inputGroups calcGroups =
         let (known', refused) = Expr.settle Expr.SimaPro known group
             failed = S.fromList (map fst refused)
             value name = if S.member name failed then Nothing else M.lookup name known'
-         in (known', M.union (M.fromList [(name, CalculatedParameter formula (value name)) | (name, formula) <- group]) parameters)
+         in (known', M.union (M.fromList [(name, p) | (name, formula) <- group, Just p <- [parameter formula (value name)]]) parameters)
+
+    -- A formula VoLCA's language cannot write leaves its value only.
+    parameter :: Text -> Maybe Double -> Maybe Parameter
+    parameter formula value = either (const (InputParameter <$> value)) (\text -> Just (CalculatedParameter text value)) (Expr.translate Expr.SimaPro formula)
 
     evalParam :: M.Map Text Double -> (Text, Text) -> M.Map Text Double
     evalParam acc (name, rawVal) =

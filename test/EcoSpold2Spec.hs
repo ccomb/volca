@@ -273,6 +273,10 @@ perExchangeComments = describe "per-exchange comments" $ do
             keeps "prop_var - 3" "prop_var - 3"
             keeps "-fuel_input * 2" "-fuel_input * 2 * -1"
 
+        it "leaves out a formula thirty times a tiny stored amount" $
+            withDataset (TE.encodeUtf8 (T.replace "amount=\"4.0\"" "amount=\"1e-11\"" (T.replace "fuel_input * 2 + production" "3e-10" (TE.decodeUtf8 formulaXml)))) $ \ParsedDataset{pdActivity = act} ->
+                [exchangeFormula e | e@TechnosphereExchange{techRole = Input} <- exchanges act] `shouldBe` [Nothing]
+
         it "leaves out a formula that does not give the stored amount, and keeps a line's name on its number" $
             withFormulaFixture $ \ParsedDataset{pdActivity = act} ->
                 map exchangeFormula (exchanges act)

@@ -1050,7 +1050,7 @@ data LibraryDocument = LibraryDocument
 data Parameter
     = -- | A value the dataset states.
       InputParameter !Double
-    | {- | A formula over other parameters, in the source's language, and its
+    | {- | A formula over other parameters, in VoLCA's language, and its
       value at the dataset's defaults when the source states it or it evaluates.
       -}
       CalculatedParameter !Text !(Maybe Double)

@@ -597,7 +597,9 @@ assemble cx p env notices lines' =
     parameter :: P.Parameter -> Parameter
     parameter q = case P.paValue q of
         P.InputValue value -> InputParameter value
-        P.Calculated formula stored -> CalculatedParameter formula (Just (M.findWithDefault stored (T.toLower (P.paName q)) env))
+        P.Calculated formula stored ->
+            let value = M.findWithDefault stored (T.toLower (P.paName q)) env
+             in either (const (InputParameter value)) (\text -> CalculatedParameter text (Just value)) (Expr.translate Expr.OpenLca formula)
 
     -- A process the gate will refuse for having no reference keeps its own id as its product.
     referenceFlow :: Activity -> UUID

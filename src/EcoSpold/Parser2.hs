@@ -176,13 +176,11 @@ name the dataset's formulas read, as a @\<parameter\>@ is.
 data PendingProperty = PendingProperty
     { ppyName :: !Text
     , ppyUnit :: !Text
-    , ppyAmount :: !(Maybe Double)
-    , ppyVariableName :: !Text
-    , ppyMathRel :: !Text
+    , ppyVariable :: !PendingParam
     }
 
 emptyPendingProperty :: PendingProperty
-emptyPendingProperty = PendingProperty "" "" Nothing "" ""
+emptyPendingProperty = PendingProperty "" "" emptyPendingParam
 
 {- | File a closed @\<property\>@ under the exchange property it names, if any.
 
@@ -195,7 +193,7 @@ absence would otherwise leave says the line weighs nothing.
 The amount stays as the file states it, per unit of the exchange.
 -}
 recordProperty :: PendingProperty -> ExchangeProperties -> ExchangeProperties
-recordProperty pending props = case (T.toLower (T.strip (ppyName pending)), ppyAmount pending) of
+recordProperty pending props = case (T.toLower (T.strip (ppyName pending)), ppAmount (ppyVariable pending)) of
     ("dry mass", Just amount) -> props{epDryMass = Just (stated amount)}
     ("wet mass", Just amount) -> props{epWetMass = Just (stated amount)}
     _ -> props
@@ -756,7 +754,7 @@ checkFormulas names pairs = case checked of
             <> " but the dataset stores "
             <> T.pack (show (exchangeAmount ex))
 
--- | One amount told by two routes, the same beyond the last digits a computation moves.
+-- | The quality check's judgement: within 1e-9 of the larger amount, and of 1 below it.
 nearlyEqual :: Double -> Double -> Bool
 nearlyEqual a b = abs (a - b) <= 1e-9 * max 1 (max (abs a) (abs b))
 
@@ -792,7 +790,11 @@ keptFormula :: FormulaNames -> Double -> Text -> Maybe Text
 keptFormula names amount relation = do
     text <- either (const Nothing) Just (Expr.translate Expr.EcoSpold2 relation)
     value <- either (const Nothing) Just (Expr.evaluate Expr.Volca (fnValues names) text)
-    listToMaybe [Expr.times sign text | sign <- [1, -1], nearlyEqual value (sign * amount), sign == 1 || amount /= 0]
+    listToMaybe [Expr.times sign text | sign <- [1, -1], sameAmount value (sign * amount)]
+  where
+    -- Relative only: a formula kept on a line of 1e-11 recomputes it, so no floor may let 3e-10 pass.
+    sameAmount :: Double -> Double -> Bool
+    sameAmount a b = a == b || abs (a - b) <= 1e-9 * max (abs a) (abs b)
 
 {- | An exchange with what its amount follows: its relation, when kept, and
 the name other formulas read it by, unless the dataset gives that name two
@@ -893,13 +895,12 @@ parseWithXeno xmlContent = do
             -- above refuse both under the same guard, so this is the only
             -- reader of them.
             onProperty st
-                | isInsideProperty && isElement name "amount" =
-                    st{psPendingProperty = (psPendingProperty st){ppyAmount = readAmount (bsToText value)}}
-                | isInsideProperty && isElement name "variableName" =
-                    st{psPendingProperty = (psPendingProperty st){ppyVariableName = bsToText value}}
-                | isInsideProperty && isElement name "mathematicalRelation" =
-                    st{psPendingProperty = (psPendingProperty st){ppyMathRel = bsToText value}}
+                | isInsideProperty && isElement name "amount" = variable st (\v -> v{ppAmount = readAmount (bsToText value)})
+                | isInsideProperty && isElement name "variableName" = variable st (\v -> v{ppVariableName = bsToText value})
+                | isInsideProperty && isElement name "mathematicalRelation" = variable st (\v -> v{ppMathRel = bsToText value})
                 | otherwise = st
+            variable :: ParseState -> (PendingParam -> PendingParam) -> ParseState
+            variable st f = st{psPendingProperty = (psPendingProperty st){ppyVariable = f (ppyVariable (psPendingProperty st))}}
             -- xml:lang on the currently-open <comment>; remembered until closeTag.
             -- Attribute order is not significant for entity ref selection – we
             -- only need the lang at close-time.
@@ -1162,7 +1163,7 @@ parseWithXeno xmlContent = do
                     InGeneralCommentText -> state
                     Other -> state
                 pending = psPendingProperty state
-             in (popText (declareVariable "property" (PendingParam (ppyVariableName pending) (ppyAmount pending) (ppyMathRel pending)) filed)){psPendingProperty = emptyPendingProperty}
+             in (popText (declareVariable "property" (ppyVariable pending) filed)){psPendingProperty = emptyPendingProperty}
         | isElement tagName "synonym" =
             let txt = T.strip (accumText state)
                 ins m = if T.null txt then m else M.insertWith S.union "en" (S.singleton txt) m

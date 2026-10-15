@@ -1063,11 +1063,11 @@ spec = do
             M.lookup "Qb" (activityParameters butter) `shouldBe` Just (InputParameter 1.0)
             M.lookup "DMb" (activityParameters butter) `shouldBe` Just (InputParameter 0.82)
 
-        it "stores raw expressions for re-evaluation" $ do
+        it "stores calculated parameters in VoLCA's formula language" $ do
             (activities, _, _, _, _) <- parseParamCSV
             let butter = head activities
             [f | Just (CalculatedParameter f _) <- [M.lookup "allocButter" (activityParameters butter)]]
-                `shouldBe` ["(Qb*DMb/(Qb*DMb+Qm*DMm))*100"]
+                `shouldBe` ["Qb * DMb / (Qb * DMb + Qm * DMm) * 100"]
 
         it "gives no value to a calculated parameter whose formula does not settle, not the input's it shadows" $
             snd (buildParamEnv [[("a", "1")]] [[("a", "b * 2")]])
