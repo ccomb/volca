@@ -13,7 +13,21 @@
   Water evaporated to air is left out, since rain-fed crops evaporate rain
   that nobody declares as an input. Wire revision 63.
 
+- Scoring-set formulas read more: comparisons (`a > 2` gives 1 or 0),
+  `if(condition; then; else)`, `min`, `max`, `sum` and `average` of any
+  number of values, and every function the engine reads in SimaPro,
+  EcoSpold 2 and openLCA formulas (`log10`, `round`, `trunc` and the
+  others), by their names in any case. A formula that read before gives the
+  same value.
+
 ### Fixed
+
+- Calculated parameters in SimaPro files and openLCA packages are given
+  their values in the order they read each other. A calculated parameter
+  bearing the same name as another value now reaches every formula that
+  reads it, whatever order the file lists them in. Loading an openLCA
+  package says why a calculated parameter has no value: a name nothing
+  defines, or parameters that need each other's values.
 
 - SimaPro formulas are now read in SimaPro's own language. An amount written
   `log(100)` was read as 4.6, the natural logarithm, where SimaPro reads 2,

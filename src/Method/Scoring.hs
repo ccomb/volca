@@ -344,9 +344,9 @@ give zero at zero and the weighted sum at another point.
 -}
 linearTerms :: [Text] -> Text -> Maybe [(Text, Double)]
 linearTerms allowed formula = do
-    named <- traverse (`M.lookup` byLower) (nubOrd (map T.toLower (Expr.collectIdentifiers Expr.Arithmetic formula)))
+    named <- traverse (`M.lookup` byLower) (nubOrd (map T.toLower (Expr.collectIdentifiers Expr.Volca formula)))
     let zeros = M.fromList [(v, 0) | v <- allowed]
-        at env = either (const Nothing) Just (Expr.evaluate Expr.Arithmetic env formula)
+        at env = either (const Nothing) Just (Expr.evaluate Expr.Volca env formula)
         probe = M.fromList (zip allowed [2 :: Double ..])
     atZero <- at zeros
     coefs <- traverse (\v -> at (M.insert v 1 zeros)) named

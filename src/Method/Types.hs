@@ -48,13 +48,12 @@ module Method.Types (
 
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
-import Control.Monad (foldM, unless)
+import Control.Monad (unless)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAsciiLower, isAsciiUpper)
 import Data.Csv (HasHeader (..), decode)
-import Data.Graph (SCC (..), stronglyConnComp)
 import Data.Indexing (collisions, uniqueIndex)
 import Data.List (intercalate)
 import Data.List.NonEmpty (NonEmpty)
@@ -255,7 +254,7 @@ computeFormulaScores ss rawScores = do
     scores <-
         M.traverseWithKey
             ( \scoreName formula ->
-                case Expr.evaluate Expr.Arithmetic nwEnv formula of
+                case Expr.evaluate Expr.Volca nwEnv formula of
                     Left err ->
                         Left $
                             "Score '"
@@ -333,7 +332,11 @@ them; two computed variables that read each other, directly or not, or that
 differ only by case, are refused by name.
 -}
 resolveComputed :: M.Map Text Double -> M.Map Text Text -> Either String (M.Map Text Double)
-resolveComputed env formulas = mapM_ (Left . clash) clashes >> traverse acyclic (stronglyConnComp graph) >>= foldM step env
+resolveComputed env formulas = do
+    mapM_ (Left . clash) clashes
+    case Expr.settle Expr.Volca env (M.toList formulas) of
+        (values, []) -> Right values
+        (_, (name, why) : _) -> Left (refusal name why)
   where
     byKey :: M.Map Text [Text]
     byKey = M.fromListWith (<>) [(T.toLower v, [v]) | v <- M.keys formulas]
@@ -347,27 +350,10 @@ resolveComputed env formulas = mapM_ (Left . clash) clashes >> traverse acyclic 
     quoted :: [Text] -> String
     quoted vs = intercalate ", " ["'" <> T.unpack v <> "'" | v <- vs]
 
-    graph :: [((Text, Text), Text, [Text])]
-    graph =
-        [ ((v, f), T.toLower v, filter (`M.member` byKey) (map T.toLower (Expr.collectIdentifiers Expr.Arithmetic f)))
-        | (v, f) <- M.toList formulas
-        ]
-
-    acyclic :: SCC (Text, Text) -> Either String (Text, Text)
-    acyclic (AcyclicSCC vf) = Right vf
-    acyclic (NECyclicSCC vfs) =
-        Left ("Computed variables " <> quoted (map fst (NE.toList vfs)) <> " read each other, so none of them can be computed.")
-
-    step :: M.Map Text Double -> (Text, Text) -> Either String (M.Map Text Double)
-    step currentEnv (varName, formula) =
-        case Expr.evaluate Expr.Arithmetic currentEnv formula of
-            Left err ->
-                Left $
-                    "Computed variable '"
-                        <> T.unpack varName
-                        <> "': "
-                        <> T.unpack (Expr.describeRefusal err)
-            Right val -> Right $ M.insert varName val currentEnv
+    refusal :: Text -> Expr.Unsettled -> String
+    refusal name why = case why of
+        Expr.Circular names -> "Computed variables " <> quoted (NE.toList names) <> " read each other, so none of them can be computed."
+        Expr.NoValue err -> "Computed variable '" <> T.unpack name <> "': " <> T.unpack (Expr.describeRefusal err)
 
 {- | What @compartments.csv@ says about compartments, in its two kinds of row.
 

@@ -351,7 +351,7 @@ calculated ones settled last. Names are lowercased, as the openLCA dialect
 reads every formula.
 -}
 environment :: [P.Parameter] -> P.Process -> (M.Map Text Double, [Notice])
-environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name) | (name, _) <- calculated globals' <> calculated own, M.notMember name settled])
+environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name <> ": " <> Expr.describeUnsettled why) | (name, why) <- globalUnsettled <> ownUnsettled, M.notMember name settled])
   where
     globals' :: [P.Parameter]
     globals' = M.elems (byName globals)
@@ -370,10 +370,12 @@ environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name) | (n
 
     -- A name the process redefines must not lend its global value to the process's formulas.
     global :: M.Map Text Double
-    global = M.withoutKeys (Expr.settle Expr.OpenLca (given globals') (calculated globals')) (M.keysSet (byName own))
+    global = M.withoutKeys globalValues (M.keysSet (byName own))
 
-    settled :: M.Map Text Double
-    settled = Expr.settle Expr.OpenLca (M.union (given own) global) (calculated own)
+    globalValues, settled :: M.Map Text Double
+    globalUnsettled, ownUnsettled :: [(Text, Expr.Unsettled)]
+    (globalValues, globalUnsettled) = Expr.settle Expr.OpenLca (given globals') (calculated globals')
+    (settled, ownUnsettled) = Expr.settle Expr.OpenLca (M.union (given own) global) (calculated own)
 
 {- | A product a process lists on several lines is one output of their sum,
 on the first of them, as openLCA adds them up; it is the reference if any

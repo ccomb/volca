@@ -210,7 +210,7 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         -- LEAK_METHOD = 2 sends b to its missing branch, which only the process's value can do.
         let shadowing = editing formulasJ (\p -> p{prParameters = Parameter "LEAK_METHOD" (InputValue 2) : prParameters p}) pkg
         b <- built shadowing
-        [what | Unsettled what <- builtNotices b] `shouldBe` ["widget assembly · b"]
+        [what | Unsettled what <- builtNotices b] `shouldBe` ["widget assembly · b: unknown variable missing_name"]
 
     it "says which allocation factor formulas could not be read, keeping the stored factor" $ \_ -> do
         pkg <- readFixture

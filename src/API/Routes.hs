@@ -3019,7 +3019,7 @@ scoringIndicators ss e =
     M.mapWithKey (\var val -> ScoringIndicator (M.findWithDefault var var names) val) (M.filterWithKey (\var _ -> S.member var displayed) (seNwEnv e))
   where
     displayed :: S.Set Text
-    displayed = S.fromList (concatMap (Expr.collectIdentifiers Expr.Arithmetic) (M.elems (ssScores ss)))
+    displayed = S.fromList (concatMap (Expr.collectIdentifiers Expr.Volca) (M.elems (ssScores ss)))
     names :: M.Map Text Text
     names = ssLabels ss <> ssVariables ss
 

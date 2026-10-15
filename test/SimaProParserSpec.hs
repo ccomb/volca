@@ -833,22 +833,22 @@ spec = do
         -- A formula that reads is refused with every name it could not resolve,
         -- not only the first, so a quality finding can give them all.
         it "says why it refused a formula" $ do
-            Expr.evaluate Arithmetic M.empty "missing_var * 2" `shouldBe` Left (Expr.Unresolved ("missing_var" :| []))
-            Expr.evaluate Arithmetic M.empty "a * b + a" `shouldBe` Left (Expr.Unresolved ("a" :| ["b"]))
-            Expr.evaluate Arithmetic (M.fromList [("a", 1)]) "a > 2"
-                `shouldBe` Left (Expr.Unreadable "unexpected '>'; expecting '*', '+', '-', '/', '^', or end of input")
-            Expr.evaluate Arithmetic M.empty "UnitConversion(1, 'kg', 'm3')"
+            Expr.evaluate Volca M.empty "missing_var * 2" `shouldBe` Left (Expr.Unresolved ("missing_var" :| []))
+            Expr.evaluate Volca M.empty "a * b + a" `shouldBe` Left (Expr.Unresolved ("a" :| ["b"]))
+            Expr.evaluate Volca (M.fromList [("a", 1)]) "a ? 2"
+                `shouldBe` Left (Expr.Unreadable "unexpected '?'; expecting \"<=\", \"<>\", \">=\", '*', '+', '-', '/', '<', '=', '>', '^', or end of input")
+            Expr.evaluate Volca M.empty "UnitConversion(1, 'kg', 'm3')"
                 `shouldBe` Left (Expr.Unreadable "unknown function UnitConversion")
             Expr.describeRefusal (Expr.Unresolved ("a" :| ["b"])) `shouldBe` "unknown variables a, b"
 
         -- Backtracking out of the call around it would read "sqrt" as a variable
         -- and refuse at its parenthesis, losing the function that was missing.
         it "says a function is unknown inside the arguments of a known one" $
-            Expr.evaluate Arithmetic M.empty "sqrt(UnitConversion(1, 'kg', 'm3'))"
+            Expr.evaluate Volca M.empty "sqrt(UnitConversion(1, 'kg', 'm3'))"
                 `shouldBe` Left (Expr.Unreadable "unknown function UnitConversion")
 
         it "lists an unresolved name once however the formula spells it" $
-            Expr.evaluate Arithmetic M.empty "DMper * Dmper" `shouldBe` Left (Expr.Unresolved ("DMper" :| []))
+            Expr.evaluate Volca M.empty "DMper * Dmper" `shouldBe` Left (Expr.Unresolved ("DMper" :| []))
 
         -- Regression: SimaPro exports drop the integer part of a decimal, and
         -- Agribalyse sums a pesticide mix in place – "0,45+0,247+,067". The
@@ -901,7 +901,7 @@ spec = do
         it "collects no identifier the evaluation does not reach" $ do
             collectIdentifiers SimaPro "(a)//b" `shouldBe` ["a"]
             collectIdentifiers SimaPro "a//b" `shouldBe` ["a"]
-            collectIdentifiers Arithmetic "a+b" `shouldBe` ["a", "b"]
+            collectIdentifiers Volca "a+b" `shouldBe` ["a", "b"]
 
         -- A scoring set's formulas and an EcoSpold 2 mathematicalRelation are
         -- not written in SimaPro, and used to be read as if they were: "//" cut
@@ -909,9 +909,9 @@ spec = do
         -- evaluator call a function name an unknown variable.
         it "reads a formula of the other dialect in its own terms" $ do
             let env = M.fromList [("cch", 3.0), ("acd", 4.0)]
-            Expr.evaluate Arithmetic env "cch + acd" `shouldBe` Right 7.0
-            Expr.evaluate Arithmetic env "cch //+ acd" `shouldSatisfy` isLeft
-            Expr.evaluate Arithmetic env "min(cch,acd)" `shouldBe` Right 3.0
+            Expr.evaluate Volca env "cch + acd" `shouldBe` Right 7.0
+            Expr.evaluate Volca env "cch //+ acd" `shouldSatisfy` isLeft
+            Expr.evaluate Volca env "min(cch,acd)" `shouldBe` Right 3.0
             Expr.evaluate SimaPro env "min(cch;acd)" `shouldBe` Right 3.0
             Expr.evaluate SimaPro env "cch //+ acd" `shouldBe` Right 3.0
 

@@ -1407,13 +1407,14 @@ blockLabel pb = case nonEmptyText (T.strip (pbName pb)) of
 
 {- | Build the resolved parameter environment and the raw-expression map from
 ordered parameter groups. Input groups are resolved with a single pass each;
-calc groups iterate to a fixed point (to resolve forward references where a
-param depends on one defined later in the CSV). Groups are ordered low→high
-precedence: database, project, process.
+calc groups in the order their parameters read each other, so one may depend
+on another defined later in the CSV. Groups are ordered low→high precedence:
+database, project, process. A calculated parameter without a value is left
+out, and an amount reading it is among the 'fallbackAmounts'.
 -}
 buildParamEnv :: [[(Text, Text)]] -> [[(Text, Text)]] -> (M.Map Text Double, M.Map Text Text)
 buildParamEnv inputGroups calcGroups =
-    ( foldl' (Expr.settle Expr.SimaPro) (foldl' (foldl' evalParam) M.empty inputGroups) calcGroups
+    ( foldl' (\known -> fst . Expr.settle Expr.SimaPro known) (foldl' (foldl' evalParam) M.empty inputGroups) calcGroups
     , M.fromList (concat (inputGroups ++ calcGroups))
     )
   where

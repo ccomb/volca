@@ -587,6 +587,10 @@ History of manual bumps:
 - 59: SimaPro formulas are read in SimaPro's own language (decimal log, iff,
      comparisons). Nothing changes type, so a cache written just before this
      would keep the amounts computed the old way.
+- 60: calculated SimaPro and openLCA parameters are given their values in the
+     order they read each other, so one that shadows a known value reaches
+     every formula reading it. Nothing changes type, so a cache written just
+     before this would keep the amounts computed the old way.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -594,7 +598,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 59
+     in hi `xor` lo `xor` 60
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

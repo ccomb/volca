@@ -355,7 +355,7 @@ taken :: ScoringSet -> S.Set Text
 taken set = S.fromList (map T.toLower (M.keys (ssVariables set) <> M.keys (ssComputed set)))
 
 identifiers :: Text -> [Text]
-identifiers = map T.toLower . Expr.collectIdentifiers Expr.Arithmetic
+identifiers = map T.toLower . Expr.collectIdentifiers Expr.Volca
 
 nonBlank :: Text -> Text -> Either Text Text
 nonBlank refusal raw

@@ -310,7 +310,7 @@ legacyReadings set = M.fromList [(category, entryOf var category) | (var, catego
         _ -> LegacyEntry category 1 Nothing
 
     names :: Text -> Text -> Bool
-    names var formula = T.toLower var `elem` map T.toLower (Expr.collectIdentifiers Expr.Arithmetic formula)
+    names var formula = T.toLower var `elem` map T.toLower (Expr.collectIdentifiers Expr.Volca formula)
 
     normWeight :: Text -> Maybe NormWeight
     normWeight v = NormWeight <$> M.lookup v (ssNormalization set) <*> M.lookup v (ssWeighting set)

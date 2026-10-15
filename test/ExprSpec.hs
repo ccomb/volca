@@ -1,17 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | The formula languages: what the openLCA one computes, and that the two
-older ones compute what they did.
+{- | The formula languages: what each computes, how VoLCA's writes any of
+them, and how calculated parameters get their values.
 -}
 module ExprSpec (spec) where
 
+import Control.Monad (forM_)
+import Data.Foldable (toList)
+import Data.List (nub, sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Hspec
+import Test.Hspec.QuickCheck (prop)
+import Test.QuickCheck (Gen, arbitrary, arbitraryBoundedEnum, choose, elements, forAll, oneof, sized, vectorOf, (===))
 
-import Expr (Dialect (..), Refusal (..), collectIdentifiers, describeRefusal, settle)
+import Expr (Dialect (..), Formula (..), Refusal (..), Unsettled (..), collectIdentifiers, describeRefusal, settle, translate)
 import qualified Expr
 
 olca :: [(Text, Double)] -> Text -> Either Refusal Double
@@ -168,28 +173,96 @@ spec = do
             Expr.isExpression SimaPro "not defined" `shouldBe` False
         it "collects a parameter named like a function, and not and or" $
             collectIdentifiers SimaPro "iff(a=1 AND b<>2;1;0) + int" `shouldBe` ["a", "b", "int"]
-        it "leaves scoring sets without comparisons or connectives" $ do
-            unreadableNaming "" (Expr.evaluate Arithmetic M.empty "1 < 2")
-            unreadableNaming "" (Expr.evaluate Arithmetic (M.fromList [("a", 1), ("b", 1)]) "a and b")
 
     describe "the older dialects keep a non-finite result" $
         it "gives Infinity for 1/0" $ do
-            Expr.evaluate Arithmetic M.empty "1/0" `shouldBe` Right (1 / 0)
+            Expr.evaluate Volca M.empty "1/0" `shouldBe` Right (1 / 0)
             Expr.evaluate SimaPro M.empty "1/0" `shouldBe` Right (1 / 0)
 
-    describe "the older dialects are unchanged" $ do
-        it "keeps a sign below ^, ^ chaining from the right, and log natural" $ do
-            Expr.evaluate Arithmetic M.empty "-2^2" `shouldBe` Right (-4)
-            Expr.evaluate Arithmetic M.empty "2^3^2" `shouldBe` Right 512
-            near (log 1000) (Expr.evaluate Arithmetic M.empty "log(1000)")
-            unreadableNaming "LOG" (Expr.evaluate Arithmetic M.empty "LOG(1000)")
-            unreadableNaming "max takes two arguments" (Expr.evaluate Arithmetic M.empty "max(1; 2; 3)")
+    describe "VoLCA's language" $ do
+        let volca env = Expr.evaluate Volca (M.fromList env)
+        it "computes a scoring set's formulas as it always has: a sign below ^, ^ chaining from the right, log natural" $ do
+            volca [] "-2^2" `shouldBe` Right (-4)
+            volca [] "2^3^2" `shouldBe` Right 512
+            near (log 1000) (volca [] "log(1000)")
+            near 2 (volca [("a", 2), ("b", 5)] "min(a, b)")
             -- Windows' pow rounds 10^-3 differently in the last digit.
             near 5.0e-2 (Expr.evaluate SimaPro M.empty "1*10^-3*50 // a comment")
+        it "reads comparisons, if, and functions of any number of arguments, by names in any case" $ do
+            near 1 (volca [("a", 3)] "a > 2")
+            near 20 (volca [("a", 3)] "if(a <= 2; 10; 20)")
+            near 3 (volca [] "max(1; 2; 3)")
+            near (log 1000) (volca [] "LOG(1000)")
+        it "has no word operator, so and is a name like any other" $
+            near 6 (volca [("and", 2)] "and * 3")
+        it "gives every function the value its reference's example states" $
+            forM_ Expr.functions $ \f ->
+                let r = Expr.reference f
+                 in near (Expr.exampleValue r) (volca [] (Expr.example r))
+        it "writes every example of its reference as the reference does" $
+            forM_ Expr.functions $ \f ->
+                let r = Expr.reference f
+                 in translate Volca (Expr.example r) `shouldBe` Right (Expr.example r)
+        it "calls each function by a name of its own" $
+            nub Expr.functionNames `shouldBe` Expr.functionNames
+
+    describe "translate" $ do
+        it "writes SimaPro's functions by VoLCA's names, without its comment" $ do
+            translate SimaPro "log(x)" `shouldBe` Right "log10(x)"
+            translate SimaPro "round(x)" `shouldBe` Right "roundeven(x)"
+            translate SimaPro "iff(a=1 and b<>2;1;0)" `shouldBe` Right "if(and(a = 1; b <> 2); 1; 0)"
+            translate SimaPro "1*10^-3*50 // a note" `shouldBe` Right "1 * 10 ^ -3 * 50"
+        it "writes EcoSpold 2's log, IF and % in VoLCA's terms" $ do
+            translate EcoSpold2 "LOG(100)" `shouldBe` Right "log10(100)"
+            translate EcoSpold2 "log(8;2)" `shouldBe` Right "log(8; 2)"
+            translate EcoSpold2 "IF(RP;0.66)" `shouldBe` Right "if(RP; 0.66; 0)"
+            translate EcoSpold2 "0.06072*83.3%" `shouldBe` Right "0.06072 * (83.3 / 100)"
+        it "keeps openLCA's grouping of ^ and of a sign with the parentheses VoLCA needs" $ do
+            translate OpenLca "-2^2" `shouldBe` Right "(-2) ^ 2"
+            translate OpenLca "2^3^2" `shouldBe` Right "(2 ^ 3) ^ 2"
+            translate OpenLca "if(a > 1 xor b > 1; 7 div 2; round(c))" `shouldBe` Right "if(xor(a > 1; b > 1); div(7; 2); round(c))"
+            translate OpenLca "max()" `shouldBe` Right "0"
+        it "refuses a name VoLCA cannot write, by that name" $
+            translate OpenLca "$a * 2" `shouldBe` Left (Unreadable "VoLCA's formulas cannot write the name $a")
+        it "puts a part in parentheses only when its reading needs them" $ do
+            translate Volca "a - (b - c)" `shouldBe` Right "a - (b - c)"
+            translate Volca "(a - b) - c" `shouldBe` Right "a - b - c"
+            translate Volca "a ^ (b ^ c)" `shouldBe` Right "a ^ b ^ c"
+            translate Volca "-(a ^ 2) + (-a) ^ 2" `shouldBe` Right "-a ^ 2 + (-a) ^ 2"
+            translate Volca "(a < b) * 2" `shouldBe` Right "(a < b) * 2"
+        prop "writes any formula so that it reads back as the same one" $
+            forAll (sized formula) $ \f ->
+                Expr.readFormula Volca (Expr.render f) === Right f
 
     describe "settle" $ do
         it "evaluates calculated parameters in whatever order they refer to each other" $
             settle OpenLca (M.fromList [("a", 2)]) [("c", "b + 1"), ("b", "a * 3")]
-                `shouldBe` M.fromList [("a", 2), ("b", 6), ("c", 7)]
-        it "leaves out a parameter whose formula never evaluates" $
-            M.member "d" (settle OpenLca M.empty [("d", "nowhere + 1")]) `shouldBe` False
+                `shouldBe` (M.fromList [("a", 2), ("b", 6), ("c", 7)], [])
+        it "lets a calculated parameter shadow a known value for every formula reading it" $
+            fst (settle Volca (M.fromList [("a", 1)]) [("b", "a * 10"), ("a", "5")]) `shouldBe` M.fromList [("a", 5), ("b", 50)]
+        it "says why a parameter has no value: a name nobody gives, or a cycle" $ do
+            settle OpenLca M.empty [("d", "nowhere + 1")] `shouldBe` (M.empty, [("d", NoValue (Unresolved ("nowhere" :| [])))])
+            settle Volca M.empty [("x", "x + 1")] `shouldBe` (M.empty, [("x", Circular ("x" :| []))])
+            let (values, refused) = settle Volca M.empty [("x", "y + 1"), ("y", "x * 2"), ("z", "1")]
+            values `shouldBe` M.fromList [("z", 1)]
+            sort (map fst refused) `shouldBe` ["x", "y"]
+            [sort (toList cycle') | (_, Circular cycle') <- refused] `shouldBe` [["x", "y"], ["x", "y"]]
+
+-- | A formula of any shape, its numbers not negative, as no grammar reads a negative literal.
+formula :: Int -> Gen Formula
+formula size
+    | size <= 1 = leaf
+    | otherwise =
+        oneof
+            [ leaf
+            , Unary <$> arbitraryBoundedEnum <*> part
+            , Binary <$> arbitraryBoundedEnum <*> part <*> part
+            , Variadic <$> arbitraryBoundedEnum <*> ((:|) <$> part <*> (choose (0, 2) >>= (`vectorOf` part)))
+            , If <$> part <*> part <*> part
+            ]
+  where
+    leaf :: Gen Formula
+    leaf = oneof [Literal . abs <$> arbitrary, Literal <$> elements [0, 2, 1.0e-3, 1.0e20], Name <$> elements ["a", "b_2", "Leak"]]
+
+    part :: Gen Formula
+    part = formula (size `div` 3)
