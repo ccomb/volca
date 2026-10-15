@@ -1047,7 +1047,15 @@ data LibraryDocument = LibraryDocument
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped LibraryDocument)
 
 -- | A named number a dataset's formulas read.
-data Parameter
+data Parameter = Parameter
+    { parameterDefinition :: !ParameterDefinition
+    , parameterUnit :: !(Maybe Text) -- As the source spells it; Nothing when it states none
+    , parameterDescription :: !Text -- What the source says the parameter stands for; empty when it says nothing
+    }
+    deriving (Eq, Show, Generic, NFData, Store)
+
+-- | How a parameter gets its value.
+data ParameterDefinition
     = -- | A value the dataset states.
       InputParameter !Double
     | {- | A formula over other parameters, in VoLCA's language, and its

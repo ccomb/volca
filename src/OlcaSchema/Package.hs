@@ -168,6 +168,7 @@ data ParameterValue
 data Parameter = Parameter
     { paName :: !Text
     , paValue :: !ParameterValue
+    , paDescription :: !Text
     }
     deriving (Generic, NFData)
 
@@ -284,9 +285,11 @@ instance FromJSON Parameter where
         given <- o .:? "isInputParameter" .!= True
         value <- o .:? "value" .!= 0
         formula <- o .:? "formula"
+        description <- o .:? "description"
         pure
             Parameter
                 { paName = name
+                , paDescription = maybe "" T.strip (nonBlank description)
                 , paValue = case (given, nonBlank formula) of
                     (False, Just f) -> Calculated f value
                     (False, Nothing) -> InputValue value

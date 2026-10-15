@@ -161,15 +161,18 @@ data FormulaAttributes = FormulaAttributes
     , efMathRel :: !(Maybe Text)
     }
 
--- | Attribute accumulator for the currently-open @\<parameter\>@ element.
+-- | Attribute and child accumulator for the currently-open @\<parameter\>@ element.
 data PendingParam = PendingParam
     { ppVariableName :: !Text
     , ppAmount :: !(Maybe Double)
     , ppMathRel :: !Text
+    , ppName :: !Text
+    , ppUnit :: !Text
+    , ppComment :: !Text
     }
 
 emptyPendingParam :: PendingParam
-emptyPendingParam = PendingParam "" Nothing ""
+emptyPendingParam = PendingParam "" Nothing "" "" "" ""
 
 {- | The @\<property\>@ currently open, assembled from its attributes and its
 @\<name\>@ and @\<unitName\>@ children, which arrive in no fixed order and are
@@ -281,6 +284,7 @@ data ParseState = ParseState
     , psParams :: !(M.Map Text Double) -- <parameter> variableName → amount (amounts are pre-evaluated in the source)
     , psAmbiguousParams :: !(S.Set Text) -- variableNames declared twice with two amounts, struck from psParams at the end
     , psParamExprs :: !(M.Map Text Text) -- <parameter> variableName → mathematicalRelation (raw formula, for inspection)
+    , psParamAbout :: !(M.Map Text (Maybe Text, Text)) -- <parameter> variableName → its unit and description
     , psPendingParam :: !PendingParam -- attribute accumulator for the open <parameter>
     , psPendingProperty :: !PendingProperty -- attribute and child accumulator for the open <property>
     , psDocs :: !DatasetDocs -- Provenance the dataset states about itself
@@ -312,6 +316,7 @@ initialParseState =
         , psParams = M.empty
         , psAmbiguousParams = S.empty
         , psParamExprs = M.empty
+        , psParamAbout = M.empty
         , psPendingParam = emptyPendingParam
         , psPendingProperty = emptyPendingProperty
         , psDocs = emptyDatasetDocs
@@ -657,6 +662,14 @@ addBioFlow !f st = st{psBioFlows = f : psBioFlows st}
 addWasteFlow :: WasteFlow -> ParseState -> ParseState
 addWasteFlow !f st = st{psWasteFlows = f : psWasteFlows st}
 
+{- | Set a text of the open @\<parameter\>@ from one of its children: the
+English one when the dataset repeats it per language, and never a blank.
+-}
+aboutParameter :: (PendingParam -> Text -> PendingParam) -> Text -> ParseState -> ParseState
+aboutParameter set lang state = case nonEmptyText (accumText state) of
+    Just txt | readableAsEnglish lang -> state{psPendingParam = set (psPendingParam state) txt}
+    _ -> state
+
 {- | Declare a name the dataset's formulas read, from a @\<parameter\>@ or a
 @\<property\>@: its amount is pre-evaluated in the source. An entry with no
 @variableName@ has nothing to contribute and is skipped; one with a
@@ -664,7 +677,7 @@ addWasteFlow !f st = st{psWasteFlows = f : psWasteFlows st}
 referencing it will fail to evaluate downstream.
 -}
 declareVariable :: String -> PendingParam -> ParseState -> ParseState
-declareVariable element (PendingParam var amt rel) state = case (nonEmptyText var, amt) of
+declareVariable element PendingParam{ppVariableName = var, ppAmount = amt, ppMathRel = rel, ppName = label, ppUnit = unit, ppComment = comment} state = case (nonEmptyText var, amt) of
     (Just v, Just a)
         | S.member v (psAmbiguousParams state) -> state
         | Just previous <- M.lookup v (psParams state)
@@ -677,6 +690,7 @@ declareVariable element (PendingParam var amt rel) state = case (nonEmptyText va
             state
                 { psParams = M.insert v a (psParams state)
                 , psParamExprs = maybe (psParamExprs state) (\r -> M.insert v r (psParamExprs state)) (nonEmptyText rel)
+                , psParamAbout = M.insert v (nonEmptyText unit, joinParts "\n" [label, comment]) (psParamAbout state)
                 }
     (Just v, Nothing) ->
         state{psWarnings = ("[WARNING] Ignoring <" ++ element ++ "> \"" ++ T.unpack v ++ "\" - missing or unparseable amount") : psWarnings state}
@@ -969,6 +983,8 @@ parseWithXeno conversions xmlContent = do
     closeTag state tagName
         | isElement tagName "activityName" =
             (popText state){psActivityName = Just (accumText state), psContext = Other}
+        | isElement tagName "comment" && pathAt 1 "parameter" state =
+            (popText (aboutParameter (\p t -> p{ppComment = t}) (psPendingCommentLang state) state)){psPendingCommentLang = ""}
         | isElement tagName "comment" =
             -- Capture <comment> text only when the immediate parent is the
             -- exchange itself, not a nested <property>. Property comments
@@ -1143,6 +1159,10 @@ parseWithXeno conversions xmlContent = do
         | isElement tagName "samplingProcedure" = closeDocText (\d t -> d{ddSampling = t}) state
         | isElement tagName "extrapolations" = closeDocText (\d t -> d{ddExtrapolations = t}) state
         | isElement tagName "review" = closeReview state
+        | isElement tagName "name" && pathAt 1 "parameter" state =
+            popText (aboutParameter (\p t -> p{ppName = t}) (ddElementLang (psDocs state)) state)
+        | isElement tagName "unitName" && pathAt 1 "parameter" state =
+            popText (aboutParameter (\p t -> p{ppUnit = t}) (ddElementLang (psDocs state)) state)
         | isElement tagName "name" =
             let txt = accumText state
              in if pathAt 1 "property" state
@@ -1163,7 +1183,7 @@ parseWithXeno conversions xmlContent = do
                     InGeneralCommentText -> state
                     Other -> state
                 pending = psPendingProperty state
-             in (popText (declareVariable "property" (ppyVariable pending) filed)){psPendingProperty = emptyPendingProperty}
+             in (popText (declareVariable "property" (ppyVariable pending){ppName = ppyName pending, ppUnit = ppyUnit pending} filed)){psPendingProperty = emptyPendingProperty}
         | isElement tagName "synonym" =
             let txt = T.strip (accumText state)
                 ins m = if T.null txt then m else M.insertWith S.union "en" (S.singleton txt) m
@@ -1218,7 +1238,10 @@ parseWithXeno conversions xmlContent = do
             -- value, so it is not one of the dataset's parameters.
             params = M.withoutKeys (psParams st) (psAmbiguousParams st)
             names = formulaNames conversions params (psAmbiguousParams st) pairs
-            parameters = M.mapWithKey (\var value -> maybe (InputParameter value) (\f -> CalculatedParameter f (Just value)) (keptFormula names value =<< M.lookup var (psParamExprs st))) params
+            parameters = M.mapWithKey (\var value -> about var (maybe (InputParameter value) (\f -> CalculatedParameter f (Just value)) (keptFormula names value =<< M.lookup var (psParamExprs st)))) params
+            about var definition =
+                let (unit, description) = M.findWithDefault (Nothing, "") var (psParamAbout st)
+                 in Parameter{parameterDefinition = definition, parameterUnit = unit, parameterDescription = description}
             formulaCheck = checkFormulas names pairs
             (dates, dateWarnings) = datasetDates (psDocs st)
             -- Apply cutoff strategy to exchanges

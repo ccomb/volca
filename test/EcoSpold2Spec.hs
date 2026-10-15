@@ -263,7 +263,12 @@ perExchangeComments = describe "per-exchange comments" $ do
         it "stores <parameter> and named <property> values on the activity, with the formulas that give them" $
             withFormulaFixture $ \ParsedDataset{pdActivity = act} -> do
                 -- prop_var's relation (9999) does not give its amount (7), so it is not kept.
-                activityParameters act `shouldBe` M.fromList [("fuel_input", CalculatedParameter "4 / 2" (Just 2.0)), ("prop_var", InputParameter 7.0)]
+                parameterDefinition <$> activityParameters act `shouldBe` M.fromList [("fuel_input", CalculatedParameter "4 / 2" (Just 2.0)), ("prop_var", InputParameter 7.0)]
+
+        it "keeps the unit of a <parameter> or named <property>, and its English name and comment as its description" $
+            withFormulaFixture $ \ParsedDataset{pdActivity = act} ->
+                [(name, parameterUnit p, parameterDescription p) | (name, p) <- M.toList (activityParameters act)]
+                    `shouldBe` [("fuel_input", Just "kg", "fuel input\nMeasured at the plant."), ("prop_var", Just "kg", "dry mass")]
 
         it "keeps a formula that gives the stored amount, written in VoLCA's language" $
             withDataset (TE.encodeUtf8 (T.replace "fuel_input * 2 + production" "IF(fuel_input &gt; 1; 400%; 0) * production" (TE.decodeUtf8 formulaXml))) $ \ParsedDataset{pdActivity = act} ->
@@ -958,7 +963,9 @@ formulaXml =
     \      </elementaryExchange>\n\
     \      <parameter parameterId=\"par-1\" variableName=\"fuel_input\" amount=\"2.0\" mathematicalRelation=\"4.0 / 2\">\n\
     \        <name xml:lang=\"en\">fuel input</name>\n\
+    \        <name xml:lang=\"de\">Brennstoffeinsatz</name>\n\
     \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <comment xml:lang=\"en\">Measured at the plant.</comment>\n\
     \      </parameter>\n\
     \      <parameter parameterId=\"par-2\" variableName=\"ghost\">\n\
     \        <name xml:lang=\"en\">ghost parameter</name>\n\

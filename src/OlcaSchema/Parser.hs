@@ -391,11 +391,13 @@ settleOver known qs = Expr.settle Expr.OpenLca (M.union given known) calculated
 language cannot write leaves its value alone.
 -}
 parameter :: M.Map Text Double -> P.Parameter -> Parameter
-parameter values q = case P.paValue q of
-    P.InputValue value -> InputParameter value
-    P.Calculated formula stored ->
-        let value = M.findWithDefault stored (T.toLower (P.paName q)) values
-         in either (const (InputParameter value)) (\text -> CalculatedParameter text (Just value)) (Expr.translate Expr.OpenLca formula)
+parameter values q = Parameter{parameterDefinition = definition, parameterUnit = Nothing, parameterDescription = P.paDescription q}
+  where
+    definition = case P.paValue q of
+        P.InputValue value -> InputParameter value
+        P.Calculated formula stored ->
+            let value = M.findWithDefault stored (T.toLower (P.paName q)) values
+             in either (const (InputParameter value)) (\text -> CalculatedParameter text (Just value)) (Expr.translate Expr.OpenLca formula)
 
 -- | Parameters by name, case aside: a process's own shadows a global one so.
 byName :: [P.Parameter] -> M.Map Text P.Parameter

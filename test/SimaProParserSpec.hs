@@ -22,6 +22,7 @@ import SimaPro.Parser (
     Located (..),
     NameReading (..),
     ParamLevel (..),
+    ParamRow (..),
     ProcessBlock (..),
     ProductRow (..),
     SimaProFile (..),
@@ -65,6 +66,7 @@ import Types (
     Medium (..),
     NativeActivityType (..),
     Parameter (..),
+    ParameterDefinition (..),
     Pedigree (..),
     SimpleDatabase (..),
     TechFlowDB,
@@ -368,11 +370,11 @@ paramTestCSV =
         , "Input parameters"
         , "Qb;1;Undefined;0;0;No;"
         , "DMb;0,82;Undefined;0;0;No;"
-        , "Qm;20,53;Undefined;0;0;No;"
+        , "Qm;20,53;Lognormal;1,14;0;0;No;(3,3,2,1,2),Quantity of milk collected per year ,"
         , "DMm;0,118;Undefined;0;0;No;"
         , ""
         , "Calculated parameters"
-        , "allocButter;(Qb*DMb/(Qb*DMb+Qm*DMm))*100;"
+        , "allocButter;(Qb*DMb/(Qb*DMb+Qm*DMm))*100;Share of the butter, in %"
         , ""
         , "Products"
         , "Butter {FR} U;kg;Qb;allocButter;not defined;material;"
@@ -1062,14 +1064,21 @@ spec = do
         it "stores resolved parameter values in activity" $ do
             (activities, _, _, _, _) <- parseParamCSV
             let butter = head activities
-            M.lookup "Qm" (activityParameters butter) `shouldBe` Just (InputParameter 20.53)
-            M.lookup "Qb" (activityParameters butter) `shouldBe` Just (InputParameter 1.0)
-            M.lookup "DMb" (activityParameters butter) `shouldBe` Just (InputParameter 0.82)
+            parameterDefinition <$> M.lookup "Qm" (activityParameters butter) `shouldBe` Just (InputParameter 20.53)
+            parameterDefinition <$> M.lookup "Qb" (activityParameters butter) `shouldBe` Just (InputParameter 1.0)
+            parameterDefinition <$> M.lookup "DMb" (activityParameters butter) `shouldBe` Just (InputParameter 0.82)
+
+        it "keeps a parameter's comment as its description, without the pedigree opening it" $ do
+            (activities, _, _, _, _) <- parseParamCSV
+            let described name = parameterDescription <$> M.lookup name (activityParameters (head activities))
+            described "Qm" `shouldBe` Just "Quantity of milk collected per year ,"
+            described "allocButter" `shouldBe` Just "Share of the butter, in %"
+            described "Qb" `shouldBe` Just ""
 
         it "stores calculated parameters in VoLCA's formula language" $ do
             (activities, _, _, _, _) <- parseParamCSV
             let butter = head activities
-            [f | Just (CalculatedParameter f _) <- [M.lookup "allocButter" (activityParameters butter)]]
+            [f | Just (CalculatedParameter f _) <- [parameterDefinition <$> M.lookup "allocButter" (activityParameters butter)]]
                 `shouldBe` ["Qb * DMb / (Qb * DMb + Qm * DMm) * 100"]
 
         it "keeps the formula of a row whose amount is one, and none for a number" $ do
@@ -1089,7 +1098,7 @@ spec = do
         it "keeps formulas that give the amounts of the processes the loader splits" $ do
             db <- loadParamCSV
             let values act = M.mapMaybe parameterValue (activityParameters act)
-                parameterValue = \case
+                parameterValue p = case parameterDefinition p of
                     InputParameter v -> Just v
                     CalculatedParameter _ v -> v
                 checked =
@@ -1102,20 +1111,20 @@ spec = do
             sequence_ checked
 
         it "gives no value to a calculated parameter whose formula does not settle, not the input's it shadows" $
-            snd (buildParamEnv [ParamLevel [("a", "1")] [("a", "b * 2")]])
+            parameterDefinition <$> snd (buildParamEnv [ParamLevel [paramRow "a" "1"] [paramRow "a" "b * 2"]])
                 `shouldBe` M.singleton "a" (CalculatedParameter "b * 2" Nothing)
 
         it "lets a process parameter replace a project one of its name, input over calculated" $ do
-            let (env, parameters) = buildParamEnv [ParamLevel [("y", "3")] [("x", "2 * y")], ParamLevel [("X", "5")] []]
+            let (env, parameters) = buildParamEnv [ParamLevel [paramRow "y" "3"] [paramRow "x" "2 * y"], ParamLevel [paramRow "X" "5"] []]
             M.lookup "X" env `shouldBe` Just 5
             M.lookup "x" env `shouldBe` Nothing
-            parameters `shouldBe` M.fromList [("y", InputParameter 3), ("X", InputParameter 5)]
+            parameterDefinition <$> parameters `shouldBe` M.fromList [("y", InputParameter 3), ("X", InputParameter 5)]
 
         it "reads a project formula with the values a process gives the names it reads" $
-            M.lookup "x" (fst (buildParamEnv [ParamLevel [("y", "3")] [("x", "2 * y")], ParamLevel [("y", "10")] []])) `shouldBe` Just 20
+            M.lookup "x" (fst (buildParamEnv [ParamLevel [paramRow "y" "3"] [paramRow "x" "2 * y"], ParamLevel [paramRow "y" "10"] []])) `shouldBe` Just 20
 
         it "gives no value to a name one level declares with two formulas, nor the value of the level above" $
-            M.lookup "x" (fst (buildParamEnv [ParamLevel [("x", "1")] [], ParamLevel [] [("x", "2"), ("x", "3")]])) `shouldBe` Nothing
+            M.lookup "x" (fst (buildParamEnv [ParamLevel [paramRow "x" "1"] [], ParamLevel [] [paramRow "x" "2", paramRow "x" "3"]])) `shouldBe` Nothing
 
         it "does not drop exchanges with parameterized amounts" $ do
             (activities, _, _, _, _) <- parseParamCSV
@@ -1175,7 +1184,7 @@ spec = do
         it "stays silent for numbers, expressions, and resolvable parameters" $ do
             fallbackAmounts mempty (block "0.45") `shouldBe` []
             fallbackAmounts mempty (block "0.45+0.247+.067") `shouldBe` []
-            fallbackAmounts mempty ((block "dose*2"){pbInputParams = [("dose", "0.5")]}) `shouldBe` []
+            fallbackAmounts mempty ((block "dose*2"){pbInputParams = [ParamRow "dose" "0.5" ""]}) `shouldBe` []
 
     describe "SimaPro amounts summed in place" $ do
         it "sums every term of the expression, integer part or not" $ do
@@ -1232,7 +1241,7 @@ spec = do
                 hClose handle
                 either (fail . show) pure =<< parseSimaProCSV defaultUnitConfig path
             (_, newLines) <- getLogLines before
-            [(name, p) | (name, p) <- M.toList (spfParameters file), T.toLower name == "dbin"] `shouldBe` [("DbIn", InputParameter 5)]
+            [(name, p) | (name, p) <- M.toList (spfParameters file), T.toLower name == "dbin"] `shouldBe` [("DbIn", Parameter (InputParameter 5) Nothing "")]
             -- dbin, dbin*3, DbIn, DbIn*7, every one of them reading the project's 5
             concatMap techInputAmounts (spfActivities file) `shouldMatchList` [5, 15, 5, 35]
             [() | l <- newLines, "project parameter 'DbIn' replaces" `isInfixOf` llText l] `shouldBe` [()]
@@ -2553,3 +2562,7 @@ parseOrFail cfg path = either (fail . show) (pure . tables) =<< parseSimaProCSV 
   where
     tables :: SimaProFile -> ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB)
     tables f = (spfActivities f, spfTechFlows f, spfBioFlows f, spfWasteFlows f, spfUnits f)
+
+-- | A parameter line with no comment.
+paramRow :: Text -> Text -> ParamRow
+paramRow name value = ParamRow name value ""

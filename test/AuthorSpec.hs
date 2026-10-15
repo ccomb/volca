@@ -52,6 +52,7 @@ import Types (
     LocationSource (..),
     Medium (..),
     Parameter (..),
+    ParameterDefinition (..),
     Pedigree (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -844,7 +845,7 @@ importedActivity =
                 , waFormula = Nothing
                 }
             ]
-        , activityParameters = M.singleton "yield" (CalculatedParameter "0.9 * 0.94" (Just 0.846))
+        , activityParameters = M.singleton "yield" (Parameter (CalculatedParameter "0.9 * 0.94" (Just 0.846)) Nothing "")
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing

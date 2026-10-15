@@ -20,6 +20,7 @@ module SimaPro.Parser (
     BioExchangeRow (..),
     GlobalParams (..),
     ParamLevel (..),
+    ParamRow (..),
     emptyProcessBlock,
     fallbackAmounts,
     buildParamEnv,
@@ -201,8 +202,8 @@ data ProcessBlock = ProcessBlock
     , pbEmissionsWater :: ![BioExchangeRow]
     , pbEmissionsSoil :: ![BioExchangeRow]
     , pbFinalWaste :: ![BioExchangeRow]
-    , pbInputParams :: ![(Text, Text)] -- name -> raw value
-    , pbCalcParams :: ![(Text, Text)] -- name -> expression
+    , pbInputParams :: ![ParamRow]
+    , pbCalcParams :: ![ParamRow]
     , pbOpening :: !BlockOpening
     }
     deriving (Show, Eq, Generic)
@@ -337,10 +338,10 @@ data ParseAcc = ParseAcc
     , paDateNotes :: ![DateNote] -- reversed
     , paNameOnlyBlocks :: ![Text] -- blocks with no Process line, by 'blockLabel', reversed
     , paLineNum :: !Int
-    , paDbInputParams :: ![(Text, Text)]
-    , paDbCalcParams :: ![(Text, Text)]
-    , paProjInputParams :: ![(Text, Text)]
-    , paProjCalcParams :: ![(Text, Text)]
+    , paDbInputParams :: ![ParamRow]
+    , paDbCalcParams :: ![ParamRow]
+    , paProjInputParams :: ![ParamRow]
+    , paProjCalcParams :: ![ParamRow]
     , paSubstanceCAS :: ![(Text, Text)] -- (name, CAS) from the trailer registry
     , paLibraryFields :: ![DocSection] -- the documentation block being read, reversed
     , paSystems :: ![LibraryDocument] -- reversed
@@ -385,19 +386,29 @@ environment. The 'Monoid' instance merges the params each parallel worker
 collected from its own chunk.
 -}
 data GlobalParams = GlobalParams
-    { gpDbInput :: ![(Text, Text)]
-    , gpDbCalc :: ![(Text, Text)]
-    , gpProjInput :: ![(Text, Text)]
-    , gpProjCalc :: ![(Text, Text)]
+    { gpDbInput :: ![ParamRow]
+    , gpDbCalc :: ![ParamRow]
+    , gpProjInput :: ![ParamRow]
+    , gpProjCalc :: ![ParamRow]
     }
     deriving (Show, Eq, Generic)
 
 instance NFData GlobalParams
 
+-- | A parameter line: the name, the value or formula as written, and what its comment says.
+data ParamRow = ParamRow
+    { parName :: !Text
+    , parValue :: !Text
+    , parComment :: !Text
+    }
+    deriving (Show, Eq, Generic)
+
+instance NFData ParamRow
+
 -- | The parameters one level of a file defines: the database, the project or a process.
 data ParamLevel = ParamLevel
-    { levelInputs :: ![(Text, Text)]
-    , levelCalculated :: ![(Text, Text)]
+    { levelInputs :: ![ParamRow]
+    , levelCalculated :: ![ParamRow]
     }
 
 instance Semigroup GlobalParams where
@@ -611,16 +622,31 @@ splitCSV delim bs =
             Right rows | Just (row, _) <- V.uncons rows -> V.toList row
             _ -> BS8.split delim clean -- fallback to naive on parse error
 
--- | Parse a parameter row: name;value_or_expression;...
-parseParamRow :: SimaProConfig -> BS.ByteString -> Maybe (Text, Text)
-parseParamRow cfg line =
-    let fields = splitCSV (spDelimiter cfg) line
-     in case fields of
-            (name : value : _) ->
-                let n = decodeBS (BS8.strip name)
-                    v = Expr.normalizeExpr (spDecimal cfg) (decodeBS (BS8.strip value))
-                 in if T.null n then Nothing else Just (n, v)
-            _ -> Nothing
+{- | Parse a parameter line. An input parameter's comment follows its value
+and five columns of uncertainty and visibility; a calculated one's follows its
+formula. A pedigree matrix opening the comment is no part of what it says.
+-}
+parseParamRow :: SimaProConfig -> ParamKind -> BS.ByteString -> Maybe ParamRow
+parseParamRow cfg kind line =
+    case splitCSV (spDelimiter cfg) line of
+        (name : value : rest) ->
+            let n = decodeBS (BS8.strip name)
+                comment = case kind of
+                    InputParam -> drop 5 rest
+                    CalculatedParam -> rest
+             in if T.null n
+                    then Nothing
+                    else
+                        Just
+                            ParamRow
+                                { parName = n
+                                , parValue = Expr.normalizeExpr (spDecimal cfg) (decodeBS (BS8.strip value))
+                                , parComment = fromMaybe "" (nonEmptyText =<< snd (parsePedigreePrefix (joinComment comment)))
+                                }
+        _ -> Nothing
+
+-- | Which of the two parameter tables a line is in.
+data ParamKind = InputParam | CalculatedParam
 
 {- | Parse a reference product line.
 SimaPro CSV format:
@@ -995,15 +1021,15 @@ the registry is the trailing substance list every name draws its CAS from.
 -}
 addFileRow :: SimaProConfig -> FileSection -> BS.ByteString -> ParseAcc -> ParseAcc
 addFileRow cfg sec line acc = case sec of
-    SecDbInputParams -> withParam $ \p -> acc{paDbInputParams = p : paDbInputParams acc}
-    SecDbCalcParams -> withParam $ \p -> acc{paDbCalcParams = p : paDbCalcParams acc}
-    SecProjInputParams -> withParam $ \p -> acc{paProjInputParams = p : paProjInputParams acc}
-    SecProjCalcParams -> withParam $ \p -> acc{paProjCalcParams = p : paProjCalcParams acc}
+    SecDbInputParams -> withParam InputParam $ \p -> acc{paDbInputParams = p : paDbInputParams acc}
+    SecDbCalcParams -> withParam CalculatedParam $ \p -> acc{paDbCalcParams = p : paDbCalcParams acc}
+    SecProjInputParams -> withParam InputParam $ \p -> acc{paProjInputParams = p : paProjInputParams acc}
+    SecProjCalcParams -> withParam CalculatedParam $ \p -> acc{paProjCalcParams = p : paProjCalcParams acc}
     SecSubstanceRegistry ->
         placed (parseSubstanceRow cfg line) $ \nc -> acc{paSubstanceCAS = nc : paSubstanceCAS acc}
   where
-    withParam :: ((Text, Text) -> ParseAcc) -> ParseAcc
-    withParam = placed (parseParamRow cfg line)
+    withParam :: ParamKind -> (ParamRow -> ParseAcc) -> ParseAcc
+    withParam kind = placed (parseParamRow cfg kind line)
 
     -- Forced as the line closes, for the reason 'addRowToBlock' gives.
     placed :: (NFData a) => Maybe a -> (a -> ParseAcc) -> ParseAcc
@@ -1029,8 +1055,8 @@ addRowToBlock cfg sec line block = case sec of
     SecEmissionsWater -> withBio $ \r -> block{pbEmissionsWater = r : pbEmissionsWater block}
     SecEmissionsSoil -> withBio $ \r -> block{pbEmissionsSoil = r : pbEmissionsSoil block}
     SecFinalWaste -> withBio $ \r -> block{pbFinalWaste = r : pbFinalWaste block}
-    SecInputParams -> withParam $ \p -> block{pbInputParams = p : pbInputParams block}
-    SecCalcParams -> withParam $ \p -> block{pbCalcParams = p : pbCalcParams block}
+    SecInputParams -> withParam InputParam $ \p -> block{pbInputParams = p : pbInputParams block}
+    SecCalcParams -> withParam CalculatedParam $ \p -> block{pbCalcParams = p : pbCalcParams block}
   where
     withProduct :: (ProductRow -> ProcessBlock) -> ProcessBlock
     withProduct = placed (parseProductRow cfg line)
@@ -1041,8 +1067,8 @@ addRowToBlock cfg sec line block = case sec of
     withBio :: (BioExchangeRow -> ProcessBlock) -> ProcessBlock
     withBio = placed (parseBioRow cfg line)
 
-    withParam :: ((Text, Text) -> ProcessBlock) -> ProcessBlock
-    withParam = placed (parseParamRow cfg line)
+    withParam :: ParamKind -> (ParamRow -> ProcessBlock) -> ProcessBlock
+    withParam kind = placed (parseParamRow cfg kind line)
 
     -- A line the section's parser makes nothing of leaves the block as it was.
     placed :: (NFData a) => Maybe a -> (a -> ProcessBlock) -> ProcessBlock
@@ -1432,7 +1458,7 @@ definition of its name, whose value would not be the one the level meant.
 buildParamEnv :: [ParamLevel] -> (M.Map Text Double, M.Map Text Parameter)
 buildParamEnv levels =
     ( env
-    , foldl' (flip (uncurry respell)) M.empty ([(name, InputParameter value) | (name, _) <- inputGroup, Just value <- [M.lookup name inputs]] ++ calculated)
+    , foldl' (flip (uncurry respell)) M.empty ([(parName r, described r (InputParameter value)) | r <- inputGroup, Just value <- [M.lookup (parName r) inputs]] ++ calculated)
     )
   where
     inForce :: ParamLevel
@@ -1446,12 +1472,12 @@ buildParamEnv levels =
             , levelCalculated = outside own (levelCalculated general) ++ levelCalculated level
             }
       where
-        names = S.fromList . map (T.toLower . fst)
+        names = S.fromList . map (T.toLower . parName)
         calculatedHere = names (levelCalculated level)
         own = names (levelInputs level) <> calculatedHere
-        outside taken = filter (\(name, _) -> S.notMember (T.toLower name) taken)
+        outside taken = filter (\r -> S.notMember (T.toLower (parName r)) taken)
 
-    inputGroup, calcGroup :: [(Text, Text)]
+    inputGroup, calcGroup :: [ParamRow]
     inputGroup = levelInputs inForce
     calcGroup = levelCalculated inForce
 
@@ -1460,18 +1486,21 @@ buildParamEnv levels =
 
     -- A formula that does not settle has no value: no input of its name is left to lend one.
     env :: M.Map Text Double
-    env = fst (Expr.settle Expr.SimaPro inputs calcGroup)
+    env = fst (Expr.settle Expr.SimaPro inputs [(parName r, parValue r) | r <- calcGroup])
 
     calculated :: [(Text, Parameter)]
-    calculated = [(name, p) | (name, formula) <- calcGroup, Just p <- [parameter formula (M.lookup name env)]]
+    calculated = [(parName r, described r p) | r <- calcGroup, Just p <- [definition (parValue r) (M.lookup (parName r) env)]]
 
     -- A formula VoLCA's language cannot write leaves its value only.
-    parameter :: Text -> Maybe Double -> Maybe Parameter
-    parameter formula value = either (const (InputParameter <$> value)) (\text -> Just (CalculatedParameter text value)) (Expr.translate Expr.SimaPro formula)
+    definition :: Text -> Maybe Double -> Maybe ParameterDefinition
+    definition formula value = either (const (InputParameter <$> value)) (\text -> Just (CalculatedParameter text value)) (Expr.translate Expr.SimaPro formula)
 
-    evalParam :: M.Map Text Double -> (Text, Text) -> M.Map Text Double
-    evalParam acc (name, rawVal) =
-        either (const acc) (\v -> respell name v acc) (Expr.evaluate Expr.SimaPro acc rawVal)
+    described :: ParamRow -> ParameterDefinition -> Parameter
+    described r d = Parameter{parameterDefinition = d, parameterUnit = Nothing, parameterDescription = parComment r}
+
+    evalParam :: M.Map Text Double -> ParamRow -> M.Map Text Double
+    evalParam acc r =
+        either (const acc) (\v -> respell (parName r) v acc) (Expr.evaluate Expr.SimaPro acc (parValue r))
 
 -- | Bind a name, dropping the spellings of it that differ only in case.
 respell :: Text -> a -> M.Map Text a -> M.Map Text a
@@ -1484,7 +1513,7 @@ blockParamEnv :: GlobalParams -> ProcessBlock -> (M.Map Text Double, M.Map Text 
 blockParamEnv GlobalParams{..} ProcessBlock{..} =
     (env, M.filterWithKey (\name _ -> S.member (T.toLower name) own) parameters)
   where
-    own = S.fromList (map (T.toLower . fst) (pbInputParams ++ pbCalcParams))
+    own = S.fromList (map (T.toLower . parName) (pbInputParams ++ pbCalcParams))
     (env, parameters) =
         buildParamEnv [ParamLevel (reverse gpDbInput) (reverse gpDbCalc), ParamLevel (reverse gpProjInput) (reverse gpProjCalc), ParamLevel (reverse pbInputParams) (reverse pbCalcParams)]
 
@@ -1496,9 +1525,9 @@ globalParameters GlobalParams{..} =
 -- | The names a project parameter takes from a database parameter.
 shadowedByProject :: GlobalParams -> [Text]
 shadowedByProject GlobalParams{..} =
-    nubOrd [name | (name, _) <- gpProjInput ++ gpProjCalc, S.member (T.toLower name) database]
+    nubOrd [parName r | r <- gpProjInput ++ gpProjCalc, S.member (T.toLower (parName r)) database]
   where
-    database = S.fromList (map (T.toLower . fst) (gpDbInput ++ gpDbCalc))
+    database = S.fromList (map (T.toLower . parName) (gpDbInput ++ gpDbCalc))
 
 {- | Convert ProcessBlock to list of Activities (one per product)
 This matches EcoSpold behavior where multi-product processes create multiple activities

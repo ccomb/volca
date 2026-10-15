@@ -60,6 +60,14 @@ spec = describe "readPackage" $ do
             r <- readPackage dir
             fmap (map (isInput . paValue) . filter ((== "bare") . paName) . pkGlobals) r `shouldBe` Right [True]
 
+    it "reads a parameter's description, and a blank one as none" $
+        withPackage $ \dir -> do
+            writeFile (dir </> "parameters" </> "told.json") "{\"name\": \"told\", \"value\": 4, \"description\": \" Share of the heat \"}"
+            writeFile (dir </> "parameters" </> "blank.json") "{\"name\": \"blank\", \"value\": 4, \"description\": \"  \"}"
+            r <- readPackage dir
+            fmap (M.fromList . map (\q -> (paName q, paDescription q)) . filter ((`elem` ["told", "blank"]) . paName) . pkGlobals) r
+                `shouldBe` Right (M.fromList [("blank", ""), ("told", "Share of the heat")])
+
     it "keeps causal factors on the internal id of the line they name" $ do
         pkg <- readFixture
         fmap (map afExchange . prFactors) (processNamed pkg "cogeneration, causal") `shouldBe` Just [Just 1, Just 1, Just 7, Just 1]

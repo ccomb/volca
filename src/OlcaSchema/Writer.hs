@@ -339,7 +339,7 @@ warnings cx = splitWarnings (cxDb cx) <> mapMaybe counted kinds
     hasFormulas :: Activity -> Bool
     hasFormulas a = any isCalculated (activityParameters a) || any (isJust . exchangeFormula) (exchanges a)
     isCalculated :: Parameter -> Bool
-    isCalculated p = case p of
+    isCalculated p = case parameterDefinition p of
         CalculatedParameter{} -> True
         InputParameter{} -> False
     produced = S.fromList [exchangeFlowId ex | a <- acts, ex <- exchanges a, exchangeIsReference ex]
