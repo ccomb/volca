@@ -387,6 +387,7 @@ buildFrom activities = do
                 , sdbWasteFlows = M.empty
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
+                , sdbParameters = M.empty
                 }
     either (fail . show) pure r
 

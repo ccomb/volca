@@ -231,6 +231,7 @@ dbOf acts =
                 , (litreUnit, Unit litreUnit "l" "l" "")
                 ]
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 -- | The report of a one-activity database, for the many single-defect cases.

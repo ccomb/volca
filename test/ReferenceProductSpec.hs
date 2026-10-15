@@ -177,6 +177,7 @@ database shift = do
                 , sdbWasteFlows = M.empty
                 , sdbUnits = M.fromList [(unitId kg, kg)]
                 , sdbDocumentation = noDocumentation
+                , sdbParameters = M.empty
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . show) pure built
   where

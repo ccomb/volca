@@ -105,6 +105,7 @@ consumerDB =
             M.singleton wasteFlow (WasteFlow wasteFlow "plastic waste" kgUnit M.empty Nothing Nothing)
         , sdbUnits = units
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
   where
     breadExchanges =
@@ -136,6 +137,7 @@ supplierDB =
         , sdbWasteFlows = M.empty
         , sdbUnits = units
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 stats :: CrossDBLinkingStats

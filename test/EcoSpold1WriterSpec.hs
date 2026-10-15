@@ -162,6 +162,7 @@ assembleSimpleDb datasets =
         , sdbWasteFlows = M.fromList [(wfId f, f) | ParsedDataset{pdWasteFlows = wfs} <- datasets, f <- wfs]
         , sdbUnits = M.fromList [(unitId u, u) | ParsedDataset{pdUnits = us} <- datasets, u <- us]
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 {- | An injective @(activityUUID, productUUID)@ key for the matrix builder. The
@@ -204,6 +205,7 @@ soloDb name prodU extra techs bios wastes =
         , sdbWasteFlows = wastes
         , sdbUnits = units1
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
   where
     ref = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
@@ -211,7 +213,7 @@ soloDb name prodU extra techs bios wastes =
 
 -- | Empty database: no activities, no flows.
 emptyDb :: SimpleDatabase
-emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation
+emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation M.empty
 
 {- | Two activities where the consumer's technosphere input is a resolved link
 to the supplier. The link UUID is the supplier's stored activity UUID
@@ -232,6 +234,7 @@ linkedDb link =
         , sdbWasteFlows = M.empty
         , sdbUnits = units1
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
   where
     supU = supplierLink
@@ -266,6 +269,7 @@ coproductDb =
         , sdbWasteFlows = M.empty
         , sdbUnits = units1
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
   where
     supU = supplierLink
@@ -752,6 +756,7 @@ spec = do
                         , sdbWasteFlows = M.empty
                         , sdbUnits = units1
                         , sdbDocumentation = noDocumentation
+                        , sdbParameters = M.empty
                         }
             case roundTrip sdb of
                 Left err -> expectationFailure ("round-trip failed: " ++ err)

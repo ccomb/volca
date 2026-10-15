@@ -881,6 +881,7 @@ buildFixtureAt actId prodId = do
                 , sdbWasteFlows = M.singleton usedOilId usedOilWasteFlow
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
+                , sdbParameters = M.empty
                 }
     either (fail . show) pure r
 
@@ -910,6 +911,7 @@ buildTwoProductTreatment = do
                 , sdbWasteFlows = M.singleton usedOilId usedOilWasteFlow
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
+                , sdbParameters = M.empty
                 }
     either (fail . show) pure r
 
@@ -930,6 +932,7 @@ buildBareFixture = do
                 , sdbWasteFlows = M.empty
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
+                , sdbParameters = M.empty
                 }
     either (fail . show) pure r
 

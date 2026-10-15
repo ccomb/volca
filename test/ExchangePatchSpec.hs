@@ -171,6 +171,7 @@ fixture =
         , sdbWasteFlows = M.empty
         , sdbUnits = M.empty
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 emptyMatch :: ExchangePatchMatch

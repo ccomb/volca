@@ -357,7 +357,7 @@ unitNamesDisagreeing h =
 -- | The tables of a harvest that make a database, and the literature its datasets cite; the rest describes the reading.
 harvestDatabase :: Harvest -> SimpleDatabase
 harvestDatabase h =
-    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h) noDocumentation{dbdocLiterature = S.toList (hvLiterature h)}
+    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h) noDocumentation{dbdocLiterature = S.toList (hvLiterature h)} M.empty
 
 {- |
 Schema signature of the cache payload.
@@ -600,6 +600,8 @@ History of manual bumps:
 - 63: an EcoSpold 2 formula calling @UnitConversion@ is read with the
      package's own conversion factors, so more of them are kept.
 - 64: SimaPro exchanges keep the formula their amount follows.
+- 65: a database keeps the parameters every process of it reads, and a
+     SimaPro process keeps only its own.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -607,7 +609,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 64
+     in hi `xor` lo `xor` 65
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1365,7 +1367,7 @@ loadSimaProCSV opts csvPath = do
     parsed <- SimaPro.parseSimaProCSV unitConfig csvPath
     case parsed of
         Left err -> return (Left err)
-        Right SimaPro.SimaProFile{spfActivities = activities, spfTechFlows = techFlowDB, spfBioFlows = bioFlowDB, spfWasteFlows = wasteFlowDB, spfUnits = unitDB, spfDocumentation = documentation} ->
+        Right SimaPro.SimaProFile{spfActivities = activities, spfTechFlows = techFlowDB, spfBioFlows = bioFlowDB, spfWasteFlows = wasteFlowDB, spfUnits = unitDB, spfDocumentation = documentation, spfParameters = parameters} ->
             if null activities
                 then return $ Left "No activities found in SimaPro CSV file."
                 else do
@@ -1375,7 +1377,7 @@ loadSimaProCSV opts csvPath = do
                     forM_ collisions $ reportProgress Warning . T.unpack
 
                     -- Build initial database
-                    let simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB documentation
+                    let simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB documentation parameters
 
                     -- Fix activity links using supplier lookup (same as EcoSpold1)
                     Right <$> linkWithinDatabaseByName unitConfig simpleDb
@@ -1398,7 +1400,7 @@ loadBrightwayExcel opts xlsxPath = do
             | null activities -> return $ Left "No activities found in Brightway Excel file."
             | otherwise -> do
                 let (procMap, collisions) = indexActivities (allocateAll (allocating opts unitDB) activities)
-                    simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB noDocumentation
+                    simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB noDocumentation M.empty
                 forM_ collisions $ reportProgress Warning . T.unpack
                 Right <$> linkWithinDatabaseByName unitConfig simpleDb
 

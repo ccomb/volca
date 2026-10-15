@@ -1441,12 +1441,29 @@ buildParamEnv inputGroups calcGroups =
     evalParam acc (name, rawVal) =
         either (const acc) (\v -> M.insert name v acc) (Expr.evaluate Expr.SimaPro acc rawVal)
 
--- | The parameter environment a block's amounts are evaluated in.
+{- | The parameter environment a block's amounts are evaluated in, and the
+parameters the block itself defines: the file's are the database's.
+-}
 blockParamEnv :: GlobalParams -> ProcessBlock -> (M.Map Text Double, M.Map Text Parameter)
 blockParamEnv GlobalParams{..} ProcessBlock{..} =
-    buildParamEnv
-        (reverse <$> [gpDbInput, gpProjInput, pbInputParams])
-        (reverse <$> [gpDbCalc, gpProjCalc, pbCalcParams])
+    (env, M.restrictKeys parameters (S.fromList (map fst (pbInputParams ++ pbCalcParams))))
+  where
+    (env, parameters) =
+        buildParamEnv
+            (reverse <$> [gpDbInput, gpProjInput, pbInputParams])
+            (reverse <$> [gpDbCalc, gpProjCalc, pbCalcParams])
+
+-- | The database and project parameters, a project one replacing the database one of its name.
+globalParameters :: GlobalParams -> M.Map Text Parameter
+globalParameters GlobalParams{..} =
+    snd (buildParamEnv (reverse <$> [gpDbInput, gpProjInput]) (reverse <$> [gpDbCalc, gpProjCalc]))
+
+-- | The names a project parameter takes from a database parameter.
+shadowedByProject :: GlobalParams -> [Text]
+shadowedByProject GlobalParams{..} =
+    S.toList (S.intersection (names (gpProjInput ++ gpProjCalc)) (names (gpDbInput ++ gpDbCalc)))
+  where
+    names = S.fromList . map fst
 
 {- | Convert ProcessBlock to list of Activities (one per product)
 This matches EcoSpold behavior where multi-product processes create multiple activities
@@ -2213,6 +2230,7 @@ data SimaProFile = SimaProFile
     , spfWasteFlows :: !WasteFlowDB
     , spfUnits :: !UnitDB
     , spfDocumentation :: !DatabaseDocumentation
+    , spfParameters :: !(M.Map Text Parameter)
     }
 
 parseSimaProCSV :: UnitConversion.UnitConfig -> FilePath -> IO (Either Text SimaProFile)
@@ -2294,6 +2312,9 @@ parseSimaProCSV unitCfg path = do
     case indexed of
         Left err -> pure (Left err)
         Right (techFlowDB, (bioFlowDB, casConflicts), wasteFlowDB) -> do
+            forM_ (shadowedByProject (fgParams globals)) $ \name ->
+                reportProgress Warning $
+                    printf "project parameter '%s' replaces the database parameter of the same name" (T.unpack name)
             forM_ casConflicts $ \(NormName n, (CASNumber kept, CASNumber ignored)) ->
                 reportProgress Warning $
                     printf
@@ -2332,4 +2353,5 @@ parseSimaProCSV unitCfg path = do
                             , dbdocSystems = fgSystems globals
                             , dbdocLiterature = fgLiterature globals
                             }
+                    , spfParameters = globalParameters (fgParams globals)
                     }

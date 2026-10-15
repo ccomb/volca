@@ -118,6 +118,7 @@ buildDatabase cfg key pkg =
                             , sdbWasteFlows = ftWaste tables
                             , sdbUnits = unitDB
                             , sdbDocumentation = noDocumentation
+                            , sdbParameters = M.empty
                             }
                     , builtNotices = ftNotices tables <> concatMap rpNotices processes
                     }

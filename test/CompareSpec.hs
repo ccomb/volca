@@ -515,6 +515,7 @@ databaseKeyed key rows = do
                 , sdbWasteFlows = M.empty
                 , sdbUnits = M.fromList [(unitId u, u) | u <- [kg, gram, kgAgain]]
                 , sdbDocumentation = noDocumentation
+                , sdbParameters = M.empty
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . show) pure built
 

@@ -135,6 +135,7 @@ mkDB locsAndEmissions =
             , dbLinkingStats = mempty
             , dbBuiltWith = VT.BuildInputs defaultUnitConfig mempty VT.Declared []
             , dbDocumentation = VT.noDocumentation
+            , dbParameters = M.empty
             , dbSynonymDB = Nothing
             , dbFlowsByName = M.empty
             , dbFlowsByCAS = M.empty

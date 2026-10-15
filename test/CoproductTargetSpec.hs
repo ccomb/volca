@@ -242,6 +242,7 @@ buildFixture consumer rows flows = do
                 , sdbWasteFlows = M.singleton scrapId (wasteFlow scrapId "scrap")
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
+                , sdbParameters = M.empty
                 }
     either (fail . show) pure r
 

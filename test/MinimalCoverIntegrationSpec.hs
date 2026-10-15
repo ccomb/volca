@@ -165,6 +165,7 @@ supplierDB offset =
             , sdbWasteFlows = M.empty
             , sdbUnits = M.singleton kgUnitId kgUnit
             , sdbDocumentation = noDocumentation
+            , sdbParameters = M.empty
             }
 
 {- | A consumer DB with @n@ activities, each having one unlinked technosphere
@@ -255,4 +256,5 @@ consumerDB offset n =
             , sdbWasteFlows = M.empty
             , sdbUnits = M.singleton kgUnitId kgUnit
             , sdbDocumentation = noDocumentation
+            , sdbParameters = M.empty
             }

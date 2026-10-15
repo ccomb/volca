@@ -1625,6 +1625,7 @@ data Database = Database
     -- What it was built with (serialized to cache, compared before a cache is trusted)
     , dbBuiltWith :: !BuildInputs
     , dbDocumentation :: !DatabaseDocumentation -- What the database says about itself (serialized to cache)
+    , dbParameters :: !(M.Map Text Parameter) -- Parameters every process reads unless it defines its own of the same name
     , -- Runtime-only fields (not serialized to cache)
       dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
     , dbFlowsByName :: !(M.Map Text [BiosphereFlow]) -- Biosphere flow name index for LCIA matching
@@ -1662,6 +1663,7 @@ instance Store Database where
             + getSize (dbLinkingStats db)
             + getSize (dbBuiltWith db)
             + getSize (dbDocumentation db)
+            + getSize (dbParameters db)
 
     poke db = do
         poke (dbProcessIdTable db)
@@ -1686,6 +1688,7 @@ instance Store Database where
         poke (dbLinkingStats db)
         poke (dbBuiltWith db)
         poke (dbDocumentation db)
+        poke (dbParameters db)
 
     -- Runtime-only fields are NOT serialized
 
@@ -1711,6 +1714,7 @@ instance Store Database where
         linkingStats <- peek
         builtWith <- peek
         documentation <- peek
+        parameters <- peek
         return
             Database
                 { dbProcessIdTable = processIdTable
@@ -1735,6 +1739,7 @@ instance Store Database where
                 , dbLinkingStats = linkingStats
                 , dbBuiltWith = builtWith
                 , dbDocumentation = documentation
+                , dbParameters = parameters
                 , -- Runtime-only fields set to defaults
                   dbSynonymDB = Nothing
                 , dbFlowsByName = M.empty
@@ -2080,6 +2085,7 @@ data SimpleDatabase = SimpleDatabase
     , sdbWasteFlows :: !WasteFlowDB
     , sdbUnits :: !UnitDB
     , sdbDocumentation :: !DatabaseDocumentation
+    , sdbParameters :: !(M.Map Text Parameter)
     }
     deriving (Generic, Store)
 
@@ -2095,6 +2101,7 @@ toSimpleDatabase db =
         , sdbWasteFlows = dbWasteFlows db
         , sdbUnits = dbUnits db
         , sdbDocumentation = dbDocumentation db
+        , sdbParameters = dbParameters db
         }
 
 -- | Blocking reason for cross-database linking failure

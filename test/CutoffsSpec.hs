@@ -63,6 +63,7 @@ simple acts =
         , sdbWasteFlows = M.empty
         , sdbUnits = units
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 build :: SimpleDatabase -> IO Database

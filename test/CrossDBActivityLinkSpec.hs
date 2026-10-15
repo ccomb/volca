@@ -131,6 +131,7 @@ mkDB acts flows =
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton kgUnit (Unit kgUnit "kg" "" "")
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 ctxFor :: [IndexedDatabase] -> LinkingContext

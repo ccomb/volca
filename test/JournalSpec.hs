@@ -421,6 +421,7 @@ buildDepFixture = do
                 , sdbWasteFlows = M.empty
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
+                , sdbParameters = M.empty
                 }
     either (fail . show) pure built
 
@@ -436,6 +437,7 @@ buildFixture = do
                 , sdbWasteFlows = M.empty
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
+                , sdbParameters = M.empty
                 }
     either (fail . show) pure built
 

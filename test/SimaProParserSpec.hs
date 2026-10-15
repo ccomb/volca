@@ -1204,6 +1204,24 @@ spec = do
             -- dbin, dbin*3, projin, projin*7
             techInputAmounts act `shouldMatchList` [2.0, 6.0, 5.0, 35.0]
 
+        it "keeps the file's parameters once, on the database, and none on its processes" $ do
+            db <- withSystemTempFile "all-param.csv" $ \path handle -> do
+                BS.hPut handle allParamTestCSV
+                hClose handle
+                either (fail . T.unpack) pure =<< loadSimaProCSV (defaultLoadOptions defaultUnitConfig) path
+            M.keys (sdbParameters db) `shouldBe` ["dbcalc", "dbin", "projcalc", "projin"]
+            map activityParameters (M.elems (sdbActivities db)) `shouldBe` [M.empty]
+
+        it "lets a project parameter replace the database one of its name, and says so" $ do
+            (before, _) <- getLogLines 0
+            file <- withSystemTempFile "shadowed-param.csv" $ \path handle -> do
+                BS.hPut handle (TE.encodeUtf8 (T.replace "projin" "dbin" (TE.decodeUtf8 allParamTestCSV)))
+                hClose handle
+                either (fail . show) pure =<< parseSimaProCSV defaultUnitConfig path
+            (_, newLines) <- getLogLines before
+            M.lookup "dbin" (spfParameters file) `shouldBe` Just (InputParameter 5)
+            [() | l <- newLines, "project parameter 'dbin' replaces" `isInfixOf` llText l] `shouldBe` [()]
+
     describe "SimaPro sections read and dropped" $ do
         it "adds nothing from a section the parser recognises and ignores" $ do
             (activities, _, _, _, _) <- parseIgnoredSectionCSV

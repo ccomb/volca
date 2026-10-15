@@ -523,6 +523,7 @@ mkSplitLocationDB actLoc exLoc =
             , sdbWasteFlows = M.empty
             , sdbUnits = M.empty
             , sdbDocumentation = noDocumentation
+            , sdbParameters = M.empty
             }
 
 -- ---------------------------------------------------------------------------
@@ -553,6 +554,7 @@ twoProducerDB =
         , sdbWasteFlows = M.empty
         , sdbUnits = M.empty
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
   where
     flowUUID = read "aaaaaaaa-0000-0000-0000-000000000002"

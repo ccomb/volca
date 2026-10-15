@@ -42,7 +42,7 @@ Matrix Construction:
 - Solver constructs (I-A) by adding identity and negating technosphere triplets
 -}
 buildDatabaseWithMatrices :: BuildInputs -> SimpleDatabase -> IO (Either Text Database)
-buildDatabaseWithMatrices inputs SimpleDatabase{sdbActivities = activityMap, sdbTechFlows = techFlowDB, sdbBioFlows = bioFlowDB, sdbWasteFlows = wasteFlowDB, sdbUnits = unitDB, sdbDocumentation = documentation} = do
+buildDatabaseWithMatrices inputs SimpleDatabase{sdbActivities = activityMap, sdbTechFlows = techFlowDB, sdbBioFlows = bioFlowDB, sdbWasteFlows = wasteFlowDB, sdbUnits = unitDB, sdbDocumentation = documentation, sdbParameters = parameters} = do
     reportMatrixOperation "Building database with pre-computed sparse matrices"
     let !tables = buildInterningTables activityMap
         !supplierRefUnits = buildSupplierRefUnits unitDB (itActivities tables)
@@ -100,6 +100,7 @@ buildDatabaseWithMatrices inputs SimpleDatabase{sdbActivities = activityMap, sdb
                         , dbLinkingStats = mempty
                         , dbBuiltWith = inputs
                         , dbDocumentation = documentation
+                        , dbParameters = parameters
                         , dbSynonymDB = Nothing
                         , dbFlowsByName = M.empty
                         , dbFlowsByCAS = M.empty

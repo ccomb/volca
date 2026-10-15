@@ -284,6 +284,7 @@ fixtureDb =
         , sdbWasteFlows = M.empty
         , sdbUnits = M.fromList [(unitId u, u) | u <- [kwh, m3, kg]]
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 elec :: Activity
@@ -392,6 +393,7 @@ specialDb =
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton (unitId kg) kg
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 specialProductName, specialInputName, specialBioName :: Text
@@ -527,6 +529,7 @@ refInputDb =
         { sdbTechFlows = M.singleton (tfId solventFlow) solventFlow
         , sdbUnits = M.singleton (unitId kg) kg
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 {- | The base fixture with a comment attached to its reference product, its
@@ -630,6 +633,7 @@ coproductDb =
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton (unitId kg) kg
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 {- | The (role, amount) pairs of an activity's technosphere production rows,
@@ -640,7 +644,7 @@ roleAmounts a = [(role, techAmount ex) | ex@TechnosphereExchange{techRole = role
 
 -- | A database with no activities, flows, or units.
 emptyDb :: SimpleDatabase
-emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation
+emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation M.empty
 
 {- | A single input exchange whose amount sits at the 1e15 integer/scientific
 boundary of 'formatAmount'.
@@ -689,6 +693,7 @@ gramRefDb =
         , sdbWasteFlows = M.empty
         , sdbUnits = M.singleton (unitId gramUnit) gramUnit
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
   where
     act =
@@ -895,6 +900,7 @@ rebuild (acts, techDB, bioDB, wasteDB, unitDB) =
         , sdbWasteFlows = wasteDB
         , sdbUnits = unitDB
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 {- | The deterministic logical cells the writer would emit for a database: the

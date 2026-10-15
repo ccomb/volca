@@ -183,6 +183,7 @@ simpleDB acts =
         , sdbWasteFlows = wasteFlowDB
         , sdbUnits = M.singleton kgU (Unit kgU "kg" "kg" "")
         , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
         }
 
 buildDB :: T.Text -> M.Map (UUID, UUID) Activity -> IO Database
