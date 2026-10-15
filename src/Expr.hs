@@ -818,7 +818,10 @@ pUnitConversion language conversions = do
     amount <- pFormula language
     from <- symbol ";" *> pUnitName
     to <- symbol ";" *> pUnitName <* symbol ")"
-    maybe (fail ("no conversion from " <> T.unpack from <> " to " <> T.unpack to)) (pure . Binary Multiply amount . Literal) (M.lookup (from, to) conversions)
+    let missing
+            | M.null conversions = "the database has no unit conversion table"
+            | otherwise = "no conversion from " <> T.unpack from <> " to " <> T.unpack to
+    maybe (fail missing) (pure . Binary Multiply amount . Literal) (M.lookup (from, to) conversions)
   where
     pUnitName :: Parser Text
     pUnitName = lexeme (char '\'' *> takeWhileP Nothing (/= '\'') <* char '\'')

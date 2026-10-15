@@ -224,6 +224,9 @@ spec = do
         it "refuses a UnitConversion the database's table has no factor for, naming both units" $
             translate (EcoSpold2 (M.fromList [(("MJ", "kWh"), 0.25)])) "UnitConversion(1, 'kWh', 'MJ')"
                 `shouldSatisfy` either (T.isInfixOf "no conversion from kWh to MJ" . describeRefusal) (const False)
+        it "says a database without a unit conversion table has none, rather than lacking one pair" $
+            translate (EcoSpold2 M.empty) "UnitConversion(1, 'kWh', 'MJ')"
+                `shouldSatisfy` either (T.isInfixOf "the database has no unit conversion table" . describeRefusal) (const False)
         it "keeps openLCA's grouping of ^ and of a sign with the parentheses VoLCA needs" $ do
             translate OpenLca "-2^2" `shouldBe` Right "(-2) ^ 2"
             translate OpenLca "2^3^2" `shouldBe` Right "(2 ^ 3) ^ 2"

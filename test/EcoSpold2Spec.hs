@@ -333,13 +333,21 @@ perExchangeComments = describe "per-exchange comments" $ do
                 [efText <$> exchangeFormula e | act <- M.elems (sdbActivities db), e@TechnosphereExchange{techRole = Input} <- exchanges act]
                     `shouldBe` [Just "fuel_input * 0.5 * 4"]
 
-        it "refuses a unit table giving two factors from one unit to another" $
+        it "refuses unit tables giving two factors from one unit to another, in one file or across two" $ do
+            let row factor = "<unitConversion factor=\"" <> factor <> "\"><unitFromName>MJ</unitFromName><unitToName>kWh</unitToName></unitConversion>"
+                table rows = "<validUnitConversions>" <> mconcat rows <> "</validUnitConversions>"
+            parseUnitConversions [table [row "0.5", row "0.25"]] `shouldBe` Left "more than one conversion from MJ to kWh"
+            parseUnitConversions [table [row "0.5"], table [row "0.25"]] `shouldBe` Left "more than one conversion from MJ to kWh"
+            parseUnitConversions [table [row "0.5"], table [row "0.5"]] `shouldBe` Right (M.fromList [(("MJ", "kWh"), 0.5)])
+
+        it "reads a unit conversion by its English names" $
             parseUnitConversions
-                "<validUnitConversions>\
-                \<unitConversion factor=\"0.5\"><unitFromName>MJ</unitFromName><unitToName>kWh</unitToName></unitConversion>\
-                \<unitConversion factor=\"0.25\"><unitFromName>MJ</unitFromName><unitToName>kWh</unitToName></unitConversion>\
-                \</validUnitConversions>"
-                `shouldBe` Left "more than one conversion from MJ to kWh"
+                [ "<validUnitConversions><unitConversion factor=\"0.5\">\
+                  \<unitFromName xml:lang=\"de\">Megajoule</unitFromName><unitFromName xml:lang=\"en\">MJ</unitFromName>\
+                  \<unitToName xml:lang=\"en\">kWh</unitToName>\
+                  \</unitConversion></validUnitConversions>"
+                ]
+                `shouldBe` Right (M.fromList [(("MJ", "kWh"), 0.5)])
 
         -- A variable two declarations claim with two amounts names no value.
         -- Binding whichever was read last would make the check answer on a coin

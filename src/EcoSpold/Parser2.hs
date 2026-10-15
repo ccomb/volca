@@ -8,6 +8,7 @@ import Amount (readAmount)
 import Control.Applicative ((<|>))
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
+import Data.Containers.ListUtils (nubOrd)
 import Data.Either (fromRight, lefts)
 import Data.Indexing (uniqueIndex)
 import Data.List (intercalate)
@@ -1277,16 +1278,17 @@ streamParseActivityAndFlowsFromFile conversions path = do
     either (const (pure ())) (reportReading path) parsed
     return parsed
 
-{- | The factors of a database's master data file @UnitConversions.xml@, which
-its formulas' @UnitConversion@ reads: one per @\<unitConversion\>@, from its
-@unitFromName@ to its @unitToName@. Two rows from one unit to another leave
-no single factor, so the table is refused naming them.
+{- | The factors of a database's master data files @UnitConversions.xml@,
+which its formulas' @UnitConversion@ reads: one per @\<unitConversion\>@,
+from its English @unitFromName@ to its English @unitToName@. Two rows giving
+two factors from one unit to another, in one file or across them, leave no
+single factor, so the tables are refused naming them.
 -}
-parseUnitConversions :: BS.ByteString -> Either String Expr.UnitConversions
-parseUnitConversions xml = do
-    root <- first show (XD.parse xml)
-    rows <- traverse conversion (named "unitConversion" root)
-    first repeatedPairs (uniqueIndex rows)
+parseUnitConversions :: [BS.ByteString] -> Either String Expr.UnitConversions
+parseUnitConversions files = do
+    roots <- traverse (first show . XD.parse) files
+    rows <- traverse conversion (concatMap (named "unitConversion") roots)
+    first repeatedPairs (uniqueIndex (nubOrd rows))
   where
     repeatedPairs :: NE.NonEmpty (Text, Text) -> String
     repeatedPairs pairs = "more than one conversion from " <> intercalate ", " [T.unpack from <> " to " <> T.unpack to | (from, to) <- NE.toList pairs]
@@ -1300,12 +1302,15 @@ parseUnitConversions xml = do
         Right ((from, to), factor)
 
     side :: BS.ByteString -> XD.Node -> Either String Text
-    side element node = case named element node of
+    side element node = case filter english (named element node) of
         found : _ -> Right (T.strip (T.concat [bsToText t | XD.Text t <- XD.contents found]))
-        [] -> Left ("unit conversion without " <> show element)
+        [] -> Left ("unit conversion without an English " <> show element)
+
+    english :: XD.Node -> Bool
+    english = readableAsEnglish . maybe "" bsToText . lookup "xml:lang" . XD.attributes
 
     named :: BS.ByteString -> XD.Node -> [XD.Node]
-    named element = filter ((== element) . XD.name) . XD.children
+    named element = filter ((`isElement` element) . XD.name) . XD.children
 
 -- | Send what a reading had to say to the progress log, the one place it can go.
 reportReading :: FilePath -> ParsedDataset -> IO ()
