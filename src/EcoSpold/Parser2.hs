@@ -794,11 +794,7 @@ keptFormula :: FormulaNames -> Double -> Text -> Maybe Text
 keptFormula names amount relation = do
     text <- either (const Nothing) Just (Expr.translate (Expr.EcoSpold2 (fnConversions names)) relation)
     value <- either (const Nothing) Just (Expr.evaluate Expr.Volca (fnValues names) text)
-    listToMaybe [Expr.times sign text | sign <- [1, -1], sameAmount value (sign * amount)]
-  where
-    -- Relative only: a formula kept on a line of 1e-11 recomputes it, so no floor may let 3e-10 pass.
-    sameAmount :: Double -> Double -> Bool
-    sameAmount a b = a == b || abs (a - b) <= 1e-9 * max (abs a) (abs b)
+    listToMaybe [Expr.times sign text | sign <- [1, -1], Expr.agrees value (sign * amount)]
 
 {- | An exchange with what its amount follows: its relation, when kept, and
 the name other formulas read it by, unless the dataset gives that name two

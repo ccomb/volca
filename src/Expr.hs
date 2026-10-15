@@ -38,6 +38,7 @@ module Expr (
     translate,
     render,
     times,
+    agrees,
     settle,
     describeRefusal,
     describeUnsettled,
@@ -454,6 +455,13 @@ times 1 formula = formula
 times factor formula = case readFormula Volca formula of
     Right tree -> render (Binary Multiply tree (Literal factor))
     Left _ -> "(" <> formula <> ") * " <> render (Literal factor)
+
+{- | Whether a formula's value is the amount stated beside it: within 1e-9
+relative, and with no floor, since a formula kept on a line of 1e-11
+recomputes it and must not let 3e-10 pass.
+-}
+agrees :: Double -> Double -> Bool
+agrees a b = a == b || abs (a - b) <= 1e-9 * max (abs a) (abs b)
 
 {- | A formula in VoLCA's language, with the parentheses its reading needs and
 no other. The levels are the grammar's rules, from 'pComparison' to an atom.

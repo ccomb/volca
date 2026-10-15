@@ -1600,6 +1600,20 @@ processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
                     (S.toList . S.fromList $ map unitName (referenceUnit : coproductUnits) ++ sharedUnitNames)
          in (activity, referenceFlow : coproductFlows ++ sharedTechFlows, sharedBioFlows, sharedWasteFlows, allUnits)
 
+{- | The formula a row's amount follows, in VoLCA's language and in the unit the
+row is recorded in, when its cell holds one that gives that amount. A cell
+holding a number follows no formula.
+-}
+rowFormula :: M.Map Text Double -> Double -> Text -> Double -> Maybe ExchangeFormula
+rowFormula env factor raw amount = do
+    text <- if isNumericFormula raw then Nothing else either (const Nothing) (Just . Expr.times factor) (Expr.translate Expr.SimaPro raw)
+    value <- either (const Nothing) Just (Expr.evaluate Expr.Volca env text)
+    if Expr.agrees value amount then Just (ExchangeFormula Nothing text) else Nothing
+
+-- | What one of a unit is in the reference unit of its dimension, as 'canonicalRow' records it.
+canonicalFactor :: UnitConversion.UnitConfig -> Text -> Double
+canonicalFactor unitCfg unit = snd (canonicalRow unitCfg unit 1)
+
 -- | True when the raw allocation cell is a plain decimal literal (no formula).
 isNumericFormula :: Text -> Bool
 isNumericFormula = isJust . readAmount
@@ -1654,7 +1668,7 @@ productToExchange unitCfg env role ProductRow{..} =
                   techLocation = readExchangeLocation prodRowLoc
                 , techComment = cleanedComment
                 , techPedigree = pedigree
-                , techFormula = Nothing
+                , techFormula = rowFormula env (canonicalFactor unitCfg prUnit) prAmountRaw amount
                 , techShare = share
                 , techClassification = M.fromList [("Category", prCategory) | not (T.null prCategory)]
                 , techProperties = noProperties
@@ -1760,7 +1774,7 @@ techRowToExchange unitCfg env TechExchangeRow{..} =
                 , techLocation = readExchangeLocation location
                 , techComment = cleanedComment
                 , techPedigree = pedigree
-                , techFormula = Nothing
+                , techFormula = rowFormula env (canonicalFactor unitCfg terUnit) terAmountRaw resolvedAmount
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -1815,7 +1829,7 @@ bioRowToExchange unitCfg env isInput compartment BioExchangeRow{..} =
                 , bioLocation = ""
                 , bioComment = cleanedComment
                 , bioPedigree = pedigree
-                , bioFormula = Nothing
+                , bioFormula = rowFormula env (canonicalFactor unitCfg berUnit) berAmountRaw amount
                 }
         flow =
             BiosphereFlow

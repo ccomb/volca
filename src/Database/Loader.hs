@@ -599,6 +599,7 @@ History of manual bumps:
      property is a parameter.
 - 63: an EcoSpold 2 formula calling @UnitConversion@ is read with the
      package's own conversion factors, so more of them are kept.
+- 64: SimaPro exchanges keep the formula their amount follows.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -606,7 +607,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 63
+     in hi `xor` lo `xor` 64
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

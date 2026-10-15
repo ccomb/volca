@@ -59,6 +59,7 @@ import Types (
     Compartment (..),
     DeclaredShare (..),
     Exchange (..),
+    ExchangeFormula (..),
     LocationSource (..),
     Medium (..),
     NativeActivityType (..),
@@ -78,6 +79,7 @@ import Types (
     exchangeAmount,
     exchangeComment,
     exchangeFlowId,
+    exchangeFormula,
     exchangeIsInput,
     exchangeIsProductOutput,
     exchangeIsReference,
@@ -1068,6 +1070,35 @@ spec = do
             let butter = head activities
             [f | Just (CalculatedParameter f _) <- [M.lookup "allocButter" (activityParameters butter)]]
                 `shouldBe` ["Qb * DMb / (Qb * DMb + Qm * DMm) * 100"]
+
+        it "keeps the formula of a row whose amount is one, and none for a number" $ do
+            (activities, _, _, _, _) <- parseParamCSV
+            map (fmap efText . exchangeFormula) (exchanges (head activities))
+                `shouldBe` [Just "Qb", Just "Qm", Nothing]
+
+        it "writes a row's formula in the unit the row is recorded in" $ do
+            let inGrams = TE.encodeUtf8 (T.replace "Cow milk {FR} U;kg;Qm" "Cow milk {FR} U;g;Qm" (TE.decodeUtf8 paramTestCSV))
+            (activities, _, _, _, _) <- withSystemTempFile "param-grams.csv" $ \path handle -> do
+                BS.hPut handle inGrams
+                hClose handle
+                parseOrFail mixedUnitConfig path
+            [efText <$> exchangeFormula e | e@TechnosphereExchange{techRole = Input} <- exchanges (head activities)]
+                `shouldBe` [Just "Qm * 0.001"]
+
+        it "keeps formulas that give the amounts of the processes the loader splits" $ do
+            db <- loadParamCSV
+            let values act = M.mapMaybe parameterValue (activityParameters act)
+                parameterValue = \case
+                    InputParameter v -> Just v
+                    CalculatedParameter _ v -> v
+                checked =
+                    [ Expr.evaluate Expr.Volca (values act) (efText f) `shouldSatisfy` either (const False) (Expr.agrees (exchangeAmount e))
+                    | act <- M.elems (sdbActivities db)
+                    , e <- exchanges act
+                    , Just f <- [exchangeFormula e]
+                    ]
+            length checked `shouldBe` 2
+            sequence_ checked
 
         it "gives no value to a calculated parameter whose formula does not settle, not the input's it shadows" $
             snd (buildParamEnv [[("a", "1")]] [[("a", "b * 2")]])
