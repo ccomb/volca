@@ -946,7 +946,9 @@ formulaXml =
     \        <unitName xml:lang=\"en\">kg</unitName>\n\
     \        <property propertyId=\"prop-1\" amount=\"7.0\" variableName=\"prop_var\" mathematicalRelation=\"9999\">\n\
     \          <name xml:lang=\"en\">dry mass</name>\n\
+    \          <name xml:lang=\"de\">Trockenmasse</name>\n\
     \          <unitName xml:lang=\"en\">kg</unitName>\n\
+    \          <unitName xml:lang=\"de\">Kilogramm</unitName>\n\
     \        </property>\n\
     \        <inputGroup>5</inputGroup>\n\
     \      </intermediateExchange>\n\

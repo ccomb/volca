@@ -41,6 +41,10 @@
   `dbin`, where an amount reading `dbin` could get the database's value.
   An openLCA package's global parameters are kept the same way.
 
+- A parameter keeps the unit its source states and what the source says it
+  stands for: an EcoSpold 2 parameter its English name, comment and unit, a
+  SimaPro parameter its comment, an openLCA parameter its description.
+
 ### Fixed
 
 - In a SimaPro file, a parameter a process defines now replaces a database or

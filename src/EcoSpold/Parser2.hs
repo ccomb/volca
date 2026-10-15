@@ -912,6 +912,8 @@ parseWithXeno conversions xmlContent = do
                 | isInsideProperty && isElement name "amount" = variable st (\v -> v{ppAmount = readAmount (bsToText value)})
                 | isInsideProperty && isElement name "variableName" = variable st (\v -> v{ppVariableName = bsToText value})
                 | isInsideProperty && isElement name "mathematicalRelation" = variable st (\v -> v{ppMathRel = bsToText value})
+                -- The language of a child of the property, which keeps the English one.
+                | pathAt 1 "property" state && isElement name "xml:lang" = st{psDocs = (psDocs st){ddElementLang = bsToText value}}
                 | otherwise = st
             variable :: ParseState -> (PendingParam -> PendingParam) -> ParseState
             variable st f = st{psPendingProperty = (psPendingProperty st){ppyVariable = f (ppyVariable (psPendingProperty st))}}
@@ -1166,12 +1168,12 @@ parseWithXeno conversions xmlContent = do
         | isElement tagName "name" =
             let txt = accumText state
              in if pathAt 1 "property" state
-                    then onPendingProperty (\pending -> pending{ppyName = txt}) state
+                    then onPendingProperty (\pending -> if readableAsEnglish (ddElementLang (psDocs state)) then pending{ppyName = txt} else pending) state
                     else onExchange (\d -> d{idFlowName = txt}) (\d -> d{edFlowName = txt}) state
         | isElement tagName "unitName" =
             let txt = accumText state
              in if pathAt 1 "property" state
-                    then onPendingProperty (\pending -> pending{ppyUnit = txt}) state
+                    then onPendingProperty (\pending -> if readableAsEnglish (ddElementLang (psDocs state)) then pending{ppyUnit = txt} else pending) state
                     else onExchange (\d -> d{idUnitName = txt}) (\d -> d{edUnitName = txt}) state
         | isElement tagName "property" =
             let filed = case psContext state of
@@ -1240,8 +1242,8 @@ parseWithXeno conversions xmlContent = do
             names = formulaNames conversions params (psAmbiguousParams st) pairs
             parameters = M.mapWithKey (\var value -> about var (maybe (InputParameter value) (\f -> CalculatedParameter f (Just value)) (keptFormula names value =<< M.lookup var (psParamExprs st)))) params
             about var definition =
-                let (unit, description) = M.findWithDefault (Nothing, "") var (psParamAbout st)
-                 in Parameter{parameterDefinition = definition, parameterUnit = unit, parameterDescription = description}
+                let (unit, told) = M.findWithDefault (Nothing, "") var (psParamAbout st)
+                 in Parameter{parameterDefinition = definition, parameterUnit = unit, parameterDescription = told}
             formulaCheck = checkFormulas names pairs
             (dates, dateWarnings) = datasetDates (psDocs st)
             -- Apply cutoff strategy to exchanges
