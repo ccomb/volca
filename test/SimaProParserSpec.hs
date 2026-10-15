@@ -1212,15 +1212,17 @@ spec = do
             M.keys (sdbParameters db) `shouldBe` ["dbcalc", "dbin", "projcalc", "projin"]
             map activityParameters (M.elems (sdbActivities db)) `shouldBe` [M.empty]
 
-        it "lets a project parameter replace the database one of its name, and says so" $ do
+        it "lets a project parameter replace the database one of its name, whatever its case, and says so" $ do
             (before, _) <- getLogLines 0
             file <- withSystemTempFile "shadowed-param.csv" $ \path handle -> do
-                BS.hPut handle (TE.encodeUtf8 (T.replace "projin" "dbin" (TE.decodeUtf8 allParamTestCSV)))
+                BS.hPut handle (TE.encodeUtf8 (T.replace "projin" "DbIn" (TE.decodeUtf8 allParamTestCSV)))
                 hClose handle
                 either (fail . show) pure =<< parseSimaProCSV defaultUnitConfig path
             (_, newLines) <- getLogLines before
-            M.lookup "dbin" (spfParameters file) `shouldBe` Just (InputParameter 5)
-            [() | l <- newLines, "project parameter 'dbin' replaces" `isInfixOf` llText l] `shouldBe` [()]
+            [(name, p) | (name, p) <- M.toList (spfParameters file), T.toLower name == "dbin"] `shouldBe` [("DbIn", InputParameter 5)]
+            -- dbin, dbin*3, DbIn, DbIn*7, every one of them reading the project's 5
+            concatMap techInputAmounts (spfActivities file) `shouldMatchList` [5, 15, 5, 35]
+            [() | l <- newLines, "project parameter 'DbIn' replaces" `isInfixOf` llText l] `shouldBe` [()]
 
     describe "SimaPro sections read and dropped" $ do
         it "adds nothing from a section the parser recognises and ignores" $ do
