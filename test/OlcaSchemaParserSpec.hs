@@ -55,7 +55,7 @@ carriesOnly inventory expected = do
 -- | A parameter's value at the dataset's defaults, where it has one.
 parameterValue :: Types.Parameter -> Maybe Double
 parameterValue p = case parameterDefinition p of
-    InputParameter v -> Just v
+    InputParameter v _ -> Just v
     CalculatedParameter _ v -> v
 
 -- | An exchange of one process as read, by its flow.
@@ -157,16 +157,16 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
 
     it "evaluates a global calculated parameter among the globals, whatever a process redefines" $ \_ -> do
         pkg <- readFixture
-        let globals = [Parameter "base" (InputValue 1) "", Parameter "doubled" (Calculated "base * 2" 2) ""]
-            uses p = p{prParameters = Parameter "base" (InputValue 5) "" : prParameters p, prExchanges = map (\x -> if rxFlow x == co2F then x{rxFormula = Just "doubled", rxAmount = 2} else x) (prExchanges p)}
+        let globals = [Parameter "base" (InputValue 1) "" Nothing, Parameter "doubled" (Calculated "base * 2" 2) "" Nothing]
+            uses p = p{prParameters = Parameter "base" (InputValue 5) "" Nothing : prParameters p, prExchanges = map (\x -> if rxFlow x == co2F then x{rxFormula = Just "doubled", rxAmount = 2} else x) (prExchanges p)}
         b <- built (editing steelA uses pkg{pkGlobals = globals <> pkGlobals pkg})
         [what | Divergent what <- builtNotices b, "steel production" `T.isPrefixOf` what] `shouldBe` []
 
     it "keeps the package's global parameters on the database, not on each process" $ \_ -> do
         pkg <- readFixture
-        b <- built pkg{pkGlobals = [Parameter "base" (InputValue 1) "", Parameter "doubled" (Calculated "base * 2" 2) "Twice the base"] <> pkGlobals pkg}
+        b <- built pkg{pkGlobals = [Parameter "base" (InputValue 1) "" Nothing, Parameter "doubled" (Calculated "base * 2" 2) "Twice the base" Nothing] <> pkGlobals pkg}
         M.lookup "doubled" (sdbParameters (builtDatabase b)) `shouldBe` Just (Types.Parameter (CalculatedParameter "base * 2" (Just 2)) Nothing "Twice the base")
-        parameterDefinition <$> M.lookup "leak_method" (sdbParameters (builtDatabase b)) `shouldBe` Just (InputParameter 1)
+        parameterDefinition <$> M.lookup "leak_method" (sdbParameters (builtDatabase b)) `shouldBe` Just (InputParameter 1 Nothing)
         concatMap (M.keys . activityParameters) (M.elems (sdbActivities (builtDatabase b))) `shouldBe` ["a", "b", "c", "d"]
 
     it "keeps the formulas that give their line's amount, and only those" $ \(b, _) -> do
@@ -195,7 +195,7 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
 
     it "keeps no formula that gives no finite number" $ \_ -> do
         pkg <- readFixture
-        let dividing p = p{prParameters = Parameter "zero" (InputValue 0) "" : prParameters p, prExchanges = map (\x -> if rxFlow x == co2F then x{rxFormula = Just "1 / zero"} else x) (prExchanges p)}
+        let dividing p = p{prParameters = Parameter "zero" (InputValue 0) "" Nothing : prParameters p, prExchanges = map (\x -> if rxFlow x == co2F then x{rxFormula = Just "1 / zero"} else x) (prExchanges p)}
         b <- built (editing steelA dividing pkg)
         (exchangeFormula =<< exchangeOf b steelA steelF co2F) `shouldBe` Nothing
 
@@ -259,7 +259,7 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
     it "lets a process parameter shadow a global one, case aside" $ \_ -> do
         pkg <- readFixture
         -- LEAK_METHOD = 2 sends b to its missing branch, which only the process's value can do.
-        let shadowing = editing formulasJ (\p -> p{prParameters = Parameter "LEAK_METHOD" (InputValue 2) "" : prParameters p}) pkg
+        let shadowing = editing formulasJ (\p -> p{prParameters = Parameter "LEAK_METHOD" (InputValue 2) "" Nothing : prParameters p}) pkg
         b <- built shadowing
         [what | Unsettled what <- builtNotices b] `shouldBe` ["widget assembly · b: unknown variable missing_name"]
 

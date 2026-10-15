@@ -263,7 +263,19 @@ perExchangeComments = describe "per-exchange comments" $ do
         it "stores <parameter> and named <property> values on the activity, with the formulas that give them" $
             withFormulaFixture $ \ParsedDataset{pdActivity = act} -> do
                 -- prop_var's relation (9999) does not give its amount (7), so it is not kept.
-                parameterDefinition <$> activityParameters act `shouldBe` M.fromList [("fuel_input", CalculatedParameter "4 / 2" (Just 2.0)), ("prop_var", InputParameter 7.0)]
+                parameterDefinition <$> activityParameters act `shouldBe` M.fromList [("fuel_input", CalculatedParameter "4 / 2" (Just 2.0)), ("prop_var", InputParameter 7.0 Nothing)]
+
+        it "keeps the uncertainty of an input <parameter> or named <property>, widened by the pedigree matrix, and none on a calculated one" $ do
+            let spread =
+                    [ ("Measured at the plant.</comment>", "Measured at the plant.</comment><uncertainty><triangular minValue=\"1\" mostLikelyValue=\"2\" maxValue=\"4\"/></uncertainty>")
+                    , ("Kilogramm</unitName>", "Kilogramm</unitName><uncertainty><lognormal meanValue=\"7.0\" mu=\"1.95\" variance=\"0.04\" varianceWithPedigreeUncertainty=\"0.09\"/><pedigreeMatrix reliability=\"2\" completeness=\"3\"/></uncertainty>")
+                    ]
+                uncertain extra = TE.encodeUtf8 (foldr (uncurry T.replace) (TE.decodeUtf8 formulaXml) (spread <> extra))
+                spreads act = [(name, s) | (name, Parameter{parameterDefinition = InputParameter _ s}) <- M.toList (activityParameters act)]
+            withDataset (uncertain []) $ \ParsedDataset{pdActivity = act} ->
+                spreads act `shouldBe` [("prop_var", Just (Lognormal 7 (exp (sqrt 0.09))))]
+            withDataset (uncertain [(" mathematicalRelation=\"4.0 / 2\"", "")]) $ \ParsedDataset{pdActivity = act} ->
+                spreads act `shouldBe` [("fuel_input", Just (Triangular 1 2 4)), ("prop_var", Just (Lognormal 7 (exp (sqrt 0.09))))]
 
         it "keeps the unit of a <parameter> or named <property>, and its English name and comment as its description" $
             withFormulaFixture $ \ParsedDataset{pdActivity = act} ->

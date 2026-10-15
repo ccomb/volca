@@ -56,6 +56,7 @@ import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import Data.Indexing (uniqueIndex)
 import EcoSpold.Common (acrossCapabilities)
 import System.FilePath (takeExtension, (</>))
+import Types (Uncertainty (..))
 
 -- | Every document the reader needs, by kind.
 data Package = Package
@@ -169,6 +170,7 @@ data Parameter = Parameter
     { paName :: !Text
     , paValue :: !ParameterValue
     , paDescription :: !Text
+    , paUncertainty :: !(Maybe Uncertainty)
     }
     deriving (Generic, NFData)
 
@@ -286,15 +288,29 @@ instance FromJSON Parameter where
         value <- o .:? "value" .!= 0
         formula <- o .:? "formula"
         description <- o .:? "description"
+        spread <- o .:? "uncertainty" >>= maybe (pure Nothing) distribution
         pure
             Parameter
                 { paName = name
+                , paUncertainty = spread
                 , paDescription = maybe "" T.strip (nonBlank description)
                 , paValue = case (given, nonBlank formula) of
                     (False, Just f) -> Calculated f value
                     (False, Nothing) -> InputValue value
                     (True, _) -> InputValue value
                 }
+
+-- | The distribution openLCA states, when it names one with all its numbers.
+distribution :: A.Value -> A.Parser (Maybe Uncertainty)
+distribution = withObject "Uncertainty" $ \o -> do
+    let number k = o .:? k :: A.Parser (Maybe Double)
+    kind <- o .:? "distributionType" :: A.Parser (Maybe Text)
+    case kind of
+        Just "LOG_NORMAL_DISTRIBUTION" -> liftA2 Lognormal <$> number "geomMean" <*> number "geomSd"
+        Just "NORMAL_DISTRIBUTION" -> liftA2 Normal <$> number "mean" <*> number "sd"
+        Just "TRIANGLE_DISTRIBUTION" -> (\a b c -> Triangular <$> a <*> b <*> c) <$> number "minimum" <*> number "mode" <*> number "maximum"
+        Just "UNIFORM_DISTRIBUTION" -> liftA2 Uniform <$> number "minimum" <*> number "maximum"
+        _ -> pure Nothing
 
 instance FromJSON RawExchange where
     parseJSON = withObject "Exchange" $ \o -> do

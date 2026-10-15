@@ -607,6 +607,7 @@ History of manual bumps:
 - 67: a SimaPro parameter defined at a finer level replaces a more general
      one of its name, input or calculated.
 - 68: a parameter keeps its unit and description.
+- 69: an input parameter keeps its uncertainty.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -614,7 +615,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 68
+     in hi `xor` lo `xor` 69
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

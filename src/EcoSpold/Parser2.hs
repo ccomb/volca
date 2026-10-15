@@ -169,10 +169,37 @@ data PendingParam = PendingParam
     , ppName :: !Text
     , ppUnit :: !Text
     , ppComment :: !Text
+    , ppDistribution :: !Text -- the element under its @\<uncertainty\>@
+    , ppSpread :: !(M.Map Text Double) -- that element's numeric attributes
     }
 
 emptyPendingParam :: PendingParam
-emptyPendingParam = PendingParam "" Nothing "" "" "" ""
+emptyPendingParam = PendingParam "" Nothing "" "" "" "" "" M.empty
+
+-- | Note an attribute of the distribution an open @\<uncertainty\>@ states, if the element is one.
+spreadAttribute :: ParseState -> BS.ByteString -> BS.ByteString -> PendingParam -> PendingParam
+spreadAttribute st name value pending = case filter (\kind -> pathAt 0 kind st) ["lognormal", "normal", "triangular", "uniform"] of
+    kind : _ ->
+        pending
+            { ppDistribution = bsToText kind
+            , ppSpread = maybe id (M.insert (bsToText name)) (readAmount (bsToText value)) (ppSpread pending)
+            }
+    [] -> pending
+
+{- | The distribution a parameter's @\<uncertainty\>@ states, when it gives
+every number: a lognormal's deviation is the exponential of the root of the
+underlying variance, the one widened by the pedigree matrix when there is one.
+-}
+distribution :: PendingParam -> Maybe Uncertainty
+distribution PendingParam{ppDistribution = kind, ppSpread = at} = case kind of
+    "lognormal" -> Lognormal <$> (number "meanValue" <|> exp <$> number "mu") <*> (exp . sqrt <$> variance)
+    "normal" -> Normal <$> number "meanValue" <*> (sqrt <$> variance)
+    "triangular" -> Triangular <$> number "minValue" <*> number "mostLikelyValue" <*> number "maxValue"
+    "uniform" -> Uniform <$> number "minValue" <*> number "maxValue"
+    _ -> Nothing
+  where
+    number = (`M.lookup` at)
+    variance = number "varianceWithPedigreeUncertainty" <|> number "variance"
 
 {- | The @\<property\>@ currently open, assembled from its attributes and its
 @\<name\>@ and @\<unitName\>@ children, which arrive in no fixed order and are
@@ -284,7 +311,7 @@ data ParseState = ParseState
     , psParams :: !(M.Map Text Double) -- <parameter> variableName → amount (amounts are pre-evaluated in the source)
     , psAmbiguousParams :: !(S.Set Text) -- variableNames declared twice with two amounts, struck from psParams at the end
     , psParamExprs :: !(M.Map Text Text) -- <parameter> variableName → mathematicalRelation (raw formula, for inspection)
-    , psParamAbout :: !(M.Map Text (Maybe Text, Text)) -- <parameter> variableName → its unit and description
+    , psParamAbout :: !(M.Map Text PendingParam) -- <parameter> variableName → what the file says of it
     , psPendingParam :: !PendingParam -- attribute accumulator for the open <parameter>
     , psPendingProperty :: !PendingProperty -- attribute and child accumulator for the open <property>
     , psDocs :: !DatasetDocs -- Provenance the dataset states about itself
@@ -677,7 +704,7 @@ aboutParameter set lang state = case nonEmptyText (accumText state) of
 referencing it will fail to evaluate downstream.
 -}
 declareVariable :: String -> PendingParam -> ParseState -> ParseState
-declareVariable element PendingParam{ppVariableName = var, ppAmount = amt, ppMathRel = rel, ppName = label, ppUnit = unit, ppComment = comment} state = case (nonEmptyText var, amt) of
+declareVariable element pending@PendingParam{ppVariableName = var, ppAmount = amt, ppMathRel = rel} state = case (nonEmptyText var, amt) of
     (Just v, Just a)
         | S.member v (psAmbiguousParams state) -> state
         | Just previous <- M.lookup v (psParams state)
@@ -690,7 +717,7 @@ declareVariable element PendingParam{ppVariableName = var, ppAmount = amt, ppMat
             state
                 { psParams = M.insert v a (psParams state)
                 , psParamExprs = maybe (psParamExprs state) (\r -> M.insert v r (psParamExprs state)) (nonEmptyText rel)
-                , psParamAbout = M.insert v (nonEmptyText unit, joinParts "\n" [label, comment]) (psParamAbout state)
+                , psParamAbout = M.insert v pending (psParamAbout state)
                 }
     (Just v, Nothing) ->
         state{psWarnings = ("[WARNING] Ignoring <" ++ element ++ "> \"" ++ T.unpack v ++ "\" - missing or unparseable amount") : psWarnings state}
@@ -914,6 +941,7 @@ parseWithXeno conversions xmlContent = do
                 | isInsideProperty && isElement name "mathematicalRelation" = variable st (\v -> v{ppMathRel = bsToText value})
                 -- The language of a child of the property, which keeps the English one.
                 | pathAt 1 "property" state && isElement name "xml:lang" = st{psDocs = (psDocs st){ddElementLang = bsToText value}}
+                | pathAt 1 "uncertainty" state && pathAt 2 "property" state = variable st (spreadAttribute state name value)
                 | otherwise = st
             variable :: ParseState -> (PendingParam -> PendingParam) -> ParseState
             variable st f = st{psPendingProperty = (psPendingProperty st){ppyVariable = f (ppyVariable (psPendingProperty st))}}
@@ -968,6 +996,8 @@ parseWithXeno conversions xmlContent = do
                                 state{psPendingParam = pending{ppAmount = readAmount (bsToText value)}}
                             | onParameter && isElement name "mathematicalRelation" =
                                 state{psPendingParam = pending{ppMathRel = bsToText value}}
+                            | pathAt 1 "uncertainty" state && pathAt 2 "parameter" state =
+                                state{psPendingParam = spreadAttribute state name value pending}
                             | otherwise = docAttr name value state
                      in onProperty (withLang captured)
 
@@ -1240,10 +1270,15 @@ parseWithXeno conversions xmlContent = do
             -- value, so it is not one of the dataset's parameters.
             params = M.withoutKeys (psParams st) (psAmbiguousParams st)
             names = formulaNames conversions params (psAmbiguousParams st) pairs
-            parameters = M.mapWithKey (\var value -> about var (maybe (InputParameter value) (\f -> CalculatedParameter f (Just value)) (keptFormula names value =<< M.lookup var (psParamExprs st)))) params
-            about var definition =
-                let (unit, told) = M.findWithDefault (Nothing, "") var (psParamAbout st)
-                 in Parameter{parameterDefinition = definition, parameterUnit = unit, parameterDescription = told}
+            parameters = M.mapWithKey parameter params
+            -- A calculated parameter's spread follows from what it reads.
+            parameter var value =
+                let pending = M.findWithDefault emptyPendingParam var (psParamAbout st)
+                 in Parameter
+                        { parameterDefinition = maybe (InputParameter value (distribution pending)) (\f -> CalculatedParameter f (Just value)) (keptFormula names value =<< M.lookup var (psParamExprs st))
+                        , parameterUnit = nonEmptyText (ppUnit pending)
+                        , parameterDescription = joinParts "\n" [ppName pending, ppComment pending]
+                        }
             formulaCheck = checkFormulas names pairs
             (dates, dateWarnings) = datasetDates (psDocs st)
             -- Apply cutoff strategy to exchanges

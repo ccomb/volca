@@ -45,6 +45,10 @@
   stands for: an EcoSpold 2 parameter its English name, comment and unit, a
   SimaPro parameter its comment, an openLCA parameter its description.
 
+- An input parameter keeps the uncertainty its source gives it: lognormal,
+  normal, triangular or uniform, with its numbers. A calculated parameter
+  has none of its own, since its spread follows from what it reads.
+
 ### Fixed
 
 - In a SimaPro file, a parameter a process defines now replaces a database or

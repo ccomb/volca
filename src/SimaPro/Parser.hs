@@ -395,11 +395,12 @@ data GlobalParams = GlobalParams
 
 instance NFData GlobalParams
 
--- | A parameter line: the name, the value or formula as written, and what its comment says.
+-- | A parameter line: the name, the value or formula as written, what its comment says, and the spread of an input.
 data ParamRow = ParamRow
     { parName :: !Text
     , parValue :: !Text
     , parComment :: !Text
+    , parUncertainty :: !(Maybe Uncertainty)
     }
     deriving (Show, Eq, Generic)
 
@@ -631,6 +632,7 @@ parseParamRow cfg kind line =
     case splitCSV (spDelimiter cfg) line of
         (name : value : rest) ->
             let n = decodeBS (BS8.strip name)
+                cell = Expr.normalizeExpr (spDecimal cfg) . decodeBS . BS8.strip
                 comment = case kind of
                     InputParam -> drop 5 rest
                     CalculatedParam -> rest
@@ -640,10 +642,26 @@ parseParamRow cfg kind line =
                         Just
                             ParamRow
                                 { parName = n
-                                , parValue = Expr.normalizeExpr (spDecimal cfg) (decodeBS (BS8.strip value))
+                                , parValue = cell value
                                 , parComment = fromMaybe "" (nonEmptyText =<< snd (parsePedigreePrefix (joinComment comment)))
+                                , parUncertainty = case kind of
+                                    InputParam -> (`spread` map cell rest) =<< readAmount (cell value)
+                                    CalculatedParam -> Nothing
                                 }
         _ -> Nothing
+
+{- | The distribution an input parameter's columns state around its value: the
+lognormal's cell is the squared geometric standard deviation, the normal's
+twice the standard deviation.
+-}
+spread :: Double -> [Text] -> Maybe Uncertainty
+spread value (kind : deviation : low : high : _) = case kind of
+    "Lognormal" -> Lognormal value . sqrt <$> mfilter (> 0) (readAmount deviation)
+    "Normal" -> Normal value . (/ 2) <$> readAmount deviation
+    "Triangle" -> Triangular <$> readAmount low <*> pure value <*> readAmount high
+    "Uniform" -> Uniform <$> readAmount low <*> readAmount high
+    _ -> Nothing
+spread _ _ = Nothing
 
 -- | Which of the two parameter tables a line is in.
 data ParamKind = InputParam | CalculatedParam
@@ -1458,7 +1476,7 @@ definition of its name, whose value would not be the one the level meant.
 buildParamEnv :: [ParamLevel] -> (M.Map Text Double, M.Map Text Parameter)
 buildParamEnv levels =
     ( env
-    , foldl' (flip (uncurry respell)) M.empty ([(parName r, described r (InputParameter value)) | r <- inputGroup, Just value <- [M.lookup (parName r) inputs]] ++ calculated)
+    , foldl' (flip (uncurry respell)) M.empty ([(parName r, described r (InputParameter value (parUncertainty r))) | r <- inputGroup, Just value <- [M.lookup (parName r) inputs]] ++ calculated)
     )
   where
     inForce :: ParamLevel
@@ -1493,7 +1511,7 @@ buildParamEnv levels =
 
     -- A formula VoLCA's language cannot write leaves its value only.
     definition :: Text -> Maybe Double -> Maybe ParameterDefinition
-    definition formula value = either (const (InputParameter <$> value)) (\text -> Just (CalculatedParameter text value)) (Expr.translate Expr.SimaPro formula)
+    definition formula value = either (const ((`InputParameter` Nothing) <$> value)) (\text -> Just (CalculatedParameter text value)) (Expr.translate Expr.SimaPro formula)
 
     described :: ParamRow -> ParameterDefinition -> Parameter
     described r d = Parameter{parameterDefinition = d, parameterUnit = Nothing, parameterDescription = parComment r}

@@ -15,6 +15,7 @@ import Test.Hspec
 
 import OlcaPackageFixture
 import OlcaSchema.Package
+import Types (Uncertainty (..))
 
 withPackage :: (FilePath -> IO a) -> IO a
 withPackage act = withSystemTempDirectory "olca-package" $ \dir -> writePackage dir >> act dir
@@ -67,6 +68,17 @@ spec = describe "readPackage" $ do
             r <- readPackage dir
             fmap (M.fromList . map (\q -> (paName q, paDescription q)) . filter ((`elem` ["told", "blank"]) . paName) . pkGlobals) r
                 `shouldBe` Right (M.fromList [("blank", ""), ("told", "Share of the heat")])
+
+    it "reads a parameter's uncertainty when it names a distribution with all its numbers" $
+        withPackage $ \dir -> do
+            let spread name distribution = writeFile (dir </> "parameters" </> (name <> ".json")) ("{\"name\": \"" <> name <> "\", \"value\": 4, \"uncertainty\": {" <> distribution <> "}}")
+            spread "lognormal" "\"distributionType\": \"LOG_NORMAL_DISTRIBUTION\", \"geomMean\": 4, \"geomSd\": 1.5"
+            spread "triangle" "\"distributionType\": \"TRIANGLE_DISTRIBUTION\", \"minimum\": 1, \"mode\": 4, \"maximum\": 6"
+            spread "partial" "\"distributionType\": \"NORMAL_DISTRIBUTION\", \"mean\": 4"
+            spread "none" "\"distributionType\": \"NO_DISTRIBUTION\""
+            r <- readPackage dir
+            fmap (M.fromList . map (\q -> (paName q, paUncertainty q)) . filter ((`elem` ["lognormal", "triangle", "partial", "none"]) . paName) . pkGlobals) r
+                `shouldBe` Right (M.fromList [("lognormal", Just (Lognormal 4 1.5)), ("none", Nothing), ("partial", Nothing), ("triangle", Just (Triangular 1 4 6))])
 
     it "keeps causal factors on the internal id of the line they name" $ do
         pkg <- readFixture

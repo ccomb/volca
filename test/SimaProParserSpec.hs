@@ -73,6 +73,7 @@ import Types (
     TechRole (..),
     TechnosphereFlow (..),
     UUID,
+    Uncertainty (..),
     Unit (..),
     UnitDB,
     WasteFlow,
@@ -1064,9 +1065,9 @@ spec = do
         it "stores resolved parameter values in activity" $ do
             (activities, _, _, _, _) <- parseParamCSV
             let butter = head activities
-            parameterDefinition <$> M.lookup "Qm" (activityParameters butter) `shouldBe` Just (InputParameter 20.53)
-            parameterDefinition <$> M.lookup "Qb" (activityParameters butter) `shouldBe` Just (InputParameter 1.0)
-            parameterDefinition <$> M.lookup "DMb" (activityParameters butter) `shouldBe` Just (InputParameter 0.82)
+            parameterDefinition <$> M.lookup "Qm" (activityParameters butter) `shouldBe` Just (InputParameter 20.53 (Just (Lognormal 20.53 (sqrt 1.14))))
+            parameterDefinition <$> M.lookup "Qb" (activityParameters butter) `shouldBe` Just (InputParameter 1.0 Nothing)
+            parameterDefinition <$> M.lookup "DMb" (activityParameters butter) `shouldBe` Just (InputParameter 0.82 Nothing)
 
         it "keeps a parameter's comment as its description, without the pedigree opening it" $ do
             (activities, _, _, _, _) <- parseParamCSV
@@ -1099,7 +1100,7 @@ spec = do
             db <- loadParamCSV
             let values act = M.mapMaybe parameterValue (activityParameters act)
                 parameterValue p = case parameterDefinition p of
-                    InputParameter v -> Just v
+                    InputParameter v _ -> Just v
                     CalculatedParameter _ v -> v
                 checked =
                     [ Expr.evaluate Expr.Volca (values act) (efText f) `shouldSatisfy` either (const False) (Expr.agrees (exchangeAmount e))
@@ -1118,7 +1119,7 @@ spec = do
             let (env, parameters) = buildParamEnv [ParamLevel [paramRow "y" "3"] [paramRow "x" "2 * y"], ParamLevel [paramRow "X" "5"] []]
             M.lookup "X" env `shouldBe` Just 5
             M.lookup "x" env `shouldBe` Nothing
-            parameterDefinition <$> parameters `shouldBe` M.fromList [("y", InputParameter 3), ("X", InputParameter 5)]
+            parameterDefinition <$> parameters `shouldBe` M.fromList [("y", InputParameter 3 Nothing), ("X", InputParameter 5 Nothing)]
 
         it "reads a project formula with the values a process gives the names it reads" $
             M.lookup "x" (fst (buildParamEnv [ParamLevel [paramRow "y" "3"] [paramRow "x" "2 * y"], ParamLevel [paramRow "y" "10"] []])) `shouldBe` Just 20
@@ -1184,7 +1185,7 @@ spec = do
         it "stays silent for numbers, expressions, and resolvable parameters" $ do
             fallbackAmounts mempty (block "0.45") `shouldBe` []
             fallbackAmounts mempty (block "0.45+0.247+.067") `shouldBe` []
-            fallbackAmounts mempty ((block "dose*2"){pbInputParams = [ParamRow "dose" "0.5" ""]}) `shouldBe` []
+            fallbackAmounts mempty ((block "dose*2"){pbInputParams = [paramRow "dose" "0.5"]}) `shouldBe` []
 
     describe "SimaPro amounts summed in place" $ do
         it "sums every term of the expression, integer part or not" $ do
@@ -1241,10 +1242,25 @@ spec = do
                 hClose handle
                 either (fail . show) pure =<< parseSimaProCSV defaultUnitConfig path
             (_, newLines) <- getLogLines before
-            [(name, p) | (name, p) <- M.toList (spfParameters file), T.toLower name == "dbin"] `shouldBe` [("DbIn", Parameter (InputParameter 5) Nothing "")]
+            [(name, p) | (name, p) <- M.toList (spfParameters file), T.toLower name == "dbin"] `shouldBe` [("DbIn", Parameter (InputParameter 5 Nothing) Nothing "")]
             -- dbin, dbin*3, DbIn, DbIn*7, every one of them reading the project's 5
             concatMap techInputAmounts (spfActivities file) `shouldMatchList` [5, 15, 5, 35]
             [() | l <- newLines, "project parameter 'DbIn' replaces" `isInfixOf` llText l] `shouldBe` [()]
+
+        it "keeps an input parameter's spread: a lognormal's squared geometric deviation, a normal's two deviations, the bounds of a triangle or a uniform" $ do
+            let spread =
+                    [ ("S1;50;Undefined;0;0;No;", "S1;50;Lognormal;4;0;0;No;")
+                    , ("S2;20;Undefined;0;0;No;", "S2;20;Normal;4;0;0;No;")
+                    , ("S3;15;Undefined;0;0;No;", "S3;15;Triangle;0;10;30;No;")
+                    , ("S4;10;Undefined;0;0;No;", "S4;10;Uniform;0;5;20;No;")
+                    , ("S5;5;Undefined;0;0;No;", "S5;5;Lognormal;0;0;0;No;")
+                    ]
+            file <- withSystemTempFile "spread.csv" $ \path handle -> do
+                BS.hPut handle (TE.encodeUtf8 (foldr (uncurry T.replace) (TE.decodeUtf8 multiCoproductCSV) spread))
+                hClose handle
+                either (fail . show) pure =<< parseSimaProCSV defaultUnitConfig path
+            [(name, s) | act <- take 1 (spfActivities file), (name, Parameter{parameterDefinition = InputParameter _ s}) <- M.toList (activityParameters act)]
+                `shouldBe` [("S1", Just (Lognormal 50 2)), ("S2", Just (Normal 20 2)), ("S3", Just (Triangular 10 15 30)), ("S4", Just (Uniform 5 20)), ("S5", Nothing)]
 
     describe "SimaPro sections read and dropped" $ do
         it "adds nothing from a section the parser recognises and ignores" $ do
@@ -2565,4 +2581,4 @@ parseOrFail cfg path = either (fail . show) (pure . tables) =<< parseSimaProCSV 
 
 -- | A parameter line with no comment.
 paramRow :: Text -> Text -> ParamRow
-paramRow name value = ParamRow name value ""
+paramRow name value = ParamRow name value "" Nothing
