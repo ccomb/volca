@@ -234,6 +234,16 @@ spec = do
             forAll (sized formula) $ \f ->
                 Expr.readFormula Volca (Expr.render f) === Right f
 
+    describe "times" $ do
+        it "multiplies a formula by a number, with the parentheses its reading needs" $ do
+            Expr.times 0.5 "2 * a" `shouldBe` "2 * a * 0.5"
+            Expr.times 0.5 "a + b" `shouldBe` "(a + b) * 0.5"
+            Expr.times (-2) "a" `shouldBe` "a * -2"
+        it "leaves a formula whole when the factor is one" $
+            Expr.times 1 "(a)" `shouldBe` "(a)"
+        it "multiplies a formula that does not read all the same" $
+            Expr.times 0.5 "a +" `shouldBe` "(a +) * 0.5"
+
     describe "settle" $ do
         it "evaluates calculated parameters in whatever order they refer to each other" $
             settle OpenLca (M.fromList [("a", 2)]) [("c", "b + 1"), ("b", "a * 3")]

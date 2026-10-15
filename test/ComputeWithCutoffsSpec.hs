@@ -92,6 +92,7 @@ emits amount =
         , bioLocation = ""
         , bioComment = Nothing
         , bioPedigree = Nothing
+        , bioFormula = Nothing
         }
 
 linkedTo :: UUID -> UUID -> Double -> Exchange

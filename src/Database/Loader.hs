@@ -591,6 +591,8 @@ History of manual bumps:
      order they read each other, so one that shadows a known value reaches
      every formula reading it. Nothing changes type, so a cache written just
      before this would keep the amounts computed the old way.
+- 61: an activity keeps its parameters in one map, and every exchange has room
+     for the formula its amount follows.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -598,7 +600,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 60
+     in hi `xor` lo `xor` 61
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

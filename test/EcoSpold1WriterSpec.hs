@@ -206,8 +206,8 @@ soloDb name prodU extra techs bios wastes =
         , sdbDocumentation = noDocumentation
         }
   where
-    ref = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-    act = Activity name [] [] M.empty M.empty "GLO" LocationDeclared "kg" (ref : extra) M.empty M.empty Nothing Nothing Nothing noDates
+    ref = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+    act = Activity name [] [] M.empty M.empty "GLO" LocationDeclared "kg" (ref : extra) M.empty Nothing Nothing Nothing noDates
 
 -- | Empty database: no activities, no flows.
 emptyDb :: SimpleDatabase
@@ -236,11 +236,11 @@ linkedDb link =
   where
     supU = supplierLink
     conU = read "33333333-0000-4000-8000-000000000001"
-    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty M.empty Nothing Nothing Nothing noDates
-    refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty Nothing Nothing Nothing noDates
+    refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
     supplier = mkAct "aaa supplier" supU []
     -- The consumer's input consumes the supplier's product and links to it.
-    consumer = mkAct "bbb consumer" conU [TechnosphereExchange supU 2.0 kgUnit Input (Just link) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties]
+    consumer = mkAct "bbb consumer" conU [TechnosphereExchange supU 2.0 kgUnit Input (Just link) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
 
 {- | A supplier written as two coproduct rows sharing one activity UUID, and a
 consumer whose input names the first of them. Canonical order gives the two
@@ -272,9 +272,9 @@ coproductDb =
     prodAU = read "44444444-0000-4000-8000-00000000000a"
     prodBU = read "44444444-0000-4000-8000-00000000000b"
     conU = read "33333333-0000-4000-8000-000000000001"
-    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty M.empty Nothing Nothing Nothing noDates
-    refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-    inputOnA = TechnosphereExchange prodAU 2.0 kgUnit Input (Just supU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty Nothing Nothing Nothing noDates
+    refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+    inputOnA = TechnosphereExchange prodAU 2.0 kgUnit Input (Just supU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
 
 {- | The supplier's stored activity UUID, the first component of its
 'sdbActivities' key, and the value a solver-resolved input carries in
@@ -625,7 +625,7 @@ spec = do
         it "writes an unlinked waste output as an elementary flow of medium waste" $ do
             let prodU = read "55555555-0000-4000-8000-000000000001" :: UUID
                 wasteU = read "55555555-0000-4000-8000-0000000000a0" :: UUID
-                wasteEx = WasteExchange wasteU 0.3 kgUnit False Nothing ClaimByProduct "" Nothing Nothing
+                wasteEx = WasteExchange wasteU 0.3 kgUnit False Nothing ClaimByProduct "" Nothing Nothing Nothing
                 wastes = M.singleton wasteU (WasteFlow wasteU "spent solvent" kgUnit M.empty Nothing Nothing)
                 sdb = soloDb "solvent user" prodU [wasteEx] M.empty M.empty wastes
             case roundTrip sdb of
@@ -641,7 +641,7 @@ spec = do
         it "writes a waste input as a technosphere input" $ do
             let prodU = read "55555555-0000-4000-8000-000000000002" :: UUID
                 wasteU = read "55555555-0000-4000-8000-0000000000a1" :: UUID
-                wasteEx = WasteExchange wasteU 0.3 kgUnit True Nothing ClaimByProduct "" Nothing Nothing
+                wasteEx = WasteExchange wasteU 0.3 kgUnit True Nothing ClaimByProduct "" Nothing Nothing Nothing
                 wastes = M.singleton wasteU (WasteFlow wasteU "spent solvent" kgUnit M.empty Nothing Nothing)
                 sdb = soloDb "solvent user" prodU [wasteEx] M.empty M.empty wastes
             case roundTrip sdb of
@@ -658,7 +658,7 @@ spec = do
             let prodU = read "55555555-0000-4000-8000-000000000003" :: UUID
                 wasteU = read "55555555-0000-4000-8000-0000000000a2" :: UUID
                 treatU = read "55555555-0000-4000-8000-0000000000b2" :: UUID
-                wasteEx = WasteExchange wasteU 0.3 kgUnit False (Just treatU) (ClaimById treatU) "" Nothing Nothing
+                wasteEx = WasteExchange wasteU 0.3 kgUnit False (Just treatU) (ClaimById treatU) "" Nothing Nothing Nothing
                 wastes = M.singleton wasteU (WasteFlow wasteU "spent solvent" kgUnit M.empty Nothing Nothing)
                 sdb = soloDb "solvent user" prodU [wasteEx] M.empty M.empty wastes
             checkEcoSpold1Exportable sdb `shouldSatisfy` isLeft
@@ -669,7 +669,7 @@ spec = do
             let prodU = read "55555555-0000-4000-8000-000000000004" :: UUID
                 wasteU = read "55555555-0000-4000-8000-0000000000a3" :: UUID
                 treatU = read "55555555-0000-4000-8000-0000000000b3" :: UUID
-                wasteEx = WasteExchange wasteU 0.3 kgUnit True (Just treatU) (ClaimById treatU) "" Nothing Nothing
+                wasteEx = WasteExchange wasteU 0.3 kgUnit True (Just treatU) (ClaimById treatU) "" Nothing Nothing Nothing
                 wastes = M.singleton wasteU (WasteFlow wasteU "spent solvent" kgUnit M.empty Nothing Nothing)
                 sdb = soloDb "solvent user" prodU [wasteEx] M.empty M.empty wastes
             checkEcoSpold1Exportable sdb `shouldSatisfy` isLeft
@@ -678,7 +678,7 @@ spec = do
         it "rejects an Infinity exchange amount rather than exporting it as 0.0" $ do
             let prodU = read "66666666-0000-4000-8000-000000000001" :: UUID
                 bioU = read "66666666-0000-4000-8000-0000000000c0" :: UUID
-                bioEx = BiosphereExchange bioU (1 / 0) kgUnit Emission "" Nothing Nothing
+                bioEx = BiosphereExchange bioU (1 / 0) kgUnit Emission "" Nothing Nothing Nothing
                 bios = M.singleton bioU (BiosphereFlow bioU "Carbon dioxide" kgUnit M.empty Nothing Nothing Nothing)
                 sdb = soloDb "leaky process" prodU [bioEx] M.empty bios M.empty
             checkEcoSpold1Exportable sdb `shouldSatisfy` isLeft
@@ -689,7 +689,7 @@ spec = do
             -- would re-parse it as a reference product (input → output flip).
             let prodU = read "77777777-0000-4000-8000-000000000001" :: UUID
                 refInU = read "77777777-0000-4000-8000-0000000000a0" :: UUID
-                refInEx = TechnosphereExchange refInU 1.0 kgUnit ReferenceInput Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+                refInEx = TechnosphereExchange refInU 1.0 kgUnit ReferenceInput Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
                 techs = M.singleton refInU (TechnosphereFlow refInU "waste to treat" kgUnit M.empty Nothing Nothing)
                 sdb = soloDb "treatment process" prodU [refInEx] techs M.empty M.empty
             checkEcoSpold1Exportable sdb `shouldSatisfy` isLeft
@@ -700,7 +700,7 @@ spec = do
             -- showFFloatTrim keeps it value-identical across the round-trip.
             let prodU = read "88888888-0000-4000-8000-000000000001" :: UUID
                 bioU = read "88888888-0000-4000-8000-0000000000c0" :: UUID
-                bioEx = BiosphereExchange bioU 3.3e-20 kgUnit Emission "" Nothing Nothing
+                bioEx = BiosphereExchange bioU 3.3e-20 kgUnit Emission "" Nothing Nothing Nothing
                 bios = M.singleton bioU (BiosphereFlow bioU "dioxin" kgUnit M.empty Nothing Nothing Nothing)
                 sdb = soloDb "trace emitter" prodU [bioEx] M.empty bios M.empty
             case roundTrip sdb of
@@ -716,7 +716,7 @@ spec = do
             -- representable and the guard must not reject it.
             let prodU = read "aaaa0000-0000-4000-8000-000000000001" :: UUID
                 bioU = read "aaaa0000-0000-4000-8000-0000000000c0" :: UUID
-                bioEx = BiosphereExchange bioU 5e-324 kgUnit Emission "" Nothing Nothing
+                bioEx = BiosphereExchange bioU 5e-324 kgUnit Emission "" Nothing Nothing Nothing
                 bios = M.singleton bioU (BiosphereFlow bioU "trace" kgUnit M.empty Nothing Nothing Nothing)
                 sdb = soloDb "subnormal emitter" prodU [bioEx] M.empty bios M.empty
             checkEcoSpold1Exportable sdb `shouldSatisfy` isRight
@@ -727,7 +727,7 @@ spec = do
             -- does not round-trip: the joined text survives, but the parser reads
             -- it back as one element. This pins that documented behaviour.
             let prodU = read "cccc0000-0000-4000-8000-000000000001" :: UUID
-                ref = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+                ref = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
                 act =
                     Activity
                         "documented process"
@@ -739,7 +739,6 @@ spec = do
                         LocationDeclared
                         "kg"
                         [ref]
-                        M.empty
                         M.empty
                         Nothing
                         Nothing

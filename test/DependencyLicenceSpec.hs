@@ -108,6 +108,7 @@ referenceOf offset =
         , techLocation = ""
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties

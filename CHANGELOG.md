@@ -20,6 +20,11 @@
   others), by their names in any case. A formula that read before gives the
   same value.
 
+- Each exchange line of an activity has a `formula` field: the formula its
+  amount follows, and the name other formulas read that amount by. It is
+  `null` on every line for now; the readers of each format fill it as they
+  learn to keep their formulas.
+
 ### Fixed
 
 - Calculated parameters in SimaPro files and openLCA packages are given

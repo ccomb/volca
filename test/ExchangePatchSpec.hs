@@ -18,6 +18,7 @@ import Types (
     BuildInputs (..),
     Database (..),
     Exchange (..),
+    ExchangeFormula (..),
     ExchangePatch (..),
     ExchangePatchMatch (..),
     LocationSource (..),
@@ -29,11 +30,14 @@ import Types (
     UUID,
     exchangeAmount,
     exchangeFlowId,
+    exchangeFormula,
     exchangeIsReference,
     noDates,
     noDocumentation,
     noProperties,
+    scaleExchange,
     toSimpleDatabase,
+    withAmount,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -86,6 +90,7 @@ technosphere role amount flowId =
         , techLocation = ""
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -101,6 +106,7 @@ emission amount flowId =
         , bioLocation = ""
         , bioComment = Nothing
         , bioPedigree = Nothing
+        , bioFormula = Nothing
         }
 
 activity :: Text -> Text -> [Exchange] -> Activity
@@ -115,8 +121,7 @@ activity name location exs =
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
         , exchanges = exs
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
@@ -257,6 +262,15 @@ spec = do
             let patch = (patchOf emptyMatch{xpmLocation = Just "FR", xpmFlowName = Just "Pyrene"}){xpOp = ScaleBy 0.6}
                 (patched, _) = applyExchangePatches [patch] fixture
             lookup pyreneId (reverse (amounts patched)) `shouldBe` Just 0.3
+
+    describe "the formula of a patched line" $ do
+        let named = (emission 4 dioxideId){bioFormula = Just (ExchangeFormula (Just "co2") "2 * a")}
+        it "is scaled with its amount" $
+            exchangeFormula (scaleExchange 0.5 named) `shouldBe` Just (ExchangeFormula (Just "co2") "2 * a * 0.5")
+        it "gives way to a set amount, the line keeping its name on the number" $
+            exchangeFormula (withAmount 3 named) `shouldBe` Just (ExchangeFormula (Just "co2") "3")
+        it "goes with a set amount when no formula reads the line by name" $
+            exchangeFormula (withAmount 3 named{bioFormula = Just (ExchangeFormula Nothing "2 * a")}) `shouldBe` Nothing
 
     describe "a database loaded under patches" $
         it "carries them once, however many times its matrices are built" $ do

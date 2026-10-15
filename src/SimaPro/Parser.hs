@@ -1405,24 +1405,28 @@ blockLabel pb = case nonEmptyText (T.strip (pbName pb)) of
     Just n -> n
     Nothing -> maybe "unnamed process" prName (listToMaybe (pbProducts pb))
 
-{- | Build the resolved parameter environment and the raw-expression map from
-ordered parameter groups. Input groups are resolved with a single pass each;
-calc groups in the order their parameters read each other, so one may depend
-on another defined later in the CSV. Groups are ordered low→high precedence:
+{- | Build the resolved parameter environment and the parameters from ordered
+parameter groups. Input groups are resolved with a single pass each; calc
+groups in the order their parameters read each other, so one may depend on
+another defined later in the CSV. Groups are ordered low→high precedence:
 database, project, process. A calculated parameter without a value is left
-out, and an amount reading it is among the 'fallbackAmounts'.
+out of the environment, and an amount reading it is among the
+'fallbackAmounts'; an input whose value does not read is no parameter.
 -}
-buildParamEnv :: [[(Text, Text)]] -> [[(Text, Text)]] -> (M.Map Text Double, M.Map Text Text)
+buildParamEnv :: [[(Text, Text)]] -> [[(Text, Text)]] -> (M.Map Text Double, M.Map Text Parameter)
 buildParamEnv inputGroups calcGroups =
-    ( foldl' (\known -> fst . Expr.settle Expr.SimaPro known) (foldl' (foldl' evalParam) M.empty inputGroups) calcGroups
-    , M.fromList (concat (inputGroups ++ calcGroups))
+    ( env
+    , M.fromList $
+        [(name, InputParameter value) | (name, _) <- concat inputGroups, Just value <- [M.lookup name env]]
+            ++ [(name, CalculatedParameter formula (M.lookup name env)) | (name, formula) <- concat calcGroups]
     )
   where
+    env = foldl' (\known -> fst . Expr.settle Expr.SimaPro known) (foldl' (foldl' evalParam) M.empty inputGroups) calcGroups
     evalParam acc (name, rawVal) =
         either (const acc) (\v -> M.insert name v acc) (Expr.evaluate Expr.SimaPro acc rawVal)
 
 -- | The parameter environment a block's amounts are evaluated in.
-blockParamEnv :: GlobalParams -> ProcessBlock -> (M.Map Text Double, M.Map Text Text)
+blockParamEnv :: GlobalParams -> ProcessBlock -> (M.Map Text Double, M.Map Text Parameter)
 blockParamEnv GlobalParams{..} ProcessBlock{..} =
     buildParamEnv
         (reverse <$> [gpDbInput, gpProjInput, pbInputParams])
@@ -1446,7 +1450,7 @@ processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
     -- first row is the reference (main) product of the block.
     productsInFileOrder = reverse pbProducts
 
-    (env, exprMap) = blockParamEnv gp pb
+    (env, parameters) = blockParamEnv gp pb
 
     processReading = extractLocation pbName
 
@@ -1568,8 +1572,7 @@ processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
                     , activityLocationSource = effectiveLocSource
                     , activityUnit = unitName referenceUnit
                     , exchanges = referenceExchange : coproductExs ++ sharedExchanges
-                    , activityParams = env
-                    , activityParamExprs = exprMap
+                    , activityParameters = parameters
                     , activityNativeType = nativeType
                     , activityNativeId = nativeId
                     , activityFormulaCheck = Nothing
@@ -1635,6 +1638,7 @@ productToExchange unitCfg env role ProductRow{..} =
                   techLocation = readExchangeLocation prodRowLoc
                 , techComment = cleanedComment
                 , techPedigree = pedigree
+                , techFormula = Nothing
                 , techShare = share
                 , techClassification = M.fromList [("Category", prCategory) | not (T.null prCategory)]
                 , techProperties = noProperties
@@ -1740,6 +1744,7 @@ techRowToExchange unitCfg env TechExchangeRow{..} =
                 , techLocation = readExchangeLocation location
                 , techComment = cleanedComment
                 , techPedigree = pedigree
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -1794,6 +1799,7 @@ bioRowToExchange unitCfg env isInput compartment BioExchangeRow{..} =
                 , bioLocation = ""
                 , bioComment = cleanedComment
                 , bioPedigree = pedigree
+                , bioFormula = Nothing
                 }
         flow =
             BiosphereFlow

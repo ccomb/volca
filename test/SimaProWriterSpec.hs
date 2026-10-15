@@ -754,10 +754,9 @@ emissionDb comp =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , BiosphereExchange bioU 0.5 unitU Emission "" Nothing Nothing
+            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , BiosphereExchange bioU 0.5 unitU Emission "" Nothing Nothing Nothing
             ]
-            M.empty
             M.empty
             Nothing
             Nothing
@@ -794,10 +793,9 @@ wasteDb mTreatment =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , WasteExchange wasteU 0.3 unitU False mTreatment ClaimByProduct "" Nothing Nothing
+            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , WasteExchange wasteU 0.3 unitU False mTreatment ClaimByProduct "" Nothing Nothing Nothing
             ]
-            M.empty
             M.empty
             Nothing
             Nothing
@@ -856,11 +854,10 @@ designationDb =
             "FR"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , TechnosphereExchange elecU 2.0 unitU Input (Just marketU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , TechnosphereExchange ureaU 3.0 unitU Input Nothing ClaimByProduct "RER" Nothing Nothing Nothing M.empty noProperties
+            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , TechnosphereExchange elecU 2.0 unitU Input (Just marketU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , TechnosphereExchange ureaU 3.0 unitU Input Nothing ClaimByProduct "RER" Nothing Nothing Nothing M.empty noProperties Nothing
             ]
-            M.empty
             M.empty
             Nothing
             Nothing
@@ -876,8 +873,7 @@ designationDb =
             "IN"
             LocationDeclared
             "kg"
-            [TechnosphereExchange elecU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties]
-            M.empty
+            [TechnosphereExchange elecU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
             M.empty
             Nothing
             Nothing
@@ -923,10 +919,9 @@ allocationDb =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 50 Nothing)) M.empty noProperties
-            , TechnosphereExchange matU 10.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 50 Nothing)) M.empty noProperties Nothing
+            , TechnosphereExchange matU 10.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
             ]
-            M.empty
             M.empty
             Nothing
             Nothing
@@ -967,10 +962,9 @@ zeroAllocationDb =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 0 Nothing)) M.empty noProperties
-            , TechnosphereExchange matU 0.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 0 Nothing)) M.empty noProperties Nothing
+            , TechnosphereExchange matU 0.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
             ]
-            M.empty
             M.empty
             Nothing
             Nothing
@@ -1014,10 +1008,9 @@ commentDb ped cmt =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , TechnosphereExchange matU 2.0 unitU Input Nothing ClaimByProduct "" cmt ped Nothing M.empty noProperties
+            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , TechnosphereExchange matU 2.0 unitU Input Nothing ClaimByProduct "" cmt ped Nothing M.empty noProperties Nothing
             ]
-            M.empty
             M.empty
             Nothing
             Nothing
@@ -1052,8 +1045,7 @@ namedDb name =
             "GLO"
             LocationDeclared
             "kg"
-            [TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties]
-            M.empty
+            [TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
             M.empty
             Nothing
             Nothing
@@ -1073,23 +1065,23 @@ gUnit = testUUID 0x53
 
 -- | A valid reference product output for the catalog above.
 refProd :: Exchange
-refProd = TechnosphereExchange gProd 1.0 gUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+refProd = TechnosphereExchange gProd 1.0 gUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
 
 -- | A second reference product (on the material flow), an invalid second head.
 refProd2 :: Exchange
-refProd2 = TechnosphereExchange gMat 1.0 gUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+refProd2 = TechnosphereExchange gMat 1.0 gUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
 
 -- | A plain material input (no reference product in the activity).
 matInput :: Exchange
-matInput = TechnosphereExchange gMat 2.0 gUnit Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+matInput = TechnosphereExchange gMat 2.0 gUnit Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
 
 -- | An emission carrying a non-finite (+Infinity) amount.
 bioInf :: Exchange
-bioInf = BiosphereExchange gBio (1 / 0) gUnit Emission "" Nothing Nothing
+bioInf = BiosphereExchange gBio (1 / 0) gUnit Emission "" Nothing Nothing Nothing
 
 -- | A material input referencing a unit UUID absent from the unit registry.
 matMissingUnit :: Exchange
-matMissingUnit = TechnosphereExchange gMat 2.0 (testUUID 0xbad) Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+matMissingUnit = TechnosphereExchange gMat 2.0 (testUUID 0xbad) Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
 
 {- | A one-activity database whose exchanges are supplied verbatim, against a
 fixed catalog (a reference product flow, a material flow, an emission flow, and
@@ -1113,7 +1105,7 @@ guardDb alloc ntype exs =
         }
   where
     act =
-        Activity "guard maker" [] [] M.empty M.empty "GLO" LocationDeclared "kg" (map withShare exs) M.empty M.empty ntype Nothing Nothing noDates
+        Activity "guard maker" [] [] M.empty M.empty "GLO" LocationDeclared "kg" (map withShare exs) M.empty ntype Nothing Nothing noDates
     -- The share a source declares lives on the reference exchange.
     withShare ex = case ex of
         TechnosphereExchange{techRole = ReferenceProduct} -> ex{techShare = (`DeclaredShare` Nothing) <$> alloc}

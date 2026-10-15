@@ -114,11 +114,10 @@ fixtureSimple =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , TechnosphereExchange prodB 2.0 unitMJ Input (Just actB) ClaimByProduct "" (Just "energy input") Nothing Nothing M.empty noProperties
-            , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing
+            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , TechnosphereExchange prodB 2.0 unitMJ Input (Just actB) ClaimByProduct "" (Just "energy input") Nothing Nothing M.empty noProperties Nothing
+            , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing Nothing
             ]
-            M.empty
             M.empty
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
@@ -134,10 +133,9 @@ fixtureSimple =
             "GLO"
             LocationDeclared
             "MJ"
-            [ TechnosphereExchange prodB 1.0 unitMJ ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , BiosphereExchange land 0.1 unitM2a Resource "" Nothing Nothing
+            [ TechnosphereExchange prodB 1.0 unitMJ ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , BiosphereExchange land 0.1 unitM2a Resource "" Nothing Nothing Nothing
             ]
-            M.empty
             M.empty
             (Just (EcoSpoldActivityType 2 "Market activity" (Just 1) (Just "Hard link")))
             Nothing
@@ -174,11 +172,10 @@ fixtureDupBio =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing
-            , BiosphereExchange co2 0.3 unitKg Emission "" Nothing Nothing
+            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing Nothing
+            , BiosphereExchange co2 0.3 unitKg Emission "" Nothing Nothing Nothing
             ]
-            M.empty
             M.empty
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
@@ -210,10 +207,9 @@ fixtureWithExchange ex =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
             , ex
             ]
-            M.empty
             M.empty
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
@@ -249,10 +245,9 @@ fixtureWithBioSynonyms =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing
+            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing Nothing
             ]
-            M.empty
             M.empty
             Nothing
             Nothing
@@ -297,12 +292,11 @@ fixtureWasteCoproduct =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , TechnosphereExchange coprodU 0.4 unitKg Coproduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , WasteExchange wasteInU 0.2 unitKg True Nothing ClaimByProduct "" Nothing Nothing
-            , WasteExchange wasteOutU 0.3 unitKg False Nothing ClaimByProduct "" Nothing Nothing
+            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , TechnosphereExchange coprodU 0.4 unitKg Coproduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , WasteExchange wasteInU 0.2 unitKg True Nothing ClaimByProduct "" Nothing Nothing Nothing
+            , WasteExchange wasteOutU 0.3 unitKg False Nothing ClaimByProduct "" Nothing Nothing Nothing
             ]
-            M.empty
             M.empty
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
@@ -431,7 +425,7 @@ spec = describe "EcoSpold2 writer round-trip" $ do
     -- with it the exact relink when it is read back beside the background.
     it "writes the supplier a line names when the link no longer resolves" $ do
         let claimed =
-                TechnosphereExchange prodA 2.0 unitKg Input Nothing (ClaimById actB) "" Nothing Nothing Nothing M.empty noProperties
+                TechnosphereExchange prodA 2.0 unitKg Input Nothing (ClaimById actB) "" Nothing Nothing Nothing M.empty noProperties Nothing
             docs = writeOrFail noVolatileMeta (fixtureWithExchange claimed)
         any (T.isInfixOf ("activityLinkId=\"" <> UUID.toText actB <> "\"") . snd) docs `shouldBe` True
         sdb' <- roundTrip (fixtureWithExchange claimed)
@@ -448,19 +442,19 @@ spec = describe "EcoSpold2 writer round-trip" $ do
     describe "rejects un-encodable data at the export boundary" $ do
         it "rejects a non-finite exchange amount (Infinity clamps to 0.0)" $
             checkEcoSpold2Exportable
-                (fixtureWithExchange (BiosphereExchange co2 (1 / 0) unitKg Emission "" Nothing Nothing))
+                (fixtureWithExchange (BiosphereExchange co2 (1 / 0) unitKg Emission "" Nothing Nothing Nothing))
                 `shouldSatisfy` isLeft
 
         it "rejects a reference input (no EcoSpold2 encoding)" $
             checkEcoSpold2Exportable
-                (fixtureWithExchange (TechnosphereExchange co2 2.0 unitKg ReferenceInput Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties))
+                (fixtureWithExchange (TechnosphereExchange co2 2.0 unitKg ReferenceInput Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing))
                 `shouldSatisfy` isLeft
 
         it "rejects an exchange whose unit is absent from the registry" $
             -- unitMJ is not in the single-unit registry, so the writer would emit
             -- no <unitName> and the parser would read back UNKNOWN_UNIT.
             checkEcoSpold2Exportable
-                (fixtureWithExchange (BiosphereExchange co2 1.0 unitMJ Emission "" Nothing Nothing))
+                (fixtureWithExchange (BiosphereExchange co2 1.0 unitMJ Emission "" Nothing Nothing Nothing))
                 `shouldSatisfy` isLeft
 
         it "rejects an exchange whose flow is absent from the registry" $
@@ -468,7 +462,7 @@ spec = describe "EcoSpold2 writer round-trip" $ do
             -- would emit a nameless, compartment-less exchange (name degrading to
             -- the bare UUID), symmetric to the missing-unit downgrade above.
             checkEcoSpold2Exportable
-                (fixtureWithExchange (BiosphereExchange land 1.0 unitKg Emission "" Nothing Nothing))
+                (fixtureWithExchange (BiosphereExchange land 1.0 unitKg Emission "" Nothing Nothing Nothing))
                 `shouldSatisfy` isLeft
 
         it "accepts a subnormal amount, which round-trips through the correctly-rounded reader" $
@@ -476,7 +470,7 @@ spec = describe "EcoSpold2 writer round-trip" $ do
             -- (Data.Text.Read.double used to lose it to 0), so it is faithfully
             -- representable and the guard must not reject it.
             checkEcoSpold2Exportable
-                (fixtureWithExchange (BiosphereExchange co2 5e-324 unitKg Emission "" Nothing Nothing))
+                (fixtureWithExchange (BiosphereExchange co2 5e-324 unitKg Emission "" Nothing Nothing Nothing))
                 `shouldSatisfy` isRight
 
     -- (b) Semantic round-trip: parse(write(D)) ≅ D, order-insensitive.

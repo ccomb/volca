@@ -103,7 +103,7 @@
 # tables walked out of a Map, line positions, and the parameters of one scope
 # (openLCA refuses two of one name; a process parameter over a global one is
 # the shadowing the reader means).
-- ignore: {name: "Avoid restricted function", within: [OlcaSchema.Parser.referenceUnits, OlcaSchema.Parser.flowTables, OlcaSchema.Parser.split, OlcaSchema.Parser.environment, OlcaSchema.Parser.assemble]}
+- ignore: {name: "Avoid restricted function", within: [OlcaSchema.Parser.referenceUnits, OlcaSchema.Parser.flowTables, OlcaSchema.Parser.split, OlcaSchema.Parser.environment, OlcaSchema.Parser.byName, OlcaSchema.Parser.assemble]}
 
 # A unit identifier minted from the unit's name, by a UUIDv5 over that name, for
 # a value whose every field is that same name. Two rows under one identifier are

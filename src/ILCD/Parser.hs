@@ -903,8 +903,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
         , activityLocationSource = declaredLocationSource (iprLocation p)
         , activityUnit = refUnit
         , exchanges = map (mkExchange (iprRefFlowIdx p)) (iprExchanges p)
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType =
             if T.null (iprProcessType p)
                 then Nothing
@@ -975,6 +974,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
                         , bioLocation = readExchangeLocation (ierLocation raw)
                         , bioComment = ierComment raw
                         , bioPedigree = Nothing
+                        , bioFormula = Nothing
                         }
                 WasteClass ->
                     WasteExchange
@@ -987,6 +987,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
                         , waLocation = readExchangeLocation (ierLocation raw)
                         , waComment = ierComment raw
                         , waPedigree = Nothing
+                        , waFormula = Nothing
                         }
                 TechClass ->
                     TechnosphereExchange
@@ -999,6 +1000,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
                         , techLocation = readExchangeLocation (ierLocation raw)
                         , techComment = ierComment raw
                         , techPedigree = Nothing
+                        , techFormula = Nothing
                         , techShare = declaredShareOf techRoleFor raw
                         , techClassification = M.empty
                         , techProperties = noProperties

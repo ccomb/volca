@@ -451,8 +451,7 @@ rawToActivity cfg own ra =
             , activityLocationSource = declaredLocationSource location
             , activityUnit = refUnitName
             , exchanges = exchanges'
-            , activityParams = M.empty
-            , activityParamExprs = M.empty
+            , activityParameters = M.empty
             , activityNativeType = Nothing
             , activityNativeId = Nothing
             , activityFormulaCheck = Nothing
@@ -496,6 +495,7 @@ productRowOut cfg meta isRef f =
             , techLocation = readExchangeLocation (fromMaybe "" (fieldText f "location" <|> metaText meta "location"))
             , techComment = fieldText f "comment"
             , techPedigree = Nothing
+            , techFormula = Nothing
             , techShare = Nothing
             , techClassification = M.empty
             , techProperties = noProperties
@@ -553,6 +553,7 @@ technosphereRowOut RowContext{rcUnits = cfg, rcOwn = own, rcActivity = actName} 
             , techLocation = readExchangeLocation (fromMaybe "" (fieldText f "location"))
             , techComment = fieldText f "comment"
             , techPedigree = Nothing
+            , techFormula = Nothing
             , techShare = Nothing
             , techClassification = M.empty
             , techProperties = noProperties
@@ -593,6 +594,7 @@ biosphereRowOut cfg actName f
             , bioLocation = readExchangeLocation (fromMaybe "" (fieldText f "location"))
             , bioComment = fieldText f "comment"
             , bioPedigree = Nothing
+            , bioFormula = Nothing
             }
     flow =
         BiosphereFlow

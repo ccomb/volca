@@ -61,6 +61,7 @@ import Types (
     LocationSource (..),
     Medium (..),
     NativeActivityType (..),
+    Parameter (..),
     Pedigree (..),
     SimpleDatabase (..),
     TechFlowDB,
@@ -1057,15 +1058,15 @@ spec = do
         it "stores resolved parameter values in activity" $ do
             (activities, _, _, _, _) <- parseParamCSV
             let butter = head activities
-            M.lookup "Qm" (activityParams butter) `shouldBe` Just 20.53
-            M.lookup "Qb" (activityParams butter) `shouldBe` Just 1.0
-            M.lookup "DMb" (activityParams butter) `shouldBe` Just 0.82
+            M.lookup "Qm" (activityParameters butter) `shouldBe` Just (InputParameter 20.53)
+            M.lookup "Qb" (activityParameters butter) `shouldBe` Just (InputParameter 1.0)
+            M.lookup "DMb" (activityParameters butter) `shouldBe` Just (InputParameter 0.82)
 
         it "stores raw expressions for re-evaluation" $ do
             (activities, _, _, _, _) <- parseParamCSV
             let butter = head activities
-            M.lookup "allocButter" (activityParamExprs butter)
-                `shouldBe` Just "(Qb*DMb/(Qb*DMb+Qm*DMm))*100"
+            [f | Just (CalculatedParameter f _) <- [M.lookup "allocButter" (activityParameters butter)]]
+                `shouldBe` ["(Qb*DMb/(Qb*DMb+Qm*DMm))*100"]
 
         it "does not drop exchanges with parameterized amounts" $ do
             (activities, _, _, _, _) <- parseParamCSV

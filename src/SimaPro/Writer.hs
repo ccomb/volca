@@ -826,14 +826,6 @@ bioRowText :: Line -> Text
 bioRowText Line{..} =
     row [lName, lCompartment, lUnit, formatAmount lAmount, "Undefined", "", "", "", "", "", lComment]
 
-{- | Scale an exchange's amount by a factor – the inverse of the parser's
-allocation scaling (see 'serializeActivity').
--}
-scaleExchangeAmount :: Double -> Exchange -> Exchange
-scaleExchangeAmount f ex@TechnosphereExchange{} = ex{techAmount = techAmount ex * f}
-scaleExchangeAmount f ex@BiosphereExchange{} = ex{bioAmount = bioAmount ex * f}
-scaleExchangeAmount f ex@WasteExchange{} = ex{waAmount = waAmount ex * f}
-
 {- | Serialize a single activity to a @Process … End@ block (list of lines,
 without trailing terminator). Flow/unit names are resolved through the
 respective DBs; exchanges whose flow is missing are dropped (the matrix
@@ -857,7 +849,7 @@ serializeActivity cats act@Activity{..} =
         unscale ex
             | exchangeIsReference ex = ex
             | allocFraction == 0 = ex
-            | otherwise = scaleExchangeAmount (1 / allocFraction) ex
+            | otherwise = scaleExchange (1 / allocFraction) ex
         unscaledExchanges = map unscale exchanges
 
         techLines = mapMaybe (techInputLine cats) unscaledExchanges

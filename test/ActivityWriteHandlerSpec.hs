@@ -607,6 +607,7 @@ milkActivity =
                 , techLocation = ""
                 , techComment = Nothing
                 , techPedigree = Nothing
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -619,10 +620,10 @@ milkActivity =
                 , bioLocation = ""
                 , bioComment = Nothing
                 , bioPedigree = Nothing
+                , bioFormula = Nothing
                 }
             ]
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing

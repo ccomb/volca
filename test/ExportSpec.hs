@@ -114,10 +114,9 @@ buildFixture comp = do
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-            , BiosphereExchange co2U 0.5 unitU Emission "" Nothing Nothing
+            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            , BiosphereExchange co2U 0.5 unitU Emission "" Nothing Nothing Nothing
             ]
-            M.empty
             M.empty
             Nothing
             Nothing

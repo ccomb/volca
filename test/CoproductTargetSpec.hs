@@ -297,6 +297,7 @@ wasteOutput =
         , waLocation = ""
         , waComment = Nothing
         , waPedigree = Nothing
+        , waFormula = Nothing
         }
 
 techExchange :: UUID -> Double -> TechRole -> Maybe UUID -> Exchange
@@ -311,6 +312,7 @@ techExchange flowId amount role link =
         , techLocation = ""
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -328,8 +330,7 @@ bareActivity name exs =
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
         , exchanges = exs
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing

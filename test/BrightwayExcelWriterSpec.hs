@@ -298,8 +298,7 @@ elec =
         , activityLocationSource = LocationDeclared
         , activityUnit = "kilowatt hour"
         , exchanges = [prodExch, gasExch, co2Exch]
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
@@ -318,6 +317,7 @@ prodExch =
         , techLocation = "GLO"
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -335,6 +335,7 @@ gasExch =
         , techLocation = "RoW"
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -350,6 +351,7 @@ co2Exch =
         , bioLocation = ""
         , bioComment = Nothing
         , bioPedigree = Nothing
+        , bioFormula = Nothing
         }
 
 elecFlow :: TechnosphereFlow
@@ -413,6 +415,7 @@ specialAct =
                 , techLocation = "GLO"
                 , techComment = Nothing
                 , techPedigree = Nothing
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -427,6 +430,7 @@ specialAct =
                 , techLocation = "RoW"
                 , techComment = Nothing
                 , techPedigree = Nothing
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -439,6 +443,7 @@ specialAct =
                 , bioLocation = ""
                 , bioComment = Nothing
                 , bioPedigree = Nothing
+                , bioFormula = Nothing
                 }
             ]
         }
@@ -508,6 +513,7 @@ refInputAct =
                 , techLocation = "GLO"
                 , techComment = Nothing
                 , techPedigree = Nothing
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -609,6 +615,7 @@ kgProduction flow role amount =
         , techLocation = "GLO"
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -699,6 +706,7 @@ gramRefDb =
                     , techLocation = "GLO"
                     , techComment = Nothing
                     , techPedigree = Nothing
+                    , techFormula = Nothing
                     , techShare = Nothing
                     , techClassification = M.empty
                     , techProperties = noProperties
@@ -754,6 +762,7 @@ scrapExch =
         , waLocation = ""
         , waComment = Nothing
         , waPedigree = Nothing
+        , waFormula = Nothing
         }
 
 {- | 'wasteDb' but the waste exchange links to a producer (a non-nil activity

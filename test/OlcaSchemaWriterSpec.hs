@@ -93,9 +93,8 @@ oneProcess lines' =
             , activityLocation = "US"
             , activityLocationSource = LocationDeclared
             , activityUnit = "kg"
-            , exchanges = TechnosphereExchange made 1 kg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties : lines'
-            , activityParams = M.empty
-            , activityParamExprs = M.empty
+            , exchanges = TechnosphereExchange made 1 kg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing : lines'
+            , activityParameters = M.empty
             , activityNativeType = Nothing
             , activityNativeId = Nothing
             , activityFormulaCheck = Nothing
@@ -103,7 +102,7 @@ oneProcess lines' =
             }
 
 bio :: UUID -> Double -> BioDirection -> Exchange
-bio flow amount dir = BiosphereExchange flow amount kg dir "" Nothing Nothing
+bio flow amount dir = BiosphereExchange flow amount kg dir "" Nothing Nothing Nothing
 
 warned :: SimpleDatabase -> [T.Text]
 warned sdb = either (error . T.unpack) snd (serializeOlcaPackage defaultUnitConfig sdb)
@@ -169,7 +168,7 @@ spec = describe "an openLCA package written from a database" $ do
 
     it "converts a line to its flow's unit" $ do
         let g = UUID.fromWords 9 0 0 9
-            sdb = (oneProcess [BiosphereExchange co2 1500 g Emission "" Nothing Nothing]){sdbUnits = M.fromList [(kg, Unit kg "kg" "kg" ""), (g, Unit g "g" "g" "")]}
+            sdb = (oneProcess [BiosphereExchange co2 1500 g Emission "" Nothing Nothing Nothing]){sdbUnits = M.fromList [(kg, Unit kg "kg" "kg" ""), (g, Unit g "g" "g" "")]}
             grams = either (error . T.unpack) id (buildFromCSV "name,dimension,factor\nkg,mass,1.0\ng,mass,0.001\n")
         case serializeOlcaPackage grams sdb of
             Left why -> expectationFailure (T.unpack why)
@@ -184,7 +183,7 @@ spec = describe "an openLCA package written from a database" $ do
                     `shouldBe` [Just (Number 1.5)]
 
     it "writes location codes differing only by case as one, the most used" $ do
-        let sdb = oneProcess [BiosphereExchange co2 1 kg Emission "us" Nothing Nothing, BiosphereExchange ore 1 kg Resource "us" Nothing Nothing]
+        let sdb = oneProcess [BiosphereExchange co2 1 kg Emission "us" Nothing Nothing Nothing, BiosphereExchange ore 1 kg Resource "us" Nothing Nothing Nothing]
         [path | (path, _) <- written sdb, take 10 path == "locations/"] `shouldBe` ["locations/" <> UUID.toString (locationId "us") <> ".json"]
         back <- throughPackage sdb
         [activityLocation a | a <- M.elems (sdbActivities back)] `shouldBe` ["us"]
@@ -193,7 +192,7 @@ spec = describe "an openLCA package written from a database" $ do
     describe "refuses what it would carry wrong" $ do
         it "a line in a unit that does not convert to its flow's" $ do
             let m = UUID.fromWords 9 0 0 9
-                sdb = (oneProcess [BiosphereExchange co2 1 m Emission "" Nothing Nothing]){sdbUnits = M.fromList [(kg, Unit kg "kg" "kg" ""), (m, Unit m "m" "m" "")]}
+                sdb = (oneProcess [BiosphereExchange co2 1 m Emission "" Nothing Nothing Nothing]){sdbUnits = M.fromList [(kg, Unit kg "kg" "kg" ""), (m, Unit m "m" "m" "")]}
             refused sdb "maker · carbon dioxide"
         it "a sub-compartment holding '/'" $
             refused
@@ -201,7 +200,7 @@ spec = describe "an openLCA package written from a database" $ do
                 "containing '/'"
         it "a waste input to no treatment of the database" $
             refused
-                (oneProcess [WasteExchange co2 1 kg True Nothing ClaimByProduct "" Nothing Nothing]){sdbBioFlows = M.empty, sdbWasteFlows = M.singleton co2 (WasteFlow co2 "slag" kg M.empty Nothing Nothing)}
+                (oneProcess [WasteExchange co2 1 kg True Nothing ClaimByProduct "" Nothing Nothing Nothing]){sdbBioFlows = M.empty, sdbWasteFlows = M.singleton co2 (WasteFlow co2 "slag" kg M.empty Nothing Nothing)}
                 "maker · slag"
         it "an amount that is not finite" $
             refused (oneProcess [bio co2 (1 / 0) Emission]) "not finite"

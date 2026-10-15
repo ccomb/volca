@@ -39,7 +39,6 @@ module Database.Allocation (
     describePropertyRefusal,
     propertyKeyRefusals,
     propertyKeyShares,
-    scaleExchange,
     PropertyRefusal (..),
     propertyName,
     productProperty,
@@ -406,13 +405,6 @@ normalise act = promote (filter (keep . snd) (zip [0 ..] (exchanges act)))
     promoteTo single ex
         | exchangeFlowId ex == exchangeFlowId single && exchangeIsProductOutput ex = asReference ex
         | otherwise = ex
-
--- | Scale an exchange amount by a factor.
-scaleExchange :: Double -> Exchange -> Exchange
-scaleExchange factor ex = case ex of
-    TechnosphereExchange{} -> ex{techAmount = techAmount ex * factor}
-    BiosphereExchange{} -> ex{bioAmount = bioAmount ex * factor}
-    WasteExchange{} -> ex{waAmount = waAmount ex * factor}
 
 isCoproduct :: Exchange -> Bool
 isCoproduct ex = case ex of

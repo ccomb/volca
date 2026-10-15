@@ -153,7 +153,7 @@ data ElementaryData = ElementaryData
 dataset is parsed, since the variables it references may be declared after it
 in the file).
 -}
-data ExchangeFormula = ExchangeFormula
+data FormulaAttributes = FormulaAttributes
     { efVariableName :: !(Maybe Text)
     , efMathRel :: !(Maybe Text)
     }
@@ -259,7 +259,7 @@ data ParseState = ParseState
     , psLocation :: !(Maybe Text)
     , psRefUnit :: !(Maybe Text)
     , psDescription :: ![Text]
-    , psExchanges :: ![(Exchange, ExchangeFormula)]
+    , psExchanges :: ![(Exchange, FormulaAttributes)]
     , psTechFlows :: ![TechnosphereFlow]
     , psBioFlows :: ![BiosphereFlow]
     , psWasteFlows :: ![WasteFlow]
@@ -641,7 +641,7 @@ exchange until the loader walks it, long after the file is folded, so without
 these a whole file's raw readings are resident at once. Each of these types is
 strict in all its fields, so head-normal form is the whole value.
 -}
-addExchange :: Exchange -> ExchangeFormula -> ParseState -> ParseState
+addExchange :: Exchange -> FormulaAttributes -> ParseState -> ParseState
 addExchange !ex !ef st = st{psExchanges = (ex, ef) : psExchanges st}
 
 addTechFlow :: TechnosphereFlow -> ParseState -> ParseState
@@ -688,7 +688,7 @@ Divergences are expected in real EcoSpold2 databases
 so nothing is logged: the outcome is recorded on the activity for the
 database quality report.
 -}
-checkFormulas :: M.Map Text Double -> S.Set Text -> [(Exchange, ExchangeFormula)] -> Maybe FormulaCheck
+checkFormulas :: M.Map Text Double -> S.Set Text -> [(Exchange, FormulaAttributes)] -> Maybe FormulaCheck
 checkFormulas params struckParams pairs = case checked of
     [] -> Nothing
     _ ->
@@ -948,6 +948,7 @@ parseWithXeno xmlContent = do
                                     , techLocation = "" -- EcoSpold2: no per-exchange location
                                     , techComment = snd <$> idComment idata
                                     , techPedigree = Nothing
+                                    , techFormula = Nothing
                                     , techShare = Nothing
                                     , techClassification = M.empty
                                     , techProperties = idProperties idata
@@ -964,6 +965,7 @@ parseWithXeno xmlContent = do
                                     , waLocation = ""
                                     , waComment = snd <$> idComment idata
                                     , waPedigree = Nothing
+                                    , waFormula = Nothing
                                     }
                             wasteFlow = WasteFlow flowUUID resolvedFlowName unitUUID (idSynonyms idata) Nothing Nothing
                             -- A waste-classified flow normally routes to the waste axis. The one
@@ -983,7 +985,7 @@ parseWithXeno xmlContent = do
                                 , amount /= 0 || isNothing (psRefUnit state) =
                                     Just (idUnitName idata)
                                 | otherwise = psRefUnit state
-                            formula = ExchangeFormula (nonEmptyText (idVariableName idata)) (nonEmptyText (idMathRel idata))
+                            formula = FormulaAttributes (nonEmptyText (idVariableName idata)) (nonEmptyText (idMathRel idata))
                             base = (finishExchange unit warns state){psRefUnit = newRefUnit}
                          in if refOnWasteAxis
                                 then addExchange wasteExchange formula (addWasteFlow wasteFlow base)
@@ -1045,9 +1047,10 @@ parseWithXeno xmlContent = do
                                     , bioLocation = "" -- EcoSpold2: no per-exchange location
                                     , bioComment = snd <$> edComment edata
                                     , bioPedigree = Nothing
+                                    , bioFormula = Nothing
                                     }
                             bioFlow = BiosphereFlow flowUUID resolvedFlowName unitUUID (edSynonyms edata) (edCAS edata) Nothing compartment
-                            formula = ExchangeFormula (nonEmptyText (edVariableName edata)) (nonEmptyText (edMathRel edata))
+                            formula = FormulaAttributes (nonEmptyText (edVariableName edata)) (nonEmptyText (edMathRel edata))
                             base = finishExchange unit warns state
                          in addExchange bioExchange formula (addBioFlow bioFlow base)
                     | otherwise ->
@@ -1167,7 +1170,7 @@ parseWithXeno xmlContent = do
             -- A variable the file declared twice with two amounts names no
             -- value, so it is not one of the dataset's parameters.
             params = M.withoutKeys (psParams st) (psAmbiguousParams st)
-            paramExprs = M.withoutKeys (psParamExprs st) (psAmbiguousParams st)
+            parameters = M.mapWithKey (\var value -> maybe (InputParameter value) (\f -> CalculatedParameter f (Just value)) (M.lookup var (psParamExprs st))) params
             formulaCheck = checkFormulas params (psAmbiguousParams st) pairs
             (dates, dateWarnings) = datasetDates (psDocs st)
             -- Apply cutoff strategy to exchanges
@@ -1182,8 +1185,7 @@ parseWithXeno xmlContent = do
                     , activityLocationSource = locationSource
                     , activityUnit = refUnit
                     , exchanges = map fst pairs
-                    , activityParams = params
-                    , activityParamExprs = paramExprs
+                    , activityParameters = parameters
                     , activityNativeType = nativeType
                     , activityNativeId = Nothing
                     , activityFormulaCheck = formulaCheck

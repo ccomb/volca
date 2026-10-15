@@ -29,16 +29,16 @@ import Types (
     Exchange (..),
     ExchangePatch (..),
     ExchangePatchMatch (..),
+    PatchOp (..),
     SimpleDatabase (..),
     TechnosphereFlow (..),
     UUID,
     WasteFlow (..),
-    applyPatchOp,
     describePatchOp,
-    exchangeAmount,
     exchangeFlowId,
     exchangeIsProductOutput,
     exchangeIsReference,
+    scaleExchange,
     withAmount,
  )
 
@@ -55,7 +55,7 @@ data ProcessNames = ProcessNames
 
 {- | Apply every patch, in order, to the exchanges of a database. Each patch
 scans every process, and every exchange of it that the selector matches has
-its amount replaced by 'applyPatchOp'.
+its amount scaled or replaced, as the patch says.
 
 The rows saying what a process makes (its reference and its coproducts) are
 left alone: they define the unit every other amount is stated per, so
@@ -105,8 +105,13 @@ patchExchange :: M.Map UUID Text -> ExchangePatch -> ProcessNames -> Exchange ->
 patchExchange names patch process exchange
     | exchangeIsReference exchange || exchangeIsProductOutput exchange = (exchange, False)
     | exchangeMatches (xpMatch patch) process (M.lookup (exchangeFlowId exchange) names) =
-        (withAmount (applyPatchOp (xpOp patch) (exchangeAmount exchange)) exchange, True)
+        (patchedBy (xpOp patch) exchange, True)
     | otherwise = (exchange, False)
+
+-- | A scale keeps the formula true by scaling it too; a set value replaces what gave the amount.
+patchedBy :: PatchOp -> Exchange -> Exchange
+patchedBy (ScaleBy factor) = scaleExchange factor
+patchedBy (SetValueTo value) = withAmount value
 
 {- | Does this exchange match the selector? Every field the selector sets must
 match (conjunction); an unset field imposes no constraint. The flow name is

@@ -201,8 +201,7 @@ activity name lines' =
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
         , exchanges = lines'
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
@@ -221,6 +220,7 @@ techLine flow amount role supplier =
         , techLocation = ""
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -236,6 +236,7 @@ emission amount =
         , bioLocation = ""
         , bioComment = Nothing
         , bioPedigree = Nothing
+        , bioFormula = Nothing
         }
 
 cheeseFlow :: TechnosphereFlow

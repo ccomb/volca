@@ -461,6 +461,7 @@ tech fid amount role =
         , techLocation = ""
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -476,6 +477,7 @@ bio amount =
         , bioLocation = ""
         , bioComment = Nothing
         , bioPedigree = Nothing
+        , bioFormula = Nothing
         }
 
 activity :: [Exchange] -> Activity
@@ -490,8 +492,7 @@ activity exs =
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
         , exchanges = exs
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Just (NativeProcessId "block-1")
         , activityFormulaCheck = Nothing

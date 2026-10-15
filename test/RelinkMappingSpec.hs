@@ -111,13 +111,13 @@ targetActivity name loc unit flowUUID =
                 , techLocation = ""
                 , techComment = Nothing
                 , techPedigree = Nothing
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
                 }
             ]
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing

@@ -427,6 +427,7 @@ buys supplier flow amount =
         , techLocation = ""
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -480,6 +481,7 @@ bioLine direction flow unit amount =
         , bioLocation = ""
         , bioComment = Nothing
         , bioPedigree = Nothing
+        , bioFormula = Nothing
         }
 
 -- | One process of a test database, located in France and producing one kilogram unless a case says otherwise.
@@ -529,8 +531,7 @@ entry key r =
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
         , exchanges = reference : rowLines r
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = rowType r
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
@@ -550,6 +551,7 @@ entry key r =
             , techLocation = ""
             , techComment = Nothing
             , techPedigree = Nothing
+            , techFormula = Nothing
             , techShare = Nothing
             , techClassification = M.empty
             , techProperties = noProperties

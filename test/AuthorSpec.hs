@@ -51,6 +51,7 @@ import Types (
     Exchange (..),
     LocationSource (..),
     Medium (..),
+    Parameter (..),
     Pedigree (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -704,7 +705,7 @@ since an authored activity has none of it to state.
 type ActivityFacts =
     ( (Text, Text, [Text], Text)
     , (M.Map Text Text, M.Map Text (S.Set Text))
-    , (M.Map Text Double, M.Map Text Text)
+    , M.Map Text Parameter
     , Maybe DeclaredShare
     )
 
@@ -712,7 +713,7 @@ activityFacts :: Activity -> ActivityFacts
 activityFacts act =
     ( (activityName act, activityLocation act, activityDescription act, activityUnit act)
     , (activityClassification act, activitySynonyms act)
-    , (activityParams act, activityParamExprs act)
+    , activityParameters act
     , activityReferenceShare act
     )
 
@@ -763,6 +764,7 @@ importedActivity =
                 , techLocation = ""
                 , techComment = Nothing
                 , techPedigree = Nothing
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -777,6 +779,7 @@ importedActivity =
                 , techLocation = ""
                 , techComment = Nothing
                 , techPedigree = Nothing
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -791,6 +794,7 @@ importedActivity =
                 , techLocation = "FR"
                 , techComment = Just "milk in"
                 , techPedigree = Just milkPedigree
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -803,6 +807,7 @@ importedActivity =
                 , bioLocation = ""
                 , bioComment = Nothing
                 , bioPedigree = Nothing
+                , bioFormula = Nothing
                 }
             , BiosphereExchange
                 { bioFlowId = co2Id
@@ -812,6 +817,7 @@ importedActivity =
                 , bioLocation = "FR"
                 , bioComment = Just "second compartment"
                 , bioPedigree = Nothing
+                , bioFormula = Nothing
                 }
             , WasteExchange
                 { waFlowId = usedOilId
@@ -823,6 +829,7 @@ importedActivity =
                 , waLocation = ""
                 , waComment = Nothing
                 , waPedigree = Nothing
+                , waFormula = Nothing
                 }
             , WasteExchange
                 { waFlowId = usedOilId
@@ -834,10 +841,10 @@ importedActivity =
                 , waLocation = ""
                 , waComment = Nothing
                 , waPedigree = Nothing
+                , waFormula = Nothing
                 }
             ]
-        , activityParams = M.singleton "yield" 0.85
-        , activityParamExprs = M.singleton "yield" "0.9 * 0.94"
+        , activityParameters = M.singleton "yield" (CalculatedParameter "0.9 * 0.94" (Just 0.846))
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
@@ -1032,6 +1039,7 @@ treatmentWithHeat =
                         , techLocation = ""
                         , techComment = Nothing
                         , techPedigree = Nothing
+                        , techFormula = Nothing
                         , techShare = Nothing
                         , techClassification = M.empty
                         , techProperties = noProperties
@@ -1064,13 +1072,13 @@ treatmentActivity =
                 , techLocation = ""
                 , techComment = Nothing
                 , techPedigree = Nothing
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
                 }
             ]
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
@@ -1099,6 +1107,7 @@ supplierActivityAt actId prodId =
                 , techLocation = ""
                 , techComment = Nothing
                 , techPedigree = Nothing
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -1111,10 +1120,10 @@ supplierActivityAt actId prodId =
                 , bioLocation = ""
                 , bioComment = Nothing
                 , bioPedigree = Nothing
+                , bioFormula = Nothing
                 }
             ]
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing

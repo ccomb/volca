@@ -329,13 +329,17 @@ warnings cx = splitWarnings (cxDb cx) <> mapMaybe counted kinds
     kinds =
         [ ("processes keep a product they did not allocate; openLCA reads it with the whole inventory:", [activityName a | a <- acts, any isCoproduct (exchanges a)])
         , ("inputs name no supplier, and openLCA will link them to a producer of the package:", unlinkedProduced)
-        , ("processes have formulas, written as the values they computed:", [activityName a | a <- acts, not (M.null (activityParamExprs a))])
+        , ("processes have formulas, written as the values they computed:", [activityName a | a <- acts, hasFormulas a])
         , ("processes state an elementary flow against its compartment, written on its side with the same inventory:", S.toList (S.fromList against))
         , ("location codes differ from another only by case, one location to openLCA, and are written as it:", [code <> " as " <> written | (code, written) <- M.toList (cxPlaces cx), code /= written])
         ]
     isCoproduct ex = case ex of
         TechnosphereExchange{techRole = Coproduct} -> True
         _ -> False
+    hasFormulas a = any isCalculated (activityParameters a) || any (isJust . exchangeFormula) (exchanges a)
+    isCalculated p = case p of
+        CalculatedParameter{} -> True
+        InputParameter{} -> False
     produced = S.fromList [exchangeFlowId ex | a <- acts, ex <- exchanges a, exchangeIsReference ex]
     unlinkedProduced =
         [ activityName a <> " · " <> maybe "" ofName (M.lookup (exchangeFlowId ex) (cxFlows cx))

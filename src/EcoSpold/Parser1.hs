@@ -710,6 +710,7 @@ buildExchange activityLoc amount edata
             , bioLocation = readExchangeLocation exchangeLocation
             , bioComment = nonEmptyText (exComment edata)
             , bioPedigree = Nothing
+            , bioFormula = Nothing
             }
 
     techFlow = TechnosphereFlow flowId (exName edata) unitId M.empty cas Nothing
@@ -724,6 +725,7 @@ buildExchange activityLoc amount edata
             , techLocation = readExchangeLocation exchangeLocation
             , techComment = nonEmptyText (exComment edata)
             , techPedigree = Nothing
+            , techFormula = Nothing
             , techShare = Nothing
             , techClassification = M.empty
             , techProperties = noProperties
@@ -908,8 +910,7 @@ buildResult st =
                 , activityLocationSource = locationSource
                 , activityUnit = refUnit
                 , exchanges = reverse (psExchanges st)
-                , activityParams = M.empty
-                , activityParamExprs = M.empty
+                , activityParameters = M.empty
                 , activityNativeType = Nothing
                 , activityNativeId = datasetIdentifier (psDatasetNumber st)
                 , activityFormulaCheck = Nothing

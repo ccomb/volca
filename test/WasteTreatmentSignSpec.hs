@@ -69,8 +69,7 @@ emptyActivity =
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
         , exchanges = []
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
@@ -89,6 +88,7 @@ techEx flow amt role link =
         , techLocation = ""
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -104,6 +104,7 @@ co2Emission amt =
         , bioLocation = ""
         , bioComment = Nothing
         , bioPedigree = Nothing
+        , bioFormula = Nothing
         }
 
 wasteEx :: Bool -> Maybe UUID -> Double -> Exchange
@@ -118,6 +119,7 @@ wasteEx isInput link amt =
         , waLocation = ""
         , waComment = Nothing
         , waPedigree = Nothing
+        , waFormula = Nothing
         }
 
 {- | A treatment of waste W: reference of W (role + signed amount vary by

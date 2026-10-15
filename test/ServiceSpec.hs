@@ -190,6 +190,7 @@ spec = do
                     , waLocation = ""
                     , waComment = Nothing
                     , waPedigree = Nothing
+                    , waFormula = Nothing
                     }
             linked = Just (fromWords 1 2 3 4)
 
@@ -209,8 +210,8 @@ spec = do
             wasteRoleOf Nothing (wasteLine False linked) `shouldBe` Just TreatmentNotLoaded
 
         it "leaves every other kind of line without a role" $ do
-            let bio = BiosphereExchange nil 1.0 nil Emission "" Nothing Nothing
-                tech = TechnosphereExchange nil 1.0 nil Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+            let bio = BiosphereExchange nil 1.0 nil Emission "" Nothing Nothing Nothing
+                tech = TechnosphereExchange nil 1.0 nil Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
             wasteRoleOf Nothing bio `shouldBe` Nothing
             wasteRoleOf (Just treatment) tech `shouldBe` Nothing
 

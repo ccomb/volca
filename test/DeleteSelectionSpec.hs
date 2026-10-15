@@ -506,6 +506,7 @@ refOut actUUID prodUUID =
         , techLocation = ""
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -524,6 +525,7 @@ inputFrom supplierActUUID supplierProdUUID =
         , techLocation = ""
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -545,6 +547,7 @@ wasteOut treatmentActUUID treatmentProdUUID =
         , waLocation = ""
         , waComment = Nothing
         , waPedigree = Nothing
+        , waFormula = Nothing
         }
 
 mkActivity :: Text -> Text -> M.Map Text Text -> [Exchange] -> Activity
@@ -559,8 +562,7 @@ mkActivity name loc classif exs =
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
         , exchanges = exs
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing

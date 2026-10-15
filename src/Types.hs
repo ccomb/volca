@@ -49,6 +49,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToSchema (..), enum_, type_)
 import Data.Ord (Down (..))
+import qualified Expr
 import Search.BM25.Types (BM25Index)
 import SubstanceRegistry (CASNumber (..), NormName (..), nonEmptyCAS)
 import SynonymDB (normalizeName)
@@ -511,6 +512,18 @@ instance FromJSON ExchangeLocation where
 instance ToSchema ExchangeLocation where
     declareNamedSchema _ = declareNamedSchema (Proxy :: Proxy Text)
 
+{- | What makes an exchange's amount follow the dataset's parameters: the
+formula giving it, in VoLCA's language, and the name other formulas read the
+amount by, when the source gives one. A named line whose amount the source
+states as a plain number has that number as its formula.
+-}
+data ExchangeFormula = ExchangeFormula
+    { efName :: !(Maybe Text)
+    , efText :: !Text
+    }
+    deriving (Eq, Show, Generic, NFData, Store)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExchangeFormula)
+
 -- | Exchange in an activity - Mirrors EcoSpold intermediateExchange/elementaryExchange structure
 data Exchange
     = TechnosphereExchange
@@ -535,6 +548,7 @@ data Exchange
         , techShare :: !(Maybe DeclaredShare) -- The share a product output was declared with; Nothing on inputs and where the source states none
         , techClassification :: !(M.Map Text Text) -- What the source says of this product row (SimaPro "Category"); carried onto the process split for it
         , techProperties :: !ExchangeProperties -- Physical properties the source states of this line, the material an allocation key other than the declared one is computed from
+        , techFormula :: !(Maybe ExchangeFormula) -- What makes the amount follow the dataset's parameters; Nothing where nothing does
         }
     | BiosphereExchange
         { bioFlowId :: {-# UNPACK #-} !UUID -- Flow being exchanged
@@ -544,6 +558,7 @@ data Exchange
         , bioLocation :: !ExchangeLocation -- What the source says about where the exchange happens
         , bioComment :: !(Maybe Text) -- Free-text per-exchange comment from source
         , bioPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
+        , bioFormula :: !(Maybe ExchangeFormula) -- As on a technosphere line
         }
     | WasteExchange
         { waFlowId :: {-# UNPACK #-} !UUID -- Flow being exchanged (points at a WasteFlow)
@@ -560,6 +575,7 @@ data Exchange
         , waLocation :: !ExchangeLocation -- Where the treatment happens, as on a technosphere line
         , waComment :: !(Maybe Text) -- Free-text per-exchange comment from source
         , waPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
+        , waFormula :: !(Maybe ExchangeFormula) -- As on a technosphere line
         }
     deriving (Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Exchange)
@@ -575,12 +591,39 @@ exchangeAmount TechnosphereExchange{techAmount = amt} = amt
 exchangeAmount BiosphereExchange{bioAmount = amt} = amt
 exchangeAmount WasteExchange{waAmount = amt} = amt
 
--- | The same exchange, restated. Only the amount moves.
+exchangeFormula :: Exchange -> Maybe ExchangeFormula
+exchangeFormula TechnosphereExchange{techFormula = f} = f
+exchangeFormula BiosphereExchange{bioFormula = f} = f
+exchangeFormula WasteExchange{waFormula = f} = f
+
+withFormula :: Maybe ExchangeFormula -> Exchange -> Exchange
+withFormula f ex = case ex of
+    TechnosphereExchange{} -> ex{techFormula = f}
+    BiosphereExchange{} -> ex{bioFormula = f}
+    WasteExchange{} -> ex{waFormula = f}
+
+{- | The same exchange, restated. The amount moves, and a formula that gave
+the old one no longer does: a named line keeps its name, now on the stated
+number, so the formulas that read it read the new amount.
+-}
 withAmount :: Double -> Exchange -> Exchange
-withAmount amount ex = case ex of
+withAmount amount ex = withFormula stated $ case ex of
     TechnosphereExchange{} -> ex{techAmount = amount}
     BiosphereExchange{} -> ex{bioAmount = amount}
     WasteExchange{} -> ex{waAmount = amount}
+  where
+    stated = do
+        ExchangeFormula{efName = Just name} <- exchangeFormula ex
+        Just (ExchangeFormula (Just name) (Expr.render (Expr.Literal amount)))
+
+-- | The same exchange, its amount multiplied by a factor, and its formula with it.
+scaleExchange :: Double -> Exchange -> Exchange
+scaleExchange factor ex = withFormula (scaled <$> exchangeFormula ex) $ case ex of
+    TechnosphereExchange{} -> ex{techAmount = techAmount ex * factor}
+    BiosphereExchange{} -> ex{bioAmount = bioAmount ex * factor}
+    WasteExchange{} -> ex{waAmount = waAmount ex * factor}
+  where
+    scaled f = f{efText = Expr.times factor (efText f)}
 
 exchangeUnitId :: Exchange -> UUID
 exchangeUnitId TechnosphereExchange{techUnitId = uid} = uid
@@ -1001,6 +1044,16 @@ data LibraryDocument = LibraryDocument
     deriving (Show, Eq, Ord, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped LibraryDocument)
 
+-- | A named number a dataset's formulas read.
+data Parameter
+    = -- | A value the dataset states.
+      InputParameter !Double
+    | {- | A formula over other parameters, in the source's language, and its
+      value at the dataset's defaults when the source states it or it evaluates.
+      -}
+      CalculatedParameter !Text !(Maybe Double)
+    deriving (Eq, Show, Generic, NFData, Store)
+
 {- | Base LCA activity
 Note: ProcessId is the index in dbActivities vector, UUIDs stored in dbProcessIdTable
 -}
@@ -1014,8 +1067,7 @@ data Activity = Activity
     , activityLocationSource :: !LocationSource -- Whether the source declared that location or the parser read it off the dataset name
     , activityUnit :: !Text -- Reference unit
     , exchanges :: ![Exchange] -- List of exchanges
-    , activityParams :: !(M.Map Text Double) -- Resolved dataset parameter values (SimaPro parameters, EcoSpold2 <parameter> variables)
-    , activityParamExprs :: !(M.Map Text Text) -- Raw parameter expressions/formulas keyed like activityParams (for inspection and re-evaluation)
+    , activityParameters :: !(M.Map Text Parameter) -- The named numbers the dataset's formulas read, by name
     , activityNativeType :: !(Maybe NativeActivityType) -- Source-format-native activity type (ecospold @activityType, SimaPro Type, ILCD processType); Nothing when source format lacks the field
     , activityNativeId :: !(Maybe NativeProcessId) -- Source dataset block this activity was read from: what the SimaPro parser mints the activity UUID from, and what its writer writes back. Nothing when the source format lacks the field
     , activityFormulaCheck :: !(Maybe FormulaCheck) -- Outcome of the mathematicalRelation consistency check; Nothing when the dataset has no formulas or the format has none

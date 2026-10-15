@@ -259,8 +259,7 @@ perExchangeComments = describe "per-exchange comments" $ do
 
         it "stores <parameter> values and raw formulas on the activity" $
             withFormulaFixture $ \ParsedDataset{pdActivity = act} -> do
-                activityParams act `shouldBe` M.fromList [("fuel_input", 2.0)]
-                activityParamExprs act `shouldBe` M.fromList [("fuel_input", "4.0 / 2")]
+                activityParameters act `shouldBe` M.fromList [("fuel_input", CalculatedParameter "4.0 / 2" (Just 2.0))]
 
         it "keeps the stored amount when a formula references an unknown variable" $
             withFormulaFixture $ \ParsedDataset{pdActivity = act} ->
@@ -269,7 +268,7 @@ perExchangeComments = describe "per-exchange comments" $ do
 
         it "does not keep a <parameter> without a usable amount" $
             withFormulaFixture $ \ParsedDataset{pdActivity = act} ->
-                M.member "ghost" (activityParams act) `shouldBe` False
+                M.member "ghost" (activityParameters act) `shouldBe` False
 
         it "records the check outcome on the activity, with the divergent example" $
             withFormulaFixture $ \ParsedDataset{pdActivity = act} ->
@@ -295,8 +294,7 @@ perExchangeComments = describe "per-exchange comments" $ do
         -- unevaluable, which is what the check says when it cannot judge.
         it "does not keep a <parameter> two declarations disagree on" $
             withTwiceDeclaredFixture $ \ParsedDataset{pdActivity = act} -> do
-                M.member "twice" (activityParams act) `shouldBe` False
-                M.member "twice" (activityParamExprs act) `shouldBe` False
+                M.member "twice" (activityParameters act) `shouldBe` False
 
         it "cannot judge a formula over a variable claimed twice" $
             withTwiceDeclaredFixture $ \ParsedDataset{pdActivity = act} ->

@@ -120,8 +120,7 @@ mkActivityAt name location exs =
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
         , exchanges = exs
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
@@ -140,6 +139,7 @@ techExchange fid amount role =
         , techLocation = "FR"
         , techComment = Nothing
         , techPedigree = Nothing
+        , techFormula = Nothing
         , techShare = Nothing
         , techClassification = M.empty
         , techProperties = noProperties
@@ -170,6 +170,7 @@ mkBio uid fid amount =
         , bioLocation = "FR"
         , bioComment = Nothing
         , bioPedigree = Nothing
+        , bioFormula = Nothing
         }
 
 -- | A land-use exchange, measured in m².
@@ -189,6 +190,7 @@ wasteOut fid =
         , waLocation = "FR"
         , waComment = Nothing
         , waPedigree = Nothing
+        , waFormula = Nothing
         }
 
 {- | Database from activities keyed by (activity, product), with the standard

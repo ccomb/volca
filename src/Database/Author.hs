@@ -298,6 +298,7 @@ validateOne ctx a =
                         , techLocation = ""
                         , techComment = Nothing
                         , techPedigree = Nothing
+                        , techFormula = Nothing
                         , techShare = Nothing
                         , techClassification = M.empty
                         , techProperties = noProperties
@@ -351,8 +352,7 @@ buildActivity a unitLabel exchangeList =
         , activityLocationSource = declaredLocationSource (aaLocation a)
         , activityUnit = unitLabel
         , exchanges = exchangeList
-        , activityParams = M.empty
-        , activityParamExprs = M.empty
+        , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
@@ -692,6 +692,7 @@ resolveOne ctx ex = case ex of
                 , techLocation = ""
                 , techComment = comment
                 , techPedigree = Nothing
+                , techFormula = Nothing
                 , techShare = Nothing
                 , techClassification = M.empty
                 , techProperties = noProperties
@@ -708,6 +709,7 @@ resolveOne ctx ex = case ex of
                 , waLocation = ""
                 , waComment = comment
                 , waPedigree = Nothing
+                , waFormula = Nothing
                 }
     AuthoredBio flowRef direction amount mUnit comment ->
         resolveBio ctx flowRef direction amount mUnit comment
@@ -908,6 +910,7 @@ resolveBio ctx flowRef direction amount mUnit comment
                     , bioLocation = ""
                     , bioComment = comment
                     , bioPedigree = Nothing
+                    , bioFormula = Nothing
                     }
                 mNew
                 Nothing

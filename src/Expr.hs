@@ -36,6 +36,7 @@ module Expr (
     evaluate,
     translate,
     render,
+    times,
     settle,
     describeRefusal,
     describeUnsettled,
@@ -436,6 +437,16 @@ translate dialect input = do
         []
             | readFormula Volca written == Right formula -> Right written
             | otherwise -> Left (Unreadable ("VoLCA's formulas read " <> written <> " as another formula"))
+
+{- | A formula in VoLCA's language multiplied by a number, as the amount it
+gives is when a line is scaled. One that does not read is kept whole in
+parentheses, which multiplies it all the same.
+-}
+times :: Double -> Text -> Text
+times 1 formula = formula
+times factor formula = case readFormula Volca formula of
+    Right tree -> render (Binary Multiply tree (Literal factor))
+    Left _ -> "(" <> formula <> ") * " <> render (Literal factor)
 
 {- | A formula in VoLCA's language, with the parentheses its reading needs and
 no other. The levels are the grammar's rules, from 'pComparison' to an atom.

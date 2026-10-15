@@ -261,8 +261,8 @@ spec = describe "ILCD.Writer round-trip" $ do
         let sdb =
                 oneActivityDb
                     (M.singleton fEmitU fEmission)
-                    [ TechnosphereExchange fProdU 1.0 fUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-                    , BiosphereExchange fEmitU 3.3e-20 fUnitU Emission "" Nothing Nothing
+                    [ TechnosphereExchange fProdU 1.0 fUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                    , BiosphereExchange fEmitU 3.3e-20 fUnitU Emission "" Nothing Nothing Nothing
                     ]
         db' <- roundTrip sdb
         [ bioAmount ex
@@ -281,8 +281,8 @@ spec = describe "ILCD.Writer round-trip" $ do
             db =
                 oneActivityDb
                     (M.fromList [(fEmitU, fEmission), (fResU, stranded)])
-                    [ TechnosphereExchange fProdU 1.0 fUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
-                    , BiosphereExchange fEmitU 0.5 fUnitU Emission "" Nothing Nothing
+                    [ TechnosphereExchange fProdU 1.0 fUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                    , BiosphereExchange fEmitU 0.5 fUnitU Emission "" Nothing Nothing Nothing
                     ]
         checkILCDExportable db `shouldBe` Right ()
         flowPaths (ilcdFiles defaultWriteOptions db)
@@ -464,7 +464,7 @@ spec = describe "ILCD.Writer round-trip" $ do
             let db =
                     oneActivityDb
                         (M.singleton fEmitU (fEmission{bfCompartment = Just (Compartment Waste Nothing)}))
-                        [BiosphereExchange fEmitU (1 / 0) fUnitU Emission "" Nothing Nothing, refProductEx]
+                        [BiosphereExchange fEmitU (1 / 0) fUnitU Emission "" Nothing Nothing Nothing, refProductEx]
             case checkILCDExportable db of
                 Left msg -> do
                     msg `shouldSatisfy` T.isInfixOf "waste"
@@ -556,8 +556,7 @@ multiOutputDb =
             "GLO"
             LocationDeclared
             "kg"
-            [TechnosphereExchange prod 1.0 moUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties]
-            M.empty
+            [TechnosphereExchange prod 1.0 moUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
             M.empty
             Nothing
             Nothing
@@ -630,8 +629,7 @@ oneActivityDb bios exs =
             , activityLocationSource = LocationDeclared
             , activityUnit = "kg"
             , exchanges = exs
-            , activityParams = M.empty
-            , activityParamExprs = M.empty
+            , activityParameters = M.empty
             , activityNativeType = Nothing
             , activityNativeId = Nothing
             , activityFormulaCheck = Nothing
@@ -639,7 +637,7 @@ oneActivityDb bios exs =
             }
 
 refProductEx :: Exchange
-refProductEx = TechnosphereExchange fProdU 1.0 fUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties
+refProductEx = TechnosphereExchange fProdU 1.0 fUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
 
 {- | The reference product sits at index 2, after an air emission with a
 subcompartment and a natural-resource input. One exchange carries a non-empty
@@ -650,8 +648,8 @@ richDb :: SimpleDatabase
 richDb =
     oneActivityDb
         (M.fromList [(fEmitU, fEmission), (fResU, fResource)])
-        [ BiosphereExchange fEmitU 2.0 fUnitU Emission "RER" (Just specialText) Nothing
-        , BiosphereExchange fResU 3.0 fUnitU Resource "" Nothing Nothing
+        [ BiosphereExchange fEmitU 2.0 fUnitU Emission "RER" (Just specialText) Nothing Nothing
+        , BiosphereExchange fResU 3.0 fUnitU Resource "" Nothing Nothing Nothing
         , refProductEx
         ]
 
@@ -664,14 +662,14 @@ bioMediumDb :: Medium -> SimpleDatabase
 bioMediumDb medium =
     oneActivityDb
         (M.singleton fEmitU (fEmission{bfCompartment = Just (Compartment medium Nothing)}))
-        [BiosphereExchange fEmitU 1.0 fUnitU Emission "" Nothing Nothing, refProductEx]
+        [BiosphereExchange fEmitU 1.0 fUnitU Emission "" Nothing Nothing Nothing, refProductEx]
 
 -- | An activity with no exchange marked as reference (preserve-no-reference path).
 noRefDb :: SimpleDatabase
 noRefDb =
     oneActivityDb
         (M.singleton fEmitU fEmission)
-        [BiosphereExchange fEmitU 1.0 fUnitU Emission "" Nothing Nothing]
+        [BiosphereExchange fEmitU 1.0 fUnitU Emission "" Nothing Nothing Nothing]
 
 {- | One activity whose single biosphere amount is the given value. Used with a
 non-finite or subnormal amount that 'checkILCDExportable' must reject because it
@@ -681,4 +679,4 @@ nonFiniteDb :: Double -> SimpleDatabase
 nonFiniteDb amt =
     oneActivityDb
         (M.singleton fEmitU fEmission)
-        [BiosphereExchange fEmitU amt fUnitU Emission "" Nothing Nothing]
+        [BiosphereExchange fEmitU amt fUnitU Emission "" Nothing Nothing Nothing]
