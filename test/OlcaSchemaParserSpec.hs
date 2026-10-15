@@ -191,6 +191,12 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         formulas `shouldBe` [(-0.25, "1 / 4000 * 1000 * -1")]
         map (Expr.evaluate Expr.Volca M.empty . snd) formulas `shouldBe` [Right (-0.25)]
 
+    it "keeps no formula that gives no finite number" $ \_ -> do
+        pkg <- readFixture
+        let dividing p = p{prParameters = Parameter "zero" (InputValue 0) : prParameters p, prExchanges = map (\x -> if rxFlow x == co2F then x{rxFormula = Just "1 / zero"} else x) (prExchanges p)}
+        b <- built (editing steelA dividing pkg)
+        (exchangeFormula =<< exchangeOf b steelA steelF co2F) `shouldBe` Nothing
+
     it "leaves no formula on a product it adds up from two lines" $ \_ -> do
         pkg <- readFixture
         let both p = p{prExchanges = map (\x -> if rxFlow x == pairF then x{rxFormula = Just "0.5 * 2"} else x) (prExchanges p)}

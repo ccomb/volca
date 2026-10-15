@@ -97,6 +97,8 @@ data Context = Context
     , cxProducers :: !(M.Map UUID (M.Map UUID P.ProcessType))
     -- ^ For each flow, the processes offering it, by identifier
     , cxAllocating :: !Allocating
+    , cxGlobals :: !(M.Map Text Double, [(Text, Expr.Unsettled)])
+    -- ^ The package's global parameters settled among themselves, and those left with no value
     }
 
 buildDatabase :: UnitConfig -> AllocationKey -> P.Package -> Either Text Built
@@ -131,7 +133,8 @@ buildDatabase cfg key pkg =
     globals = M.elems (byName (P.pkGlobals pkg))
 
     globalValues :: M.Map Text Double
-    globalValues = fst (settleOver M.empty globals)
+    globalUnsettled :: [(Text, Expr.Unsettled)]
+    (globalValues, globalUnsettled) = settleOver M.empty globals
 
     producers :: M.Map UUID (M.Map UUID P.ProcessType)
     producers = producerIndex pkg
@@ -152,6 +155,7 @@ buildDatabase cfg key pkg =
             , cxFlowUnits = flowUnits
             , cxProducers = producers
             , cxAllocating = Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitDB}
+            , cxGlobals = (globalValues, globalUnsettled)
             }
 
 -- | Two activities of one (process, product). Once a process's lines of one product are merged this cannot happen, so it is reported rather than one silently dropped.
@@ -350,7 +354,7 @@ readProcess cx p = case partitionEithers (zipWith (readLine cx p env) [0 ..] (P.
   where
     env :: M.Map Text Double
     envNotices :: [Notice]
-    (env, envNotices) = environment (P.pkGlobals (cxPackage cx)) p
+    (env, envNotices) = environment (cxGlobals cx) p
 
 {- | The parameters a process's formulas see: the globals, settled among
 themselves (a global formula reads global values, whatever a process
@@ -359,8 +363,8 @@ shadows a global one of the same name, case aside, as in openLCA), its
 calculated ones settled last. Names are lowercased, as the openLCA dialect
 reads every formula.
 -}
-environment :: [P.Parameter] -> P.Process -> (M.Map Text Double, [Notice])
-environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name <> ": " <> Expr.describeUnsettled why) | (name, why) <- globalUnsettled <> ownUnsettled, M.notMember name settled])
+environment :: (M.Map Text Double, [(Text, Expr.Unsettled)]) -> P.Process -> (M.Map Text Double, [Notice])
+environment (globalValues, globalUnsettled) p = (settled, [Unsettled (P.prName p <> " · " <> name <> ": " <> Expr.describeUnsettled why) | (name, why) <- globalUnsettled <> ownUnsettled, M.notMember name settled])
   where
     own :: [P.Parameter]
     own = M.elems (byName (P.prParameters p))
@@ -369,9 +373,8 @@ environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name <> ":
     global :: M.Map Text Double
     global = M.withoutKeys globalValues (M.keysSet (byName own))
 
-    globalValues, settled :: M.Map Text Double
-    globalUnsettled, ownUnsettled :: [(Text, Expr.Unsettled)]
-    (globalValues, globalUnsettled) = settleOver M.empty (M.elems (byName globals))
+    settled :: M.Map Text Double
+    ownUnsettled :: [(Text, Expr.Unsettled)]
     (settled, ownUnsettled) = settleOver global own
 
 -- | Parameters' values over values already known, lowercased as the openLCA dialect reads names.
@@ -432,7 +435,7 @@ readLine cx p env at raw = do
     unit <- maybe (Left (NoReferenceUnit named)) Right (M.lookup (P.flId flow) (cxFlowUnits cx))
     factor <- maybe (Left (NoConversion named)) Right (toReference pkg flow raw)
     let converted = amount * factor
-    pure Line{lnAt = at, lnRaw = raw, lnFlow = flow, lnUnit = unit, lnAmount = converted, lnFormula = lineFormula env factor converted =<< P.rxFormula raw, lnOutcome = outcome}
+    pure Line{lnAt = at, lnRaw = raw, lnFlow = flow, lnUnit = unit, lnAmount = converted, lnFormula = (\formula -> lineFormula env factor formula converted) =<< P.rxFormula raw, lnOutcome = outcome}
   where
     pkg :: P.Package
     pkg = cxPackage cx
@@ -440,8 +443,8 @@ readLine cx p env at raw = do
 {- | A line's formula in VoLCA's language and in the flow's reference unit,
 when it gives the line's amount there.
 -}
-lineFormula :: M.Map Text Double -> Double -> Double -> Text -> Maybe Text
-lineFormula env factor amount formula = do
+lineFormula :: M.Map Text Double -> Double -> Text -> Double -> Maybe Text
+lineFormula env factor formula amount = do
     text <- Expr.times factor <$> either (const Nothing) Just (Expr.translate Expr.OpenLca formula)
     value <- either (const Nothing) Just (Expr.evaluate Expr.Volca env text)
     if Expr.agrees value amount then Just text else Nothing
