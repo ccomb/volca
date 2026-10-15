@@ -25,7 +25,7 @@
   datasets and SimaPro files fill it, written in VoLCA's formula language,
   when the formula gives the amount the dataset states; a formula that gives
   another number, or that reads a link to an outside spreadsheet, is left
-  out, as the quality report already counts. A unit conversion in a formula
+  out, as the quality report already counts for EcoSpold 2. A unit conversion in a formula
   is read with the factors the package ships in its master data. A SimaPro
   line recorded in another unit than the engine's (grams for kilograms) has
   the conversion written into its formula: `Qm * 0.001`. It is `null` for

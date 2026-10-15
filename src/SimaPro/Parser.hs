@@ -1614,7 +1614,7 @@ rowFormula env factor raw amount = do
 canonicalFactor :: UnitConversion.UnitConfig -> Text -> Double
 canonicalFactor unitCfg unit = snd (canonicalRow unitCfg unit 1)
 
--- | True when the raw allocation cell is a plain decimal literal (no formula).
+-- | True when a raw amount or allocation cell is a plain decimal literal (no formula).
 isNumericFormula :: Text -> Bool
 isNumericFormula = isJust . readAmount
 
