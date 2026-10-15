@@ -121,6 +121,8 @@ data Unsettled
       NoValue Refusal
     | -- | It needs, through these parameters, its own value to have one.
       Circular (NonEmpty Text)
+    | -- | It is declared with these formulas, and which one is meant cannot be told.
+      Ambiguous (NonEmpty Text)
     deriving (Eq, Show)
 
 -- | A refusal as a reader is told it.
@@ -135,6 +137,7 @@ describeUnsettled = \case
     NoValue refusal -> describeRefusal refusal
     Circular (name :| []) -> name <> " needs its own value"
     Circular names -> T.intercalate ", " (NE.toList names) <> " need each other's values"
+    Ambiguous formulas -> "declared with several formulas: " <> T.intercalate "; " (NE.toList formulas)
 
 -- | A formula as read, before any name in it is looked up.
 data Formula
@@ -472,14 +475,29 @@ render = go 0
 
     level :: Formula -> Int
     level = \case
-        Binary f _ _
-            | f `elem` [Equal, NotEqual, Less, LessOrEqual, Greater, GreaterOrEqual] -> 1
-            | f `elem` [Add, Subtract] -> 2
-            | f `elem` [Multiply, Divide] -> 3
-            | f == Power -> 5
+        Binary f _ _ -> binaryLevel f
         Unary Negate _ -> 4
         Literal x | x < 0 -> 4
         _ -> 6
+
+    binaryLevel :: Binary -> Int
+    binaryLevel = \case
+        Equal -> 1
+        NotEqual -> 1
+        Less -> 1
+        LessOrEqual -> 1
+        Greater -> 1
+        GreaterOrEqual -> 1
+        Add -> 2
+        Subtract -> 2
+        Multiply -> 3
+        Divide -> 3
+        Power -> 5
+        LogBase -> 6
+        IntegerPower -> 6
+        Xor -> 6
+        Quotient -> 6
+        Remainder -> 6
 
     -- Without an exponent where that stays short; 'readAmount' reads back the same Double either way.
     number :: Double -> Text
@@ -1063,10 +1081,25 @@ none come back with the reason. A calculated parameter shadows a known value of
 the same name, case aside.
 -}
 settle :: Dialect -> M.Map Text Double -> [(Text, Text)] -> (M.Map Text Double, [(Text, Unsettled)])
-settle dialect known calculated = foldl' step (known, []) (stronglyConnComp graph)
+settle dialect known calculated = foldl' step (known, ambiguous) (stronglyConnComp graph)
   where
+    declared :: M.Map Text (NonEmpty (Text, Text))
+    declared = M.fromListWith (flip (<>)) [(T.toLower name, (name, formula) :| []) | (name, formula) <- calculated]
+
     byKey :: M.Map Text (Text, Text)
-    byKey = M.fromList [(T.toLower name, (name, formula)) | (name, formula) <- calculated]
+    byKey = M.mapMaybe sole declared
+
+    sole :: NonEmpty (Text, Text) -> Maybe (Text, Text)
+    sole parameters@(first' :| _)
+        | all ((== snd first') . snd) parameters = Just first'
+        | otherwise = Nothing
+
+    ambiguous :: [(Text, Unsettled)]
+    ambiguous = [(fst (NE.head parameters), Ambiguous (snd <$> parameters)) | (key, parameters) <- M.toList declared, M.notMember key byKey]
+
+    -- Every spelling of a known name, so the calculated value replaces them instead of sitting beside them.
+    knownSpellings :: M.Map Text [Text]
+    knownSpellings = M.fromListWith (<>) [(T.toLower name, [name]) | name <- M.keys known]
 
     graph :: [((Text, Text), Text, [Text])]
     graph = [(parameter, key, filter (`M.member` byKey) (map T.toLower (collectIdentifiers dialect formula))) | (key, parameter@(_, formula)) <- M.toList byKey]
@@ -1074,6 +1107,6 @@ settle dialect known calculated = foldl' step (known, []) (stronglyConnComp grap
     step :: (M.Map Text Double, [(Text, Unsettled)]) -> SCC (Text, Text) -> (M.Map Text Double, [(Text, Unsettled)])
     step (values, refused) = \case
         AcyclicSCC (name, formula) -> case evaluate dialect values formula of
-            Right v -> (M.insert name v values, refused)
+            Right v -> (M.insert name v (foldr M.delete values (M.findWithDefault [] (T.toLower name) knownSpellings)), refused)
             Left why -> (values, refused <> [(name, NoValue why)])
         NECyclicSCC members -> (values, refused <> [(name, Circular (fst <$> members)) | (name, _) <- NE.toList members])

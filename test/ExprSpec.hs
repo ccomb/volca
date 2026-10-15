@@ -240,6 +240,13 @@ spec = do
                 `shouldBe` (M.fromList [("a", 2), ("b", 6), ("c", 7)], [])
         it "lets a calculated parameter shadow a known value for every formula reading it" $
             fst (settle Volca (M.fromList [("a", 1)]) [("b", "a * 10"), ("a", "5")]) `shouldBe` M.fromList [("a", 5), ("b", 50)]
+        it "replaces a known value spelled in another case, whichever spelling sorts first" $ do
+            fst (settle SimaPro (M.fromList [("dmper", 1)]) [("DMPER", "5"), ("b", "DMper * 10")]) `shouldBe` M.fromList [("DMPER", 5), ("b", 50)]
+            fst (settle SimaPro (M.fromList [("DMPER", 1)]) [("dmper", "5"), ("b", "DMper * 10")]) `shouldBe` M.fromList [("dmper", 5), ("b", 50)]
+        it "gives no value to a name declared with two formulas, and one to a name declared twice alike" $ do
+            settle SimaPro (M.fromList [("a", 1)]) [("X", "a * 2"), ("x", "nowhere")]
+                `shouldBe` (M.fromList [("a", 1)], [("X", Ambiguous ("a * 2" :| ["nowhere"]))])
+            fst (settle SimaPro (M.fromList [("a", 1)]) [("x", "a * 2"), ("x", "a * 2")]) `shouldBe` M.fromList [("a", 1), ("x", 2)]
         it "says why a parameter has no value: a name nobody gives, or a cycle" $ do
             settle OpenLca M.empty [("d", "nowhere + 1")] `shouldBe` (M.empty, [("d", NoValue (Unresolved ("nowhere" :| [])))])
             settle Volca M.empty [("x", "x + 1")] `shouldBe` (M.empty, [("x", Circular ("x" :| []))])

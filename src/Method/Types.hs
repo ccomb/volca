@@ -354,6 +354,7 @@ resolveComputed env formulas = do
     refusal name why = case why of
         Expr.Circular names -> "Computed variables " <> quoted (NE.toList names) <> " read each other, so none of them can be computed."
         Expr.NoValue err -> "Computed variable '" <> T.unpack name <> "': " <> T.unpack (Expr.describeRefusal err)
+        Expr.Ambiguous _ -> "Computed variable '" <> T.unpack name <> "': " <> T.unpack (Expr.describeUnsettled why)
 
 {- | What @compartments.csv@ says about compartments, in its two kinds of row.
 
