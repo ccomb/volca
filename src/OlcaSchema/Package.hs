@@ -56,7 +56,7 @@ import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import Data.Indexing (uniqueIndex)
 import EcoSpold.Common (acrossCapabilities)
 import System.FilePath (takeExtension, (</>))
-import Types (Uncertainty (..))
+import Types (Uncertainty (..), spreading)
 
 -- | Every document the reader needs, by kind.
 data Package = Package
@@ -305,7 +305,7 @@ distribution :: A.Value -> A.Parser (Maybe Uncertainty)
 distribution = withObject "Uncertainty" $ \o -> do
     let number k = o .:? k :: A.Parser (Maybe Double)
     kind <- o .:? "distributionType" :: A.Parser (Maybe Text)
-    case kind of
+    (>>= spreading) <$> case kind of
         Just "LOG_NORMAL_DISTRIBUTION" -> liftA2 Lognormal <$> number "geomMean" <*> number "geomSd"
         Just "NORMAL_DISTRIBUTION" -> liftA2 Normal <$> number "mean" <*> number "sd"
         Just "TRIANGLE_DISTRIBUTION" -> (\a b c -> Triangular <$> a <*> b <*> c) <$> number "minimum" <*> number "mode" <*> number "maximum"

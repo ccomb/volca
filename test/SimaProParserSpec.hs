@@ -88,6 +88,7 @@ import Types (
     exchangeIsProductOutput,
     exchangeIsReference,
     exchangePedigree,
+    spreading,
     tfName,
  )
 import UnitConversion (UnitConfig (..), UnitDeclaration (..), buildFromCSV, defaultDimensionOrder, defaultUnitConfig, isKnownUnit, mkUnitConfig)
@@ -1261,6 +1262,10 @@ spec = do
                 either (fail . show) pure =<< parseSimaProCSV defaultUnitConfig path
             [(name, s) | act <- take 1 (spfActivities file), (name, Parameter{parameterDefinition = InputParameter _ s}) <- M.toList (activityParameters act)]
                 `shouldBe` [("S1", Just (Lognormal 50 2)), ("S2", Just (Normal 20 2)), ("S3", Just (Triangular 10 15 30)), ("S4", Just (Uniform 5 20)), ("S5", Nothing)]
+
+        it "keeps no spread whose numbers spread nothing: unfilled zeros, bounds on one side, a negative variance" $
+            map spreading [Triangular 0 15 0, Uniform 0 0, Normal 20 0, Lognormal 50 1, Lognormal 0 2, Lognormal 7 (exp (sqrt (-0.04)))]
+                `shouldBe` replicate 6 Nothing
 
     describe "SimaPro sections read and dropped" $ do
         it "adds nothing from a section the parser recognises and ignores" $ do

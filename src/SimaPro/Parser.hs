@@ -655,12 +655,13 @@ lognormal's cell is the squared geometric standard deviation, the normal's
 twice the standard deviation.
 -}
 spread :: Double -> [Text] -> Maybe Uncertainty
-spread value (kind : deviation : low : high : _) = case kind of
-    "Lognormal" -> Lognormal value . sqrt <$> mfilter (> 0) (readAmount deviation)
-    "Normal" -> Normal value . (/ 2) <$> readAmount deviation
-    "Triangle" -> Triangular <$> readAmount low <*> pure value <*> readAmount high
-    "Uniform" -> Uniform <$> readAmount low <*> readAmount high
-    _ -> Nothing
+spread value (kind : deviation : low : high : _) =
+    spreading =<< case kind of
+        "Lognormal" -> Lognormal value . sqrt <$> readAmount deviation
+        "Normal" -> Normal value . (/ 2) <$> readAmount deviation
+        "Triangle" -> Triangular <$> readAmount low <*> pure value <*> readAmount high
+        "Uniform" -> Uniform <$> readAmount low <*> readAmount high
+        _ -> Nothing
 spread _ _ = Nothing
 
 -- | Which of the two parameter tables a line is in.

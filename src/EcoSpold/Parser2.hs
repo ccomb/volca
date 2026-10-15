@@ -191,12 +191,13 @@ every number: a lognormal's deviation is the exponential of the root of the
 underlying variance, the one widened by the pedigree matrix when there is one.
 -}
 distribution :: PendingParam -> Maybe Uncertainty
-distribution PendingParam{ppDistribution = kind, ppSpread = at} = case kind of
-    "lognormal" -> Lognormal <$> (number "meanValue" <|> exp <$> number "mu") <*> (exp . sqrt <$> variance)
-    "normal" -> Normal <$> number "meanValue" <*> (sqrt <$> variance)
-    "triangular" -> Triangular <$> number "minValue" <*> number "mostLikelyValue" <*> number "maxValue"
-    "uniform" -> Uniform <$> number "minValue" <*> number "maxValue"
-    _ -> Nothing
+distribution PendingParam{ppDistribution = kind, ppSpread = at} =
+    spreading =<< case kind of
+        "lognormal" -> Lognormal <$> (number "meanValue" <|> exp <$> number "mu") <*> (exp . sqrt <$> variance)
+        "normal" -> Normal <$> number "meanValue" <*> (sqrt <$> variance)
+        "triangular" -> Triangular <$> number "minValue" <*> number "mostLikelyValue" <*> number "maxValue"
+        "uniform" -> Uniform <$> number "minValue" <*> number "maxValue"
+        _ -> Nothing
   where
     number = (`M.lookup` at)
     variance = number "varianceWithPedigreeUncertainty" <|> number "variance"

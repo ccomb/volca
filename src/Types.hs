@@ -1079,6 +1079,21 @@ data Uncertainty
       Uniform !Double !Double
     deriving (Eq, Show, Generic, NFData, Store)
 
+{- | The distribution, when its numbers spread a value: finite, a deviation
+other than none, bounds on either side of the most likely value. A source
+leaves zeros in the cells of a spread nobody filled in.
+-}
+spreading :: Uncertainty -> Maybe Uncertainty
+spreading u
+    | all (\x -> not (isNaN x || isInfinite x)) numbers && spreads = Just u
+    | otherwise = Nothing
+  where
+    (numbers, spreads) = case u of
+        Lognormal m g -> ([m, g], m /= 0 && g > 0 && g /= 1)
+        Normal m s -> ([m, s], s > 0)
+        Triangular lo mode hi -> ([lo, mode, hi], lo <= mode && mode <= hi && lo < hi)
+        Uniform lo hi -> ([lo, hi], lo < hi)
+
 {- | Base LCA activity
 Note: ProcessId is the index in dbActivities vector, UUIDs stored in dbProcessIdTable
 -}
