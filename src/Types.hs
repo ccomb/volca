@@ -612,6 +612,7 @@ withAmount amount ex = withFormula stated $ case ex of
     BiosphereExchange{} -> ex{bioAmount = amount}
     WasteExchange{} -> ex{waAmount = amount}
   where
+    stated :: Maybe ExchangeFormula
     stated = do
         ExchangeFormula{efName = Just name} <- exchangeFormula ex
         Just (ExchangeFormula (Just name) (Expr.render (Expr.Literal amount)))
@@ -623,6 +624,7 @@ scaleExchange factor ex = withFormula (scaled <$> exchangeFormula ex) $ case ex 
     BiosphereExchange{} -> ex{bioAmount = bioAmount ex * factor}
     WasteExchange{} -> ex{waAmount = waAmount ex * factor}
   where
+    scaled :: ExchangeFormula -> ExchangeFormula
     scaled f = f{efText = Expr.times factor (efText f)}
 
 exchangeUnitId :: Exchange -> UUID

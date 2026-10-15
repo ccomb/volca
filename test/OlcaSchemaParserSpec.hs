@@ -154,6 +154,13 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         b <- built (editing steelA uses pkg{pkGlobals = globals <> pkGlobals pkg})
         [what | Divergent what <- builtNotices b, "steel production" `T.isPrefixOf` what] `shouldBe` []
 
+    it "gives a process the value of a global calculated parameter, not its formula" $ \_ -> do
+        pkg <- readFixture
+        b <- built pkg{pkGlobals = [Parameter "base" (InputValue 1), Parameter "doubled" (Calculated "base * 2" 2)] <> pkGlobals pkg}
+        let doubled = map (M.lookup "doubled" . activityParameters) (M.elems (sdbActivities (builtDatabase b)))
+        doubled `shouldSatisfy` (not . null)
+        doubled `shouldSatisfy` all (== Just (InputParameter 2))
+
     it "places elementary flows in their compartment, and counts those it cannot place" $ \(b, _) -> do
         let compartment fid = bfCompartment =<< M.lookup fid (sdbBioFlows (builtDatabase b))
         compartment co2F `shouldBe` Just (Compartment Air Nothing)

@@ -580,12 +580,19 @@ assemble cx p env notices lines' =
                 ref <- find (P.rxReference . lnRaw) lines'
                 unitName <$> M.lookup (lnUnit ref) (alUnitDB (cxAllocating cx))
             , exchanges = map fst built
-            , activityParameters = M.fromList [(P.paName q, parameter q) | q <- M.elems (M.union (byName (P.prParameters p)) (byName (P.pkGlobals (cxPackage cx))))]
+            , activityParameters =
+                M.fromList $
+                    [(P.paName q, parameter q) | q <- M.elems own]
+                        <> [(P.paName q, InputParameter v) | q <- M.elems (byName (P.pkGlobals (cxPackage cx)) M.\\ own), Just v <- [M.lookup (T.toLower (P.paName q)) env]]
             , activityNativeType = Nothing
             , activityNativeId = Nothing
             , activityFormulaCheck = formulaCheck lines'
             , activityDates = noDates
             }
+
+    -- The package's globals are the process's values only: their formulas are no formula of this process.
+    own :: M.Map Text P.Parameter
+    own = byName (P.prParameters p)
 
     parameter :: P.Parameter -> Parameter
     parameter q = case P.paValue q of

@@ -25,6 +25,7 @@ import SimaPro.Parser (
     ProductRow (..),
     SimaProFile (..),
     TechExchangeRow (..),
+    buildParamEnv,
     defaultConfig,
     emptyProcessBlock,
     ensureUtf8,
@@ -1067,6 +1068,10 @@ spec = do
             let butter = head activities
             [f | Just (CalculatedParameter f _) <- [M.lookup "allocButter" (activityParameters butter)]]
                 `shouldBe` ["(Qb*DMb/(Qb*DMb+Qm*DMm))*100"]
+
+        it "gives no value to a calculated parameter whose formula does not settle, not the input's it shadows" $
+            snd (buildParamEnv [[("a", "1")]] [[("a", "b * 2")]])
+                `shouldBe` M.singleton "a" (CalculatedParameter "b * 2" Nothing)
 
         it "does not drop exchanges with parameterized amounts" $ do
             (activities, _, _, _, _) <- parseParamCSV

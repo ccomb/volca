@@ -21,6 +21,7 @@ module SimaPro.Parser (
     GlobalParams (..),
     emptyProcessBlock,
     fallbackAmounts,
+    buildParamEnv,
     StatedDate (..),
     DateNote (..),
     readStatedDate,
@@ -1416,12 +1417,23 @@ out of the environment, and an amount reading it is among the
 buildParamEnv :: [[(Text, Text)]] -> [[(Text, Text)]] -> (M.Map Text Double, M.Map Text Parameter)
 buildParamEnv inputGroups calcGroups =
     ( env
-    , M.fromList $
-        [(name, InputParameter value) | (name, _) <- concat inputGroups, Just value <- [M.lookup name env]]
-            ++ [(name, CalculatedParameter formula (M.lookup name env)) | (name, formula) <- concat calcGroups]
+    , M.union calculated (M.fromList [(name, InputParameter value) | (name, _) <- concat inputGroups, Just value <- [M.lookup name inputs]])
     )
   where
-    env = foldl' (\known -> fst . Expr.settle Expr.SimaPro known) (foldl' (foldl' evalParam) M.empty inputGroups) calcGroups
+    inputs :: M.Map Text Double
+    inputs = foldl' (foldl' evalParam) M.empty inputGroups
+
+    (env, calculated) = foldl' settleGroup (inputs, M.empty) calcGroups
+
+    -- A formula that does not settle has no value, not the one of the input it shadows.
+    settleGroup :: (M.Map Text Double, M.Map Text Parameter) -> [(Text, Text)] -> (M.Map Text Double, M.Map Text Parameter)
+    settleGroup (known, parameters) group =
+        let (known', refused) = Expr.settle Expr.SimaPro known group
+            failed = S.fromList (map fst refused)
+            value name = if S.member name failed then Nothing else M.lookup name known'
+         in (known', M.union (M.fromList [(name, CalculatedParameter formula (value name)) | (name, formula) <- group]) parameters)
+
+    evalParam :: M.Map Text Double -> (Text, Text) -> M.Map Text Double
     evalParam acc (name, rawVal) =
         either (const acc) (\v -> M.insert name v acc) (Expr.evaluate Expr.SimaPro acc rawVal)
 

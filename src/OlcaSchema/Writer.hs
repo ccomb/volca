@@ -336,7 +336,9 @@ warnings cx = splitWarnings (cxDb cx) <> mapMaybe counted kinds
     isCoproduct ex = case ex of
         TechnosphereExchange{techRole = Coproduct} -> True
         _ -> False
+    hasFormulas :: Activity -> Bool
     hasFormulas a = any isCalculated (activityParameters a) || any (isJust . exchangeFormula) (exchanges a)
+    isCalculated :: Parameter -> Bool
     isCalculated p = case p of
         CalculatedParameter{} -> True
         InputParameter{} -> False
