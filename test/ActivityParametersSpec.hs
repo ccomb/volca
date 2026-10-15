@@ -17,16 +17,16 @@ import UnitConversion (defaultUnitConfig)
 
 spec :: Spec
 spec = describe "an activity's parameters" $ do
-    it "lists the process's own, then those of its database it does not define, whatever the case" $ do
+    it "lists the process's own, then those of its database it reads and does not define, whatever the case" $ do
         detail <- butter
         map prmName (pfaParameters detail) `shouldBe` ["Qm", "share"]
-        map prmName (pfaDatabaseParameters detail) `shouldBe` ["yield"]
+        map prmName (pfaDatabaseParameters detail) `shouldBe` ["ratio", "yield"]
 
     it "shows an input's value and spread, a calculated one's formula and value" $ do
         detail <- butter
         [(prmValue p, prmFormula p, prmUnit p, prmDescription p, prmUncertainty p) | p <- pfaParameters detail]
             `shouldBe` [ (Just 20.53, Nothing, Nothing, "Milk collected", Just (Lognormal 20.53 1.07))
-                       , (Just 10.265, Just "Qm / 2", Just "kg", "", Nothing)
+                       , (Just 10.265, Just "Qm * ratio", Just "kg", "", Nothing)
                        ]
 
     it "writes a distribution with its own numbers, and reads it back" $ do
@@ -38,7 +38,10 @@ spec = describe "an activity's parameters" $ do
     it "refuses to read a distribution whose numbers spread nothing" $
         (decode "{\"distribution\": \"uniform\", \"minimum\": 3, \"maximum\": 3}" :: Maybe Uncertainty) `shouldBe` Nothing
 
--- | A process defining "Qm" and "share", in a database defining "QM" and "yield".
+{- | A process defining "Qm" and "share", in a database defining "QM", which
+"Qm" hides, "ratio", which "share" reads, "yield", which "ratio" reads, and
+"unused", which nothing reads.
+-}
 butter :: IO ActivityForAPI
 butter = do
     let product' = UUID.fromWords 1 0 0 1
@@ -49,7 +52,7 @@ butter = do
                 { activityParameters =
                     M.fromList
                         [ ("Qm", (parameter (InputParameter 20.53 (Just (Lognormal 20.53 1.07)))){parameterDescription = "Milk collected"})
-                        , ("share", (parameter (CalculatedParameter "Qm / 2" (Just 10.265))){parameterUnit = Just "kg"})
+                        , ("share", (parameter (CalculatedParameter "Qm * ratio" (Just 10.265))){parameterUnit = Just "kg"})
                         ]
                 }
     db <-
@@ -63,6 +66,12 @@ butter = do
                     , sdbWasteFlows = M.empty
                     , sdbUnits = units
                     , sdbDocumentation = noDocumentation
-                    , sdbParameters = M.fromList [("QM", parameter (InputParameter 3 Nothing)), ("yield", parameter (InputParameter 4 Nothing))]
+                    , sdbParameters =
+                        M.fromList
+                            [ ("QM", parameter (InputParameter 3 Nothing))
+                            , ("ratio", parameter (CalculatedParameter "yield / 8" (Just 0.5)))
+                            , ("yield", parameter (InputParameter 4 Nothing))
+                            , ("unused", parameter (InputParameter 9 Nothing))
+                            ]
                     }
     either (fail . show) (pure . uncurry (convertActivityForAPI db)) (resolveActivityAndProcessId db (UUID.toText process <> "_" <> UUID.toText product'))

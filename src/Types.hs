@@ -18,7 +18,7 @@ import API.JsonOptions (Stripped (..))
 import Control.DeepSeq (NFData)
 import Control.Monad ((<=<), (>=>))
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, withText, (.!=), (.:), (.:?), (.=))
-import Data.Aeson.Types (Parser)
+import Data.Aeson.Types (Pair, Parser)
 import Data.Int (Int32)
 import qualified Data.IntSet as IS
 import qualified Data.Map as M
@@ -1106,7 +1106,8 @@ instance ToJSON Uncertainty where
         Triangular lo mode hi -> named "triangular" ["minimum" .= lo, "mode" .= mode, "maximum" .= hi]
         Uniform lo hi -> named "uniform" ["minimum" .= lo, "maximum" .= hi]
       where
-        named kind = (("distribution" .= (kind :: Text)) :)
+        named :: Text -> [Pair] -> [Pair]
+        named kind = (("distribution" .= kind) :)
 
 instance FromJSON Uncertainty where
     parseJSON = withObject "Uncertainty" $ \o -> do

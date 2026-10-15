@@ -528,7 +528,7 @@ data ActivityForAPI = ActivityForAPI
     , pfaAllProducts :: [ActivitySummary] -- All products from same activityUUID
     , pfaExchanges :: [ExchangeWithUnit] -- Exchanges with unit names
     , pfaNativeType :: Maybe NativeActivityType -- Source-native activity type
-    , pfaWithheld :: Maybe WithheldExchanges -- Set when the licence keeps the amounts to itself: then the exchanges are empty, and these name them
+    , pfaWithheld :: Maybe WithheldExchanges -- Set when the licence keeps the amounts to itself: then the exchanges and both parameter lists are empty, and these name the exchanges
     , pfaParameters :: [ParameterAPI] -- The names its formulas read that the process defines itself
     , pfaDatabaseParameters :: [ParameterAPI] -- The names its formulas read from its database, those the process does not define
     , pfaNativeId :: Maybe NativeProcessId -- The identifier the source gave the dataset block this came out of (SimaPro's "Process identifier", EcoSpold 1's dataset number); Nothing when the format has none, and when the format's identifier is the activity UUID the process id already spells
