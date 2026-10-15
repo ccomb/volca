@@ -43,6 +43,12 @@
 
 ### Fixed
 
+- In a SimaPro file, a parameter a process defines now replaces a database or
+  project parameter of the same name, whatever kind each one is. A process
+  input `x = 5` used to give way to a project formula `x = 2*y`, because
+  every input was settled before every formula; amounts reading `x` now get
+  5. A project input likewise replaces a database formula of its name.
+
 - Calculated parameters in SimaPro files and openLCA packages are given
   their values in the order they read each other. A calculated parameter
   bearing the same name as another value now reaches every formula that

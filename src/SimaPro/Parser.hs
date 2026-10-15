@@ -65,7 +65,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlpha, isAlphaNum, isDigit, isUpper, toLower)
-import Data.Containers.ListUtils (nubOrd)
+import Data.Containers.ListUtils (nubOrd, nubOrdOn)
 import qualified Data.Csv as Csv
 import Data.Functor ((<&>))
 import Data.List (dropWhileEnd, sortOn)
@@ -1407,34 +1407,42 @@ blockLabel pb = case nonEmptyText (T.strip (pbName pb)) of
     Just n -> n
     Nothing -> maybe "unnamed process" prName (listToMaybe (pbProducts pb))
 
-{- | Build the resolved parameter environment and the parameters from ordered
-parameter groups. Input groups are resolved with a single pass each; calc
-groups in the order their parameters read each other, so one may depend on
-another defined later in the CSV. Groups are ordered low→high precedence:
-database, project, process. A calculated parameter without a value is left
-out of the environment, and an amount reading it is among the
-'fallbackAmounts'; an input whose value does not read is no parameter. A
-name is one name whatever its case, as formulas read it, so a later spelling
-replaces an earlier one.
+{- | Build the resolved parameter environment and the parameters from the
+levels of a file, the most general first: database, project, process. Each
+level is its input parameters and its calculated ones. A name means its
+definition at the finest level that has one, input or calculated, and every
+formula reads it so: a process input replaces a project formula of its name.
+Within one level a calculated parameter replaces an input of its name, and a
+later spelling of a name an earlier one, as formulas read names whatever their
+case. Inputs are resolved in a single pass; calculated parameters in the order
+they read each other, so one may depend on another defined later in the CSV.
+A calculated parameter without a value is left out of the environment, and an
+amount reading it is among the 'fallbackAmounts'; an input whose value does
+not read is no parameter.
 -}
-buildParamEnv :: [[(Text, Text)]] -> [[(Text, Text)]] -> (M.Map Text Double, M.Map Text Parameter)
-buildParamEnv inputGroups calcGroups =
+buildParamEnv :: [([(Text, Text)], [(Text, Text)])] -> (M.Map Text Double, M.Map Text Parameter)
+buildParamEnv levels =
     ( env
-    , foldl' (flip (uncurry respell)) M.empty ([(name, InputParameter value) | (name, _) <- concat inputGroups, Just value <- [M.lookup name inputs]] ++ calculated)
+    , foldl' (flip (uncurry respell)) M.empty ([(name, InputParameter value) | (name, _) <- inputGroup, Just value <- [M.lookup name inputs]] ++ calculated)
     )
   where
+    -- Each name once, at its last definition, in the order the file gives them.
+    finest :: [(Text, Either Text Text)]
+    finest = reverse (nubOrdOn (T.toLower . fst) (reverse [definition | (inputs', calcs) <- levels, definition <- map (fmap Left) inputs' ++ map (fmap Right) calcs]))
+
+    inputGroup, calcGroup :: [(Text, Text)]
+    inputGroup = [(name, raw) | (name, Left raw) <- finest]
+    calcGroup = [(name, formula) | (name, Right formula) <- finest]
+
     inputs :: M.Map Text Double
-    inputs = foldl' (foldl' evalParam) M.empty inputGroups
+    inputs = foldl' evalParam M.empty inputGroup
 
-    (env, calculated) = foldl' settleGroup (inputs, []) calcGroups
+    -- A formula that does not settle has no value: no input of its name is left to lend one.
+    env :: M.Map Text Double
+    env = fst (Expr.settle Expr.SimaPro inputs calcGroup)
 
-    -- A formula that does not settle has no value, not the one of the input it shadows.
-    settleGroup :: (M.Map Text Double, [(Text, Parameter)]) -> [(Text, Text)] -> (M.Map Text Double, [(Text, Parameter)])
-    settleGroup (known, parameters) group =
-        let (known', refused) = Expr.settle Expr.SimaPro known group
-            failed = S.fromList (map fst refused)
-            value name = if S.member name failed then Nothing else M.lookup name known'
-         in (known', parameters ++ [(name, p) | (name, formula) <- group, Just p <- [parameter formula (value name)]])
+    calculated :: [(Text, Parameter)]
+    calculated = [(name, p) | (name, formula) <- calcGroup, Just p <- [parameter formula (M.lookup name env)]]
 
     -- A formula VoLCA's language cannot write leaves its value only.
     parameter :: Text -> Maybe Double -> Maybe Parameter
@@ -1457,14 +1465,12 @@ blockParamEnv GlobalParams{..} ProcessBlock{..} =
   where
     own = S.fromList (map (T.toLower . fst) (pbInputParams ++ pbCalcParams))
     (env, parameters) =
-        buildParamEnv
-            (reverse <$> [gpDbInput, gpProjInput, pbInputParams])
-            (reverse <$> [gpDbCalc, gpProjCalc, pbCalcParams])
+        buildParamEnv [(reverse gpDbInput, reverse gpDbCalc), (reverse gpProjInput, reverse gpProjCalc), (reverse pbInputParams, reverse pbCalcParams)]
 
 -- | The database and project parameters, a project one replacing the database one of its name.
 globalParameters :: GlobalParams -> M.Map Text Parameter
 globalParameters GlobalParams{..} =
-    snd (buildParamEnv (reverse <$> [gpDbInput, gpProjInput]) (reverse <$> [gpDbCalc, gpProjCalc]))
+    snd (buildParamEnv [(reverse gpDbInput, reverse gpDbCalc), (reverse gpProjInput, reverse gpProjCalc)])
 
 -- | The names a project parameter takes from a database parameter.
 shadowedByProject :: GlobalParams -> [Text]
