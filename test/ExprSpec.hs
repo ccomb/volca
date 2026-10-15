@@ -109,7 +109,7 @@ spec = do
             unreadableNaming "finite" (olca [] "1 div 0")
             unreadableNaming "finite" (olca [] "1/0")
     describe "the EcoSpold 2 dialect" $ do
-        let es2 env = Expr.evaluate EcoSpold2 (M.fromList env)
+        let es2 env = Expr.evaluate (EcoSpold2 M.empty) (M.fromList env)
         it "reads a function name whatever its case" $ do
             near 6 (es2 [("x", -3)] "ABS(x) * 2")
             near 6 (es2 [("x", -3)] "abs(x) * 2")
@@ -146,8 +146,8 @@ spec = do
         it "says how many arguments a function takes" $
             unreadableNaming "two or three arguments" (es2 [] "IF(1)")
         it "collects a name as a variable unless a parenthesis calls it" $ do
-            collectIdentifiers EcoSpold2 "IF(RP_1; 0.8) + Average(a; b)" `shouldBe` ["RP_1", "a", "b"]
-            collectIdentifiers EcoSpold2 "power * 2" `shouldBe` ["power"]
+            collectIdentifiers (EcoSpold2 M.empty) "IF(RP_1; 0.8) + Average(a; b)" `shouldBe` ["RP_1", "a", "b"]
+            collectIdentifiers (EcoSpold2 M.empty) "power * 2" `shouldBe` ["power"]
 
     describe "SimaPro's own formula language" $ do
         -- a = 3 and b = 7, commas made ';' as the loader does.
@@ -213,10 +213,17 @@ spec = do
             translate SimaPro "iff(a=1 and b<>2;1;0)" `shouldBe` Right "if(and(a = 1; b <> 2); 1; 0)"
             translate SimaPro "1*10^-3*50 // a note" `shouldBe` Right "1 * 10 ^ -3 * 50"
         it "writes EcoSpold 2's log, IF and % in VoLCA's terms" $ do
-            translate EcoSpold2 "LOG(100)" `shouldBe` Right "log10(100)"
-            translate EcoSpold2 "log(8;2)" `shouldBe` Right "log(8; 2)"
-            translate EcoSpold2 "IF(RP;0.66)" `shouldBe` Right "if(RP; 0.66; 0)"
-            translate EcoSpold2 "0.06072*83.3%" `shouldBe` Right "0.06072 * (83.3 / 100)"
+            translate (EcoSpold2 M.empty) "LOG(100)" `shouldBe` Right "log10(100)"
+            translate (EcoSpold2 M.empty) "log(8;2)" `shouldBe` Right "log(8; 2)"
+            translate (EcoSpold2 M.empty) "IF(RP;0.66)" `shouldBe` Right "if(RP; 0.66; 0)"
+            translate (EcoSpold2 M.empty) "0.06072*83.3%" `shouldBe` Right "0.06072 * (83.3 / 100)"
+        it "writes EcoSpold 2's UnitConversion as its factor from the database's table" $ do
+            let conversions = M.fromList [(("MJ", "kWh"), 0.25), (("m3", "l"), 1000)]
+            translate (EcoSpold2 conversions) "UnitConversion(3.79, 'MJ', 'kWh')*(1-0.35)" `shouldBe` Right "3.79 * 0.25 * (1 - 0.35)"
+            translate (EcoSpold2 conversions) "fuel*unitconversion(1;'m3';'l')" `shouldBe` Right "fuel * (1 * 1000)"
+        it "refuses a UnitConversion the database's table has no factor for, naming both units" $
+            translate (EcoSpold2 (M.fromList [(("MJ", "kWh"), 0.25)])) "UnitConversion(1, 'kWh', 'MJ')"
+                `shouldSatisfy` either (T.isInfixOf "no conversion from kWh to MJ" . describeRefusal) (const False)
         it "keeps openLCA's grouping of ^ and of a sign with the parentheses VoLCA needs" $ do
             translate OpenLca "-2^2" `shouldBe` Right "(-2) ^ 2"
             translate OpenLca "2^3^2" `shouldBe` Right "(2 ^ 3) ^ 2"

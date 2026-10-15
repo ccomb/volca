@@ -2,13 +2,14 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile) where
+module EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile, parseUnitConversions) where
 
 import Amount (readAmount)
 import Control.Applicative ((<|>))
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
 import Data.Either (fromRight, lefts)
+import Data.Indexing (uniqueIndex)
 import Data.List (intercalate)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
@@ -25,6 +26,7 @@ import qualified Expr
 import Progress (ProgressLevel (..), reportProgress)
 import SubstanceRegistry (nonEmptyCAS)
 import Types
+import qualified Xeno.DOM as XD
 import qualified Xeno.SAX as X
 
 {- | The identifier a row carries, absent where the file wrote none. An
@@ -705,7 +707,7 @@ environment: the dataset's @\<parameter\>@ variables plus every exchange's own
 
 The stored amount always stays authoritative. EcoSpold2 sources carry
 pre-evaluated amounts, and this evaluator only supports a subset of the
-formula language (no @UnitConversion@, no cross-dataset @Ref@), so its result
+formula language (no cross-dataset @Ref@, no @LiveLink@), so its result
 serves as a consistency check, not a replacement. It reads that subset as this
 language writes it and not as SimaPro does: a @\/\/@ has no meaning here, so a
 relation carrying one is counted unevaluable rather than cut short at it.
@@ -743,7 +745,7 @@ checkFormulas names pairs = case checked of
             T.intercalate "; " $
                 maybe [] (pure . Expr.describeRefusal . Expr.Unresolved) (NE.nonEmpty (NE.filter (not . declaredTwice) missing))
                     <> ["different amounts declared for " <> T.intercalate ", " twice | let twice = NE.filter declaredTwice missing, not (null twice)]
-    checked = [(ex, rel, Expr.evaluate Expr.EcoSpold2 (fnValues names) rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
+    checked = [(ex, rel, Expr.evaluate (Expr.EcoSpold2 (fnConversions names)) (fnValues names) rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]
     example (ex, rel, v) =
@@ -758,18 +760,19 @@ checkFormulas names pairs = case checked of
 nearlyEqual :: Double -> Double -> Bool
 nearlyEqual a b = abs (a - b) <= 1e-9 * max 1 (max (abs a) (abs b))
 
-{- | The names a dataset's formulas read, with their values. A @\<parameter\>@
-and an exchange @variableName@ share one space of names, so both go in
-together, and a name given two amounts, by the file or by two of its lines,
-has none.
+{- | The names a dataset's formulas read, with their values, and the unit
+conversions of its database. A @\<parameter\>@ and an exchange
+@variableName@ share one space of names, so both go in together, and a name
+given two amounts, by the file or by two of its lines, has none.
 -}
 data FormulaNames = FormulaNames
     { fnValues :: !(M.Map Text Double)
     , fnAmbiguous :: !(S.Set Text)
+    , fnConversions :: !Expr.UnitConversions
     }
 
-formulaNames :: M.Map Text Double -> S.Set Text -> [(Exchange, FormulaAttributes)] -> FormulaNames
-formulaNames params struckParams pairs = FormulaNames values (S.map T.toLower struckParams <> S.difference (S.fromList (map (T.toLower . fst) declarations)) (M.keysSet values))
+formulaNames :: Expr.UnitConversions -> M.Map Text Double -> S.Set Text -> [(Exchange, FormulaAttributes)] -> FormulaNames
+formulaNames conversions params struckParams pairs = FormulaNames values (S.map T.toLower struckParams <> S.difference (S.fromList (map (T.toLower . fst) declarations)) (M.keysSet values)) conversions
   where
     declarations :: [(Text, Double)]
     declarations = M.toList params ++ [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]]
@@ -788,7 +791,7 @@ as it was, so a formula giving the opposite amount is kept negated.
 -}
 keptFormula :: FormulaNames -> Double -> Text -> Maybe Text
 keptFormula names amount relation = do
-    text <- either (const Nothing) Just (Expr.translate Expr.EcoSpold2 relation)
+    text <- either (const Nothing) Just (Expr.translate (Expr.EcoSpold2 (fnConversions names)) relation)
     value <- either (const Nothing) Just (Expr.evaluate Expr.Volca (fnValues names) text)
     listToMaybe [Expr.times sign text | sign <- [1, -1], sameAmount value (sign * amount)]
   where
@@ -848,8 +851,8 @@ placeholdersUsed st =
     ]
 
 -- | Xeno SAX parser implementation
-parseWithXeno :: BS.ByteString -> Either String ParsedDataset
-parseWithXeno xmlContent = do
+parseWithXeno :: Expr.UnitConversions -> BS.ByteString -> Either String ParsedDataset
+parseWithXeno conversions xmlContent = do
     finalState <- first show (X.fold openTag attribute endOpen text closeTag cdata initialParseState xmlContent)
     buildResult finalState
   where
@@ -1217,7 +1220,7 @@ parseWithXeno xmlContent = do
             -- A variable the file declared twice with two amounts names no
             -- value, so it is not one of the dataset's parameters.
             params = M.withoutKeys (psParams st) (psAmbiguousParams st)
-            names = formulaNames params (psAmbiguousParams st) pairs
+            names = formulaNames conversions params (psAmbiguousParams st) pairs
             parameters = M.mapWithKey (\var value -> maybe (InputParameter value) (\f -> CalculatedParameter f (Just value)) (keptFormula names value =<< M.lookup var (psParamExprs st))) params
             formulaCheck = checkFormulas names pairs
             (dates, dateWarnings) = datasetDates (psDocs st)
@@ -1264,15 +1267,45 @@ parseWithXeno xmlContent = do
                             }
 
 -- | Parse EcoSpold file using Xeno SAX parser
-streamParseActivityAndFlowsFromFile :: FilePath -> IO (Either String ParsedDataset)
-streamParseActivityAndFlowsFromFile path = do
+streamParseActivityAndFlowsFromFile :: Expr.UnitConversions -> FilePath -> IO (Either String ParsedDataset)
+streamParseActivityAndFlowsFromFile conversions path = do
     !xmlContent <- BS.readFile path
     -- The failure is named after its file like the warnings below: read across
     -- an archive of several thousand, a reason that names no file is a reason
     -- nobody can act on.
-    let parsed = first ((path ++ ": ") ++) (parseWithXeno xmlContent)
+    let parsed = first ((path ++ ": ") ++) (parseWithXeno conversions xmlContent)
     either (const (pure ())) (reportReading path) parsed
     return parsed
+
+{- | The factors of a database's master data file @UnitConversions.xml@, which
+its formulas' @UnitConversion@ reads: one per @\<unitConversion\>@, from its
+@unitFromName@ to its @unitToName@. Two rows from one unit to another leave
+no single factor, so the table is refused naming them.
+-}
+parseUnitConversions :: BS.ByteString -> Either String Expr.UnitConversions
+parseUnitConversions xml = do
+    root <- first show (XD.parse xml)
+    rows <- traverse conversion (named "unitConversion" root)
+    first repeatedPairs (uniqueIndex rows)
+  where
+    repeatedPairs :: NE.NonEmpty (Text, Text) -> String
+    repeatedPairs pairs = "more than one conversion from " <> intercalate ", " [T.unpack from <> " to " <> T.unpack to | (from, to) <- NE.toList pairs]
+
+    conversion :: XD.Node -> Either String ((Text, Text), Double)
+    conversion node = do
+        let factorText = maybe "" bsToText (lookup "factor" (XD.attributes node))
+        factor <- maybe (Left ("unit conversion factor is not a number: " <> T.unpack factorText)) Right (readAmount factorText)
+        from <- side "unitFromName" node
+        to <- side "unitToName" node
+        Right ((from, to), factor)
+
+    side :: BS.ByteString -> XD.Node -> Either String Text
+    side element node = case named element node of
+        found : _ -> Right (T.strip (T.concat [bsToText t | XD.Text t <- XD.contents found]))
+        [] -> Left ("unit conversion without " <> show element)
+
+    named :: BS.ByteString -> XD.Node -> [XD.Node]
+    named element = filter ((== element) . XD.name) . XD.children
 
 -- | Send what a reading had to say to the progress log, the one place it can go.
 reportReading :: FilePath -> ParsedDataset -> IO ()

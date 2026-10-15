@@ -23,6 +23,7 @@ whole formula has been read.
 -}
 module Expr (
     Dialect (..),
+    UnitConversions,
     Refusal (..),
     Unsettled (..),
     Formula (..),
@@ -91,9 +92,12 @@ data Dialect
     | {- | An EcoSpold 2 @mathematicalRelation@, in the subset of OpenFormula the
       format specifies: function names in any case, @LOG@ decimal unless given
       a base, @IF@ with comparisons, functions of any number of arguments, and
-      a postfix @%@. Read like 'Volca' otherwise.
+      a postfix @%@, and @UnitConversion(amount; 'unit'; 'unit')@, which
+      multiplies the amount by the factor the database's own table gives from
+      the first unit to the second, by their names as written. Read like
+      'Volca' otherwise.
       -}
-      EcoSpold2
+      EcoSpold2 UnitConversions
     | {- | openLCA's formula language: @;@ between arguments, comparisons and
       logical operators, a lazy @if@, and three readings that change a number
       against the others: @log@ is decimal, @^@ chains from the left, and
@@ -103,6 +107,9 @@ data Dialect
       -}
       OpenLca
     deriving (Eq, Show)
+
+-- | A database's factors from one unit to another, keyed by the two names as written.
+type UnitConversions = M.Map (Text, Text) Double
 
 -- | Why a formula has no value.
 data Refusal
@@ -372,7 +379,7 @@ that spans two of them ends its comment at the first.
 readable :: Dialect -> Text -> Text
 readable SimaPro = T.strip . T.intercalate "\n" . map (fst . T.breakOn "//") . T.lines
 readable Volca = T.strip . normalizeExpr '.'
-readable EcoSpold2 = T.strip . ecoSpold2Commas
+readable (EcoSpold2 _) = T.strip . ecoSpold2Commas
 readable OpenLca = T.toLower . T.strip
 
 {- | Evaluate an expression of the given dialect, with variable substitution.
@@ -395,7 +402,7 @@ finite :: Dialect -> Double -> Either Refusal Double
 finite dialect value = case dialect of
     SimaPro -> Right value
     Volca -> Right value
-    EcoSpold2 -> Right value
+    EcoSpold2 _ -> Right value
     OpenLca
         | isNaN value || isInfinite value -> Left (Unreadable ("the formula gives no finite number: " <> T.pack (show value)))
         | otherwise -> Right value
@@ -405,7 +412,7 @@ constants :: Dialect -> M.Map Text Double
 constants = \case
     SimaPro -> M.empty
     Volca -> M.empty
-    EcoSpold2 -> M.empty
+    EcoSpold2 _ -> M.empty
     OpenLca -> M.fromList [("pi", pi), ("e", exp 1)]
 
 readFormula :: Dialect -> Text -> Either Refusal Formula
@@ -416,7 +423,7 @@ grammar :: Dialect -> Parser Formula
 grammar = \case
     SimaPro -> pFormula simaProLanguage
     Volca -> pFormula volcaLanguage
-    EcoSpold2 -> pFormula ecoSpold2Language
+    EcoSpold2 conversions -> pFormula (ecoSpold2Language conversions)
     OpenLca -> pOlca
 
 {- | A formula of a dialect written in VoLCA's language.
@@ -632,14 +639,15 @@ data Language = Language
     { calls :: [(Text, Builder)]
     , connectives :: Bool
     , percent :: Bool
+    , unitConversions :: Maybe UnitConversions
     }
 
 volcaLanguage :: Language
-volcaLanguage = Language{calls = [(name, builder f) | f <- functions, Called name <- [spelling (reference f)]], connectives = False, percent = False}
+volcaLanguage = Language{calls = [(name, builder f) | f <- functions, Called name <- [spelling (reference f)]], connectives = False, percent = False, unitConversions = Nothing}
 
--- | EcoSpold 2's, from its formula language specification.
-ecoSpold2Language :: Language
-ecoSpold2Language =
+-- | EcoSpold 2's, from its formula language specification, with the database's unit conversions.
+ecoSpold2Language :: UnitConversions -> Language
+ecoSpold2Language conversions =
     Language
         { calls =
             [ ("abs", one Abs)
@@ -657,6 +665,7 @@ ecoSpold2Language =
             ]
         , connectives = False
         , percent = True
+        , unitConversions = Just conversions
         }
 
 simaProLanguage :: Language
@@ -694,6 +703,7 @@ simaProLanguage =
             ]
         , connectives = True
         , percent = False
+        , unitConversions = Nothing
         }
 
 one :: Unary -> Builder
@@ -777,6 +787,7 @@ pPrimary :: Language -> Parser Formula
 pPrimary language =
     choice
         [ between (symbol "(") (symbol ")") (pFormula language)
+        , maybe empty (pUnitConversion language) (unitConversions language)
         , pCall language
         , Literal <$> pNumber
         , Name <$> pIdentTok
@@ -796,6 +807,21 @@ pCall language = do
     build <- maybe (fail ("unknown function " <> T.unpack name)) pure (lookup (T.toLower name) (calls language))
     args <- sepBy1 (pFormula language) (symbol ";") <* symbol ")"
     either (\takes -> fail (T.unpack name <> " takes " <> takes <> ", given " <> show (length args))) pure (build args)
+
+{- | EcoSpold 2's @UnitConversion@, read as the amount times its factor: the
+units are names, which no other part of a formula is, so the call is settled
+here and nothing of it is left to write in VoLCA's language.
+-}
+pUnitConversion :: Language -> UnitConversions -> Parser Formula
+pUnitConversion language conversions = do
+    _ <- try (lexeme (string' "UnitConversion") <* symbol "(")
+    amount <- pFormula language
+    from <- symbol ";" *> pUnitName
+    to <- symbol ";" *> pUnitName <* symbol ")"
+    maybe (fail ("no conversion from " <> T.unpack from <> " to " <> T.unpack to)) (pure . Binary Multiply amount . Literal) (M.lookup (from, to) conversions)
+  where
+    pUnitName :: Parser Text
+    pUnitName = lexeme (char '\'' *> takeWhileP Nothing (/= '\'') <* char '\'')
 
 -- | A formula read in openLCA's language, and what it gives: a number or a truth value.
 data Typed = Number Formula | Truth Formula

@@ -10,21 +10,24 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
+import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
+import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import EcoSpold.Common (ParsedDataset (..))
-import EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile)
+import EcoSpold.Parser2 (parseUnitConversions, streamParseActivityAndFlowsFromFile)
 import Progress (LogLine (llText), getLogLines)
 import Types
+import UnitConversion (defaultUnitConfig)
 
 {- | The bundled fixture has a `<comment xml:lang="en">...</comment>` on each
 of its four exchanges (1 input, 1 reference output, 2 emissions).
 -}
 withFixture :: (ParsedDataset -> IO ()) -> IO ()
 withFixture k = do
-    result <- streamParseActivityAndFlowsFromFile "test-data/electricity-production.spold"
+    result <- streamParseActivityAndFlowsFromFile M.empty "test-data/electricity-production.spold"
     case result of
         Left err -> expectationFailure $ "Parse failed: " ++ err
         Right res -> k res
@@ -32,7 +35,7 @@ withFixture k = do
 spec :: Spec
 spec = do
     describe "systemModelsRead" $ do
-        let parsed path = streamParseActivityAndFlowsFromFile path >>= either (\err -> expectationFailure err >> pure []) (pure . pure . pdActivity)
+        let parsed path = streamParseActivityAndFlowsFromFile M.empty path >>= either (\err -> expectationFailure err >> pure []) (pure . pure . pdActivity)
             cutOff = "test-data/SAMPLE.min3/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa_productX-uuid.spold"
         it "reads the one system model a database states, once" $ do
             a <- parsed cutOff
@@ -68,7 +71,7 @@ perExchangeComments = describe "per-exchange comments" $ do
     -- their own <comment> describing the property (e.g. "dry mass on a kg
     -- basis"). Those must NOT be attributed to the exchange itself.
     it "ignores <comment> nested inside <property> children of an exchange" $ do
-        result <- streamParseActivityAndFlowsFromFile "test-data/sawnwood-properties_12345678-1234-5678-9abc-12345678aaaa.spold"
+        result <- streamParseActivityAndFlowsFromFile M.empty "test-data/sawnwood-properties_12345678-1234-5678-9abc-12345678aaaa.spold"
         case result of
             Left err -> expectationFailure $ "Parse failed: " ++ err
             Right ParsedDataset{pdActivity = act} ->
@@ -175,7 +178,7 @@ perExchangeComments = describe "per-exchange comments" $ do
         let runOnBytes bytes = withSystemTempDirectory "es2-bad" $ \dir -> do
                 let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
                 BS.writeFile path bytes
-                streamParseActivityAndFlowsFromFile path
+                streamParseActivityAndFlowsFromFile M.empty path
         let shouldBeLeft res = case res of
                 Left _ -> pure ()
                 Right _ -> expectationFailure "expected a Left for malformed input"
@@ -202,7 +205,7 @@ perExchangeComments = describe "per-exchange comments" $ do
         let runOnBytes bytes = withSystemTempDirectory "es2-attr" $ \dir -> do
                 let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
                 BS.writeFile path bytes
-                streamParseActivityAndFlowsFromFile path
+                streamParseActivityAndFlowsFromFile M.empty path
 
         it "captures activityType=2 as Market activity with code+label" $ do
             result <- runOnBytes (activityTypeFixtureXml "2" (Just "1"))
@@ -309,6 +312,35 @@ perExchangeComments = describe "per-exchange comments" $ do
                 fmap (\fc -> (fcEvaluated fc, fcDivergent fc)) (activityFormulaCheck act)
                     `shouldBe` Just (1, 0)
 
+        it "reads UnitConversion with the factors of the package's master data" $
+            withSystemTempDirectory "es2-unit-conversion" $ \dir -> do
+                createDirectoryIfMissing True (dir </> "datasets")
+                createDirectoryIfMissing True (dir </> "MasterData")
+                BS.writeFile (dir </> "datasets" </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold") $
+                    TE.encodeUtf8 (T.replace "fuel_input * 2 + production" "UnitConversion(fuel_input, 'MJ', 'kWh') * 4" (TE.decodeUtf8 formulaXml))
+                BS.writeFile
+                    (dir </> "MasterData" </> "UnitConversions.xml")
+                    "\xEF\xBB\xBF<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
+                    \<validUnitConversions xmlns=\"http://www.EcoInvent.org/EcoSpold02\">\n\
+                    \  <unitConversion id=\"c1\" factor=\"0.5\">\n\
+                    \    <unitFromName xml:lang=\"en\">MJ</unitFromName>\n\
+                    \    <unitToName xml:lang=\"en\">kWh</unitToName>\n\
+                    \    <unitType xml:lang=\"en\">energy</unitType>\n\
+                    \  </unitConversion>\n\
+                    \</validUnitConversions>\n"
+                loaded <- loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig) dir
+                db <- either (fail . T.unpack) pure loaded
+                [efText <$> exchangeFormula e | act <- M.elems (sdbActivities db), e@TechnosphereExchange{techRole = Input} <- exchanges act]
+                    `shouldBe` [Just "fuel_input * 0.5 * 4"]
+
+        it "refuses a unit table giving two factors from one unit to another" $
+            parseUnitConversions
+                "<validUnitConversions>\
+                \<unitConversion factor=\"0.5\"><unitFromName>MJ</unitFromName><unitToName>kWh</unitToName></unitConversion>\
+                \<unitConversion factor=\"0.25\"><unitFromName>MJ</unitFromName><unitToName>kWh</unitToName></unitConversion>\
+                \</validUnitConversions>"
+                `shouldBe` Left "more than one conversion from MJ to kWh"
+
         -- A variable two declarations claim with two amounts names no value.
         -- Binding whichever was read last would make the check answer on a coin
         -- toss, so it stays unbound and the formulas that use it come back
@@ -380,7 +412,7 @@ perExchangeComments = describe "per-exchange comments" $ do
         let runOnBytes bytes = withSystemTempDirectory "es2-geo" $ \dir -> do
                 let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
                 BS.writeFile path bytes
-                streamParseActivityAndFlowsFromFile path
+                streamParseActivityAndFlowsFromFile M.empty path
 
         it "records a geography the dataset declares as declared" $ do
             result <- runOnBytes (activityTypeFixtureXml "1" Nothing)
@@ -402,7 +434,7 @@ perExchangeComments = describe "per-exchange comments" $ do
         let runOnBytes bytes = withSystemTempDirectory "es2-placeholder" $ \dir -> do
                 let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
                 BS.writeFile path bytes
-                streamParseActivityAndFlowsFromFile path
+                streamParseActivityAndFlowsFromFile M.empty path
             -- The fixtures name their unit "unit-kg", which is not a UUID, so
             -- each reading also remarks on that. Only the stand-ins are read here.
             standIns = filter (T.isInfixOf "read as") . pdWarnings
@@ -430,7 +462,7 @@ perExchangeComments = describe "per-exchange comments" $ do
             onDocumented k = withSystemTempDirectory "es2-docs" $ \dir -> do
                 let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
                 BS.writeFile path documentedXml
-                result <- streamParseActivityAndFlowsFromFile path
+                result <- streamParseActivityAndFlowsFromFile M.empty path
                 case result of
                     Left err -> expectationFailure $ "Parse failed: " ++ err
                     Right ParsedDataset{pdActivity = act} -> k act
@@ -493,7 +525,7 @@ perExchangeComments = describe "per-exchange comments" $ do
         let runOnBytes bytes = withSystemTempDirectory "es2-amount" $ \dir -> do
                 let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
                 BS.writeFile path bytes
-                streamParseActivityAndFlowsFromFile path
+                streamParseActivityAndFlowsFromFile M.empty path
 
         it "reads the rest of the dataset rather than failing the whole load" $ do
             result <- runOnBytes unreadableAmountXml
@@ -722,7 +754,7 @@ noGeographyXml =
 -- | The sawnwood fixture, whose two exchanges carry @\<property\>@ children.
 withPropertyFixture :: (Activity -> IO ()) -> IO ()
 withPropertyFixture k = do
-    result <- streamParseActivityAndFlowsFromFile "test-data/sawnwood-properties_12345678-1234-5678-9abc-12345678aaaa.spold"
+    result <- streamParseActivityAndFlowsFromFile M.empty "test-data/sawnwood-properties_12345678-1234-5678-9abc-12345678aaaa.spold"
     case result of
         Left err -> expectationFailure $ "Parse failed: " ++ err
         Right ParsedDataset{pdActivity = act} -> k act
@@ -744,7 +776,7 @@ withDatasetFixture :: BS.ByteString -> (ParsedDataset -> IO ()) -> IO ()
 withDatasetFixture xml k = withSystemTempDirectory "es2-waste-spec" $ \dir -> do
     let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
     BS.writeFile path xml
-    result <- streamParseActivityAndFlowsFromFile path
+    result <- streamParseActivityAndFlowsFromFile M.empty path
     case result of
         Left err -> expectationFailure $ "Parse failed: " ++ err
         Right res -> k res
@@ -860,7 +892,7 @@ parseWasteReference :: IO (Either String ParsedDataset)
 parseWasteReference = withSystemTempDirectory "es2-waste-ref" $ \dir -> do
     let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
     BS.writeFile path wasteReferenceXml
-    streamParseActivityAndFlowsFromFile path
+    streamParseActivityAndFlowsFromFile M.empty path
 
 withWasteReferenceFixture :: (ParsedDataset -> IO ()) -> IO ()
 withWasteReferenceFixture k =
@@ -1021,7 +1053,7 @@ withDataset :: BS.ByteString -> (ParsedDataset -> IO ()) -> IO ()
 withDataset xml k = withSystemTempDirectory "es2-dataset" $ \dir -> do
     let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
     BS.writeFile path xml
-    result <- streamParseActivityAndFlowsFromFile path
+    result <- streamParseActivityAndFlowsFromFile M.empty path
     case result of
         Left err -> expectationFailure $ "Parse failed: " ++ err
         Right res -> k res
@@ -1030,7 +1062,7 @@ withFormulaFixture :: (ParsedDataset -> IO ()) -> IO ()
 withFormulaFixture k = withSystemTempDirectory "es2-formula" $ \dir -> do
     let path = dir </> "12345678-1234-5678-9abc-123456789001_12345678-1234-5678-9abc-123456789002.spold"
     BS.writeFile path formulaXml
-    result <- streamParseActivityAndFlowsFromFile path
+    result <- streamParseActivityAndFlowsFromFile M.empty path
     case result of
         Left err -> expectationFailure $ "Parse failed: " ++ err
         Right res -> k res

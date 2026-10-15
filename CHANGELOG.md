@@ -24,8 +24,9 @@
   amount follows, and the name other formulas read that amount by. EcoSpold 2
   datasets fill it, written in VoLCA's formula language, when the formula
   gives the amount the dataset states; a formula that gives another number,
-  or that reads a unit conversion or a link to an outside spreadsheet, is
-  left out, as the quality report already counts. It is `null` for the other
+  or that reads a link to an outside spreadsheet, is left out, as the quality
+  report already counts. A unit conversion in a formula is read with the
+  factors the package ships in its master data. It is `null` for the other
   formats for now. Wire revision 64.
 
 ### Fixed
