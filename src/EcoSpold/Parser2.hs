@@ -168,18 +168,21 @@ data PendingParam = PendingParam
 emptyPendingParam :: PendingParam
 emptyPendingParam = PendingParam "" Nothing ""
 
-{- | The @\<property\>@ currently open, assembled from its @amount@ attribute
-and its @\<name\>@ and @\<unitName\>@ children, which arrive in no fixed order
-and are only complete when the element closes.
+{- | The @\<property\>@ currently open, assembled from its attributes and its
+@\<name\>@ and @\<unitName\>@ children, which arrive in no fixed order and are
+only complete when the element closes. A property with a @variableName@ is a
+name the dataset's formulas read, as a @\<parameter\>@ is.
 -}
 data PendingProperty = PendingProperty
     { ppyName :: !Text
     , ppyUnit :: !Text
     , ppyAmount :: !(Maybe Double)
+    , ppyVariableName :: !Text
+    , ppyMathRel :: !Text
     }
 
 emptyPendingProperty :: PendingProperty
-emptyPendingProperty = PendingProperty "" "" Nothing
+emptyPendingProperty = PendingProperty "" "" Nothing "" ""
 
 {- | File a closed @\<property\>@ under the exchange property it names, if any.
 
@@ -653,6 +656,31 @@ addBioFlow !f st = st{psBioFlows = f : psBioFlows st}
 addWasteFlow :: WasteFlow -> ParseState -> ParseState
 addWasteFlow !f st = st{psWasteFlows = f : psWasteFlows st}
 
+{- | Declare a name the dataset's formulas read, from a @\<parameter\>@ or a
+@\<property\>@: its amount is pre-evaluated in the source. An entry with no
+@variableName@ has nothing to contribute and is skipped; one with a
+@variableName@ but no usable amount is dropped with a warning, since formulas
+referencing it will fail to evaluate downstream.
+-}
+declareVariable :: String -> PendingParam -> ParseState -> ParseState
+declareVariable element (PendingParam var amt rel) state = case (nonEmptyText var, amt) of
+    (Just v, Just a)
+        | S.member v (psAmbiguousParams state) -> state
+        | Just previous <- M.lookup v (psParams state)
+        , previous /= a ->
+            state
+                { psAmbiguousParams = S.insert v (psAmbiguousParams state)
+                , psWarnings = ("[WARNING] Ignoring <" ++ element ++ "> \"" ++ T.unpack v ++ "\" - declared twice with two amounts") : psWarnings state
+                }
+        | otherwise ->
+            state
+                { psParams = M.insert v a (psParams state)
+                , psParamExprs = maybe (psParamExprs state) (\r -> M.insert v r (psParamExprs state)) (nonEmptyText rel)
+                }
+    (Just v, Nothing) ->
+        state{psWarnings = ("[WARNING] Ignoring <" ++ element ++ "> \"" ++ T.unpack v ++ "\" - missing or unparseable amount") : psWarnings state}
+    (Nothing, _) -> state
+
 {- | Leave the exchange context: pop the path/text, clear the pending groups
 and file whatever the reading has to say. The exchange itself contributes
 nothing, which is what closing a dropped one amounts to.
@@ -688,8 +716,8 @@ Divergences are expected in real EcoSpold2 databases
 so nothing is logged: the outcome is recorded on the activity for the
 database quality report.
 -}
-checkFormulas :: M.Map Text Double -> S.Set Text -> [(Exchange, FormulaAttributes)] -> Maybe FormulaCheck
-checkFormulas params struckParams pairs = case checked of
+checkFormulas :: FormulaNames -> [(Exchange, FormulaAttributes)] -> Maybe FormulaCheck
+checkFormulas names pairs = case checked of
     [] -> Nothing
     _ ->
         Just
@@ -703,19 +731,8 @@ checkFormulas params struckParams pairs = case checked of
   where
     unevaluable :: [Text]
     unevaluable = [refusal rel refused | (_, rel, Left refused) <- checked]
-    -- A <parameter> and an exchange variableName share one space of names, so
-    -- both go in together and a name they disagree on is as unreadable as one
-    -- two exchanges disagree on.
-    env :: M.Map Text Double
-    env = amountsAgreedOn declarations
-    declarations :: [(Text, Double)]
-    declarations = M.toList params ++ [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]]
-    -- Names the file gives more than one amount: the parameters struck before
-    -- this runs, and whatever 'amountsAgreedOn' left unbound.
-    ambiguous :: S.Set Text
-    ambiguous = S.map T.toLower struckParams <> S.difference (S.fromList (map (T.toLower . fst) declarations)) (M.keysSet env)
     declaredTwice :: Text -> Bool
-    declaredTwice = (`S.member` ambiguous) . T.toLower
+    declaredTwice = isAmbiguous names
     refusal :: Text -> Expr.Refusal -> Text
     refusal rel refused = "\"" <> rel <> "\": " <> reason refused
     -- The evaluator can only call a name without a value unknown. For a name
@@ -724,11 +741,11 @@ checkFormulas params struckParams pairs = case checked of
     reason :: Expr.Refusal -> Text
     reason = \case
         unreadable@(Expr.Unreadable _) -> Expr.describeRefusal unreadable
-        Expr.Unresolved names ->
+        Expr.Unresolved missing ->
             T.intercalate "; " $
-                maybe [] (pure . Expr.describeRefusal . Expr.Unresolved) (NE.nonEmpty (NE.filter (not . declaredTwice) names))
-                    <> ["different amounts declared for " <> T.intercalate ", " twice | let twice = NE.filter declaredTwice names, not (null twice)]
-    checked = [(ex, rel, Expr.evaluate Expr.EcoSpold2 env rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
+                maybe [] (pure . Expr.describeRefusal . Expr.Unresolved) (NE.nonEmpty (NE.filter (not . declaredTwice) missing))
+                    <> ["different amounts declared for " <> T.intercalate ", " twice | let twice = NE.filter declaredTwice missing, not (null twice)]
+    checked = [(ex, rel, Expr.evaluate Expr.EcoSpold2 (fnValues names) rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]
     example (ex, rel, v) =
@@ -738,7 +755,60 @@ checkFormulas params struckParams pairs = case checked of
             <> T.pack (show v)
             <> " but the dataset stores "
             <> T.pack (show (exchangeAmount ex))
-    nearlyEqual a b = abs (a - b) <= 1e-9 * max 1 (max (abs a) (abs b))
+
+-- | One amount told by two routes, the same beyond the last digits a computation moves.
+nearlyEqual :: Double -> Double -> Bool
+nearlyEqual a b = abs (a - b) <= 1e-9 * max 1 (max (abs a) (abs b))
+
+{- | The names a dataset's formulas read, with their values. A @\<parameter\>@
+and an exchange @variableName@ share one space of names, so both go in
+together, and a name given two amounts, by the file or by two of its lines,
+has none.
+-}
+data FormulaNames = FormulaNames
+    { fnValues :: !(M.Map Text Double)
+    , fnAmbiguous :: !(S.Set Text)
+    }
+
+formulaNames :: M.Map Text Double -> S.Set Text -> [(Exchange, FormulaAttributes)] -> FormulaNames
+formulaNames params struckParams pairs = FormulaNames values (S.map T.toLower struckParams <> S.difference (S.fromList (map (T.toLower . fst) declarations)) (M.keysSet values))
+  where
+    declarations :: [(Text, Double)]
+    declarations = M.toList params ++ [(v, exchangeAmount ex) | (ex, ef) <- pairs, Just v <- [efVariableName ef]]
+
+    values :: M.Map Text Double
+    values = amountsAgreedOn declarations
+
+isAmbiguous :: FormulaNames -> Text -> Bool
+isAmbiguous names = (`S.member` fnAmbiguous names) . T.toLower
+
+{- | A formula of the dataset in VoLCA's language, when it gives the amount
+the dataset states at the dataset's values. Any other is not what gave that
+amount, and keeping it would change the number at the next computation.
+A system model writes a waste output's amount negated and leaves its formula
+as it was, so a formula giving the opposite amount is kept negated.
+-}
+keptFormula :: FormulaNames -> Double -> Text -> Maybe Text
+keptFormula names amount relation = do
+    text <- either (const Nothing) Just (Expr.translate Expr.EcoSpold2 relation)
+    value <- either (const Nothing) Just (Expr.evaluate Expr.Volca (fnValues names) text)
+    listToMaybe [Expr.times sign text | sign <- [1, -1], nearlyEqual value (sign * amount), sign == 1 || amount /= 0]
+
+{- | An exchange with what its amount follows: its relation, when kept, and
+the name other formulas read it by, unless the dataset gives that name two
+amounts. A named line whose relation is not kept follows its stated number.
+-}
+withKeptFormula :: FormulaNames -> (Exchange, FormulaAttributes) -> Exchange
+withKeptFormula names (ex, ef) = withFormula (relation <|> stated) ex
+  where
+    name :: Maybe Text
+    name = efVariableName ef >>= \n -> if isAmbiguous names n then Nothing else Just n
+
+    relation :: Maybe ExchangeFormula
+    relation = ExchangeFormula name <$> (keptFormula names (exchangeAmount ex) =<< efMathRel ef)
+
+    stated :: Maybe ExchangeFormula
+    stated = (\n -> ExchangeFormula (Just n) (Expr.render (Expr.Literal (exchangeAmount ex)))) <$> name
 
 {- | Bind each variable the declarations agree on, and leave the rest unbound.
 
@@ -825,6 +895,10 @@ parseWithXeno xmlContent = do
             onProperty st
                 | isInsideProperty && isElement name "amount" =
                     st{psPendingProperty = (psPendingProperty st){ppyAmount = readAmount (bsToText value)}}
+                | isInsideProperty && isElement name "variableName" =
+                    st{psPendingProperty = (psPendingProperty st){ppyVariableName = bsToText value}}
+                | isInsideProperty && isElement name "mathematicalRelation" =
+                    st{psPendingProperty = (psPendingProperty st){ppyMathRel = bsToText value}}
                 | otherwise = st
             -- xml:lang on the currently-open <comment>; remembered until closeTag.
             -- Attribute order is not significant for entity ref selection – we
@@ -1087,7 +1161,8 @@ parseWithXeno xmlContent = do
                     InGeographyShortname -> state
                     InGeneralCommentText -> state
                     Other -> state
-             in (popText filed){psPendingProperty = emptyPendingProperty}
+                pending = psPendingProperty state
+             in (popText (declareVariable "property" (PendingParam (ppyVariableName pending) (ppyAmount pending) (ppyMathRel pending)) filed)){psPendingProperty = emptyPendingProperty}
         | isElement tagName "synonym" =
             let txt = T.strip (accumText state)
                 ins m = if T.null txt then m else M.insertWith S.union "en" (S.singleton txt) m
@@ -1105,37 +1180,8 @@ parseWithXeno xmlContent = do
             let txt = T.strip (accumText state)
                 add d = if T.null txt then d else d{edSubcompartments = txt : edSubcompartments d}
              in onExchange id add state
-        -- A <parameter> is referencable from formulas only through its
-        -- variableName; its amount is pre-evaluated in the source. An entry
-        -- with no variableName has nothing to contribute and is skipped; one
-        -- with a variableName but no usable amount is dropped with a warning,
-        -- since formulas referencing it will fail to evaluate downstream.
         | isElement tagName "parameter" =
-            let PendingParam var amt rel = psPendingParam state
-                committed = case (nonEmptyText var, amt) of
-                    (Just v, Just a)
-                        | S.member v (psAmbiguousParams state) -> state
-                        | Just previous <- M.lookup v (psParams state)
-                        , previous /= a ->
-                            state
-                                { psAmbiguousParams = S.insert v (psAmbiguousParams state)
-                                , psWarnings =
-                                    ("[WARNING] Ignoring <parameter> \"" ++ T.unpack v ++ "\" - declared twice with two amounts")
-                                        : psWarnings state
-                                }
-                        | otherwise ->
-                            state
-                                { psParams = M.insert v a (psParams state)
-                                , psParamExprs = maybe (psParamExprs state) (\r -> M.insert v r (psParamExprs state)) (nonEmptyText rel)
-                                }
-                    (Just v, Nothing) ->
-                        state
-                            { psWarnings =
-                                ("[WARNING] Ignoring <parameter> \"" ++ T.unpack v ++ "\" - missing or unparseable amount")
-                                    : psWarnings state
-                            }
-                    (Nothing, _) -> state
-             in popText committed{psPendingParam = emptyPendingParam}
+            popText (declareVariable "parameter" (psPendingParam state) state){psPendingParam = emptyPendingParam}
         | isElement tagName "classificationSystem" =
             (popText state){psPendingClassSystem = T.strip (accumText state)}
         | isElement tagName "classificationValue" =
@@ -1170,8 +1216,9 @@ parseWithXeno xmlContent = do
             -- A variable the file declared twice with two amounts names no
             -- value, so it is not one of the dataset's parameters.
             params = M.withoutKeys (psParams st) (psAmbiguousParams st)
-            parameters = M.mapWithKey (\var value -> maybe (InputParameter value) (\f -> CalculatedParameter f (Just value)) (M.lookup var (psParamExprs st))) params
-            formulaCheck = checkFormulas params (psAmbiguousParams st) pairs
+            names = formulaNames params (psAmbiguousParams st) pairs
+            parameters = M.mapWithKey (\var value -> maybe (InputParameter value) (\f -> CalculatedParameter f (Just value)) (keptFormula names value =<< M.lookup var (psParamExprs st))) params
+            formulaCheck = checkFormulas names pairs
             (dates, dateWarnings) = datasetDates (psDocs st)
             -- Apply cutoff strategy to exchanges
             activity =
@@ -1184,7 +1231,7 @@ parseWithXeno xmlContent = do
                     , activityLocation = location
                     , activityLocationSource = locationSource
                     , activityUnit = refUnit
-                    , exchanges = map fst pairs
+                    , exchanges = map (withKeptFormula names) pairs
                     , activityParameters = parameters
                     , activityNativeType = nativeType
                     , activityNativeId = Nothing

@@ -593,6 +593,8 @@ History of manual bumps:
      before this would keep the amounts computed the old way.
 - 61: an activity keeps its parameters in one map, and every exchange has room
      for the formula its amount follows.
+- 62: EcoSpold 2 exchanges keep their formula and name, and parameters their
+     formula, in VoLCA's language; a named property is a parameter.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -600,7 +602,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 61
+     in hi `xor` lo `xor` 62
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

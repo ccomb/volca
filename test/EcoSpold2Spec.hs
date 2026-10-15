@@ -257,9 +257,26 @@ perExchangeComments = describe "per-exchange comments" $ do
                 [exchangeAmount e | e@TechnosphereExchange{techRole = Input} <- exchanges act]
                     `shouldBe` [4.0]
 
-        it "stores <parameter> values and raw formulas on the activity" $
+        it "stores <parameter> and named <property> values on the activity, with the formulas that give them" $
             withFormulaFixture $ \ParsedDataset{pdActivity = act} -> do
-                activityParameters act `shouldBe` M.fromList [("fuel_input", CalculatedParameter "4.0 / 2" (Just 2.0))]
+                -- prop_var's relation (9999) does not give its amount (7), so it is not kept.
+                activityParameters act `shouldBe` M.fromList [("fuel_input", CalculatedParameter "4 / 2" (Just 2.0)), ("prop_var", InputParameter 7.0)]
+
+        it "keeps a formula that gives the stored amount, written in VoLCA's language" $
+            withDataset (TE.encodeUtf8 (T.replace "fuel_input * 2 + production" "IF(fuel_input &gt; 1; 400%; 0) * production" (TE.decodeUtf8 formulaXml))) $ \ParsedDataset{pdActivity = act} ->
+                [exchangeFormula e | e@TechnosphereExchange{techRole = Input} <- exchanges act]
+                    `shouldBe` [Just (ExchangeFormula Nothing "if(fuel_input > 1; 400 / 100; 0) * production")]
+
+        it "reads a property's variable, and negates a formula giving the opposite of the stored amount" $ do
+            let keeps relation kept = withDataset (TE.encodeUtf8 (T.replace "fuel_input * 2 + production" relation (TE.decodeUtf8 formulaXml))) $ \ParsedDataset{pdActivity = act} ->
+                    [efText <$> exchangeFormula e | e@TechnosphereExchange{techRole = Input} <- exchanges act] `shouldBe` [Just kept]
+            keeps "prop_var - 3" "prop_var - 3"
+            keeps "-fuel_input * 2" "-fuel_input * 2 * -1"
+
+        it "leaves out a formula that does not give the stored amount, and keeps a line's name on its number" $
+            withFormulaFixture $ \ParsedDataset{pdActivity = act} ->
+                map exchangeFormula (exchanges act)
+                    `shouldBe` [Just (ExchangeFormula (Just "production") "1"), Nothing, Nothing]
 
         it "keeps the stored amount when a formula references an unknown variable" $
             withFormulaFixture $ \ParsedDataset{pdActivity = act} ->

@@ -21,9 +21,12 @@
   same value.
 
 - Each exchange line of an activity has a `formula` field: the formula its
-  amount follows, and the name other formulas read that amount by. It is
-  `null` on every line for now; the readers of each format fill it as they
-  learn to keep their formulas.
+  amount follows, and the name other formulas read that amount by. EcoSpold 2
+  datasets fill it, written in VoLCA's formula language, when the formula
+  gives the amount the dataset states; a formula that gives another number,
+  or that reads a unit conversion or a link to an outside spreadsheet, is
+  left out, as the quality report already counts. It is `null` for the other
+  formats for now. Wire revision 64.
 
 ### Fixed
 
