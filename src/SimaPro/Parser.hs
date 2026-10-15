@@ -19,6 +19,7 @@ module SimaPro.Parser (
     TechExchangeRow (..),
     BioExchangeRow (..),
     GlobalParams (..),
+    ParamLevel (..),
     emptyProcessBlock,
     fallbackAmounts,
     buildParamEnv,
@@ -65,7 +66,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlpha, isAlphaNum, isDigit, isUpper, toLower)
-import Data.Containers.ListUtils (nubOrd, nubOrdOn)
+import Data.Containers.ListUtils (nubOrd)
 import qualified Data.Csv as Csv
 import Data.Functor ((<&>))
 import Data.List (dropWhileEnd, sortOn)
@@ -392,6 +393,12 @@ data GlobalParams = GlobalParams
     deriving (Show, Eq, Generic)
 
 instance NFData GlobalParams
+
+-- | The parameters one level of a file defines: the database, the project or a process.
+data ParamLevel = ParamLevel
+    { levelInputs :: ![(Text, Text)]
+    , levelCalculated :: ![(Text, Text)]
+    }
 
 instance Semigroup GlobalParams where
     GlobalParams a1 b1 c1 d1 <> GlobalParams a2 b2 c2 d2 =
@@ -1413,26 +1420,40 @@ level is its input parameters and its calculated ones. A name means its
 definition at the finest level that has one, input or calculated, and every
 formula reads it so: a process input replaces a project formula of its name.
 Within one level a calculated parameter replaces an input of its name, and a
-later spelling of a name an earlier one, as formulas read names whatever their
-case. Inputs are resolved in a single pass; calculated parameters in the order
-they read each other, so one may depend on another defined later in the CSV.
-A calculated parameter without a value is left out of the environment, and an
-amount reading it is among the 'fallbackAmounts'; an input whose value does
-not read is no parameter.
+later input an earlier one, as formulas read names whatever their case; two
+formulas of one name in one level are refused as ambiguous. Inputs are
+resolved in a single pass; calculated parameters in the order they read each
+other, so one may depend on another defined later in the CSV. A calculated
+parameter without a value is left out of the environment, and an amount
+reading it is among the 'fallbackAmounts'; so is an input whose value does
+not read, which is no parameter. Either still replaces the more general
+definition of its name, whose value would not be the one the level meant.
 -}
-buildParamEnv :: [([(Text, Text)], [(Text, Text)])] -> (M.Map Text Double, M.Map Text Parameter)
+buildParamEnv :: [ParamLevel] -> (M.Map Text Double, M.Map Text Parameter)
 buildParamEnv levels =
     ( env
     , foldl' (flip (uncurry respell)) M.empty ([(name, InputParameter value) | (name, _) <- inputGroup, Just value <- [M.lookup name inputs]] ++ calculated)
     )
   where
-    -- Each name once, at its last definition, in the order the file gives them.
-    finest :: [(Text, Either Text Text)]
-    finest = reverse (nubOrdOn (T.toLower . fst) (reverse [definition | (inputs', calcs) <- levels, definition <- map (fmap Left) inputs' ++ map (fmap Right) calcs]))
+    inForce :: ParamLevel
+    inForce = foldl' over (ParamLevel [] []) levels
+
+    -- A level's names replace those of the levels above it.
+    over :: ParamLevel -> ParamLevel -> ParamLevel
+    over general level =
+        ParamLevel
+            { levelInputs = outside own (levelInputs general) ++ outside calculatedHere (levelInputs level)
+            , levelCalculated = outside own (levelCalculated general) ++ levelCalculated level
+            }
+      where
+        names = S.fromList . map (T.toLower . fst)
+        calculatedHere = names (levelCalculated level)
+        own = names (levelInputs level) <> calculatedHere
+        outside taken = filter (\(name, _) -> S.notMember (T.toLower name) taken)
 
     inputGroup, calcGroup :: [(Text, Text)]
-    inputGroup = [(name, raw) | (name, Left raw) <- finest]
-    calcGroup = [(name, formula) | (name, Right formula) <- finest]
+    inputGroup = levelInputs inForce
+    calcGroup = levelCalculated inForce
 
     inputs :: M.Map Text Double
     inputs = foldl' evalParam M.empty inputGroup
@@ -1465,12 +1486,12 @@ blockParamEnv GlobalParams{..} ProcessBlock{..} =
   where
     own = S.fromList (map (T.toLower . fst) (pbInputParams ++ pbCalcParams))
     (env, parameters) =
-        buildParamEnv [(reverse gpDbInput, reverse gpDbCalc), (reverse gpProjInput, reverse gpProjCalc), (reverse pbInputParams, reverse pbCalcParams)]
+        buildParamEnv [ParamLevel (reverse gpDbInput) (reverse gpDbCalc), ParamLevel (reverse gpProjInput) (reverse gpProjCalc), ParamLevel (reverse pbInputParams) (reverse pbCalcParams)]
 
 -- | The database and project parameters, a project one replacing the database one of its name.
 globalParameters :: GlobalParams -> M.Map Text Parameter
 globalParameters GlobalParams{..} =
-    snd (buildParamEnv [(reverse gpDbInput, reverse gpDbCalc), (reverse gpProjInput, reverse gpProjCalc)])
+    snd (buildParamEnv [ParamLevel (reverse gpDbInput) (reverse gpDbCalc), ParamLevel (reverse gpProjInput) (reverse gpProjCalc)])
 
 -- | The names a project parameter takes from a database parameter.
 shadowedByProject :: GlobalParams -> [Text]

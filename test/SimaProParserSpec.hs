@@ -21,6 +21,7 @@ import SimaPro.Parser (
     BioExchangeRow (..),
     Located (..),
     NameReading (..),
+    ParamLevel (..),
     ProcessBlock (..),
     ProductRow (..),
     SimaProFile (..),
@@ -1101,17 +1102,20 @@ spec = do
             sequence_ checked
 
         it "gives no value to a calculated parameter whose formula does not settle, not the input's it shadows" $
-            snd (buildParamEnv [([("a", "1")], [("a", "b * 2")])])
+            snd (buildParamEnv [ParamLevel [("a", "1")] [("a", "b * 2")]])
                 `shouldBe` M.singleton "a" (CalculatedParameter "b * 2" Nothing)
 
         it "lets a process parameter replace a project one of its name, input over calculated" $ do
-            let (env, parameters) = buildParamEnv [([("y", "3")], [("x", "2 * y")]), ([("X", "5")], [])]
+            let (env, parameters) = buildParamEnv [ParamLevel [("y", "3")] [("x", "2 * y")], ParamLevel [("X", "5")] []]
             M.lookup "X" env `shouldBe` Just 5
             M.lookup "x" env `shouldBe` Nothing
             parameters `shouldBe` M.fromList [("y", InputParameter 3), ("X", InputParameter 5)]
 
         it "reads a project formula with the values a process gives the names it reads" $
-            M.lookup "x" (fst (buildParamEnv [([("y", "3")], [("x", "2 * y")]), ([("y", "10")], [])])) `shouldBe` Just 20
+            M.lookup "x" (fst (buildParamEnv [ParamLevel [("y", "3")] [("x", "2 * y")], ParamLevel [("y", "10")] []])) `shouldBe` Just 20
+
+        it "gives no value to a name one level declares with two formulas, nor the value of the level above" $
+            M.lookup "x" (fst (buildParamEnv [ParamLevel [("x", "1")] [], ParamLevel [] [("x", "2"), ("x", "3")]])) `shouldBe` Nothing
 
         it "does not drop exchanges with parameterized amounts" $ do
             (activities, _, _, _, _) <- parseParamCSV
