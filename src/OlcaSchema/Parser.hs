@@ -118,7 +118,7 @@ buildDatabase cfg key pkg =
                             , sdbWasteFlows = ftWaste tables
                             , sdbUnits = unitDB
                             , sdbDocumentation = noDocumentation
-                            , sdbParameters = M.empty
+                            , sdbParameters = M.fromList [(P.paName q, parameter globalValues q) | q <- globals]
                             }
                     , builtNotices = ftNotices tables <> concatMap rpNotices processes
                     }
@@ -126,6 +126,12 @@ buildDatabase cfg key pkg =
   where
     shared :: P.Package
     shared = pkg{P.pkProcesses = []}
+
+    globals :: [P.Parameter]
+    globals = M.elems (byName (P.pkGlobals pkg))
+
+    globalValues :: M.Map Text Double
+    globalValues = fst (settleOver M.empty globals)
 
     producers :: M.Map UUID (M.Map UUID P.ProcessType)
     producers = producerIndex pkg
@@ -330,6 +336,8 @@ data Line = Line
     , lnFlow :: !P.Flow
     , lnUnit :: !UUID
     , lnAmount :: !Double
+    , lnFormula :: !(Maybe Text)
+    -- ^ The formula of 'lnAmount', in VoLCA's language, when the line has one that gives it
     , lnOutcome :: !Outcome
     }
 
@@ -354,17 +362,8 @@ reads every formula.
 environment :: [P.Parameter] -> P.Process -> (M.Map Text Double, [Notice])
 environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name <> ": " <> Expr.describeUnsettled why) | (name, why) <- globalUnsettled <> ownUnsettled, M.notMember name settled])
   where
-    globals' :: [P.Parameter]
-    globals' = M.elems (byName globals)
-
     own :: [P.Parameter]
     own = M.elems (byName (P.prParameters p))
-
-    given :: [P.Parameter] -> M.Map Text Double
-    given qs = M.fromList [(T.toLower (P.paName q), v) | q <- qs, P.InputValue v <- [P.paValue q]]
-
-    calculated :: [P.Parameter] -> [(Text, Text)]
-    calculated qs = [(T.toLower (P.paName q), f) | q <- qs, P.Calculated f _ <- [P.paValue q]]
 
     -- A name the process redefines must not lend its global value to the process's formulas.
     global :: M.Map Text Double
@@ -372,8 +371,28 @@ environment globals p = (settled, [Unsettled (P.prName p <> " · " <> name <> ":
 
     globalValues, settled :: M.Map Text Double
     globalUnsettled, ownUnsettled :: [(Text, Expr.Unsettled)]
-    (globalValues, globalUnsettled) = Expr.settle Expr.OpenLca (given globals') (calculated globals')
-    (settled, ownUnsettled) = Expr.settle Expr.OpenLca (M.union (given own) global) (calculated own)
+    (globalValues, globalUnsettled) = settleOver M.empty (M.elems (byName globals))
+    (settled, ownUnsettled) = settleOver global own
+
+-- | Parameters' values over values already known, lowercased as the openLCA dialect reads names.
+settleOver :: M.Map Text Double -> [P.Parameter] -> (M.Map Text Double, [(Text, Expr.Unsettled)])
+settleOver known qs = Expr.settle Expr.OpenLca (M.union given known) calculated
+  where
+    given :: M.Map Text Double
+    given = M.fromList [(T.toLower (P.paName q), v) | q <- qs, P.InputValue v <- [P.paValue q]]
+
+    calculated :: [(Text, Text)]
+    calculated = [(T.toLower (P.paName q), f) | q <- qs, P.Calculated f _ <- [P.paValue q]]
+
+{- | A parameter as the engine keeps it, valued as settled; a formula VoLCA's
+language cannot write leaves its value alone.
+-}
+parameter :: M.Map Text Double -> P.Parameter -> Parameter
+parameter values q = case P.paValue q of
+    P.InputValue value -> InputParameter value
+    P.Calculated formula stored ->
+        let value = M.findWithDefault stored (T.toLower (P.paName q)) values
+         in either (const (InputParameter value)) (\text -> CalculatedParameter text (Just value)) (Expr.translate Expr.OpenLca formula)
 
 -- | Parameters by name, case aside: a process's own shadows a global one so.
 byName :: [P.Parameter] -> M.Map Text P.Parameter
@@ -402,7 +421,7 @@ oneLinePerProduct lines' = zipWith renumbered [0 ..] [merged ln | ln <- lines', 
 
     merged :: Line -> Line
     merged ln = case M.lookup (P.flId (lnFlow ln)) byFlow of
-        Just same | isProduct ln, length same > 1 -> ln{lnAmount = sum (lnAmount <$> same), lnRaw = (lnRaw ln){P.rxReference = any (P.rxReference . lnRaw) same}}
+        Just same | isProduct ln, length same > 1 -> ln{lnAmount = sum (lnAmount <$> same), lnFormula = Nothing, lnRaw = (lnRaw ln){P.rxReference = any (P.rxReference . lnRaw) same}}
         _ -> ln
 
 readLine :: Context -> P.Process -> M.Map Text Double -> Int -> P.RawExchange -> Either Unreadable Line
@@ -411,11 +430,21 @@ readLine cx p env at raw = do
     let named = P.prName p <> " · " <> P.flName flow
         (amount, outcome) = computed env (P.rxAmount raw) (P.rxFormula raw)
     unit <- maybe (Left (NoReferenceUnit named)) Right (M.lookup (P.flId flow) (cxFlowUnits cx))
-    converted <- maybe (Left (NoConversion named)) Right (toReference pkg flow raw amount)
-    pure Line{lnAt = at, lnRaw = raw, lnFlow = flow, lnUnit = unit, lnAmount = converted, lnOutcome = outcome}
+    factor <- maybe (Left (NoConversion named)) Right (toReference pkg flow raw)
+    let converted = amount * factor
+    pure Line{lnAt = at, lnRaw = raw, lnFlow = flow, lnUnit = unit, lnAmount = converted, lnFormula = lineFormula env factor converted =<< P.rxFormula raw, lnOutcome = outcome}
   where
     pkg :: P.Package
     pkg = cxPackage cx
+
+{- | A line's formula in VoLCA's language and in the flow's reference unit,
+when it gives the line's amount there.
+-}
+lineFormula :: M.Map Text Double -> Double -> Double -> Text -> Maybe Text
+lineFormula env factor amount formula = do
+    text <- Expr.times factor <$> either (const Nothing) Just (Expr.translate Expr.OpenLca formula)
+    value <- either (const Nothing) Just (Expr.evaluate Expr.Volca env text)
+    if Expr.agrees value amount then Just text else Nothing
 
 {- | A value the file stores, computed from its formula where it has one that
 evaluates, as openLCA recomputes it: a line's amount, an allocation factor.
@@ -429,18 +458,18 @@ computed env stored formula' = case formula' of
             | abs (value - stored) <= 1e-9 * max 1 (max (abs value) (abs stored)) -> (value, Agrees)
             | otherwise -> (value, Diverges stored)
 
-{- | An amount in the flow's reference unit: through the unit's factor in its
-group, then, for a line stated in another property than the flow's own (a
-gas in megajoules), through the flow's factor for that property.
+{- | What one of a line's unit is in the flow's reference unit: the unit's
+factor in its group, then, for a line stated in another property than the
+flow's own (a gas in megajoules), the flow's factor for that property.
 -}
-toReference :: P.Package -> P.Flow -> P.RawExchange -> Double -> Maybe Double
-toReference pkg flow raw amount = do
+toReference :: P.Package -> P.Flow -> P.RawExchange -> Maybe Double
+toReference pkg flow raw = do
     let property = fromMaybe (P.flReference flow) (P.rxProperty raw)
     groupId <- M.lookup property (P.pkPropertyGroups pkg)
     entry <- M.lookup (P.rxUnit raw) . P.ugUnits =<< M.lookup groupId (P.pkUnitGroups pkg)
     factor <- M.lookup property (P.flFactors flow)
     guard (factor /= 0)
-    pure (amount * P.ueFactor entry / factor)
+    pure (P.ueFactor entry / factor)
 
 formulaNotices :: P.Process -> [Line] -> [Notice]
 formulaNotices p = concatMap notice
@@ -581,26 +610,12 @@ assemble cx p env notices lines' =
                 ref <- find (P.rxReference . lnRaw) lines'
                 unitName <$> M.lookup (lnUnit ref) (alUnitDB (cxAllocating cx))
             , exchanges = map fst built
-            , activityParameters =
-                M.fromList $
-                    [(P.paName q, parameter q) | q <- M.elems own]
-                        <> [(P.paName q, InputParameter v) | q <- M.elems (byName (P.pkGlobals (cxPackage cx)) M.\\ own), Just v <- [M.lookup (T.toLower (P.paName q)) env]]
+            , activityParameters = M.fromList [(P.paName q, parameter env q) | q <- M.elems (byName (P.prParameters p))]
             , activityNativeType = Nothing
             , activityNativeId = Nothing
             , activityFormulaCheck = formulaCheck lines'
             , activityDates = noDates
             }
-
-    -- The package's globals are the process's values only: their formulas are no formula of this process.
-    own :: M.Map Text P.Parameter
-    own = byName (P.prParameters p)
-
-    parameter :: P.Parameter -> Parameter
-    parameter q = case P.paValue q of
-        P.InputValue value -> InputParameter value
-        P.Calculated formula stored ->
-            let value = M.findWithDefault stored (T.toLower (P.paName q)) env
-             in either (const (InputParameter value)) (\text -> CalculatedParameter text (Just value)) (Expr.translate Expr.OpenLca formula)
 
     -- A process the gate will refuse for having no reference keeps its own id as its product.
     referenceFlow :: Activity -> UUID
@@ -638,12 +653,12 @@ engineExchange :: Context -> P.Process -> M.Map Int Double -> Line -> (Exchange,
 engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
     -- openLCA offers "avoided" on product and waste lines; an elementary one is read as the input it is stored as.
     (P.ElementaryFlow, side) -> (biosphere side, [])
-    (P.ProductFlow, P.Produced) -> (made amount, [])
+    (P.ProductFlow, P.Produced) -> (made 1, [])
     (P.ProductFlow, P.Consumed) -> linked Input
     (P.ProductFlow, P.Avoided) -> linked AvoidedProduct
-    (P.WasteFlow, P.Consumed) -> (made (negate amount), [])
-    (P.WasteFlow, P.Produced) -> waste amount
-    (P.WasteFlow, P.Avoided) -> waste (negate amount)
+    (P.WasteFlow, P.Consumed) -> (made (-1), [])
+    (P.WasteFlow, P.Produced) -> waste 1
+    (P.WasteFlow, P.Avoided) -> waste (-1)
   where
     raw :: P.RawExchange
     raw = lnRaw ln
@@ -653,6 +668,13 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
 
     amount :: Double
     amount = lnAmount ln
+
+    -- The line's amount and formula, times the sign the engine gives the line.
+    signed :: Double -> Double
+    signed sign = sign * amount
+
+    formula :: Double -> Maybe ExchangeFormula
+    formula sign = ExchangeFormula Nothing . Expr.times sign <$> lnFormula ln
 
     direction :: BioDirection
     direction = directionOf (compartmentOf (P.flCategory flow))
@@ -670,26 +692,29 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
     biosphere side =
         BiosphereExchange
             { bioFlowId = P.flId flow
-            , bioAmount = case (side, direction) of
-                (P.Produced, Emission) -> amount
-                (P.Produced, Resource) -> negate amount
-                (P.Consumed, Resource) -> amount
-                (P.Consumed, Emission) -> negate amount
-                (P.Avoided, Resource) -> amount
-                (P.Avoided, Emission) -> negate amount
+            , bioAmount = signed sign
             , bioUnitId = lnUnit ln
             , bioDirection = direction
             , bioLocation = location
             , bioComment = P.rxDescription raw
             , bioPedigree = Nothing
-            , bioFormula = Nothing
+            , bioFormula = formula sign
             }
+      where
+        sign :: Double
+        sign = case (side, direction) of
+            (P.Produced, Emission) -> 1
+            (P.Produced, Resource) -> -1
+            (P.Consumed, Resource) -> 1
+            (P.Consumed, Emission) -> -1
+            (P.Avoided, Resource) -> 1
+            (P.Avoided, Emission) -> -1
 
     technosphere :: TechRole -> Double -> Supplier -> Maybe DeclaredShare -> Exchange
-    technosphere role a link share =
+    technosphere role sign link share =
         TechnosphereExchange
             { techFlowId = P.flId flow
-            , techAmount = a
+            , techAmount = signed sign
             , techUnitId = lnUnit ln
             , techRole = role
             , techActivityLinkId = suTarget link
@@ -697,31 +722,31 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
             , techLocation = location
             , techComment = P.rxDescription raw
             , techPedigree = Nothing
-            , techFormula = Nothing
+            , techFormula = formula sign
             , techShare = share
             , techClassification = M.empty
             , techProperties = noProperties
             }
 
     made :: Double -> Exchange
-    made a =
+    made sign =
         technosphere
             (if P.rxReference raw then ReferenceProduct else Coproduct)
-            a
+            sign
             (Supplier Nothing ClaimByProduct [])
             ((\pct -> DeclaredShare{dsPercent = pct, dsFormula = Nothing}) <$> M.lookup (lnAt ln) shares)
 
     linked :: TechRole -> (Exchange, [Notice])
     linked role =
-        ( technosphere role amount supplier Nothing
+        ( technosphere role 1 supplier Nothing
         , suNotices supplier
         )
 
     waste :: Double -> (Exchange, [Notice])
-    waste a =
+    waste sign =
         ( WasteExchange
             { waFlowId = P.flId flow
-            , waAmount = a
+            , waAmount = signed sign
             , waUnitId = lnUnit ln
             , waIsInput = False
             , waActivityLinkId = suTarget supplier
@@ -729,7 +754,7 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
             , waLocation = location
             , waComment = P.rxDescription raw
             , waPedigree = Nothing
-            , waFormula = Nothing
+            , waFormula = formula sign
             }
         , suNotices supplier
         )

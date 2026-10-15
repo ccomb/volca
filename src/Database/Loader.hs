@@ -602,6 +602,8 @@ History of manual bumps:
 - 64: SimaPro exchanges keep the formula their amount follows.
 - 65: a database keeps the parameters every process of it reads, and a
      SimaPro process keeps only its own.
+- 66: openLCA exchanges keep the formula their amount follows, and the
+     package's global parameters are the database's.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -609,7 +611,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 65
+     in hi `xor` lo `xor` 66
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

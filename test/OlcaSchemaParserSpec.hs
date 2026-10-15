@@ -12,6 +12,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import Database (buildDatabaseWithMatrices)
+import qualified Expr
 import Matrix (computeInventoryMatrix)
 import OlcaPackageFixture
 import OlcaSchema.Package
@@ -49,6 +50,11 @@ carriesOnly inventory expected = do
     forM_ expected $ \(flow, amount) ->
         (UUID.toString flow, M.findWithDefault 0 flow inventory)
             `shouldSatisfy` (\(_, got) -> abs (got - amount) <= 1e-9 * max 1 (abs amount))
+
+-- | A parameter's value at the dataset's defaults, where it has one.
+parameterValue :: Types.Parameter -> Maybe Double
+parameterValue (InputParameter v) = Just v
+parameterValue (CalculatedParameter _ v) = v
 
 -- | An exchange of one process as read, by its flow.
 exchangeOf :: Built -> UUID -> UUID -> UUID -> Maybe Exchange
@@ -154,12 +160,42 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         b <- built (editing steelA uses pkg{pkGlobals = globals <> pkGlobals pkg})
         [what | Divergent what <- builtNotices b, "steel production" `T.isPrefixOf` what] `shouldBe` []
 
-    it "gives a process the value of a global calculated parameter, not its formula" $ \_ -> do
+    it "keeps the package's global parameters on the database, not on each process" $ \_ -> do
         pkg <- readFixture
         b <- built pkg{pkGlobals = [Parameter "base" (InputValue 1), Parameter "doubled" (Calculated "base * 2" 2)] <> pkGlobals pkg}
-        let doubled = map (M.lookup "doubled" . activityParameters) (M.elems (sdbActivities (builtDatabase b)))
-        doubled `shouldSatisfy` (not . null)
-        doubled `shouldSatisfy` all (== Just (InputParameter 2))
+        M.lookup "doubled" (sdbParameters (builtDatabase b)) `shouldBe` Just (CalculatedParameter "base * 2" (Just 2))
+        M.lookup "leak_method" (sdbParameters (builtDatabase b)) `shouldBe` Just (InputParameter 1)
+        concatMap (M.keys . activityParameters) (M.elems (sdbActivities (builtDatabase b))) `shouldBe` ["a", "b", "c", "d"]
+
+    it "keeps the formulas that give their line's amount, and only those" $ \(b, _) -> do
+        let values = M.mapMaybe parameterValue
+            checked =
+                [ Expr.evaluate Expr.Volca (values (activityParameters act) <> values (sdbParameters (builtDatabase b))) (efText f)
+                    `shouldSatisfy` either (const False) (Expr.agrees (exchangeAmount e))
+                | act <- M.elems (sdbActivities (builtDatabase b))
+                , e <- exchanges act
+                , Just f <- [exchangeFormula e]
+                ]
+        -- Of the widget's four formulas, the one that draws a random number gives no amount to keep.
+        length checked `shouldBe` 3
+        sequence_ checked
+        (exchangeFormula =<< exchangeOf b formulasJ widgetF co2F) `shouldBe` Just (ExchangeFormula Nothing "b / 10")
+        (exchangeFormula =<< exchangeOf b formulasJ widgetF zincF) `shouldBe` Nothing
+
+    it "writes a line's formula in its flow's reference unit and with the sign the engine gives the line" $ \_ -> do
+        pkg <- readFixture
+        -- Ore returned, 0.25 kg stated in tonnes: the engine counts it as -0.25 kg taken.
+        let returned x = if rxFlow x == oreF && rxSide x == Produced then x{rxUnit = tU, rxAmount = 0.00025, rxFormula = Just "1 / 4000"} else x
+        b <- built (editing sortingM (\p -> p{prExchanges = map returned (prExchanges p)}) pkg)
+        let formulas = [(exchangeAmount e, efText f) | Just act <- [M.lookup (sortingM, sortedF) (sdbActivities (builtDatabase b))], e <- exchanges act, Just f <- [exchangeFormula e]]
+        formulas `shouldBe` [(-0.25, "1 / 4000 * 1000 * -1")]
+        map (Expr.evaluate Expr.Volca M.empty . snd) formulas `shouldBe` [Right (-0.25)]
+
+    it "leaves no formula on a product it adds up from two lines" $ \_ -> do
+        pkg <- readFixture
+        let both p = p{prExchanges = map (\x -> if rxFlow x == pairF then x{rxFormula = Just "0.5 * 2"} else x) (prExchanges p)}
+        b <- built (editing pairN both pkg)
+        (exchangeFormula =<< exchangeOf b pairN pairF pairF) `shouldBe` Nothing
 
     it "places elementary flows in their compartment, and counts those it cannot place" $ \(b, _) -> do
         let compartment fid = bfCompartment =<< M.lookup fid (sdbBioFlows (builtDatabase b))

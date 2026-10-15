@@ -22,14 +22,16 @@
 
 - Each exchange line of an activity has a `formula` field: the formula its
   amount follows, and the name other formulas read that amount by. EcoSpold 2
-  datasets and SimaPro files fill it, written in VoLCA's formula language,
+  datasets, SimaPro files and openLCA packages fill it, written in VoLCA's formula language,
   when the formula gives the amount the dataset states; a formula that gives
   another number, or that reads a link to an outside spreadsheet, is left
   out, as the quality report already counts for EcoSpold 2. A unit conversion in a formula
   is read with the factors the package ships in its master data. A SimaPro
   line recorded in another unit than the engine's (grams for kilograms) has
-  the conversion written into its formula: `Qm * 0.001`. It is `null` for
-  the other formats for now. Wire revision 64.
+  the conversion written into its formula: `Qm * 0.001`. An openLCA line
+  gets the same, and its sign where the engine counts it the other way (ore
+  returned to the ground is a resource taken in a negative amount). It is
+  `null` for the other formats for now. Wire revision 64.
 
 - A SimaPro file's database and project parameters are kept once, for the
   whole database, instead of being copied into each of its processes. Loading
@@ -37,6 +39,7 @@
   same name. Two spellings of one parameter name that differ only in case
   are one parameter: the project's `DbIn` now replaces the database's
   `dbin`, where an amount reading `dbin` could get the database's value.
+  An openLCA package's global parameters are kept the same way.
 
 ### Fixed
 
