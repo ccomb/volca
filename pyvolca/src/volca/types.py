@@ -1011,6 +1011,22 @@ class ConsumersResponse:
 # Exchanges (typed)
 # ---------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class ExchangeFormula:
+    """What makes an exchange's amount follow the dataset's parameters.
+
+    ``text`` is the formula in VoLCA's language; ``name`` is the name other
+    formulas read the amount by, when the source gives one (wire revision 64).
+    """
+
+    text: str
+    name: str | None = None
+
+    @classmethod
+    def from_json(cls, d: dict | None) -> "ExchangeFormula | None":
+        return cls(text=d["text"], name=d.get("name")) if d else None
+
+
 def _exchange_comment(ewu: dict | None, inner: dict) -> str | None:
     """Pick the per-exchange free-text comment.
 
@@ -1132,6 +1148,7 @@ class TechnosphereExchange:
     target_process_id: str | None
     comment: str | None = None
     supplier_claim: SupplierClaim | None = None
+    formula: ExchangeFormula | None = None
 
     is_biosphere: bool = False  # discriminator for callers using duck typing
     is_waste: bool = False
@@ -1166,6 +1183,7 @@ class TechnosphereExchange:
             target_location=ewu.get("targetLocation"),
             target_process_id=ewu.get("targetProcessId"),
             comment=_exchange_comment(ewu, inner),
+            formula=ExchangeFormula.from_json(inner.get("formula")),
             supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
 
@@ -1214,6 +1232,7 @@ class BiosphereExchange:
     direction: BioDirection  # "Resource" = extraction, "Emission" = release
     flow_id: str
     comment: str | None = None
+    formula: ExchangeFormula | None = None
 
     is_biosphere: bool = True  # discriminator for callers using duck typing
     is_waste: bool = False
@@ -1247,6 +1266,7 @@ class BiosphereExchange:
             direction=BioDirection(inner["direction"]),
             flow_id=inner["flowId"],
             comment=_exchange_comment(ewu, inner),
+            formula=ExchangeFormula.from_json(inner.get("formula")),
         )
 
 
@@ -1291,6 +1311,7 @@ class WasteExchange:
     comment: str | None = None
     role: WasteRole | None = None  # None from an engine older than wire 10
     supplier_claim: SupplierClaim | None = None  # how the source named the treatment (wire 23)
+    formula: ExchangeFormula | None = None
 
     is_biosphere: bool = False
     is_waste: bool = True
@@ -1317,6 +1338,7 @@ class WasteExchange:
             target_location=ewu.get("targetLocation"),
             target_process_id=ewu.get("targetProcessId"),
             comment=_exchange_comment(ewu, inner),
+            formula=ExchangeFormula.from_json(inner.get("formula")),
             role=WasteRole(raw_role) if raw_role else None,
             supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
@@ -1372,6 +1394,7 @@ def parse_exchange_detail(ed: dict) -> Exchange:
             target_location=target.get("location"),
             target_process_id=target.get("processId"),
             comment=comment,
+            formula=ExchangeFormula.from_json(inner.get("formula")),
             supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
     if tag == "BiosphereExchange":
@@ -1387,6 +1410,7 @@ def parse_exchange_detail(ed: dict) -> Exchange:
             direction=BioDirection(inner["direction"]),
             flow_id=inner["flowId"],
             comment=comment,
+            formula=ExchangeFormula.from_json(inner.get("formula")),
         )
     if tag == "WasteExchange":
         if flow_kind not in (None, "waste"):
@@ -1403,6 +1427,7 @@ def parse_exchange_detail(ed: dict) -> Exchange:
             target_location=target.get("location"),
             target_process_id=target.get("processId"),
             comment=comment,
+            formula=ExchangeFormula.from_json(inner.get("formula")),
             supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
     raise ValueError(f"Unknown exchange variant tag: {tag!r}")
@@ -1476,6 +1501,71 @@ class WithheldExchanges:
         return cls(reason=d["reason"], lines=[ExchangeName.from_json(x) for x in d.get("lines", [])])
 
 
+@dataclass(frozen=True)
+class Uncertainty:
+    """How an input parameter may vary: the ``distribution`` and its own numbers.
+
+    ``lognormal`` gives ``geometric_mean`` and ``geometric_sd`` (a draw is the
+    geometric mean times the geometric standard deviation raised to a standard
+    normal draw), ``normal`` gives ``mean`` and ``sd``, ``triangular`` gives
+    ``minimum``, ``mode`` and ``maximum``, ``uniform`` gives ``minimum`` and
+    ``maximum``. The numbers a distribution does not use are ``None``.
+    """
+
+    distribution: str
+    geometric_mean: float | None = None
+    geometric_sd: float | None = None
+    mean: float | None = None
+    sd: float | None = None
+    minimum: float | None = None
+    mode: float | None = None
+    maximum: float | None = None
+
+    @classmethod
+    def from_json(cls, d: dict | None) -> "Uncertainty | None":
+        if not d:
+            return None
+        return cls(
+            distribution=d["distribution"],
+            geometric_mean=d.get("geometricMean"),
+            geometric_sd=d.get("geometricSd"),
+            mean=d.get("mean"),
+            sd=d.get("sd"),
+            minimum=d.get("minimum"),
+            mode=d.get("mode"),
+            maximum=d.get("maximum"),
+        )
+
+
+@dataclass(frozen=True)
+class Parameter:
+    """A name a dataset's formulas read.
+
+    An input parameter has a ``value`` and, when the source gives one, an
+    ``uncertainty``; a calculated one has a ``formula`` in VoLCA's language and
+    the ``value`` it gives at the dataset's defaults, ``None`` when it gives
+    none. ``unit`` is as the source spells it (wire revision 65).
+    """
+
+    name: str
+    value: float | None
+    formula: str | None = None
+    unit: str | None = None
+    description: str = ""
+    uncertainty: Uncertainty | None = None
+
+    @classmethod
+    def from_json(cls, d: dict) -> "Parameter":
+        return cls(
+            name=d["name"],
+            value=d.get("value"),
+            formula=d.get("formula"),
+            unit=d.get("unit"),
+            description=d.get("description", ""),
+            uncertainty=Uncertainty.from_json(d.get("uncertainty")),
+        )
+
+
 @dataclass
 class ActivityDetail:
     """Typed wrapper around the JSON returned by GET /activity/{pid}.
@@ -1493,6 +1583,11 @@ class ActivityDetail:
 
     ``dates`` holds the days the dataset says it was created, last revised,
     or written without saying which (see :class:`DatasetDates`).
+
+    ``parameters`` are the names its formulas read that the process defines
+    itself, ``database_parameters`` those it reads from its database and does
+    not define (wire revision 65; empty from an older engine, and when the
+    licence keeps the amounts to itself).
     """
 
     process_id: str
@@ -1512,6 +1607,8 @@ class ActivityDetail:
     """Set when the database's licence keeps the amounts of its exchanges to
     itself: ``exchanges`` is then empty, and this names them without their
     amounts (wire revision 44)."""
+    parameters: list[Parameter] = field(default_factory=list)
+    database_parameters: list[Parameter] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, d: dict) -> "ActivityDetail":
@@ -1532,6 +1629,8 @@ class ActivityDetail:
             native_id=pfa.get("nativeId"),
             dates=DatasetDates.from_json(pfa.get("dates")),
             withheld=WithheldExchanges.from_json(pfa["withheld"]) if pfa.get("withheld") else None,
+            parameters=[Parameter.from_json(x) for x in pfa.get("parameters", [])],
+            database_parameters=[Parameter.from_json(x) for x in pfa.get("databaseParameters", [])],
         )
 
     @property

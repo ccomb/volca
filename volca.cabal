@@ -404,6 +404,7 @@ test-suite lca-tests
                      , CompareSpec
                      , CompareMethodsSpec
                      , ReferenceProductSpec
+                     , ActivityParametersSpec
                      , DeriveSpec
                      , SourceBlockSpec
                      , AuthorSpec

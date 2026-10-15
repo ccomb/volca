@@ -17,7 +17,7 @@ module Types (
 import API.JsonOptions (Stripped (..))
 import Control.DeepSeq (NFData)
 import Control.Monad ((<=<), (>=>))
-import Data.Aeson (FromJSON (..), ToJSON (..), withObject, withText, (.!=), (.:), (.:?))
+import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, withText, (.!=), (.:), (.:?), (.=))
 import Data.Aeson.Types (Parser)
 import Data.Int (Int32)
 import qualified Data.IntSet as IS
@@ -41,13 +41,14 @@ import qualified Data.Vector.Generic.Mutable as VGM
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 
-import Control.Lens ((&), (?~))
+import Control.Lens ((&), (.~), (?~))
 import Data.Containers.ListUtils (nubOrdOn)
 import Data.Foldable (toList)
+import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
 import Data.List (find, nub, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
-import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToSchema (..), enum_, type_)
+import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), declareSchemaRef, enum_, properties, required, type_)
 import Data.Ord (Down (..))
 import qualified Expr
 import Search.BM25.Types (BM25Index)
@@ -1093,6 +1094,43 @@ spreading u
         Normal m s -> ([m, s], s > 0)
         Triangular lo mode hi -> ([lo, mode, hi], lo <= mode && mode <= hi && lo < hi)
         Uniform lo hi -> ([lo, hi], lo < hi)
+
+{- | On the wire, a distribution named in @distribution@ with its own numbers:
+@geometricMean@ and @geometricSd@, @mean@ and @sd@, @minimum@, @mode@ and
+@maximum@, or @minimum@ and @maximum@.
+-}
+instance ToJSON Uncertainty where
+    toJSON u = object $ case u of
+        Lognormal m g -> named "lognormal" ["geometricMean" .= m, "geometricSd" .= g]
+        Normal m s -> named "normal" ["mean" .= m, "sd" .= s]
+        Triangular lo mode hi -> named "triangular" ["minimum" .= lo, "mode" .= mode, "maximum" .= hi]
+        Uniform lo hi -> named "uniform" ["minimum" .= lo, "maximum" .= hi]
+      where
+        named kind = (("distribution" .= (kind :: Text)) :)
+
+instance FromJSON Uncertainty where
+    parseJSON = withObject "Uncertainty" $ \o -> do
+        kind <- o .: "distribution"
+        stated <- case kind :: Text of
+            "lognormal" -> Lognormal <$> o .: "geometricMean" <*> o .: "geometricSd"
+            "normal" -> Normal <$> o .: "mean" <*> o .: "sd"
+            "triangular" -> Triangular <$> o .: "minimum" <*> o .: "mode" <*> o .: "maximum"
+            "uniform" -> Uniform <$> o .: "minimum" <*> o .: "maximum"
+            _ -> fail ("no distribution is called " <> T.unpack kind)
+        maybe (fail "a distribution whose numbers spread nothing") pure (spreading stated)
+
+instance ToSchema Uncertainty where
+    declareNamedSchema _ = do
+        number <- declareSchemaRef (Proxy :: Proxy Double)
+        let kinds = mempty & type_ ?~ OpenApiString & enum_ ?~ ["lognormal", "normal", "triangular", "uniform"]
+        pure $
+            NamedSchema (Just "Uncertainty") $
+                mempty
+                    & type_ ?~ OpenApiObject
+                    & properties
+                        .~ InsOrdHashMap.fromList
+                            (("distribution", Inline kinds) : [(field, number) | field <- ["geometricMean", "geometricSd", "mean", "sd", "minimum", "mode", "maximum"]])
+                    & required .~ ["distribution"]
 
 {- | Base LCA activity
 Note: ProcessId is the index in dbActivities vector, UUIDs stored in dbProcessIdTable

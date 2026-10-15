@@ -5,7 +5,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
@@ -1186,6 +1186,9 @@ convertActivityForAPI db processId activity =
         -- A reference whose flow is unknown has no name, and is reported as absent.
         namedProduct = mfilter (not . T.null . rpName) (referenceProductOf (dbTechFlows db) (dbUnits db) activity)
         linkMap = buildCrossDBLinkMap db processId
+        own = activityParameters activity
+        -- A process's definition of a name replaces its database's, whatever the case it is spelt in.
+        ownNames = S.map T.toLower (M.keysSet own)
      in ActivityForAPI
             { pfaProcessId = processIdToText db processId
             , pfaActivityName = activityName activity
@@ -1203,8 +1206,20 @@ convertActivityForAPI db processId activity =
             , pfaExchanges = map (toExchangeWithUnit db linkMap) (exchanges activity)
             , pfaNativeType = activityNativeType activity
             , pfaWithheld = Nothing
+            , pfaParameters = parametersForAPI own
+            , pfaDatabaseParameters = parametersForAPI (M.filterWithKey (\name _ -> S.notMember (T.toLower name) ownNames) (dbParameters db))
             , pfaNativeId = activityNativeId activity
             }
+
+-- | Parameters by name, as the API shows them.
+parametersForAPI :: M.Map Text Parameter -> [ParameterAPI]
+parametersForAPI = map shown . M.toList
+  where
+    shown (name, Parameter{parameterDefinition = definition, parameterUnit = unit, parameterDescription = told}) =
+        let (value, formula, spread) = case definition of
+                InputParameter v u -> (Just v, Nothing, u)
+                CalculatedParameter f v -> (v, Just f, Nothing)
+         in ParameterAPI{prmName = name, prmValue = value, prmFormula = formula, prmUnit = unit, prmDescription = told, prmUncertainty = spread}
 
 {- | An activity as its database's licence lets it be read. Under a licence that
 keeps the amounts of its exchanges, the exchanges are named without them, which
@@ -1222,6 +1237,8 @@ withholdExchangeAmounts dbName licence info
             { piActivity =
                 activity
                     { pfaExchanges = []
+                    , pfaParameters = []
+                    , pfaDatabaseParameters = []
                     , pfaWithheld = Just (WithheldExchanges (withheldSentence dbName ReadInventory) (map exchangeNameOf (filter (not . exchangeIsReference . ewuExchange) (pfaExchanges activity))))
                     }
             }

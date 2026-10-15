@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 62** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 65** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1838,6 +1838,11 @@ revision 22.
 ``dates`` holds the days the dataset says it was created, last revised,
 or written without saying which (see `DatasetDates`).
 
+``parameters`` are the names its formulas read that the process defines
+itself, ``database_parameters`` those it reads from its database and does
+not define (wire revision 65; empty from an older engine, and when the
+licence keeps the amounts to itself).
+
 | Field | Type | Default |
 |-------|------|---------|
 | `process_id` | `str` | _required_ |
@@ -1854,6 +1859,8 @@ or written without saying which (see `DatasetDates`).
 | `native_id` | `str \| None` | None |
 | `dates` | `DatasetDates` | DatasetDates() |
 | `withheld` | `WithheldExchanges \| None` | None |
+| `parameters` | `list[Parameter]` | list() |
+| `database_parameters` | `list[Parameter]` | list() |
 
 #### Properties
 
@@ -2001,6 +2008,57 @@ none, and all three against an engine older than wire revision 35.
 | `created` | `datetime.date \| None` | None |
 | `last_revised` | `datetime.date \| None` | None |
 | `stated` | `datetime.date \| None` | None |
+
+### `ExchangeFormula`
+
+What makes an exchange's amount follow the dataset's parameters.
+
+``text`` is the formula in VoLCA's language; ``name`` is the name other
+formulas read the amount by, when the source gives one (wire revision 64).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `text` | `str` | _required_ |
+| `name` | `str \| None` | None |
+
+### `Parameter`
+
+A name a dataset's formulas read.
+
+An input parameter has a ``value`` and, when the source gives one, an
+``uncertainty``; a calculated one has a ``formula`` in VoLCA's language and
+the ``value`` it gives at the dataset's defaults, ``None`` when it gives
+none. ``unit`` is as the source spells it (wire revision 65).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `value` | `float \| None` | _required_ |
+| `formula` | `str \| None` | None |
+| `unit` | `str \| None` | None |
+| `description` | `str` | '' |
+| `uncertainty` | `Uncertainty \| None` | None |
+
+### `Uncertainty`
+
+How an input parameter may vary: the ``distribution`` and its own numbers.
+
+``lognormal`` gives ``geometric_mean`` and ``geometric_sd`` (a draw is the
+geometric mean times the geometric standard deviation raised to a standard
+normal draw), ``normal`` gives ``mean`` and ``sd``, ``triangular`` gives
+``minimum``, ``mode`` and ``maximum``, ``uniform`` gives ``minimum`` and
+``maximum``. The numbers a distribution does not use are ``None``.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `distribution` | `str` | _required_ |
+| `geometric_mean` | `float \| None` | None |
+| `geometric_sd` | `float \| None` | None |
+| `mean` | `float \| None` | None |
+| `sd` | `float \| None` | None |
+| `minimum` | `float \| None` | None |
+| `mode` | `float \| None` | None |
+| `maximum` | `float \| None` | None |
 
 ### `ActivityDiff`
 
@@ -2196,6 +2254,7 @@ recorded no compartment. Everything else restates as
 | `direction` | `BioDirection` | _required_ |
 | `flow_id` | `str` | _required_ |
 | `comment` | `str \| None` | None |
+| `formula` | `ExchangeFormula \| None` | None |
 | `is_biosphere` | `bool` | True |
 | `is_waste` | `bool` | False |
 
@@ -3433,6 +3492,7 @@ is the answer, this is what was asked (wire revision 23).
 | `target_process_id` | `str \| None` | _required_ |
 | `comment` | `str \| None` | None |
 | `supplier_claim` | `SupplierClaim \| None` | None |
+| `formula` | `ExchangeFormula \| None` | None |
 | `is_biosphere` | `bool` | False |
 | `is_waste` | `bool` | False |
 
@@ -3508,6 +3568,7 @@ treatment it names was not loaded.
 | `comment` | `str \| None` | None |
 | `role` | `WasteRole \| None` | None |
 | `supplier_claim` | `SupplierClaim \| None` | None |
+| `formula` | `ExchangeFormula \| None` | None |
 | `is_biosphere` | `bool` | False |
 | `is_waste` | `bool` | True |
 

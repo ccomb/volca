@@ -49,6 +49,15 @@
   normal, triangular or uniform, with its numbers. A calculated parameter
   has none of its own, since its spread follows from what it reads.
 
+- An activity shows the parameters its formulas read: `parameters` for those
+  the process defines, `databaseParameters` for those of its database the
+  process does not define again. Each has its name, value, formula when it
+  is calculated, unit, description and, for an input, its uncertainty
+  (`{"distribution": "lognormal", "geometricMean": 20.53, "geometricSd":
+  1.07}`). A database whose licence keeps exchange amounts to itself shows
+  neither, since the values give the amounts away. pyvolca reads them, and
+  the `formula` of each exchange. Wire revision 65.
+
 ### Fixed
 
 - In a SimaPro file, a parameter a process defines now replaces a database or
