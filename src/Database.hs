@@ -198,7 +198,7 @@ findActivityNameCandidates db Nothing _ = allActivities (dbActivities db)
 findActivityNameCandidates db (Just name) True = exactNameMatches (dbActivities db) name
 findActivityNameCandidates db (Just name) False =
     case dbBM25Index db of
-        Just idx -> resolveActivityIds (dbActivities db) (bm25DocsMatchingName idx name)
+        Just idx -> resolveActivityIds (dbActivities db) (bm25DocsMatchingName idx (Fuzzy.expandTokensGrouped idx (Normalize.tokenize name)))
         Nothing -> fullScanNameMatches (dbActivities db) name
 
 allActivities :: V.Vector Activity -> [(ProcessId, Activity)]
@@ -281,13 +281,13 @@ shortestFragment :: Int
 shortestFragment = 4
 
 {- | Docs whose BM25 postings cover every query token (AND), allowing any
-fuzzy expansion of a token to satisfy that token (OR within a token).
+fuzzy expansion of a token to satisfy that token (OR within a token). Takes
+the expansion rather than the text, so a caller that also ranks expands once.
 -}
-bm25DocsMatchingName :: BM25T.BM25Index -> Text -> IS.IntSet
-bm25DocsMatchingName idx name =
+bm25DocsMatchingName :: BM25T.BM25Index -> [[(Text, Double)]] -> IS.IntSet
+bm25DocsMatchingName idx groups =
     intersectAll (map docsForGroup groups)
   where
-    groups = Fuzzy.expandTokensGrouped idx (Normalize.tokenize name)
     docsForGroup g = IS.unions [docsForToken t | (t, _) <- g]
     docsForToken t = case M.lookup t (BM25T.bm25Postings idx) of
         Nothing -> IS.empty

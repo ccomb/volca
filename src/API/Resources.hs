@@ -530,8 +530,9 @@ description r = case r of
     SearchActivities ->
         "LCA / ACV: search for activities (processes) by name, geography, product, \
         \classification, or preset. Returns a paginated list of matching activities \
-        \with their process IDs. A name must hold every word searched, or a \
-        \close spelling of it; the list is ranked, best name match first. \
+        \with their process IDs. The activity name and its product name \
+        \together must hold every word searched, or a close spelling of it; \
+        \the list is ranked, best match first. \
         \Entry point for any LCA/ACV question about a \
         \specific product or process, in whatever language the user asks: food \
         \(yaourt, steak, pain, lait, fromage), packaging (PET, verre, carton), \

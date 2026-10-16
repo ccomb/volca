@@ -893,7 +893,7 @@ bm25Retrieve db queryText = do
     idx <- dbBM25Index db
     let tokens = Normalize.tokenize queryText
         query = zip tokens (Fuzzy.expandTokensGrouped idx tokens)
-        holdsEveryWord = bm25DocsMatchingName idx queryText
+        holdsEveryWord = bm25DocsMatchingName idx (map snd query)
     if all (null . snd) query
         then Nothing
         else Just [(fromIntegral i, dbActivities db V.! i) | (i, _) <- BM25.ranked idx query, IS.member i holdsEveryWord]
@@ -1063,10 +1063,10 @@ data SearchCounts = SearchCounts
 
 {- | How a caller is going to list the processes it is about to count.
 
-Not decoration: 'tryBm25Retrieve' drops to the AND-of-tokens matcher when the
-caller sorts by name or location, or asks for exact matching, and BM25 keeps
-any row matching /one/ token. Counting with different settings from the list
-would label a tab "1200" over a table of nine.
+Exactness decides which rows match: an exact search compares whole names,
+any other keeps the names holding every word. The sort only orders those rows,
+ranked or by name, so it no longer changes the count; it is still carried
+because the HTTP route takes it alongside the search it counts.
 -}
 data CountAs = CountAs
     { caSort :: !(Maybe Text)

@@ -3354,8 +3354,8 @@ The query is required: an empty search box has nothing to count, and counting
 every row of a database to say so would be the most expensive way to answer
 nothing.
 
-@sort@ and @exact@ are the ones the caller is going to list with, because they
-decide which matcher runs and therefore how many rows there are.
+@exact@ is the one the caller is going to list with, because it decides which
+rows match and therefore how many there are; @sort@ only orders them.
 -}
 countSearchMatches :: Text -> Maybe Text -> Maybe Text -> Maybe Bool -> AppM SearchCountsAPI
 countSearchMatches dbName mQuery sortParam exactParam = do
