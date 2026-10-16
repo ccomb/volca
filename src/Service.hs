@@ -31,7 +31,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, filterByName, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, flowSearchFields, locationAnswers)
+import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, bm25DocsMatchingName, filterByName, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, flowSearchFields, locationAnswers)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, cutoffsReached, gapIndexOf)
 import Database.MatrixBuild (findProducer, linkedProducer)
@@ -880,7 +880,11 @@ searchFlows db ff@FlowFilter{ffQuery = query, ffLimit = limitParam, ffOffset = o
     return $ Right $ toJSON $ SearchResults (take limit taken) total offset limit hasMore searchTimeMs
 
 {- | Retrieve activities by BM25 score. Returns pairs already ordered best
-first (see 'BM25.ranked'); only documents with score > 0 are included.
+first (see 'BM25.ranked'), keeping only the names that hold every word
+typed or a close spelling of it: the set a search sorted by name returns.
+Scoring alone keeps any name holding one word, so "soft wheat" also listed
+every wheat flour, pasta and tortilla, and the count of hundreds that came
+with them read as hundreds of candidates.
 Returns Nothing when the query tokenizes to nothing (e.g. pure punctuation),
 signalling the caller to fall back to the non-BM25 path.
 -}
@@ -889,9 +893,10 @@ bm25Retrieve db queryText = do
     idx <- dbBM25Index db
     let tokens = Normalize.tokenize queryText
         query = zip tokens (Fuzzy.expandTokensGrouped idx tokens)
+        holdsEveryWord = bm25DocsMatchingName idx queryText
     if all (null . snd) query
         then Nothing
-        else Just [(fromIntegral i, dbActivities db V.! i) | (i, _) <- BM25.ranked idx query]
+        else Just [(fromIntegral i, dbActivities db V.! i) | (i, _) <- BM25.ranked idx query, IS.member i holdsEveryWord]
 
 {- | Set of ProcessIds whose name fuzzy-matches the query, using the same
 semantics as @/activities@ BM25 search. @Nothing@ means the retrieval could

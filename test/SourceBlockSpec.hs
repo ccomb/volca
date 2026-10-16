@@ -28,6 +28,7 @@ import API.Types (ActivitySummary (..))
 import qualified Data.Text as T
 import Database (buildDatabaseWithMatrices)
 import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
+import Search.BM25 (addBM25Index)
 import Service (ActivityFilterCore (..), SearchFilter (..), activitiesNamed, activityMatches, mkActivitySummary)
 import TestHelpers (shippedGeographies)
 import Types (AllocationKey (..), BuildInputs (..), Database (..), ProcessId)
@@ -95,6 +96,15 @@ spec = do
             withDatabase twoBlocksSharingAName $ \db ->
                 productsFound db "One name for two blocks"
                     `shouldMatchList` ["Cheese", "Slag", "Steel", "Whey"]
+
+        it "keeps, of a search of several words, only the names holding every one" $
+            withDatabase twoBlocksSharingAName $ \db -> do
+                productsFound (addBM25Index db) "blocks steel" `shouldBe` ["Steel"]
+                productsFound (addBM25Index db) "cheese steel" `shouldBe` []
+
+        it "lets a close spelling stand for a word of a search of several" $
+            withDatabase twoBlocksSharingAName $ \db ->
+                productsFound (addBM25Index db) "blocks steeel" `shouldBe` ["Steel"]
 
         it "puts the block a query names outright before the one it is only part of" $
             withDatabase blocksWhoseIdentifiersNest $ \db ->

@@ -131,6 +131,12 @@
 
 ### Fixed
 
+- An activity search of several words keeps only the names holding every
+  word, or a close spelling of it, as a search sorted by name already did.
+  Ranked by relevance, it kept any name holding one of them: "soft wheat"
+  in France came back with 749 activities, wheat flours, pastas and
+  tortillas among them, and now with the 19 that are soft wheat.
+
 - The inventory of an activity over HTTP takes `flow` and `limit`, as the
   MCP tool already did: `flow` keeps the flows whose name answers it, read
   the way a flow search reads it, and `limit` keeps that many of them,
