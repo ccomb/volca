@@ -22,6 +22,7 @@ import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Ord (Down (..))
 import Data.Sequence (Seq (..), (|>))
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -30,7 +31,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, locationAnswers)
+import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, filterByName, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, flowSearchFields, locationAnswers)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, cutoffsReached, gapIndexOf)
 import Database.MatrixBuild (findProducer, linkedProducer)
@@ -276,6 +277,16 @@ getActivityInfo db queryText = do
                 , piLinks = links
                 }
      in Right $ toJSON activityInfo
+
+{- | The flows of an inventory whose name answers @query@, read the way
+search_flows reads it, synonyms included, with only its closest match kept.
+-}
+inventoryFlowsNamed :: Text -> [InventoryFlowDetail] -> [InventoryFlowDetail]
+inventoryFlowsNamed query = filterByName query (flowSearchFields . BioKind . ifdFlow)
+
+-- | The @n@ flows of an inventory largest in absolute quantity, largest first.
+largestInventoryFlows :: Int -> [InventoryFlowDetail] -> [InventoryFlowDetail]
+largestInventoryFlows n = take n . L.sortOn (Down . abs . ifdQuantity)
 
 {- | Core inventory calculation logic using matrix-based LCA calculations
 | Convert raw inventory to structured export format.

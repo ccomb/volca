@@ -70,6 +70,15 @@ def test_every_wrapper_operation_exists_in_live_spec(live_spec):
     )
 
 
+def test_inventory_route_takes_flow_and_limit(live_spec):
+    """``get_inventory`` passes ``flow`` and ``limit`` as query parameters,
+    which the client refuses unless the route declares them."""
+    if live_spec is None:
+        pytest.skip("No built engine binary found (run `cabal build` first).")
+    op = _parse_spec(live_spec)["get_inventory"]
+    assert {"flow", "limit"} <= set(op.query_params)
+
+
 def test_all_resources_have_operationid(live_spec):
     """Sanity check: the engine's enrichment layer actually stamps operationIds.
 

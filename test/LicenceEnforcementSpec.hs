@@ -147,7 +147,7 @@ spec = do
     describe "REST, under a licence keeping its inventory" $ do
         it "refuses the inventory and the tree" $ do
             manager <- managerUnder inventoryKept
-            statusOf manager (getActivityInventory "sample" productD) `shouldReturn` Just 403
+            statusOf manager (getActivityInventory "sample" productD Nothing Nothing) `shouldReturn` Just 403
             statusOf manager (getActivityTree "sample" productD) `shouldReturn` Just 403
 
         it "refuses them on a copy too, which is served under its source's licence" $ do

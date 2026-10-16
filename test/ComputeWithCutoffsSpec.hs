@@ -209,7 +209,7 @@ surfaces :: DM.DatabaseManager -> Text -> [(String, IO [CutoffInput])]
 surfaces manager pid =
     map
         (fmap (fmap rounded))
-        [ ("inventory", ieCutoffInputs <$> ok manager (getActivityInventory "main" pid))
+        [ ("inventory", ieCutoffInputs <$> ok manager (getActivityInventory "main" pid Nothing Nothing))
         , ("single-method score", lrCutoffInputs <$> ok manager (getActivityLCIA "main" pid coll methodText Nothing))
         , ("score panel", lbrCutoffInputs <$> ok manager (getActivityLCIABatch "main" pid coll Nothing))
         , ("sensitivity baseline", srCutoffInputs <$> ok manager (postActivitySensitivity "main" pid coll methodText (SensitivityRequest [])))
@@ -288,9 +288,17 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         -- all. The 6.5 kg of M nobody makes bring nothing, and the method weighs the
         -- carbon dioxide at 1: a score of 2.
         it "solves the chain with the unsupplied input at zero" $ do
-            inventory <- ok manager (getActivityInventory "main" pid)
+            inventory <- ok manager (getActivityInventory "main" pid Nothing Nothing)
             [(bfId (ifdFlow f), billionth (ifdQuantity f)) | f <- ieFlows inventory] `shouldBe` [(bfId co2, 2)]
             billionth . lrScore <$> ok manager (getActivityLCIA "main" pid coll methodText Nothing) `shouldReturn` 2
+
+        it "keeps the flows a name and a limit ask for, and counts the whole inventory" $ do
+            let kept flow limit = do
+                    inventory <- ok manager (getActivityInventory "main" pid flow limit)
+                    pure (map (bfId . ifdFlow) (ieFlows inventory), imTotalFlows (ieMetadata inventory))
+            kept (Just "carbon dioxide") Nothing `shouldReturn` ([bfId co2], 1)
+            kept (Just "methane") Nothing `shouldReturn` ([], 1)
+            kept Nothing (Just 0) `shouldReturn` ([], 1)
 
         it "gives nothing for the direct aggregate, which solves nothing" $
             (aggCutoffInputs <$> aggregateIn manager pid "direct") `shouldReturn` []
@@ -303,7 +311,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
     it "lists an input named by an activity no database holds" $ do
         (manager, db) <- mainManager
         pid <- pidOf db (actD, dFlow)
-        ieCutoffInputs <$> ok manager (getActivityInventory "main" pid)
+        ieCutoffInputs <$> ok manager (getActivityInventory "main" pid Nothing Nothing)
             `shouldReturn` [cutoff "main" "N" 0.5 1 (NE.singleton (BlockerReason "dangling_source_identity" Nothing))]
 
     it "counts, without naming it, the unsupplied input inside a dependency whose licence keeps its detail" $ do

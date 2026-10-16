@@ -2589,9 +2589,11 @@ class Client:
         for grouped views.
 
         Args:
-            flow: Substring filter on flow name.
-            limit: Cap on returned flow rows. (Server returns full inventory
-                otherwise; the engine doesn't paginate this endpoint.)
+            flow: Keep the flows whose name answers this query, read the way
+                :meth:`search_flows` reads it, synonyms included.
+            limit: Keep this many flows, largest in absolute quantity first.
+                Without it, every flow is returned. The statistics cover the
+                whole inventory either way.
             substitutions: Upstream supplier swaps; see :meth:`get_supply_chain`.
             parameters: Values for input parameters; see :meth:`get_supply_chain`.
         """

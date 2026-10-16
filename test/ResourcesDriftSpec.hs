@@ -166,8 +166,6 @@ knownDivergences =
     , ("get_impacts", "substitutions")
     , ("get_impacts", "top_flows")
     , ("get_inventory", "database")
-    , ("get_inventory", "flow")
-    , ("get_inventory", "limit")
     , ("get_inventory", "parameters")
     , ("get_inventory", "process_id")
     , ("get_inventory", "substitutions")

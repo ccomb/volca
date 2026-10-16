@@ -2342,10 +2342,10 @@ class InventoryStatistics:
 class InventoryResult:
     """Life-cycle inventory of an activity: cumulative biosphere flows.
 
-    Returned by :meth:`Client.get_inventory`. The engine does not paginate:
-    ``flows`` is the full inventory (filtered by ``flow=`` substring when
-    requested). ``statistics`` carries the per-direction roll-ups and the
-    most-populated categories.
+    Returned by :meth:`Client.get_inventory`. ``flows`` is the full
+    inventory, or the flows ``flow=`` and ``limit=`` kept when given.
+    ``statistics`` carries the per-direction roll-ups and the
+    most-populated categories, over the full inventory.
 
     ``root`` is the activity the inventory was computed for. ``total_flows``,
     ``emission_flows``, ``resource_flows`` mirror the engine's metadata block.

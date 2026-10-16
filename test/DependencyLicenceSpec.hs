@@ -307,7 +307,7 @@ spec = do
     describe "under a dependency keeping its amounts" $ do
         it "refuses the inventory over REST and MCP" $ do
             manager <- managerWith inventoryKept
-            void <$> runIn manager (getActivityInventory "root" rootPid) `shouldReturn` Left 403
+            void <$> runIn manager (getActivityInventory "root" rootPid Nothing Nothing) `shouldReturn` Left 403
             reply <- callOn manager "get_inventory" []
             errorText reply `shouldBe` Just "The inventory of root includes dep's, whose licence keeps the amounts of its exchanges to itself."
 

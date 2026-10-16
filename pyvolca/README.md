@@ -1008,9 +1008,11 @@ to the inventory; use `aggregate` with ``scope="biosphere"``
 for grouped views.
 
 Args:
-    flow: Substring filter on flow name.
-    limit: Cap on returned flow rows. (Server returns full inventory
-        otherwise; the engine doesn't paginate this endpoint.)
+    flow: Keep the flows whose name answers this query, read the way
+        `search_flows` reads it, synonyms included.
+    limit: Keep this many flows, largest in absolute quantity first.
+        Without it, every flow is returned. The statistics cover the
+        whole inventory either way.
     substitutions: Upstream supplier swaps; see `get_supply_chain`.
     parameters: Values for input parameters; see `get_supply_chain`.
 
@@ -2857,10 +2859,10 @@ one. ``category`` is the engine-normalised category used for grouping.
 
 Life-cycle inventory of an activity: cumulative biosphere flows.
 
-Returned by `Client.get_inventory`. The engine does not paginate:
-``flows`` is the full inventory (filtered by ``flow=`` substring when
-requested). ``statistics`` carries the per-direction roll-ups and the
-most-populated categories.
+Returned by `Client.get_inventory`. ``flows`` is the full
+inventory, or the flows ``flow=`` and ``limit=`` kept when given.
+``statistics`` carries the per-direction roll-ups and the
+most-populated categories, over the full inventory.
 
 ``root`` is the activity the inventory was computed for. ``total_flows``,
 ``emission_flows``, ``resource_flows`` mirror the engine's metadata block.

@@ -74,7 +74,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), FlowKind (BioKind), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, withheldSentence)
 import Usage (ProcessKey (..), UsageKind (..), UsageLog, Use (..), readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -1297,13 +1297,8 @@ callGetInventory dbManager rid args =
             cutoffs <- liftIO (Impact.solutionCutoffs dbManager ReadInventory sol)
             let inv = Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)
                 flows = ieFlows inv
-                -- The query read the way search_flows reads it, synonyms
-                -- included, and only its closest match kept.
-                filtered = case nameFilter of
-                    Nothing -> flows
-                    Just q -> filterByName q (flowSearchFields . BioKind . ifdFlow) flows
-                sorted = L.sortBy (\a b -> compare (abs $ ifdQuantity b) (abs $ ifdQuantity a)) filtered
-                topN = take limit sorted
+                filtered = maybe flows (`Service.inventoryFlowsNamed` flows) nameFilter
+                topN = Service.largestInventoryFlows limit filtered
                 slim f =
                     object
                         [ "flow" .= bfName (ifdFlow f)

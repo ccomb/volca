@@ -128,7 +128,7 @@ spec = do
         it "leaves one line naming the kind, the process and what its database calls it, the reader and the releases read" $ do
             manager <- managerDeclaring (Just ecoinvent)
             lg <- newUsageLog
-            _ <- runLogged manager lg (Just "account-7") (getActivityInventory "root" rootPid)
+            _ <- runLogged manager lg (Just "account-7") (getActivityInventory "root" rootPid Nothing Nothing)
             UsagePage{upBoot = boot, upLines = ls} <- readUsage lg 0
             boot `shouldBe` usageBoot lg
             map (\l -> (ulKind l, ulDatabase l, ulProcess l, ulHeldAs l, ulReader l, NE.toList (ulReads l))) ls
@@ -137,7 +137,7 @@ spec = do
         it "leaves nothing when no database it reads declares a release" $ do
             manager <- managerDeclaring Nothing
             lg <- newUsageLog
-            _ <- runLogged manager lg Nothing (getActivityInventory "root" rootPid)
+            _ <- runLogged manager lg Nothing (getActivityInventory "root" rootPid Nothing Nothing)
             upLines <$> readUsage lg 0 `shouldReturn` []
 
         it "counts both sides of a comparison, each with what it reads" $ do
@@ -158,7 +158,7 @@ spec = do
         it "leaves nothing for a process the database does not hold" $ do
             manager <- managerDeclaring (Just ecoinvent)
             lg <- newUsageLog
-            _ <- runLogged manager lg Nothing (getActivityInventory "root" "not-a-process")
+            _ <- runLogged manager lg Nothing (getActivityInventory "root" "not-a-process" Nothing Nothing)
             upLines <$> readUsage lg 0 `shouldReturn` []
 
     describe "a tool call through MCP" $ do
