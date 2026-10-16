@@ -409,6 +409,26 @@ class WithheldCutoffs:
 
 
 @dataclass
+class ExchangeContribution:
+    """What one line of an activity adds to one of its scores.
+
+    ``position`` is the line's position among the activity's exchanges, the
+    ``position`` of the exchange :meth:`Client.get_activity` lists, so lines
+    can be grouped into stages (ingredients, transport, packaging) by
+    whatever the caller knows of them. ``share_pct`` is negative for a line
+    that lowers the score.
+    """
+
+    position: int
+    contribution: float
+    share_pct: float
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ExchangeContribution":
+        return cls(position=d["position"], contribution=d["contribution"], share_pct=d["sharePct"])
+
+
+@dataclass
 class LCIAResult:
     """LCIA score for one impact category on one activity.
 
@@ -441,6 +461,11 @@ class LCIAResult:
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
     """How many such inputs sit inside each database whose licence keeps
     its detail to itself, the one asked included."""
+    exchange_contributions: list[ExchangeContribution] = field(default_factory=list)
+    """What each line of the activity adds to ``score``, largest first, when
+    asked with ``exchange_contributions=True`` (wire revision 70); they add up
+    to the score. Empty otherwise, and when the database's licence keeps its
+    detail or its inventory to itself."""
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIAResult":
@@ -460,6 +485,7 @@ class LCIAResult:
             withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
             withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
+            exchange_contributions=[ExchangeContribution.from_json(c) for c in d.get("exchangeContributions", [])],
         )
 
 
@@ -1153,6 +1179,10 @@ class TechnosphereExchange:
     comment: str | None = None
     supplier_claim: SupplierClaim | None = None
     formula: ExchangeFormula | None = None
+    position: int | None = None
+    """The line's position among the activity's exchanges, which names it in
+    :attr:`LCIAResult.exchange_contributions` (wire revision 70); None where
+    the engine does not say it."""
 
     is_biosphere: bool = False  # discriminator for callers using duck typing
     is_waste: bool = False
@@ -1188,6 +1218,7 @@ class TechnosphereExchange:
             target_process_id=ewu.get("targetProcessId"),
             comment=_exchange_comment(ewu, inner),
             formula=ExchangeFormula.from_json(inner.get("formula")),
+            position=ewu.get("position"),
             supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
 
@@ -1237,6 +1268,10 @@ class BiosphereExchange:
     flow_id: str
     comment: str | None = None
     formula: ExchangeFormula | None = None
+    position: int | None = None
+    """The line's position among the activity's exchanges, which names it in
+    :attr:`LCIAResult.exchange_contributions` (wire revision 70); None where
+    the engine does not say it."""
 
     is_biosphere: bool = True  # discriminator for callers using duck typing
     is_waste: bool = False
@@ -1271,6 +1306,7 @@ class BiosphereExchange:
             flow_id=inner["flowId"],
             comment=_exchange_comment(ewu, inner),
             formula=ExchangeFormula.from_json(inner.get("formula")),
+            position=ewu.get("position"),
         )
 
 
@@ -1316,6 +1352,10 @@ class WasteExchange:
     role: WasteRole | None = None  # None from an engine older than wire 10
     supplier_claim: SupplierClaim | None = None  # how the source named the treatment (wire 23)
     formula: ExchangeFormula | None = None
+    position: int | None = None
+    """The line's position among the activity's exchanges, which names it in
+    :attr:`LCIAResult.exchange_contributions` (wire revision 70); None where
+    the engine does not say it."""
 
     is_biosphere: bool = False
     is_waste: bool = True
@@ -1343,6 +1383,7 @@ class WasteExchange:
             target_process_id=ewu.get("targetProcessId"),
             comment=_exchange_comment(ewu, inner),
             formula=ExchangeFormula.from_json(inner.get("formula")),
+            position=ewu.get("position"),
             role=WasteRole(raw_role) if raw_role else None,
             supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )

@@ -506,7 +506,8 @@ Compartment is biosphere-only; technosphere exchanges have no taxonomy here
 (their classification lives on the producing activity).
 -}
 data ExchangeWithUnit = ExchangeWithUnit
-    { ewuExchange :: Exchange
+    { ewuPosition :: Int -- Position among the activity's exchanges, which names the line in what each line adds to a score
+    , ewuExchange :: Exchange
     , ewuUnitName :: Text -- Unit name for the exchange
     , ewuFlowName :: Text -- Name of the flow being exchanged
     , ewuCompartment :: Maybe Compartment -- Biosphere compartment, Nothing for technosphere

@@ -1233,7 +1233,7 @@ convertActivityForAPI db processId activity =
             , pfaProductAmount = rpAmount <$> namedProduct
             , pfaProductUnit = rpUnit <$> namedProduct
             , pfaAllProducts = allProducts
-            , pfaExchanges = map (toExchangeWithUnit db linkMap) (exchanges activity)
+            , pfaExchanges = zipWith (toExchangeWithUnit db linkMap) [0 ..] (exchanges activity)
             , pfaNativeType = activityNativeType activity
             , pfaWithheld = Nothing
             , pfaParameters = parametersForAPI (activityParameters activity)
@@ -1300,18 +1300,25 @@ withheldShares total parts =
     ]
 
 {- | Every score of a batch trimmed the same way, and its unlinked waste, whose
-amounts are exchange amounts, gone under a licence that keeps those.
+amounts are exchange amounts, gone under a licence that keeps those. What each
+line adds to a score goes under either: divided by its supplier's public score,
+it gives the line's amount.
 -}
 withholdBatch :: Text -> Licence -> LCIABatchResult -> LCIABatchResult
 withholdBatch dbName licence batch =
     batch
-        { lbrResults = map (withholdContributors dbName licence) (lbrResults batch)
+        { lbrResults = map (withholdLines . withholdContributors dbName licence) (lbrResults batch)
         , lbrCutoffWaste = if amountsShown then lbrCutoffWaste batch else []
         , lbrWithheld = [withheldSentence dbName p | p <- [SeeDetailedScores, ReadInventory], not (granted licence p)]
         }
   where
     amountsShown :: Bool
     amountsShown = granted licence ReadInventory
+
+    withholdLines :: LCIAResult -> LCIAResult
+    withholdLines result
+        | amountsShown && granted licence SeeDetailedScores = result
+        | otherwise = result{lrExchangeContributions = []}
 
 exchangeNameOf :: ExchangeWithUnit -> ExchangeName
 exchangeNameOf ewu =
@@ -1485,16 +1492,18 @@ crossDBLinksOf db index pid = fromMaybe M.empty (processIdToRef db pid >>= \ref 
 toExchangeWithUnit ::
     Database ->
     M.Map UUID CrossDBLink ->
+    Int ->
     Exchange ->
     ExchangeWithUnit
-toExchangeWithUnit db links exchange =
+toExchangeWithUnit db links position exchange =
     -- Surface the raw UUID when the flow does not resolve – a clear failure
     -- the consumer can debug, not a silent "unknown".
     let unresolvedName = unresolvedFlowName (exchangeFlowId exchange)
         (flowName, compartment) = fromMaybe (unresolvedName, Nothing) (resolveFlow db exchange)
         target = resolveTarget db links exchange
      in ExchangeWithUnit
-            { ewuExchange = exchange
+            { ewuPosition = position
+            , ewuExchange = exchange
             , ewuUnitName = getUnitNameForExchange (dbUnits db) exchange
             , ewuFlowName = flowName
             , ewuCompartment = compartment

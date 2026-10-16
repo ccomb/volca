@@ -203,6 +203,7 @@ knownDivergences =
     , ("score_activities", "scoring_sets")
     , ("score_activities", "summary_only")
     , ("score_activity", "database")
+    , ("score_activity", "exchange_contributions")
     , ("score_activity", "exclude_long_term")
     , ("score_activity", "parameters")
     , ("score_activity", "process_id")

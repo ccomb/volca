@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from volca.client import Client, VoLCAError, _candidate_wire_names, _Operation, _parse_spec, _resolve_wire_name
-from volca.types import Method, ParameterValue
+from volca.types import ExchangeContribution, Method, ParameterValue
 
 _WATER_USE_ID = "00000000-0000-0000-0000-000000000002"
 
@@ -430,6 +430,30 @@ class TestDispatcher:
             exclude_long_term=True,
         )
         assert session.post.call_args[1]["params"] == {"exclude-long-term": "true"}
+
+    def test_get_impacts_batch_asks_for_each_line_and_reads_it(self, mocked_client, make_response):
+        client, session = mocked_client
+        client._checked = True
+        client._server_wire = 70
+        line = {"position": 2, "contribution": 0.4, "sharePct": 85.1}
+        session.get.return_value = make_response({
+            "results": [{**_minimal_lcia_result(), "exchangeContributions": [line]}],
+            "availableNWsets": [],
+            "scoringResults": {},
+            "scoringUnits": {},
+            "scoringIndicators": {},
+        })
+        result = client.get_impacts_batch("abc_def", collection="EF3.1", exchange_contributions=True)
+        assert session.get.call_args[1]["params"] == {"exchange-contributions": "true"}
+        assert result.results[0].exchange_contributions == [ExchangeContribution(position=2, contribution=0.4, share_pct=85.1)]
+
+    def test_exchange_contributions_never_reach_an_engine_that_would_ignore_them(self, mocked_client):
+        client, session = mocked_client
+        client._checked = True
+        client._server_wire = 69
+        with pytest.raises(VoLCAError, match="wire revision >= 70"):
+            client.get_impacts_batch("abc_def", collection="EF3.1", exchange_contributions=True)
+        session.get.assert_not_called()
 
     def test_get_impacts_batch_requires_db(self, fixture_spec, make_response):
         client = Client(base_url="http://test.local", db="")

@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 69** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 70** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -971,7 +971,7 @@ Args:
     substitutions: Upstream supplier swaps; see `get_supply_chain`.
     parameters: Values for input parameters; see `get_supply_chain`.
 
-##### `Client.get_impacts_batch(process_id: str, *, collection: str | None = None, substitutions: list[SubstitutionLike] | None = None, exclude_long_term: bool | None = None, parameters: list[ParameterValue] | None = None) -> LCIABatchResult`
+##### `Client.get_impacts_batch(process_id: str, *, collection: str | None = None, substitutions: list[SubstitutionLike] | None = None, exclude_long_term: bool | None = None, parameters: list[ParameterValue] | None = None, exchange_contributions: bool = False) -> LCIABatchResult`
 
 Compute LCIA for every impact category in a collection, in one call.
 
@@ -982,6 +982,10 @@ scoring set, pre-multiplied by the set's ``displayMultiplier``.
 ``exclude_long_term`` drops long-term emissions before scoring, the
 same switch `score_activities` carries. ``parameters`` gives
 values for input parameters, as `get_supply_chain` takes them.
+``exchange_contributions=True`` gives each result the
+`LCIAResult.exchange_contributions` of the activity's own lines,
+which add up to its score, to group into stages; it is refused with
+``substitutions``, and scoring-set scores are not split by line.
 
 Left without a ``collection``, the call runs against the only loaded
 one, and refuses when several are loaded rather than picking one.
@@ -2052,6 +2056,22 @@ none, and all three against an engine older than wire revision 35.
 | `last_revised` | `datetime.date \| None` | None |
 | `stated` | `datetime.date \| None` | None |
 
+### `ExchangeContribution`
+
+What one line of an activity adds to one of its scores.
+
+``position`` is the line's position among the activity's exchanges, the
+``position`` of the exchange `Client.get_activity` lists, so lines
+can be grouped into stages (ingredients, transport, packaging) by
+whatever the caller knows of them. ``share_pct`` is negative for a line
+that lowers the score.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `position` | `int` | _required_ |
+| `contribution` | `float` | _required_ |
+| `share_pct` | `float` | _required_ |
+
 ### `ExchangeFormula`
 
 What makes an exchange's amount follow the dataset's parameters.
@@ -2298,6 +2318,7 @@ recorded no compartment. Everything else restates as
 | `flow_id` | `str` | _required_ |
 | `comment` | `str \| None` | None |
 | `formula` | `ExchangeFormula \| None` | None |
+| `position` | `int \| None` | None |
 | `is_biosphere` | `bool` | True |
 | `is_waste` | `bool` | False |
 
@@ -2967,6 +2988,7 @@ much of it the source says the process produces.
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
+| `exchange_contributions` | `list[ExchangeContribution]` | list() |
 
 ### `MappingStatus`
 
@@ -3630,6 +3652,7 @@ is the answer, this is what was asked (wire revision 23).
 | `comment` | `str \| None` | None |
 | `supplier_claim` | `SupplierClaim \| None` | None |
 | `formula` | `ExchangeFormula \| None` | None |
+| `position` | `int \| None` | None |
 | `is_biosphere` | `bool` | False |
 | `is_waste` | `bool` | False |
 
@@ -3706,6 +3729,7 @@ treatment it names was not loaded.
 | `role` | `WasteRole \| None` | None |
 | `supplier_claim` | `SupplierClaim \| None` | None |
 | `formula` | `ExchangeFormula \| None` | None |
+| `position` | `int \| None` | None |
 | `is_biosphere` | `bool` | False |
 | `is_waste` | `bool` | True |
 

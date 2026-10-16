@@ -32,8 +32,11 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 69
-"""The newest wire revision this pyvolca understands (revision 69 added
+KNOWN_WIRE = 70
+"""The newest wire revision this pyvolca understands (revision 70 added
+what each line of an activity adds to its scores, which
+``get_impacts_batch(exchange_contributions=True)`` asks for, and the
+``position`` of each exchange; revision 69 added
 the reduced-model route, which ``reduced_model()`` reads; revision 68 added
 the ``parameter_sets`` of a batch score and the ``parameter_set`` of each
 row; revision 67 added

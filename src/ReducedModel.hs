@@ -11,6 +11,7 @@ module ReducedModel (
     Supplier (..),
     Entry (..),
     Column (..),
+    column,
     columns,
     maxProcesses,
     maxEntries,
@@ -34,16 +35,21 @@ data Supplier
       Elsewhere !Text !(UUID, UUID) !Text
     deriving (Eq, Ord, Show)
 
--- | A line: what one unit of its amount adds before the column is divided by its reference, its stored amount, its formula.
+{- | A line: its position among the activity's exchanges, none for a fixed
+amount from another database that answers no line, what one unit of its amount
+adds before the column is divided by its reference, its stored amount, its
+formula.
+-}
 data Entry = Entry
-    { entryFactor :: !Double
+    { entryLine :: !(Maybe Int)
+    , entryFactor :: !Double
     , entryStored :: !Double
     , entryFormula :: !(Maybe Text)
     }
     deriving (Eq, Show)
 
 data Column = Column
-    { columnMoving :: !Moving
+    { columnProcess :: !ProcessId
     , columnReference :: !NormLines
     , columnTechnosphere :: ![(Supplier, Entry)]
     , columnBiosphere :: ![(Int32, Entry)]
@@ -53,38 +59,45 @@ data Column = Column
 its column. A process the allocation gate refuses has none, and is refused with
 its reason; so is a parameter 'moving' refuses.
 -}
-columns :: UnitConfig -> Database -> ProcessId -> [(Maybe ProcessId, Text)] -> Either (Either ParameterRefusal Text) [Column]
-columns unitConfig db root free = either (Left . Left) (traverse (either (Left . Right) Right . column)) (moving db root free)
+columns :: UnitConfig -> Database -> ProcessId -> [(Maybe ProcessId, Text)] -> Either (Either ParameterRefusal Text) [(Moving, Column)]
+columns unitConfig db root free = either (Left . Left) (traverse (\process -> either (Left . Right) (Right . (,) process) (columnOf (movingProcess process)))) (moving db root free)
+  where
+    columnOf = column unitConfig db
+
+{- | A process's column, or why the allocation gate refuses it one. Applied to
+its database once, then to each process.
+-}
+column :: UnitConfig -> Database -> ProcessId -> Either Text Column
+column unitConfig db = columnOf
   where
     rowsOf = lineRows unitConfig db
 
-    column :: Moving -> Either Text Column
-    column process = do
-        let pid = movingProcess process
-            act = dbActivities db V.! fromIntegral pid
+    columnOf :: ProcessId -> Either Text Column
+    columnOf pid = do
+        let act = dbActivities db V.! fromIntegral pid
             key = dbProcessIdTable db V.! fromIntegral pid
         (tech, bio) <- rowsOf pid act
         pure
             Column
-                { columnMoving = process
+                { columnProcess = pid
                 , columnReference = normLines act key
-                , columnTechnosphere = [(Within i, entry factor ex) | (ex, i, factor) <- tech] <> map (linked act) (M.findWithDefault [] key linksOf)
-                , columnBiosphere = [(row, entry 1 ex) | (ex, row) <- bio]
+                , columnTechnosphere = [(Within i, entry n factor ex) | (n, ex, i, factor) <- tech] <> map (linked act) (M.findWithDefault [] key linksOf)
+                , columnBiosphere = [(row, entry n 1 ex) | (n, ex, row) <- bio]
                 }
 
     linksOf :: M.Map (UUID, UUID) [CrossDBLink]
     linksOf = M.fromListWith (flip (<>)) [((cdlConsumerActUUID link, cdlConsumerProdUUID link), [link]) | link <- dbCrossDBLinks db]
 
-    entry :: Double -> Exchange -> Entry
-    entry factor ex = Entry factor (exchangeAmount ex) (efText <$> exchangeFormula ex)
+    entry :: Int -> Double -> Exchange -> Entry
+    entry n factor ex = Entry (Just n) factor (exchangeAmount ex) (efText <$> exchangeFormula ex)
 
     -- A link supplies the line it answers, or, answering none, a fixed amount.
     linked :: Activity -> CrossDBLink -> (Supplier, Entry)
     linked act link =
         ( Elsewhere (cdlSourceDatabase link) (cdlSupplierActUUID link, cdlSupplierProdUUID link) (cdlExchangeUnit link)
-        , fromMaybe (Entry 1 (cdlCoefficient link) Nothing) $ do
+        , fromMaybe (Entry Nothing 1 (cdlCoefficient link) Nothing) $ do
             AnsweredExchange{aePosition = position, aeFactor = factor} <- cdlAnswers link
-            entry factor <$> listToMaybe (drop position (exchanges act))
+            entry position factor <$> listToMaybe (drop position (exchanges act))
         )
 
 -- | The most processes a model moves: the client solves a system of that size for each set of values.

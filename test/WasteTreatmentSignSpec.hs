@@ -326,6 +326,7 @@ scoreCross rootLink depName depRole depRefAmount = do
                             toExchangeWithUnit
                                 rootDB
                                 (buildCrossDBLinkMap rootDB pid)
+                                0
                                 (wasteEx False rootLink 3.0)
                     case res of
                         Left err -> fail (T.unpack err)

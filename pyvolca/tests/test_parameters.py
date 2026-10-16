@@ -83,3 +83,18 @@ def test_reads_an_exchange_formula_and_its_absence() -> None:
 
     assert line({"name": "fuel_use", "text": "Qm * 2"}).formula == ExchangeFormula(text="Qm * 2", name="fuel_use")
     assert line(None).formula is None
+
+
+def test_reads_the_position_that_names_a_line_in_its_contributions() -> None:
+    def line(**extra: object) -> int | None:
+        return parse_exchange(
+            {
+                "exchange": {"tag": "BiosphereExchange", "amount": 0.05, "direction": "Emission", "flowId": "f"},
+                "flowName": "carbon dioxide",
+                "unitName": "kg",
+                **extra,
+            }
+        ).position
+
+    assert line(position=3) == 3
+    assert line() is None

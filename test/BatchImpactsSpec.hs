@@ -19,7 +19,7 @@ Two layers :
 module BatchImpactsSpec (spec) where
 
 import API.BatchImpacts (BatchError (..), runActivityLCIABatch, runBatchImpacts)
-import API.Routes (collectionNotLoadedMessage)
+import API.Routes (ScoreLines (..), collectionNotLoadedMessage)
 import Config (defaultConfig)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text.Encoding as TE
@@ -83,7 +83,7 @@ spec = do
     describe "runActivityLCIABatch (empty DatabaseManager)" $ do
         it "returns DatabaseNotLoaded when the requested DB is not loaded" $ do
             dbm <- initDatabaseManager defaultConfig NoCache
-            res <- runActivityLCIABatch dbm Nothing "no-such-db" "no-pid" "no-coll" Nothing IncludeLongTerm
+            res <- runActivityLCIABatch dbm Nothing "no-such-db" "no-pid" "no-coll" Nothing IncludeLongTerm WithoutLines
             -- LCIABatchResult has no Show instance, so we pattern-match
             -- rather than rely on 'shouldBe' over the whole Either.
             case res of

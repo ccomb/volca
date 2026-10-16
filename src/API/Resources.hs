@@ -881,7 +881,9 @@ description r = case r of
         \When the chain meets inputs no loaded database supplies, they count \
         \as zero and the answer lists them under 'cutoffInputs', with \
         \'withheldCutoffs' counting those inside a database whose licence \
-        \keeps its detail to itself."
+        \keeps its detail to itself. With exchange_contributions, each score \
+        \is split by the activity's own lines, for grouping them into stages \
+        \such as ingredients, transport or packaging."
     ScoreActivities ->
         "LCA / ACV: rank N activities against one scoring set in one call. \
         \Returns a columnar JSON shape: {scoring_set, scoring_unit, \
@@ -1491,6 +1493,7 @@ params r = case r of
         , pParameters
         , pExcludeLongTerm
         , pScoringSetsFilter
+        , Param "exchange_contributions" "boolean" Optional "When true, each method's result also lists what each line of the activity adds to its score ('exchangeContributions': position among the activity's exchanges as get_activity numbers them, contribution, share), largest first; the lines add up to the score. Scoring-set scores are not split by line. Not with substitutions. Empty when the database's licence keeps its detail or its inventory to itself. Default false."
         ]
     ScoreActivities ->
         [ pDatabase

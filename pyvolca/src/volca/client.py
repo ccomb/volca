@@ -2658,6 +2658,7 @@ class Client:
         substitutions: list[SubstitutionLike] | None = None,
         exclude_long_term: bool | None = None,
         parameters: list[ParameterValue] | None = None,
+        exchange_contributions: bool = False,
     ) -> LCIABatchResult:
         """Compute LCIA for every impact category in a collection, in one call.
 
@@ -2668,6 +2669,10 @@ class Client:
         ``exclude_long_term`` drops long-term emissions before scoring, the
         same switch :meth:`score_activities` carries. ``parameters`` gives
         values for input parameters, as :meth:`get_supply_chain` takes them.
+        ``exchange_contributions=True`` gives each result the
+        :attr:`LCIAResult.exchange_contributions` of the activity's own lines,
+        which add up to its score, to group into stages; it is refused with
+        ``substitutions``, and scoring-set scores are not split by line.
 
         Left without a ``collection``, the call runs against the only loaded
         one, and refuses when several are loaded rather than picking one.
@@ -2683,6 +2688,8 @@ class Client:
         collection = self._resolve_collection(collection)
         if parameters:
             self._require_wire(66, "get_impacts_batch(parameters=...)", engine_hint="0.16.0")
+        if exchange_contributions:
+            self._require_wire(70, "get_impacts_batch(exchange_contributions=True)", engine_hint="0.16.0")
         url = (
             f"{self.base_url}/api/v1/db/{self.db}/activity/{process_id}"
             f"/impacts/{collection}"
@@ -2692,6 +2699,8 @@ class Client:
             if exclude_long_term is None
             else {"exclude-long-term": _format_query_value(exclude_long_term)}
         )
+        if exchange_contributions:
+            params["exchange-contributions"] = _format_query_value(True)
         if substitutions or parameters:
             r = self._session.post(
                 url, json=_substitution_body(substitutions, parameters), params=params

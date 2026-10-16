@@ -125,9 +125,22 @@ data LCIAResult = LCIAResult
     , lrWithheldDatabases :: [WithheldShare] -- The databases the score reads whose licence keeps their detail: their part in one line each, their flows left out of the contributors
     , lrCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
     , lrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
+    , lrExchangeContributions :: [ExchangeContribution] -- When asked: what each line of the activity adds to the score, largest first; empty otherwise, and when the licence keeps the detail or the inventory to itself
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped LCIAResult)
+
+{- | What one line of an activity adds to its score: one more unit of the
+activity's product puts the line's amount in, and the line's supplier, or the
+flow it emits, scores that amount. The lines add up to the score.
+-}
+data ExchangeContribution = ExchangeContribution
+    { ecPosition :: Int -- The line's position among the activity's exchanges, as the activity lists them
+    , ecContribution :: Double -- In the score's unit
+    , ecSharePct :: Double -- Percentage of the score (0-100), negative for a line that lowers it
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ExchangeContribution)
 
 -- | Contributing flows result: top elementary flows for a specific impact category
 data ContributingFlowsResult = ContributingFlowsResult
@@ -221,6 +234,8 @@ instance NFData BatchImpactsEntry
 instance NFData LCIABatchResult
 
 instance NFData LCIAResult
+
+instance NFData ExchangeContribution
 
 instance NFData FlowContributionEntry
 

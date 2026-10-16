@@ -12,13 +12,14 @@ French one.
 
 A loaf, read by its reduced model, takes the bread and a dough that takes the
 loaf back, both by formulas of the database's @hydration@, which also sets how
-much loaf the loaf makes, and gives a waste to a bin that treats it.
+much loaf the loaf makes, and gives a waste to a bin that treats it. A sandwich
+takes bread in grams.
 -}
 module ParametricSpec (spec) where
 
 import API.MCP (callTool, noRequestId)
-import API.Routes (activityLCIABatchH, batchImpactsH, postReducedModel)
-import API.Types (BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), FreeParameter (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), ReducedModel (..), ReducedModelRequest (..), SubstitutionRequest (..))
+import API.Routes (ScoreLines (..), activityLCIABatchH, batchImpactsH, postReducedModel)
+import API.Types (BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), ExchangeContribution (..), FreeParameter (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), ReducedModel (..), ReducedModelRequest (..), Substitution (..), SubstitutionRequest (..), SubstitutionScope (..))
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
@@ -31,6 +32,7 @@ import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.List (nub, sort, sortOn, transpose)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isNothing)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -50,13 +52,14 @@ import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringS
 import qualified Method.Types as MT
 import Parametric (ParameterRefusal (..), Setting (..), describeParameterRefusal, instantiate, parameterised)
 import Servant (ServerError (..), runHandler)
+import Service (withholdBatch)
 import SharedSolver (CrossDBSolution (..), SharedSolver (solverDbName), computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
 import SynonymDB (emptySynonymDB)
 import System.Mem.StableName (makeStableName)
 import Test.Hspec
 import TestHelpers (install, mkDepLookupFromMap, mkSolverFromDb, withinTolerance)
 import Types
-import UnitConversion (defaultUnitConfig)
+import UnitConversion (UnitConfig, UnitDef (..), defaultDimensionOrder, defaultUnitConfig, mergeUnitConfigs, mkUnitConfig)
 
 spec :: Spec
 spec = describe "a database at other values of its parameters" $ do
@@ -71,9 +74,9 @@ spec = describe "a database at other values of its parameters" $ do
         let settings = [Setting Nothing "yield" 2, Setting (Just bread) "mix_fr" 0, Setting (Just bread) "mix_de" 1]
         changed <- either (fail . show) pure (instantiate bakery settings)
         M.keys changed `shouldMatchList` [bread, flour bakery]
-        fast <- either (fail . T.unpack) pure (withActivities defaultUnitConfig bakery changed)
+        fast <- either (fail . T.unpack) pure (withActivities bakeryUnits bakery changed)
         let byKey = M.fromList (zip (V.toList (dbProcessIdTable bakery)) (V.toList (dbActivities fast)))
-        slow <- either (fail . T.unpack) pure (rebuildFromActivities defaultUnitConfig bakery byKey)
+        slow <- either (fail . T.unpack) pure (rebuildFromActivities bakeryUnits bakery byKey)
         triples (dbTechnosphereTriples fast) `shouldBe` triples (dbTechnosphereTriples slow)
         triples (dbBiosphereTriples fast) `shouldBe` triples (dbBiosphereTriples slow)
 
@@ -81,32 +84,32 @@ spec = describe "a database at other values of its parameters" $ do
         (bakery, _) <- databases
         bread <- pidOf bakery (aBread, pBread)
         changed <- either (fail . show) pure (instantiate bakery [Setting (Just bread) "smoke" 2])
-        fast <- either (fail . T.unpack) pure (withActivities defaultUnitConfig bakery changed)
+        fast <- either (fail . T.unpack) pure (withActivities bakeryUnits bakery changed)
         dbTechnosphereTriples fast `shouldBe` dbTechnosphereTriples bakery
         dbBiosphereTriples fast `shouldNotBe` dbBiosphereTriples bakery
 
     it "names, on each link to the other database, the line it supplies" $ do
         (bakery, _) <- databases
-        sort [(cdlLocation link, aePosition <$> cdlAnswers link) | link <- dbCrossDBLinks bakery]
+        sort [(cdlLocation link, aePosition <$> cdlAnswers link) | link <- dbCrossDBLinks bakery, cdlConsumerActUUID link == aBread]
             `shouldBe` [("DE", Just 3), ("FR", Just 2)]
 
     it "scores the supplier the settings move the electricity to, in the other database" $ do
         (bakery, grid) <- databases
         bread <- pidOf bakery (aBread, pBread)
         co2Of bakery grid "bakery" `shouldReturn'` 2.5
-        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery [Setting Nothing "yield" 2, Setting (Just bread) "mix_fr" 0, Setting (Just bread) "mix_de" 1])
+        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised bakeryUnits bakery [Setting Nothing "yield" 2, Setting (Just bread) "mix_fr" 0, Setting (Just bread) "mix_de" 1])
         -- Flour 4 kg at 0.125, the bread's own 1, and a German kilowatt-hour.
         co2Of atSettings grid "bakery at settings" `shouldReturn'` 11.5
 
     it "solves values that move inputs on the loaded factorisation, as a new one would" $ do
         (bakery, _) <- databases
         bread <- pidOf bakery (aBread, pBread)
-        manager <- initDatabaseManager defaultConfig NoCache
+        manager <- bakeryManager
         let settings = [Setting Nothing "yield" 2, Setting (Just bread) "mix_fr" 0, Setting (Just bread) "mix_de" 1]
         loaded <- mkSolverFromDb bakery "bakery-loaded"
         (solvedBy, corrected) <- either (fail . T.unpack) pure =<< withSettings manager "bakery-loaded" (bakery, loaded) settings (\db solver -> (solverDbName solver,) <$> computeScalingVectorCached db solver bread)
         solvedBy `shouldBe` "bakery-loaded"
-        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery settings)
+        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised bakeryUnits bakery settings)
         fresh <- mkSolverFromDb atSettings "bakery-fresh"
         expected <- either (fail . T.unpack) pure =<< computeScalingVectorCached atSettings fresh bread
         moved <- either (fail . show) pure (instantiate bakery settings)
@@ -117,12 +120,12 @@ spec = describe "a database at other values of its parameters" $ do
         -- Each of 130 processes buys the one before it by the same formula.
         chain <- build "chain" chainFlows chainActivities (M.singleton "yield" (input 1))
         top <- pidOf chain (link 129)
-        manager <- initDatabaseManager defaultConfig NoCache
+        manager <- bakeryManager
         let settings = [Setting Nothing "yield" 1.01]
         loaded <- mkSolverFromDb chain "chain-loaded"
         (solvedBy, got) <- either (fail . T.unpack) pure =<< withSettings manager "chain-loaded" (chain, loaded) settings (\db solver -> (solverDbName solver,) <$> computeScalingVectorCached db solver top)
         solvedBy `shouldNotBe` "chain-loaded"
-        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig chain settings)
+        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised bakeryUnits chain settings)
         fresh <- mkSolverFromDb atSettings "chain-fresh"
         expected <- either (fail . T.unpack) pure =<< computeScalingVectorCached atSettings fresh top
         (U.toList . U.zipWith (withinTolerance 1e-9) expected <$> got) `shouldSatisfy` either (const False) and
@@ -155,11 +158,11 @@ spec = describe "a database at other values of its parameters" $ do
     it "reads the gap index at other values from the loaded database's, and keeps each apart" $ do
         -- Without its links to the grid, the bakery's electricity is a cut-off input.
         bakery <- evaluate . (\(linked, _) -> linked{dbCrossDBLinks = []}) =<< databases
-        manager <- initDatabaseManager defaultConfig NoCache
+        manager <- bakeryManager
         install manager "bakery" bakery
         -- The German electricity, asked for nothing by default, becomes one; the French one stops being one.
         bread <- Just <$> pidOf bakery (aBread, pBread)
-        atMix <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery [Setting bread "mix_fr" 0, Setting bread "mix_de" 1])
+        atMix <- either (fail . T.unpack) (pure . snd) (parameterised bakeryUnits bakery [Setting bread "mix_fr" 0, Setting bread "mix_de" 1])
         gapIndexOf atMix `shouldNotBe` gapIndexOf bakery
         loaded <- makeStableName =<< evaluate bakery
         mixed <- makeStableName =<< evaluate atMix
@@ -182,7 +185,7 @@ spec = describe "a database at other values of its parameters" $ do
         batch <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest processes sets))
         alone <-
             sequence
-                [ answer manager (activityLCIABatchH "bakery" process (CollectionName "co2") (Just (SubstitutionRequest [] values)) IncludeLongTerm)
+                [ answer manager (activityLCIABatchH "bakery" process (CollectionName "co2") (Just (SubstitutionRequest [] values)) IncludeLongTerm WithoutLines)
                 | values <- sets
                 , process <- processes
                 ]
@@ -219,7 +222,7 @@ spec = describe "a database at other values of its parameters" $ do
             model <- answer manager (postReducedModel "bakery" loaf (CollectionName "model") (Just (policy == ExcludeLongTerm)) (ReducedModelRequest names))
             map mprName (rdmProcesses model) `shouldMatchList` ["bread", "flour", "loaf", "dough"]
             forM_ sets $ \values -> do
-                engine <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") (Just (SubstitutionRequest [] (zipWith (\n v -> ParameterValue (pnProcess n) (pnName n) v) names values))) policy)
+                engine <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") (Just (SubstitutionRequest [] (zipWith (\n v -> ParameterValue (pnProcess n) (pnName n) v) names values))) policy WithoutLines)
                 (scores, scoring) <- either (fail . T.unpack) pure (modelAt model values)
                 (values, zipWith (withinTolerance 1e-9) (scoresOf engine) scores) `shouldBe` (values, map (const True) scores)
                 M.keys scoring `shouldBe` M.keys (lbrScoringResults engine)
@@ -229,12 +232,55 @@ spec = describe "a database at other values of its parameters" $ do
         breadPid <- pidOf bakery (aBread, pBread)
         let settings = [Setting (Just breadPid) "mix_fr" 0, Setting (Just breadPid) "mix_de" 1, Setting Nothing "yield" 2, Setting Nothing "hydration" 1.5]
         moved <- either (fail . show) pure (instantiate bakery settings)
-        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery settings)
+        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised bakeryUnits bakery settings)
         differences <- either (fail . T.unpack) pure (modelDifferences model [0, 1, 2, 1.5])
         let expected = M.fromList [((processIdToText bakery (fromIntegral row), processIdToText bakery (fromIntegral column)), negate v) | (column, entries) <- technosphereChange (M.keysSet moved) bakery atSettings, (row, v) <- entries]
             within = M.filterWithKey (\(supplier, _) _ -> any (\s -> msuProcessId s == supplier && msuDatabase s == "bakery") (rdmSuppliers model)) differences
         M.keys (M.filter (/= 0) within) `shouldBe` M.keys expected
         and (M.intersectionWith (withinTolerance 1e-12) expected within) `shouldBe` True
+
+    it "splits each score by the activity's lines, which add up to it" $ do
+        manager <- scoringManager
+        let scored process values = answer manager (activityLCIABatchH "bakery" (processIdText process) (CollectionName "model") (Just (SubstitutionRequest [] values)) IncludeLongTerm WithLines)
+            climate batch = [byPosition r | r <- lbrResults batch, lrMethodName r == "Climate change"]
+        -- The bread: 2 kg of flour at 0.25, a French kilowatt-hour at 1, a German one at zero, and its own 1.
+        (climate <$> scored (aBread, pBread) []) `shouldReturnNear` [M.fromList [(1, 0.5), (2, 1), (3, 0), (4, 1)]]
+        -- The sandwich: 500 g of that bread, 2 kg of French electricity, and its own 0.1.
+        (climate <$> scored (aSandwich, pSandwich) []) `shouldReturnNear` [M.fromList [(1, 1.25), (2, 2), (3, 0.1)]]
+        -- A treatment's reference is a negative output: one unit of its service still emits its 2 kg.
+        (climate <$> scored (aBin, pWaste) []) `shouldReturnNear` [M.fromList [(1, 2)]]
+        let bread = Just (processIdText (aBread, pBread))
+            atValues = [ParameterValue bread "mix_fr" 0.3, ParameterValue bread "mix_de" 0.7, ParameterValue Nothing "yield" 2, ParameterValue Nothing "hydration" 1.5]
+        forM_ [((aLoaf, pLoaf), []), ((aLoaf, pLoaf), atValues), ((aBread, pBread), atValues), ((aSandwich, pSandwich), []), ((aBin, pWaste), [])] $ \(process, values) -> do
+            batch <- scored process values
+            [(lrMethodName r, withinTolerance 1e-9 (lrScore r) (sum (byPosition r))) | r <- lbrResults batch] `shouldBe` [(lrMethodName r, True) | r <- lbrResults batch]
+            [lrScore r | r <- lbrResults batch] `shouldSatisfy` any (/= 0)
+        -- The loaf's dough line comes back to the loaf, and its waste goes to the bin.
+        loaf <- scored (aLoaf, pLoaf) []
+        [M.keys (byPosition r) | r <- lbrResults loaf] `shouldBe` [[1, 2, 3, 4], [1, 2, 3, 4]]
+
+    it "gives the lines only when asked, without substitutions, and under a licence that shows them" $ do
+        manager <- scoringManager
+        let loaf = processIdText (aLoaf, pLoaf)
+            scored request lines' = runHandler (runApp (envOf manager) (activityLCIABatchH "bakery" loaf (CollectionName "model") request IncludeLongTerm lines'))
+        plain <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") Nothing IncludeLongTerm WithoutLines)
+        map (null . lrExchangeContributions) (lbrResults plain) `shouldBe` [True, True]
+        substituted <- scored (Just (SubstitutionRequest [Substitution (processIdText (aBread, pBread)) (processIdText (aCake, pCake)) AllConsumers] [])) WithLines
+        either errHTTPCode (const 200) substituted `shouldBe` 400
+        split <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") Nothing IncludeLongTerm WithLines)
+        let kept refused = map (null . lrExchangeContributions) (lbrResults (withholdBatch "bakery" (LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired}) split))
+        kept [] `shouldBe` [False, False]
+        kept [ReadInventory] `shouldBe` [True, True]
+        kept [SeeDetailedScores] `shouldBe` [True, True]
+        reply <-
+            callTool manager [] Nothing Nothing noRequestId "score_activity" . KM.fromList $
+                [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("exchange_contributions", Bool True)]
+        let split' = \case
+                Object r | Just (Array a) <- KM.lookup "exchangeContributions" r -> not (null a)
+                _ -> False
+        (KM.lookup "results" =<< payloadOf reply) `shouldSatisfy` \case
+            Just (Array rs) -> length rs == 2 && all split' rs
+            _ -> False
 
     it "gives through its tool the model the route gives" $ do
         manager <- scoringManager
@@ -255,6 +301,12 @@ spec = describe "a database at other values of its parameters" $ do
   where
     shouldReturn' :: IO Double -> Double -> Expectation
     shouldReturn' action expected = action >>= \got -> (got, withinTolerance 1e-9 expected got) `shouldBe` (got, True)
+
+    shouldReturnNear :: IO [M.Map Int Double] -> [M.Map Int Double] -> Expectation
+    shouldReturnNear action expected = action >>= \got -> (got, map M.keys got == map M.keys expected && and (zipWith (\a b -> and (M.intersectionWith (withinTolerance 1e-9) a b)) expected got)) `shouldBe` (got, True)
+
+    byPosition :: LCIAResult -> M.Map Int Double
+    byPosition r = M.fromListWith (+) [(ecPosition c, ecContribution c) | c <- lrExchangeContributions r]
 
     flour db = fromMaybe (-1) (findProcessId db aFlour pFlour)
     bread' db = fromMaybe (-1) (findProcessId db aBread pBread)
@@ -357,7 +409,7 @@ solve a b = backward (forward (zipWith (\row x -> row <> [x]) a b))
 scoringManager :: IO DatabaseManager
 scoringManager = do
     (bakery, grid) <- databases
-    manager <- initDatabaseManager defaultConfig NoCache
+    manager <- bakeryManager
     install manager "grid" grid
     install manager "bakery" bakery
     atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert "co2" (MethodCollection [climate] [] []))
@@ -406,6 +458,17 @@ scoringManager = do
             , methodFactors = [MethodCF co2 "carbon dioxide" MT.Output 1 (Just (MT.Compartment "air" "unspecified" "")) Nothing "kg" Nothing]
             }
 
+-- | The units the fixture states amounts in: the kilogram and the gram.
+bakeryUnits :: UnitConfig
+bakeryUnits = mergeUnitConfigs [defaultUnitConfig, mkUnitConfig defaultDimensionOrder (M.singleton "g" (UnitDef [if d == "mass" then 1 else 0 | d <- defaultDimensionOrder] 0.001))]
+
+-- | A manager that reads those units.
+bakeryManager :: IO DatabaseManager
+bakeryManager = do
+    manager <- initDatabaseManager defaultConfig NoCache
+    atomically $ modifyTVar' (dmLoadedUnitDefs manager) (M.insert "bakery" bakeryUnits)
+    pure manager
+
 envOf :: DatabaseManager -> AppEnv
 envOf manager =
     AppEnv
@@ -441,7 +504,7 @@ co2Of bakery grid name = do
     solver <- mkSolverFromDb bakery name
     gridSolver <- mkSolverFromDb grid "grid"
     bread <- pidOf bakery (aBread, pBread)
-    result <- computeInventoryMatrixWithDepsCached defaultUnitConfig (mkDepLookupFromMap (M.singleton "grid" (grid, gridSolver))) bakery name solver bread
+    result <- computeInventoryMatrixWithDepsCached bakeryUnits (mkDepLookupFromMap (M.singleton "grid" (grid, gridSolver))) bakery name solver bread
     either (fail . T.unpack) (pure . M.findWithDefault 0 co2 . csInventory) result
 
 -- | The bakery, linked to the grid the way a load links it, and the grid.
@@ -453,7 +516,7 @@ databases = do
             LinkingContext
                 { lcIndexedDatabases = [buildIndexedDatabaseFromDB "grid" emptySynonymDB grid]
                 , lcSynonymDB = emptySynonymDB
-                , lcUnitConfig = defaultUnitConfig
+                , lcUnitConfig = bakeryUnits
                 , lcThreshold = defaultLinkingThreshold
                 , lcLocationHierarchy = M.empty
                 , lcGeographyPolicy = GeoExact
@@ -466,7 +529,7 @@ build :: Text -> M.Map UUID TechnosphereFlow -> M.Map (UUID, UUID) Activity -> M
 build name flows acts parameters =
     either (\e -> fail (T.unpack name <> ": " <> T.unpack e)) pure
         =<< buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig M.empty Declared [])
+            (BuildInputs bakeryUnits M.empty Declared [])
             SimpleDatabase
                 { sdbActivities = acts
                 , sdbTechFlows = flows
@@ -513,6 +576,7 @@ bakeryActivities =
         , ((aDough, pDough), activity "dough" [reference pDough, from aLoaf (withFormula (formulaOf "0.1 * hydration") (line pLoaf 0.1 Input)), (emission "" 0.3){bioFormula = Nothing}])
         , -- A treatment, its reference a negative output.
           ((aBin, pWaste), activity "bin" [line pWaste (-1) ReferenceProduct, (emission "" 2){bioFormula = Nothing}])
+        , ((aSandwich, pSandwich), activity "sandwich" [reference pSandwich, (from aBread (line pBread 500 Input)){techUnitId = g}, (line pElectricity 2 Input){techLocation = "FR"}, (emission "" 0.1){bioFormula = Nothing}])
         ]
   where
     from supplier ex = ex{techActivityLinkId = Just supplier}
@@ -589,14 +653,15 @@ techFlows :: M.Map UUID TechnosphereFlow
 techFlows =
     M.fromList
         [ (product', TechnosphereFlow product' name kg M.empty Nothing Nothing)
-        | (product', name) <- [(pBread, "bread"), (pFlour, "flour"), (pCake, "cake"), (pMeal, "meal"), (pBran, "bran"), (pJam, "jam"), (pElectricity, "electricity"), (pLoaf, "loaf"), (pDough, "dough"), (pWaste, "waste")]
+        | (product', name) <- [(pBread, "bread"), (pFlour, "flour"), (pCake, "cake"), (pMeal, "meal"), (pBran, "bran"), (pJam, "jam"), (pElectricity, "electricity"), (pLoaf, "loaf"), (pDough, "dough"), (pWaste, "waste"), (pSandwich, "sandwich")]
         ]
 
 units :: M.Map UUID Unit
-units = M.singleton kg (Unit kg "kg" "kg" "")
+units = M.fromList [(kg, Unit kg "kg" "kg" ""), (g, Unit g "g" "g" "")]
 
-kg, co2, aBread, pBread, aFlour, pFlour, aCake, pCake, aMill, pMeal, pBran, aJam, pJam, aFR, aDE, pElectricity, aLoaf, pLoaf, aDough, pDough, aBin, pWaste :: UUID
+kg, g, co2, aBread, pBread, aFlour, pFlour, aCake, pCake, aMill, pMeal, pBran, aJam, pJam, aFR, aDE, pElectricity, aLoaf, pLoaf, aDough, pDough, aBin, pWaste, aSandwich, pSandwich :: UUID
 kg = UUID.fromWords 0 0 0 1
+g = UUID.fromWords 0 0 0 3
 co2 = UUID.fromWords 0 0 0 2
 aBread = UUID.fromWords 1 0 0 1
 pBread = UUID.fromWords 1 0 0 2
@@ -618,3 +683,5 @@ aDough = UUID.fromWords 8 0 0 3
 pDough = UUID.fromWords 8 0 0 4
 aBin = UUID.fromWords 8 0 0 5
 pWaste = UUID.fromWords 8 0 0 6
+aSandwich = UUID.fromWords 8 0 0 7
+pSandwich = UUID.fromWords 8 0 0 8

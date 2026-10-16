@@ -129,6 +129,21 @@
   `reduced_model`, whose `evaluate` computes the scores at many sets with
   numpy. Wire revision 69.
 
+- The scores of an activity take `exchange-contributions=true`, which splits
+  each score by the activity's own lines, so a recipe can be grouped into
+  stages (ingredients, transport, packaging) by whoever knows them. A loaf
+  of bread using 0.8 kg of flour that scores 0.5 per kg, 0.2 kWh of
+  electricity that scores 0.1 per kWh, and emitting 0.05 kg of carbon
+  dioxide gets three lines of 0.40, 0.02 and 0.05, which add up to its
+  0.47. Each line is named by its `position` among the activity's
+  exchanges, which `get_activity` now gives for each exchange. Asked with
+  substitutions it is refused; asked with parameter values it splits the
+  score at those values. Scoring sets are not split, and the lines stay
+  empty when the database's licence keeps its detail or its inventory to
+  itself. The assistant has it as `exchange_contributions` on
+  `score_activity`, and pyvolca as
+  `get_impacts_batch(exchange_contributions=True)`. Wire revision 70.
+
 ### Fixed
 
 - The inventory of an activity over HTTP takes `flow` and `limit`, as the
