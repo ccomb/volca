@@ -11,6 +11,9 @@ French one.
 module ParametricSpec (spec) where
 
 import API.Types (ParameterValue (..), SubstitutionRequest (..))
+import Config (defaultConfig)
+import Control.Concurrent.STM (readTVarIO)
+import Control.Exception (evaluate)
 import Data.Aeson (decode)
 import Data.List (sort)
 import qualified Data.Map.Strict as M
@@ -22,14 +25,17 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
+import Database.Cutoffs (gapIndexOf)
 import Database.Loader (findAllCrossDBLinks)
+import Database.Manager (CachePolicy (..), DatabaseManager (..), getGapIndex, initDatabaseManager)
 import Database.MatrixBuild (withActivities)
 import Database.Rebuild (rebuildFromActivities)
 import Parametric (ParameterRefusal (..), Setting (..), instantiate, parameterised)
 import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached)
 import SynonymDB (emptySynonymDB)
+import System.Mem.StableName (makeStableName)
 import Test.Hspec
-import TestHelpers (mkDepLookupFromMap, mkSolverFromDb, withinTolerance)
+import TestHelpers (install, mkDepLookupFromMap, mkSolverFromDb, withinTolerance)
 import Types
 import UnitConversion (defaultUnitConfig)
 
@@ -97,6 +103,19 @@ spec = describe "a database at other values of its parameters" $ do
             Left (NoAmount "flour" "carbon dioxide" _) -> pure ()
             other -> expectationFailure ("expected the flour's emission refused, got " <> show (refusal other))
         refusal (instantiate bakery [Setting Nothing "share_pct" 50]) `shouldBe` Just (ShareMoves "jam" "share_pct")
+
+    it "leaves the loaded database's gap index to the loaded database" $ do
+        (bakery, _) <- databases
+        manager <- initDatabaseManager defaultConfig NoCache
+        install manager "bakery" bakery
+        atYield <- either (fail . T.unpack) pure (parameterised defaultUnitConfig bakery [Setting Nothing "yield" 2])
+        loaded <- makeStableName =<< evaluate bakery
+        let cachedFromLoaded = fmap ((== loaded) . fst) . M.lookup "bakery" <$> readTVarIO (dmGapIndexCache manager)
+        getGapIndex manager "bakery" atYield `shouldReturn` gapIndexOf atYield
+        cachedFromLoaded `shouldReturn` Nothing
+        getGapIndex manager "bakery" bakery `shouldReturn` gapIndexOf bakery
+        getGapIndex manager "bakery" atYield `shouldReturn` gapIndexOf atYield
+        cachedFromLoaded `shouldReturn` Just True
 
     it "reads a request that only sets parameters, and refuses a misspelt field of one" $ do
         let request = decode "{\"parameters\": [{\"process\": \"p\", \"name\": \"yield\", \"value\": 2}]}" :: Maybe SubstitutionRequest

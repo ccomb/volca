@@ -13,7 +13,7 @@ nothing said so.
 -}
 module DependencyFlowClosureSpec (spec, install) where
 
-import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
+import Control.Concurrent.STM (readTVarIO)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -21,7 +21,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (defaultConfig)
 import qualified Database.Manager as DM
 import Method.Mapping (
     LongTermMode (..),
@@ -32,11 +32,11 @@ import Method.Mapping (
  )
 import Method.Types (Method (..), MethodCF (..))
 import qualified Method.Types as MT
-import qualified SharedSolver as SS
 import SynonymDB (buildFromPairs)
 import Types
 
 import CrossDBRegionalLCIAFixture (buildTables, kgUnit, kgUnitConfig, mkDB, mkUUID)
+import TestHelpers (install)
 
 collection :: DM.CollectionName
 collection = DM.CollectionName "EF-3.1"
@@ -105,47 +105,6 @@ mkMethod name factors =
 withOwnFlows :: [BiosphereFlow] -> Database -> Database
 withOwnFlows flows db =
     addFlowNameIndexToDatabase db{dbBioFlows = M.fromList [(bfId f, f) | f <- flows]}
-
-dbConfigFor :: Text -> DatabaseConfig
-dbConfigFor name =
-    DatabaseConfig
-        { dcName = name
-        , dcDisplayName = name
-        , dcPath = ""
-        , dcDescription = Nothing
-        , dcLoad = True
-        , dcDefault = False
-        , dcDepends = []
-        , dcLocationAliases = M.empty
-        , dcFormat = Nothing
-        , dcIsUploaded = False
-        , dcDeletable = False
-        , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
-        , dcPatches = []
-        , dcSource = Nothing
-        , dcLicence = LicenceUnstated
-        , dcRelease = Nothing
-        , dcRequires = []
-        }
-
--- | Install a database in the manager's loaded set, solver and config included.
-install :: DM.DatabaseManager -> Text -> Database -> IO ()
-install manager name db = do
-    solver <-
-        SS.createSharedSolver
-            name
-            [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
-            (fromIntegral (dbActivityCount db))
-    atomically $
-        modifyTVar' (DM.dmLoadedDbs manager) $
-            M.insert
-                name
-                DM.LoadedDatabase
-                    { DM.ldDatabase = db
-                    , DM.ldSharedSolver = solver
-                    , DM.ldConfig = dbConfigFor name
-                    }
 
 -- | The flows the effective mappings actually reach.
 reachedFlows :: [(MethodCF, Maybe Resolution)] -> [UUID]

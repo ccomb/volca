@@ -93,7 +93,8 @@
   SimaPro allocation share written as a formula would move with it. The
   assistant's `get_impacts`, `get_inventory`, `get_supply_chain` and
   `score_activity` take the same `parameters`, and pyvolca's
-  `ParameterValue`. Wire revision 66.
+  `ParameterValue`. An activity's `databaseParameters` now also lists the
+  database parameters its allocation shares read. Wire revision 66.
 
 ### Fixed
 

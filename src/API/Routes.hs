@@ -589,12 +589,13 @@ loadCollection collectionName = do
                             (M.keys loadedCollections)
                     }
 
-{- | Cross-DB inventory solution for an activity. 'Nothing' takes the cached
-no-substitution path; 'Just' applies the substitutions through the uncached path.
+{- | Cross-DB inventory solution for an activity. No substitution takes the
+cached path; substitutions are applied through the uncached one.
 -}
 crossDBSolutionFor :: Text -> Database -> SharedSolver -> ProcessId -> Maybe SubstitutionRequest -> AppM SharedSolver.CrossDBSolution
-crossDBSolutionFor dbName db solver pid mSub = case mSub of
-    Just subReq | not (null (srSubstitutions subReq)) -> do
+crossDBSolutionFor dbName db solver pid mSub = case maybe [] srSubstitutions mSub of
+    [] -> solutionWithDeps dbName db solver pid
+    subs -> do
         dbManager <- asks aeDbManager
         unitCfg <- liftIO $ getMergedUnitConfig dbManager
         eSol <-
@@ -606,9 +607,8 @@ crossDBSolutionFor dbName db solver pid mSub = case mSub of
                     dbName
                     solver
                     pid
-                    (srSubstitutions subReq)
+                    subs
         either throwServiceError pure eSol
-    _ -> solutionWithDeps dbName db solver pid
 
 {- | Run with the database a request reads: the loaded one, or, when the request
 states parameter values, the loaded one at those values with a solver for it
@@ -617,13 +617,13 @@ values: a dependency that links back to it reads it at its defaults.
 -}
 withRequestDatabase :: Text -> Maybe SubstitutionRequest -> (Database -> SharedSolver -> AppM a) -> AppM a
 withRequestDatabase dbName mSub run = do
-    (db, solver) <- requireDatabaseByName dbName
+    loaded@(db, solver) <- requireDatabaseByName dbName
     case maybe [] srParameters mSub of
         [] -> run db solver
         values -> do
             settings <- either throwServiceError pure (Service.settingsOf db values)
             env <- asks id
-            outcome <- liftIO (DM.withSettings (aeDbManager env) dbName db solver settings (\db' solver' -> runHandler (runApp env (run db' solver'))))
+            outcome <- liftIO (DM.withSettings (aeDbManager env) dbName loaded settings (\db' solver' -> runHandler (runApp env (run db' solver'))))
             either badRequest (either throwError pure) outcome
 
 {- | Look up MethodSetTables for every (DB, scaling) pair in the cross-DB
@@ -2041,7 +2041,7 @@ getActivityAggregate dbName processId scopeParam isInputParam maxDepthParam fnam
     either throwServiceError pure result
 
 {- | LCIA single-method core. GET passes a top-flows param and logs;
-POST carries substitutions instead and skips logging.
+POST carries substitutions or parameter values instead and skips logging.
 -}
 activityLCIACore :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe SubstitutionRequest -> AppM LCIAResult
 activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam mSub = do

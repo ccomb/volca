@@ -855,8 +855,26 @@ getGapIndex manager dbName db = do
         Just (builtFrom, idx) | builtFrom == identity -> pure idx
         _ -> do
             idx <- Control.Exception.evaluate (gapIndexOf db)
-            atomically (modifyTVar' (dmGapIndexCache manager) (M.insert dbName (identity, idx)))
+            atOtherValues <- isJust <$> loadedAtDefaults manager dbName db
+            unless atOtherValues $ atomically (modifyTVar' (dmGapIndexCache manager) (M.insert dbName (identity, idx)))
             pure idx
+
+{- | The loaded database, when @db@ is it read at other parameter values:
+'Database.MatrixBuild.withActivities' changes amounts and keeps the rest by
+identity. The caches keyed by a database's name hold what the loaded database
+gives, so such a request neither fills them with its own amounts nor evicts
+the loaded database's entry.
+-}
+loadedAtDefaults :: DatabaseManager -> Text -> Database -> IO (Maybe Database)
+loadedAtDefaults manager dbName db = do
+    loaded <- getDatabase manager dbName
+    case ldDatabase <$> loaded of
+        Nothing -> pure Nothing
+        Just base -> do
+            let identity x = makeStableName =<< Control.Exception.evaluate x
+            sameVersion <- (==) <$> identity (dbBiosphereOrder base) <*> identity (dbBiosphereOrder db)
+            sameObject <- (==) <$> identity base <*> identity db
+            pure (if sameVersion && not sameObject then Just base else Nothing)
 
 {- | The name of a method collection. A newtype because it travels next to a
 database name, of the same type, through every cache lookup below: swapped,
@@ -937,14 +955,15 @@ mapMethodToTablesCached manager dbName collection db method = do
     cache <- readTVarIO (dmMethodTablesCache manager)
     weighedFor db =<< case M.lookup key cache of
         Just tables -> pure tables
-        Nothing ->
+        Nothing -> do
+            base <- fromMaybe db <$> loadedAtDefaults manager dbName db
             -- Single-flight: the expensive build runs once per key even under a
             -- concurrent panel request + load-time warm-up racing on it.
             singleFlight
                 (dmMethodTablesInflight manager)
                 key
                 (cacheIfCurrent manager collection [method] . modifyTVar' (dmMethodTablesCache manager) . M.insert key)
-                (buildMethodTablesFor manager dbName collection db method)
+                (buildMethodTablesFor manager dbName collection base method)
 
 {- | The tables with regionalized weights summed over this database's biosphere:
 as cached when they were, summed again when the request reads the database at
@@ -1189,7 +1208,8 @@ mapMethodSetToTablesCached manager dbName collection db methods = do
             -- for a ~25-30s parallel one. Concurrent cache writes on the
             -- per-method cache are idempotent under STM (last write wins,
             -- same value).
-            tables <- mapConcurrently (mapMethodToTablesCached manager dbName collection db) sortedMethods
+            base <- fromMaybe db <$> loadedAtDefaults manager dbName db
+            tables <- mapConcurrently (mapMethodToTablesCached manager dbName collection base) sortedMethods
             let !mst = buildMethodSetTables (zip sortedMethods tables)
             atomically $ cacheIfCurrent manager collection sortedMethods (modifyTVar' (dmMethodSetTablesCache manager) (M.insert key mst))
             setWeighedFor mst
@@ -3436,18 +3456,18 @@ technosphere moved, otherwise one under a name of its own whose factorisation
 is destroyed when the action ends. Factorisations are cached by name, so the
 loaded database's own is never replaced.
 -}
-withSolverFor :: DatabaseManager -> Text -> Database -> SharedSolver -> Database -> (SharedSolver -> IO a) -> IO a
-withSolverFor manager dbName before loaded after act
+withSolverFor :: DatabaseManager -> Text -> (Database, SharedSolver) -> Database -> (SharedSolver -> IO a) -> IO a
+withSolverFor manager dbName (before, loaded) after act
     | dbTechnosphereTriples after == dbTechnosphereTriples before = act loaded
     | otherwise = withMVar (dmFactorisationLock manager) $ \() -> do
         name <- (\tag -> dbName <> "#" <> UUID.toText tag) <$> nextRandom
         bracket (solverFor name after) (const (clearCachedSolver name)) act
 
 -- | Run with the loaded database at these settings and a solver for it, or say why the settings give none.
-withSettings :: DatabaseManager -> Text -> Database -> SharedSolver -> [Setting] -> (Database -> SharedSolver -> IO a) -> IO (Either Text a)
-withSettings manager dbName db solver settings act = do
+withSettings :: DatabaseManager -> Text -> (Database, SharedSolver) -> [Setting] -> (Database -> SharedSolver -> IO a) -> IO (Either Text a)
+withSettings manager dbName loaded settings act = do
     unitConfig <- getMergedUnitConfig manager
-    traverse (\db' -> withSolverFor manager dbName db solver db' (act db')) (parameterised unitConfig db settings)
+    traverse (\db' -> withSolverFor manager dbName loaded db' (act db')) (parameterised unitConfig (fst loaded) settings)
 
 {- | Install a loaded database and the index built from it under one name.
 

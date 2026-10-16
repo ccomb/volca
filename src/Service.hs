@@ -181,8 +181,6 @@ findActivityByProcessId db processId =
         then Just $ dbActivities db V.! fromIntegral processId
         else Nothing
 
--- | Resolve activity query using ProcessId format with UUID fallback for compatibility
-
 {- | A request's parameter values as settings, each naming its process by the
 matrix column the database gives it.
 -}
@@ -190,6 +188,7 @@ settingsOf :: Database -> [ParameterValue] -> Either ServiceError [Setting]
 settingsOf db = traverse $ \ParameterValue{pvProcess = process, pvName = name, pvValue = value} ->
     (\pid -> Setting pid name value) <$> traverse (fmap fst . resolveActivityAndProcessId db) process
 
+-- | Resolve activity query using ProcessId format with UUID fallback for compatibility
 resolveActivityByProcessId :: Database -> Text -> Either ServiceError Activity
 resolveActivityByProcessId db = fmap snd . resolveActivityAndProcessId db
 

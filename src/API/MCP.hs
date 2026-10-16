@@ -719,7 +719,7 @@ withParameters dbManager dbName args ld run = do
         [] -> run (ldDatabase ld) (ldSharedSolver ld)
         _ -> do
             settings <- liftService (Service.settingsOf (ldDatabase ld) values)
-            ExceptT (join <$> DM.withSettings dbManager dbName (ldDatabase ld) (ldSharedSolver ld) settings (\db solver -> runExceptT (run db solver)))
+            ExceptT (join <$> DM.withSettings dbManager dbName (ldDatabase ld, ldSharedSolver ld) settings (\db solver -> runExceptT (run db solver)))
 
 -- | Lift a service result, per 'serviceMessage'.
 liftService :: Either Service.ServiceError a -> ExceptT Text IO a
