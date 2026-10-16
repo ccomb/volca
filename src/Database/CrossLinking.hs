@@ -143,8 +143,8 @@ data IndexedDatabase = IndexedDatabase
     in GLO is the reference product of 27 different activities, and the product
     name alone cannot say which of them the source meant.
     -}
-    , idbByActivityProduct :: !(M.Map (UUID, UUID) SupplierEntry)
-    {- ^ (activityUUID, productUUID) → supplier. The exact-identity index for
+    , idbByActivityProduct :: !(M.Map ProcessRef SupplierEntry)
+    {- ^ Activity and product → supplier. The exact-identity index for
     EcoSpold2↔EcoSpold2 linking: an input's @(activityLinkId, flowId)@ is the
     supplier's @(activityUUID, referenceProductUUID)@ key, so this resolves a
     partial import's background references with no name/location guessing. One
@@ -509,9 +509,9 @@ Each location variant is a distinct activity with its own activity UUID, so
 variants do not collide here; a collision can only be a genuine duplicate of the
 same activity+product, making last-wins harmless.
 -}
-indexByActivityProduct :: [(Text, SupplierEntry)] -> M.Map (UUID, UUID) SupplierEntry
+indexByActivityProduct :: [(Text, SupplierEntry)] -> M.Map ProcessRef SupplierEntry
 indexByActivityProduct entries =
-    M.fromList [((seActivityUUID e, seProductUUID e), e) | (_, e) <- entries]
+    M.fromList [(ProcessRef (seActivityUUID e) (seProductUUID e), e) | (_, e) <- entries]
 
 {- | Index supplier entries by their @(activity name, product name)@ pair, both
 normalized. Unlike the UUID index above the key does not determine the value –
@@ -887,7 +887,7 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
     resolveDesignated (AliasTarget supplier bridge) = case supplier of
         NoSupplier -> CrossDBNotLinked AliasDeclined
         SupplierProcess ref label ->
-            case NE.nonEmpty [(db, entry) | (entry, db) <- findSupplierByActivityProduct lcIndexedDatabases (prActivity ref) (prProduct ref)] of
+            case NE.nonEmpty [(db, entry) | (entry, db) <- findSupplierByActivityProduct lcIndexedDatabases ref] of
                 Nothing -> CrossDBNotLinked (AliasTargetMissing label Nothing)
                 Just found -> linkDesignated bridge found
         SupplierNamed targetName mTargetLoc -> case tryName targetName of
@@ -1093,11 +1093,11 @@ remaining database names as tied alternatives (for minimal-dependency
 pre-selection). Empty when no loaded dependency provides this exact identity –
 the cross-version case, where the caller falls back to attribute matching.
 -}
-findSupplierByActivityProduct :: [IndexedDatabase] -> UUID -> UUID -> [(SupplierEntry, Text)]
-findSupplierByActivityProduct idbs actUUID prodUUID =
+findSupplierByActivityProduct :: [IndexedDatabase] -> ProcessRef -> [(SupplierEntry, Text)]
+findSupplierByActivityProduct idbs ref =
     [ (entry, idbName idb)
     | idb <- idbs
-    , Just entry <- [M.lookup (actUUID, prodUUID) (idbByActivityProduct idb)]
+    , Just entry <- [M.lookup ref (idbByActivityProduct idb)]
     ]
 
 {- | Match product names (simplified - just for scoring display)

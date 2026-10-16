@@ -2794,8 +2794,10 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
             identityMatches = case claim of
                 ClaimById actUUID
                     -- A mapping row on this very process speaks first, even where a dependency still ships it.
-                    | designatesProcess ctx (ProcessRef actUUID fid) -> []
-                    | otherwise -> findSupplierByActivityProduct (lcIndexedDatabases ctx) actUUID fid
+                    | designatesProcess ctx claimed -> []
+                    | otherwise -> findSupplierByActivityProduct (lcIndexedDatabases ctx) claimed
+                  where
+                    claimed = ProcessRef actUUID fid
                 ClaimByProduct -> []
                 ClaimByName _ -> []
                 ClaimByDatasetNumber _ -> []
