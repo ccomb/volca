@@ -42,15 +42,16 @@ import SynonymDB (emptySynonymDB)
 import Test.Hspec
 import TestHelpers (mkDepLookupFromMap, mkSolverFromDb, shippedGeographies, withinTolerance)
 import Types
-import UnitConversion (defaultUnitConfig)
+import UnitConversion (UnitDef (..), defaultDimensionOrder, defaultUnitConfig, mergeUnitConfigs, mkUnitConfig)
 
 -- | A deterministic UUID from its canonical string form.
 mkUUID :: String -> UUID
 mkUUID s = fromMaybe UUID.nil (UUID.fromString s)
 
 -- Shared identifiers.
-kgU, co2, wW, yY, tA, pA :: UUID
+kgU, gU, co2, wW, yY, tA, pA :: UUID
 kgU = mkUUID "66666666-6666-6666-6666-666666666666"
+gU = mkUUID "66666666-6666-6666-6666-666666666667"
 co2 = mkUUID "55555555-5555-5555-5555-555555555555"
 wW = mkUUID "22222222-2222-2222-2222-222222222222"
 yY = mkUUID "44444444-4444-4444-4444-444444444444"
@@ -414,6 +415,15 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
     it "cross-DB to an ILCD (positive ReferenceInput) treatment scores +6" $ do
         (score, _) <- scoreCross Nothing "ilcd-dep" ReferenceInput 1.0
         withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    -- Links to one treatment are summed and read in the treatment's unit.
+    it "sends 3 kg to a treatment in kilograms for a waste written as 3000 g" $ do
+        depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
+        let grams = mergeUnitConfigs [defaultUnitConfig, mkUnitConfig defaultDimensionOrder (M.singleton "g" (UnitDef [if d == "mass" then 1 else 0 | d <- defaultDimensionOrder] 0.001))]
+            units = M.fromList [(kgU, Unit kgU "kg" "kg" ""), (gU, Unit gU "g" "g" "")]
+            rootActs = M.singleton (pA, yY) (producer (wasteEx False Nothing 3000){waUnitId = gU})
+            links = cdlLinks (findAllCrossDBLinks (ctxWithDep "eco-dep" depDB){lcUnitConfig = grams} techFlowDB wasteFlowDB units rootActs)
+        [(withinTolerance 1.0e-12 (-3) (cdlCoefficient l), withinTolerance 1.0e-12 (-0.001) (maybe 0 aeFactor (cdlAnswers l))) | l <- links] `shouldBe` [(True, True)]
 
     it "cross-DB to an ecoinvent (negative ReferenceProduct) treatment scores +6" $ do
         (score, _) <- scoreCross Nothing "eco-dep" ReferenceProduct (-1.0)

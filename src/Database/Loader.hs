@@ -2765,7 +2765,7 @@ findExchangeCrossDBLink ::
     Int ->
     Exchange ->
     CrossDBLinkingStats
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@TechnosphereExchange{techFlowId = fid, techAmount = amt, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = statedLoc}
+findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@TechnosphereExchange{techFlowId = fid, techAmount = written, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = statedLoc}
     | namesASupplier ex && not resolvesInternally =
         maybe mempty resolveTechInput (M.lookup fid techFlowDb)
     | otherwise = mempty
@@ -2789,8 +2789,13 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
             , cdlTiedAlternatives = tied
             , cdlAnswers = Just AnsweredExchange{aePosition = position, aeFactor = factor}
             }
-    resolveTechInput flow =
-        let flowUnitName = maybe "" unitName (M.lookup (tfUnitId flow) unitDb)
+    resolveTechInput flow = case lineInLinkUnit (lcUnitConfig ctx) unitDb ex flowUnitName of
+        Nothing -> unresolvedStats flow UnitIncompatible{uiQueryUnit = writtenUnitName unitDb ex, uiSupplierUnit = flowUnitName}
+        Just perLine -> linkTechInput flow flowUnitName perLine
+      where
+        flowUnitName = maybe "" unitName (M.lookup (tfUnitId flow) unitDb)
+    linkTechInput flow flowUnitName perLine =
+        let amt = written * perLine
             identityMatches = case claim of
                 ClaimById actUUID
                     -- A mapping row on this very process speaks first, even where a dependency still ships it.
@@ -2811,10 +2816,10 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                                 (seLocation entry)
                                 srcDb
                                 (sort (map snd rest))
-                                1
+                                perLine
                                 (amt, flowUnitName)
                      in mempty{cdlLinks = [crossLink]}
-                [] -> attributeMatch flow flowUnitName
+                [] -> attributeMatch flow flowUnitName perLine amt
     supplierQuery :: TechnosphereFlow -> T.Text -> SupplierQuery
     supplierQuery flow flowUnitName =
         SupplierQuery
@@ -2838,7 +2843,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
         Just UnitBridge{..} ->
             (\inSource -> (inSource / ubTargetInSource, ubTargetUnit))
                 <$> UC.convertUnit (lcUnitConfig ctx) flowUnitName ubSourceUnit amount
-    attributeMatch flow flowUnitName =
+    attributeMatch flow flowUnitName perLine amt =
         let query = supplierQuery flow flowUnitName
          in case findSupplierInIndexedDBs ctx query of
                 result@CrossDBLinked{}
@@ -2856,7 +2861,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                                     (cdlrDatabaseName result)
                                     (cdlrTiedDatabases result)
                                     -- The conversion that just read the amount reads one unit of it: the default is never taken.
-                                    (maybe 1 fst (bridgedAmount flowUnitName (cdlrBridge result) 1))
+                                    (maybe perLine fst (bridgedAmount flowUnitName (cdlrBridge result) perLine))
                                     amount
                             locFallbacks =
                                 [ LocationFallback
@@ -2941,36 +2946,39 @@ findExchangeCrossDBLink _ _ _ _ BiosphereExchange{} = mempty
 -- would link the waste to an activity nobody asked for.
 -- Waste inputs (treatment side) are left alone: they have no clean LCA
 -- semantic as a cross-DB demand.
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows = wasteFlowDb} consumerActUUID consumerProdUUID position WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp}
+findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows = wasteFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp}
     | not isInp && not resolvesInternally =
         case treatmentMatch of
-            WasteMatched entry dbN ->
-                let
-                    -- The dep-demand solve drives the matched treatment in
-                    -- its OWN reference convention: an EcoSpold2 treatment
-                    -- has a negative-output reference ('seRefSign' = -1),
-                    -- an ILCD one a positive 'ReferenceInput' (+1). The
-                    -- consumer's waste-output amount is positive, so we
-                    -- carry the treatment's sign into the coefficient –
-                    -- without it a negative-reference background treatment
-                    -- scores the treated waste's burden with a flipped sign.
-                    !crossLink =
-                        CrossDBLink
-                            { cdlConsumerActUUID = consumerActUUID
-                            , cdlConsumerProdUUID = consumerProdUUID
-                            , cdlConsumerFlowId = fid
-                            , cdlSupplierActUUID = seActivityUUID entry
-                            , cdlSupplierProdUUID = seProductUUID entry
-                            , cdlCoefficient = amt * seRefSign entry
-                            , cdlExchangeUnit = seUnit entry
-                            , cdlFlowName = seProductName entry
-                            , cdlLocation = seLocation entry
-                            , cdlSourceDatabase = dbN
-                            , cdlTiedAlternatives = []
-                            , cdlAnswers = Just AnsweredExchange{aePosition = position, aeFactor = seRefSign entry}
-                            }
-                 in
-                    mempty{cdlLinks = [crossLink], cdlWasteExactLinks = 1}
+            WasteMatched entry dbN
+                | Just perLine <- lineInLinkUnit (lcUnitConfig ctx) unitDb ex (seUnit entry) ->
+                    let
+                        -- The dep-demand solve drives the matched treatment in
+                        -- its OWN reference convention: an EcoSpold2 treatment
+                        -- has a negative-output reference ('seRefSign' = -1),
+                        -- an ILCD one a positive 'ReferenceInput' (+1). The
+                        -- consumer's waste-output amount is positive, so we
+                        -- carry the treatment's sign into the coefficient –
+                        -- without it a negative-reference background treatment
+                        -- scores the treated waste's burden with a flipped sign.
+                        !crossLink =
+                            CrossDBLink
+                                { cdlConsumerActUUID = consumerActUUID
+                                , cdlConsumerProdUUID = consumerProdUUID
+                                , cdlConsumerFlowId = fid
+                                , cdlSupplierActUUID = seActivityUUID entry
+                                , cdlSupplierProdUUID = seProductUUID entry
+                                , cdlCoefficient = amt * perLine * seRefSign entry
+                                , cdlExchangeUnit = seUnit entry
+                                , cdlFlowName = seProductName entry
+                                , cdlLocation = seLocation entry
+                                , cdlSourceDatabase = dbN
+                                , cdlTiedAlternatives = []
+                                , cdlAnswers = Just AnsweredExchange{aePosition = position, aeFactor = perLine * seRefSign entry}
+                                }
+                     in
+                        mempty{cdlLinks = [crossLink], cdlWasteExactLinks = 1}
+            -- A treatment measured in another kind of unit than the line treats none of it.
+            WasteMatched _ _ -> mempty{cdlCutoffWasteCount = 1}
             WasteAmbiguous _ -> mempty{cdlWasteAmbiguous = 1}
             WasteNoMatch -> mempty{cdlCutoffWasteCount = 1}
     | otherwise = mempty
@@ -2982,6 +2990,23 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows 
         | ClaimById treatment <- claim = findWasteTreatmentByActivity ctx treatment fid
         | otherwise = findWasteTreatmentAcrossDatabases ctx fid flowName
     flowName = maybe "" wfName (M.lookup fid wasteFlowDb)
+
+{- | What one unit of a line holds in the unit its link to another database
+speaks: the flow's for a supplier, the treatment's for a waste, so that the
+demands of several lines on one supplier, which are summed, share a unit. 1
+where the two are spelled alike or one is unknown, as the matrix reads a line
+within its own database; Nothing for two units that measure different things.
+-}
+lineInLinkUnit :: UC.UnitConfig -> UnitDB -> Exchange -> T.Text -> Maybe Double
+lineInLinkUnit cfg unitDb ex target
+    | T.null line || T.null target || UC.unitKey cfg line == UC.unitKey cfg target = Just 1
+    | otherwise = UC.convertUnit cfg line target 1
+  where
+    line = writtenUnitName unitDb ex
+
+-- | The unit a line is written in, empty where the database does not know it.
+writtenUnitName :: UnitDB -> Exchange -> T.Text
+writtenUnitName unitDb ex = maybe "" unitName (M.lookup (exchangeUnitId ex) unitDb)
 
 -- | Report cross-database linking statistics
 reportCrossDBLinkingStats :: SimpleDatabase -> CrossDBLinkingStats -> IO ()

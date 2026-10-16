@@ -146,6 +146,16 @@
 
 ### Fixed
 
+- A line whose supplier is in another database is read in its own unit. An
+  activity buying 2000 g of a product another database sells per kilogram
+  asked that database for 2000 kg, a thousand times too much, since the
+  link read the line's number in the unit of the product rather than in
+  the unit the line is written in. Lines whose supplier is in the same
+  database were already converted. The same holds for a waste sent to a
+  treatment in another database. A line written in a unit that measures
+  something else than its product (seconds for kilograms) is no longer
+  linked, and is listed among the inputs left out.
+
 - An activity search of several words keeps only the names holding every
   word, or a close spelling of it, as a search sorted by name already did.
   Ranked by relevance, it kept any name holding one of them: "soft wheat"

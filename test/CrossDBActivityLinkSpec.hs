@@ -30,13 +30,13 @@ import Database.Loader (collectStagedDanglingProductNames, findAllCrossDBLinks)
 import SynonymDB (emptySynonymDB)
 import Test.Hspec
 import Types
-import UnitConversion (defaultUnitConfig)
+import UnitConversion (UnitConfig, UnitDef (..), defaultDimensionOrder, defaultUnitConfig, mergeUnitConfigs, mkUnitConfig)
 
 -- ---------------------------------------------------------------------------
 -- UUIDs
 -- ---------------------------------------------------------------------------
 
-cAct, cProd, supAct, supProd, oldAct, newAct, supProd2, kgUnit :: UUID.UUID
+cAct, cProd, supAct, supProd, oldAct, newAct, supProd2, kgUnit, gUnit, sUnit :: UUID.UUID
 cAct = read "c0000000-0000-0000-0000-000000000001"
 cProd = read "c0000000-0000-0000-0000-000000000002"
 supAct = read "50000000-0000-0000-0000-000000000001"
@@ -45,6 +45,8 @@ oldAct = read "01d00000-0000-0000-0000-000000000001"
 newAct = read "0ee00000-0000-0000-0000-000000000001"
 supProd2 = read "50000000-0000-0000-0000-000000000003"
 kgUnit = read "00000000-0000-0000-0000-0000000000a1"
+gUnit = read "00000000-0000-0000-0000-0000000000a2"
+sUnit = read "00000000-0000-0000-0000-0000000000a3"
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
@@ -129,7 +131,7 @@ mkDB acts flows =
         , sdbTechFlows = M.fromList [(tfId f, f) | f <- flows]
         , sdbBioFlows = M.empty
         , sdbWasteFlows = M.empty
-        , sdbUnits = M.singleton kgUnit (Unit kgUnit "kg" "" "")
+        , sdbUnits = M.fromList [(kgUnit, Unit kgUnit "kg" "" ""), (gUnit, Unit gUnit "g" "" ""), (sUnit, Unit sUnit "s" "" "")]
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         }
@@ -139,12 +141,15 @@ ctxFor idbs =
     LinkingContext
         { lcIndexedDatabases = idbs
         , lcSynonymDB = emptySynonymDB
-        , lcUnitConfig = defaultUnitConfig
+        , lcUnitConfig = withGrams
         , lcThreshold = defaultLinkingThreshold
         , lcLocationHierarchy = locationHierarchy
         , lcGeographyPolicy = GeoGlobal
         , lcSupplierAliases = emptyAliasMap
         }
+
+withGrams :: UnitConfig
+withGrams = mergeUnitConfigs [defaultUnitConfig, mkUnitConfig defaultDimensionOrder (M.singleton "g" (UnitDef [if d == "mass" then 1 else 0 | d <- defaultDimensionOrder] 0.001))]
 
 runLinks :: SimpleDatabase -> [IndexedDatabase] -> CrossDBLinkingStats
 runLinks fg idbs =
@@ -209,6 +214,25 @@ spec = do
                 stats = runLinks fg [bg]
             length (cdlLinks stats) `shouldBe` 1
             cdlAttributeFallbacks stats `shouldBe` []
+
+    -- A link's demand is summed with the other links to its supplier and read
+    -- in the unit the link names, so a line written in grams asks for kilograms.
+    describe "findExchangeCrossDBLink (a line in another unit than its flow)" $ do
+        let bg = indexBg (mkDB [((supAct, supProd), mkActivity "widget" "GLO" [refEx supProd])] [mkFlow supProd "widget"])
+            linksOf link unit =
+                cdlLinks
+                    ( runLinks
+                        (mkDB [((cAct, cProd), mkActivity "consumer" "GLO" [refEx cProd, (inputEx supProd link){techAmount = 2000, techUnitId = unit}])] [mkFlow cProd "consumer-product", mkFlow supProd "widget"])
+                        [bg]
+                    )
+            asked = map (\l -> (cdlCoefficient l, cdlExchangeUnit l, maybe 0 aeFactor (cdlAnswers l)))
+            near (c, u, f) (c', u', f') = abs (c - c') < 1e-12 && u == u' && abs (f - f') < 1e-15
+        it "asks 2 kg of its supplier for a line of 2000 g, found by identity or by attributes" $ do
+            and (zipWith near (asked (linksOf (Just supAct) gUnit)) [(2, "kg", 0.001)]) `shouldBe` True
+            and (zipWith near (asked (linksOf Nothing gUnit)) [(2, "kg", 0.001)]) `shouldBe` True
+            map length [linksOf (Just supAct) gUnit, linksOf Nothing gUnit] `shouldBe` [1, 1]
+        it "links no line written in a unit that measures something else" $
+            linksOf (Just supAct) sUnit `shouldBe` []
 
     describe "findExchangeCrossDBLink (two producers of one product)" $ do
         -- The shape a Brightway foreground meets in a background database: one product name,

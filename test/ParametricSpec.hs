@@ -576,7 +576,7 @@ bakeryActivities =
         , ((aDough, pDough), activity "dough" [reference pDough, from aLoaf (withFormula (formulaOf "0.1 * hydration") (line pLoaf 0.1 Input)), (emission "" 0.3){bioFormula = Nothing}])
         , -- A treatment, its reference a negative output.
           ((aBin, pWaste), activity "bin" [line pWaste (-1) ReferenceProduct, (emission "" 2){bioFormula = Nothing}])
-        , ((aSandwich, pSandwich), activity "sandwich" [reference pSandwich, (from aBread (line pBread 500 Input)){techUnitId = g}, (line pElectricity 2 Input){techLocation = "FR"}, (emission "" 0.1){bioFormula = Nothing}])
+        , ((aSandwich, pSandwich), activity "sandwich" [reference pSandwich, (from aBread (line pBread 500 Input)){techUnitId = g}, (line pElectricity 2000 Input){techLocation = "FR", techUnitId = g}, (emission "" 0.1){bioFormula = Nothing}])
         ]
   where
     from supplier ex = ex{techActivityLinkId = Just supplier}
