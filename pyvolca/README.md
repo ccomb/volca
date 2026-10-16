@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 66** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 67** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -2875,6 +2875,7 @@ most-populated categories, over the full inventory.
 | `resource_flows` | `int` | _required_ |
 | `flows` | `list[InventoryFlow]` | _required_ |
 | `statistics` | `InventoryStatistics` | _required_ |
+| `matched_flows` | `int` | 0 |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 

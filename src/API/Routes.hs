@@ -1506,7 +1506,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 66: the @parameters@ of a scoring, inventory or supply chain
+(revision 67: the @flow@ and @limit@ of an inventory request, and the
+@matchedFlows@ its answer counts;
+revision 66: the @parameters@ of a scoring, inventory or supply chain
 request, values the database is read at;
 revision 65: the @parameters@ and @databaseParameters@ of an activity,
 with the @uncertainty@ of an input parameter;
@@ -1651,7 +1653,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 66
+currentWireVersion = 67
 
 getVersion :: AppM Value
 getVersion = do
@@ -1833,11 +1835,10 @@ getActivityTree dbName processId = counted Reading dbName (ProcessKey processId)
 
 {- | Inventory with optional substitutions; goes through the cross-DB
 back-substitution path so dep-DB inventories merge into the response.
-The flows kept are those named by @mFlow@, and with @mLimit@ only that many
-of them, largest first; the statistics still cover the whole inventory.
+@keep@ picks the flows the reader asked for.
 -}
-activityInventoryCore :: Text -> Text -> Maybe Text -> Maybe Int -> Maybe SubstitutionRequest -> AppM InventoryExport
-activityInventoryCore dbName processIdText mFlow mLimit mSub = do
+activityInventoryCore :: Text -> Text -> (InventoryExport -> InventoryExport) -> Maybe SubstitutionRequest -> AppM InventoryExport
+activityInventoryCore dbName processIdText keep mSub = do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     withRequestDatabase dbName mSub $ \db sharedSolver -> do
@@ -1846,12 +1847,18 @@ activityInventoryCore dbName processIdText mFlow mLimit mSub = do
         liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ (\msg -> throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 msg)})
         (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
         cutoffs <- liftIO (Impact.solutionCutoffs dbManager ReadInventory sol)
-        let inv = Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)
-            kept = maybe id Service.largestInventoryFlows mLimit . maybe id Service.inventoryFlowsNamed mFlow
-        pure inv{ieFlows = kept (ieFlows inv)}
+        pure (keep (Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)))
+
+-- | The flows of an inventory a request's @flow@ and @limit@ keep, or a refusal of a negative limit.
+inventoryKept :: Maybe Text -> Maybe Int -> AppM (InventoryExport -> InventoryExport)
+inventoryKept mFlow mLimit
+    | maybe False (< 0) mLimit = badRequest "limit must be zero or more"
+    | otherwise = pure (Service.keepInventoryFlows mFlow mLimit)
 
 getActivityInventory :: Text -> Text -> Maybe Text -> Maybe Int -> AppM InventoryExport
-getActivityInventory dbName processIdText mFlow mLimit = counted Inventorying dbName (ProcessKey processIdText) $ activityInventoryCore dbName processIdText mFlow mLimit Nothing
+getActivityInventory dbName processIdText mFlow mLimit = counted Inventorying dbName (ProcessKey processIdText) $ do
+    keep <- inventoryKept mFlow mLimit
+    activityInventoryCore dbName processIdText keep Nothing
 
 getActivityGraph :: Text -> Text -> Maybe Double -> AppM GraphExport
 getActivityGraph dbName processId maybeCutoff = counted Reading dbName (ProcessKey processId) $ do
@@ -2147,7 +2154,9 @@ postActivityLCIABatch dbName processIdText collectionName mExcludeLT subReq =
         activityLCIABatchH dbName processIdText collectionName (Just subReq) (longTermModeFromExclude (fromMaybe False mExcludeLT))
 
 postActivityInventory :: Text -> Text -> Maybe Text -> Maybe Int -> SubstitutionRequest -> AppM InventoryExport
-postActivityInventory dbName processIdText mFlow mLimit subReq = counted Inventorying dbName (ProcessKey processIdText) $ activityInventoryCore dbName processIdText mFlow mLimit (Just subReq)
+postActivityInventory dbName processIdText mFlow mLimit subReq = counted Inventorying dbName (ProcessKey processIdText) $ do
+    keep <- inventoryKept mFlow mLimit
+    activityInventoryCore dbName processIdText keep (Just subReq)
 
 postActivitySupplyChain ::
     Text ->

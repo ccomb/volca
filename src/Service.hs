@@ -284,9 +284,20 @@ search_flows reads it, synonyms included, with only its closest match kept.
 inventoryFlowsNamed :: Text -> [InventoryFlowDetail] -> [InventoryFlowDetail]
 inventoryFlowsNamed query = filterByName query (flowSearchFields . BioKind . ifdFlow)
 
--- | The @n@ flows of an inventory largest in absolute quantity, largest first.
-largestInventoryFlows :: Int -> [InventoryFlowDetail] -> [InventoryFlowDetail]
-largestInventoryFlows n = take n . L.sortOn (Down . abs . ifdQuantity)
+{- | The inventory with only the flows whose name answers @query@ and, with
+@limit@, only that many of them, largest in absolute quantity first. The
+totals and statistics still cover the whole inventory; 'imMatchedFlows' counts
+the flows the name kept, so a caller can tell 50 shown of 50 matched from 50
+of 300.
+-}
+keepInventoryFlows :: Maybe Text -> Maybe Int -> InventoryExport -> InventoryExport
+keepInventoryFlows query limit inv =
+    inv
+        { ieMetadata = (ieMetadata inv){imMatchedFlows = length named}
+        , ieFlows = maybe id (\n -> take n . L.sortOn (Down . abs . ifdQuantity)) limit named
+        }
+  where
+    named = maybe id inventoryFlowsNamed query (ieFlows inv)
 
 {- | Core inventory calculation logic using matrix-based LCA calculations
 | Convert raw inventory to structured export format.
@@ -346,6 +357,7 @@ convertToInventoryExport db bioFlowDB unitDB processId rootActivity cutoffs inve
                         , prsBlockProducts = sbProducts rootBlock
                         }
                 , imTotalFlows = length flowDetails
+                , imMatchedFlows = length flowDetails
                 , imEmissionFlows = emissionFlows
                 , imResourceFlows = resourceFlows
                 }

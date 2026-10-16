@@ -2357,6 +2357,9 @@ class InventoryResult:
     resource_flows: int
     flows: list[InventoryFlow]
     statistics: InventoryStatistics
+    matched_flows: int = 0
+    """The flows ``flow=`` kept, before ``limit=``; ``total_flows`` without
+    a name filter (wire revision 67)."""
     cutoff_inputs: list[CutoffInput] = field(default_factory=list)
     """Inputs no loaded database supplies, counted as zero in this result
     (wire revision 58)."""
@@ -2374,6 +2377,7 @@ class InventoryResult:
             resource_flows=meta["resourceFlows"],
             flows=[InventoryFlow.from_json(f) for f in d.get("flows", [])],
             statistics=InventoryStatistics.from_json(d["statistics"]),
+            matched_flows=meta.get("matchedFlows", meta["totalFlows"]),
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
             withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )

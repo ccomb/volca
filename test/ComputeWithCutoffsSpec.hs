@@ -295,10 +295,14 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         it "keeps the flows a name and a limit ask for, and counts the whole inventory" $ do
             let kept flow limit = do
                     inventory <- ok manager (getActivityInventory "main" pid flow limit)
-                    pure (map (bfId . ifdFlow) (ieFlows inventory), imTotalFlows (ieMetadata inventory))
-            kept (Just "carbon dioxide") Nothing `shouldReturn` ([bfId co2], 1)
-            kept (Just "methane") Nothing `shouldReturn` ([], 1)
-            kept Nothing (Just 0) `shouldReturn` ([], 1)
+                    let metadata = ieMetadata inventory
+                    pure (map (bfId . ifdFlow) (ieFlows inventory), imMatchedFlows metadata, imTotalFlows metadata)
+            kept (Just "carbon dioxide") Nothing `shouldReturn` ([bfId co2], 1, 1)
+            kept (Just "methane") Nothing `shouldReturn` ([], 0, 1)
+            kept (Just "carbon dioxide") (Just 0) `shouldReturn` ([], 1, 1)
+
+        it "refuses a negative limit" $
+            either Just (const Nothing) <$> runIn manager (getActivityInventory "main" pid Nothing (Just (-1))) `shouldReturn` Just 400
 
         it "gives nothing for the direct aggregate, which solves nothing" $
             (aggCutoffInputs <$> aggregateIn manager pid "direct") `shouldReturn` []

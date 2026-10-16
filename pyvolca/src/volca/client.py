@@ -2597,6 +2597,9 @@ class Client:
             substitutions: Upstream supplier swaps; see :meth:`get_supply_chain`.
             parameters: Values for input parameters; see :meth:`get_supply_chain`.
         """
+        if flow is not None or limit is not None:
+            # An older engine's route declares neither, so the call would be refused here without saying why.
+            self._require_wire(67, "get_inventory(flow=..., limit=...)", engine_hint="0.16.0")
         return InventoryResult.from_json(
             self._call(
                 "get_inventory",

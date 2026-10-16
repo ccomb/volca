@@ -102,8 +102,9 @@
   MCP tool already did: `flow` keeps the flows whose name answers it, read
   the way a flow search reads it, and `limit` keeps that many of them,
   largest in absolute quantity first. The statistics still cover the whole
-  inventory. pyvolca's `get_inventory(flow=..., limit=...)` was refused by
-  the client itself, since the route declared neither.
+  inventory, and `matchedFlows` counts the flows the name kept. pyvolca's
+  `get_inventory(flow=..., limit=...)` was refused by the client itself,
+  since the route declared neither. Wire revision 67.
 
 - In a SimaPro file, a parameter a process defines now replaces a database or
   project parameter of the same name, whatever kind each one is. A process

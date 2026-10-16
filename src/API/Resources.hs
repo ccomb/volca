@@ -1275,7 +1275,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "flow" "string" Optional "Filter flows by name or synonym, the way search_flows reads a query: every word must appear, case-blind, in any order, punctuation optional"
-        , pLimit "Max flows to return, sorted by absolute quantity (default 50)"
+        , pLimit "Max flows to return, largest in absolute quantity first. Without it, the MCP tool returns 50 and the HTTP route every flow"
         , pSubstitutions
         , pParameters
         ]

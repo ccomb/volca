@@ -139,6 +139,7 @@ data InventoryExport = InventoryExport
 data InventoryMetadata = InventoryMetadata
     { imRootActivity :: ActivitySummary
     , imTotalFlows :: Int
+    , imMatchedFlows :: Int -- The flows a name filter kept, before a limit; the total without one
     , imEmissionFlows :: Int -- Biosphere outputs (negative environmental impact)
     , imResourceFlows :: Int -- Biosphere inputs (resource extraction)
     }
