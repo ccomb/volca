@@ -3,6 +3,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeOperators #-}
 
 module API.Routes where
@@ -12,7 +13,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ParameterValue, PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterName (..), ParameterValue, PerturbedEntry (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import qualified Config
 import Control.Concurrent.Async (mapConcurrently)
@@ -30,6 +31,7 @@ import qualified Data.ByteString.Lazy as BSL
 import Data.Char (isAscii, isControl)
 import Data.Foldable (asum)
 import Data.List (intercalate, nub, partition, sortOn)
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
@@ -42,6 +44,7 @@ import Data.Time (NominalDiffTime, diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.Validation as V
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as U
 import Database
 import qualified Database.ComputedQuality as CQ
 import Database.Cutoffs (Cutoffs (..))
@@ -66,7 +69,9 @@ import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, le
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
 import qualified Method.Types as MT
 import Numeric (showFFloat)
+import Parametric (Input (..), Moving (..), describeParameterRefusal)
 import Progress (ProgressLevel (Info, Warning), getLogLines, reportProgress)
+import qualified ReducedModel as RM
 import qualified Search.Normalize as Normalize
 import Servant
 import Servant.OpenApi (toOpenApi)
@@ -121,6 +126,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "top-flows" Int :> Get '[JSON] LCIAResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIAResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "sensitivity" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> ReqBody '[JSON] SensitivityRequest :> Post '[JSON] SensitivityResponse
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "reduced-model" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] ReducedModelRequest :> Post '[JSON] ReducedModel
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> QueryParam "flow" Text :> QueryParam "limit" Int :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] InventoryExport
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> QueryParam "name" Text :> QueryParam "limit" Int :> QueryParam "min-quantity" Double :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] SupplyChainResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "consumers" :> QueryParam "name" Text :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> Get '[JSON] ConsumersResponse
@@ -1531,7 +1537,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 67: the @flow@ and @limit@ of an inventory request, and the
+(revision 69: the reduced-model route, the scores of an activity as a function
+of some of its parameters;
+revision 68: the @parameterSets@ of a batch score, and the @parameterSet@ of
+each row;
+revision 67: the @flow@ and @limit@ of an inventory request, and the
 @matchedFlows@ its answer counts;
 revision 66: the @parameters@ of a scoring, inventory or supply chain
 request, values the database is read at;
@@ -1678,7 +1688,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 68
+currentWireVersion = 69
 
 getVersion :: AppM Value
 getVersion = do
@@ -2167,6 +2177,157 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
             , srCutoffInputs = cutoffShown baselineCutoffs
             , srWithheldCutoffs = cutoffWithheld baselineCutoffs
             }
+
+{- | A process's scores as a function of the parameters named, for a program to
+compute at any of their values without asking again ('ReducedModel' says how).
+It shows the amounts and formulas of the processes they move, so their database
+must grant reading its inventory.
+
+Each supplier is solved for one more unit of its product, 64 at a time, and its
+solution is given the databases of the root's, with nothing in those it does
+not reach: a method is then scored on the path the root's score takes.
+-}
+postReducedModel :: Text -> Text -> DM.CollectionName -> Maybe Bool -> ReducedModelRequest -> AppM ReducedModel
+postReducedModel dbName processIdText collectionName mExcludeLT ReducedModelRequest{rmqParameters = names} = counted Scoring dbName (ProcessKey processIdText) $ do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
+    when (null names) $ badRequest "Name at least one parameter: the model is a function of those."
+    dbManager <- asks aeDbManager
+    (db, solver) <- requireDatabaseByName dbName
+    (root, _) <- resolveOrThrow db processIdText
+    (methods, scoringSets) <- loadCollection collectionName
+    unitCfg <- liftIO (getMergedUnitConfig dbManager)
+    free <- either throwServiceError pure (traverse (\ParameterName{pnProcess = process, pnName = name} -> (,name) <$> traverse (fmap fst . Service.resolveActivityAndProcessId db) process) names)
+    moving <- either (either (badRequest . describeParameterRefusal) unprocessable) pure (RM.columns unitCfg db root free)
+    let suppliers = S.toList (S.fromList [s | column <- moving, (s, _) <- RM.columnTechnosphere column])
+        k = length moving
+    when (k > 500 || k * length suppliers > 1000000) . badRequest $
+        T.concat ["These parameters move ", T.pack (show k), " processes, supplied by ", T.pack (show (length suppliers)), ": a model holds at most 500 processes, and a million for the two counts multiplied. Name fewer parameters."]
+    let ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
+        depLookup = DM.mkDepSolverLookup dbManager
+        withPolicy = liftIO . Impact.withLongTermPolicy dbManager ltMode
+        scoredBy sol = do
+            byId <- liftIO (batchedScoresFor dbManager dbName collectionName db sol methods)
+            either scoringError pure (traverse (`resolveBatchedScore` byId) methods)
+        pids = map (movingProcess . RM.columnMoving) moving
+    atDefaults <- withPolicy =<< solutionWithDeps dbName db solver root
+    let rootShape@((_, _, x0) :| _) = SharedSolver.csScalings atDefaults
+        zeros = U.map (const 0)
+        shaped sol =
+            let reached@((first', _, _) :| _) = SharedSolver.csScalings sol
+                headed = if first' == dbName then reached else (dbName, db, zeros x0) NE.<| reached
+                seen = S.fromList [name | (name, _, _) <- NE.toList headed]
+             in sol{SharedSolver.csScalings = NE.appendList headed [(name, d, zeros v) | (name, d, v) <- NE.toList rootShape, S.notMember name seen]}
+        -- One more unit of each of a database's suppliers: the scores, and the scaling of that database it solves to.
+        solved sdb name ssolver depth supplied = fmap concat . forM (chunksOf 64 supplied) $ \chunk -> do
+            let unit p = Matrix.Demand (U.generate (fromIntegral (dbActivityCount sdb)) (\c -> if c == fromIntegral (dbActivityIndex sdb V.! fromIntegral p) then 1 else 0))
+            sols <- either unprocessable pure =<< liftIO (SharedSolver.goWithDeps unitCfg depLookup sdb name ssolver (map unit chunk) depth)
+            forM sols $ \sol -> do
+                scores <- scoredBy =<< withPolicy (shaped sol)
+                let (_, _, v) :| _ = SharedSolver.csScalings sol
+                pure (scores, v)
+        answersIn :: Text -> [RM.Supplier] -> AppM [(RM.Supplier, (Double, [Double], [Double]))]
+        answersIn name group
+            | name == dbName = do
+                let within = [p | RM.Within p <- group]
+                got <- solved db dbName solver 0 within
+                pure [(RM.Within p, (1, scores, [Matrix.processScaling db v q | q <- pids])) | (p, (scores, v)) <- zip within got]
+            | otherwise =
+                liftIO (depLookup name) >>= \case
+                    Nothing -> pure []
+                    Just (depDb, depSolver) -> do
+                        found <-
+                            either unprocessable (pure . concat) . sequence $
+                                [ fmap (\(p, conversion) -> (s, p, conversion)) . maybeToList <$> Matrix.inSupplierUnit unitCfg name depDb key (StatedAmount unit 1)
+                                | s@(RM.Elsewhere _ key unit) <- group
+                                ]
+                        got <- solved depDb name depSolver 1 [p | (_, p, _) <- found]
+                        pure [(s, (conversion, scores, map (const 0) pids)) | ((s, _, conversion), (scores, _)) <- zip found got]
+        databaseOf = \case
+            RM.Within _ -> dbName
+            RM.Elsewhere name _ _ -> name
+        supplierText = \case
+            RM.Within p -> processIdToText db p
+            RM.Elsewhere _ (act, prod) _ -> UUID.toText act <> "_" <> UUID.toText prod
+    baseline <- scoredBy atDefaults
+    tables <- liftIO (buildPerDbSetTables dbManager collectionName rootShape methods)
+    (mFlows, mUnits) <- liftIO (DM.getMergedFlowMetadata dbManager)
+    factorsAt <- either scoringError pure (Method.Mapping.rowFactorsOf unitCfg mUnits mFlows ltMode db ((\(_, _, t) -> t) <$> tables))
+    -- A supplier no loaded database holds adds nothing, and is left out.
+    answered <- concat <$> traverse (uncurry answersIn) (M.toList (M.fromListWith (flip (<>)) [(databaseOf s, [s]) | s <- suppliers]))
+    let position = M.fromList (zip (map fst answered) [0 ..])
+        conversions = M.fromList [(s, conversion) | (s, (conversion, _, _)) <- answered]
+        tree = either (unprocessable . Expr.describeRefusal) pure . Expr.readFormula Expr.Volca
+        lineOf stored formula = ModelLine stored <$> traverse tree formula
+        exchangeLine ex = lineOf (exchangeAmount ex) (efText <$> exchangeFormula ex)
+        entryLine e = lineOf (RM.entryStored e) (RM.entryFormula e)
+        binding (name, formula) = ModelBinding (T.toLower name) <$> tree formula
+        modelProcess column = do
+            let process = RM.columnMoving column
+                pid = movingProcess process
+                NormLines{nlOutputs = outputs, nlSelfLoops = selfLoops, nlInputs = inputs} = RM.columnReference column
+            bindings <- traverse binding (movingBindings process)
+            reference <- ModelReference <$> traverse exchangeLine outputs <*> traverse exchangeLine selfLoops <*> traverse exchangeLine inputs
+            technosphere <-
+                sequence
+                    [ ModelInput i (RM.entryFactor e * conversion) <$> entryLine e
+                    | (s, e) <- RM.columnTechnosphere column
+                    , Just i <- [M.lookup s position]
+                    , Just conversion <- [M.lookup s conversions]
+                    ]
+            biosphere <- traverse (\(row, e) -> ModelEmission (factorsAt row pid) <$> entryLine e) (RM.columnBiosphere column)
+            pure
+                ModelProcess
+                    { mprProcessId = processIdToText db pid
+                    , mprName = activityName (dbActivities db V.! fromIntegral pid)
+                    , mprScaling = Matrix.processScaling db x0 pid
+                    , mprValues = M.fromList [(name, value) | (name, Fixed value) <- M.toList (movingInputs process)]
+                    , mprParameters = M.fromList [(name, i) | (name, Free i) <- M.toList (movingInputs process)]
+                    , mprBindings = bindings
+                    , mprReference = reference
+                    , mprTechnosphere = technosphere
+                    , mprBiosphere = biosphere
+                    }
+        byName = M.fromList (zip (map methodName methods) [0 ..])
+        scoringSet ss = do
+            computed <- traverse binding (Expr.settledInOrder Expr.Volca (0 <$ ssVariables ss) (M.toList (ssComputed ss)))
+            scores <- traverse tree (ssScores ss)
+            pure
+                ModelScoringSet
+                    { mssName = ssName ss
+                    , mssUnit = ssUnit ss
+                    , mssVariables = M.fromList [(T.toLower variable, i) | (variable, category) <- M.toList (ssVariables ss), Just i <- [M.lookup category byName]]
+                    , mssComputed = computed
+                    , mssNormalization = M.mapKeys T.toLower (ssNormalization ss)
+                    , mssWeighting = M.mapKeys T.toLower (ssWeighting ss)
+                    , mssScores = scores
+                    , mssDisplayMultiplier = fromMaybe 1 (ssDisplayMultiplier ss)
+                    }
+        freeParameter (ParameterName{pnProcess = processText}, (process, name)) =
+            case Service.parametersForAPI (M.filterWithKey (\key _ -> T.toLower key == T.toLower name) (maybe (dbParameters db) (activityParameters . (dbActivities db V.!) . fromIntegral) process)) of
+                [shown] -> pure (FreeParameter processText shown)
+                _ -> unprocessable ("parameter '" <> name <> "' is not one name")
+    processes <- traverse modelProcess moving
+    sets <- traverse scoringSet scoringSets
+    parameters <- traverse freeParameter (zip names free)
+    pure
+        ReducedModel
+            { rdmMethods = [ReducedMethod (methodId m) (methodName m) (methodUnit m) | m <- methods]
+            , rdmExcludeLongTerm = ltMode == ExcludeLongTerm
+            , rdmBaseline = baseline
+            , rdmParameters = parameters
+            , rdmProcesses = processes
+            , rdmSuppliers =
+                [ ModelSupplier (supplierText s) (databaseOf s) scores scalings
+                | (s, (_, scores, scalings)) <- answered
+                ]
+            , rdmScoringSets = sets
+            }
+  where
+    unprocessable :: Text -> AppM a
+    unprocessable msg = throwError err422{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
+
+    chunksOf :: Int -> [a] -> [[a]]
+    chunksOf n = takeWhile (not . null) . map (take n) . iterate (drop n)
 
 getActivityLCIABatch :: Text -> Text -> DM.CollectionName -> Maybe Bool -> AppM LCIABatchResult
 getActivityLCIABatch dbName processIdText collectionName mExcludeLT =
@@ -2936,6 +3097,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getActivityLCIA
             :<|> postActivityLCIA
             :<|> postActivitySensitivity
+            :<|> postReducedModel
             :<|> postActivityInventory
             :<|> postActivitySupplyChain
             :<|> getActivityConsumers

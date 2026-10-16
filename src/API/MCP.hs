@@ -54,7 +54,7 @@ import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, selectMethod)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterValue (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.List (find)
 import qualified Data.List as L
@@ -633,6 +633,7 @@ dispatchTool dbManager presets mHosting mBaseUrl rid name args licence = case na
     "get_inventory" -> callGetInventory dbManager rid args
     "get_impacts" -> callGetImpacts dbManager mBaseUrl licence rid args
     "compute_sensitivity" -> callComputeSensitivity dbManager mBaseUrl rid args
+    "get_reduced_model" -> callGetReducedModel dbManager mHosting rid args
     "list_methods" -> callListMethods dbManager rid
     "get_flow_mapping" -> callGetFlowMapping dbManager rid args
     "get_characterization" -> callGetCharacterization dbManager rid args
@@ -2609,6 +2610,17 @@ callListGeographies dbManager rid args = runTool rid $ do
 -- need. Each response is enriched with a 'web_url' deep link to the
 -- matching web UI view so a human can continue the exploration visually.
 -- ============================================================================
+
+-- | Handler for the 'get_reduced_model' MCP tool: the REST route's answer, as it is.
+callGetReducedModel :: DatabaseManager -> Maybe HostingConfig -> RequestId -> KeyMap Value -> IO Value
+callGetReducedModel dbManager mHosting rid args =
+    runTool rid $ do
+        dbName <- except (requireText "database" args)
+        pidText <- except (requireText "process_id" args)
+        coll <- except (requireText "collection" args)
+        names <- except (parseArrayArg "parameters" (Just "'parameters' is required (array of {name} or {process, name})") args :: Either Text [ParameterName])
+        res <- liftIO $ BI.runReducedModel dbManager mHosting dbName pidText coll (fromMaybe False (boolArg "exclude_long_term" args)) names
+        either (throwE . batchErrorMsg) (pure . toolSuccessJson rid . toJSON) res
 
 -- | Translate a 'BI.BatchError' into the MCP 'toolError' payload.
 batchErrorMsg :: BI.BatchError -> Text

@@ -112,6 +112,21 @@
   takes `parameter_sets`, and pyvolca's `score_activities` too. Wire
   revision 68.
 
+- `POST /db/{db}/activity/{pid}/reduced-model/{collection}` gives the scores
+  of an activity as a function of the parameters it names, for a program to
+  compute them at many values without asking the engine again (Monte Carlo,
+  sensitivity indices). The answer holds the scores at the database's own
+  values; the processes these parameters move, each with its exchanges as
+  formula trees (`["*", 2, "yield"]`), their stored amounts and the factors
+  of its emissions; the scores of one more unit of each supplier, and the
+  scaling it gives the moving processes; and the scoring sets as formulas
+  over the category totals. Rebuilding the moving columns and solving a
+  system of their size gives the engine's scores exactly, loops included.
+  It is refused when a parameter moves an allocation share, or moves more
+  than 500 processes. On the largest database measured, a model of 104
+  moving processes and 413 suppliers answers in 2.3 s and weighs 1.8 MB.
+  The assistant has it as `get_reduced_model`. Wire revision 69.
+
 ### Fixed
 
 - The inventory of an activity over HTTP takes `flow` and `limit`, as the

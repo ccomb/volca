@@ -41,6 +41,7 @@ module Expr (
     times,
     agrees,
     settle,
+    settledInOrder,
     describeRefusal,
     describeUnsettled,
     normalizeExpr,
@@ -52,7 +53,9 @@ module Expr (
 ) where
 
 import Amount (readAmount)
+import Control.Lens ((&), (?~))
 import Control.Monad (when)
+import Data.Aeson (ToJSON (..), Value (String))
 import Data.Bifunctor (first)
 import Data.Char (isDigit)
 import Data.Either (isRight, lefts)
@@ -61,6 +64,7 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
+import Data.OpenApi (NamedSchema (..), ToSchema (..), description)
 import Data.Semigroup (Max (..), Min (..), sconcat)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -170,6 +174,34 @@ data Formula
     | -- | A condition and two branches; only the branch taken is resolved.
       If Formula Formula Formula
     deriving (Eq, Show)
+
+{- | A formula as a tree a program walks without reading text: a number is a
+number, a string a name (lowered, as every dialect reads names), and an array a
+function, its VoLCA name or operator first and its arguments after it. @-@ with
+one argument changes a sign, with two it subtracts.
+-}
+instance ToJSON Formula where
+    toJSON = \case
+        Literal x -> toJSON x
+        Name name -> String (T.toLower name)
+        Unary f a -> called (OneArgument f) [a]
+        Binary f a b -> called (TwoArguments f) [a, b]
+        Variadic f args -> called (AnyArguments f) (NE.toList args)
+        If c y n -> called Conditional [c, y, n]
+      where
+        called :: Function -> [Formula] -> Value
+        called f args = toJSON (String (word (spelling (reference f))) : map toJSON args)
+
+        word :: Spelling -> Text
+        word = \case
+            Called name -> name
+            Infix op -> op
+            Prefix op -> op
+
+instance ToSchema Formula where
+    declareNamedSchema _ =
+        pure . NamedSchema (Just "Formula") $
+            mempty & description ?~ "A number, a name in lower case, or an array: a function or an operator, then its arguments."
 
 -- | VoLCA's functions of one number.
 data Unary
@@ -1268,7 +1300,20 @@ none come back with the reason. A calculated parameter shadows a known value of
 the same name, case aside.
 -}
 settle :: Dialect -> M.Map Text Double -> [(Text, Text)] -> (M.Map Text Double, [(Text, Unsettled)])
-settle dialect known calculated = foldl' step (known, ambiguous) (stronglyConnComp graph)
+settle dialect known calculated = let (values, refused, _) = settling dialect known calculated in (values, refused)
+
+{- | The calculated parameters 'settle' gives a value, each with its formula, in
+the order it computes them: each after those it reads. In VoLCA's language a
+formula fails only on a name without a value, so the list is the same whatever
+the known values are, and computing it top to bottom at other values gives
+what 'settle' gives at those values.
+-}
+settledInOrder :: Dialect -> M.Map Text Double -> [(Text, Text)] -> [(Text, Text)]
+settledInOrder dialect known calculated = let (_, _, order) = settling dialect known calculated in reverse order
+
+-- | 'settle', with the parameters it gave a value, the last first.
+settling :: Dialect -> M.Map Text Double -> [(Text, Text)] -> (M.Map Text Double, [(Text, Unsettled)], [(Text, Text)])
+settling dialect known calculated = foldl' step (known, ambiguous, []) (stronglyConnComp graph)
   where
     declared :: M.Map Text (NonEmpty (Text, Text))
     declared = M.fromListWith (flip (<>)) [(T.toLower name, (name, formula) :| []) | (name, formula) <- calculated]
@@ -1291,9 +1336,9 @@ settle dialect known calculated = foldl' step (known, ambiguous) (stronglyConnCo
     graph :: [((Text, Text), Text, [Text])]
     graph = [(parameter, key, filter (`M.member` byKey) (map T.toLower (collectIdentifiers dialect formula))) | (key, parameter@(_, formula)) <- M.toList byKey]
 
-    step :: (M.Map Text Double, [(Text, Unsettled)]) -> SCC (Text, Text) -> (M.Map Text Double, [(Text, Unsettled)])
-    step (values, refused) = \case
+    step :: (M.Map Text Double, [(Text, Unsettled)], [(Text, Text)]) -> SCC (Text, Text) -> (M.Map Text Double, [(Text, Unsettled)], [(Text, Text)])
+    step (values, refused, order) = \case
         AcyclicSCC (name, formula) -> case evaluate dialect values formula of
-            Right v -> (M.insert name v (foldr M.delete values (M.findWithDefault [] (T.toLower name) knownSpellings)), refused)
-            Left why -> (values, refused <> [(name, NoValue why)])
-        NECyclicSCC members -> (values, refused <> [(name, Circular (fst <$> members)) | (name, _) <- NE.toList members])
+            Right v -> (M.insert name v (foldr M.delete values (M.findWithDefault [] (T.toLower name) knownSpellings)), refused, (name, formula) : order)
+            Left why -> (values, refused <> [(name, NoValue why)], order)
+        NECyclicSCC members -> (values, refused <> [(name, Circular (fst <$> members)) | (name, _) <- NE.toList members], order)

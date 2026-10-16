@@ -104,6 +104,7 @@ module Method.Mapping (
     BatchedTables (..),
     buildMethodSetTables,
     computeLCIAScoreSetFromTables,
+    rowFactorsOf,
 
     -- * Matching strategies
     MatchStrategy (..),
@@ -136,6 +137,7 @@ import Data.Aeson (ToJSON)
 import Data.Bifunctor (first)
 import Data.Either (lefts, rights)
 import Data.Foldable (asum)
+import Data.Int (Int32)
 import Data.List (partition, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -3624,6 +3626,87 @@ computeLCIAScoreSetFromTables unitCfg unitDB flowDB ltMode inventory hier perDb 
     -- Unreachable: every entry of 'msAllMethods' is in one half or the other.
     missing :: MethodSetEntry -> Either Text Double
     missing e = Left ("scored by neither half of the method set: " <> methodName (mseMethod e))
+
+{- | What each method of a set charges one unit of a biosphere row in a column of
+the root database, in the order of 'msAllMethods', on the path
+'computeLCIAScoreSetFromTables' scores that database by. A method some database
+of the solution regionalizes reads the root's located factors, or its flat ones
+where the root caught none; any other method reads the flat half of the root's
+set. A score is these factors times the amounts, summed, so the factor of a row
+is what one more unit of it adds. Zero where a score counts nothing: a located
+gap, a flow without factor, a delayed emission the long-term policy leaves out.
+
+Takes the set tables of the same databases, root first, that the score takes.
+-}
+rowFactorsOf ::
+    UnitConfig ->
+    UnitDB ->
+    BioFlowDB ->
+    LongTermMode ->
+    Database ->
+    NonEmpty MethodSetTables ->
+    Either Text (Int32 -> Int32 -> [Double])
+rowFactorsOf unitCfg unitDB flowDB ltMode db sets = do
+    perMethod <- traverse factorOf (V.toList (msAllMethods root))
+    pure (\row col -> [f row col | f <- perMethod])
+  where
+    root :: MethodSetTables
+    root :| _ = sets
+
+    regionalIds :: Set.Set UUID
+    regionalIds = Set.fromList [mseMethodId e | mst <- NE.toList sets, e <- V.toList (msRegional mst)]
+
+    bt :: BatchedTables
+    bt = msBatched root
+
+    batchedIndex :: M.Map UUID Int
+    batchedIndex = M.fromList (zip (map mseMethodId (V.toList (btMethods bt))) [0 ..])
+
+    flowOf :: Int32 -> UUID
+    flowOf row = dbBiosphereOrder db V.! fromIntegral row
+
+    kept :: UUID -> Double -> Double
+    kept fid factor = case ltMode of
+        ExcludeLongTerm | isLongTermFlow flowDB fid -> 0
+        _ -> factor
+
+    cascade :: MethodTables -> UUID -> Double
+    cascade tables fid = maybe 0 (\cf -> convertAndMultiply unitCfg unitDB (mtEnergyDensities tables) (M.lookup fid flowDB) cf 1) (lookupCascadeCF tables flowDB fid)
+
+    factorOf :: MethodSetEntry -> Either Text (Int32 -> Int32 -> Double)
+    factorOf e
+        | Set.member (mseMethodId e) regionalIds = case regionalPathOf (mseTables e) of
+            Left err -> Left err
+            Right (Just raw) -> Right (located (rawFactors raw))
+            Right Nothing -> Right (\row _ -> let fid = flowOf row in kept fid (flat (mseTables e) fid))
+        | Just i <- M.lookup (mseMethodId e) batchedIndex = Right (\row _ -> let fid = flowOf row in kept fid (batched i fid))
+        | otherwise = Left ("scored by neither half of the method set: " <> methodName (mseMethod e))
+
+    -- As 'weigh' reads the table.
+    located :: RegionalFactorTable -> Int32 -> Int32 -> Double
+    located factors row col
+        | ExcludeLongTerm <- ltMode, rftLongTerm factors U.! r = 0
+        | slot < 0 = rftUniversal factors U.! r
+        | rftGap factors U.! cell = 0
+        | otherwise = rftRegional factors U.! cell
+      where
+        r = fromIntegral row
+        slot = rftRegionalRow factors U.! r
+        cell = slot * rftLocationCount factors + rftColumnLocation factors U.! fromIntegral col
+
+    -- As 'computeLCIAScoreFromTables' reads one method's tables.
+    flat :: MethodTables -> UUID -> Double
+    flat tables fid
+        | M.null (mtBroadcast tables) = cascade tables fid
+        | otherwise = fromMaybe (cascade tables fid) (M.lookup fid (mtBroadcast tables))
+
+    -- As 'scoreBatched' reads the set's matrix.
+    batched :: Int -> UUID -> Double
+    batched i fid = case M.lookup fid (btUuidIndex bt) of
+        Just j -> btMat bt U.! (j * btNMethods bt + i)
+        Nothing
+            | Set.member fid (btJudged bt) -> 0
+            | otherwise -> cascade (mseTables (btMethods bt V.! i)) fid
 
 {- | Per-method cross-DB regional sum. For each regional method, scores
 @Σ_d rawWeights_d · scaling_d@ across all participating DBs by looking

@@ -142,6 +142,7 @@ library
                      , BrightwayExcel.Writer
                      , Expr
                      , Parametric
+                     , ReducedModel
                      , Zip
                      , ILCD.Common
                      , ILCD.Parser

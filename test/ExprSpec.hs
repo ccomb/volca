@@ -7,6 +7,7 @@ them, and how calculated parameters get their values.
 module ExprSpec (spec) where
 
 import Control.Monad (forM_)
+import Data.Aeson (encode)
 import Data.Foldable (toList)
 import Data.List (nub, sort)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -251,6 +252,9 @@ spec = do
                  in translate Volca (Expr.example r) `shouldBe` Right (Expr.example r)
         it "calls each function by a name of its own" $
             nub Expr.functionNames `shouldBe` Expr.functionNames
+        it "sends a formula as a tree: a number, a name in lower case, or a call spelled as it is written" $
+            encode <$> Expr.readFormula Volca "-2 * Yield + if(a > 1; sqrt(b); 0)"
+                `shouldBe` Right "[\"+\",[\"*\",[\"-\",2],\"yield\"],[\"if\",[\">\",\"a\",1],[\"sqrt\",\"b\"],0]]"
 
     describe "translate" $ do
         it "writes SimaPro's functions by VoLCA's names, without its comment" $ do

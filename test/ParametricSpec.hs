@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -8,18 +9,26 @@ database's @yield@ and electricity by two lines, France and Germany, whose
 formulas read the bread's own @mix_fr@ and @mix_de@. The electricity comes
 from a second database, where the German kilowatt-hour emits ten times the
 French one.
+
+A loaf, read by its reduced model, takes the bread and a dough that takes the
+loaf back, both by formulas of the database's @hydration@, which also sets how
+much loaf the loaf makes, and gives a waste to a bin that treats it.
 -}
 module ParametricSpec (spec) where
 
-import API.Routes (activityLCIABatchH, batchImpactsH)
-import API.Types (BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), LCIABatchResult (..), LCIAResult (..), ParameterValue (..), SubstitutionRequest (..))
+import API.MCP (callTool, noRequestId)
+import API.Routes (activityLCIABatchH, batchImpactsH, postReducedModel)
+import API.Types (BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), FreeParameter (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), ReducedModel (..), ReducedModelRequest (..), SubstitutionRequest (..))
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (evaluate)
-import Data.Aeson (decode)
+import Control.Monad (foldM, forM_)
+import Data.Aeson (Value (..), decode, toJSON)
+import qualified Data.Aeson.KeyMap as KM
+import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy.Char8 as BSL
-import Data.List (nub, sort)
+import Data.List (nub, sort, sortOn, transpose)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
@@ -34,10 +43,12 @@ import Database.Loader (findAllCrossDBLinks)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getGapIndex, initDatabaseManager, withSettings)
 import Database.MatrixBuild (technosphereChange, withActivities)
 import Database.Rebuild (rebuildFromActivities)
+import qualified Expr
+import FlowContributionSpec (payloadOf)
 import Method.Mapping (LongTermMode (..))
-import Method.Types (Method (..), MethodCF (..), MethodCollection (..))
+import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 import qualified Method.Types as MT
-import Parametric (ParameterRefusal (..), Setting (..), instantiate, parameterised)
+import Parametric (ParameterRefusal (..), Setting (..), describeParameterRefusal, instantiate, parameterised)
 import Servant (ServerError (..), runHandler)
 import SharedSolver (CrossDBSolution (..), SharedSolver (solverDbName), computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
 import SynonymDB (emptySynonymDB)
@@ -195,6 +206,52 @@ spec = describe "a database at other values of its parameters" $ do
         -- A batch whose sets are misspelt would be scored at the database's own values.
         isNothing (decode "{\"processIds\": [\"p\"], \"parameter_sets\": [[]]}" :: Maybe BatchImpactsRequest) `shouldBe` True
         fmap (null . birParameterSets) (decode "{\"processIds\": [\"p\"]}") `shouldBe` Just True
+
+    it "gives at other values the scores the engine gives there, through a loop, a moving reference and another database" $ do
+        manager <- scoringManager
+        (bakery, _) <- databases
+        let bread = Just (processIdText (aBread, pBread))
+            loaf = processIdText (aLoaf, pLoaf)
+            names = [ParameterName bread "mix_fr", ParameterName bread "mix_de", ParameterName Nothing "yield", ParameterName Nothing "hydration"]
+            -- The first set is the defaults; the second moves the electricity to the German line, at zero by default.
+            sets = [[1, 0, 1, 1], [0, 1, 2, 1.5], [0.3, 0.7, 0.5, 0.8], [1, 0, 1, 0.6]]
+        forM_ [IncludeLongTerm, ExcludeLongTerm] $ \policy -> do
+            model <- answer manager (postReducedModel "bakery" loaf (CollectionName "model") (Just (policy == ExcludeLongTerm)) (ReducedModelRequest names))
+            map mprName (rdmProcesses model) `shouldMatchList` ["bread", "flour", "loaf", "dough"]
+            forM_ sets $ \values -> do
+                engine <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") (Just (SubstitutionRequest [] (zipWith (\n v -> ParameterValue (pnProcess n) (pnName n) v) names values))) policy)
+                (scores, scoring) <- either (fail . T.unpack) pure (modelAt model values)
+                (values, zipWith (withinTolerance 1e-9) (scoresOf engine) scores) `shouldBe` (values, map (const True) scores)
+                M.keys scoring `shouldBe` M.keys (lbrScoringResults engine)
+                and (M.intersectionWith (\a b -> and (M.intersectionWith (withinTolerance 1e-9) a b) && M.keys a == M.keys b) (lbrScoringResults engine) scoring) `shouldBe` True
+        -- Its differences in the bakery's own rows are those the engine's columns take at the same values.
+        model <- answer manager (postReducedModel "bakery" loaf (CollectionName "model") Nothing (ReducedModelRequest names))
+        breadPid <- pidOf bakery (aBread, pBread)
+        let settings = [Setting (Just breadPid) "mix_fr" 0, Setting (Just breadPid) "mix_de" 1, Setting Nothing "yield" 2, Setting Nothing "hydration" 1.5]
+        moved <- either (fail . show) pure (instantiate bakery settings)
+        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery settings)
+        differences <- either (fail . T.unpack) pure (modelDifferences model [0, 1, 2, 1.5])
+        let expected = M.fromList [((processIdToText bakery (fromIntegral row), processIdToText bakery (fromIntegral column)), negate v) | (column, entries) <- technosphereChange (M.keysSet moved) bakery atSettings, (row, v) <- entries]
+            within = M.filterWithKey (\(supplier, _) _ -> any (\s -> msuProcessId s == supplier && msuDatabase s == "bakery") (rdmSuppliers model)) differences
+        M.keys (M.filter (/= 0) within) `shouldBe` M.keys expected
+        and (M.intersectionWith (withinTolerance 1e-12) expected within) `shouldBe` True
+
+    it "gives through its tool the model the route gives" $ do
+        manager <- scoringManager
+        let loaf = processIdText (aLoaf, pLoaf)
+            names = [ParameterName (Just (processIdText (aBread, pBread))) "mix_de", ParameterName Nothing "hydration"]
+        model <- answer manager (postReducedModel "bakery" loaf (CollectionName "model") Nothing (ReducedModelRequest names))
+        reply <-
+            callTool manager [] Nothing Nothing noRequestId "get_reduced_model" . KM.fromList $
+                [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("parameters", toJSON names)]
+        (Object <$> payloadOf reply) `shouldBe` Just (toJSON model)
+
+    it "refuses a model it cannot give, naming why" $ do
+        manager <- scoringManager
+        let refusedWith request process = either (\e -> (errHTTPCode e, BSL.unpack (errBody e))) (const (200, "")) <$> runHandler (runApp (envOf manager) (postReducedModel "bakery" process (CollectionName "model") Nothing request))
+        fst <$> refusedWith (ReducedModelRequest []) (processIdText (aLoaf, pLoaf)) `shouldReturn` 400
+        refusedWith (ReducedModelRequest [ParameterName Nothing "share_pct"]) (processIdText (aJam, pJam)) `shouldReturn` (400, T.unpack (describeParameterRefusal (ShareMoves "jam" "share_pct")))
+        fst <$> refusedWith (ReducedModelRequest [ParameterName Nothing "nope"]) (processIdText (aLoaf, pLoaf)) `shouldReturn` 400
   where
     shouldReturn' :: IO Double -> Double -> Expectation
     shouldReturn' action expected = action >>= \got -> (got, withinTolerance 1e-9 expected got) `shouldBe` (got, True)
@@ -205,6 +262,97 @@ spec = describe "a database at other values of its parameters" $ do
 refusal :: Either ParameterRefusal a -> Maybe ParameterRefusal
 refusal = either Just (const Nothing)
 
+{- | The scores a reduced model gives at these values of its parameters, by
+method and by scoring set, computed as a program reading it computes them.
+-}
+modelAt :: ReducedModel -> [Double] -> Either Text ([Double], M.Map Text (M.Map Text Double))
+modelAt model values = do
+    at <- traverse (columnAt model values) (rdmProcesses model)
+    at0 <- traverse (columnAt model (defaultsOf model)) (rdmProcesses model)
+    let suppliers = rdmSuppliers model
+        k = length at
+        d = [[M.findWithDefault 0 i c - M.findWithDefault 0 i c0 | ((c, _), (c0, _)) <- zip at at0] | i <- [0 .. length suppliers - 1]]
+        m = transpose (map msuScalings suppliers)
+        system = [[(if p == q then 1 else 0) - sum (zipWith (*) (m !! p) (map (!! q) d)) | q <- [0 .. k - 1]] | p <- [0 .. k - 1]]
+        w = solve system (map mprScaling (rdmProcesses model))
+        dw = [sum (zipWith (*) row w) | row <- d]
+        scores =
+            [ base + sum [msuScores s !! j * x | (s, x) <- zip suppliers dw] + sum [(g !! j - g0 !! j) * wp | ((_, g), (_, g0), wp) <- zip3 at at0 w]
+            | (j, base) <- zip [0 ..] (rdmBaseline model)
+            ]
+    sets <- traverse (setAt scores) (rdmScoringSets model)
+    pure (scores, M.fromList sets)
+  where
+    setAt :: [Double] -> ModelScoringSet -> Either Text (Text, M.Map Text Double)
+    setAt scores set = do
+        raw <- bound (M.map (scores !!) (mssVariables set)) (mssComputed set)
+        let weighted = M.mapWithKey (\v x -> x / M.findWithDefault 1 v (mssNormalization set) * M.findWithDefault 0 v (mssWeighting set)) raw
+        (mssName set,) <$> traverse (fmap (* mssDisplayMultiplier set) . evaluated weighted) (mssScores set)
+
+{- | Each supplier's row of A at these values minus at the defaults, keyed by
+supplier and moving process, as a program reading the model computes it.
+-}
+modelDifferences :: ReducedModel -> [Double] -> Either Text (M.Map (Text, Text) Double)
+modelDifferences model values = do
+    at <- traverse (columnAt model values) (rdmProcesses model)
+    at0 <- traverse (columnAt model (defaultsOf model)) (rdmProcesses model)
+    pure $
+        M.fromList
+            [ ((msuProcessId s, mprProcessId process), M.findWithDefault 0 i c - M.findWithDefault 0 i c0)
+            | (process, (c, _), (c0, _)) <- zip3 (rdmProcesses model) at at0
+            , (i, s) <- zip [0 ..] (rdmSuppliers model)
+            ]
+
+defaultsOf :: ReducedModel -> [Double]
+defaultsOf model = [fromMaybe 0 (prmValue (fpParameter p)) | p <- rdmParameters model]
+
+-- | A moving process's column at these values: its suppliers' rows, and what one unit of it emits, scored by method.
+columnAt :: ReducedModel -> [Double] -> ModelProcess -> Either Text (M.Map Int Double, [Double])
+columnAt model values process = do
+    atDefaults <- scope (defaultsOf model)
+    atValues <- scope values
+    let amount (ModelLine stored formula) = case formula of
+            Nothing -> Right stored
+            Just f -> (\v v0 -> if v == v0 then stored else v) <$> evaluated atValues f <*> evaluated atDefaults f
+        ModelReference outputs selfLoops inputs = mprReference process
+    o <- sum <$> traverse amount outputs
+    s <- sum <$> traverse amount selfLoops
+    i <- sum . map abs <$> traverse amount inputs
+    let reference
+            | abs o > 1e-15 && abs (o - s) > 1e-15 = o - s
+            | i > 1e-15 = i
+            | otherwise = 1
+    tech <- M.fromListWith (+) <$> traverse (\(ModelInput supplier factor line) -> (\a -> (supplier, factor * a / reference)) <$> amount line) (mprTechnosphere process)
+    bio <- foldr (zipWith (+)) (map (const 0) (rdmMethods model)) <$> traverse (\(ModelEmission factors line) -> (\a -> map (\f -> f * a / reference) factors) <$> amount line) (mprBiosphere process)
+    pure (tech, bio)
+  where
+    scope :: [Double] -> Either Text (M.Map Text Double)
+    scope at = bound (M.union (mprValues process) ((at !!) <$> mprParameters process)) (mprBindings process)
+
+-- | Names given their values, then each binding computed in turn.
+bound :: M.Map Text Double -> [ModelBinding] -> Either Text (M.Map Text Double)
+bound = foldM (\env (ModelBinding name formula) -> (\v -> M.insert name v env) <$> evaluated env formula)
+
+evaluated :: M.Map Text Double -> Expr.Formula -> Either Text Double
+evaluated env = first Expr.describeRefusal . Expr.evaluate Expr.Volca env . Expr.render
+
+-- | x such that a x = b, eliminating on the largest pivot first.
+solve :: [[Double]] -> [Double] -> [Double]
+solve a b = backward (forward (zipWith (\row x -> row <> [x]) a b))
+  where
+    forward :: [[Double]] -> [[Double]]
+    forward rows = case sortOn (negate . abs . leading) rows of
+        [] -> []
+        pivot : others -> pivot : forward [drop 1 (zipWith (\q r -> r - q * leading row / leading pivot) pivot row) | row <- others]
+
+    leading :: [Double] -> Double
+    leading = \case
+        x : _ -> x
+        [] -> 0
+
+    backward :: [[Double]] -> [Double]
+    backward = foldr (\row xs -> case row of c : rest -> (last rest - sum (zipWith (*) rest xs)) / c : xs; [] -> xs) []
+
 -- | A manager holding the bakery and its grid, and a collection scoring their carbon dioxide.
 scoringManager :: IO DatabaseManager
 scoringManager = do
@@ -213,8 +361,34 @@ scoringManager = do
     install manager "grid" grid
     install manager "bakery" bakery
     atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert "co2" (MethodCollection [climate] [] []))
+    atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert "model" (MethodCollection [climate, located] [single] []))
     pure manager
   where
+    -- Only the grid has German electricity, so only the grid's tables find a located factor.
+    located :: Method
+    located =
+        climate
+            { methodId = UUID.fromWords 7 0 0 2
+            , methodName = "Climate change, located"
+            , methodFactors = [MethodCF co2 "carbon dioxide" MT.Output 1 (Just (MT.Compartment "air" "unspecified" "")) Nothing "kg" Nothing, MethodCF co2 "carbon dioxide" MT.Output 5 (Just (MT.Compartment "air" "unspecified" "")) Nothing "kg" (Just "DE")]
+            }
+
+    single :: ScoringSet
+    single =
+        ScoringSet
+            { ssName = "Single"
+            , ssUnit = "mPt"
+            , ssVariables = M.fromList [("CC", "Climate change"), ("cl", "Climate change, located")]
+            , ssComputed = M.fromList [("Both", "CC + 2 * cl")]
+            , ssLabels = M.empty
+            , ssNormalization = M.fromList [("Both", 4)]
+            , ssWeighting = M.fromList [("Both", 1), ("CC", 0.5)]
+            , ssScores = M.fromList [("Total", "both + cc")]
+            , ssDisplayMultiplier = Just 1000
+            , ssUnits = M.empty
+            , ssOrigin = DeclaredInConfig
+            }
+
     climate :: Method
     climate =
         Method
@@ -318,6 +492,7 @@ bakeryParameters =
         [ ("yield", input 1)
         , ("ratio", parameter (CalculatedParameter "yield * 4" (Just 4)))
         , ("share_pct", input 100)
+        , ("hydration", input 1)
         ]
 
 bakeryActivities :: M.Map (UUID, UUID) Activity
@@ -329,8 +504,13 @@ bakeryActivities =
         , ((aMill, pMeal), milled pMeal)
         , ((aMill, pBran), milled pBran)
         , ((aJam, pJam), activity "jam" [(reference pJam){techShare = Just DeclaredShare{dsPercent = 100, dsFormula = Just "share_pct"}}])
+        , ((aLoaf, pLoaf), activity "loaf" [withFormula (formulaOf "hydration") (reference pLoaf), from aDough (withFormula (formulaOf "1 + hydration") (line pDough 2 Input)), from aBread (line pBread 1 Input), from aBin (withFormula (formulaOf "-0.2 - 0.3 * hydration") (line pWaste (-0.5) Input)), emission "hydration * hydration" 1])
+        , ((aDough, pDough), activity "dough" [reference pDough, from aLoaf (withFormula (formulaOf "0.1 * hydration") (line pLoaf 0.1 Input)), (emission "" 0.3){bioFormula = Nothing}])
+        , -- A treatment, its reference a negative output.
+          ((aBin, pWaste), activity "bin" [line pWaste (-1) ReferenceProduct, (emission "" 2){bioFormula = Nothing}])
         ]
   where
+    from supplier ex = ex{techActivityLinkId = Just supplier}
     flourLine = withFormula (formulaOf "2 * yield") (line pFlour 2 Input){techActivityLinkId = Just aFlour}
     power location formula amount = withFormula (formulaOf formula) (line pElectricity amount Input){techLocation = location}
     milled product' = (activity "mill" [reference product', emission "grind" 1]){activityParameters = M.singleton "grind" (input 1)}
@@ -404,13 +584,13 @@ techFlows :: M.Map UUID TechnosphereFlow
 techFlows =
     M.fromList
         [ (product', TechnosphereFlow product' name kg M.empty Nothing Nothing)
-        | (product', name) <- [(pBread, "bread"), (pFlour, "flour"), (pCake, "cake"), (pMeal, "meal"), (pBran, "bran"), (pJam, "jam"), (pElectricity, "electricity")]
+        | (product', name) <- [(pBread, "bread"), (pFlour, "flour"), (pCake, "cake"), (pMeal, "meal"), (pBran, "bran"), (pJam, "jam"), (pElectricity, "electricity"), (pLoaf, "loaf"), (pDough, "dough"), (pWaste, "waste")]
         ]
 
 units :: M.Map UUID Unit
 units = M.singleton kg (Unit kg "kg" "kg" "")
 
-kg, co2, aBread, pBread, aFlour, pFlour, aCake, pCake, aMill, pMeal, pBran, aJam, pJam, aFR, aDE, pElectricity :: UUID
+kg, co2, aBread, pBread, aFlour, pFlour, aCake, pCake, aMill, pMeal, pBran, aJam, pJam, aFR, aDE, pElectricity, aLoaf, pLoaf, aDough, pDough, aBin, pWaste :: UUID
 kg = UUID.fromWords 0 0 0 1
 co2 = UUID.fromWords 0 0 0 2
 aBread = UUID.fromWords 1 0 0 1
@@ -427,3 +607,9 @@ pJam = UUID.fromWords 5 0 0 2
 aFR = UUID.fromWords 6 0 0 1
 aDE = UUID.fromWords 6 0 0 2
 pElectricity = UUID.fromWords 6 0 0 3
+aLoaf = UUID.fromWords 8 0 0 1
+pLoaf = UUID.fromWords 8 0 0 2
+aDough = UUID.fromWords 8 0 0 3
+pDough = UUID.fromWords 8 0 0 4
+aBin = UUID.fromWords 8 0 0 5
+pWaste = UUID.fromWords 8 0 0 6

@@ -17,11 +17,12 @@ module API.BatchImpacts (
     runActivityLCIABatch,
     runBatchImpacts,
     runComputedQuality,
+    runReducedModel,
     translateError,
 ) where
 
-import API.Routes (activityLCIABatchH, batchImpactsH, collectionNotLoadedPrefix, computedQualityReportH, databaseNotLoadedPrefix)
-import API.Types (BatchImpactsRequest (..), BatchImpactsResponse, ComputedQualityReportAPI, LCIABatchResult, ParameterValue, SubstitutionRequest)
+import API.Routes (activityLCIABatchH, batchImpactsH, collectionNotLoadedPrefix, computedQualityReportH, databaseNotLoadedPrefix, postReducedModel)
+import API.Types (BatchImpactsRequest (..), BatchImpactsResponse, ComputedQualityReportAPI, LCIABatchResult, ParameterName, ParameterValue, ReducedModel, ReducedModelRequest (..), SubstitutionRequest)
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (HostingConfig)
 import Control.Concurrent.STM (readTVarIO)
@@ -131,6 +132,25 @@ runComputedQuality ::
     IO (Either BatchError ComputedQualityReportAPI)
 runComputedQuality dbm hosting dbName mColl mLimit =
     runBare dbm hosting (computedQualityReportH dbName mColl mLimit)
+
+-- | The reduced model of one activity for some of its parameters, as the REST route gives it.
+runReducedModel ::
+    DatabaseManager ->
+    -- | the instance's hosting limits, which a scoring request obeys
+    Maybe HostingConfig ->
+    -- | database name
+    Text ->
+    -- | process_id (activityUUID_productUUID)
+    Text ->
+    -- | method collection name
+    Text ->
+    -- | whether to drop delayed long-term emissions
+    Bool ->
+    -- | the parameters the model is a function of
+    [ParameterName] ->
+    IO (Either BatchError ReducedModel)
+runReducedModel dbm hosting dbName pid coll excludeLongTerm names =
+    runBare dbm hosting (postReducedModel dbName pid (CollectionName coll) (Just excludeLongTerm) ReducedModelRequest{rmqParameters = names})
 
 {- | Run one handler outside the Servant stack: the bare environment every
 wrapper shares, then 'ServerError' translated back to a 'BatchError'.

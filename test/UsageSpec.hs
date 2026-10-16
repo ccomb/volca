@@ -178,4 +178,4 @@ spec = do
     describe "which operations are a usage" $
         it "classes every operation that computes on a process" $
             [r | r <- R.allResources, R.resourceUsage r == Just Scoring]
-                `shouldBe` [R.GetImpacts, R.ComputeSensitivity, R.ScoreActivity, R.ScoreActivities]
+                `shouldBe` [R.GetImpacts, R.ComputeSensitivity, R.GetReducedModel, R.ScoreActivity, R.ScoreActivities]

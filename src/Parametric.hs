@@ -16,8 +16,12 @@ module Parametric (
     instantiate,
     parameterised,
     databaseParametersRead,
+    Moving (..),
+    Input (..),
+    moving,
 ) where
 
+import Control.Monad (when)
 import Data.Bifunctor (first)
 import Data.Foldable (foldlM, traverse_)
 import qualified Data.List.NonEmpty as NE
@@ -27,7 +31,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import Database.MatrixBuild (withActivities)
+import Database.MatrixBuild (findProducer, withActivities)
 import qualified Expr
 import Types
 import UnitConversion (UnitConfig)
@@ -76,17 +80,20 @@ and the number its source printed.
 -}
 instantiate :: Database -> [Setting] -> Either ParameterRefusal (M.Map ProcessId Activity)
 instantiate db settings = do
-    (databaseWide, ownByProcess) <- foldlM (accept db) (M.empty, M.empty) settings
-    let candidates =
-            S.toList . S.fromList $
-                M.keys ownByProcess
-                    <> [ pid
-                       | not (M.null databaseWide)
-                       , (pid, act) <- zip [0 ..] (V.toList (dbActivities db))
-                       , any (`M.member` databaseWide) (M.keys (lowered (databaseParametersRead act (dbParameters db))))
-                       ]
-    changed <- traverse (\pid -> fmap (pid,) <$> restate db databaseWide (M.findWithDefault M.empty pid ownByProcess) pid) candidates
+    (databaseWide, ownByProcess) <- foldlM (accept db) (M.empty, M.empty) [(process, name, value) | Setting process name value <- settings]
+    changed <- traverse (\pid -> fmap (pid,) <$> restate db databaseWide (M.findWithDefault M.empty pid ownByProcess) pid) (candidates db databaseWide ownByProcess)
     pure (M.fromList (catMaybes changed))
+
+-- | The processes whose formulas may read what is set: those set at their own level, and those that read a database parameter set.
+candidates :: Database -> M.Map Text a -> M.Map ProcessId (M.Map Text a) -> [ProcessId]
+candidates db databaseWide ownByProcess =
+    S.toList . S.fromList $
+        M.keys ownByProcess
+            <> [ pid
+               | not (M.null databaseWide)
+               , (pid, act) <- zip [0 ..] (V.toList (dbActivities db))
+               , any (`M.member` databaseWide) (M.keys (lowered (databaseParametersRead act (dbParameters db))))
+               ]
 
 -- | The database at the settings with the activities that moved in it, or why it has none.
 parameterised :: UnitConfig -> Database -> [Setting] -> Either Text (M.Map ProcessId Activity, Database)
@@ -96,8 +103,8 @@ parameterised unitConfig db settings =
 type Values = M.Map Text Double
 
 -- | One setting checked and filed, by lowered name, under its database or its process.
-accept :: Database -> (Values, M.Map ProcessId Values) -> Setting -> Either ParameterRefusal (Values, M.Map ProcessId Values)
-accept db (databaseWide, own) Setting{settingProcess = mPid, settingName = name, settingValue = value} =
+accept :: Database -> (M.Map Text a, M.Map ProcessId (M.Map Text a)) -> (Maybe ProcessId, Text, a) -> Either ParameterRefusal (M.Map Text a, M.Map ProcessId (M.Map Text a))
+accept db (databaseWide, own) (mPid, name, value) =
     case mPid of
         Nothing -> do
             settable Nothing (dbParameters db)
@@ -129,7 +136,7 @@ accept db (databaseWide, own) Setting{settingProcess = mPid, settingName = name,
         (activityUUID, _) <- dbProcessIdTable db V.!? fromIntegral pid
         M.lookup activityUUID (dbActivityUUIDIndex db)
 
-    fresh :: Maybe Text -> Values -> Either ParameterRefusal ()
+    fresh :: Maybe Text -> M.Map Text a -> Either ParameterRefusal ()
     fresh at already
         | M.member key already = Left (SetTwice at name)
         | otherwise = Right ()
@@ -145,59 +152,161 @@ restate :: Database -> Values -> Values -> ProcessId -> Either ParameterRefusal 
 restate db databaseWide own pid = case getActivity db pid of
     Nothing -> Right Nothing
     Just act -> do
-        let atDefaults = valuesOf act M.empty M.empty
-            atSettings = valuesOf act databaseWide own
+        let scope = scopeOf db act
+            atDefaults = valuesAt scope M.empty M.empty
+            atSettings = valuesAt scope databaseWide own
         traverse_ (shareFixed act atDefaults atSettings) (shareFormulas act)
-        amounts <- traverse (amountOf act atDefaults atSettings) (exchanges act)
+        amounts <- traverse (amountOf db act atDefaults atSettings) (exchanges act)
         pure $
             if any snd amounts
                 then Just act{exchanges = map fst amounts}
                 else Nothing
   where
-    valuesOf :: Activity -> Values -> Values -> Values
-    valuesOf act forDatabase forProcess = fst (Expr.settle Expr.Volca known calculated)
-      where
-        ownParameters, readFromDatabase :: M.Map Text Parameter
-        ownParameters = lowered (activityParameters act)
-        readFromDatabase = lowered (databaseParametersRead act (dbParameters db))
-        known :: Values
-        known = M.union (inputs forProcess ownParameters) (inputs forDatabase readFromDatabase)
-        calculated :: [(Text, Text)]
-        calculated =
-            formulas ownParameters
-                <> formulas readFromDatabase
-                <> [(T.toLower name, text) | ExchangeFormula{efName = Just name, efText = text} <- mapMaybe exchangeFormula (exchanges act)]
-
-    -- The input values, each replaced by its setting when there is one.
-    inputs :: Values -> M.Map Text Parameter -> Values
-    inputs set = M.mapMaybeWithKey $ \key parameter -> case parameterDefinition parameter of
-        InputParameter value _ -> Just (M.findWithDefault value key set)
-        CalculatedParameter{} -> Nothing
-
-    formulas :: M.Map Text Parameter -> [(Text, Text)]
-    formulas parameters = [(key, formula) | (key, CalculatedParameter formula _) <- M.toList (parameterDefinition <$> parameters)]
-
     -- The amounts were split by the share at the defaults, so a share the settings move would leave them wrong.
     shareFixed :: Activity -> Values -> Values -> Text -> Either ParameterRefusal ()
     shareFixed act atDefaults atSettings formula
         | Expr.evaluate Expr.SimaPro atDefaults formula == Expr.evaluate Expr.SimaPro atSettings formula = Right ()
         | otherwise = Left (ShareMoves (activityName act) formula)
 
-    amountOf :: Activity -> Values -> Values -> Exchange -> Either ParameterRefusal (Exchange, Bool)
-    amountOf act atDefaults atSettings ex = case exchangeFormula ex of
-        Nothing -> Right (ex, False)
-        Just ExchangeFormula{efText = formula} -> do
-            value <- first (refusal . Expr.describeRefusal) (Expr.evaluate Expr.Volca atSettings formula)
-            if isNaN value || isInfinite value
-                then Left (refusal ("the formula gives no finite number: " <> T.pack (show value)))
-                else
-                    pure $
-                        if Expr.evaluate Expr.Volca atDefaults formula == Right value
-                            then (ex, False)
-                            else (withFormula (exchangeFormula ex) (withAmount value ex), True)
-      where
-        refusal :: Text -> ParameterRefusal
-        refusal = NoAmount (activityName act) (maybe "" flowKindName (lookupExchangeFlow db ex))
+{- | What a process's formulas read, by lowered name: its own input values, its
+database's it reads, and the formulas computed from them, its own and its
+database's parameters and its named exchanges.
+-}
+data Scope = Scope
+    { scopeOwn :: !Values
+    , scopeDatabase :: !Values
+    , scopeCalculated :: ![(Text, Text)]
+    }
+
+scopeOf :: Database -> Activity -> Scope
+scopeOf db act =
+    Scope
+        { scopeOwn = inputs ownParameters
+        , scopeDatabase = inputs readFromDatabase
+        , scopeCalculated =
+            formulas ownParameters
+                <> formulas readFromDatabase
+                <> [(T.toLower name, text) | ExchangeFormula{efName = Just name, efText = text} <- mapMaybe exchangeFormula (exchanges act)]
+        }
+  where
+    ownParameters, readFromDatabase :: M.Map Text Parameter
+    ownParameters = lowered (activityParameters act)
+    readFromDatabase = lowered (databaseParametersRead act (dbParameters db))
+
+    inputs :: M.Map Text Parameter -> Values
+    inputs = M.mapMaybe $ \parameter -> case parameterDefinition parameter of
+        InputParameter value _ -> Just value
+        CalculatedParameter{} -> Nothing
+
+    formulas :: M.Map Text Parameter -> [(Text, Text)]
+    formulas parameters = [(key, formula) | (key, CalculatedParameter formula _) <- M.toList (parameterDefinition <$> parameters)]
+
+-- | Every name of a scope with its value, each input replaced by the setting of its level when there is one.
+valuesAt :: Scope -> Values -> Values -> Values
+valuesAt scope forDatabase forProcess =
+    fst (Expr.settle Expr.Volca (M.union (setBy forProcess (scopeOwn scope)) (setBy forDatabase (scopeDatabase scope))) (scopeCalculated scope))
+  where
+    setBy :: Values -> Values -> Values
+    setBy set = M.mapWithKey (\key value -> M.findWithDefault value key set)
+
+-- | An exchange at the values of its scope, and whether its amount moved from the defaults.
+amountOf :: Database -> Activity -> Values -> Values -> Exchange -> Either ParameterRefusal (Exchange, Bool)
+amountOf db act atDefaults atSettings ex = case exchangeFormula ex of
+    Nothing -> Right (ex, False)
+    Just ExchangeFormula{efText = formula} -> do
+        value <- first (refusal . Expr.describeRefusal) (Expr.evaluate Expr.Volca atSettings formula)
+        if isNaN value || isInfinite value
+            then Left (refusal ("the formula gives no finite number: " <> T.pack (show value)))
+            else
+                pure $
+                    if Expr.evaluate Expr.Volca atDefaults formula == Right value
+                        then (ex, False)
+                        else (withFormula (exchangeFormula ex) (withAmount value ex), True)
+  where
+    refusal :: Text -> ParameterRefusal
+    refusal = NoAmount (activityName act) (maybe "" flowKindName (lookupExchangeFlow db ex))
+
+-- | Where an input of a reduced model's process starts from: its value, or the position of the free parameter it is.
+data Input = Fixed !Double | Free !Int
+    deriving (Eq, Show)
+
+{- | A process whose amounts move with the free parameters of a reduced model,
+as a client computes them again: each input name of its scope, lowered, and
+the formulas computed from them, in the order they read each other.
+-}
+data Moving = Moving
+    { movingProcess :: !ProcessId
+    , movingInputs :: !(M.Map Text Input)
+    , movingBindings :: ![(Text, Text)]
+    }
+    deriving (Eq, Show)
+
+{- | The processes a root reaches, through any line whose supplier its database
+holds whatever the amount, whose amounts these parameters move; each parameter
+named at its process's level, or at the database's with no process. Refused as
+'instantiate' would refuse some value of them: a formula that gives no amount
+at the defaults gives none anywhere, and a share the parameters reach cannot be
+told fixed without the values.
+-}
+moving :: Database -> ProcessId -> [(Maybe ProcessId, Text)] -> Either ParameterRefusal [Moving]
+moving db root free = do
+    (databaseWide, ownByProcess) <- foldlM (accept db) (M.empty, M.empty) [(process, name, position) | (position, (process, name)) <- zip [0 ..] free]
+    catMaybes <$> traverse (movingAt databaseWide ownByProcess) (filter (`S.member` reachable db root) (candidates db databaseWide ownByProcess))
+  where
+    movingAt :: M.Map Text Int -> M.Map ProcessId (M.Map Text Int) -> ProcessId -> Either ParameterRefusal (Maybe Moving)
+    movingAt databaseWide ownByProcess pid = case getActivity db pid of
+        Nothing -> Right Nothing
+        Just act -> do
+            let scope = scopeOf db act
+                inputs = M.union (positions (M.findWithDefault M.empty pid ownByProcess) (scopeOwn scope)) (positions databaseWide (scopeDatabase scope))
+                freeNames = M.keysSet (M.filter isFree inputs)
+                reaches dialect = any (`S.member` freeNames) . namesReached dialect (M.fromList (scopeCalculated scope))
+                atDefaults = valuesAt scope M.empty M.empty
+            traverse_ (\formula -> when (reaches Expr.SimaPro formula) (Left (ShareMoves (activityName act) formula))) (shareFormulas act)
+            traverse_ (amountOf db act atDefaults atDefaults) (exchanges act)
+            pure $
+                if any (reaches Expr.Volca . efText) (mapMaybe exchangeFormula (exchanges act))
+                    then Just (Moving pid inputs (Expr.settledInOrder Expr.Volca (M.union (scopeOwn scope) (scopeDatabase scope)) (scopeCalculated scope)))
+                    else Nothing
+
+    positions :: M.Map Text Int -> Values -> M.Map Text Input
+    positions set = M.mapWithKey (\key value -> maybe (Fixed value) Free (M.lookup key set))
+
+    isFree :: Input -> Bool
+    isFree = \case
+        Free _ -> True
+        Fixed _ -> False
+
+{- | Every name a formula reads, and those the formulas it reads read in turn,
+lowered. A calculated name shadows an input of that name, as in 'Expr.settle'.
+-}
+namesReached :: Expr.Dialect -> M.Map Text Text -> Text -> S.Set Text
+namesReached dialect calculated = go S.empty . names
+  where
+    names :: Text -> [Text]
+    names = map T.toLower . Expr.collectIdentifiers dialect
+
+    go :: S.Set Text -> [Text] -> S.Set Text
+    go seen = \case
+        [] -> seen
+        name : rest
+            | S.member name seen -> go seen rest
+            | Just formula <- M.lookup name calculated -> go (S.insert name seen) (names formula <> rest)
+            | otherwise -> go (S.insert name seen) rest
+
+-- | The processes a root reaches through lines whose supplier its database holds, the root among them.
+reachable :: Database -> ProcessId -> S.Set ProcessId
+reachable db root = go S.empty [root]
+  where
+    go :: S.Set ProcessId -> [ProcessId] -> S.Set ProcessId
+    go seen = \case
+        [] -> seen
+        pid : rest
+            | S.member pid seen -> go seen rest
+            | otherwise -> go (S.insert pid seen) (suppliers pid <> rest)
+
+    suppliers :: ProcessId -> [ProcessId]
+    suppliers pid = maybe [] (mapMaybe (findProducer (dbProcessIdLookup db)) . filter (not . isBiosphereExchange) . exchanges) (getActivity db pid)
 
 {- | The database's parameters a process reads and does not define itself:
 those its exchange and parameter formulas name, and those the database's own

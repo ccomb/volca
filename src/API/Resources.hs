@@ -77,6 +77,7 @@ data Resource
     | GetInventory
     | GetImpacts
     | ComputeSensitivity
+    | GetReducedModel
     | ListMethods
     | GetFlowMapping
     | GetCharacterization
@@ -173,6 +174,7 @@ resourceMutates r = case r of
     GetInventory -> False
     GetImpacts -> False
     ComputeSensitivity -> False
+    GetReducedModel -> False
     ListMethods -> False
     GetFlowMapping -> False
     GetCharacterization -> False
@@ -233,6 +235,8 @@ resourceNeeds r = case r of
     -- Each step carries its cumulative quantity and the exchange ratio
     -- between it and the next.
     GetPathTo -> Just ReadInventory
+    -- The formulas of the exchanges the parameters move, and their amounts.
+    GetReducedModel -> Just ReadInventory
     -- What weighs in a score.
     ComputeSensitivity -> Just SeeDetailedScores
     CompareImpacts -> Just SeeDetailedScores
@@ -293,6 +297,7 @@ resourceUsage r = case r of
     ScoreActivity -> Just Scoring
     ScoreActivities -> Just Scoring
     ComputeSensitivity -> Just Scoring
+    GetReducedModel -> Just Scoring
     GetContributingFlows -> Just Contributing
     GetContributingActivities -> Just Contributing
     GetScoreContributingFlows -> Just Contributing
@@ -368,6 +373,7 @@ apiPath r = case r of
     GetInventory -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "inventory"])
     GetImpacts -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "impacts", "{collection}", "{methodId}"])
     ComputeSensitivity -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "sensitivity", "{collection}", "{methodId}"])
+    GetReducedModel -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "reduced-model", "{collection}"])
     ListMethods -> Just (GET, ["methods"])
     GetFlowMapping -> Just (GET, ["db", "{dbName}", "method", "{methodId}", "flow-mapping"])
     GetCharacterization -> Just (GET, ["db", "{dbName}", "method", "{methodId}", "characterization"])
@@ -432,6 +438,7 @@ mcpName r = case r of
     GetInventory -> "get_inventory"
     GetImpacts -> "get_impacts"
     ComputeSensitivity -> "compute_sensitivity"
+    GetReducedModel -> "get_reduced_model"
     ListMethods -> "list_methods"
     GetFlowMapping -> "get_flow_mapping"
     GetCharacterization -> "get_characterization"
@@ -639,6 +646,20 @@ description r = case r of
         \Internally uses Sherman-Morrison rank-1 updates against the cached \
         \factorization (~4 ms per perturbation). V1: root DB only."
             <> webUrlTip "sensitivity"
+    GetReducedModel ->
+        "LCA / ACV: the scores of an activity as a function of some input \
+        \parameters, for running many parameter values away from the engine \
+        \(Monte Carlo, Sobol). Name the parameters, as get_activity lists them: \
+        \{name} for a parameter of the database, {process, name} for a \
+        \process's own. The answer holds, for every method of the collection, \
+        \the score at the database's own values ('baseline'); the processes \
+        \these parameters move, each with its exchanges as formula trees, \
+        \their stored amounts and the factors of its emissions; the unit \
+        \scores of their suppliers and the scaling each gives the moving \
+        \processes; and the collection's scoring sets as formulas over the \
+        \category totals. pyvolca's reduced_model() evaluates it. Refused when \
+        \a parameter moves an allocation share, or moves more than 500 \
+        \processes."
     ListMethods ->
         "LCA / ACV: list all loaded LCIA methods (impact assessment methods like \
         \climate change, acidification, eutrophication, land use, water scarcity)."
@@ -1322,6 +1343,19 @@ params r = case r of
             \activity that consumes the input; 'supplier' is the activity that \
             \produces it. Both must live in the root database (V1 limitation). \
             \'label' is optional and echoed in the response for correlation."
+        ]
+    GetReducedModel ->
+        [ pDatabase
+        , pProcessId
+        , pCollection
+        , Param
+            "parameters"
+            "array"
+            Required
+            "The input parameters the model is a function of, as get_activity lists them. \
+            \Each entry: {name} for a parameter of the database, {process, name} for a \
+            \process's own."
+        , pExcludeLongTerm
         ]
     ListMethods -> []
     GetFlowMapping ->

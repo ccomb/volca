@@ -5,8 +5,8 @@
 
 module API.Types.Impacts where
 
-import API.JsonOptions (Stripped (..))
-import API.Types.Activity (ParameterValue)
+import API.JsonOptions (Stripped (..), parseClosed)
+import API.Types.Activity (ParameterAPI, ParameterValue)
 import API.Types.Common
 import API.Types.MethodComparison
 import Control.DeepSeq (NFData)
@@ -18,6 +18,7 @@ import qualified Data.Map as M
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToSchema (..), declareSchemaRef, properties, required, type_)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
+import Expr (Formula)
 import GHC.Generics
 import Types (
     UUID,
@@ -541,3 +542,159 @@ instance ToJSON PerturbedEntry where
             ("perturbation" .= p) : case result of
                 Left err -> ["error" .= err]
                 Right (lcia, d) -> ["impact" .= lcia, "deltaImpact" .= d]
+
+-- | A parameter a reduced model leaves free: its process's, or its database's when no process is named.
+data ParameterName = ParameterName
+    { pnProcess :: Maybe Text
+    , pnName :: Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ParameterName)
+
+instance FromJSON ParameterName where
+    parseJSON = parseClosed
+
+-- | The parameters a reduced model is asked for, at least one.
+newtype ReducedModelRequest = ReducedModelRequest
+    { rmqParameters :: [ParameterName]
+    }
+    deriving (Generic)
+    deriving (ToSchema) via (Stripped ReducedModelRequest)
+
+instance FromJSON ReducedModelRequest where
+    parseJSON = parseClosed
+
+{- | A process's scores for every value of some of its database's parameters,
+as a program computes them without asking the engine again.
+
+The scores are those at the defaults, corrected by the processes whose amounts
+the parameters move. For values θ, each such process p gives its column at θ
+and at the defaults, from its formulas, and D is the difference over the
+suppliers. With M the suppliers' scalings of the moving processes and u their
+scores for one unit, w = (I − M D)⁻¹ x0 is the scaling of the moving processes
+at θ, and a score is
+@baseline + Σ_i u_i (D w)_i + Σ_p (g_p(θ) − g_p) w_p@,
+g_p being what one unit of p emits, scored. Exact with loops among the moving
+processes and with a reference amount that moves.
+
+Formulas are trees: a number, a name in lower case, or an array whose first
+item is a function or an operator and whose others are its arguments.
+-}
+data ReducedModel = ReducedModel
+    { rdmMethods :: [ReducedMethod]
+    , rdmExcludeLongTerm :: Bool -- Whether the scores leave out the delayed long-term emissions
+    , rdmBaseline :: [Double] -- The scores at the defaults, by method
+    , rdmParameters :: [FreeParameter] -- The free parameters, numbered by their position
+    , rdmProcesses :: [ModelProcess]
+    , rdmSuppliers :: [ModelSupplier]
+    , rdmScoringSets :: [ModelScoringSet]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ReducedModel)
+
+data ReducedMethod = ReducedMethod
+    { rmeId :: UUID
+    , rmeName :: Text
+    , rmeUnit :: Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ReducedMethod)
+
+data FreeParameter = FreeParameter
+    { fpProcess :: Maybe Text
+    , fpParameter :: ParameterAPI -- Its value is the default
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped FreeParameter)
+
+{- | A process the free parameters move. Its names are read in lower case: an
+input is a value or a free parameter, then each binding is computed in turn.
+-}
+data ModelProcess = ModelProcess
+    { mprProcessId :: Text
+    , mprName :: Text
+    , mprScaling :: Double -- Its scaling at the defaults
+    , mprValues :: M.Map Text Double -- The inputs the parameters leave at their value
+    , mprParameters :: M.Map Text Int -- The inputs that are free parameters, by position
+    , mprBindings :: [ModelBinding]
+    , mprReference :: ModelReference
+    , mprTechnosphere :: [ModelInput]
+    , mprBiosphere :: [ModelEmission]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ModelProcess)
+
+data ModelBinding = ModelBinding
+    { mbiName :: Text
+    , mbiFormula :: Formula
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ModelBinding)
+
+{- | A line's amount: the one stored, and its formula. The amount at some values
+is the formula's, except where the formula gives at those values exactly what
+it gives at the defaults: the stored amount is kept then.
+-}
+data ModelLine = ModelLine
+    { mliStored :: Double
+    , mliFormula :: Maybe Formula
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ModelLine)
+
+{- | The lines a column is divided by. With o, s and i the sums of the outputs,
+of the inputs from itself and of the inputs' magnitudes: o − s when o and
+o − s are both beyond 1e-15 in magnitude, else i when it is, else 1.
+-}
+data ModelReference = ModelReference
+    { mreOutputs :: [ModelLine]
+    , mreSelfLoops :: [ModelLine]
+    , mreInputs :: [ModelLine]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ModelReference)
+
+-- | A line from a supplier: it puts factor × amount ÷ reference in the supplier's row.
+data ModelInput = ModelInput
+    { minSupplier :: Int -- Position in the suppliers
+    , minFactor :: Double
+    , minLine :: ModelLine
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ModelInput)
+
+-- | An emission or a resource: one unit of the process adds factor × amount ÷ reference to each score.
+data ModelEmission = ModelEmission
+    { memFactors :: [Double] -- By method
+    , memLine :: ModelLine
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ModelEmission)
+
+-- | A supplier of the moving processes, for one more unit of its product.
+data ModelSupplier = ModelSupplier
+    { msuProcessId :: Text
+    , msuDatabase :: Text
+    , msuScores :: [Double] -- By method
+    , msuScalings :: [Double] -- Of the moving processes, in their order; zero for a supplier of another database
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ModelSupplier)
+
+{- | A scoring set over the methods' scores: each variable reads a method,
+then each computed one is computed in turn; a variable is divided by its
+normalization and multiplied by its weight (1 and 0 when unstated) before
+the scores read them, and the scores are multiplied by the display multiplier.
+-}
+data ModelScoringSet = ModelScoringSet
+    { mssName :: Text
+    , mssUnit :: Text
+    , mssVariables :: M.Map Text Int -- By position in the methods
+    , mssComputed :: [ModelBinding]
+    , mssNormalization :: M.Map Text Double
+    , mssWeighting :: M.Map Text Double
+    , mssScores :: M.Map Text Formula
+    , mssDisplayMultiplier :: Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ModelScoringSet)

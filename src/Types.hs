@@ -761,51 +761,27 @@ linkedWaste ex = isWasteExchange ex && isJust (exchangeActivityLinkId ex)
 {- | Activity's reference-product amount used to normalize its matrix column.
 Net output = sum of reference outputs minus self-loop consumption; falls back
 to reference inputs (treatment processes) or 1.0 when nothing else applies.
-Self-loops require both activityLinkId == activityUUID AND flowId == productUUID,
-so cross-product inputs in multi-output processes are not mistakenly subtracted.
 -}
 activityNormFactor :: Activity -> (UUID, UUID) -> Double
-activityNormFactor act (actUUID, prodUUID)
+activityNormFactor act key
     | abs netOutput > epsilon = netOutput
     | refInputs > epsilon = refInputs
     | otherwise = 1.0
   where
+    NormLines{nlOutputs = outputs, nlSelfLoops = selfLoops, nlInputs = inputs} = normLines act key
+
     -- Below this, an amount is read as absent rather than as a quantity.
     epsilon :: Double
     epsilon = 1e-15
 
-    isSelfLoop :: Exchange -> Bool
-    isSelfLoop ex =
-        exchangeActivityLinkId ex == Just actUUID && exchangeFlowId ex == prodUUID
-
     refOutputs :: Double
-    refOutputs =
-        sum
-            [ exchangeAmount ex
-            | ex <- exchanges act
-            , exchangeIsReference ex
-            , not (exchangeIsInput ex)
-            ]
+    refOutputs = sum (map exchangeAmount outputs)
 
     refInputs :: Double
-    refInputs =
-        sum
-            [ abs (exchangeAmount ex)
-            | ex <- exchanges act
-            , exchangeIsReference ex
-            , exchangeIsInput ex
-            ]
+    refInputs = sum (map (abs . exchangeAmount) inputs)
 
     internalConsumption :: Double
-    internalConsumption =
-        sum
-            [ exchangeAmount ex
-            | ex <- exchanges act
-            , isTechnosphereExchange ex
-            , exchangeIsInput ex
-            , not (exchangeIsReference ex)
-            , isSelfLoop ex
-            ]
+    internalConsumption = sum (map exchangeAmount selfLoops)
 
     -- Magnitude, not sign, decides whether a reference output is real: a
     -- waste-treatment / market-for-waste activity has a NEGATIVE reference
@@ -816,6 +792,35 @@ activityNormFactor act (actUUID, prodUUID)
     netOutput
         | abs refOutputs > epsilon = refOutputs - internalConsumption
         | otherwise = 0.0
+
+-- | The lines 'activityNormFactor' reads, in the three groups it reads them as.
+data NormLines = NormLines
+    { nlOutputs :: [Exchange]
+    -- ^ The reference outputs.
+    , nlSelfLoops :: [Exchange]
+    {- ^ The inputs of the process's own product from itself. Both the activity
+    and the product must match, so the input of another product of a
+    multi-output process is not taken for one.
+    -}
+    , nlInputs :: [Exchange]
+    -- ^ The reference inputs, which a treatment is normalized on.
+    }
+
+normLines :: Activity -> (UUID, UUID) -> NormLines
+normLines act (actUUID, prodUUID) =
+    NormLines
+        { nlOutputs = [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
+        , nlSelfLoops =
+            [ ex
+            | ex <- exchanges act
+            , isTechnosphereExchange ex
+            , exchangeIsInput ex
+            , not (exchangeIsReference ex)
+            , exchangeActivityLinkId ex == Just actUUID
+            , exchangeFlowId ex == prodUUID
+            ]
+        , nlInputs = [ex | ex <- exchanges act, exchangeIsReference ex, exchangeIsInput ex]
+        }
 
 -- | Get unit information for an exchange
 getUnitForExchange :: UnitDB -> Exchange -> Maybe Unit

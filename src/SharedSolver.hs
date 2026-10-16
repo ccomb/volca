@@ -32,6 +32,7 @@ module SharedSolver (
     CrossDBSolution (..),
     computeInventoryMatrixWithDepsCached,
     computeInventoryMatrixBatchWithDepsCached,
+    goWithDeps,
     goWithDepsFromScalings,
     maxDepsDepth,
     mergeSolutions,

@@ -15,6 +15,7 @@ module Database.MatrixBuild (
     buildTechTriples,
     buildBioTriples,
     withActivities,
+    lineRows,
     technosphereChange,
     findProducer,
     linkedProducer,
@@ -287,6 +288,33 @@ bioTriple bioIndex normFactor j ex
             let raw = exchangeAmount ex
                 value = raw / safeDenom normFactor
              in [SparseTriple i j value | raw /= 0]
+
+{- | The rows a process's lines enter in its columns of A and of B, each with
+what one unit of the line's amount puts there before the column is divided by
+the process's normalisation: the supplier's row and the line's sign and unit
+conversion, or the flow's row. Read with the load's own builders for an amount
+of one, so a line whose amount is zero today, which the load leaves out, still
+says where it goes. A line no row of the database takes is left out; a process
+the allocation gate refuses has no column, and gives why.
+-}
+lineRows :: UnitConfig -> Database -> ProcessId -> Activity -> Either Text ([(Exchange, ProcessId, Double)], [(Exchange, Int32)])
+lineRows unitConfig db = rowsOf
+  where
+    supplierRefUnits :: V.Vector Text
+    supplierRefUnits = buildSupplierRefUnits (dbUnits db) (dbActivities db)
+
+    bioIndex :: M.Map UUID Int32
+    bioIndex = bioRows (dbBiosphereOrder db)
+
+    rowsOf :: ProcessId -> Activity -> Either Text ([(Exchange, ProcessId, Double)], [(Exchange, Int32)])
+    rowsOf j act = do
+        (_, allocated) <- first T.pack (columnSource (dbProcessIdTable db V.! fromIntegral j) act)
+        tech <- traverse (techRows allocated) (exchanges act)
+        pure (concat tech, [(ex, i) | ex <- exchanges act, SparseTriple i _ _ <- bioTriple bioIndex 1 j (withAmount 1 ex)])
+      where
+        techRows allocated ex =
+            (\(triples, _) -> [(ex, i, v) | SparseTriple i _ v <- triples])
+                <$> techTriple unitConfig (dbUnits db) (dbProcessIdLookup db) supplierRefUnits (dbActivityCount db) 1 j (allocatedActivity allocated) (withAmount 1 ex)
 
 {- | What the columns of these processes change in M = I − A from one
 database to the other: each column with the entries it adds to M, by row,
