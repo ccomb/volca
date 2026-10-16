@@ -49,9 +49,10 @@ mkUUID :: String -> UUID
 mkUUID s = fromMaybe UUID.nil (UUID.fromString s)
 
 -- Shared identifiers.
-kgU, gU, co2, wW, yY, tA, pA :: UUID
+kgU, gU, sU, co2, wW, yY, tA, pA :: UUID
 kgU = mkUUID "66666666-6666-6666-6666-666666666666"
 gU = mkUUID "66666666-6666-6666-6666-666666666667"
+sU = mkUUID "66666666-6666-6666-6666-666666666668"
 co2 = mkUUID "55555555-5555-5555-5555-555555555555"
 wW = mkUUID "22222222-2222-2222-2222-222222222222"
 yY = mkUUID "44444444-4444-4444-4444-444444444444"
@@ -424,6 +425,14 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
             rootActs = M.singleton (pA, yY) (producer (wasteEx False Nothing 3000){waUnitId = gU})
             links = cdlLinks (findAllCrossDBLinks (ctxWithDep "eco-dep" depDB){lcUnitConfig = grams} techFlowDB wasteFlowDB units rootActs)
         [(withinTolerance 1.0e-12 (-3) (cdlCoefficient l), withinTolerance 1.0e-12 (-0.001) (maybe 0 aeFactor (cdlAnswers l))) | l <- links] `shouldBe` [(True, True)]
+
+    it "sends no waste written in seconds to a treatment in kilograms, and says why" $ do
+        depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
+        let units = M.fromList [(kgU, Unit kgU "kg" "kg" ""), (sU, Unit sU "s" "s" "")]
+            stats = findAllCrossDBLinks (ctxWithDep "eco-dep" depDB) techFlowDB wasteFlowDB units (M.singleton (pA, yY) (producer (wasteEx False Nothing 3){waUnitId = sU}))
+        cdlLinks stats `shouldBe` []
+        cdlCutoffWasteCount stats `shouldBe` 1
+        any (\(UnresolvedProduct blockers) -> M.member UnitIncompatible{uiQueryUnit = "s", uiSupplierUnit = "kg"} blockers) (M.elems (cdlUnresolvedRequests stats)) `shouldBe` True
 
     it "cross-DB to an ecoinvent (negative ReferenceProduct) treatment scores +6" $ do
         (score, _) <- scoreCross Nothing "eco-dep" ReferenceProduct (-1.0)

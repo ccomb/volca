@@ -2789,13 +2789,15 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
             , cdlTiedAlternatives = tied
             , cdlAnswers = Just AnsweredExchange{aePosition = position, aeFactor = factor}
             }
-    resolveTechInput flow = case lineInLinkUnit (lcUnitConfig ctx) unitDb ex flowUnitName of
-        Nothing -> unresolvedStats flow UnitIncompatible{uiQueryUnit = writtenUnitName unitDb ex, uiSupplierUnit = flowUnitName}
-        Just perLine -> linkTechInput flow flowUnitName perLine
-      where
-        flowUnitName = maybe "" unitName (M.lookup (tfUnitId flow) unitDb)
-    linkTechInput flow flowUnitName perLine =
-        let amt = written * perLine
+    -- What one unit of the line holds in the flow's unit, Nothing for a unit
+    -- that measures something else: refused once a supplier answers the line.
+    perLineIn :: T.Text -> Maybe Double
+    perLineIn = lineInLinkUnit (lcUnitConfig ctx) unitDb ex
+    unitRefused :: TechnosphereFlow -> T.Text -> CrossDBLinkingStats
+    unitRefused flow flowUnitName = unresolvedStats flow UnitIncompatible{uiQueryUnit = writtenUnitName unitDb ex, uiSupplierUnit = flowUnitName}
+    resolveTechInput :: TechnosphereFlow -> CrossDBLinkingStats
+    resolveTechInput flow =
+        let flowUnitName = maybe "" unitName (M.lookup (tfUnitId flow) unitDb)
             identityMatches = case claim of
                 ClaimById actUUID
                     -- A mapping row on this very process speaks first, even where a dependency still ships it.
@@ -2807,19 +2809,21 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                 ClaimByName _ -> []
                 ClaimByDatasetNumber _ -> []
          in case identityMatches of
-                ((entry, srcDb) : rest) ->
-                    let !crossLink =
-                            mkTechLink
-                                (seActivityUUID entry)
-                                (seProductUUID entry)
-                                (seProductName entry)
-                                (seLocation entry)
-                                srcDb
-                                (sort (map snd rest))
-                                perLine
-                                (amt, flowUnitName)
-                     in mempty{cdlLinks = [crossLink]}
-                [] -> attributeMatch flow flowUnitName perLine amt
+                ((entry, srcDb) : rest)
+                    | Just perLine <- perLineIn flowUnitName ->
+                        let !crossLink =
+                                mkTechLink
+                                    (seActivityUUID entry)
+                                    (seProductUUID entry)
+                                    (seProductName entry)
+                                    (seLocation entry)
+                                    srcDb
+                                    (sort (map snd rest))
+                                    perLine
+                                    (written * perLine, flowUnitName)
+                         in mempty{cdlLinks = [crossLink]}
+                    | otherwise -> unitRefused flow flowUnitName
+                [] -> attributeMatch flow flowUnitName
     supplierQuery :: TechnosphereFlow -> T.Text -> SupplierQuery
     supplierQuery flow flowUnitName =
         SupplierQuery
@@ -2833,7 +2837,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                 ClaimByName _ -> Nothing
                 ClaimByDatasetNumber _ -> Nothing
             }
-    {- What the link asks of its supplier: the exchange as written, or, where a
+    {- What the link asks of its supplier: the line in the flow's unit, or, where a
     mapping row's conversion bridges two units that measure different things,
     the amount in the row's source unit divided by what one target unit holds,
     in the row's target unit. The matrix converts that unit to the supplier's. -}
@@ -2843,65 +2847,67 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
         Just UnitBridge{..} ->
             (\inSource -> (inSource / ubTargetInSource, ubTargetUnit))
                 <$> UC.convertUnit (lcUnitConfig ctx) flowUnitName ubSourceUnit amount
-    attributeMatch flow flowUnitName perLine amt =
+    attributeMatch :: TechnosphereFlow -> T.Text -> CrossDBLinkingStats
+    attributeMatch flow flowUnitName =
         let query = supplierQuery flow flowUnitName
          in case findSupplierInIndexedDBs ctx query of
-                result@CrossDBLinked{}
-                    | Nothing <- bridgedAmount flowUnitName (cdlrBridge result) amt ->
+                result@CrossDBLinked{} -> case perLineIn flowUnitName of
+                    Nothing -> unitRefused flow flowUnitName
+                    Just perLine -> case bridgedAmount flowUnitName (cdlrBridge result) (written * perLine) of
                         -- The row's units passed the matcher, so this is a unit the
                         -- conversion table cannot read: refused, never guessed.
-                        unresolvedStats flow UnitIncompatible{uiQueryUnit = flowUnitName, uiSupplierUnit = maybe "" ubTargetUnit (cdlrBridge result)}
-                    | Just amount <- bridgedAmount flowUnitName (cdlrBridge result) amt ->
-                        let !crossLink =
-                                mkTechLink
-                                    (cdlrActivityUUID result)
-                                    (cdlrProductUUID result)
-                                    (cdlrProductName result)
-                                    (cdlrLocation result)
-                                    (cdlrDatabaseName result)
-                                    (cdlrTiedDatabases result)
-                                    -- The conversion that just read the amount reads one unit of it: the default is never taken.
-                                    (maybe perLine fst (bridgedAmount flowUnitName (cdlrBridge result) perLine))
-                                    amount
-                            locFallbacks =
-                                [ LocationFallback
-                                    { lfProduct = cdlrProductName result
-                                    , lfRequested = req
-                                    , lfActual = actLoc
-                                    , lfKind = kind
+                        Nothing -> unresolvedStats flow UnitIncompatible{uiQueryUnit = flowUnitName, uiSupplierUnit = maybe "" ubTargetUnit (cdlrBridge result)}
+                        Just amount ->
+                            let !crossLink =
+                                    mkTechLink
+                                        (cdlrActivityUUID result)
+                                        (cdlrProductUUID result)
+                                        (cdlrProductName result)
+                                        (cdlrLocation result)
+                                        (cdlrDatabaseName result)
+                                        (cdlrTiedDatabases result)
+                                        -- The conversion that just read the amount reads one unit of it: the default is never taken.
+                                        (maybe perLine fst (bridgedAmount flowUnitName (cdlrBridge result) perLine))
+                                        amount
+                                locFallbacks =
+                                    [ LocationFallback
+                                        { lfProduct = cdlrProductName result
+                                        , lfRequested = req
+                                        , lfActual = actLoc
+                                        , lfKind = kind
+                                        }
+                                    | UpperLocationUsed req actLoc kind <- cdlrWarnings result
+                                    ]
+                                -- Non-nil input matched only by attributes: its named source
+                                -- activity was in no dependency – flag the cross-version risk.
+                                attrFallbacks =
+                                    [ AttributeFallback
+                                        { afProduct = tfName flow
+                                        , afRequested = loc
+                                        , afMatched = cdlrLocation result
+                                        , afSourceDatabase = cdlrDatabaseName result
+                                        }
+                                    | claimsAnActivityUUID claim
+                                    ]
+                                -- Several activities of the supplier database answered this
+                                -- input equally well: the winner is the ranking's, not the
+                                -- data's.
+                                ambiguities =
+                                    [ SupplierAmbiguity
+                                        { saProduct = tfName flow
+                                        , saRequested = loc
+                                        , saChosen = chosen
+                                        , saCandidates = candidates
+                                        , saSourceDatabase = cdlrDatabaseName result
+                                        }
+                                    | AmbiguousSupplier chosen candidates <- cdlrWarnings result
+                                    ]
+                             in mempty
+                                    { cdlLinks = [crossLink]
+                                    , cdlLocationFallbacks = locFallbacks
+                                    , cdlAttributeFallbacks = attrFallbacks
+                                    , cdlSupplierAmbiguities = ambiguities
                                     }
-                                | UpperLocationUsed req actLoc kind <- cdlrWarnings result
-                                ]
-                            -- Non-nil input matched only by attributes: its named source
-                            -- activity was in no dependency – flag the cross-version risk.
-                            attrFallbacks =
-                                [ AttributeFallback
-                                    { afProduct = tfName flow
-                                    , afRequested = loc
-                                    , afMatched = cdlrLocation result
-                                    , afSourceDatabase = cdlrDatabaseName result
-                                    }
-                                | claimsAnActivityUUID claim
-                                ]
-                            -- Several activities of the supplier database answered this
-                            -- input equally well: the winner is the ranking's, not the
-                            -- data's.
-                            ambiguities =
-                                [ SupplierAmbiguity
-                                    { saProduct = tfName flow
-                                    , saRequested = loc
-                                    , saChosen = chosen
-                                    , saCandidates = candidates
-                                    , saSourceDatabase = cdlrDatabaseName result
-                                    }
-                                | AmbiguousSupplier chosen candidates <- cdlrWarnings result
-                                ]
-                         in mempty
-                                { cdlLinks = [crossLink]
-                                , cdlLocationFallbacks = locFallbacks
-                                , cdlAttributeFallbacks = attrFallbacks
-                                , cdlSupplierAmbiguities = ambiguities
-                                }
                 CrossDBNotLinked blocker
                     -- An input designating by its product row reports a rich blocker;
                     -- one that named an identity and matched nothing (no identity, no
@@ -2946,7 +2952,7 @@ findExchangeCrossDBLink _ _ _ _ BiosphereExchange{} = mempty
 -- would link the waste to an activity nobody asked for.
 -- Waste inputs (treatment side) are left alone: they have no clean LCA
 -- semantic as a cross-DB demand.
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows = wasteFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp}
+findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows = wasteFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp, waLocation = waLoc}
     | not isInp && not resolvesInternally =
         case treatmentMatch of
             WasteMatched entry dbN
@@ -2978,7 +2984,14 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows 
                      in
                         mempty{cdlLinks = [crossLink], cdlWasteExactLinks = 1}
             -- A treatment measured in another kind of unit than the line treats none of it.
-            WasteMatched _ _ -> mempty{cdlCutoffWasteCount = 1}
+            WasteMatched entry _ ->
+                mempty
+                    { cdlCutoffWasteCount = 1
+                    , cdlUnresolvedRequests =
+                        M.singleton
+                            (supplierRequest flowName claim waLoc)
+                            (UnresolvedProduct (M.singleton UnitIncompatible{uiQueryUnit = writtenUnitName unitDb ex, uiSupplierUnit = seUnit entry} 1))
+                    }
             WasteAmbiguous _ -> mempty{cdlWasteAmbiguous = 1}
             WasteNoMatch -> mempty{cdlCutoffWasteCount = 1}
     | otherwise = mempty
