@@ -22,7 +22,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import qualified Data.Vector as V
-import Database.MatrixBuild (lineRows)
+import Database.MatrixBuild (LineRow (..), LineRows (..), lineRows)
 import Parametric (Moving (..), ParameterRefusal, moving)
 import Types
 import UnitConversion (UnitConfig)
@@ -76,20 +76,20 @@ column unitConfig db = columnOf
     columnOf pid = do
         let act = dbActivities db V.! fromIntegral pid
             key = dbProcessIdTable db V.! fromIntegral pid
-        (tech, bio) <- rowsOf pid act
+        LineRows tech bio <- rowsOf pid act
         pure
             Column
                 { columnProcess = pid
                 , columnReference = normLines act key
-                , columnTechnosphere = [(Within i, entry n factor ex) | (n, ex, i, factor) <- tech] <> map (linked act) (M.findWithDefault [] key linksOf)
-                , columnBiosphere = [(row, entry n 1 ex) | (n, ex, row) <- bio]
+                , columnTechnosphere = [(Within (lineRow line), entry line) | line <- tech] <> map (linked act) (M.findWithDefault [] key linksOf)
+                , columnBiosphere = [(lineRow line, entry line) | line <- bio]
                 }
 
     linksOf :: M.Map (UUID, UUID) [CrossDBLink]
     linksOf = M.fromListWith (flip (<>)) [((cdlConsumerActUUID link, cdlConsumerProdUUID link), [link]) | link <- dbCrossDBLinks db]
 
-    entry :: Int -> Double -> Exchange -> Entry
-    entry n factor ex = Entry (Just n) factor (exchangeAmount ex) (efText <$> exchangeFormula ex)
+    entry :: LineRow row -> Entry
+    entry (LineRow n ex _ factor) = Entry (Just n) factor (exchangeAmount ex) (efText <$> exchangeFormula ex)
 
     -- A link supplies the line it answers, or, answering none, a fixed amount.
     linked :: Activity -> CrossDBLink -> (Supplier, Entry)
@@ -97,7 +97,7 @@ column unitConfig db = columnOf
         ( Elsewhere (cdlSourceDatabase link) (cdlSupplierActUUID link, cdlSupplierProdUUID link) (cdlExchangeUnit link)
         , fromMaybe (Entry Nothing 1 (cdlCoefficient link) Nothing) $ do
             AnsweredExchange{aePosition = position, aeFactor = factor} <- cdlAnswers link
-            entry position factor <$> listToMaybe (drop position (exchanges act))
+            (\ex -> entry (LineRow position ex () factor)) <$> listToMaybe (drop position (exchanges act))
         )
 
 -- | The most processes a model moves: the client solves a system of that size for each set of values.

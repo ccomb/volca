@@ -15,6 +15,8 @@ module Database.MatrixBuild (
     buildTechTriples,
     buildBioTriples,
     withActivities,
+    LineRow (..),
+    LineRows (..),
     lineRows,
     technosphereChange,
     findProducer,
@@ -289,6 +291,22 @@ bioTriple bioIndex normFactor j ex
                 value = raw / safeDenom normFactor
              in [SparseTriple i j value | raw /= 0]
 
+-- | A line of a process and the row of A or B it enters.
+data LineRow row = LineRow
+    { linePosition :: !Int
+    -- ^ Among the activity's exchanges.
+    , lineExchange :: !Exchange
+    , lineRow :: !row
+    , lineFactor :: !Double
+    -- ^ What one unit of the line's amount puts in that row: sign and unit conversion.
+    }
+
+-- | A process's lines entering A, by supplier, and B, by flow row.
+data LineRows = LineRows
+    { technosphereLines :: ![LineRow ProcessId]
+    , biosphereLines :: ![LineRow Int32]
+    }
+
 {- | The rows a process's lines enter in its columns of A and of B, each with
 what one unit of the line's amount puts there before the column is divided by
 the process's normalisation: the supplier's row and the line's sign and unit
@@ -298,7 +316,7 @@ says where it goes. A line no row of the database takes is left out; a process
 the allocation gate refuses has no column, and gives why. Each line comes with
 its position among the activity's exchanges.
 -}
-lineRows :: UnitConfig -> Database -> ProcessId -> Activity -> Either Text ([(Int, Exchange, ProcessId, Double)], [(Int, Exchange, Int32)])
+lineRows :: UnitConfig -> Database -> ProcessId -> Activity -> Either Text LineRows
 lineRows unitConfig db = rowsOf
   where
     supplierRefUnits :: V.Vector Text
@@ -307,15 +325,15 @@ lineRows unitConfig db = rowsOf
     bioIndex :: M.Map UUID Int32
     bioIndex = bioRows (dbBiosphereOrder db)
 
-    rowsOf :: ProcessId -> Activity -> Either Text ([(Int, Exchange, ProcessId, Double)], [(Int, Exchange, Int32)])
+    rowsOf :: ProcessId -> Activity -> Either Text LineRows
     rowsOf j act = do
         (_, allocated) <- first T.pack (columnSource (dbProcessIdTable db V.! fromIntegral j) act)
         tech <- traverse (techRows allocated) numbered
-        pure (concat tech, [(n, ex, i) | (n, ex) <- numbered, SparseTriple i _ _ <- bioTriple bioIndex 1 j (withAmount 1 ex)])
+        pure (LineRows (concat tech) [LineRow n ex i 1 | (n, ex) <- numbered, SparseTriple i _ _ <- bioTriple bioIndex 1 j (withAmount 1 ex)])
       where
         numbered = zip [0 ..] (exchanges act)
         techRows allocated (n, ex) =
-            (\(triples, _) -> [(n, ex, i, v) | SparseTriple i _ v <- triples])
+            (\(triples, _) -> [LineRow n ex i v | SparseTriple i _ v <- triples])
                 <$> techTriple unitConfig (dbUnits db) (dbProcessIdLookup db) supplierRefUnits (dbActivityCount db) 1 j (allocatedActivity allocated) (withAmount 1 ex)
 
 {- | What the columns of these processes change in M = I − A from one

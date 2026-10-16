@@ -53,7 +53,7 @@ import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, 
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), ScoreLines (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, selectMethod)
+import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.List (find)
@@ -2668,7 +2668,7 @@ callScoreActivity dbManager mHosting mBaseUrl rid args =
         wantedSets <- except (parseArrayArg "scoring_sets" Nothing args :: Either Text [Text])
         let mSub = if null subs && null values then Nothing else Just SubstitutionRequest{srSubstitutions = subs, srParameters = values}
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-            scoreLines = if fromMaybe False (boolArg "exchange_contributions" args) then WithLines else WithoutLines
+            scoreLines = scoreLinesFrom (boolArg "exchange_contributions" args)
         res <- liftIO $ BI.runActivityLCIABatch dbManager mHosting dbName pidText coll mSub ltMode scoreLines
         case res of
             Left e -> throwE (batchErrorMsg e)
