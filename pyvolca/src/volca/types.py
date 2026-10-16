@@ -582,11 +582,14 @@ class ScoredActivity:
 
     ``impacts`` is the same :class:`LCIABatchResult` that
     :meth:`Client.get_impacts_batch` returns for a single process.
+    ``parameter_set`` is the position of the parameter set it was scored at,
+    when :meth:`Client.score_activities` was given ``parameter_sets``.
     """
 
     process_id: str
     activity_name: str
     impacts: LCIABatchResult
+    parameter_set: int | None = None
 
 
 @dataclass
@@ -614,6 +617,7 @@ class BatchScores:
                     process_id=r["processId"],
                     activity_name=r["activityName"],
                     impacts=LCIABatchResult.from_json(r["impacts"]),
+                    parameter_set=r.get("parameterSet"),
                 )
                 for r in d["results"]
             ],

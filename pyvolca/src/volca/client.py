@@ -2736,6 +2736,7 @@ class Client:
         collection: str | None = None,
         top_flows: int | None = None,
         exclude_long_term: bool | None = None,
+        parameter_sets: list[list[ParameterValue]] | None = None,
     ) -> BatchScores:
         """Score many processes in one call (every category of a collection each).
 
@@ -2746,16 +2747,23 @@ class Client:
         contributors per category; ``exclude_long_term`` drops long-term
         emissions from the totals. Left without a ``collection``, the call runs
         against the only loaded one, and refuses when several are loaded rather
-        than picking one.
+        than picking one. ``parameter_sets`` scores every process once at each
+        set of :class:`ParameterValue`, set after set; each
+        :class:`ScoredActivity` then carries the position of its set in
+        ``parameter_set``.
         """
         collection = self._resolve_collection(collection)
+        body: dict = {"processIds": process_ids}
+        if parameter_sets:
+            self._require_wire(68, "score_activities(parameter_sets=...)", engine_hint="0.16.0")
+            body["parameterSets"] = [[v.to_wire() for v in values] for values in parameter_sets]
         return BatchScores.from_json(
             self._call(
                 "score_activities",
                 collection=collection,
                 top_flows=top_flows,
                 exclude_long_term=exclude_long_term,
-                body={"processIds": process_ids},
+                body=body,
             )
         )
 

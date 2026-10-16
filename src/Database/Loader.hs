@@ -67,6 +67,7 @@ module Database.Loader (
     GapEntry (..),
     GapReport (..),
     gapEdgesForLoaded,
+    gapEdgesOfProcesses,
     gapReasons,
     gapReportForLoaded,
     gapReportForStaged,
@@ -2657,6 +2658,10 @@ buildGapReport dbName db nLinks edges =
 -- | Unsupplied edges of a loaded database ('findProducer' honours process links).
 gapEdgesForLoaded :: Database -> [GapEdge]
 gapEdgesForLoaded db = loadedEdges db (toSimpleDatabase db)
+
+-- | The same, for some processes only: an edge is one process's, so the scan of those alone finds theirs.
+gapEdgesOfProcesses :: Database -> [ProcessId] -> [GapEdge]
+gapEdgesOfProcesses db pids = loadedEdges db (simpleDatabaseOf db pids)
 
 -- | Supplier-gap report of a loaded database.
 gapReportForLoaded :: T.Text -> Database -> GapReport

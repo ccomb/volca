@@ -204,7 +204,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import Data.UUID.V4 (nextRandom)
 import Database (Geographies, buildDatabaseWithMatrices, readGeographies)
-import Database.Cutoffs (GapIndex, gapIndexOf)
+import Database.Cutoffs (GapIndex, gapIndexMoved, gapIndexOf)
 import qualified Database.Loader as Loader
 import Database.MatrixBuild (technosphereChange)
 import qualified Database.Quality as Quality
@@ -852,15 +852,39 @@ the clear, and the index is read at that version's process identifiers.
 -}
 getGapIndex :: DatabaseManager -> Text -> Database -> IO GapIndex
 getGapIndex manager dbName db = do
-    identity <- makeStableName =<< Control.Exception.evaluate db
+    identity <- identityOf db
     cached <- M.lookup dbName <$> readTVarIO (dmGapIndexCache manager)
     case cached of
         Just (builtFrom, idx) | builtFrom == identity -> pure idx
-        _ -> do
-            idx <- Control.Exception.evaluate (gapIndexOf db)
-            atOtherValues <- isJust <$> loadedAtDefaults manager dbName db
-            unless atOtherValues $ atomically (modifyTVar' (dmGapIndexCache manager) (M.insert dbName (identity, idx)))
-            pure idx
+        _ ->
+            loadedAtDefaults manager dbName db >>= \case
+                Nothing -> do
+                    idx <- Control.Exception.evaluate (gapIndexOf db)
+                    atomically (modifyTVar' (dmGapIndexCache manager) (M.insert dbName (identity, idx)))
+                    pure idx
+                Just base ->
+                    movedFrom base db >>= \case
+                        -- At other parameter values: the loaded database's index, its moved processes scanned again.
+                        Just pids -> Control.Exception.evaluate . gapIndexMoved db pids =<< getGapIndex manager dbName base
+                        Nothing -> Control.Exception.evaluate (gapIndexOf db)
+
+{- | The processes @db@ holds in place of those of @base@, told apart by identity
+as 'Database.MatrixBuild.withActivities' keeps the others; 'Nothing' when the
+two are linked differently, as after a dependency loaded, where more than some
+processes moved.
+-}
+movedFrom :: Database -> Database -> IO (Maybe [ProcessId])
+movedFrom base db = do
+    sameLinks <- (==) <$> identityOf (dbLinkingStats base) <*> identityOf (dbLinkingStats db)
+    if sameLinks
+        then Just <$> filterM differs [0 .. fromIntegral (V.length (dbActivities db)) - 1]
+        else pure Nothing
+  where
+    differs :: ProcessId -> IO Bool
+    differs pid = (/=) <$> identityOf (dbActivities base V.! fromIntegral pid) <*> identityOf (dbActivities db V.! fromIntegral pid)
+
+identityOf :: a -> IO (StableName a)
+identityOf x = makeStableName =<< Control.Exception.evaluate x
 
 {- | The loaded database, when @db@ is it read at other parameter values:
 'Database.MatrixBuild.withActivities' changes amounts and keeps the rest by
@@ -874,9 +898,8 @@ loadedAtDefaults manager dbName db = do
     case ldDatabase <$> loaded of
         Nothing -> pure Nothing
         Just base -> do
-            let identity x = makeStableName =<< Control.Exception.evaluate x
-            sameVersion <- (==) <$> identity (dbBiosphereOrder base) <*> identity (dbBiosphereOrder db)
-            sameObject <- (==) <$> identity base <*> identity db
+            sameVersion <- (==) <$> identityOf (dbBiosphereOrder base) <*> identityOf (dbBiosphereOrder db)
+            sameObject <- (==) <$> identityOf base <*> identityOf db
             pure (if sameVersion && not sameObject then Just base else Nothing)
 
 {- | The name of a method collection. A newtype because it travels next to a

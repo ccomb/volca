@@ -7,6 +7,7 @@ something other than zero.
 module Database.Cutoffs (
     GapIndex (..),
     gapIndexOf,
+    gapIndexMoved,
     Cutoffs (..),
     noCutoffs,
     cutoffInputsIn,
@@ -21,7 +22,7 @@ import qualified Data.Map.Strict as M
 import Data.Ord (Down (..))
 import qualified Data.Set as S
 import Data.Text (Text)
-import Database.Loader (GapEdge (..), gapEdgesForLoaded, gapReasons)
+import Database.Loader (GapEdge (..), gapEdgesForLoaded, gapEdgesOfProcesses, gapReasons)
 import Matrix (Vector, activityNormalizationFactor, processScaling)
 import Types (BlockerReason, Database (..), ProcessId)
 
@@ -31,11 +32,22 @@ newtype GapIndex = GapIndex (M.Map ProcessId [GapEdge])
 
 -- | One scan of the database, so a result only looks up its own processes.
 gapIndexOf :: Database -> GapIndex
-gapIndexOf db =
+gapIndexOf db = indexedByConsumer db (gapEdgesForLoaded db)
+
+{- | The index of a database whose processes in @moved@ changed, from the index
+of the database before: theirs scanned again, the others' kept.
+-}
+gapIndexMoved :: Database -> [ProcessId] -> GapIndex -> GapIndex
+gapIndexMoved db moved (GapIndex before) = GapIndex (M.union fresh (M.withoutKeys before (S.fromList moved)))
+  where
+    GapIndex fresh = indexedByConsumer db (gapEdgesOfProcesses db moved)
+
+indexedByConsumer :: Database -> [GapEdge] -> GapIndex
+indexedByConsumer db edges =
     GapIndex $
         M.map reverse . M.fromListWith (++) $
             [ (pid, [e])
-            | e <- gapEdgesForLoaded db
+            | e <- edges
             , Just pid <- [M.lookup (gapConsumerAct e, gapConsumerProd e) (dbProcessIdLookup db)]
             ]
 

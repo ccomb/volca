@@ -170,10 +170,13 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
     indicatorKeys :: [Text]
     indicatorKeys = M.keys (M.union (ssVariables ss) (ssComputed ss))
     webUrlCol = ["web_url" | isJust mBaseUrl]
+    -- Only a batch scored at parameter sets has rows that differ by their set alone.
+    atSets = any (isJust . bieParameterSet) (birResults bir)
+    setCol = ["parameter_set" | atSets]
     fixedColumns :: [Text]
     fixedColumns
-        | isHeterogeneous = ["activity_name", "process_id"] ++ webUrlCol ++ ["functional_unit", "total", "cutoffs"]
-        | otherwise = ["activity_name", "process_id"] ++ webUrlCol ++ ["total", "cutoffs"]
+        | isHeterogeneous = ["activity_name", "process_id"] ++ setCol ++ webUrlCol ++ ["functional_unit", "total", "cutoffs"]
+        | otherwise = ["activity_name", "process_id"] ++ setCol ++ webUrlCol ++ ["total", "cutoffs"]
     columns :: [Text]
     columns
         | summaryOnly = fixedColumns ++ ["dominant_indicator"]
@@ -201,6 +204,7 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
             [ toJSON (bieActivityName e)
             , toJSON (bieProcessId e)
             ]
+                ++ [toJSON (bieParameterSet e) | atSets]
                 ++ urlCells
                 ++ fuCells
                 ++ [total, toJSON (cutoffCount lbr)]

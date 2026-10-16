@@ -32,7 +32,7 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 67
+KNOWN_WIRE = 68
 """The newest wire revision this pyvolca understands (revision 67 added
 the ``flow`` and ``limit`` of an inventory request and the
 ``matched_flows`` it counts; revision 66 added

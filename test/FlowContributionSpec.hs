@@ -230,7 +230,7 @@ spec = describe "a contributing flow's factor and contribution" $ do
         restRows (lrTopContributors result) `shouldBe` expected
 
     it "land in their own fields in a REST batch score asking for top flows" $ do
-        response <- runOk (postImpactsBatch "sample" (CollectionName collectionName) (Just 5) Nothing (BatchImpactsRequest [productD]))
+        response <- runOk (postImpactsBatch "sample" (CollectionName collectionName) (Just 5) Nothing (BatchImpactsRequest [productD] []))
         concatMap restRows [lrTopContributors r | e <- birResults response, r <- lbrResults (bieImpacts e)]
             `shouldBe` expected
 

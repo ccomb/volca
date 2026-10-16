@@ -6,6 +6,7 @@
 module API.Types.Impacts where
 
 import API.JsonOptions (Stripped (..))
+import API.Types.Activity (ParameterValue)
 import API.Types.Common
 import API.Types.MethodComparison
 import Control.DeepSeq (NFData)
@@ -164,17 +165,39 @@ data ContributingActivitiesResult = ContributingActivitiesResult
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingActivitiesResult)
 
--- | Batch impacts request: compute LCIA for every process in one call.
-newtype BatchImpactsRequest = BatchImpactsRequest
+{- | Batch impacts request: compute LCIA for every process in one call, at
+the database's own values, or once at each set of parameter values.
+-}
+data BatchImpactsRequest = BatchImpactsRequest
     { birProcessIds :: [Text]
+    , birParameterSets :: [[ParameterValue]]
     }
     deriving (Generic)
-    deriving (FromJSON, ToSchema) via (Stripped BatchImpactsRequest)
+
+-- | Sets left unstated are none: the processes are scored at the database's own values.
+instance FromJSON BatchImpactsRequest where
+    parseJSON = withObject "BatchImpactsRequest" $ \o ->
+        BatchImpactsRequest
+            <$> o .: "processIds"
+            <*> o .:? "parameterSets" .!= []
+
+instance ToSchema BatchImpactsRequest where
+    declareNamedSchema _ = do
+        processIds <- declareSchemaRef (Proxy :: Proxy [Text])
+        parameterSets <- declareSchemaRef (Proxy :: Proxy [[ParameterValue]])
+        pure $
+            NamedSchema (Just "BatchImpactsRequest") $
+                mempty
+                    & type_ ?~ OpenApiObject
+                    & properties .~ InsOrdHashMap.fromList [("processIds", processIds), ("parameterSets", parameterSets)]
+                    & required .~ ["processIds"]
 
 -- | One entry of a batch impacts response.
 data BatchImpactsEntry = BatchImpactsEntry
     { bieProcessId :: Text
     , bieActivityName :: Text
+    , bieParameterSet :: Maybe Int
+    -- ^ The position of the parameter set this entry was scored at, when the request gave sets
     , bieImpacts :: LCIABatchResult
     }
     deriving (Generic)

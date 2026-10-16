@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from volca.types import BatchScores, SensitivityResult
+from volca import VoLCAError
+from volca.types import BatchScores, ParameterValue, SensitivityResult
 
 # A method id travels the URL as a UUID; anything else is a name the client
 # resolves against the engine first (see TestMethodResolution).
@@ -95,6 +96,42 @@ class TestScoreActivities:
         assert result.results[1].impacts.results[0].score == 2.0
         assert result.not_found == ["p3"]
         assert result.invalid == ["bogus"]
+
+    def test_scores_each_process_at_each_parameter_set(self, mocked_client, make_response):
+        client, session = mocked_client
+        client._checked = True
+        client._server_wire = 68
+        session.post.return_value = make_response(
+            {
+                "results": [
+                    {"processId": "p1", "activityName": "Wheat", "parameterSet": 0, "impacts": _batch(1.0)},
+                    {"processId": "p1", "activityName": "Wheat", "parameterSet": 1, "impacts": _batch(2.0)},
+                ],
+                "notFound": [],
+                "invalid": [],
+            }
+        )
+        result = client.score_activities(
+            ["p1"],
+            collection="methods",
+            parameter_sets=[[ParameterValue("yield", 2.0)], [ParameterValue("mix_de", 1, process="p1")]],
+        )
+        assert session.post.call_args[1]["json"] == {
+            "processIds": ["p1"],
+            "parameterSets": [
+                [{"name": "yield", "value": 2.0}],
+                [{"name": "mix_de", "value": 1, "process": "p1"}],
+            ],
+        }
+        assert [(s.parameter_set, s.impacts.results[0].score) for s in result.results] == [(0, 1.0), (1, 2.0)]
+
+    def test_parameter_sets_never_reach_an_engine_that_would_ignore_them(self, mocked_client):
+        client, session = mocked_client
+        client._checked = True
+        client._server_wire = 67
+        with pytest.raises(VoLCAError, match="wire revision >= 68"):
+            client.score_activities(["p1"], collection="methods", parameter_sets=[[ParameterValue("yield", 2.0)]])
+        session.post.assert_not_called()
 
     def test_optional_query_params_omitted_by_default(self, mocked_client, make_response):
         client, session = mocked_client

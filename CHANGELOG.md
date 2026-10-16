@@ -88,7 +88,7 @@
   another can be switched from one to the other. Values that move
   emissions or inputs reuse the loaded database's factorisation, corrected
   by the columns that moved: a value that moves a supplier's amount answers
-  in 0.2 s on the largest database measured, against 2 s for factorising
+  in 0.13 s on the largest database measured, against 2 s for factorising
   again. A value that would make the technosphere singular is refused, and
   one that moves very many processes at once factorises again for that
   request. A value is refused,
@@ -99,6 +99,18 @@
   `score_activity` take the same `parameters`, and pyvolca's
   `ParameterValue`. An activity's `databaseParameters` now also lists the
   database parameters its allocation shares read. Wire revision 66.
+
+- Batch scoring (`POST /db/{db}/impacts/{collection}`) takes
+  `parameterSets`, a list of value lists written as `parameters` is: every
+  process of the batch is scored at each set, one set after the other, and
+  each row carries `parameterSet`, the position of its set (`null` without
+  sets). A set that cannot be computed refuses the request, the error naming
+  its position, and a hosting limit on the activities of one request counts
+  a process once per set. On the largest database measured, 1 000 values of
+  a parameter that moves a supplier's amount are scored in 52 s, against
+  0.13 s for each request sent alone. The assistant's `score_activities`
+  takes `parameter_sets`, and pyvolca's `score_activities` too. Wire
+  revision 68.
 
 ### Fixed
 

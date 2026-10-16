@@ -79,6 +79,7 @@ mkEntry pid name fu setName total inds =
     BatchImpactsEntry
         { bieProcessId = pid
         , bieActivityName = name
+        , bieParameterSet = Nothing
         , bieImpacts =
             LCIABatchResult
                 { lbrResults = [lciaResult fu]

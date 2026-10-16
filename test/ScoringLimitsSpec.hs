@@ -51,7 +51,7 @@ spec = do
         it "lets a request through at the limit and refuses one past it" $ do
             scoringRefusal (Just (limits (Just 3) Nothing)) 3 Nothing `shouldBe` Nothing
             scoringRefusal (Just (limits (Just 3) Nothing)) 4 Nothing
-                `shouldBe` Just "This engine scores at most 3 activities in one request, and this one covers 4. Split it into smaller requests."
+                `shouldBe` Just "This engine scores at most 3 activities in one request, an activity counting once per parameter set, and this one covers 4. Split it into smaller requests."
 
         it "bounds the top contributing flows only when the request asks for some" $ do
             scoringRefusal (Just (limits Nothing (Just 5))) 1 Nothing `shouldBe` Nothing
@@ -104,16 +104,21 @@ spec = do
                         }
             res <-
                 runHandler . runApp env $
-                    batchImpactsH "no-such-db" (CollectionName "no-coll") Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = ["a", "b", "c"]}
+                    batchImpactsH "no-such-db" (CollectionName "no-coll") Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = ["a", "b", "c"], birParameterSets = []}
             -- A 404 here would mean the database was looked up first.
             either (Just . errHTTPCode) (const Nothing) res `shouldBe` Just 403
+            -- Two activities at two parameter sets are four scores.
+            atSets <-
+                runHandler . runApp env{aeHostingConfig = Just (limits (Just 3) Nothing)} $
+                    batchImpactsH "no-such-db" (CollectionName "no-coll") Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = ["a", "b"], birParameterSets = [[], []]}
+            either (Just . errHTTPCode) (const Nothing) atSets `shouldBe` Just 403
 
     -- The assistant tools score through these wrappers, which used to run
     -- with no hosting section at all and so escaped every limit.
     describe "the wrappers the assistant tools score through" $ do
         it "carry the limit to the batch" $ do
             manager <- initDatabaseManager defaultConfig NoCache
-            res <- runBatchImpacts manager (Just (limits (Just 2) Nothing)) "no-such-db" "no-coll" Nothing IncludeLongTerm ["a", "b", "c"]
+            res <- runBatchImpacts manager (Just (limits (Just 2) Nothing)) "no-such-db" "no-coll" Nothing IncludeLongTerm ["a", "b", "c"] []
             case res of
                 Left (OtherBatchError 403 msg) -> msg `shouldSatisfy` T.isInfixOf "at most 2 activities"
                 Left other -> expectationFailure ("expected the 403 refusal, got " <> show other)

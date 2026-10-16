@@ -194,6 +194,7 @@ knownDivergences =
     , ("load_database", "database")
     , ("score_activities", "database")
     , ("score_activities", "exclude_long_term")
+    , ("score_activities", "parameter_sets")
     , ("score_activities", "process_ids")
     , ("score_activities", "scoring_sets")
     , ("score_activities", "summary_only")

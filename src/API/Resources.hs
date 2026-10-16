@@ -882,7 +882,10 @@ description r = case r of
         \[\"<one>\"] when the collection has more than one scoring set \
         \configured. The 'web_url' column on each row is a deep link to the \
         \activity's impacts page in the VoLCA web UI: render it as a clickable \
-        \markdown link when presenting results to a human."
+        \markdown link when presenting results to a human. With 'parameter_sets', \
+        \every activity is scored once at each set of parameter values, and a \
+        \'parameter_set' column after 'process_id' gives each row the position \
+        \of its set."
     ListScoringSets ->
         "LCA / ACV: list formula-based scoring sets defined in loaded \
         \method collections. A scoring set is a configured aggregation of \
@@ -1138,6 +1141,19 @@ pParameters =
         \{name, value} for a parameter of the database, {process, name, value} for a \
         \process's own. The exchanges whose formulas read them are computed again \
         \before the request is answered."
+
+{- | Optional sets of parameter values: each activity of a batch is scored
+once at each of them.
+-}
+pParameterSets :: Param
+pParameterSets =
+    Param
+        "parameter_sets"
+        "array"
+        Optional
+        "Optional sets of values for input parameters, each a list shaped as \
+        \get_impacts's 'parameters'. Every activity is scored once at each set, \
+        \set after set; without it, once at the database's own values."
 
 {- | Optional switch to drop delayed long-term emissions before scoring.
 Shared by 'get_impacts', 'score_activity' and 'score_activities'. Long-term
@@ -1447,6 +1463,7 @@ params r = case r of
         , pScoringSetsFilter
         , pSummaryOnly
         , pExcludeLongTerm
+        , pParameterSets
         ]
     ListScoringSets ->
         [ Param "collection" "string" Optional "Method collection name. If omitted, returns scoring sets across all loaded collections, grouped by collection."

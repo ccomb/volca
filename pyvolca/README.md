@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 67** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 68** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1378,7 +1378,7 @@ Multiply by ``scale`` every factor ``match`` reaches.
 A selector that reaches no factor is refused rather than passed off as
 done; ``touched`` in the answer says how many changed.
 
-##### `Client.score_activities(process_ids: list[str], *, collection: str | None = None, top_flows: int | None = None, exclude_long_term: bool | None = None) -> BatchScores`
+##### `Client.score_activities(process_ids: list[str], *, collection: str | None = None, top_flows: int | None = None, exclude_long_term: bool | None = None, parameter_sets: list[list[ParameterValue]] | None = None) -> BatchScores`
 
 Score many processes in one call (every category of a collection each).
 
@@ -1389,7 +1389,10 @@ them, a partial result is not an error. ``top_flows`` caps the top
 contributors per category; ``exclude_long_term`` drops long-term
 emissions from the totals. Left without a ``collection``, the call runs
 against the only loaded one, and refuses when several are loaded rather
-than picking one.
+than picking one. ``parameter_sets`` scores every process once at each
+set of `ParameterValue`, set after set; each
+`ScoredActivity` then carries the position of its set in
+``parameter_set``.
 
 ##### `Client.scoring_sets(collection: str) -> list[dict]`
 
@@ -3195,12 +3198,15 @@ One process's batch impacts inside a `BatchScores`.
 
 ``impacts`` is the same `LCIABatchResult` that
 `Client.get_impacts_batch` returns for a single process.
+``parameter_set`` is the position of the parameter set it was scored at,
+when `Client.score_activities` was given ``parameter_sets``.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `process_id` | `str` | _required_ |
 | `activity_name` | `str` | _required_ |
 | `impacts` | `LCIABatchResult` | _required_ |
+| `parameter_set` | `int \| None` | None |
 
 ### `ScoringIndicator`
 

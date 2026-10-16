@@ -12,7 +12,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ParameterValue, PerturbedEntry (..), QualityReportAPI (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import qualified Config
 import Control.Concurrent.Async (mapConcurrently)
@@ -20,7 +20,7 @@ import Control.Concurrent.QSem (signalQSem, waitQSem)
 import Control.Concurrent.STM (readTVarIO)
 import Control.DeepSeq (force)
 import Control.Exception (evaluate)
-import Control.Monad (forM, forM_, mfilter, unless, when)
+import Control.Monad (forM, forM_, mfilter, unless, when, zipWithM)
 import Control.Monad.Catch (bracket_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
@@ -617,14 +617,24 @@ values: a dependency that links back to it reads it at its defaults.
 -}
 withRequestDatabase :: Text -> Maybe SubstitutionRequest -> (Database -> SharedSolver -> AppM a) -> AppM a
 withRequestDatabase dbName mSub run = do
-    loaded@(db, solver) <- requireDatabaseByName dbName
-    case maybe [] srParameters mSub of
-        [] -> run db solver
-        values -> do
-            settings <- either throwServiceError pure (Service.settingsOf db values)
-            env <- asks id
-            outcome <- liftIO (DM.withSettings (aeDbManager env) dbName loaded settings (\db' solver' -> runHandler (runApp env (run db' solver'))))
-            either badRequest (either throwError pure) outcome
+    loaded <- requireDatabaseByName dbName
+    withValues id dbName loaded (maybe [] srParameters mSub) run
+
+{- | Run with the loaded database at these values and a solver for it, as
+'withRequestDatabase' does. A refusal of the values passes through @refused@,
+which lets a batch say which of its sets was refused; what @run@ throws does
+not.
+-}
+withValues :: (ServerError -> ServerError) -> Text -> (Database, SharedSolver) -> [ParameterValue] -> (Database -> SharedSolver -> AppM a) -> AppM a
+withValues _ _ (db, solver) [] run = run db solver
+withValues refused dbName loaded@(db, _) values run = do
+    settings <- either (throwError . refused . serviceErrorToServerError) pure (Service.settingsOf db values)
+    env <- asks id
+    outcome <- liftIO (DM.withSettings (aeDbManager env) dbName loaded settings (\db' solver' -> runHandler (runApp env (run db' solver'))))
+    either (throwError . refused . err400Of) (either throwError pure) outcome
+  where
+    err400Of :: Text -> ServerError
+    err400Of msg = err400{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
 
 {- | Look up MethodSetTables for every (DB, scaling) pair in the cross-DB
 solution. Cache-keyed by (dbName, methods).
@@ -969,6 +979,8 @@ data BatchScope = BatchScope
     , bsContexts :: ![MethodCtx]
     , bsTopFlows :: !Int
     , bsLongTerm :: !LongTermMode
+    , bsParameterSet :: !(Maybe Int)
+    -- ^ The position of the parameter set the database is read at, when the request gave sets
     }
 
 {- | One activity a batch asks about: the id as the caller wrote it, the id it
@@ -1026,6 +1038,7 @@ scoreChunk scope chunk = do
         BatchImpactsEntry
             { bieProcessId = btRequestedId target
             , bieActivityName = activityName (btActivity target)
+            , bieParameterSet = bsParameterSet scope
             , bieImpacts = impacts
             }
 
@@ -1056,10 +1069,10 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
     -- Before any lookup, like the read-only guard: a request this instance
     -- will not run gets the same answer whether or not its names resolve.
     hosting <- asks aeHostingConfig
-    forM_ (Config.scoringRefusal hosting (length (birProcessIds req)) topFlowsParam) $ \msg ->
+    forM_ (Config.scoringRefusal hosting (length (birProcessIds req) * max 1 (length (birParameterSets req))) topFlowsParam) $ \msg ->
         throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
     dbManager <- asks aeDbManager
-    (db, sharedSolver) <- requireDatabaseByName dbName
+    loaded@(db, sharedSolver) <- requireDatabaseByName dbName
     loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
     collection <- case M.lookup (DM.unCollectionName collectionName) loadedCollections of
         Just mc -> pure mc
@@ -1100,8 +1113,20 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
                 , bsContexts = ctxs
                 , bsTopFlows = max 0 (fromMaybe 0 topFlowsParam)
                 , bsLongTerm = ltMode
+                , bsParameterSet = Nothing
                 }
-    solved <- withScoringSlot dbManager (traverse (scoreChunk scope) (Matrix.chunksOf scoringChunk valid))
+        -- One set after another: a set's database lives while its rows are built, and no longer.
+        atSet :: Int -> [ParameterValue] -> AppM [(NominalDiffTime, [Either Text BatchImpactsEntry])]
+        atSet i values =
+            withValues (inSet i) dbName loaded values $ \db' solver' ->
+                traverse
+                    (scoreChunk scope{bsDb = db', bsSolver = solver', bsParameterSet = Just i})
+                    (Matrix.chunksOf scoringChunk [target{btActivity = dbActivities db' V.! fromIntegral (btProcessId target)} | target <- valid])
+        inSet :: Int -> ServerError -> ServerError
+        inSet i e = e{errBody = "parameter set " <> BSL.fromStrict (T.encodeUtf8 (T.pack (show i))) <> ": " <> errBody e}
+    solved <- withScoringSlot dbManager $ case birParameterSets req of
+        [] -> traverse (scoreChunk scope) (Matrix.chunksOf scoringChunk valid)
+        sets -> concat <$> zipWithM atSet [0 ..] sets
     let solveTime = sum (map fst solved)
         entriesE = concatMap snd solved
     -- All-or-nothing on purpose: an integrity error is a property of the
@@ -1193,7 +1218,7 @@ computedQualityReportH dbName mCollection mLimit = do
                             <> " in one request."
                 }
     response <-
-        batchImpactsH dbName collection Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = M.keys entriesByPid}
+        batchImpactsH dbName collection Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = M.keys entriesByPid, birParameterSets = []}
     -- The ids come from the catalogue itself, so nothing should be
     -- unresolvable – but a dropped entry would silently shrink the report,
     -- so any is worth a warning in the log.
@@ -1653,7 +1678,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 67
+currentWireVersion = 68
 
 getVersion :: AppM Value
 getVersion = do

@@ -11,12 +11,15 @@ French one.
 -}
 module ParametricSpec (spec) where
 
-import API.Types (ParameterValue (..), SubstitutionRequest (..))
+import API.Routes (activityLCIABatchH, batchImpactsH)
+import API.Types (BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), LCIABatchResult (..), LCIAResult (..), ParameterValue (..), SubstitutionRequest (..))
+import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
-import Control.Concurrent.STM (readTVarIO)
+import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (evaluate)
 import Data.Aeson (decode)
-import Data.List (sort)
+import qualified Data.ByteString.Lazy.Char8 as BSL
+import Data.List (nub, sort)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
@@ -28,10 +31,14 @@ import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Cutoffs (gapIndexOf)
 import Database.Loader (findAllCrossDBLinks)
-import Database.Manager (CachePolicy (..), DatabaseManager (..), getGapIndex, initDatabaseManager, withSettings)
+import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getGapIndex, initDatabaseManager, withSettings)
 import Database.MatrixBuild (technosphereChange, withActivities)
 import Database.Rebuild (rebuildFromActivities)
+import Method.Mapping (LongTermMode (..))
+import Method.Types (Method (..), MethodCF (..), MethodCollection (..))
+import qualified Method.Types as MT
 import Parametric (ParameterRefusal (..), Setting (..), instantiate, parameterised)
+import Servant (ServerError (..), runHandler)
 import SharedSolver (CrossDBSolution (..), SharedSolver (solverDbName), computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
 import SynonymDB (emptySynonymDB)
 import System.Mem.StableName (makeStableName)
@@ -134,18 +141,49 @@ spec = describe "a database at other values of its parameters" $ do
             other -> expectationFailure ("expected the flour's emission refused, got " <> show (refusal other))
         refusal (instantiate bakery [Setting Nothing "share_pct" 50]) `shouldBe` Just (ShareMoves "jam" "share_pct")
 
-    it "leaves the loaded database's gap index to the loaded database" $ do
-        (bakery, _) <- databases
+    it "reads the gap index at other values from the loaded database's, and caches only that one" $ do
+        -- Without its links to the grid, the bakery's electricity is a cut-off input.
+        bakery <- evaluate . (\(linked, _) -> linked{dbCrossDBLinks = []}) =<< databases
         manager <- initDatabaseManager defaultConfig NoCache
         install manager "bakery" bakery
-        atYield <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery [Setting Nothing "yield" 2])
+        -- The German electricity, asked for nothing by default, becomes one; the French one stops being one.
+        bread <- Just <$> pidOf bakery (aBread, pBread)
+        atMix <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery [Setting bread "mix_fr" 0, Setting bread "mix_de" 1])
+        gapIndexOf atMix `shouldNotBe` gapIndexOf bakery
         loaded <- makeStableName =<< evaluate bakery
         let cachedFromLoaded = fmap ((== loaded) . fst) . M.lookup "bakery" <$> readTVarIO (dmGapIndexCache manager)
-        getGapIndex manager "bakery" atYield `shouldReturn` gapIndexOf atYield
-        cachedFromLoaded `shouldReturn` Nothing
-        getGapIndex manager "bakery" bakery `shouldReturn` gapIndexOf bakery
-        getGapIndex manager "bakery" atYield `shouldReturn` gapIndexOf atYield
+        getGapIndex manager "bakery" atMix `shouldReturn` gapIndexOf atMix
         cachedFromLoaded `shouldReturn` Just True
+        getGapIndex manager "bakery" bakery `shouldReturn` gapIndexOf bakery
+        getGapIndex manager "bakery" atMix `shouldReturn` gapIndexOf atMix
+        cachedFromLoaded `shouldReturn` Just True
+
+    it "scores each process of a batch at each set, as the request at that set alone would" $ do
+        manager <- scoringManager
+        let processes = [processIdText (aBread, pBread), processIdText (aFlour, pFlour)]
+            sets =
+                [ [ParameterValue Nothing "yield" 2]
+                , [ParameterValue (Just (processIdText (aBread, pBread))) "mix_fr" 0, ParameterValue (Just (processIdText (aBread, pBread))) "mix_de" 1]
+                , []
+                ]
+        batch <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest processes sets))
+        alone <-
+            sequence
+                [ answer manager (activityLCIABatchH "bakery" process (CollectionName "co2") (Just (SubstitutionRequest [] values)) IncludeLongTerm)
+                | values <- sets
+                , process <- processes
+                ]
+        [(bieParameterSet e, bieProcessId e) | e <- birResults batch] `shouldBe` [(Just i, p) | i <- [0, 1, 2], p <- processes]
+        map (scoresOf . bieImpacts) (birResults batch) `shouldBe` map scoresOf alone
+        -- The bread's score moves with each set, so the rows are not all one number.
+        length (nub (map (scoresOf . bieImpacts) (birResults batch))) `shouldSatisfy` (> 2)
+        atDefaults <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest processes []))
+        [(bieParameterSet e, scoresOf (bieImpacts e)) | e <- birResults atDefaults] `shouldBe` [(Nothing, scoresOf (bieImpacts e)) | e <- drop 4 (birResults batch)]
+
+    it "refuses a batch one of whose sets it cannot compute, naming the set" $ do
+        manager <- scoringManager
+        refused <- runHandler . runApp (envOf manager) $ batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest [processIdText (aBread, pBread)] [[ParameterValue Nothing "yield" 2], [ParameterValue Nothing "nope" 1]])
+        either (\e -> (errHTTPCode e, take 16 (BSL.unpack (errBody e)))) (const (200, "")) refused `shouldBe` (400, "parameter set 1:")
 
     it "reads a request that only sets parameters, and refuses a misspelt field of one" $ do
         let request = decode "{\"parameters\": [{\"process\": \"p\", \"name\": \"yield\", \"value\": 2}]}" :: Maybe SubstitutionRequest
@@ -161,6 +199,51 @@ spec = describe "a database at other values of its parameters" $ do
 
 refusal :: Either ParameterRefusal a -> Maybe ParameterRefusal
 refusal = either Just (const Nothing)
+
+-- | A manager holding the bakery and its grid, and a collection scoring their carbon dioxide.
+scoringManager :: IO DatabaseManager
+scoringManager = do
+    (bakery, grid) <- databases
+    manager <- initDatabaseManager defaultConfig NoCache
+    install manager "grid" grid
+    install manager "bakery" bakery
+    atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert "co2" (MethodCollection [climate] [] []))
+    pure manager
+  where
+    climate :: Method
+    climate =
+        Method
+            { methodId = UUID.fromWords 7 0 0 1
+            , methodName = "Climate change"
+            , methodDescription = Nothing
+            , methodUnit = "kg CO2 eq"
+            , methodCategory = "Climate change"
+            , methodMethodology = Nothing
+            , methodFactors = [MethodCF co2 "carbon dioxide" MT.Output 1 (Just (MT.Compartment "air" "unspecified" "")) Nothing "kg" Nothing]
+            }
+
+envOf :: DatabaseManager -> AppEnv
+envOf manager =
+    AppEnv
+        { aeDbManager = manager
+        , aeMaxTreeDepth = 5
+        , aePassword = Nothing
+        , aeHostingConfig = Nothing
+        , aeClassificationPresets = []
+        , aeDataVersion = Nothing
+        , aeUsageLog = Nothing
+        , aeReader = Nothing
+        }
+
+-- | Run a handler, failing the test on an error status.
+answer :: DatabaseManager -> AppM a -> IO a
+answer manager handler = runHandler (runApp (envOf manager) handler) >>= either (\e -> fail (show (errHTTPCode e) <> ": " <> BSL.unpack (errBody e))) pure
+
+scoresOf :: LCIABatchResult -> [Double]
+scoresOf = map lrScore . lbrResults
+
+processIdText :: (UUID, UUID) -> Text
+processIdText (act, prod) = UUID.toText act <> "_" <> UUID.toText prod
 
 triples :: U.Vector SparseTriple -> [(Int, Int, Double)]
 triples = sort . map (\(SparseTriple i j v) -> (fromIntegral i, fromIntegral j, v)) . U.toList

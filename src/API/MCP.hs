@@ -404,6 +404,7 @@ paramsToSchema ps =
     objectItems name = case name of
         "substitutions" -> substitutionItemSchema
         "parameters" -> parameterItemSchema
+        "parameter_sets" -> object ["type" .= ("array" :: Text), "items" .= parameterItemSchema]
         "remove" -> selectorItemSchema
         "set_amounts" -> setAmountItemSchema
         "add_inputs" -> providerLineSchema "Producer of what is consumed"
@@ -2711,11 +2712,12 @@ callScoreActivities dbManager mHosting mBaseUrl rid args =
         coll <- except (requireText "collection" args)
         pids <- except (parseArrayArg "process_ids" (Just "'process_ids' required (array of strings)") args :: Either Text [Text])
         wantedSets <- except (parseArrayArg "scoring_sets" Nothing args :: Either Text [Text])
+        parameterSets <- except (parseArrayArg "parameter_sets" Nothing args :: Either Text [[ParameterValue]])
         let summaryOnly = fromMaybe False (boolArg "summary_only" args)
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
         configured <- liftIO $ configuredScoringSets dbManager coll
         chosen <- except (resolveSingleScoringSet wantedSets configured)
-        res <- liftIO $ BI.runBatchImpacts dbManager mHosting dbName coll Nothing ltMode pids
+        res <- liftIO $ BI.runBatchImpacts dbManager mHosting dbName coll Nothing ltMode pids parameterSets
         case res of
             Left e -> throwE (batchErrorMsg e)
             Right bir -> pure (toolSuccessJson rid (toColumnarBatch summaryOnly mBaseUrl dbName coll chosen bir))

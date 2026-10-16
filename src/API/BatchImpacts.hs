@@ -21,7 +21,7 @@ module API.BatchImpacts (
 ) where
 
 import API.Routes (activityLCIABatchH, batchImpactsH, collectionNotLoadedPrefix, computedQualityReportH, databaseNotLoadedPrefix)
-import API.Types (BatchImpactsRequest (..), BatchImpactsResponse, ComputedQualityReportAPI, LCIABatchResult, SubstitutionRequest)
+import API.Types (BatchImpactsRequest (..), BatchImpactsResponse, ComputedQualityReportAPI, LCIABatchResult, ParameterValue, SubstitutionRequest)
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (HostingConfig)
 import Control.Concurrent.STM (readTVarIO)
@@ -108,9 +108,11 @@ runBatchImpacts ::
     LongTermMode ->
     -- | process_ids to score
     [Text] ->
+    -- | parameter sets to score each of them at; none for the database's own values
+    [[ParameterValue]] ->
     IO (Either BatchError BatchImpactsResponse)
-runBatchImpacts dbm hosting dbName coll topFlows ltMode pids =
-    runBare dbm hosting (batchImpactsH dbName (CollectionName coll) topFlows ltMode BatchImpactsRequest{birProcessIds = pids})
+runBatchImpacts dbm hosting dbName coll topFlows ltMode pids sets =
+    runBare dbm hosting (batchImpactsH dbName (CollectionName coll) topFlows ltMode BatchImpactsRequest{birProcessIds = pids, birParameterSets = sets})
 
 {- | Computed-checks report over the whole catalogue of a loaded database.
 Same wire shape as the REST endpoint ('computedQualityReportH'), so both

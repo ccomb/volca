@@ -189,7 +189,7 @@ scoringRefusal hosting activities topFlows =
   where
     activitiesSentence :: Int -> Text
     activitiesSentence most =
-        "This engine scores at most " <> tshow most <> " activities in one request, and this one covers " <> tshow activities <> ". Split it into smaller requests."
+        "This engine scores at most " <> tshow most <> " activities in one request, an activity counting once per parameter set, and this one covers " <> tshow activities <> ". Split it into smaller requests."
     topFlowsSentence :: Int -> Int -> Text
     topFlowsSentence asked most =
         "This engine returns at most " <> tshow most <> " top contributing flows per activity, and this request asks for " <> tshow asked <> "."

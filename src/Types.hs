@@ -2170,9 +2170,13 @@ data SimpleDatabase = SimpleDatabase
 Used to skip re-parsing when a valid cache exists during staging
 -}
 toSimpleDatabase :: Database -> SimpleDatabase
-toSimpleDatabase db =
+toSimpleDatabase db = simpleDatabaseOf db [0 .. fromIntegral (V.length (dbActivities db)) - 1]
+
+-- | The same, holding only the processes given.
+simpleDatabaseOf :: Database -> [ProcessId] -> SimpleDatabase
+simpleDatabaseOf db pids =
     SimpleDatabase
-        { sdbActivities = M.fromList $ V.toList $ V.zipWith (,) (dbProcessIdTable db) (dbActivities db)
+        { sdbActivities = M.fromList [(dbProcessIdTable db V.! i, dbActivities db V.! i) | pid <- pids, let i = fromIntegral pid]
         , sdbTechFlows = dbTechFlows db
         , sdbBioFlows = dbBioFlows db
         , sdbWasteFlows = dbWasteFlows db
