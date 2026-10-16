@@ -70,7 +70,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
 
-import qualified Data.Vector.Unboxed as U
 import Database.Cutoffs (Cutoffs (..), cutoffsOf)
 import Database.Manager (CollectionName, DatabaseManager (..), getGapIndex, getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, refusingDatabases)
 import Matrix (Inventory, Vector, applyBiosphereMatrix)
@@ -183,7 +182,7 @@ partitionByLicence flowDB refusing sol
 
     keeping :: (Text -> Bool) -> SharedSolver.CrossDBSolution
     keeping kept =
-        let scalings' = fmap (\r -> if kept (reachedName r) then r else r{reachedScaling = U.map (const 0) (reachedScaling r)}) scalings
+        let scalings' = fmap (\r -> if kept (reachedName r) then r else SharedSolver.atZero r) scalings
          in sol
                 { SharedSolver.csScalings = scalings'
                 , SharedSolver.csInventory =
