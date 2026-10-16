@@ -33,7 +33,9 @@ the client works against it except the revision-gated capabilities (see
 before sending anything."""
 
 KNOWN_WIRE = 68
-"""The newest wire revision this pyvolca understands (revision 67 added
+"""The newest wire revision this pyvolca understands (revision 68 added
+the ``parameter_sets`` of a batch score and the ``parameter_set`` of each
+row; revision 67 added
 the ``flow`` and ``limit`` of an inventory request and the
 ``matched_flows`` it counts; revision 66 added
 the ``parameters`` a scoring, inventory or supply chain request sets the

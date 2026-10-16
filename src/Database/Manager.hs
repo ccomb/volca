@@ -758,6 +758,11 @@ data DatabaseManager = DatabaseManager
     which a result filters down to its own chain. Invalidated with that
     database's method caches, on the same edits, links and reloads.
     -}
+    , dmGapIndexAtValues :: !(TVar (Map Text (StableName Database, GapIndex)))
+    {- ^ The same for the last database read at other parameter values, so that
+    every process scored at one set reads one index. Apart from the loaded
+    database's entry, which a set never evicts.
+    -}
     , dmScoringSlots :: !(Maybe QSem)
     {- ^ One unit per scoring request allowed to compute at once
     (@max_concurrent_scoring@), 'Nothing' when the instance sets no bound.
@@ -854,8 +859,10 @@ getGapIndex :: DatabaseManager -> Text -> Database -> IO GapIndex
 getGapIndex manager dbName db = do
     identity <- identityOf db
     cached <- M.lookup dbName <$> readTVarIO (dmGapIndexCache manager)
-    case cached of
-        Just (builtFrom, idx) | builtFrom == identity -> pure idx
+    atValues <- M.lookup dbName <$> readTVarIO (dmGapIndexAtValues manager)
+    case (cached, atValues) of
+        (Just (builtFrom, idx), _) | builtFrom == identity -> pure idx
+        (_, Just (builtFrom, idx)) | builtFrom == identity -> pure idx
         _ ->
             loadedAtDefaults manager dbName db >>= \case
                 Nothing -> do
@@ -865,7 +872,10 @@ getGapIndex manager dbName db = do
                 Just base ->
                     movedFrom base db >>= \case
                         -- At other parameter values: the loaded database's index, its moved processes scanned again.
-                        Just pids -> Control.Exception.evaluate . gapIndexMoved db pids =<< getGapIndex manager dbName base
+                        Just pids -> do
+                            idx <- Control.Exception.evaluate . gapIndexMoved db pids =<< getGapIndex manager dbName base
+                            atomically (modifyTVar' (dmGapIndexAtValues manager) (M.insert dbName (identity, idx)))
+                            pure idx
                         Nothing -> Control.Exception.evaluate (gapIndexOf db)
 
 {- | The processes @db@ holds in place of those of @base@, told apart by identity
@@ -1318,6 +1328,7 @@ clearMethodMappingCache manager = atomically $ do
     writeTVar (dmMergedUnitConfigCache manager) Nothing
     writeTVar (dmFlowClosureCache manager) M.empty
     writeTVar (dmGapIndexCache manager) M.empty
+    writeTVar (dmGapIndexAtValues manager) M.empty
 
 {- | Drop what was built from one method collection: its mappings, tables and
 vocabulary against every database. The other collections keep theirs; every
@@ -1354,6 +1365,7 @@ clearMethodMappingCacheForDb manager dbName = atomically $ do
     modifyTVar' (dmMethodIndexCache manager) (M.filterWithKey keep)
     modifyTVar' (dmFlowClosureCache manager) (M.filterWithKey (\dn _ -> not (S.member dn stale)))
     modifyTVar' (dmGapIndexCache manager) (M.filterWithKey (\dn _ -> not (S.member dn stale)))
+    modifyTVar' (dmGapIndexAtValues manager) (M.filterWithKey (\dn _ -> not (S.member dn stale)))
     writeTVar (dmMergedFlowMetadataCache manager) Nothing
     writeTVar (dmMergedUnitConfigCache manager) Nothing
 
@@ -1624,6 +1636,7 @@ newManager ManagerSeed{..} = do
     mergedUnitConfigCacheVar <- newTVarIO Nothing
     flowClosureCacheVar <- newTVarIO M.empty
     gapIndexCacheVar <- newTVarIO M.empty
+    gapIndexAtValuesVar <- newTVarIO M.empty
     scoringSlots <- traverse newQSem msScoringSlots
     methodEditLock <- newMVar ()
     factorisationLock <- newMVar ()
@@ -1660,6 +1673,7 @@ newManager ManagerSeed{..} = do
             , dmMergedUnitConfigCache = mergedUnitConfigCacheVar
             , dmFlowClosureCache = flowClosureCacheVar
             , dmGapIndexCache = gapIndexCacheVar
+            , dmGapIndexAtValues = gapIndexAtValuesVar
             , dmScoringSlots = scoringSlots
             , dmFactorisationLock = factorisationLock
             , dmMethodEditLock = methodEditLock

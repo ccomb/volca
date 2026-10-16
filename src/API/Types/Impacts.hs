@@ -12,6 +12,7 @@ import API.Types.MethodComparison
 import Control.DeepSeq (NFData)
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
 import qualified Data.Map as M
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToSchema (..), declareSchemaRef, properties, required, type_)
@@ -174,12 +175,18 @@ data BatchImpactsRequest = BatchImpactsRequest
     }
     deriving (Generic)
 
--- | Sets left unstated are none: the processes are scored at the database's own values.
+{- | Sets left unstated are none: the processes are scored at the database's
+own values. Any other field is refused, as 'API.JsonOptions.parseClosed' does:
+a misspelt @parameterSets@ would otherwise score the database's own values.
+-}
 instance FromJSON BatchImpactsRequest where
     parseJSON = withObject "BatchImpactsRequest" $ \o ->
-        BatchImpactsRequest
-            <$> o .: "processIds"
-            <*> o .:? "parameterSets" .!= []
+        case filter (`notElem` ["processIds", "parameterSets"]) (KM.keys o) of
+            [] ->
+                BatchImpactsRequest
+                    <$> o .: "processIds"
+                    <*> o .:? "parameterSets" .!= []
+            unknown -> fail ("Unknown fields: " <> show unknown)
 
 instance ToSchema BatchImpactsRequest where
     declareNamedSchema _ = do

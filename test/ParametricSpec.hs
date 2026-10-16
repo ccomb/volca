@@ -141,7 +141,7 @@ spec = describe "a database at other values of its parameters" $ do
             other -> expectationFailure ("expected the flour's emission refused, got " <> show (refusal other))
         refusal (instantiate bakery [Setting Nothing "share_pct" 50]) `shouldBe` Just (ShareMoves "jam" "share_pct")
 
-    it "reads the gap index at other values from the loaded database's, and caches only that one" $ do
+    it "reads the gap index at other values from the loaded database's, and keeps each apart" $ do
         -- Without its links to the grid, the bakery's electricity is a cut-off input.
         bakery <- evaluate . (\(linked, _) -> linked{dbCrossDBLinks = []}) =<< databases
         manager <- initDatabaseManager defaultConfig NoCache
@@ -151,12 +151,14 @@ spec = describe "a database at other values of its parameters" $ do
         atMix <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery [Setting bread "mix_fr" 0, Setting bread "mix_de" 1])
         gapIndexOf atMix `shouldNotBe` gapIndexOf bakery
         loaded <- makeStableName =<< evaluate bakery
-        let cachedFromLoaded = fmap ((== loaded) . fst) . M.lookup "bakery" <$> readTVarIO (dmGapIndexCache manager)
+        mixed <- makeStableName =<< evaluate atMix
+        let cachedFrom cache identity = fmap ((== identity) . fst) . M.lookup "bakery" <$> readTVarIO (cache manager)
         getGapIndex manager "bakery" atMix `shouldReturn` gapIndexOf atMix
-        cachedFromLoaded `shouldReturn` Just True
+        cachedFrom dmGapIndexCache loaded `shouldReturn` Just True
+        cachedFrom dmGapIndexAtValues mixed `shouldReturn` Just True
         getGapIndex manager "bakery" bakery `shouldReturn` gapIndexOf bakery
         getGapIndex manager "bakery" atMix `shouldReturn` gapIndexOf atMix
-        cachedFromLoaded `shouldReturn` Just True
+        cachedFrom dmGapIndexCache loaded `shouldReturn` Just True
 
     it "scores each process of a batch at each set, as the request at that set alone would" $ do
         manager <- scoringManager
@@ -185,11 +187,14 @@ spec = describe "a database at other values of its parameters" $ do
         refused <- runHandler . runApp (envOf manager) $ batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest [processIdText (aBread, pBread)] [[ParameterValue Nothing "yield" 2], [ParameterValue Nothing "nope" 1]])
         either (\e -> (errHTTPCode e, take 16 (BSL.unpack (errBody e)))) (const (200, "")) refused `shouldBe` (400, "parameter set 1:")
 
-    it "reads a request that only sets parameters, and refuses a misspelt field of one" $ do
+    it "reads a request that only sets parameters, and refuses a misspelt field of one or of a batch" $ do
         let request = decode "{\"parameters\": [{\"process\": \"p\", \"name\": \"yield\", \"value\": 2}]}" :: Maybe SubstitutionRequest
         fmap (null . srSubstitutions) request `shouldBe` Just True
         fmap (map (\v -> (pvProcess v, pvName v, pvValue v)) . srParameters) request `shouldBe` Just [(Just "p", "yield", 2)]
         isNothing (decode "{\"parameters\": [{\"proces\": \"p\", \"name\": \"yield\", \"value\": 2}]}" :: Maybe SubstitutionRequest) `shouldBe` True
+        -- A batch whose sets are misspelt would be scored at the database's own values.
+        isNothing (decode "{\"processIds\": [\"p\"], \"parameter_sets\": [[]]}" :: Maybe BatchImpactsRequest) `shouldBe` True
+        fmap (null . birParameterSets) (decode "{\"processIds\": [\"p\"]}") `shouldBe` Just True
   where
     shouldReturn' :: IO Double -> Double -> Expectation
     shouldReturn' action expected = action >>= \got -> (got, withinTolerance 1e-9 expected got) `shouldBe` (got, True)
