@@ -30,11 +30,12 @@ import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Char (isAscii, isControl)
 import Data.Foldable (asum)
+import Data.Int (Int32)
 import Data.List (intercalate, nub, partition, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.OpenApi (OpenApi, ToSchema)
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -2199,38 +2200,37 @@ postReducedModel dbName processIdText collectionName mExcludeLT ReducedModelRequ
     free <- either throwServiceError pure (traverse (\ParameterName{pnProcess = process, pnName = name} -> (,name) <$> traverse (fmap fst . Service.resolveActivityAndProcessId db) process) names)
     moving <- either (either (badRequest . describeParameterRefusal) unprocessable) pure (RM.columns unitCfg db root free)
     let suppliers = S.toList (S.fromList [s | column <- moving, (s, _) <- RM.columnTechnosphere column])
-        k = length moving
-    when (k > 500 || k * length suppliers > 1000000) . badRequest $
-        T.concat ["These parameters move ", T.pack (show k), " processes, supplied by ", T.pack (show (length suppliers)), ": a model holds at most 500 processes, and a million for the two counts multiplied. Name fewer parameters."]
+    maybe (pure ()) badRequest (beyondModelBounds (length moving) (length suppliers))
     let ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
         depLookup = DM.mkDepSolverLookup dbManager
+        pids = map (movingProcess . RM.columnMoving) moving
+
+        withPolicy :: SharedSolver.CrossDBSolution -> AppM SharedSolver.CrossDBSolution
         withPolicy = liftIO . Impact.withLongTermPolicy dbManager ltMode
+
+        scoredBy :: SharedSolver.CrossDBSolution -> AppM [Double]
         scoredBy sol = do
             byId <- liftIO (batchedScoresFor dbManager dbName collectionName db sol methods)
             either scoringError pure (traverse (`resolveBatchedScore` byId) methods)
-        pids = map (movingProcess . RM.columnMoving) moving
     atDefaults <- withPolicy =<< solutionWithDeps dbName db solver root
     let rootShape@((_, _, x0) :| _) = SharedSolver.csScalings atDefaults
-        zeros = U.map (const 0)
-        shaped sol =
-            let reached@((first', _, _) :| _) = SharedSolver.csScalings sol
-                headed = if first' == dbName then reached else (dbName, db, zeros x0) NE.<| reached
-                seen = S.fromList [name | (name, _, _) <- NE.toList headed]
-             in sol{SharedSolver.csScalings = NE.appendList headed [(name, d, zeros v) | (name, d, v) <- NE.toList rootShape, S.notMember name seen]}
+
         -- One more unit of each of a database's suppliers: the scores, and the scaling of that database it solves to.
+        solved :: Database -> Text -> SharedSolver -> Int -> [ProcessId] -> AppM [([Double], U.Vector Double)]
         solved sdb name ssolver depth supplied = fmap concat . forM (chunksOf 64 supplied) $ \chunk -> do
-            let unit p = Matrix.Demand (U.generate (fromIntegral (dbActivityCount sdb)) (\c -> if c == fromIntegral (dbActivityIndex sdb V.! fromIntegral p) then 1 else 0))
-            sols <- either unprocessable pure =<< liftIO (SharedSolver.goWithDeps unitCfg depLookup sdb name ssolver (map unit chunk) depth)
+            sols <- either unprocessable pure =<< liftIO (SharedSolver.goWithDeps unitCfg depLookup sdb name ssolver (map (unitDemand sdb) chunk) depth)
             forM sols $ \sol -> do
-                scores <- scoredBy =<< withPolicy (shaped sol)
+                scores <- scoredBy =<< withPolicy (shapedLike dbName db rootShape sol)
                 let (_, _, v) :| _ = SharedSolver.csScalings sol
                 pure (scores, v)
-        answersIn :: Text -> [RM.Supplier] -> AppM [(RM.Supplier, (Double, [Double], [Double]))]
+
+        -- A supplier no loaded database holds adds nothing, and is left out.
+        answersIn :: Text -> [RM.Supplier] -> AppM [(RM.Supplier, SupplierAnswer)]
         answersIn name group
             | name == dbName = do
                 let within = [p | RM.Within p <- group]
                 got <- solved db dbName solver 0 within
-                pure [(RM.Within p, (1, scores, [Matrix.processScaling db v q | q <- pids])) | (p, (scores, v)) <- zip within got]
+                pure [(RM.Within p, SupplierAnswer 1 scores [Matrix.processScaling db v q | q <- pids]) | (p, (scores, v)) <- zip within got]
             | otherwise =
                 liftIO (depLookup name) >>= \case
                     Nothing -> pure []
@@ -2241,93 +2241,164 @@ postReducedModel dbName processIdText collectionName mExcludeLT ReducedModelRequ
                                 | s@(RM.Elsewhere _ key unit) <- group
                                 ]
                         got <- solved depDb name depSolver 1 [p | (_, p, _) <- found]
-                        pure [(s, (conversion, scores, map (const 0) pids)) | ((s, _, conversion), (scores, _)) <- zip found got]
-        databaseOf = \case
-            RM.Within _ -> dbName
-            RM.Elsewhere name _ _ -> name
-        supplierText = \case
-            RM.Within p -> processIdToText db p
-            RM.Elsewhere _ (act, prod) _ -> UUID.toText act <> "_" <> UUID.toText prod
+                        pure [(s, SupplierAnswer conversion scores (map (const 0) pids)) | ((s, _, conversion), (scores, _)) <- zip found got]
     baseline <- scoredBy atDefaults
     tables <- liftIO (buildPerDbSetTables dbManager collectionName rootShape methods)
     (mFlows, mUnits) <- liftIO (DM.getMergedFlowMetadata dbManager)
-    factorsAt <- either scoringError pure (Method.Mapping.rowFactorsOf unitCfg mUnits mFlows ltMode db ((\(_, _, t) -> t) <$> tables))
-    -- A supplier no loaded database holds adds nothing, and is left out.
-    answered <- concat <$> traverse (uncurry answersIn) (M.toList (M.fromListWith (flip (<>)) [(databaseOf s, [s]) | s <- suppliers]))
-    let position = M.fromList (zip (map fst answered) [0 ..])
-        conversions = M.fromList [(s, conversion) | (s, (conversion, _, _)) <- answered]
-        tree = either (unprocessable . Expr.describeRefusal) pure . Expr.readFormula Expr.Volca
-        lineOf stored formula = ModelLine stored <$> traverse tree formula
-        exchangeLine ex = lineOf (exchangeAmount ex) (efText <$> exchangeFormula ex)
-        entryLine e = lineOf (RM.entryStored e) (RM.entryFormula e)
-        binding (name, formula) = ModelBinding (T.toLower name) <$> tree formula
-        modelProcess column = do
-            let process = RM.columnMoving column
-                pid = movingProcess process
-                NormLines{nlOutputs = outputs, nlSelfLoops = selfLoops, nlInputs = inputs} = RM.columnReference column
-            bindings <- traverse binding (movingBindings process)
-            reference <- ModelReference <$> traverse exchangeLine outputs <*> traverse exchangeLine selfLoops <*> traverse exchangeLine inputs
-            technosphere <-
-                sequence
-                    [ ModelInput i (RM.entryFactor e * conversion) <$> entryLine e
-                    | (s, e) <- RM.columnTechnosphere column
-                    , Just i <- [M.lookup s position]
-                    , Just conversion <- [M.lookup s conversions]
-                    ]
-            biosphere <- traverse (\(row, e) -> ModelEmission (factorsAt row pid) <$> entryLine e) (RM.columnBiosphere column)
-            pure
-                ModelProcess
-                    { mprProcessId = processIdToText db pid
-                    , mprName = activityName (dbActivities db V.! fromIntegral pid)
-                    , mprScaling = Matrix.processScaling db x0 pid
-                    , mprValues = M.fromList [(name, value) | (name, Fixed value) <- M.toList (movingInputs process)]
-                    , mprParameters = M.fromList [(name, i) | (name, Free i) <- M.toList (movingInputs process)]
-                    , mprBindings = bindings
-                    , mprReference = reference
-                    , mprTechnosphere = technosphere
-                    , mprBiosphere = biosphere
-                    }
-        byName = M.fromList (zip (map methodName methods) [0 ..])
-        scoringSet ss = do
-            computed <- traverse binding (Expr.settledInOrder Expr.Volca (0 <$ ssVariables ss) (M.toList (ssComputed ss)))
-            scores <- traverse tree (ssScores ss)
-            pure
-                ModelScoringSet
-                    { mssName = ssName ss
-                    , mssUnit = ssUnit ss
-                    , mssVariables = M.fromList [(T.toLower variable, i) | (variable, category) <- M.toList (ssVariables ss), Just i <- [M.lookup category byName]]
-                    , mssComputed = computed
-                    , mssNormalization = M.mapKeys T.toLower (ssNormalization ss)
-                    , mssWeighting = M.mapKeys T.toLower (ssWeighting ss)
-                    , mssScores = scores
-                    , mssDisplayMultiplier = fromMaybe 1 (ssDisplayMultiplier ss)
-                    }
-        freeParameter (ParameterName{pnProcess = processText}, (process, name)) =
-            case Service.parametersForAPI (M.filterWithKey (\key _ -> T.toLower key == T.toLower name) (maybe (dbParameters db) (activityParameters . (dbActivities db V.!) . fromIntegral) process)) of
-                [shown] -> pure (FreeParameter processText shown)
-                _ -> unprocessable ("parameter '" <> name <> "' is not one name")
-    processes <- traverse modelProcess moving
-    sets <- traverse scoringSet scoringSets
-    parameters <- traverse freeParameter (zip names free)
-    pure
-        ReducedModel
-            { rdmMethods = [ReducedMethod (methodId m) (methodName m) (methodUnit m) | m <- methods]
-            , rdmExcludeLongTerm = ltMode == ExcludeLongTerm
-            , rdmBaseline = baseline
-            , rdmParameters = parameters
-            , rdmProcesses = processes
-            , rdmSuppliers =
-                [ ModelSupplier (supplierText s) (databaseOf s) scores scalings
-                | (s, (_, scores, scalings)) <- answered
-                ]
-            , rdmScoringSets = sets
-            }
+    factorsAt <- either scoringError pure (Method.Mapping.rowFactorsOf unitCfg mUnits mFlows ltMode db ((\(_, _, t) -> t) <$> tables) (map methodId methods))
+    answered <- concat <$> traverse (uncurry answersIn) (M.toList (M.fromListWith (flip (<>)) [(supplierDatabase dbName s, [s]) | s <- suppliers]))
+    let frame = ModelFrame{mfDatabase = db, mfScaling = x0, mfSuppliers = M.fromList [(s, (i, saConversion a)) | (i, (s, a)) <- zip [0 ..] answered], mfFactors = factorsAt}
+    either unprocessable pure $ do
+        processes <- traverse (modelProcess frame) moving
+        sets <- catMaybes <$> traverse (modelScoringSet methods) scoringSets
+        parameters <- zipWithM (freeParameter db) names free
+        pure
+            ReducedModel
+                { rdmMethods = [ReducedMethod (methodId m) (methodName m) (methodUnit m) | m <- methods]
+                , rdmExcludeLongTerm = ltMode == ExcludeLongTerm
+                , rdmBaseline = baseline
+                , rdmParameters = parameters
+                , rdmProcesses = processes
+                , rdmSuppliers = [ModelSupplier (supplierText db s) (supplierDatabase dbName s) (saScores a) (saScalings a) | (s, a) <- answered]
+                , rdmScoringSets = sets
+                }
   where
     unprocessable :: Text -> AppM a
     unprocessable msg = throwError err422{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
 
     chunksOf :: Int -> [a] -> [[a]]
     chunksOf n = takeWhile (not . null) . map (take n) . iterate (drop n)
+
+-- | What one more unit of a supplier gives: the factor to the unit its lines state, its scores, and each moving process's scaling.
+data SupplierAnswer = SupplierAnswer
+    { saConversion :: !Double
+    , saScores :: ![Double]
+    , saScalings :: ![Double]
+    }
+
+-- | What the moving processes are written against: the suppliers by their position and conversion, and each emission's factors.
+data ModelFrame = ModelFrame
+    { mfDatabase :: !Database
+    , mfScaling :: !(U.Vector Double)
+    , mfSuppliers :: !(M.Map RM.Supplier (Int, Double))
+    , mfFactors :: !(Int32 -> ProcessId -> [Double])
+    }
+
+-- | The refusal of a model too large to send, if it is.
+beyondModelBounds :: Int -> Int -> Maybe Text
+beyondModelBounds processes suppliers
+    | processes > RM.maxProcesses || processes * suppliers > RM.maxEntries =
+        Just $
+            T.concat
+                [ "These parameters move "
+                , T.pack (show processes)
+                , " processes, supplied by "
+                , T.pack (show suppliers)
+                , ": a model holds at most "
+                , T.pack (show RM.maxProcesses)
+                , " processes, and "
+                , T.pack (show RM.maxEntries)
+                , " for the two counts multiplied. Name fewer parameters."
+                ]
+    | otherwise = Nothing
+
+-- | One unit of a process's product, as a demand on its database.
+unitDemand :: Database -> ProcessId -> Matrix.Demand
+unitDemand db p = Matrix.Demand (U.generate (fromIntegral (dbActivityCount db)) (\c -> if c == fromIntegral (dbActivityIndex db V.! fromIntegral p) then 1 else 0))
+
+{- | A supplier's solution given the databases of the root's, the root first and
+at zero where the supplier does not reach it, so it is scored on the root's path.
+-}
+shapedLike :: Text -> Database -> NonEmpty (Text, Database, U.Vector Double) -> SharedSolver.CrossDBSolution -> SharedSolver.CrossDBSolution
+shapedLike rootName rootDb rootShape@((_, _, x0) :| _) sol =
+    sol{SharedSolver.csScalings = NE.appendList headed [(name, d, zeros v) | (name, d, v) <- NE.toList rootShape, S.notMember name seen]}
+  where
+    reached@((first', _, _) :| _) = SharedSolver.csScalings sol
+    headed = if first' == rootName then reached else (rootName, rootDb, zeros x0) NE.<| reached
+    seen = S.fromList [name | (name, _, _) <- NE.toList headed]
+    zeros = U.map (const 0)
+
+supplierDatabase :: Text -> RM.Supplier -> Text
+supplierDatabase rootName = \case
+    RM.Within _ -> rootName
+    RM.Elsewhere name _ _ -> name
+
+supplierText :: Database -> RM.Supplier -> Text
+supplierText db = \case
+    RM.Within p -> processIdToText db p
+    RM.Elsewhere _ (act, prod) _ -> UUID.toText act <> "_" <> UUID.toText prod
+
+formulaTree :: Text -> Either Text Expr.Formula
+formulaTree = first Expr.describeRefusal . Expr.readFormula Expr.Volca
+
+modelLine :: Double -> Maybe Text -> Either Text ModelLine
+modelLine stored formula = ModelLine stored <$> traverse formulaTree formula
+
+modelBinding :: (Text, Text) -> Either Text ModelBinding
+modelBinding (name, formula) = ModelBinding (T.toLower name) <$> formulaTree formula
+
+-- | A moving process's column, its lines written against the suppliers the model answers.
+modelProcess :: ModelFrame -> RM.Column -> Either Text ModelProcess
+modelProcess ModelFrame{mfDatabase = db, mfScaling = x0, mfSuppliers = suppliers, mfFactors = factorsAt} column = do
+    bindings <- traverse modelBinding (movingBindings process)
+    reference <- ModelReference <$> traverse exchangeLine outputs <*> traverse exchangeLine selfLoops <*> traverse exchangeLine inputs
+    technosphere <- sequence [ModelInput i (RM.entryFactor e * conversion) <$> entryLine e | (s, e) <- RM.columnTechnosphere column, Just (i, conversion) <- [M.lookup s suppliers]]
+    biosphere <- traverse (\(row, e) -> ModelEmission (factorsAt row pid) <$> entryLine e) (RM.columnBiosphere column)
+    pure
+        ModelProcess
+            { mprProcessId = processIdToText db pid
+            , mprName = activityName (dbActivities db V.! fromIntegral pid)
+            , mprScaling = Matrix.processScaling db x0 pid
+            , mprValues = M.fromList [(name, value) | (name, Fixed value) <- M.toList (movingInputs process)]
+            , mprParameters = M.fromList [(name, i) | (name, Free i) <- M.toList (movingInputs process)]
+            , mprBindings = bindings
+            , mprReference = reference
+            , mprTechnosphere = technosphere
+            , mprBiosphere = biosphere
+            }
+  where
+    process = RM.columnMoving column
+    pid = movingProcess process
+    NormLines{nlOutputs = outputs, nlSelfLoops = selfLoops, nlInputs = inputs} = RM.columnReference column
+
+    exchangeLine :: Exchange -> Either Text ModelLine
+    exchangeLine ex = modelLine (exchangeAmount ex) (efText <$> exchangeFormula ex)
+
+    entryLine :: RM.Entry -> Either Text ModelLine
+    entryLine e = modelLine (RM.entryStored e) (RM.entryFormula e)
+
+{- | A scoring set as formulas over the category totals, or nothing for a set the
+engine cannot compute, which a score leaves out: whether it can does not depend
+on the totals, so it is asked with each at one.
+-}
+modelScoringSet :: [Method] -> ScoringSet -> Either Text (Maybe ModelScoringSet)
+modelScoringSet methods ss
+    | Left _ <- computeFormulaScores ss (M.fromList [(methodName m, 1) | m <- methods]) = Right Nothing
+    | otherwise = do
+        computed <- traverse modelBinding (Expr.settledInOrder Expr.Volca (0 <$ ssVariables ss) (M.toList (ssComputed ss)))
+        scores <- traverse formulaTree (ssScores ss)
+        pure . Just $
+            ModelScoringSet
+                { mssName = ssName ss
+                , mssUnit = ssUnit ss
+                , mssVariables = M.fromList [(T.toLower variable, i) | (variable, category) <- M.toList (ssVariables ss), Just i <- [M.lookup category byName]]
+                , mssComputed = computed
+                , mssNormalization = M.mapKeys T.toLower (ssNormalization ss)
+                , mssWeighting = M.mapKeys T.toLower (ssWeighting ss)
+                , mssScores = scores
+                , mssDisplayMultiplier = fromMaybe 1 (ssDisplayMultiplier ss)
+                }
+  where
+    byName = M.fromList (zip (map methodName methods) [0 ..])
+
+-- | A parameter the model is a function of, as the request named it and as its process or database defines it.
+freeParameter :: Database -> ParameterName -> (Maybe ProcessId, Text) -> Either Text FreeParameter
+freeParameter db ParameterName{pnProcess = processText} (process, name) =
+    case Service.parametersForAPI (M.filterWithKey (\key _ -> T.toLower key == T.toLower name) defined) of
+        [shown] -> Right (FreeParameter processText shown)
+        _ -> Left ("parameter '" <> name <> "' is not one name")
+  where
+    defined = maybe (dbParameters db) (activityParameters . (dbActivities db V.!) . fromIntegral) process
 
 getActivityLCIABatch :: Text -> Text -> DM.CollectionName -> Maybe Bool -> AppM LCIABatchResult
 getActivityLCIABatch dbName processIdText collectionName mExcludeLT =

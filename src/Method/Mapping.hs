@@ -149,6 +149,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
+import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
@@ -3627,8 +3628,8 @@ computeLCIAScoreSetFromTables unitCfg unitDB flowDB ltMode inventory hier perDb 
     missing :: MethodSetEntry -> Either Text Double
     missing e = Left ("scored by neither half of the method set: " <> methodName (mseMethod e))
 
-{- | What each method of a set charges one unit of a biosphere row in a column of
-the root database, in the order of 'msAllMethods', on the path
+{- | What each method named charges one unit of a biosphere row in a column of
+the root database, in the order they are named, on the path
 'computeLCIAScoreSetFromTables' scores that database by. A method some database
 of the solution regionalizes reads the root's located factors, or its flat ones
 where the root caught none; any other method reads the flat half of the root's
@@ -3645,11 +3646,16 @@ rowFactorsOf ::
     LongTermMode ->
     Database ->
     NonEmpty MethodSetTables ->
+    [UUID] ->
     Either Text (Int32 -> Int32 -> [Double])
-rowFactorsOf unitCfg unitDB flowDB ltMode db sets = do
-    perMethod <- traverse factorOf (V.toList (msAllMethods root))
+rowFactorsOf unitCfg unitDB flowDB ltMode db sets wanted = do
+    perMethod <- traverse (\mid -> maybe (Left ("not a method of the set: " <> UUID.toText mid)) factorOf (M.lookup mid entries)) wanted
     pure (\row col -> [f row col | f <- perMethod])
   where
+    -- The set keeps its methods sorted by identifier, not in the order a collection names them.
+    entries :: M.Map UUID MethodSetEntry
+    entries = M.fromList [(mseMethodId e, e) | e <- V.toList (msAllMethods root)]
+
     root :: MethodSetTables
     root :| _ = sets
 

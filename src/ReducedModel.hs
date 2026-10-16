@@ -12,9 +12,12 @@ module ReducedModel (
     Entry (..),
     Column (..),
     columns,
+    maxProcesses,
+    maxEntries,
 ) where
 
 import Data.Int (Int32)
+import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import qualified Data.Vector as V
@@ -65,9 +68,12 @@ columns unitConfig db root free = either (Left . Left) (traverse (either (Left .
             Column
                 { columnMoving = process
                 , columnReference = normLines act key
-                , columnTechnosphere = [(Within i, entry factor ex) | (ex, i, factor) <- tech] <> [linked act link | link <- dbCrossDBLinks db, (cdlConsumerActUUID link, cdlConsumerProdUUID link) == key]
+                , columnTechnosphere = [(Within i, entry factor ex) | (ex, i, factor) <- tech] <> map (linked act) (M.findWithDefault [] key linksOf)
                 , columnBiosphere = [(row, entry 1 ex) | (ex, row) <- bio]
                 }
+
+    linksOf :: M.Map (UUID, UUID) [CrossDBLink]
+    linksOf = M.fromListWith (flip (<>)) [((cdlConsumerActUUID link, cdlConsumerProdUUID link), [link]) | link <- dbCrossDBLinks db]
 
     entry :: Double -> Exchange -> Entry
     entry factor ex = Entry factor (exchangeAmount ex) (efText <$> exchangeFormula ex)
@@ -80,3 +86,11 @@ columns unitConfig db root free = either (Left . Left) (traverse (either (Left .
             AnsweredExchange{aePosition = position, aeFactor = factor} <- cdlAnswers link
             entry factor <$> listToMaybe (drop position (exchanges act))
         )
+
+-- | The most processes a model moves: the client solves a system of that size for each set of values.
+maxProcesses :: Int
+maxProcesses = 500
+
+-- | The most moving processes times suppliers: the scalings a model carries, about 8 MB of numbers.
+maxEntries :: Int
+maxEntries = 1000000

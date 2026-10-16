@@ -361,16 +361,17 @@ scoringManager = do
     install manager "grid" grid
     install manager "bakery" bakery
     atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert "co2" (MethodCollection [climate] [] []))
-    atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert "model" (MethodCollection [climate, located] [single] []))
+    atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert "model" (MethodCollection [located, climate] [single, circular] []))
     pure manager
   where
     -- Only the grid has German electricity, so only the grid's tables find a located factor.
+    -- Declared before 'climate', whose identifier sorts first, and weighing carbon dioxide otherwise.
     located :: Method
     located =
         climate
             { methodId = UUID.fromWords 7 0 0 2
             , methodName = "Climate change, located"
-            , methodFactors = [MethodCF co2 "carbon dioxide" MT.Output 1 (Just (MT.Compartment "air" "unspecified" "")) Nothing "kg" Nothing, MethodCF co2 "carbon dioxide" MT.Output 5 (Just (MT.Compartment "air" "unspecified" "")) Nothing "kg" (Just "DE")]
+            , methodFactors = [MethodCF co2 "carbon dioxide" MT.Output 3 (Just (MT.Compartment "air" "unspecified" "")) Nothing "kg" Nothing, MethodCF co2 "carbon dioxide" MT.Output 5 (Just (MT.Compartment "air" "unspecified" "")) Nothing "kg" (Just "DE")]
             }
 
     single :: ScoringSet
@@ -388,6 +389,10 @@ scoringManager = do
             , ssUnits = M.empty
             , ssOrigin = DeclaredInConfig
             }
+
+    -- The engine leaves out a set it cannot compute; so must the model.
+    circular :: ScoringSet
+    circular = single{ssName = "Circular", ssComputed = M.fromList [("A", "B + 1"), ("B", "A + 1")], ssScores = M.fromList [("Total", "a")]}
 
     climate :: Method
     climate =

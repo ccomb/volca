@@ -41,6 +41,7 @@ module API.Resources (
 import Data.Text (Text)
 import qualified Data.Text as T
 import Network.HTTP.Types.Method (StdMethod (..))
+import ReducedModel (maxProcesses)
 import Types (Permission (..))
 import Usage (UsageKind (..))
 
@@ -657,9 +658,10 @@ description r = case r of
         \their stored amounts and the factors of its emissions; the unit \
         \scores of their suppliers and the scaling each gives the moving \
         \processes; and the collection's scoring sets as formulas over the \
-        \category totals. pyvolca's reduced_model() evaluates it. Refused when \
-        \a parameter moves an allocation share, or moves more than 500 \
-        \processes."
+        \category totals. Refused when a parameter moves an allocation share, \
+        \or moves more than "
+            <> T.pack (show maxProcesses)
+            <> " processes."
     ListMethods ->
         "LCA / ACV: list all loaded LCIA methods (impact assessment methods like \
         \climate change, acidification, eutrophication, land use, water scarcity)."
