@@ -2120,7 +2120,7 @@ data Collected = Collected
     { cUnfilteredCount :: !Int
     , cEntries :: ![SupplyChainEntry]
     , cEdges :: ![SupplyChainEdge]
-    , cReached :: ![(Text, Database, U.Vector Double)]
+    , cReached :: ![SharedSolver.Reached]
     -- ^ Each database walked, at the scaling the walk solved it: what its cut-offs are read from
     }
 
@@ -2258,7 +2258,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                     )
                     []
                     (dbTechnosphereTriples db)
-     in Collected (length allEntries) filteredEntries edges [(dbName, db, supplyVec)]
+     in Collected (length allEntries) filteredEntries edges [SharedSolver.Reached dbName db supplyVec]
 
 {- | Sort, offset, and limit a list of supply-chain entries using the shared
 filter core's @afcSort@ / @afcOrder@ / @afcLimit@ / @afcOffset@. All
@@ -2336,7 +2336,7 @@ buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf 
   where
     -- One database, and one walk of it: the index is scanned here rather than cached.
     cutoffs :: Cutoffs
-    cutoffs = cutoffsReached (const (gapIndexOf db)) S.empty [(dbName, db, supplyVec)]
+    cutoffs = cutoffsReached (const (gapIndexOf db)) S.empty [SharedSolver.Reached dbName db supplyVec]
 
 {- | Cross-DB supply-chain expansion: starts with the root DB walk, then for
 every cross-DB link whose consumer carries non-zero scaling, solves the
@@ -2890,7 +2890,7 @@ goWithSubsAndDeps unitCfg depLookup thisDb thisDbName rootDb solver demands allS
         let localInvs = map (applyBiosphereMatrix thisDb) scalings'
             baseSolutions =
                 zipWith
-                    (\inv s -> SharedSolver.CrossDBSolution inv (NE.singleton (unThisDb thisDbName, thisDb, s)) IncludeLongTerm)
+                    (\inv s -> SharedSolver.CrossDBSolution inv (NE.singleton (SharedSolver.Reached (unThisDb thisDbName) thisDb s)) IncludeLongTerm)
                     localInvs
                     scalings'
         if depth >= SharedSolver.maxDepsDepth

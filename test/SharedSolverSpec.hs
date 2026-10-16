@@ -75,7 +75,7 @@ spec = do
             reachedNames <$> either (fail . show) pure sol `shouldReturn` ["R", "a", "c", "b"]
 
 reachedNames :: SS.CrossDBSolution -> [Text]
-reachedNames sol = [name | (name, _, _) <- NE.toList (SS.csScalings sol)]
+reachedNames sol = [name | SS.Reached name _ _ <- NE.toList (SS.csScalings sol)]
 
 {- | Four one-activity databases: R links to b and to a, a links to c. Gives
 the root, a lookup for the other three, and the root's solver.

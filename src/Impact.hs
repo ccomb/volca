@@ -89,6 +89,7 @@ import Method.Mapping (
  )
 import Method.Types (Method (..))
 import Progress (ProgressLevel (..), reportProgress)
+import SharedSolver (Reached (..))
 import qualified SharedSolver
 import Types (BioFlowDB, Database, Permission (..), ProcessId, includedSentence)
 
@@ -144,7 +145,7 @@ licencedCutoffs dbManager ls = do
     amountsKept <- refusingDatabases dbManager ReadInventory
     cutoffsOf (getGapIndex dbManager) (S.fromList (map wpDatabase (lsWithheld ls)) <> amountsKept) scalings
   where
-    scalings :: [(Text, Database, Vector)]
+    scalings :: [Reached]
     scalings = NE.toList (SharedSolver.csScalings (lsWhole ls))
 
 -- | The cut-offs of a solution, read under the licences for one permission.
@@ -174,7 +175,7 @@ partitionByLicence flowDB refusing sol
             , lsWithheld = [WithheldPart{wpDatabase = name, wpSolution = keeping (== name)} | name <- withheld]
             }
   where
-    scalings :: NE.NonEmpty (Text, Database, Vector)
+    scalings :: NE.NonEmpty Reached
     scalings = SharedSolver.csScalings sol
 
     withheld :: [Text]
@@ -182,24 +183,24 @@ partitionByLicence flowDB refusing sol
 
     keeping :: (Text -> Bool) -> SharedSolver.CrossDBSolution
     keeping kept =
-        let scalings' = fmap (\(name, db, sv) -> (name, db, if kept name then sv else U.map (const 0) sv)) scalings
+        let scalings' = fmap (\r -> if kept (reachedName r) then r else r{reachedScaling = U.map (const 0) (reachedScaling r)}) scalings
          in sol
                 { SharedSolver.csScalings = scalings'
                 , SharedSolver.csInventory =
                     applyLongTermMode flowDB (SharedSolver.csLongTerm sol) $
-                        M.unionsWith (+) [applyBiosphereMatrix db sv | (name, db, sv) <- NE.toList scalings, kept name]
+                        M.unionsWith (+) [applyBiosphereMatrix db sv | Reached name db sv <- NE.toList scalings, kept name]
                 }
 
 -- | The dependencies of a solution among the refusing databases, each once.
 withheldNames :: S.Set Text -> SharedSolver.CrossDBSolution -> [Text]
 withheldNames refusing sol =
-    nubOrd [name | (name, _, _) <- NE.toList scalings, name /= root, name `S.member` refusing]
+    nubOrd [name | name <- map reachedName (NE.toList scalings), name /= root, name `S.member` refusing]
   where
-    scalings :: NE.NonEmpty (Text, Database, Vector)
+    scalings :: NE.NonEmpty Reached
     scalings = SharedSolver.csScalings sol
 
     root :: Text
-    root = let (name, _, _) = NE.head scalings in name
+    root = reachedName (NE.head scalings)
 
 -- | 'partitionByLicence' under the licences the engine serves.
 licencedSolution :: DatabaseManager -> Permission -> SharedSolver.CrossDBSolution -> IO LicencedSolution
@@ -221,7 +222,7 @@ inventoryRefusal :: DatabaseManager -> SharedSolver.CrossDBSolution -> IO (Maybe
 inventoryRefusal dbManager sol = fmap (includedSentence root) . listToMaybe <$> withheldDatabases dbManager ReadInventory sol
   where
     root :: Text
-    root = let (name, _, _) = NE.head (SharedSolver.csScalings sol) in name
+    root = reachedName (NE.head (SharedSolver.csScalings sol))
 
 -- | What one database that keeps its detail adds to a score, in one number.
 data PartScore = PartScore
@@ -418,7 +419,7 @@ perDatabaseTables ::
     SharedSolver.CrossDBSolution ->
     IO [(Text, Database, Vector, MethodTables)]
 perDatabaseTables dbManager collection method sol =
-    forM (NE.toList (SharedSolver.csScalings sol)) $ \(n, d, sv) -> do
+    forM (NE.toList (SharedSolver.csScalings sol)) $ \(Reached n d sv) -> do
         tbls <- mapMethodToTablesCached dbManager n collection d method
         pure (n, d, sv, tbls)
 

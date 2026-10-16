@@ -1632,7 +1632,7 @@ callComputeSensitivity dbManager mBaseUrl rid args =
         cutoffs <-
             liftIO $
                 Impact.solutionCutoffs dbManager SeeDetailedScores $
-                    SharedSolver.CrossDBSolution (applyBiosphereMatrix db baselineX) (NE.singleton (dbName, db, baselineX)) IncludeLongTerm
+                    SharedSolver.CrossDBSolution (applyBiosphereMatrix db baselineX) (NE.singleton (SharedSolver.Reached dbName db baselineX)) IncludeLongTerm
         -- This tool takes no long-term policy: it compares a baseline with
         -- perturbations of it, and both sides count the same flows.
         let scoreOf x = computeLCIAScoreAuto unitCfg mUnits mFlows IncludeLongTerm db x (applyBiosphereMatrix db x) hier tables

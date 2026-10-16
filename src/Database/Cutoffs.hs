@@ -23,7 +23,8 @@ import Data.Ord (Down (..))
 import qualified Data.Set as S
 import Data.Text (Text)
 import Database.Loader (GapEdge (..), gapEdgesForLoaded, gapEdgesOfProcesses, gapReasons)
-import Matrix (Vector, activityNormalizationFactor, processScaling)
+import Matrix (activityNormalizationFactor, processScaling)
+import SharedSolver (Reached (..))
 import Types (BlockerReason, Database (..), ProcessId)
 
 -- | A database's unsupplied edges, by the process that asks for them.
@@ -100,7 +101,7 @@ and is read at that database's process identifiers without a bound check: an
 index taken from another version of the database stops the request rather
 than answering with the cut-offs of a chain that is not this one.
 -}
-cutoffInputsIn :: (Text -> GapIndex) -> [(Text, Database, Vector)] -> [CutoffInput]
+cutoffInputsIn :: (Text -> GapIndex) -> [Reached] -> [CutoffInput]
 cutoffInputsIn indexOf scalings =
     sortOn (Down . abs . ciAmount) (map input (M.toList grouped))
   where
@@ -109,7 +110,7 @@ cutoffInputsIn indexOf scalings =
         M.fromListWith
             (flip (<>))
             [ (keyOf name e, Met (x * gapAmount e / activityNormalizationFactor db pid) (S.singleton pid) (gapReasons (gapReason e)))
-            | (name, db, scaling) <- scalings
+            | Reached name db scaling <- scalings
             , let GapIndex byConsumer = indexOf name
             , (pid, edges) <- M.toList byConsumer
             , let x = processScaling db scaling pid
@@ -137,20 +138,20 @@ cutoffInputsIn indexOf scalings =
 one count for each database in @withheld@, whose licence keeps the products it
 misses to itself. A database listed twice counts once, its entries summed.
 -}
-cutoffsReached :: (Text -> GapIndex) -> S.Set Text -> [(Text, Database, Vector)] -> Cutoffs
+cutoffsReached :: (Text -> GapIndex) -> S.Set Text -> [Reached] -> Cutoffs
 cutoffsReached indexOf withheld scalings =
     Cutoffs
         { cutoffShown = cutoffInputsIn indexOf shown
         , cutoffWithheld =
             [ WithheldCutoffs{wcDatabase = name, wcCount = n}
-            | (name, part) <- M.toList (M.fromListWith (flip (++)) [(name, [s]) | s@(name, _, _) <- hidden])
+            | (name, part) <- M.toList (M.fromListWith (flip (++)) [(reachedName s, [s]) | s <- hidden])
             , let n = length (cutoffInputsIn indexOf part)
             , n > 0
             ]
         }
   where
-    hidden, shown :: [(Text, Database, Vector)]
-    (hidden, shown) = partition (\(name, _, _) -> name `S.member` withheld) scalings
+    hidden, shown :: [Reached]
+    (hidden, shown) = partition ((`S.member` withheld) . reachedName) scalings
 
 {- | 'cutoffsReached' with the index of every database the calculation ran,
 each taken from the very database the calculation carries, as
@@ -159,7 +160,7 @@ each taken from the very database the calculation carries, as
 The lookup answers only the names it was built from; any other is answered
 with no gap, and none is asked, every name coming from the same list.
 -}
-cutoffsOf :: (Text -> Database -> IO GapIndex) -> S.Set Text -> [(Text, Database, Vector)] -> IO Cutoffs
+cutoffsOf :: (Text -> Database -> IO GapIndex) -> S.Set Text -> [Reached] -> IO Cutoffs
 cutoffsOf indexFor withheld scalings = do
-    built <- M.fromList <$> traverse (\(name, db, _) -> (,) name <$> indexFor name db) scalings
+    built <- M.fromList <$> traverse (\(Reached name db _) -> (,) name <$> indexFor name db) scalings
     pure (cutoffsReached (\name -> M.findWithDefault (GapIndex M.empty) name built) withheld scalings)

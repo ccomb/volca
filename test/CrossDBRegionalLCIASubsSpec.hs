@@ -49,7 +49,7 @@ spec = describe "cross-DB regional LCIA via substitution path" $ do
         scoreSolution sol =
             let perDb =
                     [ (db, sv, tablesFor n)
-                    | (n, db, sv) <- NE.toList (SS.csScalings sol)
+                    | SS.Reached n db sv <- NE.toList (SS.csScalings sol)
                     ]
              in sumRegionalizedLCIAScoreCrossDB
                     kgUnitConfig
@@ -92,11 +92,11 @@ spec = describe "cross-DB regional LCIA via substitution path" $ do
                     `shouldBe` M.toList (SS.csInventory plainSol)
                 let plainScalings =
                         [ (n, M.toList (M.fromList [(i, v) | (i, v) <- zip [0 :: Int ..] (U.toList sv)]))
-                        | (n, _, sv) <- NE.toList (SS.csScalings plainSol)
+                        | SS.Reached n _ sv <- NE.toList (SS.csScalings plainSol)
                         ]
                     subsScalings =
                         [ (n, M.toList (M.fromList [(i, v) | (i, v) <- zip [0 :: Int ..] (U.toList sv)]))
-                        | (n, _, sv) <- NE.toList (SS.csScalings subsSol)
+                        | SS.Reached n _ sv <- NE.toList (SS.csScalings subsSol)
                         ]
                 subsScalings `shouldBe` plainScalings
             (Left e, _) -> expectationFailure ("plain path failed: " <> show e)
@@ -147,5 +147,5 @@ spec = describe "cross-DB regional LCIA via substitution path" $ do
         case eSubs of
             Left e -> expectationFailure ("subs path failed: " <> show e)
             Right subsSol -> do
-                let names = [n | (n, _, _) <- NE.toList (SS.csScalings subsSol)]
+                let names = [n | SS.Reached n _ _ <- NE.toList (SS.csScalings subsSol)]
                 names `shouldBe` ["root", "dep"]

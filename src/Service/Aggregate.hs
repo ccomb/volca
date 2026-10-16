@@ -58,7 +58,7 @@ import Service (
     referenceMagnitude,
     resolveScorable,
  )
-import SharedSolver (DepSolverLookup, SharedSolver, computeInventoryMatrixWithDepsCached, solveWithSharedSolver)
+import SharedSolver (DepSolverLookup, Reached (..), SharedSolver, computeInventoryMatrixWithDepsCached, solveWithSharedSolver)
 import qualified SharedSolver
 import Types (
     Activity,
@@ -236,8 +236,8 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                         Left err -> return (Left (MatrixError err))
                         Right sol -> do
                             let (root :| deps) = SharedSolver.csScalings sol
-                                (hidden, shown) = L.partition (\(name, _, _) -> withholds name) deps
-                            cutoffs <- cutoffsOf indexFor (S.fromList [name | (name, _, _) <- hidden]) (root : deps)
+                                (hidden, shown) = L.partition (withholds . reachedName) deps
+                            cutoffs <- cutoffsOf indexFor (S.fromList (map reachedName hidden)) (root : deps)
                             return $
                                 Right
                                     (reduce params cutoffs (rowsFromConsumption (referenceMagnitude activity) (root :| shown)))
@@ -247,14 +247,14 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
     withholds :: Text -> Bool
     withholds name = name /= dbName && name `S.member` apWithheld params
 
-    withheldOf :: NonEmpty (Text, Database, VU.Vector Double) -> [Text]
-    withheldOf scalings = [name | (name, _, _) <- NE.toList scalings, withholds name]
+    withheldOf :: NonEmpty Reached -> [Text]
+    withheldOf scalings = filter withholds (map reachedName (NE.toList scalings))
 
     -- A process counts when the chain reaches it, its scaling not zero.
-    consumptionLines :: [(Text, Database, VU.Vector Double)] -> [WithheldProcesses]
+    consumptionLines :: [Reached] -> [WithheldProcesses]
     consumptionLines hidden =
         [ WithheldProcesses{wprDatabase = name, wprProcesses = n, wprReason = withheldSentence name ReadInventory}
-        | (name, n) <- M.toList (M.fromListWith (+) [(name, VU.length (VU.filter (/= 0) s)) | (name, _, s) <- hidden])
+        | (name, n) <- M.toList (M.fromListWith (+) [(name, VU.length (VU.filter (/= 0) s)) | Reached name _ s <- hidden])
         ]
 
     emptyFilter maxD =
@@ -360,10 +360,10 @@ supplier-side fields that live in the dependency database (target name,
 classifications) are left empty rather than resolved – a classification
 or target-name filter therefore never matches a bridge edge.
 -}
-rowsFromConsumption :: Double -> NonEmpty (Text, Database, VU.Vector Double) -> [AggRow]
-rowsFromConsumption rootRefMagnitude ((rootDbName, rootDb, rootScaling) :| deps) =
+rowsFromConsumption :: Double -> NonEmpty Reached -> [AggRow]
+rowsFromConsumption rootRefMagnitude (Reached rootDbName rootDb rootScaling :| deps) =
     dbRows False rootDbName rootDb rootScaling rootRefMagnitude
-        <> concatMap (\(depName, depDb, depScaling) -> dbRows True depName depDb depScaling 1.0) deps
+        <> concatMap (\(Reached depName depDb depScaling) -> dbRows True depName depDb depScaling 1.0) deps
   where
     dbRows qualifyPids dbN db' s mult =
         internalEdges qualifyPids dbN db' s mult <> bridgeEdges db' s mult
