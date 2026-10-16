@@ -28,13 +28,13 @@ against a list of candidate wire names:
 and picks the first that matches a spec parameter. Unknown kwargs raise
 ``VoLCAError`` so typos are caught at call time.
 
-Substitutions
--------------
-If a wrapper is called with ``substitutions=[{...}]``, ``_call`` upgrades
-the operation from GET to POST and sends the substitution body. Works
-transparently for ``get_inventory``, ``get_supply_chain``, and
-``get_impacts``: all the endpoints that have POST-with-substitutions
-variants in the Servant API.
+Substitutions and parameter values
+----------------------------------
+If a wrapper is called with ``substitutions=[{...}]`` or
+``parameters=[ParameterValue(...)]``, ``_call`` upgrades the operation from
+GET to POST and sends them in the body. Works transparently for
+``get_inventory``, ``get_supply_chain``, and ``get_impacts``: all the
+endpoints that have POST-with-substitutions variants in the Servant API.
 """
 
 from __future__ import annotations
@@ -90,6 +90,7 @@ from .types import (
     MethodDetail,
     MethodFactor,
     NewMethodFactor,
+    ParameterValue,
     PathResult,
     Preset,
     SearchCounts,
@@ -307,12 +308,15 @@ accepted for backwards-compat one-liner ergonomics; the typed form is
 preferred (catches typos at construction time)."""
 
 
-def _substitution_body(substitutions: list[SubstitutionLike]) -> dict:
+def _substitution_body(
+    substitutions: list[SubstitutionLike] | None,
+    parameters: list[ParameterValue] | None = None,
+) -> dict:
     """Build the request body for substitution endpoints.
 
     Accepts :class:`Substitution` instances or the legacy dict form with
     ``from`` / ``to`` keys and an optional ``consumer`` key (omit it for a
-    global swap).
+    global swap), and the parameter values the database is read at.
     """
 
     def coerce(s: SubstitutionLike) -> dict:
@@ -331,7 +335,10 @@ def _substitution_body(substitutions: list[SubstitutionLike]) -> dict:
             body["consumer"] = s["consumer"]
         return body
 
-    return {"substitutions": [coerce(s) for s in substitutions]}
+    body: dict = {"substitutions": [coerce(s) for s in substitutions or []]}
+    if parameters:
+        body["parameters"] = [p.to_wire() for p in parameters]
+    return body
 
 
 # ---------------------------------------------------------------------------
@@ -639,6 +646,7 @@ class Client:
         operation_id: str,
         *,
         substitutions: list[SubstitutionLike] | None = None,
+        parameters: list[ParameterValue] | None = None,
         body: dict | None = None,
         **kwargs: Any,
     ) -> Any:
@@ -652,10 +660,13 @@ class Client:
 
         ``body`` is the JSON request body for operations the spec declares
         as POST (e.g. ``compute_sensitivity``, ``score_activities``). If
-        ``substitutions`` is given instead, the operation is upgraded from
-        GET to POST with a ``SubstitutionRequest`` body; the two are
-        mutually exclusive and ``substitutions`` wins.
+        ``substitutions`` or ``parameters`` is given instead, the operation
+        is upgraded from GET to POST with a ``SubstitutionRequest`` body;
+        the two are mutually exclusive and ``substitutions`` wins.
         """
+        if parameters:
+            # An older engine reads the body without the values and answers at the defaults.
+            self._require_wire(66, f"{operation_id}(parameters=...)", engine_hint="0.16.0")
         ops = self._load_operations()
         op = ops.get(operation_id)
         if op is None:
@@ -724,9 +735,9 @@ class Client:
         # Upgrade to POST when substitutions are supplied; otherwise an
         # explicit body (spec-declared POST operations) is sent as-is.
         method = op.method
-        if substitutions:
+        if substitutions or parameters:
             method = "POST"
-            body = _substitution_body(substitutions)
+            body = _substitution_body(substitutions, parameters)
         elif body is not None and method not in ("POST", "PUT"):
             raise VoLCAError(
                 f"operation {operation_id!r} is {method} and takes no JSON body"
@@ -2173,6 +2184,7 @@ class Client:
         sort: str | None = None,
         order: str | None = None,
         substitutions: list[SubstitutionLike] | None = None,
+        parameters: list[ParameterValue] | None = None,
         include_edges: bool | None = None,
     ) -> SupplyChain:
         """Get the flat supply chain of an activity.
@@ -2201,6 +2213,9 @@ class Client:
                 suppliers. Accepts :class:`Substitution` (preferred) or the
                 legacy ``{"from", "to", "consumer"}`` dict form; ``consumer``
                 is optional: omit it for a global swap.
+            parameters: Values for input parameters: the amounts whose
+                formulas read them are computed again for this call, and the
+                substitutions are made on the database at those values.
         """
         classifications = [f.system for f in classification_filters or []]
         classification_values = [f.value for f in classification_filters or []]
@@ -2221,6 +2236,7 @@ class Client:
             order=order,
             include_edges=include_edges,
             substitutions=substitutions,
+            parameters=parameters,
         )
         return SupplyChain.from_json(raw)
 
@@ -2562,6 +2578,7 @@ class Client:
         flow: str | None = None,
         limit: int | None = None,
         substitutions: list[SubstitutionLike] | None = None,
+        parameters: list[ParameterValue] | None = None,
     ) -> InventoryResult:
         """Compute the life-cycle inventory (cumulative biosphere flows) for an activity.
 
@@ -2576,6 +2593,7 @@ class Client:
             limit: Cap on returned flow rows. (Server returns full inventory
                 otherwise; the engine doesn't paginate this endpoint.)
             substitutions: Upstream supplier swaps; see :meth:`get_supply_chain`.
+            parameters: Values for input parameters; see :meth:`get_supply_chain`.
         """
         return InventoryResult.from_json(
             self._call(
@@ -2584,6 +2602,7 @@ class Client:
                 flow=flow,
                 limit=limit,
                 substitutions=substitutions,
+                parameters=parameters,
             )
         )
 
@@ -2595,6 +2614,7 @@ class Client:
         collection: str | None = None,
         top_flows: int | None = None,
         substitutions: list[SubstitutionLike] | None = None,
+        parameters: list[ParameterValue] | None = None,
     ) -> LCIAResult:
         """Compute the LCIA score for a single impact category on an activity.
 
@@ -2607,6 +2627,8 @@ class Client:
             collection: Method collection name. Left out, it is read off the
                 resolved method, so the caller needs to know only the method.
             top_flows: Max top contributing flows to return (default 5).
+            substitutions: Upstream supplier swaps; see :meth:`get_supply_chain`.
+            parameters: Values for input parameters; see :meth:`get_supply_chain`.
         """
         collection, method_id = self._resolve_method(method_id, collection)
         return LCIAResult.from_json(
@@ -2617,6 +2639,7 @@ class Client:
                 method_id=method_id,
                 top_flows=top_flows,
                 substitutions=substitutions,
+                parameters=parameters,
             )
         )
 
@@ -2627,6 +2650,7 @@ class Client:
         collection: str | None = None,
         substitutions: list[SubstitutionLike] | None = None,
         exclude_long_term: bool | None = None,
+        parameters: list[ParameterValue] | None = None,
     ) -> LCIABatchResult:
         """Compute LCIA for every impact category in a collection, in one call.
 
@@ -2635,7 +2659,8 @@ class Client:
         ``scoring_indicators`` gives the per-variable breakdown of each
         scoring set, pre-multiplied by the set's ``displayMultiplier``.
         ``exclude_long_term`` drops long-term emissions before scoring, the
-        same switch :meth:`score_activities` carries.
+        same switch :meth:`score_activities` carries. ``parameters`` gives
+        values for input parameters, as :meth:`get_supply_chain` takes them.
 
         Left without a ``collection``, the call runs against the only loaded
         one, and refuses when several are loaded rather than picking one.
@@ -2649,6 +2674,8 @@ class Client:
                 "get_impacts_batch requires a database; construct Client(db=...)."
             )
         collection = self._resolve_collection(collection)
+        if parameters:
+            self._require_wire(66, "get_impacts_batch(parameters=...)", engine_hint="0.16.0")
         url = (
             f"{self.base_url}/api/v1/db/{self.db}/activity/{process_id}"
             f"/impacts/{collection}"
@@ -2658,9 +2685,9 @@ class Client:
             if exclude_long_term is None
             else {"exclude-long-term": _format_query_value(exclude_long_term)}
         )
-        if substitutions:
+        if substitutions or parameters:
             r = self._session.post(
-                url, json=_substitution_body(substitutions), params=params
+                url, json=_substitution_body(substitutions, parameters), params=params
             )
         else:
             r = self._session.get(url, params=params)

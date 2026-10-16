@@ -14,15 +14,19 @@ module Database.MatrixBuild (
     collectBioFlowOrder,
     buildTechTriples,
     buildBioTriples,
+    withActivities,
     findProducer,
     linkedProducer,
 ) where
 
 import Control.Applicative ((<|>))
+import Data.Bifunctor (first)
 import Data.Foldable (fold)
 import Data.Int (Int32)
+import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map as M
+import Data.Maybe (fromMaybe, listToMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -164,19 +168,26 @@ perActivity tables = (concat warnings, concat rows)
     column :: ProcessId -> ([String], [(Double, ProcessId, AllocatedActivity, Exchange)])
     column j =
         let act = itActivities tables V.! fromIntegral j
-            key = itProcessIdTable tables V.! fromIntegral j
-         in case asAllocated act of
-                Left refusal -> ([refusalWarning act key refusal], [])
-                Right allocated -> ([], [(activityNormFactor act key, j, allocated, ex) | ex <- exchanges act])
+         in case columnSource (itProcessIdTable tables V.! fromIntegral j) act of
+                Left warning -> ([warning], [])
+                Right (normFactor, allocated) -> ([], [(normFactor, j, allocated, ex) | ex <- exchanges act])
 
-    refusalWarning :: Activity -> (UUID, UUID) -> AllocationRefusal -> String
-    refusalWarning act (actUUID, prodUUID) refusal =
+{- | What a process's column is divided by, and the process as the allocation
+gate lets it in, or the warning that says why it gets no column.
+-}
+columnSource :: (UUID, UUID) -> Activity -> Either String (Double, AllocatedActivity)
+columnSource key act = case asAllocated act of
+    Left refusal -> Left (refusalWarning refusal)
+    Right allocated -> Right (activityNormFactor act key, allocated)
+  where
+    refusalWarning :: AllocationRefusal -> String
+    refusalWarning refusal =
         "Activity \""
             ++ T.unpack (activityName act)
             ++ "\" ("
-            ++ T.unpack (UUID.toText actUUID)
+            ++ T.unpack (UUID.toText (fst key))
             ++ "_"
-            ++ T.unpack (UUID.toText prodUUID)
+            ++ T.unpack (UUID.toText (snd key))
             ++ ") is not allocated: "
             ++ T.unpack (describeRefusal refusal)
             ++ ". It loads, but it will not be scored."
@@ -260,12 +271,76 @@ buildBioTriples :: V.Vector UUID -> InterningTables -> VU.Vector SparseTriple
 buildBioTriples bioOrder tables =
     VU.fromList $ concatMap step (snd (perActivity tables))
   where
-    bioIndex = M.fromList $ zip (V.toList bioOrder) [0 ..]
-    step (normFactor, j, _act, ex)
-        | not (isBiosphereExchange ex) = []
-        | otherwise = case M.lookup (exchangeFlowId ex) bioIndex of
-            Nothing -> []
-            Just i ->
-                let raw = exchangeAmount ex
-                    value = raw / safeDenom normFactor
-                 in [SparseTriple i j value | raw /= 0]
+    bioIndex = bioRows bioOrder
+    step (normFactor, j, _act, ex) = bioTriple bioIndex normFactor j ex
+
+bioRows :: V.Vector UUID -> M.Map UUID Int32
+bioRows bioOrder = M.fromList $ zip (V.toList bioOrder) [0 ..]
+
+bioTriple :: M.Map UUID Int32 -> Double -> ProcessId -> Exchange -> [SparseTriple]
+bioTriple bioIndex normFactor j ex
+    | not (isBiosphereExchange ex) = []
+    | otherwise = case M.lookup (exchangeFlowId ex) bioIndex of
+        Nothing -> []
+        Just i ->
+            let raw = exchangeAmount ex
+                value = raw / safeDenom normFactor
+             in [SparseTriple i j value | raw /= 0]
+
+{- | The database with these processes in place of its own, their columns of A
+and B built again as a load builds them, and their links to other databases
+asking for their new amounts. The whole column, since a reference amount that
+moves changes what every entry of it is divided by. The biosphere rows stay, as
+they already list the flows whose amount is zero.
+-}
+withActivities :: UnitConfig -> Database -> M.Map ProcessId Activity -> Either Text Database
+withActivities unitConfig db changed
+    | M.null changed = Right db
+    | otherwise = do
+        columns <- traverse column (M.toList changed)
+        let (tech, bio) = fold columns
+        pure
+            db
+                { dbActivities = activities
+                , dbTechnosphereTriples = replaced (dbTechnosphereTriples db) tech
+                , dbBiosphereTriples = replaced (dbBiosphereTriples db) bio
+                , dbCrossDBLinks = map followed (dbCrossDBLinks db)
+                }
+  where
+    -- A link to another database asks for the amount of the exchange it supplies.
+    followed :: CrossDBLink -> CrossDBLink
+    followed link = fromMaybe link $ do
+        AnsweredExchange{aePosition = position, aeFactor = factor} <- cdlAnswers link
+        pid <- findProcessId db (cdlConsumerActUUID link) (cdlConsumerProdUUID link)
+        act <- M.lookup pid changed
+        ex <- listToMaybe (drop position (exchanges act))
+        pure link{cdlCoefficient = exchangeAmount ex * factor}
+
+    -- Kept as it was when no entry moved: the factorisation and the
+    -- regionalized weights of the loaded database then still serve.
+    replaced :: VU.Vector SparseTriple -> [SparseTriple] -> VU.Vector SparseTriple
+    replaced triples new
+        | entries (VU.filter (not . elsewhere) triples) == entries (VU.fromList new) = triples
+        | otherwise = VU.filter elsewhere triples <> VU.fromList new
+
+    entries :: VU.Vector SparseTriple -> [(Int32, Int32, Double)]
+    entries = sort . map (\(SparseTriple i j v) -> (j, i, v)) . VU.toList
+
+    activities :: V.Vector Activity
+    activities = dbActivities db V.// [(fromIntegral j, act) | (j, act) <- M.toList changed]
+
+    supplierRefUnits :: V.Vector Text
+    supplierRefUnits = buildSupplierRefUnits (dbUnits db) activities
+
+    bioIndex :: M.Map UUID Int32
+    bioIndex = bioRows (dbBiosphereOrder db)
+
+    elsewhere :: SparseTriple -> Bool
+    elsewhere (SparseTriple _ j _) = M.notMember j changed
+
+    column :: (ProcessId, Activity) -> Either Text ([SparseTriple], [SparseTriple])
+    column (j, act) = do
+        (normFactor, allocated) <- first T.pack (columnSource (dbProcessIdTable db V.! fromIntegral j) act)
+        -- The warnings name links the load already could not resolve: amounts do not change them.
+        (tech, _) <- fold <$> traverse (techTriple unitConfig (dbUnits db) (dbProcessIdLookup db) supplierRefUnits (dbActivityCount db) normFactor j (allocatedActivity allocated)) (exchanges act)
+        pure (tech, concatMap (bioTriple bioIndex normFactor j) (exchanges act))

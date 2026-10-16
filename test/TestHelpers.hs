@@ -163,6 +163,7 @@ linkDatabases consumerDb supplierDb supplierName coeff =
                 , cdlLocation = "GLO"
                 , cdlSourceDatabase = supplierName
                 , cdlTiedAlternatives = []
+                , cdlAnswers = Nothing
                 }
      in consumerDb{dbCrossDBLinks = link : dbCrossDBLinks consumerDb}
 

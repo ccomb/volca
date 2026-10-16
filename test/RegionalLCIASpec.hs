@@ -288,6 +288,15 @@ spec = do
             U.toList (rawTainted raw) `shouldBe` [0, 0, 0]
             U.toList (rawWeights raw) `shouldBe` U.toList (oracleWeights db M.empty tables)
 
+        it "sums again over other amounts what a build over them sums" $ do
+            let db = mkDB [("FR", 10), ("DE", 20), ("GLO", 5)]
+                other = mkDB [("FR", 10), ("DE", 40), ("GLO", 5)]
+                mappings = regionalMappings [("FR", 2), ("DE", 3), ("GLO", 4)]
+                Just raw = mtRegionalActivityWeights (buildTables db M.empty mappings)
+                Just fresh = mtRegionalActivityWeights (buildTables other M.empty mappings)
+            U.toList (rawWeights (reweigh other raw)) `shouldBe` [20, 120, 20]
+            U.toList (rawWeights (reweigh other raw)) `shouldBe` U.toList (rawWeights fresh)
+
         it "walks parent regions when an activity's exact location is absent" $ do
             -- A1@FR, A2@DE; DE has parent EU; CFs: FR=2, EU=7. Activity DE
             -- finds CF via parent walk.

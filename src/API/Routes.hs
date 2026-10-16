@@ -562,6 +562,7 @@ serviceErrorToServerError = \case
     -- breakages. Surface as 422 like the rest of the cross-DB pipeline.
     Service.MatrixError msg -> err422{errBody = utf8Body msg}
     Service.Withheld msg -> err403{errBody = utf8Body msg}
+    Service.ParameterRefused msg -> err400{errBody = utf8Body msg}
   where
     utf8Body = BSL.fromStrict . T.encodeUtf8
 
@@ -593,8 +594,7 @@ no-substitution path; 'Just' applies the substitutions through the uncached path
 -}
 crossDBSolutionFor :: Text -> Database -> SharedSolver -> ProcessId -> Maybe SubstitutionRequest -> AppM SharedSolver.CrossDBSolution
 crossDBSolutionFor dbName db solver pid mSub = case mSub of
-    Nothing -> solutionWithDeps dbName db solver pid
-    Just subReq -> do
+    Just subReq | not (null (srSubstitutions subReq)) -> do
         dbManager <- asks aeDbManager
         unitCfg <- liftIO $ getMergedUnitConfig dbManager
         eSol <-
@@ -608,6 +608,23 @@ crossDBSolutionFor dbName db solver pid mSub = case mSub of
                     pid
                     (srSubstitutions subReq)
         either throwServiceError pure eSol
+    _ -> solutionWithDeps dbName db solver pid
+
+{- | Run with the database a request reads: the loaded one, or, when the request
+states parameter values, the loaded one at those values with a solver for it
+that lives as long as the run. Only the database asked is read at those
+values: a dependency that links back to it reads it at its defaults.
+-}
+withRequestDatabase :: Text -> Maybe SubstitutionRequest -> (Database -> SharedSolver -> AppM a) -> AppM a
+withRequestDatabase dbName mSub run = do
+    (db, solver) <- requireDatabaseByName dbName
+    case maybe [] srParameters mSub of
+        [] -> run db solver
+        values -> do
+            settings <- either throwServiceError pure (Service.settingsOf db values)
+            env <- asks id
+            outcome <- liftIO (DM.withSettings (aeDbManager env) dbName db solver settings (\db' solver' -> runHandler (runApp env (run db' solver'))))
+            either badRequest (either throwError pure) outcome
 
 {- | Look up MethodSetTables for every (DB, scaling) pair in the cross-DB
 solution. Cache-keyed by (dbName, methods).
@@ -885,59 +902,59 @@ activityLCIABatchH ::
     AppM LCIABatchResult
 activityLCIABatchH dbName processIdText collectionName mSub ltMode = do
     dbManager <- asks aeDbManager
-    (db, sharedSolver) <- requireDatabaseByName dbName
-    (actProcessId, activity) <- resolveOrThrow db processIdText
-    (methods, scoringSets) <- loadCollection collectionName
-    t0 <- liftIO getCurrentTime
-    sol <- crossDBSolutionFor dbName db sharedSolver actProcessId mSub >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
-    t1 <- liftIO getCurrentTime
-    let inventory = SharedSolver.csInventory sol
-        !invSize = M.size inventory
-    when (isNothing mSub) $
-        liftIO $ do
-            reportProgress Info $
-                "[LCIA batch] " <> T.unpack (DM.unCollectionName collectionName) <> " for " <> T.unpack (activityName activity)
-            reportProgress Info $
-                "  Inventory: "
-                    <> show invSize
-                    <> " flows ("
-                    <> showFFloat (Just 2) (realToFrac (diffUTCTime t1 t0) :: Double) ""
-                    <> "s)"
-            when (invSize == 0) $
-                reportProgress Info "  WARNING: inventory is empty – check matrix computation"
-            when (invSize > 0 && invSize <= 5) $
+    withRequestDatabase dbName mSub $ \db sharedSolver -> do
+        (actProcessId, activity) <- resolveOrThrow db processIdText
+        (methods, scoringSets) <- loadCollection collectionName
+        t0 <- liftIO getCurrentTime
+        sol <- crossDBSolutionFor dbName db sharedSolver actProcessId mSub >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
+        t1 <- liftIO getCurrentTime
+        let inventory = SharedSolver.csInventory sol
+            !invSize = M.size inventory
+        when (isNothing mSub) $
+            liftIO $ do
                 reportProgress Info $
-                    "  Inventory UUIDs: " <> intercalate ", " (map UUID.toString $ M.keys inventory)
-    scoreMap <- liftIO $ batchedScoresFor dbManager dbName collectionName db sol methods
-    ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
-    cutoffs <- liftIO (Impact.licencedCutoffs dbManager ls)
-    rawResultsE <-
-        liftIO $
-            mapConcurrently
-                (\m -> computeCategoryResult dbManager dbName collectionName db ls cutoffs activity 5 (Just (resolveBatchedScore m scoreMap)) m)
-                methods
-    rawResults <- either scoringError pure (sequence rawResultsE)
-    let results = map (enrichWithNW (legacyIndex scoringSets)) rawResults
-        rawScoreMap = rawScoreMapByName rawResults
-    evaluated <- liftIO $ computeAllScoringSets scoringSets rawScoreMap
-    when (isNothing mSub) $
-        liftIO $ do
-            t2 <- getCurrentTime
-            mapM_ (logBatchCategory invSize) results
-            reportProgress Info $
-                "  Total: "
-                    <> show (length results)
-                    <> " categories ("
-                    <> showFFloat (Just 2) (realToFrac (diffUTCTime t2 t0) :: Double) ""
-                    <> "s)"
-            forM_ (M.toList (scoresOf evaluated)) $ \(name, scores) ->
+                    "[LCIA batch] " <> T.unpack (DM.unCollectionName collectionName) <> " for " <> T.unpack (activityName activity)
                 reportProgress Info $
-                    "  Scoring '"
-                        <> T.unpack name
-                        <> "': "
-                        <> intercalate ", " [T.unpack k <> "=" <> showFFloat (Just 6) v "" | (k, v) <- M.toList scores]
-    licence <- DBHandlers.servedLicence dbName
-    pure (Service.withholdBatch dbName licence (mkLCIABatchResult results evaluated scoringSets (Service.buildCutoffWaste db activity) cutoffs))
+                    "  Inventory: "
+                        <> show invSize
+                        <> " flows ("
+                        <> showFFloat (Just 2) (realToFrac (diffUTCTime t1 t0) :: Double) ""
+                        <> "s)"
+                when (invSize == 0) $
+                    reportProgress Info "  WARNING: inventory is empty – check matrix computation"
+                when (invSize > 0 && invSize <= 5) $
+                    reportProgress Info $
+                        "  Inventory UUIDs: " <> intercalate ", " (map UUID.toString $ M.keys inventory)
+        scoreMap <- liftIO $ batchedScoresFor dbManager dbName collectionName db sol methods
+        ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
+        cutoffs <- liftIO (Impact.licencedCutoffs dbManager ls)
+        rawResultsE <-
+            liftIO $
+                mapConcurrently
+                    (\m -> computeCategoryResult dbManager dbName collectionName db ls cutoffs activity 5 (Just (resolveBatchedScore m scoreMap)) m)
+                    methods
+        rawResults <- either scoringError pure (sequence rawResultsE)
+        let results = map (enrichWithNW (legacyIndex scoringSets)) rawResults
+            rawScoreMap = rawScoreMapByName rawResults
+        evaluated <- liftIO $ computeAllScoringSets scoringSets rawScoreMap
+        when (isNothing mSub) $
+            liftIO $ do
+                t2 <- getCurrentTime
+                mapM_ (logBatchCategory invSize) results
+                reportProgress Info $
+                    "  Total: "
+                        <> show (length results)
+                        <> " categories ("
+                        <> showFFloat (Just 2) (realToFrac (diffUTCTime t2 t0) :: Double) ""
+                        <> "s)"
+                forM_ (M.toList (scoresOf evaluated)) $ \(name, scores) ->
+                    reportProgress Info $
+                        "  Scoring '"
+                            <> T.unpack name
+                            <> "': "
+                            <> intercalate ", " [T.unpack k <> "=" <> showFFloat (Just 6) v "" | (k, v) <- M.toList scores]
+        licence <- DBHandlers.servedLicence dbName
+        pure (Service.withholdBatch dbName licence (mkLCIABatchResult results evaluated scoringSets (Service.buildCutoffWaste db activity) cutoffs))
 
 {- | Everything one chunk of a batch needs and no chunk changes: the database
 being scored, the collection scoring it, and the per-method contexts prepared
@@ -1069,6 +1086,7 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
                 Service.NotScorable _ -> False
                 Service.MatrixError _ -> False
                 Service.Withheld _ -> False
+                Service.ParameterRefused _ -> False
             ]
     t0 <- liftIO getCurrentTime
     ctxs <- liftIO $ mapConcurrently (prepMethodCtx dbManager dbName collectionName db) (mcMethods collection)
@@ -1488,7 +1506,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 65: the @parameters@ and @databaseParameters@ of an activity,
+(revision 66: the @parameters@ of a scoring, inventory or supply chain
+request, values the database is read at;
+revision 65: the @parameters@ and @databaseParameters@ of an activity,
 with the @uncertainty@ of an input parameter;
 revision 64: the @formula@ an exchange carries, filled from EcoSpold 2;
 revision 63: the @waterBalance@ check of the quality report;
@@ -1631,7 +1651,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 65
+currentWireVersion = 66
 
 getVersion :: AppM Value
 getVersion = do
@@ -1818,13 +1838,13 @@ activityInventoryCore :: Text -> Text -> Maybe SubstitutionRequest -> AppM Inven
 activityInventoryCore dbName processIdText mSub = do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
-    (db, sharedSolver) <- requireDatabaseByName dbName
-    (processId, activity) <- resolveOrThrow db processIdText
-    sol <- crossDBSolutionFor dbName db sharedSolver processId mSub
-    liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ (\msg -> throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 msg)})
-    (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-    cutoffs <- liftIO (Impact.solutionCutoffs dbManager ReadInventory sol)
-    pure $ Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)
+    withRequestDatabase dbName mSub $ \db sharedSolver -> do
+        (processId, activity) <- resolveOrThrow db processIdText
+        sol <- crossDBSolutionFor dbName db sharedSolver processId mSub
+        liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ (\msg -> throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 msg)})
+        (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        cutoffs <- liftIO (Impact.solutionCutoffs dbManager ReadInventory sol)
+        pure $ Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)
 
 getActivityInventory :: Text -> Text -> AppM InventoryExport
 getActivityInventory dbName processIdText = counted Inventorying dbName (ProcessKey processIdText) $ activityInventoryCore dbName processIdText Nothing
@@ -1863,63 +1883,63 @@ activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity o
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     presets <- asks aeClassificationPresets
-    (db, sharedSolver) <- requireDatabaseByName dbName
-    let edges = if fromMaybe False includeEdgesParam then Service.WithEdges else Service.EntriesOnly
-    refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
-    scf <-
-        either badRequest pure $
-            buildSupplyChainFilter
-                refusing
-                presets
-                nameFilter
-                limitParam
-                minQuantity
-                offsetParam
-                maxDepthParam
-                locationFilter
-                productFilter
-                presetParam
-                classSystems
-                classValues
-                classModes
-                sortParam
-                orderParam
-                edges
-    case mSub of
-        Nothing -> do
-            unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-            result <- liftIO $ Service.getSupplyChain unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) (DM.getGapIndex dbManager) db dbName sharedSolver processIdText scf
-            either throwServiceError pure result
-        Just subReq -> do
-            unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-            (processId, _) <- resolveOrThrow db processIdText
-            scalingResult <-
-                liftIO $
-                    Service.computeScalingVectorWithSubstitutionsCrossDB
-                        unitCfg
-                        (DM.mkDepSolverLookup dbManager)
-                        db
-                        dbName
-                        sharedSolver
-                        processId
-                        (srSubstitutions subReq)
-            case scalingResult of
-                Left err -> throwServiceError err
-                Right (scalingVec, virtualLinks) -> do
-                    eResp <-
-                        liftIO $
-                            Service.buildSupplyChainFromScalingVectorCrossDB
-                                unitCfg
-                                (DM.managerGeographies dbManager)
-                                (DM.mkDepSolverLookup dbManager)
-                                (DM.getGapIndex dbManager)
-                                db
-                                dbName
-                                processId
-                                scalingVec
-                                virtualLinks
-                                scf
-                    either throwServiceError pure eResp
+    withRequestDatabase dbName mSub $ \db sharedSolver -> do
+        let edges = if fromMaybe False includeEdgesParam then Service.WithEdges else Service.EntriesOnly
+        refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
+        scf <-
+            either badRequest pure $
+                buildSupplyChainFilter
+                    refusing
+                    presets
+                    nameFilter
+                    limitParam
+                    minQuantity
+                    offsetParam
+                    maxDepthParam
+                    locationFilter
+                    productFilter
+                    presetParam
+                    classSystems
+                    classValues
+                    classModes
+                    sortParam
+                    orderParam
+                    edges
+        case maybe [] srSubstitutions mSub of
+            [] -> do
+                unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+                result <- liftIO $ Service.getSupplyChain unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) (DM.getGapIndex dbManager) db dbName sharedSolver processIdText scf
+                either throwServiceError pure result
+            subs -> do
+                unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+                (processId, _) <- resolveOrThrow db processIdText
+                scalingResult <-
+                    liftIO $
+                        Service.computeScalingVectorWithSubstitutionsCrossDB
+                            unitCfg
+                            (DM.mkDepSolverLookup dbManager)
+                            db
+                            dbName
+                            sharedSolver
+                            processId
+                            subs
+                case scalingResult of
+                    Left err -> throwServiceError err
+                    Right (scalingVec, virtualLinks) -> do
+                        eResp <-
+                            liftIO $
+                                Service.buildSupplyChainFromScalingVectorCrossDB
+                                    unitCfg
+                                    (DM.managerGeographies dbManager)
+                                    (DM.mkDepSolverLookup dbManager)
+                                    (DM.getGapIndex dbManager)
+                                    db
+                                    dbName
+                                    processId
+                                    scalingVec
+                                    virtualLinks
+                                    scf
+                        either throwServiceError pure eResp
 
 getActivitySupplyChain ::
     Text ->
@@ -2026,17 +2046,17 @@ POST carries substitutions instead and skips logging.
 activityLCIACore :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe SubstitutionRequest -> AppM LCIAResult
 activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam mSub = do
     dbManager <- asks aeDbManager
-    (db, sharedSolver) <- requireDatabaseByName dbName
-    method <- loadMethodInCollection collectionName methodIdText
-    (processId, activity) <- resolveOrThrow db processIdText
-    sol <- crossDBSolutionFor dbName db sharedSolver processId mSub
-    ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
-    cutoffs <- liftIO (Impact.licencedCutoffs dbManager ls)
-    resultE <- liftIO $ computeCategoryResult dbManager dbName collectionName db ls cutoffs activity (fromMaybe 5 topFlowsParam) Nothing method
-    result <- either scoringError pure resultE
-    when (isNothing mSub) $ liftIO $ logLCIAResult result method
-    licence <- DBHandlers.servedLicence dbName
-    pure (Service.withholdContributors dbName licence result)
+    withRequestDatabase dbName mSub $ \db sharedSolver -> do
+        method <- loadMethodInCollection collectionName methodIdText
+        (processId, activity) <- resolveOrThrow db processIdText
+        sol <- crossDBSolutionFor dbName db sharedSolver processId mSub
+        ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
+        cutoffs <- liftIO (Impact.licencedCutoffs dbManager ls)
+        resultE <- liftIO $ computeCategoryResult dbManager dbName collectionName db ls cutoffs activity (fromMaybe 5 topFlowsParam) Nothing method
+        result <- either scoringError pure resultE
+        when (isNothing mSub) $ liftIO $ logLCIAResult result method
+        licence <- DBHandlers.servedLicence dbName
+        pure (Service.withholdContributors dbName licence result)
 
 getActivityLCIA :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> AppM LCIAResult
 getActivityLCIA dbName processIdText collectionName methodIdText topFlowsParam =

@@ -75,6 +75,26 @@
   dividing by zero, is left aside, with a warning, and the amount column is
   read.
 
+- Scores, inventories and supply chains can be asked for at other values of
+  a database's input parameters, without reloading it: the request body
+  takes `parameters`, a list of `{name, value}` for a parameter of the
+  database and `{process, name, value}` for one of a process's own, next to
+  the substitutions it already took. The amounts whose formulas read those
+  values are computed again for that request, a process's own value of a
+  name winning over its database's in every formula the process reads, and
+  a value set on one product of a multi-product process holds for all its
+  products. An input supplied by another database follows its new amount,
+  so a process buying French electricity by one formula and German by
+  another can be switched from one to the other. Values that only move
+  emissions reuse the loaded database's factorisation; values that move an
+  input from another process factorise it again for that request. A value is refused,
+  with its name, when nothing of that name can be set (unknown, or
+  calculated by a formula), when a formula would divide by zero, or when a
+  SimaPro allocation share written as a formula would move with it. The
+  assistant's `get_impacts`, `get_inventory`, `get_supply_chain` and
+  `score_activity` take the same `parameters`, and pyvolca's
+  `ParameterValue`. Wire revision 66.
+
 ### Fixed
 
 - In a SimaPro file, a parameter a process defines now replaces a database or

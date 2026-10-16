@@ -3123,6 +3123,23 @@ data CrossDBLink = CrossDBLink
     A non-empty list means this link could equivalently be supplied from
     another database – used to compute the minimal dependency pre-selection.
     -}
+    , cdlAnswers :: !(Maybe AnsweredExchange)
+    {- ^ The consumer's exchange this link supplies, so the link follows its
+    amount when the database is read at other parameter values. Two exchanges
+    of one consumer may name the same flow, each with a supplier of its own,
+    so the exchange is named by its position. 'Nothing' on a substitution's
+    virtual link, which supplies no exchange of the database.
+    -}
+    }
+    deriving (Generic, NFData, Store, Show, Eq, Ord)
+
+{- | The exchange a link supplies: its position among the consumer's exchanges,
+and what the link asks of its supplier per unit of that exchange's amount (one,
+a unit bridge, a treatment's reference sign).
+-}
+data AnsweredExchange = AnsweredExchange
+    { aePosition :: !Int
+    , aeFactor :: !Double
     }
     deriving (Generic, NFData, Store, Show, Eq, Ord)
 

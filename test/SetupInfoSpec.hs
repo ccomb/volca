@@ -356,6 +356,7 @@ spec = do
                         , cdlLocation = "GLO"
                         , cdlSourceDatabase = "background"
                         , cdlTiedAlternatives = []
+                        , cdlAnswers = Nothing
                         }
             db <-
                 buildDb
@@ -392,6 +393,7 @@ spec = do
                         , cdlLocation = "GLO"
                         , cdlSourceDatabase = "background"
                         , cdlTiedAlternatives = []
+                        , cdlAnswers = Nothing
                         }
             db <-
                 buildDb
@@ -428,6 +430,7 @@ spec = do
                         , cdlLocation = "GLO"
                         , cdlSourceDatabase = "background"
                         , cdlTiedAlternatives = []
+                        , cdlAnswers = Nothing
                         }
             db <-
                 buildDb

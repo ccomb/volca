@@ -5,7 +5,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
@@ -34,11 +34,11 @@ import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, appl
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, cutoffsReached, gapIndexOf)
 import Database.MatrixBuild (findProducer, linkedProducer)
-import Expr (Dialect (..), collectIdentifiers)
 import Impact (PartScore (..))
 import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, processScaling, toList)
 import qualified Matrix.Export as MatrixExport
 import Method.Mapping (LongTermMode (..))
+import Parametric (Setting (..), databaseParametersRead)
 import qualified Progress
 import qualified Search.BM25 as BM25
 import qualified Search.Fuzzy as Fuzzy
@@ -162,6 +162,8 @@ data ServiceError
     | MatrixError Text -- Generic error from matrix computations
     | -- | A licence keeps what the answer would read; the text says whose.
       Withheld Text
+    | -- | The parameter values a request states give no database; the text says why.
+      ParameterRefused Text
     deriving (Show)
 
 {- | Validate UUID format, returning the parsed UUID so callers do not have to
@@ -180,6 +182,14 @@ findActivityByProcessId db processId =
         else Nothing
 
 -- | Resolve activity query using ProcessId format with UUID fallback for compatibility
+
+{- | A request's parameter values as settings, each naming its process by the
+matrix column the database gives it.
+-}
+settingsOf :: Database -> [ParameterValue] -> Either ServiceError [Setting]
+settingsOf db = traverse $ \ParameterValue{pvProcess = process, pvName = name, pvValue = value} ->
+    (\pid -> Setting pid name value) <$> traverse (fmap fst . resolveActivityAndProcessId db) process
+
 resolveActivityByProcessId :: Database -> Text -> Either ServiceError Activity
 resolveActivityByProcessId db = fmap snd . resolveActivityAndProcessId db
 
@@ -1208,37 +1218,6 @@ convertActivityForAPI db processId activity =
             , pfaDatabaseParameters = parametersForAPI (databaseParametersRead activity (dbParameters db))
             , pfaNativeId = activityNativeId activity
             }
-
-{- | The database's parameters a process reads and does not define itself:
-those its exchange and parameter formulas name, and those the database's own
-calculated parameters name in turn. A process's definition of a name replaces
-its database's, whatever the case it is spelt in.
--}
-databaseParametersRead :: Activity -> M.Map Text Parameter -> M.Map Text Parameter
-databaseParametersRead activity databaseWide =
-    M.fromList (M.elems (M.restrictKeys byName (reach S.empty (concatMap namesRead formulas))))
-  where
-    own :: M.Map Text Parameter
-    own = activityParameters activity
-    ownNames :: S.Set Text
-    ownNames = S.map T.toLower (M.keysSet own)
-    byName :: M.Map Text (Text, Parameter)
-    byName = M.fromList [(T.toLower name, (name, parameter)) | (name, parameter) <- M.toList databaseWide]
-    formulas :: [Text]
-    formulas = map efText (mapMaybe exchangeFormula (exchanges activity)) <> mapMaybe formulaOf (M.elems own)
-    formulaOf :: Parameter -> Maybe Text
-    formulaOf parameter = case parameterDefinition parameter of
-        CalculatedParameter formula _ -> Just formula
-        InputParameter{} -> Nothing
-    namesRead :: Text -> [Text]
-    namesRead = map T.toLower . collectIdentifiers Volca
-    reach :: S.Set Text -> [Text] -> S.Set Text
-    reach found = \case
-        [] -> found
-        name : rest
-            | S.member name found || S.member name ownNames -> reach found rest
-            | Just (_, parameter) <- M.lookup name byName -> reach (S.insert name found) (maybe [] namesRead (formulaOf parameter) <> rest)
-            | otherwise -> reach found rest
 
 -- | Parameters by name, as the API shows them.
 parametersForAPI :: M.Map Text Parameter -> [ParameterAPI]
@@ -3367,6 +3346,7 @@ mkVirtualLink rootDb consumerPid DepRef{drDbName = depDbName, drDb = depDb, drPi
             , cdlLocation = activityLocation supAct
             , cdlSourceDatabase = depDbName
             , cdlTiedAlternatives = []
+            , cdlAnswers = Nothing
             }
 
 {- | Find the static 'CrossDBLink' matching @(rootConsumer, depDbName, depSupplierUUIDs)@.

@@ -52,6 +52,7 @@ module Method.Mapping (
     fillBroadcastVector,
     zeroedMatchedCFs,
     fillRegionalActivityWeights,
+    reweigh,
     regionalizedContributionsCrossDB,
     regionalizedProcessContributions,
     RegionalActivityWeights (..),
@@ -999,6 +1000,11 @@ data RegionalActivityWeights = RegionalActivityWeights
     , rawFactors :: !RegionalFactorTable
     {- ^ The factors the weights above were summed from, kept so a caller can
     fold the same numbers by flow instead of by column.
+    -}
+    , rawSummedOver :: !(U.Vector SparseTriple)
+    {- ^ The biosphere triples the weights were summed over, so a caller
+    holding a database at other parameter values can tell whether they still
+    hold for it.
     -}
     }
 
@@ -2148,13 +2154,10 @@ fillRegionalActivityWeights ::
     MethodTables
 fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
     | M.null (mtRegionalizedCF tables) = tables
-    | otherwise = tables{mtRegionalActivityWeights = Just precomputed}
+    | otherwise = tables{mtRegionalActivityWeights = Just (weigh db factors)}
   where
     nCols = fromIntegral (dbActivityCount db) :: Int
-    actIdx = dbActivityIndex db
-    activities = dbActivities db
     bioFlows = dbBiosphereOrder db
-    bioTriples = dbBiosphereTriples db
     regional = mtRegionalizedCF tables
 
     -- Flow-row-indexed view of 'regional'. For each biosphere flow row index
@@ -2189,17 +2192,8 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
                 if M.null located then Nothing else Just located
          in V.map lookupRow bioFlows
 
-    -- ProcessId → matrix column index → activity's reference location.
-    -- Built once (O(nActivities)) and indexed by column inside the hot loop.
     colLoc :: V.Vector Location
-    colLoc =
-        V.replicate nCols (Location T.empty)
-            V.// [ (fromIntegral (actIdx V.! pid), Location (activityLocation (activities V.! pid)))
-                 | pid <- [0 .. V.length actIdx - 1]
-                 , let !col = fromIntegral (actIdx V.! pid) :: Int
-                 , col >= 0
-                 , col < nCols
-                 ]
+    colLoc = columnLocations db
 
     -- The locations the columns actually name, numbered. A database names a
     -- few hundred at most, which is what keeps the grid below small.
@@ -2285,46 +2279,87 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
                 , rftLongTerm = longTermRow
                 }
 
-    -- Walk the biosphere triples once, summing the factors above by column and
-    -- collecting the deduplicated (flow, location) gaps as they are met. A gap
-    -- is recorded where a triple runs into one, not for every hole in the
-    -- grid: a flow nothing emits at that location is nobody's gap.
-    precomputed :: RegionalActivityWeights
-    precomputed = runST $ do
-        ws <- MU.replicate nCols (0 :: Double)
-        wsShort <- MU.replicate nCols (0 :: Double)
-        ts <- MU.replicate nCols (0 :: Word8)
-        missRef <- newSTRef (Set.empty :: Set.Set (UUID, Location))
-        U.forM_ bioTriples $ \(SparseTriple flowRow colIdx bioVal) -> do
-            let !col = fromIntegral colIdx :: Int
-                !row = fromIntegral flowRow :: Int
-                !slot = U.unsafeIndex regionalRowSlot row
-                !delayed = U.unsafeIndex longTermRow row
-                add !v = do
-                    MU.unsafeModify ws (+ v) col
-                    unless delayed $ MU.unsafeModify wsShort (+ v) col
-            if slot < 0
-                then add (bioVal * U.unsafeIndex universal row)
-                else do
-                    let !cell = slot * nLocs + U.unsafeIndex columnLocation col
-                        (!factor, !isGap) = U.unsafeIndex grid cell
-                    if isGap
-                        then do
-                            MU.unsafeWrite ts col 1
-                            modifySTRef' missRef (Set.insert (bioFlows V.! row, colLoc V.! col))
-                        else add (bioVal * factor)
-        wsF <- U.unsafeFreeze ws
-        wsShortF <- U.unsafeFreeze wsShort
-        tsF <- U.unsafeFreeze ts
-        miss <- readSTRef missRef
-        pure
-            RegionalActivityWeights
-                { rawWeights = wsF
-                , rawWeightsWithoutLongTerm = wsShortF
-                , rawTainted = tsF
-                , rawMissingPairs = Set.toAscList miss
-                , rawFactors = factors
-                }
+{- | A database's matrix columns weighed with factors resolved for its flows and
+locations: the biosphere triples walked once, the factors summed by column and
+the deduplicated (flow, location) gaps collected as they are met. A gap is
+recorded where a triple runs into one, not for every hole in the grid: a flow
+nothing emits at that location is nobody's gap.
+-}
+weigh :: Database -> RegionalFactorTable -> RegionalActivityWeights
+weigh db factors = runST $ do
+    ws <- MU.replicate nCols (0 :: Double)
+    wsShort <- MU.replicate nCols (0 :: Double)
+    ts <- MU.replicate nCols (0 :: Word8)
+    missRef <- newSTRef (Set.empty :: Set.Set (UUID, Location))
+    U.forM_ bioTriples $ \(SparseTriple flowRow colIdx bioVal) -> do
+        let !col = fromIntegral colIdx :: Int
+            !row = fromIntegral flowRow :: Int
+            !slot = U.unsafeIndex regionalRowSlot row
+            !delayed = U.unsafeIndex longTermRow row
+            add !v = do
+                MU.unsafeModify ws (+ v) col
+                unless delayed $ MU.unsafeModify wsShort (+ v) col
+        if slot < 0
+            then add (bioVal * U.unsafeIndex universal row)
+            else do
+                let !cell = slot * nLocs + U.unsafeIndex columnLocation col
+                    !factor = U.unsafeIndex regionalFactor cell
+                    !isGap = U.unsafeIndex gap cell
+                if isGap
+                    then do
+                        MU.unsafeWrite ts col 1
+                        modifySTRef' missRef (Set.insert (bioFlows V.! row, colLoc V.! col))
+                    else add (bioVal * factor)
+    wsF <- U.unsafeFreeze ws
+    wsShortF <- U.unsafeFreeze wsShort
+    tsF <- U.unsafeFreeze ts
+    miss <- readSTRef missRef
+    pure
+        RegionalActivityWeights
+            { rawWeights = wsF
+            , rawWeightsWithoutLongTerm = wsShortF
+            , rawTainted = tsF
+            , rawMissingPairs = Set.toAscList miss
+            , rawFactors = factors
+            , rawSummedOver = bioTriples
+            }
+  where
+    nCols = fromIntegral (dbActivityCount db) :: Int
+    bioFlows = dbBiosphereOrder db
+    bioTriples = dbBiosphereTriples db
+    colLoc = columnLocations db
+    -- Cached locally so the hot loop reads from one stable pointer per field.
+    RegionalFactorTable
+        { rftUniversal = universal
+        , rftRegionalRow = regionalRowSlot
+        , rftRegional = regionalFactor
+        , rftGap = gap
+        , rftLocationCount = nLocs
+        , rftColumnLocation = columnLocation
+        , rftLongTerm = longTermRow
+        } = factors
+
+{- | The weights summed again over this database's biosphere. The same database
+at other parameter values has the same flows and columns, so the factors hold
+and only the walk is redone.
+-}
+reweigh :: Database -> RegionalActivityWeights -> RegionalActivityWeights
+reweigh db = weigh db . rawFactors
+
+-- | Each matrix column's reference location, read once and indexed by column in the walk.
+columnLocations :: Database -> V.Vector Location
+columnLocations db =
+    V.replicate nCols (Location T.empty)
+        V.// [ (fromIntegral (actIdx V.! pid), Location (activityLocation (activities V.! pid)))
+             | pid <- [0 .. V.length actIdx - 1]
+             , let !col = fromIntegral (actIdx V.! pid) :: Int
+             , col >= 0
+             , col < nCols
+             ]
+  where
+    nCols = fromIntegral (dbActivityCount db) :: Int
+    actIdx = dbActivityIndex db
+    activities = dbActivities db
 
 {- | Score an inventory against precomputed 'MethodTables'.
 Hot path: O(|inventory|) per call, no map construction.

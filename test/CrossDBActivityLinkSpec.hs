@@ -252,5 +252,6 @@ spec = do
                         , cdlLocation = "GLO"
                         , cdlSourceDatabase = "bg"
                         , cdlTiedAlternatives = []
+                        , cdlAnswers = Nothing
                         }
             collectStagedDanglingProductNames fg [coveringLink] `shouldBe` M.singleton "widget" 1

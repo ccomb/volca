@@ -610,6 +610,7 @@ History of manual bumps:
 - 69: an input parameter keeps its uncertainty.
 - 70: a Brightway workbook keeps its parameters, and a line with a formula
      the amount the formula gives.
+- 71: a cross-database link names the consumer exchange it supplies.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -617,7 +618,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 70
+     in hi `xor` lo `xor` 71
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -2722,7 +2723,7 @@ findActivityCrossDBLinks ::
     Activity ->
     CrossDBLinkingStats
 findActivityCrossDBLinks scan (consumerActUUID, consumerProdUUID) act =
-    mconcat (map (findExchangeCrossDBLink scan consumerActUUID consumerProdUUID) (exchanges act))
+    mconcat (zipWith (findExchangeCrossDBLink scan consumerActUUID consumerProdUUID) [0 ..] (exchanges act))
 
 {- | Find cross-database link for a single exchange.
 
@@ -2755,9 +2756,11 @@ findExchangeCrossDBLink ::
     LinkScan ->
     UUID.UUID ->
     UUID.UUID ->
+    -- | The exchange's position among its activity's
+    Int ->
     Exchange ->
     CrossDBLinkingStats
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID ex@TechnosphereExchange{techFlowId = fid, techAmount = amt, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = statedLoc}
+findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@TechnosphereExchange{techFlowId = fid, techAmount = amt, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = statedLoc}
     | namesASupplier ex && not resolvesInternally =
         maybe mempty resolveTechInput (M.lookup fid techFlowDb)
     | otherwise = mempty
@@ -2766,7 +2769,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
     loc = locationCode statedLoc
 
     resolvesInternally = maybe False (\supplier -> S.member (supplier, fid) ownKeys) linkId
-    mkTechLink supAct supProd supName supLoc srcDb tied (coefficient, exchangeUnit) =
+    mkTechLink supAct supProd supName supLoc srcDb tied factor (coefficient, exchangeUnit) =
         CrossDBLink
             { cdlConsumerActUUID = consumerActUUID
             , cdlConsumerProdUUID = consumerProdUUID
@@ -2779,6 +2782,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
             , cdlLocation = supLoc
             , cdlSourceDatabase = srcDb
             , cdlTiedAlternatives = tied
+            , cdlAnswers = Just AnsweredExchange{aePosition = position, aeFactor = factor}
             }
     resolveTechInput flow =
         let flowUnitName = maybe "" unitName (M.lookup (tfUnitId flow) unitDb)
@@ -2800,6 +2804,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                                 (seLocation entry)
                                 srcDb
                                 (sort (map snd rest))
+                                1
                                 (amt, flowUnitName)
                      in mempty{cdlLinks = [crossLink]}
                 [] -> attributeMatch flow flowUnitName
@@ -2820,21 +2825,21 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
     mapping row's conversion bridges two units that measure different things,
     the amount in the row's source unit divided by what one target unit holds,
     in the row's target unit. The matrix converts that unit to the supplier's. -}
-    bridgedAmount :: T.Text -> Maybe UnitBridge -> Maybe (Double, T.Text)
-    bridgedAmount flowUnitName = \case
-        Nothing -> Just (amt, flowUnitName)
+    bridgedAmount :: T.Text -> Maybe UnitBridge -> Double -> Maybe (Double, T.Text)
+    bridgedAmount flowUnitName bridge amount = case bridge of
+        Nothing -> Just (amount, flowUnitName)
         Just UnitBridge{..} ->
             (\inSource -> (inSource / ubTargetInSource, ubTargetUnit))
-                <$> UC.convertUnit (lcUnitConfig ctx) flowUnitName ubSourceUnit amt
+                <$> UC.convertUnit (lcUnitConfig ctx) flowUnitName ubSourceUnit amount
     attributeMatch flow flowUnitName =
         let query = supplierQuery flow flowUnitName
          in case findSupplierInIndexedDBs ctx query of
                 result@CrossDBLinked{}
-                    | Nothing <- bridgedAmount flowUnitName (cdlrBridge result) ->
+                    | Nothing <- bridgedAmount flowUnitName (cdlrBridge result) amt ->
                         -- The row's units passed the matcher, so this is a unit the
                         -- conversion table cannot read: refused, never guessed.
                         unresolvedStats flow UnitIncompatible{uiQueryUnit = flowUnitName, uiSupplierUnit = maybe "" ubTargetUnit (cdlrBridge result)}
-                    | Just amount <- bridgedAmount flowUnitName (cdlrBridge result) ->
+                    | Just amount <- bridgedAmount flowUnitName (cdlrBridge result) amt ->
                         let !crossLink =
                                 mkTechLink
                                     (cdlrActivityUUID result)
@@ -2843,6 +2848,8 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                                     (cdlrLocation result)
                                     (cdlrDatabaseName result)
                                     (cdlrTiedDatabases result)
+                                    -- The conversion that just read the amount reads one unit of it: the default is never taken.
+                                    (maybe 1 fst (bridgedAmount flowUnitName (cdlrBridge result) 1))
                                     amount
                             locFallbacks =
                                 [ LocationFallback
@@ -2917,7 +2924,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                 { cdlUnresolvedRequests = M.singleton (supplierRequest (tfName flow) claim statedLoc) (UnresolvedProduct (M.singleton blocker 1))
                 , cdlLocationUnresolved = unresolved
                 }
-findExchangeCrossDBLink _ _ _ BiosphereExchange{} = mempty
+findExchangeCrossDBLink _ _ _ _ BiosphereExchange{} = mempty
 -- Cross-DB linking for waste OUTPUTS the internal matrix does not route:
 -- strict match only. No synonym, no fuzzy name match, no location widening.
 -- Multi-DB matches stay orphan as 'cdlWasteAmbiguous'. Which matcher applies
@@ -2927,7 +2934,7 @@ findExchangeCrossDBLink _ _ _ BiosphereExchange{} = mempty
 -- would link the waste to an activity nobody asked for.
 -- Waste inputs (treatment side) are left alone: they have no clean LCA
 -- semantic as a cross-DB demand.
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows = wasteFlowDb} consumerActUUID consumerProdUUID WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp}
+findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows = wasteFlowDb} consumerActUUID consumerProdUUID position WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp}
     | not isInp && not resolvesInternally =
         case treatmentMatch of
             WasteMatched entry dbN ->
@@ -2953,6 +2960,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows 
                             , cdlLocation = seLocation entry
                             , cdlSourceDatabase = dbN
                             , cdlTiedAlternatives = []
+                            , cdlAnswers = Just AnsweredExchange{aePosition = position, aeFactor = seRefSign entry}
                             }
                  in
                     mempty{cdlLinks = [crossLink], cdlWasteExactLinks = 1}

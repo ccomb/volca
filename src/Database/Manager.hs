@@ -150,6 +150,8 @@ module Database.Manager (
 
     -- * Installing a database the caller built itself
     solverFor,
+    withSolverFor,
+    withSettings,
     publishLoaded,
 ) where
 
@@ -160,7 +162,7 @@ import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.QSem (QSem, newQSem)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracket, try)
 import qualified Control.Exception
 import Control.Lens ((&), (?~))
 import Control.Monad (filterM, forM, forM_, unless, void, when, (<=<))
@@ -200,6 +202,8 @@ import Config
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Time (diffUTCTime, getCurrentTime)
+import qualified Data.UUID as UUID
+import Data.UUID.V4 (nextRandom)
 import Database (Geographies, buildDatabaseWithMatrices, readGeographies)
 import Database.Cutoffs (GapIndex, gapIndexOf)
 import qualified Database.Loader as Loader
@@ -213,7 +217,8 @@ import Method.Mapping (
     CFUnit (..),
     ContestedFactor (..),
     MethodIndex,
-    MethodSetTables,
+    MethodSetEntry (..),
+    MethodSetTables (..),
     MethodTables,
     MethodVocabulary,
     Placing (..),
@@ -239,6 +244,7 @@ import Method.Mapping (
     mtRegionalActivityWeights,
     mtRegionalizedCF,
     projectRegionalResourceFlows,
+    reweigh,
     spreadLocatedRows,
     zeroedMatchedCFs,
  )
@@ -257,6 +263,7 @@ import Method.Types (
     compartmentMapSize,
     energyDensityMapSize,
  )
+import Parametric (Setting, parameterised)
 import Progress (ProgressLevel (..), reportError, reportProgress, reportProgressWithTiming, withLogScope)
 import qualified Search.BM25 as BM25
 import Servant.API (FromHttpApiData)
@@ -752,6 +759,11 @@ data DatabaseManager = DatabaseManager
     {- ^ One unit per scoring request allowed to compute at once
     (@max_concurrent_scoring@), 'Nothing' when the instance sets no bound.
     -}
+    , dmFactorisationLock :: !(MVar ())
+    {- ^ Held while a request runs on a factorisation of its own, made for the
+    database at the parameter values it states: each is as large as the loaded
+    database's, so they are made one at a time and the others wait.
+    -}
     , dmMethodEditLock :: !(MVar ())
     {- ^ Held by every change to a method collection, and by every copy: an
     edit reads the collection, appends a line and swaps the result in, and two
@@ -923,7 +935,7 @@ mapMethodToTablesCached :: DatabaseManager -> Text -> CollectionName -> Database
 mapMethodToTablesCached manager dbName collection db method = do
     let key = (dbName, collection, methodId method)
     cache <- readTVarIO (dmMethodTablesCache manager)
-    case M.lookup key cache of
+    weighedFor db =<< case M.lookup key cache of
         Just tables -> pure tables
         Nothing ->
             -- Single-flight: the expensive build runs once per key even under a
@@ -933,6 +945,22 @@ mapMethodToTablesCached manager dbName collection db method = do
                 key
                 (cacheIfCurrent manager collection [method] . modifyTVar' (dmMethodTablesCache manager) . M.insert key)
                 (buildMethodTablesFor manager dbName collection db method)
+
+{- | The tables with regionalized weights summed over this database's biosphere:
+as cached when they were, summed again when the request reads the database at
+other parameter values. The two vectors are told apart by identity; a copy
+equal to the cached one only costs the walk again.
+-}
+weighedFor :: Database -> MethodTables -> IO MethodTables
+weighedFor db tables = case mtRegionalActivityWeights tables of
+    Nothing -> pure tables
+    Just weights -> do
+        summedOver <- makeStableName =<< Control.Exception.evaluate (rawSummedOver weights)
+        current <- makeStableName =<< Control.Exception.evaluate (dbBiosphereTriples db)
+        pure $
+            if summedOver == current
+                then tables
+                else tables{mtRegionalActivityWeights = Just (reweigh db weights)}
 
 {- | The places a collection writes factors at, which decide the @if_absent@
 rows its tables follow; computed once per collection ('dmMethodVocabularyCache').
@@ -1150,7 +1178,7 @@ mapMethodSetToTablesCached manager dbName collection db methods = do
         key = (dbName, collection, map methodId sortedMethods)
     cache <- readTVarIO (dmMethodSetTablesCache manager)
     case M.lookup key cache of
-        Just mst -> pure mst
+        Just mst -> setWeighedFor mst
         Nothing -> do
             -- mapConcurrently here parallelizes the per-method 'MethodTables'
             -- build across the whole collection. On first request for a
@@ -1164,7 +1192,16 @@ mapMethodSetToTablesCached manager dbName collection db methods = do
             tables <- mapConcurrently (mapMethodToTablesCached manager dbName collection db) sortedMethods
             let !mst = buildMethodSetTables (zip sortedMethods tables)
             atomically $ cacheIfCurrent manager collection sortedMethods (modifyTVar' (dmMethodSetTablesCache manager) (M.insert key mst))
-            pure mst
+            setWeighedFor mst
+  where
+    -- Only the regional half reads the weights; the broadcast matrix holds for any amounts.
+    setWeighedFor :: MethodSetTables -> IO MethodSetTables
+    setWeighedFor mst = do
+        regional <- traverse entryFor (msRegional mst)
+        let byId = M.fromList [(mseMethodId entry, entry) | entry <- V.toList regional]
+        pure mst{msAllMethods = fmap (\entry -> M.findWithDefault entry (mseMethodId entry) byId) (msAllMethods mst), msRegional = regional}
+    entryFor :: MethodSetEntry -> IO MethodSetEntry
+    entryFor entry = (\tables -> entry{mseTables = tables}) <$> weighedFor db (mseTables entry)
 
 {- | Cached method index (CF tokens, by-medium, by-CAS): built once per
 (db, method), reused by the post-scoring suggester. Doesn't depend on the
@@ -1543,6 +1580,7 @@ newManager ManagerSeed{..} = do
     gapIndexCacheVar <- newTVarIO M.empty
     scoringSlots <- traverse newQSem msScoringSlots
     methodEditLock <- newMVar ()
+    factorisationLock <- newMVar ()
     return
         DatabaseManager
             { dmLoadedDbs = loadedDbsVar
@@ -1577,6 +1615,7 @@ newManager ManagerSeed{..} = do
             , dmFlowClosureCache = flowClosureCacheVar
             , dmGapIndexCache = gapIndexCacheVar
             , dmScoringSlots = scoringSlots
+            , dmFactorisationLock = factorisationLock
             , dmMethodEditLock = methodEditLock
             }
   where
@@ -3390,6 +3429,25 @@ solverFor dbName db =
         dbName
         [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
         (fromIntegral (dbActivityCount db))
+
+{- | Run with a solver for @after@, built from the loaded @before@ by
+'Database.MatrixBuild.withActivities': the loaded solver when no entry of the
+technosphere moved, otherwise one under a name of its own whose factorisation
+is destroyed when the action ends. Factorisations are cached by name, so the
+loaded database's own is never replaced.
+-}
+withSolverFor :: DatabaseManager -> Text -> Database -> SharedSolver -> Database -> (SharedSolver -> IO a) -> IO a
+withSolverFor manager dbName before loaded after act
+    | dbTechnosphereTriples after == dbTechnosphereTriples before = act loaded
+    | otherwise = withMVar (dmFactorisationLock manager) $ \() -> do
+        name <- (\tag -> dbName <> "#" <> UUID.toText tag) <$> nextRandom
+        bracket (solverFor name after) (const (clearCachedSolver name)) act
+
+-- | Run with the loaded database at these settings and a solver for it, or say why the settings give none.
+withSettings :: DatabaseManager -> Text -> Database -> SharedSolver -> [Setting] -> (Database -> SharedSolver -> IO a) -> IO (Either Text a)
+withSettings manager dbName db solver settings act = do
+    unitConfig <- getMergedUnitConfig manager
+    traverse (\db' -> withSolverFor manager dbName db solver db' (act db')) (parameterised unitConfig db settings)
 
 {- | Install a loaded database and the index built from it under one name.
 

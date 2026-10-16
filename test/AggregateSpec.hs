@@ -115,6 +115,7 @@ loadLinkedPair = do
                 , cdlLocation = "GLO"
                 , cdlSourceDatabase = "dep"
                 , cdlTiedAlternatives = []
+                , cdlAnswers = Nothing
                 }
     pure
         ( base{dbCrossDBLinks = [link]}

@@ -90,4 +90,5 @@ mkLink src tied =
         , cdlLocation = ""
         , cdlSourceDatabase = src
         , cdlTiedAlternatives = tied
+        , cdlAnswers = Nothing
         }

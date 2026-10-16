@@ -54,8 +54,8 @@ import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, selectMethod)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), LCIABatchResult (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
-import Control.Monad (forM, forM_, mfilter, when)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), LCIABatchResult (..), ParameterValue (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
+import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.List (find)
 import qualified Data.List as L
 import qualified Data.Set as Set
@@ -403,6 +403,7 @@ paramsToSchema ps =
 
     objectItems name = case name of
         "substitutions" -> substitutionItemSchema
+        "parameters" -> parameterItemSchema
         "remove" -> selectorItemSchema
         "set_amounts" -> setAmountItemSchema
         "add_inputs" -> providerLineSchema "Producer of what is consumed"
@@ -420,6 +421,18 @@ paramsToSchema ps =
                     , "consumer" .= stringField "Consumer activity ProcessId. Omit to substitute on every consumer of 'from' at once (global swap; 'from' must be in the root DB)."
                     ]
             , "required" .= (["from", "to"] :: [Text])
+            ]
+
+    parameterItemSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "name" .= stringField "Name of an input parameter, as get_activity lists it"
+                    , "value" .= numberField "Value to compute with"
+                    , "process" .= stringField "ProcessId whose own parameter this is. Omit for a parameter of the database."
+                    ]
+            , "required" .= (["name", "value"] :: [Text])
             ]
 
     selectorItemSchema =
@@ -696,6 +709,18 @@ requireDatabase dbManager dbName =
 liftShow :: (Show e) => Either e a -> ExceptT Text IO a
 liftShow = either (throwE . T.pack . show) pure
 
+{- | Run with the database at the parameter values the @parameters@ argument
+states, and a solver for it; the loaded ones when it states none.
+-}
+withParameters :: DatabaseManager -> Text -> KeyMap Value -> LoadedDatabase -> (Database -> SharedSolver -> ExceptT Text IO a) -> ExceptT Text IO a
+withParameters dbManager dbName args ld run = do
+    values <- except (parseArrayArg "parameters" Nothing args :: Either Text [ParameterValue])
+    case values of
+        [] -> run (ldDatabase ld) (ldSharedSolver ld)
+        _ -> do
+            settings <- liftService (Service.settingsOf (ldDatabase ld) values)
+            ExceptT (join <$> DM.withSettings dbManager dbName (ldDatabase ld) (ldSharedSolver ld) settings (\db solver -> runExceptT (run db solver)))
+
 -- | Lift a service result, per 'serviceMessage'.
 liftService :: Either Service.ServiceError a -> ExceptT Text IO a
 liftService = either (throwE . serviceMessage) pure
@@ -707,6 +732,7 @@ serviceMessage :: Service.ServiceError -> Text
 serviceMessage = \case
     Service.NotScorable msg -> msg
     Service.Withheld msg -> msg
+    Service.ParameterRefused msg -> msg
     e@(Service.InvalidUUID _) -> T.pack (show e)
     e@(Service.InvalidProcessId _) -> T.pack (show e)
     e@(Service.AmbiguousActivity _) -> T.pack (show e)
@@ -1091,41 +1117,40 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
     ld <- requireDatabase dbManager dbName
     classifications <- except (classificationFilters presets args)
     refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
-    let db = ldDatabase ld
-        solver = ldSharedSolver ld
-        depLookup = DM.mkDepSolverLookup dbManager
-        scf =
-            Service.SupplyChainFilter
-                { Service.scfCore =
-                    Service.ActivityFilterCore
-                        { Service.afcName = textArg "name" args
-                        , Service.afcLocation = textArg "location" args
-                        , Service.afcProduct = Nothing
-                        , Service.afcClassifications = classifications
-                        , Service.afcLimit = intArg "limit" args
-                        , Service.afcOffset = Nothing
-                        , Service.afcSort = Nothing
-                        , Service.afcOrder = Nothing
-                        }
-                , Service.scfMaxDepth = intArg "max_depth" args
-                , Service.scfMinQuantity = doubleArg "min_quantity" args
-                , -- No MCP tool asks for the subgraph's edges; the REST route does.
-                  Service.scfEdges = Service.EntriesOnly
-                , Service.scfWithheld = refusing
-                }
-    subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
-    unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-    chain <-
-        if null subs
-            then -- Plain cross-DB supply chain.
-                liftIO (Service.getSupplyChain unitCfg (DM.managerGeographies dbManager) depLookup (DM.getGapIndex dbManager) db dbName solver pid scf) >>= liftShow
-            else do
-                -- Substitution-aware: re-solve the root scaling, then build from it.
-                (processId, _) <- liftService (Service.resolveScorable db pid)
-                (scalingVec, virtualLinks) <-
-                    liftIO (Service.computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db dbName solver processId subs) >>= liftShow
-                liftIO (Service.buildSupplyChainFromScalingVectorCrossDB unitCfg (DM.managerGeographies dbManager) depLookup (DM.getGapIndex dbManager) db dbName processId scalingVec virtualLinks scf) >>= liftShow
-    pure $ toolSuccessJson rid (withCutoffNotice (Cutoffs (scrCutoffInputs chain) (scrWithheldCutoffs chain)) (toJSON chain))
+    withParameters dbManager dbName args ld $ \db solver -> do
+        let depLookup = DM.mkDepSolverLookup dbManager
+            scf =
+                Service.SupplyChainFilter
+                    { Service.scfCore =
+                        Service.ActivityFilterCore
+                            { Service.afcName = textArg "name" args
+                            , Service.afcLocation = textArg "location" args
+                            , Service.afcProduct = Nothing
+                            , Service.afcClassifications = classifications
+                            , Service.afcLimit = intArg "limit" args
+                            , Service.afcOffset = Nothing
+                            , Service.afcSort = Nothing
+                            , Service.afcOrder = Nothing
+                            }
+                    , Service.scfMaxDepth = intArg "max_depth" args
+                    , Service.scfMinQuantity = doubleArg "min_quantity" args
+                    , -- No MCP tool asks for the subgraph's edges; the REST route does.
+                      Service.scfEdges = Service.EntriesOnly
+                    , Service.scfWithheld = refusing
+                    }
+        subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
+        unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+        chain <-
+            if null subs
+                then -- Plain cross-DB supply chain.
+                    liftIO (Service.getSupplyChain unitCfg (DM.managerGeographies dbManager) depLookup (DM.getGapIndex dbManager) db dbName solver pid scf) >>= liftShow
+                else do
+                    -- Substitution-aware: re-solve the root scaling, then build from it.
+                    (processId, _) <- liftService (Service.resolveScorable db pid)
+                    (scalingVec, virtualLinks) <-
+                        liftIO (Service.computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db dbName solver processId subs) >>= liftShow
+                    liftIO (Service.buildSupplyChainFromScalingVectorCrossDB unitCfg (DM.managerGeographies dbManager) depLookup (DM.getGapIndex dbManager) db dbName processId scalingVec virtualLinks scf) >>= liftShow
+        pure $ toolSuccessJson rid (withCutoffNotice (Cutoffs (scrCutoffInputs chain) (scrWithheldCutoffs chain)) (toJSON chain))
 
 {- | Generic SQL-group-by aggregation. One small primitive for "how much X is
 in Y" questions -- replaces ad-hoc decomposition tools.
@@ -1244,62 +1269,61 @@ callGetInventory dbManager rid args =
     runTool rid $ do
         (dbName, pid) <- except $ (,) <$> requireText "database" args <*> requireText "process_id" args
         ld <- requireDatabase dbManager dbName
-        let db = ldDatabase ld
-            solver = ldSharedSolver ld
-            limit = fromMaybe 50 (intArg "limit" args)
+        let limit = fromMaybe 50 (intArg "limit" args)
             nameFilter = textArg "flow" args
-        (processId, activity) <- liftService (Service.resolveScorable db pid)
-        subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
-        unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-        (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-        -- Empty subs: same as GET path (plain cross-DB inventory).
-        -- Non-empty subs: route through the substitution-aware pipeline so
-        -- dep DBs re-solve against the substituted root scaling.
-        sol <-
-            ExceptT $
-                if null subs
-                    then computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName solver processId
-                    else
-                        first (T.pack . show)
-                            <$> Service.inventoryWithSubsAndDeps
-                                unitCfg
-                                (DM.mkDepSolverLookup dbManager)
-                                db
-                                dbName
-                                solver
-                                processId
-                                subs
-        liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ throwE
-        cutoffs <- liftIO (Impact.solutionCutoffs dbManager ReadInventory sol)
-        let inv = Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)
-            flows = ieFlows inv
-            -- The query read the way search_flows reads it, synonyms
-            -- included, and only its closest match kept.
-            filtered = case nameFilter of
-                Nothing -> flows
-                Just q -> filterByName q (flowSearchFields . BioKind . ifdFlow) flows
-            sorted = L.sortBy (\a b -> compare (abs $ ifdQuantity b) (abs $ ifdQuantity a)) filtered
-            topN = take limit sorted
-            slim f =
-                object
-                    [ "flow" .= bfName (ifdFlow f)
-                    , "quantity" .= ifdQuantity f
-                    , "unit" .= ifdUnitName f
-                    , "category" .= ifdCategory f
-                    , "isEmission" .= ifdIsEmission f
-                    ]
-        pure $
-            toolSuccessJson rid $
-                object $
-                    [ "statistics" .= toJSON (ieStatistics inv)
-                    , "total_flows" .= length flows
-                    , -- What the filter kept, so a caller can tell 50 rows
-                      -- shown out of 50 matched from 50 out of 300.
-                      "matched_flows" .= length filtered
-                    , "shown_flows" .= length topN
-                    , "flows" .= map slim topN
-                    ]
-                        ++ cutoffFields cutoffs
+        withParameters dbManager dbName args ld $ \db solver -> do
+            (processId, activity) <- liftService (Service.resolveScorable db pid)
+            subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
+            unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+            (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+            -- Empty subs: same as GET path (plain cross-DB inventory).
+            -- Non-empty subs: route through the substitution-aware pipeline so
+            -- dep DBs re-solve against the substituted root scaling.
+            sol <-
+                ExceptT $
+                    if null subs
+                        then computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName solver processId
+                        else
+                            first (T.pack . show)
+                                <$> Service.inventoryWithSubsAndDeps
+                                    unitCfg
+                                    (DM.mkDepSolverLookup dbManager)
+                                    db
+                                    dbName
+                                    solver
+                                    processId
+                                    subs
+            liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ throwE
+            cutoffs <- liftIO (Impact.solutionCutoffs dbManager ReadInventory sol)
+            let inv = Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)
+                flows = ieFlows inv
+                -- The query read the way search_flows reads it, synonyms
+                -- included, and only its closest match kept.
+                filtered = case nameFilter of
+                    Nothing -> flows
+                    Just q -> filterByName q (flowSearchFields . BioKind . ifdFlow) flows
+                sorted = L.sortBy (\a b -> compare (abs $ ifdQuantity b) (abs $ ifdQuantity a)) filtered
+                topN = take limit sorted
+                slim f =
+                    object
+                        [ "flow" .= bfName (ifdFlow f)
+                        , "quantity" .= ifdQuantity f
+                        , "unit" .= ifdUnitName f
+                        , "category" .= ifdCategory f
+                        , "isEmission" .= ifdIsEmission f
+                        ]
+            pure $
+                toolSuccessJson rid $
+                    object $
+                        [ "statistics" .= toJSON (ieStatistics inv)
+                        , "total_flows" .= length flows
+                        , -- What the filter kept, so a caller can tell 50 rows
+                          -- shown out of 50 matched from 50 out of 300.
+                          "matched_flows" .= length filtered
+                        , "shown_flows" .= length topN
+                        , "flows" .= map slim topN
+                        ]
+                            ++ cutoffFields cutoffs
 
 -- | JSON shape for one uncharacterized-flow diagnostic entry.
 encodeUncharacterized :: UncharacterizedFlow -> Value
@@ -1372,10 +1396,8 @@ runImpactsRequest ::
     KeyMap Value ->
     LcaRequest ->
     ExceptT Text IO ImpactsResult
-runImpactsRequest dbManager args req = do
-    let ld = lrLoaded req
-        db = ldDatabase ld
-        method = lrMethod req
+runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) args (lrLoaded req) $ \db solver -> do
+    let method = lrMethod req
         dbName = lrDbName req
         collection = lrCollection req
         ra = lrResolved req
@@ -1385,7 +1407,7 @@ runImpactsRequest dbManager args req = do
     solved <-
         ExceptT $
             if null subs
-                then computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName (ldSharedSolver ld) (raPid ra)
+                then computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName solver (raPid ra)
                 else
                     first (T.pack . show)
                         <$> Service.inventoryWithSubsAndDeps
@@ -1393,7 +1415,7 @@ runImpactsRequest dbManager args req = do
                             (DM.mkDepSolverLookup dbManager)
                             db
                             dbName
-                            (ldSharedSolver ld)
+                            solver
                             (raPid ra)
                             subs
     let ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
@@ -2637,8 +2659,9 @@ callScoreActivity dbManager mHosting mBaseUrl rid args =
         pidText <- except (requireText "process_id" args)
         coll <- except (requireText "collection" args)
         subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
+        values <- except (parseArrayArg "parameters" Nothing args :: Either Text [ParameterValue])
         wantedSets <- except (parseArrayArg "scoring_sets" Nothing args :: Either Text [Text])
-        let mSub = if null subs then Nothing else Just SubstitutionRequest{srSubstitutions = subs}
+        let mSub = if null subs && null values then Nothing else Just SubstitutionRequest{srSubstitutions = subs, srParameters = values}
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
         res <- liftIO $ BI.runActivityLCIABatch dbManager mHosting dbName pidText coll mSub ltMode
         case res of

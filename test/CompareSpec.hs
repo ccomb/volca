@@ -452,6 +452,7 @@ oatFrom source =
         , cdlLocation = "FR"
         , cdlSourceDatabase = source
         , cdlTiedAlternatives = []
+        , cdlAnswers = Nothing
         }
 
 -- | Wheat production with these lines, in a database beside these other rows.

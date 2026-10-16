@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from volca.client import Client, VoLCAError, _candidate_wire_names, _Operation, _parse_spec, _resolve_wire_name
-from volca.types import Method
+from volca.types import Method, ParameterValue
 
 _WATER_USE_ID = "00000000-0000-0000-0000-000000000002"
 
@@ -325,6 +325,34 @@ class TestDispatcher:
         assert body == {
             "substitutions": [{"from": "a", "to": "b", "consumer": "c"}]
         }
+
+    def test_parameters_upgrade_to_post(self, mocked_client, make_response):
+        client, session = mocked_client
+        client._checked = True
+        client._server_wire = 66
+        session.post.return_value = make_response(_minimal_lcia_result())
+        client.get_impacts(
+            "abc_def",
+            method_id=_WATER_USE_ID,
+            collection="EF3.1",
+            parameters=[ParameterValue("yield", 2.0), ParameterValue("mix_de", 1, process="abc_def")],
+        )
+        session.get.assert_not_called()
+        assert session.post.call_args[1]["json"] == {
+            "substitutions": [],
+            "parameters": [
+                {"name": "yield", "value": 2.0},
+                {"name": "mix_de", "value": 1, "process": "abc_def"},
+            ],
+        }
+
+    def test_parameters_never_reach_an_engine_that_would_ignore_them(self, mocked_client):
+        client, session = mocked_client
+        client._checked = True
+        client._server_wire = 65
+        with pytest.raises(VoLCAError, match="wire revision >= 66"):
+            client.get_impacts_batch("abc_def", collection="EF3.1", parameters=[ParameterValue("yield", 2.0)])
+        session.post.assert_not_called()
 
     def test_get_impacts_batch_parses_scoring_indicators(self, mocked_client, make_response):
         """Batch endpoint has no operationId; ensure direct-HTTP call hits the

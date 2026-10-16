@@ -1125,6 +1125,20 @@ pSubstitutions =
         \PIDs can be bare (root DB) or qualified as dbName::pid (cross-DB). \
         \When empty or absent, the call behaves as a plain GET."
 
+{- | Optional parameter values: the database at these values is the one the
+request reads, and substitutions are made on it.
+-}
+pParameters :: Param
+pParameters =
+    Param
+        "parameters"
+        "array"
+        Optional
+        "Optional values for input parameters, as get_activity lists them. Each entry: \
+        \{name, value} for a parameter of the database, {process, name, value} for a \
+        \process's own. The exchanges whose formulas read them are computed again \
+        \before the request is answered."
+
 {- | Optional switch to drop delayed long-term emissions before scoring.
 Shared by 'get_impacts', 'score_activity' and 'score_activities'. Long-term
 flows are always emissions (never resources), so excluding them never
@@ -1255,6 +1269,7 @@ params r = case r of
         , Param "classification_value" "string" Optional "Value within the classification system"
         , Param "classification_match" "string" Optional "Match mode: \"exact\" (case-insensitive equality) or \"contains\" (substring, default)"
         , pSubstitutions
+        , pParameters
         ]
     GetInventory ->
         [ pDatabase
@@ -1262,6 +1277,7 @@ params r = case r of
         , Param "flow" "string" Optional "Filter flows by name or synonym, the way search_flows reads a query: every word must appear, case-blind, in any order, punctuation optional"
         , pLimit "Max flows to return, sorted by absolute quantity (default 50)"
         , pSubstitutions
+        , pParameters
         ]
     GetImpacts ->
         [ pDatabase
@@ -1270,6 +1286,7 @@ params r = case r of
         , pCollection
         , Param "top_flows" "integer" Optional "Number of top contributing flows to return (default 5)"
         , pSubstitutions
+        , pParameters
         , pExcludeLongTerm
         , Param "include_diagnostics" "boolean" Optional "When true, surface uncharacterized inventory flows above 0.1% of total |qty|, each with up to 3 candidate similar CFs (PubChem-expanded Jaccard + CAS bridge). Lets reviewers tell genuine method gaps from mapping bugs."
         ]
@@ -1419,6 +1436,7 @@ params r = case r of
         , pProcessId
         , Param "collection" "string" Required "Method collection name (use list_methods to discover)"
         , pSubstitutions
+        , pParameters
         , pExcludeLongTerm
         , pScoringSetsFilter
         ]

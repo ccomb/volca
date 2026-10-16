@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 65** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 66** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -291,6 +291,26 @@ score = c.get_impacts(plants[0].process_id, method_id="Climate change", substitu
 ```
 
 Multiple substitutions chain in one call; the `consumer` field disambiguates *where* in the chain each swap applies.
+
+## Compute at other parameter values
+
+> *What if the yield were 20 % lower? What if the electricity came from Germany?*
+
+A database whose amounts follow formulas can be read at other values of its input parameters. `get_activity` lists them: `parameters` for the process's own, `database_parameters` for those of its database it reads.
+
+```python
+from volca import ParameterValue
+
+pid = plants[0].process_id
+values = [
+    ParameterValue("yield", 0.8),                       # a parameter of the database
+    ParameterValue("mix_de", 1, process=pid),           # one of the process's own
+    ParameterValue("mix_fr", 0, process=pid),
+]
+score = c.get_impacts(pid, method_id="Climate change", parameters=values)
+```
+
+The amounts whose formulas read those values are computed again for this call only. Works on `get_supply_chain`, `get_inventory`, `get_impacts` and `get_impacts_batch`, together with substitutions, which are then made on the database at those values. A value the engine cannot use (an unknown name, a calculated parameter, a formula that divides by zero) is refused with its name.
 
 ## Handle errors
 
@@ -935,7 +955,7 @@ biosphere flows the method has a CF for; ``flows`` is the per-flow
 breakdown including unmatched rows (``cf_value=None``). ``collection``
 names the collection to read when several carry the method.
 
-##### `Client.get_impacts(process_id: str, method_id: str, *, collection: str | None = None, top_flows: int | None = None, substitutions: list[SubstitutionLike] | None = None) -> LCIAResult`
+##### `Client.get_impacts(process_id: str, method_id: str, *, collection: str | None = None, top_flows: int | None = None, substitutions: list[SubstitutionLike] | None = None, parameters: list[ParameterValue] | None = None) -> LCIAResult`
 
 Compute the LCIA score for a single impact category on an activity.
 
@@ -948,8 +968,10 @@ Args:
     collection: Method collection name. Left out, it is read off the
         resolved method, so the caller needs to know only the method.
     top_flows: Max top contributing flows to return (default 5).
+    substitutions: Upstream supplier swaps; see `get_supply_chain`.
+    parameters: Values for input parameters; see `get_supply_chain`.
 
-##### `Client.get_impacts_batch(process_id: str, *, collection: str | None = None, substitutions: list[SubstitutionLike] | None = None, exclude_long_term: bool | None = None) -> LCIABatchResult`
+##### `Client.get_impacts_batch(process_id: str, *, collection: str | None = None, substitutions: list[SubstitutionLike] | None = None, exclude_long_term: bool | None = None, parameters: list[ParameterValue] | None = None) -> LCIABatchResult`
 
 Compute LCIA for every impact category in a collection, in one call.
 
@@ -958,7 +980,8 @@ formula-based scoring sets declared in the engine config (PEF, ECS…).
 ``scoring_indicators`` gives the per-variable breakdown of each
 scoring set, pre-multiplied by the set's ``displayMultiplier``.
 ``exclude_long_term`` drops long-term emissions before scoring, the
-same switch `score_activities` carries.
+same switch `score_activities` carries. ``parameters`` gives
+values for input parameters, as `get_supply_chain` takes them.
 
 Left without a ``collection``, the call runs against the only loaded
 one, and refuses when several are loaded rather than picking one.
@@ -974,7 +997,7 @@ Return the input exchanges of an activity (richer metadata than ``get_activity``
 Uses a direct HTTP call because ``/inputs`` has no operationId
 (it's a non-Resources auxiliary endpoint).
 
-##### `Client.get_inventory(process_id: str, *, flow: str | None = None, limit: int | None = None, substitutions: list[SubstitutionLike] | None = None) -> InventoryResult`
+##### `Client.get_inventory(process_id: str, *, flow: str | None = None, limit: int | None = None, substitutions: list[SubstitutionLike] | None = None, parameters: list[ParameterValue] | None = None) -> InventoryResult`
 
 Compute the life-cycle inventory (cumulative biosphere flows) for an activity.
 
@@ -989,6 +1012,7 @@ Args:
     limit: Cap on returned flow rows. (Server returns full inventory
         otherwise; the engine doesn't paginate this endpoint.)
     substitutions: Upstream supplier swaps; see `get_supply_chain`.
+    parameters: Values for input parameters; see `get_supply_chain`.
 
 ##### `Client.get_mapping_status(method_id: str, db_name: str | None = None, *, collection: str | None = None) -> MappingStatus`
 
@@ -1081,7 +1105,7 @@ Return the engine's runtime statistics (memory use, loaded sizes).
 
 Keys are already snake_case on the wire, so this returns the raw dict.
 
-##### `Client.get_supply_chain(process_id: str, *, name: str | None = None, location: str | None = None, limit: int | None = None, min_quantity: float | None = None, max_depth: int | None = None, preset: str | None = None, classification_filters: list[ClassificationFilter] | None = None, sort: str | None = None, order: str | None = None, substitutions: list[SubstitutionLike] | None = None, include_edges: bool | None = None) -> SupplyChain`
+##### `Client.get_supply_chain(process_id: str, *, name: str | None = None, location: str | None = None, limit: int | None = None, min_quantity: float | None = None, max_depth: int | None = None, preset: str | None = None, classification_filters: list[ClassificationFilter] | None = None, sort: str | None = None, order: str | None = None, substitutions: list[SubstitutionLike] | None = None, parameters: list[ParameterValue] | None = None, include_edges: bool | None = None) -> SupplyChain`
 
 Get the flat supply chain of an activity.
 
@@ -1109,6 +1133,9 @@ Args:
         suppliers. Accepts `Substitution` (preferred) or the
         legacy ``{"from", "to", "consumer"}`` dict form; ``consumer``
         is optional: omit it for a global swap.
+    parameters: Values for input parameters: the amounts whose
+        formulas read them are computed again for this call, and the
+        substitutions are made on the database at those values.
 
 ##### `Client.get_synonym_groups(name: str) -> list[list[str]]`
 
@@ -3302,6 +3329,28 @@ one version giving two scores for one calculation differ here.
 | `build_target` | `str` | _required_ |
 | `wire_version` | `int \| None` | None |
 | `data_version` | `str \| None` | None |
+
+### `ParameterValue`
+
+A value for one input parameter, for one request.
+
+``name`` is a parameter as `Client.get_activity` lists it. Leave
+``process`` out for one of the database's ``database_parameters``; give
+the process_id for one of its own ``parameters``. The amounts whose
+formulas read it are computed again for that request only: the loaded
+database does not change.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `value` | `float` | _required_ |
+| `process` | `str \| None` | None |
+
+#### Methods
+
+##### `ParameterValue.to_wire()`
+
+Serialise to the wire shape consumed by SubstitutionRequest.
 
 ### `SetAmount`
 

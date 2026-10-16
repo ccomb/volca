@@ -1804,6 +1804,29 @@ class Substitution:
         return d
 
 
+@dataclass(frozen=True)
+class ParameterValue:
+    """A value for one input parameter, for one request.
+
+    ``name`` is a parameter as :meth:`Client.get_activity` lists it. Leave
+    ``process`` out for one of the database's ``database_parameters``; give
+    the process_id for one of its own ``parameters``. The amounts whose
+    formulas read it are computed again for that request only: the loaded
+    database does not change.
+    """
+
+    name: str
+    value: float
+    process: str | None = None
+
+    def to_wire(self) -> dict:
+        """Serialise to the wire shape consumed by SubstitutionRequest."""
+        d: dict = {"name": self.name, "value": self.value}
+        if self.process is not None:
+            d["process"] = self.process
+        return d
+
+
 # ---------------------------------------------------------------------------
 # Method catalog & flow mapping
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@
 
 module API.Types.Activity where
 
-import API.JsonOptions (Stripped (..))
+import API.JsonOptions (Stripped (..), parseClosed)
 import API.Types.Common
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
@@ -360,14 +360,47 @@ data SupplyChainEdge = SupplyChainEdge
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SupplyChainEdge)
 
-{- | Request body for POST endpoints that accept substitutions.
-Substitutions modify the scaling vector via Sherman-Morrison rank-1 updates.
+{- | Request body for POST endpoints that accept substitutions and parameter
+values. The parameters are set first, then the substitutions are made on the
+database at those values.
 -}
-newtype SubstitutionRequest = SubstitutionRequest
+data SubstitutionRequest = SubstitutionRequest
     { srSubstitutions :: [Substitution]
+    , srParameters :: [ParameterValue]
     }
     deriving (Generic)
-    deriving (FromJSON, ToSchema) via (Stripped SubstitutionRequest)
+
+-- | A list left unstated is a list of nothing: a request that only sets parameters substitutes nothing.
+instance FromJSON SubstitutionRequest where
+    parseJSON = withObject "SubstitutionRequest" $ \o ->
+        SubstitutionRequest
+            <$> o .:? "substitutions" .!= []
+            <*> o .:? "parameters" .!= []
+
+instance ToSchema SubstitutionRequest where
+    declareNamedSchema _ = do
+        substitutions <- declareSchemaRef (Proxy :: Proxy [Substitution])
+        parameters <- declareSchemaRef (Proxy :: Proxy [ParameterValue])
+        pure $
+            NamedSchema (Just "SubstitutionRequest") $
+                mempty
+                    & type_ ?~ OpenApiObject
+                    & properties .~ InsOrdHashMap.fromList [("substitutions", substitutions), ("parameters", parameters)]
+
+{- | A value for one input parameter: without @process@, the database's
+parameter; with it, that process's own. A field the type does not have is
+refused, since a misspelt @process@ read as absent would set the database's.
+-}
+data ParameterValue = ParameterValue
+    { pvProcess :: Maybe Text
+    , pvName :: Text
+    , pvValue :: Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ParameterValue)
+
+instance FromJSON ParameterValue where
+    parseJSON = parseClosed
 
 {- | Scope of a supplier substitution.
 

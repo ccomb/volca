@@ -193,6 +193,7 @@ linkAt consumerDb supplierDb supplierName supIdx coeff =
                 , cdlLocation = activityLocation (dbActivities supplierDb V.! supIdx)
                 , cdlSourceDatabase = supplierName
                 , cdlTiedAlternatives = []
+                , cdlAnswers = Nothing
                 }
      in consumerDb{dbCrossDBLinks = link : dbCrossDBLinks consumerDb}
 
