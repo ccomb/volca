@@ -27,11 +27,11 @@ import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Cutoffs (gapIndexOf)
 import Database.Loader (findAllCrossDBLinks)
-import Database.Manager (CachePolicy (..), DatabaseManager (..), getGapIndex, initDatabaseManager)
-import Database.MatrixBuild (withActivities)
+import Database.Manager (CachePolicy (..), DatabaseManager (..), getGapIndex, initDatabaseManager, withSettings)
+import Database.MatrixBuild (technosphereChange, withActivities)
 import Database.Rebuild (rebuildFromActivities)
 import Parametric (ParameterRefusal (..), Setting (..), instantiate, parameterised)
-import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached)
+import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
 import SynonymDB (emptySynonymDB)
 import System.Mem.StableName (makeStableName)
 import Test.Hspec
@@ -78,6 +78,20 @@ spec = describe "a database at other values of its parameters" $ do
         atSettings <- either (fail . T.unpack) pure (parameterised defaultUnitConfig bakery [Setting Nothing "yield" 2, Setting (Just bread) "mix_fr" 0, Setting (Just bread) "mix_de" 1])
         -- Flour 4 kg at 0.125, the bread's own 1, and a German kilowatt-hour.
         co2Of atSettings grid "bakery at settings" `shouldReturn'` 11.5
+
+    it "solves values that move inputs on the loaded factorisation, as a new one would" $ do
+        (bakery, _) <- databases
+        bread <- pidOf bakery (aBread, pBread)
+        manager <- initDatabaseManager defaultConfig NoCache
+        let settings = [Setting Nothing "yield" 2, Setting (Just bread) "mix_fr" 0, Setting (Just bread) "mix_de" 1]
+        loaded <- mkSolverFromDb bakery "bakery-loaded"
+        corrected <- either (fail . T.unpack) pure =<< either (fail . T.unpack) pure =<< withSettings manager "bakery-loaded" (bakery, loaded) settings (\db solver -> computeScalingVectorCached db solver bread)
+        atSettings <- either (fail . T.unpack) pure (parameterised defaultUnitConfig bakery settings)
+        fresh <- mkSolverFromDb atSettings "bakery-fresh"
+        expected <- either (fail . T.unpack) pure =<< computeScalingVectorCached atSettings fresh bread
+        moved <- either (fail . show) pure (instantiate bakery settings)
+        technosphereChange (M.keysSet moved) bakery atSettings `shouldSatisfy` (not . null)
+        U.toList (U.zipWith (withinTolerance 1e-9) expected corrected) `shouldSatisfy` and
 
     it "lets a process's own value of a name win over its database's, in the database's formulas too" $ do
         (bakery, _) <- databases

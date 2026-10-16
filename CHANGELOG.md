@@ -85,9 +85,13 @@
   a value set on one product of a multi-product process holds for all its
   products. An input supplied by another database follows its new amount,
   so a process buying French electricity by one formula and German by
-  another can be switched from one to the other. Values that only move
-  emissions reuse the loaded database's factorisation; values that move an
-  input from another process factorise it again for that request. A value is refused,
+  another can be switched from one to the other. Values that move
+  emissions or inputs reuse the loaded database's factorisation, corrected
+  by the columns that moved: a value that moves a supplier's amount answers
+  in 0.2 s on the largest database measured, against 2 s for factorising
+  again. A value that would make the technosphere singular is refused, and
+  one that moves very many processes at once factorises again for that
+  request. A value is refused,
   with its name, when nothing of that name can be set (unknown, or
   calculated by a formula), when a formula would divide by zero, or when a
   SimaPro allocation share written as a formula would move with it. The

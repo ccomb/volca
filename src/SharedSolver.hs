@@ -15,6 +15,7 @@ module SharedSolver (
 
     -- * Solver management
     createSharedSolver,
+    correctedFor,
 
     -- * Concurrent solving
     solveWithSharedSolver,
@@ -25,7 +26,6 @@ module SharedSolver (
     -- * Cached scaling / inventory
     computeScalingVectorCached,
     computeInventoryMatrixCached,
-    computeInventoryMatrixBatchCached,
 
     -- * Cross-database back-substitution
     DepSolverLookup,
@@ -41,6 +41,7 @@ module SharedSolver (
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar, withMVar)
 import Control.Exception (SomeException, try)
+import Data.Bifunctor (first)
 import Data.Coerce (coerce)
 import Data.List (transpose)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -49,6 +50,7 @@ import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes)
 import qualified Data.Set as S
 import Data.Text (Text)
+import qualified Data.Vector.Unboxed as U
 import Matrix (
     Demand (..),
     DepDemands,
@@ -57,13 +59,13 @@ import Matrix (
     accumulateDepDemandsWith,
     applyBiosphereMatrix,
     buildDemandVector,
-    computeInventoryMatrixBatch,
     depDemandsToVector,
     precomputeMatrixFactorization,
     solveSparseLinearSystem,
     solveSparseLinearSystemWithFactorization,
     solveSparseLinearSystemWithFactorizationMulti,
  )
+import Matrix.Dense (LU, factorLU, solveLU)
 import Method.Mapping (LongTermMode (..))
 import Progress
 import Types
@@ -83,7 +85,44 @@ data SharedSolver = SharedSolver
     -- ^ Number of activities
     , solverDbName :: Text
     -- ^ Database name (for solver cache key)
+    , solverCorrection :: Maybe Correction
+    -- ^ The columns a request moved, carried into every solve
     }
+
+{- | A change of k columns C of the matrix, carried into every solve without
+a factorisation of the changed matrix (Woodbury). The change is M′ = M + U Eᵀ,
+U holding each column's change and E selecting C; with Z = M⁻¹U and
+S = I + Z[C,:], the solution of M′ is @y - Z (S⁻¹ y[C])@ for @y@ that of M.
+-}
+data Correction
+    = Correction
+        -- | C
+        [Int]
+        -- | Z, one column per column of C
+        [Vector]
+        -- | S
+        LU
+
+-- | The solution of the corrected matrix from that of the loaded one.
+corrected :: Maybe Correction -> Vector -> Vector
+corrected Nothing y = y
+corrected (Just (Correction columns zs s)) y =
+    foldl' (\x (w, z) -> U.zipWith (\xi zi -> xi - w * zi) x z) y (zip (U.toList (solveLU s (U.fromList (map (y U.!) columns)))) zs)
+
+{- | The solver of the loaded matrix with these columns changed: each column
+with the entries of M = I − A it adds, by row. It shares the loaded solver's
+factorisation and lock, so nothing is factorised again and the solver cache,
+keyed by name, still holds the loaded one alone. Refused when the changed
+matrix is singular.
+-}
+correctedFor :: SharedSolver -> [(Int, [(Int, Double)])] -> IO (Either Text SharedSolver)
+correctedFor loaded change = do
+    let base = loaded{solverCorrection = Nothing}
+        columns = map fst change
+        k = length columns
+    zs <- solveMultiWithSharedSolver base [Demand (U.accum (+) (U.replicate (solverActivityCount base) 0) entries) | (_, entries) <- change]
+    let s = U.fromList [(if i == j then 1 else 0) + z U.! c | (i, c) <- zip [0 :: Int ..] columns, (j, z) <- zip [0 ..] zs]
+    pure $ (\lu -> base{solverCorrection = Just (Correction columns zs lu)}) <$> first ("these values make the technosphere singular: " <>) (factorLU k s)
 
 -- | Create a shared solver. No factorization happens here – deferred to first solve.
 createSharedSolver :: Text -> [(Int, Int, Double)] -> Int -> IO SharedSolver
@@ -91,7 +130,7 @@ createSharedSolver dbName techTriples activityCount = do
     reportProgress Info $ "Creating shared solver for '" ++ show dbName ++ "' (factorization deferred)"
     lock <- newMVar ()
     factVar <- newMVar Nothing
-    return $ SharedSolver lock factVar techTriples activityCount dbName
+    return $ SharedSolver lock factVar techTriples activityCount dbName Nothing
 
 {- | Compute the factorization and cache it. Assumes 'solverLock' is held and
 the cache is empty (i.e. only called on a miss). Shared by the first-solve
@@ -111,7 +150,7 @@ computeAndStoreFactorization solver = do
 -- | Solve using shared solver. On first call, triggers lazy factorization.
 solveWithSharedSolver :: SharedSolver -> Demand -> IO Vector
 solveWithSharedSolver solver (Demand demandVector) =
-    withMVar (solverLock solver) $ \_ ->
+    fmap (corrected (solverCorrection solver)) . withMVar (solverLock solver) $ \_ ->
         readMVar (solverFactorizationVar solver) >>= \case
             Just fact -> do
                 reportProgress Solver "Using cached factorization for sub-second solve"
@@ -143,7 +182,7 @@ Forces factorization on first call. Subsequent calls reuse the cached LU.
 solveMultiWithSharedSolver :: SharedSolver -> [Demand] -> IO [Vector]
 solveMultiWithSharedSolver solver demandVecs = do
     fact <- ensureFactorization solver
-    solveSparseLinearSystemWithFactorizationMulti fact (coerce demandVecs)
+    map (corrected (solverCorrection solver)) <$> solveSparseLinearSystemWithFactorizationMulti fact (coerce demandVecs)
 
 {- | Compute the scaling vector for @pid@, routing through the shared solver's
 lazy factorization cache. Same shape as 'Matrix.computeScalingVector' but
@@ -161,13 +200,6 @@ computeScalingVectorCached db solver pid =
 computeInventoryMatrixCached :: Database -> SharedSolver -> ProcessId -> IO (Either Text Inventory)
 computeInventoryMatrixCached db solver pid =
     fmap (applyBiosphereMatrix db) <$> computeScalingVectorCached db solver pid
-
--- | Batch inventories for many pids using one MUMPS multi-RHS call against the cached factorization.
-computeInventoryMatrixBatchCached :: Database -> SharedSolver -> [ProcessId] -> IO (Either Text [Inventory])
-computeInventoryMatrixBatchCached _ _ [] = pure (Right [])
-computeInventoryMatrixBatchCached db solver pids = do
-    fact <- ensureFactorization solver
-    computeInventoryMatrixBatch db fact pids
 
 {- | Resolve a dependency database by name into its (Database, SharedSolver) pair.
 Returns @Nothing@ if the dep DB is not loaded; the caller treats it as a

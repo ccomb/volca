@@ -21,7 +21,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector.Unboxed as U
 import Matrix (Demand (..), applyShermanMorrison, buildDemandVector, perturbA, solveSparseLinearSystem)
 import Service (computeSensitivities)
-import SharedSolver (getFactorization, solveWithSharedSolver)
+import SharedSolver (solveMultiWithSharedSolver, solveWithSharedSolver)
 import Test.Hspec
 import TestHelpers (loadSampleDatabase, mkSolverFromDb)
 import Types
@@ -34,8 +34,7 @@ spec = do
             solver <- mkSolverFromDb db "SAMPLE.min3"
             let demand = buildDemandVector db 0
             x <- solveWithSharedSolver solver =<< either (fail . show) pure demand
-            mFact <- getFactorization solver
-            r <- perturbA db mFact x 0 []
+            r <- perturbA (solveMultiWithSharedSolver solver . map Demand) x 0 []
             case r of
                 Right x' -> U.toList x' `shouldBe` U.toList x
                 Left e -> expectationFailure ("perturbA failed: " <> T.unpack e)

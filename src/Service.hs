@@ -44,7 +44,7 @@ import qualified Progress
 import qualified Search.BM25 as BM25
 import qualified Search.Fuzzy as Fuzzy
 import qualified Search.Normalize as Normalize
-import SharedSolver (SharedSolver, getFactorization, solveWithSharedSolver)
+import SharedSolver (SharedSolver, solveMultiWithSharedSolver, solveWithSharedSolver)
 import qualified SharedSolver
 import Tree (childTarget)
 import Types
@@ -2672,23 +2672,20 @@ computeSensitivities db sharedSolver processId perts = case demandFor db process
         -- and can throw via exceptions (singular A, allocation failure, …). Wrap
         -- them so the documented 'Left' branch of the signature is reachable,
         -- instead of letting raw exceptions escape to the caller.
-        eBaseline <- try @SomeException $ do
-            baselineX <- solveWithSharedSolver sharedSolver demandVec
-            mFact <- getFactorization sharedSolver
-            pure (baselineX, mFact)
+        eBaseline <- try @SomeException (solveWithSharedSolver sharedSolver demandVec)
         case eBaseline of
             Left ex ->
                 pure $
                     Left $
                         MatrixError $
                             "baseline solve failed: " <> T.pack (show ex)
-            Right (baselineX, mFact) -> do
+            Right baselineX -> do
                 -- Resolve each perturbation up-front. Resolution errors graft onto
                 -- the final result; resolved specs go to the batch (a Left becomes
                 -- a no-op empty spec so the batch preserves indexing).
                 let resolved = map (resolveSpec db) perts
                 smResults <-
-                    perturbABatch db mFact baselineX (map (fromRight (0, [])) resolved)
+                    perturbABatch (solveMultiWithSharedSolver sharedSolver . map Demand) baselineX (map (fromRight (0, [])) resolved)
                 let combined = zipWith3 step perts resolved smResults
                     step p (Left e) _ = (p, Left e)
                     step p (Right _) sm = (p, sm)
@@ -3156,9 +3153,7 @@ applySubstitutionsAt ::
 applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings allSubs =
     case filter anchorLivesHere allSubs of
         [] -> pure $ Right (scalings, [])
-        localSubs -> do
-            mFact <- getFactorization solver
-            runExceptT $ foldM (step mFact) (scalings, []) localSubs
+        localSubs -> runExceptT $ foldM step (scalings, []) localSubs
   where
     thisDbName = unThisDb thisDbObj
 
@@ -3179,18 +3174,19 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
     -- failing 'from' wins when both refs are unresolvable. A 'OneEdge' sub
     -- swaps the supplier on its single consumer column; an 'AllConsumers'
     -- sub swaps it on every consumer at once via one global rank-1 update.
-    step mFact (xs, links) sub = case subScope sub of
+    solve = solveMultiWithSharedSolver solver . map Demand
+    step (xs, links) sub = case subScope sub of
         OneEdge cRef -> do
             let (_, cPidText) = parseSubRef rootDb cRef
             (cPid, _) <- hoistEither $ resolveScorable thisDb cPidText
             (fromEp, toEp) <- resolveFromTo sub
             upd <- hoistEither $ planUpdate sub cPid fromEp toEp
-            (xs', extra) <- ExceptT $ applyRankOne mFact xs upd
+            (xs', extra) <- ExceptT $ applyRankOne xs upd
             pure (xs', links ++ extra)
         AllConsumers -> do
             (fromEp, toEp) <- resolveFromTo sub
             gupd <- hoistEither $ planGlobalUpdate fromEp toEp
-            (xs', extra) <- ExceptT $ applyGlobalRankOne mFact xs gupd
+            (xs', extra) <- ExceptT $ applyGlobalRankOne xs gupd
             pure (xs', links ++ extra)
 
     resolveFromTo sub = do
@@ -3269,19 +3265,19 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
         maybe (Left $ noStaticLink sub cPid (drDbName fromRef) (drPid fromRef)) Right $
             findStaticCrossDBLink thisDb cPid (drDbName fromRef) (drRef fromRef)
 
-    applyRankOne mFact xs upd = do
+    applyRankOne xs upd = do
         -- Apply the same rank-1 update to each of the K vectors. z depends
         -- only on u (not x); a future optimization can compute z once.
         results <-
             mapM
-                (\x -> perturbA thisDb mFact x (fromIntegral (ruConsumerPid upd)) (ruPerturb upd))
+                (\x -> perturbA solve x (fromIntegral (ruConsumerPid upd)) (ruPerturb upd))
                 xs
         pure $ case sequence results of
             Left msg -> Left (MatrixError msg)
             Right xs' -> Right (xs', ruExtras upd)
 
-    applyGlobalRankOne mFact xs gupd = do
-        results <- mapM (\x -> perturbGlobal thisDb mFact x (gruU gupd) (gruV gupd)) xs
+    applyGlobalRankOne xs gupd = do
+        results <- mapM (\x -> perturbGlobal solve x (gruU gupd) (gruV gupd)) xs
         pure $ case sequence results of
             Left msg -> Left (MatrixError msg)
             Right xs' -> Right (xs', gruExtras gupd)

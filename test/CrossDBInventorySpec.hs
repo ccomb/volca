@@ -29,8 +29,8 @@ import Method.Mapping (CF (..), CFUnit (..), EnergyPrice (..), FlowContribution 
 import qualified Method.Mapping as Mapping
 import Method.Types (FlowDirection (..), MethodCF (..))
 import SharedSolver (
-    computeInventoryMatrixBatchCached,
     computeInventoryMatrixBatchWithDepsCached,
+    computeInventoryMatrixCached,
     createSharedSolver,
  )
 import qualified SharedSolver
@@ -147,7 +147,7 @@ spec = do
             let pids = [0]
                 noDeps _ = pure Nothing
 
-            localInvs <- either (fail . show) pure =<< computeInventoryMatrixBatchCached db solver pids
+            localInvs <- either (fail . show) pure . sequence =<< traverse (computeInventoryMatrixCached db solver) pids
             withDepsE <- computeInventoryMatrixBatchWithDepsCached defaultUnitConfig noDeps db "SAMPLE.min3" solver pids
 
             case withDepsE of

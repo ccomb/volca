@@ -48,6 +48,7 @@ module Matrix (
     inSupplierUnit,
     linkConsumer,
     computeProcessLCIAContributions,
+    Solve,
     perturbA,
     perturbABatch,
     perturbGlobal,
@@ -680,9 +681,8 @@ Returns @Left@ if the update is singular (@|1 + v^T·z| < epsilon@), which
 means the perturbation drives @(I-A)@ into a degenerate state.
 -}
 perturbA ::
-    Database ->
-    -- | Cached factorization from SharedSolver (Nothing = full re-solve)
-    Maybe MatrixFactorization ->
+    -- | The solver of the system @x@ solves
+    Solve ->
     -- | Baseline scaling vector x
     Vector ->
     -- | Consumer column index (j in @A_ij@)
@@ -691,27 +691,25 @@ perturbA ::
     [(Int, Double)] ->
     -- | Perturbed scaling vector x'
     IO (Either T.Text Vector)
-perturbA db mFact x col perturb
+perturbA solve x col perturb
     | null perturb = pure (Right x)
-    | otherwise = do
-        z <- solveRankOneZ db mFact (U.length x) perturb
-        pure $ applyShermanMorrison x col z
+    | otherwise = (>>= applyShermanMorrison x col) <$> solveRankOneZ solve (U.length x) perturb
 
-{- | Solve @z = inv(I-A) * u@ for a sparse supplier-axis perturbation @u@,
-reusing the cached factorization when present. Shared by the per-edge
-('perturbA') and global ('perturbGlobal') rank-1 paths so the back-sub
-plumbing lives in one place.
+{- | Solve the system for several right-hand sides at once, answering in their
+order: the one way the rank-1 paths reach a solver, so a solver that corrects
+its answers is never bypassed.
 -}
-solveRankOneZ :: Database -> Maybe MatrixFactorization -> Int -> [(Int, Double)] -> IO Vector
-solveRankOneZ db mFact n perturb =
-    let u = U.accum (+) (U.replicate n 0.0) perturb
-     in case mFact of
-            Just f -> solveSparseLinearSystemWithFactorization f u
-            Nothing ->
-                solveSparseLinearSystem
-                    [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
-                    (fromIntegral (dbActivityCount db))
-                    u
+type Solve = [Vector] -> IO [Vector]
+
+{- | Solve @z = inv(I-A) * u@ for a sparse supplier-axis perturbation @u@.
+Shared by the per-edge ('perturbA') and global ('perturbGlobal') rank-1 paths
+so the back-sub plumbing lives in one place.
+-}
+solveRankOneZ :: Solve -> Int -> [(Int, Double)] -> IO (Either T.Text Vector)
+solveRankOneZ solve n perturb =
+    solve [U.accum (+) (U.replicate n 0.0) perturb] >>= \case
+        [z] -> pure (Right z)
+        zs -> pure (Left ("the solver answered " <> T.pack (show (length zs)) <> " vectors for one"))
 
 {- | Apply the Sherman-Morrison rank-1 formula given the precomputed
 z = inv(I-A) * u, with the left projection fixed at the basis column
@@ -749,19 +747,16 @@ nowhere" as an explicit error before reaching here, so an empty @v@ is
 never a silent no-op in practice.
 -}
 perturbGlobal ::
-    Database ->
-    Maybe MatrixFactorization ->
+    Solve ->
     Vector ->
     -- | u : sparse supplier-axis perturbation
     [(Int, Double)] ->
     -- | v : sparse consumer-axis projection (A's technosphere row)
     [(Int, Double)] ->
     IO (Either T.Text Vector)
-perturbGlobal db mFact x u v
+perturbGlobal solve x u v
     | null u || null v = pure (Right x)
-    | otherwise = do
-        z <- solveRankOneZ db mFact (U.length x) u
-        pure $ applyShermanMorrisonV x v z
+    | otherwise = (>>= applyShermanMorrisonV x v) <$> solveRankOneZ solve (U.length x) u
 
 {- |
 Batched 'perturbA': computes z_k = inv(I-A) * u_k for every non-empty
@@ -777,16 +772,15 @@ Empty perturbations short-circuit to @Right x@ without consuming a solve slot.
 Order of results matches the input.
 -}
 perturbABatch ::
-    Database ->
-    -- | Cached factorization (Nothing = per-spec re-solve, slow path)
-    Maybe MatrixFactorization ->
+    -- | The solver of the system @x@ solves
+    Solve ->
     -- | Baseline scaling vector x
     Vector ->
     -- | One @(col, perturb)@ per spec, in caller order
     [(Int, [(Int, Double)])] ->
     -- | One result per spec, in the same order
     IO [Either T.Text Vector]
-perturbABatch db mFact x specs = do
+perturbABatch solve x specs = do
     let n = U.length x
         indexed = zip [0 :: Int ..] specs
         nonEmpty =
@@ -795,17 +789,7 @@ perturbABatch db mFact x specs = do
             , not (null p)
             ]
         us = [u | (_, _, u) <- nonEmpty]
-    zs <- case (mFact, us) of
-        (_, []) -> pure []
-        (Just f, _) -> solveSparseLinearSystemWithFactorizationMulti f us
-        (Nothing, _) -> do
-            let techTriples = dbTechnosphereTriples db
-                activityCount = dbActivityCount db
-                aTriples =
-                    [ (fromIntegral i, fromIntegral j, v)
-                    | SparseTriple i j v <- U.toList techTriples
-                    ]
-            mapM (solveSparseLinearSystem aTriples (fromIntegral activityCount)) us
+    zs <- if null us then pure [] else solve us
     let resultsByIdx :: M.Map Int (Either T.Text Vector)
         resultsByIdx =
             M.fromList

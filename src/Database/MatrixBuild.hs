@@ -15,6 +15,7 @@ module Database.MatrixBuild (
     buildTechTriples,
     buildBioTriples,
     withActivities,
+    technosphereChange,
     findProducer,
     linkedProducer,
 ) where
@@ -286,6 +287,26 @@ bioTriple bioIndex normFactor j ex
             let raw = exchangeAmount ex
                 value = raw / safeDenom normFactor
              in [SparseTriple i j value | raw /= 0]
+
+{- | What the columns of these processes change in M = I − A from one
+database to the other: each column with the entries it adds to M, by row,
+summed as the factorisation sums two exchanges of one product. A column none
+of whose entries moved is left out.
+-}
+technosphereChange :: S.Set ProcessId -> Database -> Database -> [(Int, [(Int, Double)])]
+technosphereChange moved before after =
+    [ (fromIntegral j, entries)
+    | (j, byRow) <- M.toList (M.unionWith (M.unionWith (+)) (columns 1 before) (columns (-1) after))
+    , let entries = [(fromIntegral i, v) | (i, v) <- M.toList byRow, v /= 0]
+    , not (null entries)
+    ]
+  where
+    -- M′ − M = A − A′: an entry of A before adds to M, one after takes away.
+    columns :: Double -> Database -> M.Map Int32 (M.Map Int32 Double)
+    columns sign db =
+        M.fromListWith
+            (M.unionWith (+))
+            [(j, M.singleton i (sign * v)) | SparseTriple i j v <- VU.toList (dbTechnosphereTriples db), S.member j moved]
 
 {- | The database with these processes in place of its own, their columns of A
 and B built again as a load builds them, and their links to other databases
