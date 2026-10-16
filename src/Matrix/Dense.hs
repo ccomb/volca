@@ -39,7 +39,9 @@ factorLU n entries
         (Just rows, factors) -> Right (LU n factors rows)
         (Nothing, _) -> Left "the system is singular"
   where
+    isFinite :: Double -> Bool
     isFinite x = not (isNaN x || isInfinite x)
+    tolerance :: Double
     tolerance = 1e-12 * U.foldl' (\m x -> max m (abs x)) 0 entries
 
     eliminate :: ST s (Maybe (U.Vector Int), MU.MVector s Double)
@@ -72,7 +74,9 @@ factorLU n entries
 solveLU :: LU -> U.Vector Double -> U.Vector Double
 solveLU (LU n factors rows) b = backward (forward (U.backpermute b rows))
   where
+    at :: Int -> Int -> Double
     at r c = factors U.! (r * n + c)
+    forward :: U.Vector Double -> U.Vector Double
     forward y0 = U.create $ do
         y <- U.thaw y0
         forM_ [0 .. n - 1] $ \r ->
@@ -80,6 +84,7 @@ solveLU (LU n factors rows) b = backward (forward (U.backpermute b rows))
                 yc <- MU.read y c
                 MU.modify y (subtract (at r c * yc)) r
         pure y
+    backward :: U.Vector Double -> U.Vector Double
     backward y0 = U.create $ do
         x <- U.thaw y0
         forM_ [n - 1, n - 2 .. 0] $ \r -> do

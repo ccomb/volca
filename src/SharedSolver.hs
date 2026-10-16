@@ -11,7 +11,7 @@ latency while keeping sub-second solves after the first query.
 -}
 module SharedSolver (
     -- * Shared solver types
-    SharedSolver,
+    SharedSolver (solverDbName),
 
     -- * Solver management
     createSharedSolver,
@@ -116,9 +116,9 @@ keyed by name, still holds the loaded one alone. Refused when the changed
 matrix is singular.
 -}
 correctedFor :: SharedSolver -> [(Int, [(Int, Double)])] -> IO (Either Text SharedSolver)
-correctedFor loaded change = do
-    let base = loaded{solverCorrection = Nothing}
-        columns = map fst change
+correctedFor SharedSolver{solverCorrection = Just _} _ = pure (Left "a corrected solver is not corrected again")
+correctedFor base change = do
+    let columns = map fst change
         k = length columns
     zs <- solveMultiWithSharedSolver base [Demand (U.accum (+) (U.replicate (solverActivityCount base) 0) entries) | (_, entries) <- change]
     let s = U.fromList [(if i == j then 1 else 0) + z U.! c | (i, c) <- zip [0 :: Int ..] columns, (j, z) <- zip [0 ..] zs]

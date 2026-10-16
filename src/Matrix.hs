@@ -63,14 +63,12 @@ module Matrix (
     precomputeMatrixFactorization,
     solveSparseLinearSystemWithFactorization,
     solveSparseLinearSystemWithFactorizationMulti,
-    computeInventoryMatrixBatch,
     clearCachedSolver,
     chunksOf,
     readSolveCounter,
 ) where
 
 import Control.Concurrent (forkIO)
-import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, withMVar)
 import Control.Concurrent.STM (
     STM,
@@ -85,9 +83,8 @@ import Control.Concurrent.STM (
     writeTQueue,
     writeTVar,
  )
-import Control.Exception (SomeException, catch, evaluate, throwIO, toException, try)
+import Control.Exception (SomeException, catch, throwIO, toException, try)
 import Control.Monad (forM_, unless, void, when)
-import Data.Coerce (coerce)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int32)
 import qualified Data.Map as M
@@ -469,32 +466,6 @@ chunksOf n xs
     | n <= 0 = [xs]
     | null xs = []
     | otherwise = let (h, t) = splitAt n xs in h : chunksOf n t
-
-{- |
-Compute biosphere inventories for k root processes with one multi-RHS solve.
-
-Equivalent to @mapM (computeInventoryMatrix db)@ but all k scaling vectors come
-from one MUMPS call against the cached factorization, and biosphere matrix
-application runs in parallel across the resulting scaling vectors.
-
-The caller must supply a 'MatrixFactorization' – typically obtained from
-'SharedSolver.ensureFactorization'. There is no lazy fallback: falling back
-would re-factorize per demand vector (~2 s each on Ecoinvent), defeating
-the point of batching.
-
-Every ProcessId must name a column of 'dbActivityIndex'; the batch is refused
-as a whole, naming the first that does not. Callers resolve with
-'Service.resolveActivityAndProcessId', which clears the same bound.
--}
-computeInventoryMatrixBatch :: Database -> MatrixFactorization -> [ProcessId] -> IO (Either Text [Inventory])
-computeInventoryMatrixBatch _ _ [] = pure (Right [])
-computeInventoryMatrixBatch db fact pids =
-    either (pure . Left) solveAll (traverse (buildDemandVector db) pids)
-  where
-    solveAll :: [Demand] -> IO (Either Text [Inventory])
-    solveAll demandVecs = do
-        scalingVecs <- solveSparseLinearSystemWithFactorizationMulti fact (coerce demandVecs)
-        Right <$> mapConcurrently (\x -> evaluate $! applyBiosphereMatrix db x) scalingVecs
 
 {- |
 Solve the fundamental LCA equation (I - A) * x = b using MUMPS direct solver.

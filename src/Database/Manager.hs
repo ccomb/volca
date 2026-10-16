@@ -206,7 +206,7 @@ import Data.UUID.V4 (nextRandom)
 import Database (Geographies, buildDatabaseWithMatrices, readGeographies)
 import Database.Cutoffs (GapIndex, gapIndexOf)
 import qualified Database.Loader as Loader
-import Database.MatrixBuild (technosphereChange, withActivities)
+import Database.MatrixBuild (technosphereChange)
 import qualified Database.Quality as Quality
 import Matrix (clearCachedSolver)
 import Method.ChemSynonyms (ChemSynonyms, emptyChemSynonyms, loadChemSynonyms)
@@ -263,7 +263,7 @@ import Method.Types (
     compartmentMapSize,
     energyDensityMapSize,
  )
-import Parametric (Setting, describeParameterRefusal, instantiate)
+import Parametric (Setting, parameterised)
 import Progress (ProgressLevel (..), reportError, reportProgress, reportProgressWithTiming, withLogScope)
 import qualified Search.BM25 as BM25
 import Servant.API (FromHttpApiData)
@@ -3461,25 +3461,29 @@ under a name of its own whose factorisation is destroyed when the action ends:
 factorisations are cached by name, so the loaded database's own is never
 replaced.
 -}
-withSettings :: DatabaseManager -> Text -> (Database, SharedSolver) -> [Setting] -> (Database -> SharedSolver -> IO a) -> IO (Either Text a)
+withSettings :: forall a. DatabaseManager -> Text -> (Database, SharedSolver) -> [Setting] -> (Database -> SharedSolver -> IO a) -> IO (Either Text a)
 withSettings manager dbName (before, loaded) settings act = do
     unitConfig <- getMergedUnitConfig manager
-    case first describeParameterRefusal (instantiate before settings) >>= \changed -> (,) changed <$> withActivities unitConfig before changed of
-        Left why -> pure (Left why)
-        Right (changed, after) -> case technosphereChange (M.keysSet changed) before after of
-            [] -> Right <$> act after loaded
-            change
-                | length change * fromIntegral (dbActivityCount before) * 8 <= correctionBytes ->
-                    correctedFor loaded change >>= either (pure . Left . (<> movedBy changed)) (fmap Right . act after)
-                | otherwise -> fmap Right . withMVar (dmFactorisationLock manager) $ \() -> do
-                    name <- (\tag -> dbName <> "#" <> UUID.toText tag) <$> nextRandom
-                    bracket (solverFor name after) (const (clearCachedSolver name)) (act after)
+    either (pure . Left) (uncurry solveAt) (parameterised unitConfig before settings)
   where
-    -- The dense columns of the correction, one per column moved, are kept under this.
-    correctionBytes :: Int
-    correctionBytes = 64 * 1024 * 1024
-    movedBy :: M.Map ProcessId Activity -> Text
-    movedBy changed = " (the inputs of " <> T.intercalate ", " (map activityName (M.elems changed)) <> ")"
+    solveAt :: M.Map ProcessId Activity -> Database -> IO (Either Text a)
+    solveAt changed after = case technosphereChange (M.keysSet changed) before after of
+        [] -> Right <$> act after loaded
+        change
+            | correctable (length change) ->
+                correctedFor loaded change >>= either (pure . Left . (<> inputsOf change)) (fmap Right . act after)
+            | otherwise -> fmap Right . withMVar (dmFactorisationLock manager) $ \() -> do
+                name <- (\tag -> dbName <> "#" <> UUID.toText tag) <$> nextRandom
+                bracket (solverFor name after) (const (clearCachedSolver name)) (act after)
+
+    {- A correction beats a new factorisation while it stays small: its k dense
+    columns under 64 MB, and k itself bounded, since its k×k elimination grows
+    as k³ where a factorisation does not. -}
+    correctable :: Int -> Bool
+    correctable k = k <= 128 && k * fromIntegral (dbActivityCount before) * 8 <= 64 * 1024 * 1024
+
+    inputsOf :: [(Int, [(Int, Double)])] -> Text
+    inputsOf change = " (the inputs of " <> T.intercalate ", " [activityName (dbActivities before V.! column) | (column, _) <- change] <> ")"
 
 {- | Install a loaded database and the index built from it under one name.
 

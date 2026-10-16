@@ -88,10 +88,10 @@ instantiate db settings = do
     changed <- traverse (\pid -> fmap (pid,) <$> restate db databaseWide (M.findWithDefault M.empty pid ownByProcess) pid) candidates
     pure (M.fromList (catMaybes changed))
 
--- | The database at the settings, or why it has none.
-parameterised :: UnitConfig -> Database -> [Setting] -> Either Text Database
+-- | The database at the settings with the activities that moved in it, or why it has none.
+parameterised :: UnitConfig -> Database -> [Setting] -> Either Text (M.Map ProcessId Activity, Database)
 parameterised unitConfig db settings =
-    first describeParameterRefusal (instantiate db settings) >>= withActivities unitConfig db
+    first describeParameterRefusal (instantiate db settings) >>= \changed -> (changed,) <$> withActivities unitConfig db changed
 
 type Values = M.Map Text Double
 

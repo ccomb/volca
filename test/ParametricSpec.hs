@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 {- | A database read at other values of its parameters.
 
@@ -31,7 +32,7 @@ import Database.Manager (CachePolicy (..), DatabaseManager (..), getGapIndex, in
 import Database.MatrixBuild (technosphereChange, withActivities)
 import Database.Rebuild (rebuildFromActivities)
 import Parametric (ParameterRefusal (..), Setting (..), instantiate, parameterised)
-import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
+import SharedSolver (CrossDBSolution (..), SharedSolver (solverDbName), computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
 import SynonymDB (emptySynonymDB)
 import System.Mem.StableName (makeStableName)
 import Test.Hspec
@@ -75,7 +76,7 @@ spec = describe "a database at other values of its parameters" $ do
         (bakery, grid) <- databases
         bread <- pidOf bakery (aBread, pBread)
         co2Of bakery grid "bakery" `shouldReturn'` 2.5
-        atSettings <- either (fail . T.unpack) pure (parameterised defaultUnitConfig bakery [Setting Nothing "yield" 2, Setting (Just bread) "mix_fr" 0, Setting (Just bread) "mix_de" 1])
+        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery [Setting Nothing "yield" 2, Setting (Just bread) "mix_fr" 0, Setting (Just bread) "mix_de" 1])
         -- Flour 4 kg at 0.125, the bread's own 1, and a German kilowatt-hour.
         co2Of atSettings grid "bakery at settings" `shouldReturn'` 11.5
 
@@ -85,13 +86,28 @@ spec = describe "a database at other values of its parameters" $ do
         manager <- initDatabaseManager defaultConfig NoCache
         let settings = [Setting Nothing "yield" 2, Setting (Just bread) "mix_fr" 0, Setting (Just bread) "mix_de" 1]
         loaded <- mkSolverFromDb bakery "bakery-loaded"
-        corrected <- either (fail . T.unpack) pure =<< either (fail . T.unpack) pure =<< withSettings manager "bakery-loaded" (bakery, loaded) settings (\db solver -> computeScalingVectorCached db solver bread)
-        atSettings <- either (fail . T.unpack) pure (parameterised defaultUnitConfig bakery settings)
+        (solvedBy, corrected) <- either (fail . T.unpack) pure =<< withSettings manager "bakery-loaded" (bakery, loaded) settings (\db solver -> (solverDbName solver,) <$> computeScalingVectorCached db solver bread)
+        solvedBy `shouldBe` "bakery-loaded"
+        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery settings)
         fresh <- mkSolverFromDb atSettings "bakery-fresh"
         expected <- either (fail . T.unpack) pure =<< computeScalingVectorCached atSettings fresh bread
         moved <- either (fail . show) pure (instantiate bakery settings)
         technosphereChange (M.keysSet moved) bakery atSettings `shouldSatisfy` (not . null)
-        U.toList (U.zipWith (withinTolerance 1e-9) expected corrected) `shouldSatisfy` and
+        (U.toList . U.zipWith (withinTolerance 1e-9) expected <$> corrected) `shouldSatisfy` either (const False) and
+
+    it "factorises again for values that move more inputs than a correction holds" $ do
+        -- Each of 130 processes buys the one before it by the same formula.
+        chain <- build "chain" chainFlows chainActivities (M.singleton "yield" (input 1))
+        top <- pidOf chain (link 129)
+        manager <- initDatabaseManager defaultConfig NoCache
+        let settings = [Setting Nothing "yield" 1.01]
+        loaded <- mkSolverFromDb chain "chain-loaded"
+        (solvedBy, got) <- either (fail . T.unpack) pure =<< withSettings manager "chain-loaded" (chain, loaded) settings (\db solver -> (solverDbName solver,) <$> computeScalingVectorCached db solver top)
+        solvedBy `shouldNotBe` "chain-loaded"
+        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig chain settings)
+        fresh <- mkSolverFromDb atSettings "chain-fresh"
+        expected <- either (fail . T.unpack) pure =<< computeScalingVectorCached atSettings fresh top
+        (U.toList . U.zipWith (withinTolerance 1e-9) expected <$> got) `shouldSatisfy` either (const False) and
 
     it "lets a process's own value of a name win over its database's, in the database's formulas too" $ do
         (bakery, _) <- databases
@@ -122,7 +138,7 @@ spec = describe "a database at other values of its parameters" $ do
         (bakery, _) <- databases
         manager <- initDatabaseManager defaultConfig NoCache
         install manager "bakery" bakery
-        atYield <- either (fail . T.unpack) pure (parameterised defaultUnitConfig bakery [Setting Nothing "yield" 2])
+        atYield <- either (fail . T.unpack) (pure . snd) (parameterised defaultUnitConfig bakery [Setting Nothing "yield" 2])
         loaded <- makeStableName =<< evaluate bakery
         let cachedFromLoaded = fmap ((== loaded) . fst) . M.lookup "bakery" <$> readTVarIO (dmGapIndexCache manager)
         getGapIndex manager "bakery" atYield `shouldReturn` gapIndexOf atYield
@@ -164,8 +180,8 @@ co2Of bakery grid name = do
 -- | The bakery, linked to the grid the way a load links it, and the grid.
 databases :: IO (Database, Database)
 databases = do
-    grid <- build "grid" (M.fromList [((aFR, pElectricity), electricity "FR" 1), ((aDE, pElectricity), electricity "DE" 10)]) M.empty
-    bakery <- build "bakery" bakeryActivities bakeryParameters
+    grid <- build "grid" techFlows (M.fromList [((aFR, pElectricity), electricity "FR" 1), ((aDE, pElectricity), electricity "DE" 10)]) M.empty
+    bakery <- build "bakery" techFlows bakeryActivities bakeryParameters
     let context =
             LinkingContext
                 { lcIndexedDatabases = [buildIndexedDatabaseFromDB "grid" emptySynonymDB grid]
@@ -178,21 +194,35 @@ databases = do
                 }
         links = cdlLinks (findAllCrossDBLinks context techFlows M.empty units bakeryActivities)
     pure (bakery{dbCrossDBLinks = links}, grid)
-  where
-    build :: Text -> M.Map (UUID, UUID) Activity -> M.Map Text Parameter -> IO Database
-    build name acts parameters =
-        either (\e -> fail (T.unpack name <> ": " <> T.unpack e)) pure
-            =<< buildDatabaseWithMatrices
-                (BuildInputs defaultUnitConfig M.empty Declared [])
-                SimpleDatabase
-                    { sdbActivities = acts
-                    , sdbTechFlows = techFlows
-                    , sdbBioFlows = M.singleton co2 (BiosphereFlow co2 "carbon dioxide" kg M.empty Nothing Nothing (Just (Compartment Air Nothing)))
-                    , sdbWasteFlows = M.empty
-                    , sdbUnits = units
-                    , sdbDocumentation = noDocumentation
-                    , sdbParameters = parameters
-                    }
+
+build :: Text -> M.Map UUID TechnosphereFlow -> M.Map (UUID, UUID) Activity -> M.Map Text Parameter -> IO Database
+build name flows acts parameters =
+    either (\e -> fail (T.unpack name <> ": " <> T.unpack e)) pure
+        =<< buildDatabaseWithMatrices
+            (BuildInputs defaultUnitConfig M.empty Declared [])
+            SimpleDatabase
+                { sdbActivities = acts
+                , sdbTechFlows = flows
+                , sdbBioFlows = M.singleton co2 (BiosphereFlow co2 "carbon dioxide" kg M.empty Nothing Nothing (Just (Compartment Air Nothing)))
+                , sdbWasteFlows = M.empty
+                , sdbUnits = units
+                , sdbDocumentation = noDocumentation
+                , sdbParameters = parameters
+                }
+
+-- | The activity and product of the chain's link @i@.
+link :: Int -> (UUID, UUID)
+link i = (UUID.fromWords 9 (fromIntegral i) 0 1, UUID.fromWords 9 (fromIntegral i) 0 2)
+
+chainFlows :: M.Map UUID TechnosphereFlow
+chainFlows = M.fromList [(product', TechnosphereFlow product' "link" kg M.empty Nothing Nothing) | i <- [0 .. 129], let product' = snd (link i)]
+
+chainActivities :: M.Map (UUID, UUID) Activity
+chainActivities =
+    M.fromList
+        [ (link i, activity "link" (reference (snd (link i)) : [withFormula (formulaOf "yield") (line (snd (link (i - 1))) 1 Input){techActivityLinkId = Just (fst (link (i - 1)))} | i > 0]))
+        | i <- [0 .. 129]
+        ]
 
 bakeryParameters :: M.Map Text Parameter
 bakeryParameters =
