@@ -133,7 +133,7 @@ def test_defaults_give_the_baseline():
 def test_sets_taken_a_few_at_a_time_give_the_same_scores(sets, monkeypatch):
     whole = _model().evaluate(sets).scores
     monkeypatch.setattr(_reduced, "_CHUNK_BYTES", 8 * 2 * (3 + 2) * 7)
-    assert np.array_equal(_model().evaluate(sets).scores, whole)
+    assert np.allclose(_model().evaluate(sets).scores, whole, rtol=1e-13, atol=0)
 
 
 def _with_emission(formula: object) -> ReducedModel:

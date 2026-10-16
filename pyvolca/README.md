@@ -3350,6 +3350,15 @@ one version giving two scores for one calculation differ here.
 | `wire_version` | `int \| None` | None |
 | `data_version` | `str \| None` | None |
 
+### `FreeParameter`
+
+A parameter of a `ReducedModel`: its ``parameter.value`` is the default.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `parameter` | `Parameter` | _required_ |
+| `process` | `str \| None` | None |
+
 ### `ModelScores`
 
 What a `ReducedModel` gives at N sets of parameter values.
