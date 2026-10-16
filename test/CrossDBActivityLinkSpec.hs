@@ -163,6 +163,11 @@ spec = do
             map snd (findSupplierByActivityProduct [bg] supAct supProd) `shouldBe` ["bg"]
         it "returns empty when no database ships that identity" $
             null (findSupplierByActivityProduct [bg] oldAct supProd) `shouldBe` True
+        it "lists every database shipping the identity, in the order they are given" $ do
+            let shipping = mkDB [((supAct, supProd), mkActivity "widget" "GLO" [refEx supProd])] [mkFlow supProd "widget"]
+                a = buildIndexedDatabase "a" emptySynonymDB shipping
+                b = buildIndexedDatabase "b" emptySynonymDB shipping
+            map snd (findSupplierByActivityProduct [a, bg, b] supAct supProd) `shouldBe` ["a", "bg", "b"]
 
     describe "findExchangeCrossDBLink (activityLinkId cascade)" $ do
         it "links a dangling non-nil input to a background supplier by exact identity" $ do
