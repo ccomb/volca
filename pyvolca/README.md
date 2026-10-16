@@ -1251,6 +1251,17 @@ and the duplicates, the factors one key answers to at one place.
 Compartments and locations are read as ``compare_method_collections``
 reads them.
 
+##### `Client.reduced_model(process_id: str, parameters: list[ParameterName], *, collection: str | None = None, exclude_long_term: bool | None = None) -> ReducedModel`
+
+The activity's scores as a function of some of its input parameters.
+
+Returns a `ReducedModel` whose `ReducedModel.evaluate`
+gives every score of the collection at thousands of sets of values
+(Monte Carlo, Sobol indices) on this side, equal to what
+`score_activities` with ``parameter_sets`` would answer. The
+other parameters stay at their values. The engine refuses a parameter
+that moves an allocation share, and a model too large to send.
+
 ##### `Client.refresh_stubs()`
 
 Fetch the OpenAPI spec from the server and refresh the dispatch table.
@@ -3339,6 +3350,31 @@ one version giving two scores for one calculation differ here.
 | `wire_version` | `int \| None` | None |
 | `data_version` | `str \| None` | None |
 
+### `ModelScores`
+
+What a `ReducedModel` gives at N sets of parameter values.
+
+``scores`` is an array of N rows, one column per method of the model;
+``scoring_sets`` gives, for each scoring set, each of its scores as an
+array of N values.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `scores` | `Any` | _required_ |
+| `scoring_sets` | `dict[str, dict[str, Any]]` | _required_ |
+
+### `ParameterName`
+
+An input parameter a reduced model leaves free.
+
+``name`` and ``process`` as in `ParameterValue`: leave ``process``
+out for one of the database's ``database_parameters``.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `process` | `str \| None` | None |
+
 ### `ParameterValue`
 
 A value for one input parameter, for one request.
@@ -3360,6 +3396,38 @@ database does not change.
 ##### `ParameterValue.to_wire()`
 
 Serialise to the wire shape consumed by SubstitutionRequest.
+
+### `ReducedModel`
+
+An activity's scores as a function of some of its parameters, from `Client.reduced_model`.
+
+`evaluate` computes them for many sets of values without asking the
+engine again, loops among the processes the parameters move included.
+``methods`` are the collection's, in the order of every score;
+``baseline`` the scores at the defaults. ``processes``, ``suppliers`` and
+``scoring_sets`` stay in the engine's own shape, with formulas as trees,
+for a program that evaluates them its own way.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `process_id` | `str` | _required_ |
+| `methods` | `list[dict]` | _required_ |
+| `exclude_long_term` | `bool` | _required_ |
+| `baseline` | `list[float]` | _required_ |
+| `parameters` | `list[FreeParameter]` | _required_ |
+| `processes` | `list[dict]` | _required_ |
+| `suppliers` | `list[dict]` | _required_ |
+| `scoring_sets` | `list[dict]` | _required_ |
+
+#### Methods
+
+##### `ReducedModel.evaluate(values: Any) -> ModelScores`
+
+The scores at each set of values: one row per set, one column per parameter in ``parameters``' order.
+
+Needs numpy (``pip install 'pyvolca[model]'``). A set that gives a line
+no finite amount, or turns the activity's reference amount over, is
+refused with its position.
 
 ### `SetAmount`
 

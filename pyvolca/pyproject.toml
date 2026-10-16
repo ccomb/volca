@@ -34,7 +34,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pyright==1.1.411"]
+# ReducedModel.evaluate computes with numpy.
+model = ["numpy>=1.22"]
+dev = ["pytest", "pyright==1.1.411", "numpy>=1.22"]
 
 [project.urls]
 Documentation = "https://www.volca.run/docs/python/"

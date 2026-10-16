@@ -90,9 +90,11 @@ from .types import (
     MethodDetail,
     MethodFactor,
     NewMethodFactor,
+    ParameterName,
     ParameterValue,
     PathResult,
     Preset,
+    ReducedModel,
     SearchCounts,
     SearchResults,
     SensitivityResult,
@@ -2765,6 +2767,35 @@ class Client:
                 exclude_long_term=exclude_long_term,
                 body=body,
             )
+        )
+
+    def reduced_model(
+        self,
+        process_id: str,
+        parameters: list[ParameterName],
+        *,
+        collection: str | None = None,
+        exclude_long_term: bool | None = None,
+    ) -> ReducedModel:
+        """The activity's scores as a function of some of its input parameters.
+
+        Returns a :class:`ReducedModel` whose :meth:`ReducedModel.evaluate`
+        gives every score of the collection at thousands of sets of values
+        (Monte Carlo, Sobol indices) on this side, equal to what
+        :meth:`score_activities` with ``parameter_sets`` would answer. The
+        other parameters stay at their values. The engine refuses a parameter
+        that moves an allocation share, and a model too large to send.
+        """
+        self._require_wire(69, "reduced_model", engine_hint="0.16.0")
+        return ReducedModel.from_json(
+            self._call(
+                "get_reduced_model",
+                process_id=process_id,
+                collection=self._resolve_collection(collection),
+                exclude_long_term=exclude_long_term,
+                body={"parameters": [p.to_wire() for p in parameters]},
+            ),
+            process_id,
         )
 
     # -- Methods --

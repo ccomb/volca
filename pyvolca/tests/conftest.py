@@ -131,6 +131,17 @@ def fixture_spec() -> dict[str, Any]:
                     ],
                 },
             },
+            "/api/v1/db/{dbName}/activity/{processId}/reduced-model/{collection}": {
+                "post": {
+                    "operationId": "get_reduced_model",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "processId", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "collection", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "exclude-long-term", "in": "query", "required": False, "schema": {"type": "boolean"}},
+                    ],
+                },
+            },
             "/api/v1/db/{dbName}/impacts/{collection}": {
                 "post": {
                     "operationId": "score_activities",

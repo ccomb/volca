@@ -1831,6 +1831,92 @@ class ParameterValue:
         return d
 
 
+@dataclass(frozen=True)
+class ParameterName:
+    """An input parameter a reduced model leaves free.
+
+    ``name`` and ``process`` as in :class:`ParameterValue`: leave ``process``
+    out for one of the database's ``database_parameters``.
+    """
+
+    name: str
+    process: str | None = None
+
+    def to_wire(self) -> dict:
+        d: dict = {"name": self.name}
+        if self.process is not None:
+            d["process"] = self.process
+        return d
+
+
+@dataclass(frozen=True)
+class FreeParameter:
+    """A parameter of a :class:`ReducedModel`: its ``parameter.value`` is the default."""
+
+    parameter: Parameter
+    process: str | None = None
+
+
+@dataclass
+class ModelScores:
+    """What a :class:`ReducedModel` gives at N sets of parameter values.
+
+    ``scores`` is an array of N rows, one column per method of the model;
+    ``scoring_sets`` gives, for each scoring set, each of its scores as an
+    array of N values.
+    """
+
+    scores: Any
+    scoring_sets: dict[str, dict[str, Any]]
+
+
+@dataclass
+class ReducedModel:
+    """An activity's scores as a function of some of its parameters, from :meth:`Client.reduced_model`.
+
+    :meth:`evaluate` computes them for many sets of values without asking the
+    engine again, loops among the processes the parameters move included.
+    ``methods`` are the collection's, in the order of every score;
+    ``baseline`` the scores at the defaults. ``processes``, ``suppliers`` and
+    ``scoring_sets`` stay in the engine's own shape, with formulas as trees,
+    for a program that evaluates them its own way.
+    """
+
+    process_id: str
+    methods: list[dict]
+    exclude_long_term: bool
+    baseline: list[float]
+    parameters: list[FreeParameter]
+    processes: list[dict]
+    suppliers: list[dict]
+    scoring_sets: list[dict]
+
+    @classmethod
+    def from_json(cls, d: dict, process_id: str) -> "ReducedModel":
+        return cls(
+            process_id=process_id,
+            methods=d["methods"],
+            exclude_long_term=d["excludeLongTerm"],
+            baseline=d["baseline"],
+            parameters=[FreeParameter(Parameter.from_json(p["parameter"]), p.get("process")) for p in d["parameters"]],
+            processes=d["processes"],
+            suppliers=d["suppliers"],
+            scoring_sets=d["scoringSets"],
+        )
+
+    def evaluate(self, values: Any) -> ModelScores:
+        """The scores at each set of values: one row per set, one column per parameter in ``parameters``' order.
+
+        Needs numpy (``pip install 'pyvolca[model]'``). A set that gives a line
+        no finite amount, or turns the activity's reference amount over, is
+        refused with its position.
+        """
+        from ._reduced import method_scores, scoring_set_scores
+
+        scores = method_scores(self, values)
+        return ModelScores(scores, scoring_set_scores(self, scores))
+
+
 # ---------------------------------------------------------------------------
 # Method catalog & flow mapping
 # ---------------------------------------------------------------------------

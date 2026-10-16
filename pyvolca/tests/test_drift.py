@@ -49,6 +49,7 @@ WRAPPER_OPERATIONS = [
     "get_score_contributing_activities",
     "compute_sensitivity",
     "score_activities",
+    "get_reduced_model",
 ]
 
 
