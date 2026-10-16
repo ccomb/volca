@@ -143,10 +143,14 @@ class _Column:
         self.reference = reference  # (sets,)
 
 
+def _defaults(model: ReducedModel, np: Any) -> Any:
+    return np.array([[p.parameter.value or 0.0 for p in model.parameters]])
+
+
 def _columns(model: ReducedModel, values: Any, first_set: int, ev: _Evaluator) -> list[_Column]:
     np = ev.np
     n = values.shape[0]
-    defaults = np.array([[p.parameter.value or 0.0 for p in model.parameters]])
+    defaults = _defaults(model, np)
     m = len(model.methods)
     s = len(model.suppliers)
     columns = []
@@ -189,7 +193,8 @@ def _columns(model: ReducedModel, values: Any, first_set: int, ev: _Evaluator) -
 def _root_flips(model: ReducedModel, at: list[_Column], at0: list[_Column], first_set: int, np: Any) -> None:
     """The engine scores a root by its reference's sign at the defaults: a set that turns it over is refused."""
     for process, c, c0 in zip(model.processes, at, at0):
-        if process["processId"] == model.process_id or process["processId"].startswith(model.process_id + "_"):
+        pid, asked = process["processId"].lower(), model.process_id.lower()  # the engine reads identifiers in either case
+        if pid == asked or pid.startswith(asked + "_"):
             flipped = np.sign(c.reference) != np.sign(c0.reference)
             if flipped.any():
                 raise ValueError(f"set {first_set + int(np.argmax(flipped))}: the reference amount of {process['name']!r} changes sign")
@@ -199,7 +204,9 @@ def method_scores(model: ReducedModel, values: Any) -> Any:
     """The score of every method at every set: (sets, methods)."""
     np = _numpy()
     ev = _Evaluator(np)
-    values = np.atleast_2d(np.asarray(values, dtype=float))
+    values = np.asarray(values, dtype=float)
+    if values.ndim == 1:  # one value per set for a single parameter, else a single set
+        values = values[:, None] if len(model.parameters) == 1 else values[None, :]
     if values.shape[1] != len(model.parameters):
         raise ValueError(f"each set holds {len(model.parameters)} values, one per parameter of the model, not {values.shape[1]}")
     k, s = len(model.processes), len(model.suppliers)
@@ -207,15 +214,14 @@ def method_scores(model: ReducedModel, values: Any) -> Any:
     mm = np.array([sup["scalings"] for sup in model.suppliers]).reshape(s, k).T  # (moving, suppliers)
     x0 = np.array([p["scaling"] for p in model.processes])
     s0 = np.array(model.baseline)
-    defaults = np.array([[p.parameter.value or 0.0 for p in model.parameters]])
     with np.errstate(all="ignore"):  # a NaN matters only on an amount, which _columns refuses by name
-        return _solved(model, values, defaults, u, mm, x0, s0, ev)
+        return _solved(model, values, u, mm, x0, s0, ev)
 
 
-def _solved(model: ReducedModel, values: Any, defaults: Any, u: Any, mm: Any, x0: Any, s0: Any, ev: _Evaluator) -> Any:
+def _solved(model: ReducedModel, values: Any, u: Any, mm: Any, x0: Any, s0: Any, ev: _Evaluator) -> Any:
     np = ev.np
     k, s = len(model.processes), len(model.suppliers)
-    at0 = _columns(model, defaults, 0, ev)
+    at0 = _columns(model, _defaults(model, np), 0, ev)
     chunk = max(1, _CHUNK_BYTES // (8 * max(1, k * (s + k))))
     out = []
     for start in range(0, values.shape[0], chunk):

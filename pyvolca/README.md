@@ -3434,6 +3434,8 @@ for a program that evaluates them its own way.
 
 The scores at each set of values: one row per set, one column per parameter in ``parameters``' order.
 
+A flat array is one set, or, for a model of one parameter, one value per set.
+
 Needs numpy (``pip install 'pyvolca[model]'``). A set that gives a line
 no finite amount, or turns the activity's reference amount over, is
 refused with its position.

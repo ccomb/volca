@@ -125,7 +125,9 @@
   It is refused when a parameter moves an allocation share, or moves more
   than 500 processes. On the largest database measured, a model of 104
   moving processes and 413 suppliers answers in 2.3 s and weighs 1.8 MB.
-  The assistant has it as `get_reduced_model`. Wire revision 69.
+  The assistant has it as `get_reduced_model`, and pyvolca as
+  `reduced_model`, whose `evaluate` computes the scores at many sets with
+  numpy. Wire revision 69.
 
 ### Fixed
 

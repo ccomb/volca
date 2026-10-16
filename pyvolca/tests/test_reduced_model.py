@@ -156,6 +156,23 @@ def test_a_set_that_turns_the_root_over_is_refused_by_position():
         model.evaluate([(2.0, 0.1)])
 
 
+def test_the_root_is_found_whatever_the_case_of_the_identifier_asked():
+    model = _model()
+    model.process_id = "ROOT-ACT"
+    model.processes[0]["reference"]["outputs"][0]["formula"] = ["-", ["*", "z", 4], 1]
+    with pytest.raises(ValueError, match="changes sign"):
+        model.evaluate([(2.0, 0.1)])
+
+
+def test_a_flat_array_gives_one_value_per_set_to_a_model_of_one_parameter():
+    model = _model()
+    model.parameters = model.parameters[:1]
+    model.processes[0]["parameters"] = {}
+    model.processes[0]["values"] = {"z": DEFAULTS[1]}
+    ys = np.array([1.6, 2.4, 2.9])
+    assert np.allclose(model.evaluate(ys).scores, [_full(y, DEFAULTS[1]) for y in ys], rtol=1e-10, atol=0)
+
+
 def test_an_unknown_function_is_named():
     model = _with_emission(["gamma", "y"])
     with pytest.raises(ValueError, match="no function 'gamma' of 1 arguments"):
