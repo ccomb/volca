@@ -2,7 +2,8 @@
 
 Pipeline per query token:
   1. If the token is already in the BM25 vocabulary, include it at weight 1.0.
-  2. Edit-distance candidates (weight 0.5) – typos and orthographic variants
+  2. Edit-distance candidates (weight 0.5, then 0.45 and 0.4 for the next
+     closest) – typos and orthographic variants
      (e.g. trellis ↔ treillis), two swapped letters counting as one typo.
   3. Prefix-coverage candidates (weight 0.7) – stems like "elec" →
      "electricity". Run alongside edit-distance, not as a fallback: a short
@@ -62,7 +63,7 @@ minVariantLen = 6
 minCoverage :: Double
 minCoverage = 0.9
 
--- | Maximum Levenshtein distance tolerated for a query token of this length.
+-- | Maximum edit distance tolerated for a query token of this length.
 maxEditK :: Int -> Int
 maxEditK n = if n < 6 then 1 else 2
 
@@ -72,7 +73,7 @@ maxPrefixRatio = 3
 
 {- | Turn normalized query tokens into weighted BM25 query terms. Tokens already
 in vocabulary pass through at weight 1.0; typos resolve to edit-distance
-matches at 0.5; stems resolve to prefix-coverage matches at 0.7; otherwise
+matches at 0.5 down to 0.4; stems resolve to prefix-coverage matches at 0.7; otherwise
 dropped.
 -}
 expandTokens :: BM25Index -> [Text] -> [(Text, Double)]
@@ -96,7 +97,7 @@ expandTokensGrouped idx = map expand
                 -- Weights fall in the candidates' order, so the names holding the
                 -- closest, most used one come first: "braed" lists bread before
                 -- brandy, which equal weights ranked first for its rarer word.
-                | otherwise = zip [c | c <- take topN (editCandidates idx k t), c /= t] [fuzzyWeight, fuzzyWeight - fuzzyStep ..]
+                | otherwise = zip (take topN (filter (/= t) (editCandidates idx k t))) [fuzzyWeight, fuzzyWeight - fuzzyStep ..]
             k = if inVocab then 1 else maxEditK len
             prefixes = [(c, prefixWeight) | c <- take prefixTopN (prefixCandidates idx t), c /= t]
             -- A candidate can satisfy both edit-distance and prefix-coverage

@@ -43,7 +43,7 @@ of the system; the CLI and REPL are just thin HTTP clients.
    │        ├─ Database.MatrixBuild  builds the sparse A / B matrices│
    │        ├─ Matrix + SharedSolver   (I−A)⁻¹·f = s   then   B·s = g│
    │        ├─ Method.Mapping  LCIA: CF cascade UUID→name→synonym→CAS│
-   │        ├─ Search          BM25 (full-text) + Fuzzy (trigrams)   │
+   │        ├─ Search          BM25 (full-text) + Fuzzy (typos)     │
    │        ├─ Tree / Expr / UnitConversion / SynonymDB              │
    │        └─ CrossLinking    cross-database supplier resolution    │
    └─────┬─────────────────────────────────────────────────┬─────────┘
@@ -280,7 +280,7 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 | `SubstanceRegistry.hs`      | Canonical flow registry: equivalence classes over flow-identity assertions |
 | `Method/Mapping.hs`         | CF matching cascade (UUID → name → synonym → CAS), LCIA scoring     |
 | `Search/BM25.hs`            | BM25 full-text search index                                         |
-| `Search/Fuzzy.hs`           | Trigram fuzzy search                                                |
+| `Search/Fuzzy.hs`           | Typo and stem tolerance (edit distance, trigrams)                   |
 | `Tree.hs`                   | Supply-chain tree construction (loop-aware)                         |
 | `Expr.hs`                   | Exchange formula / parameter evaluation                             |
 | `UnitConversion.hs`         | Unit conversion                                                     |

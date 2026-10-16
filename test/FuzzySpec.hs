@@ -77,6 +77,10 @@ spec = describe "Search.Fuzzy" $ do
                     )
         map fst (expandTokens idx ["wheet"]) `shouldContain` ["wheat"]
 
+    it "gives a known word as many variants as a typo, itself not taking a place" $ do
+        let idx = indexOfNames ["trellis poles", "treillis poles", "trellise poles", "trelliss poles"]
+        length (expandTokens idx ["trellis"]) `shouldBe` 4
+
     it "reaches no word two letters from a word the vocabulary holds" $ do
         let idx = indexOfNames ["Potato, canned", "Potash salt"]
         expandTokens idx ["potato"] `shouldBe` [("potato", 1.0)]

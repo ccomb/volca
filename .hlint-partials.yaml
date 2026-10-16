@@ -156,7 +156,8 @@
 # else is.
 - ignore: {name: "Avoid restricted function", within: [Method.WriterCSV.tableRows, BrightwayExcel.Parser.parseBlock]}
 
-# `minimum` over the three costs of one edit-distance cell, written as a
-# literal three-element list.
+# `minimum` over the three or four costs of one edit-distance cell, a list
+# built by cons around three fixed elements; `VU.last` of the last row, which
+# holds one cell more than the second word has letters.
 - ignore: {name: "Avoid restricted function", within: Search.Fuzzy.editDistance}
 

@@ -29,7 +29,7 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, openLCA JSON-LD, and B
 - **Flow mapping engine**: 4-step matching cascade (UUID → name → synonym → CAS) with per-strategy coverage statistics
 - **Activity classifications**: ISIC, CPC, and category fields parsed from EcoSpold1/2 and ILCD, with named TOML presets for common filter bundles
 - **Per-exchange comments**: Free-text exchange comments extracted from EcoSpold1/2, SimaPro, and ILCD and surfaced in API responses
-- **Fuzzy search**: Trigram-based typo and stem tolerance on activity and supply-chain name filters
+- **Fuzzy search**: Typo (edit distance) and stem (trigram) tolerance on activity and supply-chain name filters
 - **Auto-extracted synonyms**: Synonym pairs extracted automatically from loaded databases and method packages, available for toggling and download
 - **Reference data management**: Flow synonyms, compartment mappings, and unit definitions can be configured in TOML, uploaded via the API, or toggled independently
 - **Fast cache**: Per-database cache co-located with the source path, rebuilt when the cache schema changes or when what it was read under besides its source files (unit table, location aliases, allocation key, patches) is no longer what is in force (figures in the Performance table below)
