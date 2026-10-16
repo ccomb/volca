@@ -9,7 +9,8 @@ everything an expression is made of. Where they disagree is at the edges, and a
 'Dialect' says which set of edges a formula was written against: every entry
 point asks for one, so no formula is read in a language nobody chose for it.
 openLCA's language departs from the others on precedence and on truth values,
-so it is read by a grammar of its own ('pOlca'), sharing the tokens.
+and Python's on its operators, so each is read by a grammar of its own
+('pOlca', 'pPython'), sharing the tokens.
 
 Every dialect reads into the same tree, whose functions are VoLCA's: a
 dialect's name for a function is where its meaning is settled (SimaPro's @log@
@@ -73,7 +74,7 @@ type Parser = Parsec Void Text
 
 {- | The language a formula was written in.
 
-Four, because four are what the callers actually have.
+Five, because five are what the callers actually have.
 -}
 data Dialect
     = {- | SimaPro's own: @\/\/@ opens a comment and the expression ends
@@ -107,6 +108,17 @@ data Dialect
       whatever their case.
       -}
       OpenLca
+    | {- | A Brightway formula, which is Python: @**@ for a power, @==@ and @!=@
+      among the comparisons, which chain (@1 < x < 3@), the word operators
+      @and@, @or@ and @not@, and @a if condition else b@. @and@ and @or@ give
+      one of their operands, as in Python, not a truth value. Functions are
+      called with commas between their arguments, by their Python names
+      (@log@ is natural, @round@ goes to the even number) or their names in a
+      formula printed by sympy (@Max@, @ceiling@). @pi@ and @e@ are the
+      constants: Brightway lets no parameter take their names. A formula that
+      divides by zero or overflows gives no number, as Python raises then.
+      -}
+      Python
     deriving (Eq, Show)
 
 -- | A database's factors from one unit to another, keyed by the two names as written.
@@ -382,6 +394,7 @@ readable SimaPro = T.strip . T.intercalate "\n" . map (fst . T.breakOn "//") . T
 readable Volca = T.strip . normalizeExpr '.'
 readable (EcoSpold2 _) = T.strip . ecoSpold2Commas
 readable OpenLca = T.toLower . T.strip
+readable Python = T.strip
 
 {- | Evaluate an expression of the given dialect, with variable substitution.
 
@@ -398,15 +411,19 @@ evaluate dialect env input = do
     value <- first (Unresolved . NE.nubBy ((==) `on` T.toLower)) (resolve (M.union (M.mapKeys T.toLower env) (constants dialect)) formula)
     finite dialect value
 
--- | openLCA gives no number for a formula that divides by zero or overflows; the others keep what they computed.
+-- | openLCA and Python give no number for a formula that divides by zero or overflows; the others keep what they computed.
 finite :: Dialect -> Double -> Either Refusal Double
 finite dialect value = case dialect of
     SimaPro -> Right value
     Volca -> Right value
     EcoSpold2 _ -> Right value
-    OpenLca
-        | isNaN value || isInfinite value -> Left (Unreadable ("the formula gives no finite number: " <> T.pack (show value)))
-        | otherwise -> Right value
+    OpenLca -> finiteOnly
+    Python -> finiteOnly
+  where
+    finiteOnly :: Either Refusal Double
+    finiteOnly
+        | isNaN value || isInfinite value = Left (Unreadable ("the formula gives no finite number: " <> T.pack (show value)))
+        | otherwise = Right value
 
 -- | The names a dialect knows without a parameter: openLCA's @pi@ and @e@ (@true@ and @false@ are read as truth values).
 constants :: Dialect -> M.Map Text Double
@@ -415,6 +432,7 @@ constants = \case
     Volca -> M.empty
     EcoSpold2 _ -> M.empty
     OpenLca -> M.fromList [("pi", pi), ("e", exp 1)]
+    Python -> M.empty
 
 readFormula :: Dialect -> Text -> Either Refusal Formula
 readFormula dialect = first (Unreadable . refusalReason) . parse (sc *> grammar dialect <* eof) "" . readable dialect
@@ -426,6 +444,7 @@ grammar = \case
     Volca -> pFormula volcaLanguage
     EcoSpold2 conversions -> pFormula (ecoSpold2Language conversions)
     OpenLca -> pOlca
+    Python -> pPython
 
 {- | A formula of a dialect written in VoLCA's language.
 
@@ -811,10 +830,14 @@ was missing. Only the name and its parenthesis are tried: past them the text is
 committed to the call, so a refusal inside the arguments is the one reported.
 -}
 pCall :: Language -> Parser Formula
-pCall language = do
+pCall language = pCallWith (calls language) (pFormula language) ";"
+
+-- | A call to one of the functions given, its arguments read by the parser given and parted by the separator.
+pCallWith :: [(Text, Builder)] -> Parser Formula -> Text -> Parser Formula
+pCallWith known argument separator = do
     name <- try (pIdentTok <* symbol "(")
-    build <- maybe (fail ("unknown function " <> T.unpack name)) pure (lookup (T.toLower name) (calls language))
-    args <- sepBy1 (pFormula language) (symbol ";") <* symbol ")"
+    build <- maybe (fail ("unknown function " <> T.unpack name)) pure (lookup (T.toLower name) known)
+    args <- sepBy1 argument (symbol separator) <* symbol ")"
     either (\takes -> fail (T.unpack name <> " takes " <> takes <> ", given " <> show (length args))) pure (build args)
 
 {- | EcoSpold 2's @UnitConversion@, read as the amount times its factor: the
@@ -1072,6 +1095,121 @@ olcaCall name args = case lookup name olcaFunctions of
 
     arity :: String -> Either String a
     arity expected = Left (function <> " takes " <> expected <> ", given " <> show (length args))
+
+{- | Python's precedence, lowest first: @if else@, @or@, @and@, @not@,
+comparison, sum, product, sign, power. A power binds tighter than the sign
+before it and takes a signed exponent, so @-2 ** 2@ is -4 and @2 ** -1@ is 0.5.
+-}
+pPython :: Parser Formula
+pPython = do
+    value <- pPyOr
+    option value (If <$> (pyKeyword "if" *> pPyOr) <*> pure value <*> (pyKeyword "else" *> pPython))
+
+-- | @a or b@ is @a@ when it is not 0, @b@ otherwise; @a and b@ is @b@ when @a@ is not 0, @a@ otherwise.
+pPyOr, pPyAnd :: Parser Formula
+pPyOr = pPyAnd >>= \x -> option x (If x x <$> (pyKeyword "or" *> pPyOr))
+pPyAnd = pPyNot >>= \x -> option x ((\rest -> If x rest x) <$> (pyKeyword "and" *> pPyAnd))
+
+pPyNot :: Parser Formula
+pPyNot = (pyKeyword "not" *> (Unary Not <$> pPyNot)) <|> pPyComparison
+
+-- | @a < b < c@ is @a < b and b < c@, each operand read once.
+pPyComparison :: Parser Formula
+pPyComparison = do
+    first' <- pPySum
+    rest <- many ((,) <$> pyComparison <*> pPySum)
+    let each = zipWith3 Binary (map fst rest) (first' : map snd rest) (map snd rest)
+    pure $ case each of
+        [] -> first'
+        [one'] -> one'
+        x : xs -> Variadic And (x :| xs)
+  where
+    pyComparison :: Parser Binary
+    pyComparison = choice [f <$ symbol op | (op, f) <- [("<=", LessOrEqual), ("<", Less), (">=", GreaterOrEqual), (">", Greater), ("==", Equal), ("!=", NotEqual)]]
+
+pPySum :: Parser Formula
+pPySum = pPyProduct >>= go
+  where
+    go :: Formula -> Parser Formula
+    go acc =
+        (symbol "+" *> pPyProduct >>= go . Binary Add acc)
+            <|> (symbol "-" *> pPyProduct >>= go . Binary Subtract acc)
+            <|> pure acc
+
+-- | @*@ and @/@, which @**@ and Python's floor division @//@ are not.
+pPyProduct :: Parser Formula
+pPyProduct = pPySigned >>= go
+  where
+    go :: Formula -> Parser Formula
+    go acc =
+        (lexeme (try (char '*' <* notFollowedBy (char '*'))) *> pPySigned >>= go . Binary Multiply acc)
+            <|> (lexeme (try (char '/' <* notFollowedBy (char '/'))) *> pPySigned >>= go . Binary Divide acc)
+            <|> pure acc
+
+pPySigned :: Parser Formula
+pPySigned =
+    (symbol "-" *> (Unary Negate <$> pPySigned))
+        <|> (symbol "+" *> pPySigned)
+        <|> pPyPower
+
+pPyPower :: Parser Formula
+pPyPower = do
+    base <- pPyPrimary
+    (symbol "**" *> (Binary Power base <$> pPySigned)) <|> pure base
+
+pPyPrimary :: Parser Formula
+pPyPrimary =
+    choice
+        [ between (symbol "(") (symbol ")") pPython
+        , pCallWith pythonCalls pPython ","
+        , Literal <$> pNumber
+        , named =<< pIdentTok
+        ]
+  where
+    named :: Text -> Parser Formula
+    named = \case
+        "True" -> pure (Literal 1)
+        "False" -> pure (Literal 0)
+        "pi" -> pure (Literal pi)
+        "e" -> pure (Literal (exp 1))
+        word
+            | word `elem` pythonKeywords -> fail ("unexpected " <> T.unpack word)
+            | otherwise -> pure (Name word)
+
+-- | A word operator, which a longer name merely starting with it (@order@) is not.
+pyKeyword :: Text -> Parser Text
+pyKeyword word = lexeme (try (string word <* notFollowedBy (alphaNumChar <|> char '_')))
+
+pythonKeywords :: [Text]
+pythonKeywords = ["if", "else", "and", "or", "not", "None", "lambda", "in", "is"]
+
+-- | Python's functions and sympy's names for them, by their lowercase name.
+pythonCalls :: [(Text, Builder)]
+pythonCalls =
+    [ ("abs", one Abs)
+    , ("sqrt", one Sqrt)
+    , ("exp", one Exp)
+    , ("log", logOr Ln)
+    , ("log10", one Log10)
+    , ("pow", two Power)
+    , ("min", several Minimum)
+    , ("max", several Maximum)
+    , ("ceil", one Ceil)
+    , ("ceiling", one Ceil)
+    , ("floor", one Floor)
+    , ("trunc", one Trunc)
+    , ("int", one Trunc)
+    , ("round", one RoundEven)
+    , ("sin", one Sin)
+    , ("cos", one Cos)
+    , ("tan", one Tan)
+    , ("asin", one Asin)
+    , ("acos", one Acos)
+    , ("atan", one Atan)
+    , ("sinh", one Sinh)
+    , ("cosh", one Cosh)
+    , ("tanh", one Tanh)
+    ]
 
 {- | A numeric literal, tokenized here and read by 'readAmount'.
 

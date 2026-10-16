@@ -24,7 +24,7 @@ Three contracts are proven:
 -}
 module BrightwayExcelWriterSpec (spec) where
 
-import BrightwayExcel.Parser (parseBrightwayExcel)
+import BrightwayExcel.Parser (Workbook (..), parseBrightwayExcel)
 import BrightwayExcel.Writer (
     Cell (..),
     WriterConfig (..),
@@ -143,7 +143,7 @@ spec = describe "BrightwayExcel.Writer" $ do
             withWritten coproductDb $
                 parseBrightwayExcel defaultUnitConfig >=> \case
                     Left err -> expectationFailure (T.unpack err)
-                    Right (acts, _, _, _, _) -> case acts of
+                    Right Workbook{wbActivities = acts} -> case acts of
                         [a] -> do
                             roleAmounts a `shouldBe` [(ReferenceProduct, 1), (Coproduct, 0.25)]
                             -- The coproduct's comment also flows through productRowOut.
@@ -157,7 +157,7 @@ spec = describe "BrightwayExcel.Writer" $ do
             withWritten emptyDb $
                 parseBrightwayExcel defaultUnitConfig >=> \case
                     Left err -> expectationFailure (T.unpack err)
-                    Right (acts, _, _, _, _) -> length acts `shouldBe` 0
+                    Right Workbook{wbActivities = acts} -> length acts `shouldBe` 0
 
         it "(g) round-trips a boundary-magnitude (~1e15) amount" $
             -- At 1e15 'formatAmount' crosses from integer to fixed-point rendering;
@@ -166,7 +166,7 @@ spec = describe "BrightwayExcel.Writer" $ do
             withWritten bigAmountDb $
                 parseBrightwayExcel defaultUnitConfig >=> \case
                     Left err -> expectationFailure (T.unpack err)
-                    Right (acts, _, _, _, _) -> case acts of
+                    Right Workbook{wbActivities = acts} -> case acts of
                         [a] -> [techAmount ex | ex@TechnosphereExchange{techRole = Input} <- exchanges a] `shouldBe` [1.0e15]
                         other -> expectationFailure ("expected one activity, got " <> show (length other))
 
@@ -178,7 +178,7 @@ spec = describe "BrightwayExcel.Writer" $ do
             withWritten commentDb $
                 parseBrightwayExcel defaultUnitConfig >=> \case
                     Left err -> expectationFailure (T.unpack err)
-                    Right (acts, _, _, _, _) -> case acts of
+                    Right Workbook{wbActivities = acts} -> case acts of
                         [a] -> do
                             [techComment ex | ex@TechnosphereExchange{techRole = ReferenceProduct} <- exchanges a]
                                 `shouldBe` [Just "product note"]
@@ -195,7 +195,7 @@ spec = describe "BrightwayExcel.Writer" $ do
             withWritten supplierNamedDb $
                 parseBrightwayExcel defaultUnitConfig >=> \case
                     Left err -> expectationFailure (T.unpack err)
-                    Right (acts, techDB, _, _, _) -> case acts of
+                    Right Workbook{wbActivities = acts, wbTechFlows = techDB} -> case acts of
                         [a] -> do
                             [techSupplierClaim ex | ex@TechnosphereExchange{techRole = Input} <- exchanges a]
                                 `shouldBe` [ClaimByName "market for natural gas, high pressure"]
@@ -226,7 +226,7 @@ spec = describe "BrightwayExcel.Writer" $ do
             withWritten describedDb $
                 parseBrightwayExcel defaultUnitConfig >=> \case
                     Left err -> expectationFailure (T.unpack err)
-                    Right (acts, _, _, _, _) -> case acts of
+                    Right Workbook{wbActivities = acts} -> case acts of
                         [a] -> activityDescription a `shouldBe` ["a milling note"]
                         other -> expectationFailure ("expected one activity, got " <> show (length other))
 
@@ -479,13 +479,7 @@ specialBio =
 
 specialNormalized :: [NormActivity]
 specialNormalized =
-    normalizeParsed
-        ( M.elems (sdbActivities specialDb)
-        , sdbTechFlows specialDb
-        , sdbBioFlows specialDb
-        , sdbWasteFlows specialDb
-        , sdbUnits specialDb
-        )
+    normalizeParsed (asWorkbook specialDb)
 
 -- Regression fixtures: a treatment-style activity whose reference is a
 -- technosphere *input* (ReferenceInput), which must serialize as a single row.
@@ -721,7 +715,7 @@ gramRefDb =
 
 -- | The (unit name, amount) of a parsed activity's reference exchange.
 refUnitAmount :: Parsed -> Maybe (Text, Double)
-refUnitAmount (acts, _tech, _bio, _waste, unitDB) = do
+refUnitAmount Workbook{wbActivities = acts, wbUnits = unitDB} = do
     a <- listToMaybe acts
     ex <- listToMaybe [e | e <- exchanges a, exchangeIsReference e]
     pure (maybe "" unitName (M.lookup (exchangeUnitId ex) unitDB), exchangeAmount ex)
@@ -844,10 +838,10 @@ data NormActivity = NormActivity
     }
     deriving (Eq, Show)
 
-type Parsed = ([Activity], TechFlowDB, BioFlowDB, WasteFlowDB, UnitDB)
+type Parsed = Workbook
 
 normalizeParsed :: Parsed -> [NormActivity]
-normalizeParsed (acts, techDB, bioDB, _waste, unitDB) =
+normalizeParsed Workbook{wbActivities = acts, wbTechFlows = techDB, wbBioFlows = bioDB, wbUnits = unitDB} =
     sortOn nName (map norm acts)
   where
     norm a =
@@ -876,13 +870,7 @@ normalizeParsed (acts, techDB, bioDB, _waste, unitDB) =
 -- | The same projection over the original fixture database.
 expectedNormalized :: [NormActivity]
 expectedNormalized =
-    normalizeParsed
-        ( M.elems (sdbActivities fixtureDb)
-        , sdbTechFlows fixtureDb
-        , sdbBioFlows fixtureDb
-        , sdbWasteFlows fixtureDb
-        , sdbUnits fixtureDb
-        )
+    normalizeParsed (asWorkbook fixtureDb)
 
 -- ---------------------------------------------------------------------------
 -- Logical-cell extraction (for idempotence)
@@ -891,16 +879,28 @@ expectedNormalized =
 {- | Re-export the parsed 5-tuple to the writer's input shape. Activities are
 keyed exactly as 'Database.Loader.loadBrightwayExcel' keys them.
 -}
+
+-- | A database as the workbook that holds it parses to.
+asWorkbook :: SimpleDatabase -> Workbook
+asWorkbook db =
+    Workbook
+        { wbActivities = M.elems (sdbActivities db)
+        , wbTechFlows = sdbTechFlows db
+        , wbBioFlows = sdbBioFlows db
+        , wbUnits = sdbUnits db
+        , wbParameters = sdbParameters db
+        }
+
 rebuild :: Parsed -> SimpleDatabase
-rebuild (acts, techDB, bioDB, wasteDB, unitDB) =
+rebuild Workbook{wbActivities = acts, wbTechFlows = techDB, wbBioFlows = bioDB, wbUnits = unitDB, wbParameters = parameters} =
     SimpleDatabase
         { sdbActivities = M.fromList [((generateActivityUUID a, getReferenceProductUUID a), a) | a <- acts]
         , sdbTechFlows = techDB
         , sdbBioFlows = bioDB
-        , sdbWasteFlows = wasteDB
+        , sdbWasteFlows = M.empty
         , sdbUnits = unitDB
         , sdbDocumentation = noDocumentation
-        , sdbParameters = M.empty
+        , sdbParameters = parameters
         }
 
 {- | The deterministic logical cells the writer would emit for a database: the

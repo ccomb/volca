@@ -1402,11 +1402,11 @@ loadBrightwayExcel opts xlsxPath = do
     parsed <- BrightwayExcel.parseBrightwayExcel unitConfig xlsxPath
     case parsed of
         Left err -> return $ Left err
-        Right (activities, techFlowDB, bioFlowDB, wasteFlowDB, unitDB)
+        Right BrightwayExcel.Workbook{wbActivities = activities, wbTechFlows = techFlowDB, wbBioFlows = bioFlowDB, wbUnits = unitDB, wbParameters = parameters}
             | null activities -> return $ Left "No activities found in Brightway Excel file."
             | otherwise -> do
                 let (procMap, collisions) = indexActivities (allocateAll (allocating opts unitDB) activities)
-                    simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB noDocumentation M.empty
+                    simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB M.empty unitDB noDocumentation parameters
                 forM_ collisions $ reportProgress Warning . T.unpack
                 Right <$> linkWithinDatabaseByName unitConfig simpleDb
 

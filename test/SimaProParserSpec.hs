@@ -1113,20 +1113,20 @@ spec = do
             sequence_ checked
 
         it "gives no value to a calculated parameter whose formula does not settle, not the input's it shadows" $
-            parameterDefinition <$> snd (buildParamEnv [ParamLevel [paramRow "a" "1"] [paramRow "a" "b * 2"]])
+            parameterDefinition <$> snd (buildParamEnv SimaPro [ParamLevel [paramRow "a" "1"] [paramRow "a" "b * 2"]])
                 `shouldBe` M.singleton "a" (CalculatedParameter "b * 2" Nothing)
 
         it "lets a process parameter replace a project one of its name, input over calculated" $ do
-            let (env, parameters) = buildParamEnv [ParamLevel [paramRow "y" "3"] [paramRow "x" "2 * y"], ParamLevel [paramRow "X" "5"] []]
+            let (env, parameters) = buildParamEnv SimaPro [ParamLevel [paramRow "y" "3"] [paramRow "x" "2 * y"], ParamLevel [paramRow "X" "5"] []]
             M.lookup "X" env `shouldBe` Just 5
             M.lookup "x" env `shouldBe` Nothing
             parameterDefinition <$> parameters `shouldBe` M.fromList [("y", InputParameter 3 Nothing), ("X", InputParameter 5 Nothing)]
 
         it "reads a project formula with the values a process gives the names it reads" $
-            M.lookup "x" (fst (buildParamEnv [ParamLevel [paramRow "y" "3"] [paramRow "x" "2 * y"], ParamLevel [paramRow "y" "10"] []])) `shouldBe` Just 20
+            M.lookup "x" (fst (buildParamEnv SimaPro [ParamLevel [paramRow "y" "3"] [paramRow "x" "2 * y"], ParamLevel [paramRow "y" "10"] []])) `shouldBe` Just 20
 
         it "gives no value to a name one level declares with two formulas, nor the value of the level above" $
-            M.lookup "x" (fst (buildParamEnv [ParamLevel [paramRow "x" "1"] [], ParamLevel [] [paramRow "x" "2", paramRow "x" "3"]])) `shouldBe` Nothing
+            M.lookup "x" (fst (buildParamEnv SimaPro [ParamLevel [paramRow "x" "1"] [], ParamLevel [] [paramRow "x" "2", paramRow "x" "3"]])) `shouldBe` Nothing
 
         it "does not drop exchanges with parameterized amounts" $ do
             (activities, _, _, _, _) <- parseParamCSV
@@ -2586,4 +2586,4 @@ parseOrFail cfg path = either (fail . show) (pure . tables) =<< parseSimaProCSV 
 
 -- | A parameter line with no comment.
 paramRow :: Text -> Text -> ParamRow
-paramRow name value = ParamRow name value "" Nothing
+paramRow name value = ParamRow name value "" Nothing Nothing

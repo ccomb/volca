@@ -11,9 +11,10 @@ header, biosphere categories (with @::@), and within-file supplier linking.
 -}
 module BrightwayExcelSpec (spec) where
 
-import BrightwayExcel.Parser (CellValue (..), parseBrightwayExcel, parseSheetXml, sheetToActivities, skippedSheetWarning, splitCategories)
+import BrightwayExcel.Parser (CellValue (..), Workbook (..), parseBrightwayExcel, parseSheetXml, sheetToActivities, skippedSheetWarning, splitCategories)
 import BrightwayExcel.Writer (defaultWriterConfig, renderWorkbook)
 import Codec.Archive.Zip (addEntryToArchive, emptyArchive, fromArchive, toEntry)
+import Control.Monad ((>=>))
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (chr, ord)
 import Data.List (find)
@@ -25,6 +26,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import Database.Loader (loadDatabase)
 import Database.Upload (ArchiveFormat (..), detectArchiveFormat)
+import qualified Expr
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
@@ -34,15 +36,19 @@ import Types (
     BiosphereFlow (..),
     Compartment (..),
     Exchange (..),
+    ExchangeFormula (..),
     Medium (..),
+    Parameter (..),
+    ParameterDefinition (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
+    Uncertainty (..),
     exchangeFlowId,
     exchangeIsReference,
  )
-import UnitConversion (defaultUnitConfig)
+import UnitConversion (UnitConfig, buildFromCSV, defaultUnitConfig)
 
 spec :: Spec
 spec = describe "BrightwayExcel.Parser" $ do
@@ -80,7 +86,7 @@ spec = describe "BrightwayExcel.Parser" $ do
         it "parses all activities across sheets" $ withFixture $ \path -> do
             parseBrightwayExcel defaultUnitConfig path >>= \case
                 Left err -> expectationFailure (T.unpack err)
-                Right (acts, _, _, _, _) ->
+                Right Workbook{wbActivities = acts} ->
                     map activityName acts
                         `shouldMatchList` [ "Electricity production, natural gas"
                                           , "Widget manufacturing"
@@ -103,19 +109,19 @@ spec = describe "BrightwayExcel.Parser" $ do
             withWorkbook (buildWorkbook [("data", twiceAgreeingSheet)]) $ \path -> do
                 parseBrightwayExcel defaultUnitConfig path >>= \case
                     Left err -> expectationFailure (T.unpack err)
-                    Right (acts, _, _, _, _) -> map activityLocation acts `shouldBe` ["GLO"]
+                    Right Workbook{wbActivities = acts} -> map activityLocation acts `shouldBe` ["GLO"]
 
         it "keys the reference product by its product name" $ withFixture $ \path -> do
             parseBrightwayExcel defaultUnitConfig path >>= \case
                 Left err -> expectationFailure (T.unpack err)
-                Right (acts, techDB, _, _, _) -> do
+                Right Workbook{wbActivities = acts, wbTechFlows = techDB} -> do
                     elec <- requireActivity acts "Electricity production, natural gas"
                     referenceProductName techDB elec `shouldBe` Just "electricity, high voltage"
 
         it "keys a technosphere input by the supplier reference product, preserving amount" $ withFixture $ \path -> do
             parseBrightwayExcel defaultUnitConfig path >>= \case
                 Left err -> expectationFailure (T.unpack err)
-                Right (acts, techDB, _, _, _) -> do
+                Right Workbook{wbActivities = acts, wbTechFlows = techDB} -> do
                     elec <- requireActivity acts "Electricity production, natural gas"
                     let gas = listToMaybe [ex | ex <- inputExchanges elec, flowName techDB ex == Just "natural gas, high pressure"]
                     fmap techAmount gas `shouldBe` Just 8.5
@@ -123,7 +129,7 @@ spec = describe "BrightwayExcel.Parser" $ do
         it "keeps the supplier activity the row names apart from its product" $ withFixture $ \path -> do
             parseBrightwayExcel defaultUnitConfig path >>= \case
                 Left err -> expectationFailure (T.unpack err)
-                Right (acts, techDB, _, _, _) -> do
+                Right Workbook{wbActivities = acts, wbTechFlows = techDB} -> do
                     elec <- requireActivity acts "Electricity production, natural gas"
                     let gas = listToMaybe [ex | ex <- inputExchanges elec, flowName techDB ex == Just "natural gas, high pressure"]
                     fmap techSupplierClaim gas `shouldBe` Just (ClaimByName "natural gas, burned >100kW")
@@ -131,7 +137,7 @@ spec = describe "BrightwayExcel.Parser" $ do
         it "names no supplier activity on a production row" $ withFixture $ \path -> do
             parseBrightwayExcel defaultUnitConfig path >>= \case
                 Left err -> expectationFailure (T.unpack err)
-                Right (acts, _, _, _, _) -> do
+                Right Workbook{wbActivities = acts} -> do
                     elec <- requireActivity acts "Electricity production, natural gas"
                     let refs = [techSupplierClaim ex | ex@TechnosphereExchange{} <- exchanges elec, exchangeIsReference ex]
                     refs `shouldBe` [ClaimByProduct]
@@ -139,7 +145,7 @@ spec = describe "BrightwayExcel.Parser" $ do
         it "splits biosphere categories into compartment + sub and direction" $ withFixture $ \path -> do
             parseBrightwayExcel defaultUnitConfig path >>= \case
                 Left err -> expectationFailure (T.unpack err)
-                Right (acts, _, bioDB, _, _) -> do
+                Right Workbook{wbActivities = acts, wbBioFlows = bioDB} -> do
                     co2 <- requireBioFlow bioDB "Carbon dioxide, fossil"
                     bfCompartment co2 `shouldBe` Just (Compartment Air Nothing)
                     water <- requireBioFlow bioDB "Water"
@@ -150,25 +156,84 @@ spec = describe "BrightwayExcel.Parser" $ do
         it "reads a reordered exchange header by label" $ withFixture $ \path -> do
             parseBrightwayExcel defaultUnitConfig path >>= \case
                 Left err -> expectationFailure (T.unpack err)
-                Right (acts, techDB, _, _, _) -> do
+                Right Workbook{wbActivities = acts, wbTechFlows = techDB} -> do
                     cotton <- requireActivity acts "Cotton fibre production"
                     referenceProductName techDB cotton `shouldBe` Just "cotton fibre"
                     let irrigation = listToMaybe [ex | ex <- inputExchanges cotton, flowName techDB ex == Just "water, irrigation"]
                     fmap techAmount irrigation `shouldBe` Just 3.2
 
-    -- The format's formulas are Python, which no evaluator here reads, so the
-    -- amount column is all that is taken; a row carrying a formula has to say so.
     describe "a formula on an exchange row" $ do
-        it "is reported once per activity, and the stated amount is kept" $ do
+        it "leaves the amount column to say the amount when it reads a name nothing defines, and says so" $ do
             (acts, warnings) <- readSheet (formulaSheet (CT "mass * 2") (CT "mass / 4"))
             filter (T.isInfixOf "formula") warnings
-                `shouldBe` ["activity 'Widget manufacturing': exchange rows whose formula is ignored (not evaluated): 2; each is read from its amount column"]
+                `shouldBe` [ "activity 'Widget manufacturing', row 'steel': its formula mass * 2 is left aside (unknown variable mass); its amount column is read"
+                           , "activity 'Widget manufacturing', row 'Carbon dioxide, fossil': its formula mass / 4 is left aside (unknown variable mass); its amount column is read"
+                           ]
             widget <- requireActivity acts "Widget manufacturing"
             map techAmount (inputExchanges widget) `shouldBe` [1.0]
+            map techFormula (inputExchanges widget) `shouldBe` [Nothing]
 
         it "says nothing when the formula column is there but empty" $ do
             (_, warnings) <- readSheet (formulaSheet CE CE)
             filter (T.isInfixOf "formula") warnings `shouldBe` []
+
+    describe "a workbook with parameters" $ do
+        it "keeps its project and database parameters, a database one replacing nothing it does not name" $
+            withParametric $ \Workbook{wbParameters = parameters} -> do
+                M.keys parameters `shouldBe` ["loss", "mass", "spread", "twice"]
+                fmap parameterUnit (M.lookup "mass" parameters) `shouldBe` Just (Just "kilogram")
+                fmap parameterDescription (M.lookup "mass" parameters) `shouldBe` Just "Mass of a widget"
+                fmap parameterDefinition (M.lookup "loss" parameters) `shouldBe` Just (InputParameter 0.1 (Just (Uniform 0 0.2)))
+                case parameterDefinition <$> M.lookup "twice" parameters of
+                    Just (CalculatedParameter _ value) -> value `shouldBe` Just 4
+                    other -> expectationFailure ("twice is not calculated: " <> show other)
+
+        it "reads a lognormal's loc and scale as logarithms, and leaves out one whose loc is the amount itself" $
+            withParametric $ \Workbook{wbParameters = parameters} -> do
+                case parameterDefinition <$> M.lookup "mass" parameters of
+                    Just (InputParameter 2 (Just (Lognormal mean deviation))) -> do
+                        mean `shouldSatisfy` Expr.agrees 2
+                        deviation `shouldSatisfy` Expr.agrees 1.2
+                    other -> expectationFailure ("mass has no lognormal: " <> show other)
+                fmap parameterDefinition (M.lookup "spread" parameters) `shouldBe` Just (InputParameter 3 Nothing)
+
+        it "gives an activity the parameters of its group, and only those" $
+            withParametric $ \Workbook{wbActivities = acts} -> do
+                widget <- requireActivity acts "Widget manufacturing"
+                M.toList (M.map parameterDefinition (activityParameters widget))
+                    `shouldBe` [("share", InputParameter 0.5 (Just (Normal 0.5 0.1)))]
+
+        it "reads a Python formula, sympy's spellings with it, as the amount its row is worth" $
+            withParametric $ \Workbook{wbActivities = acts} -> do
+                widget <- requireActivity acts "Widget manufacturing"
+                let steel = [ex | ex@TechnosphereExchange{techRole = Input} <- exchanges widget, techAmount ex == 9]
+                map (fmap efText . techFormula) steel `shouldBe` [Just "max(mass * 2 - 1; 0) ^ 2"]
+
+        it "carries a formula into the reference unit of its row" $
+            withParametric $ \Workbook{wbActivities = acts} -> do
+                widget <- requireActivity acts "Widget manufacturing"
+                case [ex | ex@TechnosphereExchange{techRole = Input} <- exchanges widget, techAmount ex /= 9] of
+                    [plastic] -> do
+                        techAmount plastic `shouldSatisfy` Expr.agrees 1.1e-3
+                        case techFormula plastic of
+                            Just ExchangeFormula{efText = text} ->
+                                Expr.evaluate Expr.Volca (M.fromList [("mass", 2), ("loss", 0.1), ("share", 0.5)]) text
+                                    `shouldSatisfy` either (const False) (Expr.agrees 1.1e-3)
+                            Nothing -> expectationFailure "the plastic row keeps no formula"
+                    other -> expectationFailure ("expected one plastic row, got " <> show (length other))
+
+        it "takes the formula's value over the amount column, and keeps the column where the formula reads nothing defined" $
+            withParametric $ \Workbook{wbActivities = acts} -> do
+                widget <- requireActivity acts "Widget manufacturing"
+                [(bioAmount ex, isJust (bioFormula ex)) | ex@BiosphereExchange{} <- exchanges widget]
+                    `shouldBe` [(4, True), (0.5, False)]
+
+        it "says where a formula and the amount column disagree, and which formula is left aside" $ do
+            (_, warnings) <- readSheet parametricSheet
+            filter (T.isInfixOf "formula") warnings
+                `shouldBe` [ "activity 'Widget manufacturing', row 'Carbon dioxide, fossil': its formula gives 4.0 where its amount column says 5.0; the formula's value is read"
+                           , "activity 'Widget manufacturing', row 'Water': its formula volume * 2 is left aside (unknown variable volume); its amount column is read"
+                           ]
 
     describe "loadDatabase dispatch" $ do
         it "resolves within-file technosphere links" $
@@ -226,7 +291,7 @@ spec = describe "BrightwayExcel.Parser" $ do
             withWorkbook bytes $ \path -> do
                 parseBrightwayExcel defaultUnitConfig path >>= \case
                     Left err -> expectationFailure (T.unpack err)
-                    Right (acts, _, _, _, _) ->
+                    Right Workbook{wbActivities = acts} ->
                         map activityName acts
                             `shouldMatchList` ["Alpha activity", "Beta activity", "Gamma activity"]
 
@@ -240,7 +305,7 @@ spec = describe "BrightwayExcel.Parser" $ do
             withWorkbook bytes $ \path -> do
                 parseBrightwayExcel defaultUnitConfig path >>= \case
                     Left err -> expectationFailure (T.unpack err)
-                    Right (acts, _, _, _, _) ->
+                    Right Workbook{wbActivities = acts} ->
                         map activityName acts `shouldMatchList` ["Kept activity"]
 
     describe "skippedSheetWarning" $ do
@@ -386,6 +451,52 @@ formulaSheet inputFormula emissionFormula =
     , [CT "Widget manufacturing", CN 1, CT "widget", CT "GLO", CT "kilogram", CE, CT "production", CE]
     , [CT "Steel production", CN 1, CT "steel", CT "GLO", CT "kilogram", CE, CT "technosphere", inputFormula]
     , [CT "Carbon dioxide, fossil", CN 0.5, CE, CT "GLO", CT "kilogram", CT "air", CT "biosphere", emissionFormula]
+    ]
+
+-- | Read 'parametricSheet' as a whole workbook.
+withParametric :: (Workbook -> IO ()) -> IO ()
+withParametric check =
+    withWorkbook (buildWorkbook [("shop", parametricSheet)]) $
+        parseBrightwayExcel gramConfig >=> either (expectationFailure . T.unpack) check
+
+-- | Grams and kilograms, so a row in grams is read in kilograms.
+gramConfig :: UnitConfig
+gramConfig = either (error . T.unpack) id (buildFromCSV "name,dimension,factor\nkg,mass,1.0\ng,mass,1.0e-3\n")
+
+{- | A workbook laid out as Brightway writes one with parameters at each of its
+three levels: the project's, the database's, and a group's, which one activity
+names. Its exchange formulas are Python, the last reading a name nothing defines.
+-}
+parametricSheet :: [[Cell]]
+parametricSheet =
+    [ [CT "Project parameters"]
+    , [CT "name", CT "amount", CT "uncertainty type", CT "loc", CT "scale", CT "minimum", CT "maximum", CT "description", CT "unit"]
+    , [CT "mass", CN 2, CN 2, CN (log 2), CN (log 1.2), CE, CE, CT "Mass of a widget", CT "kilogram"]
+    , [CT "loss", CN 0.1, CN 4, CE, CE, CN 0, CN 0.2]
+    , []
+    , [CT "Database", CT "shop"]
+    , []
+    , [CT "Database parameters"]
+    , [CT "name", CT "amount", CT "formula", CT "uncertainty type", CT "loc", CT "scale", CT "database"]
+    , [CT "twice", CN 4, CT "mass * 2 if mass > 1 else 0", CE, CE, CE, CT "shop"]
+    , [CT "spread", CN 3, CE, CN 2, CN 3, CN 0.1, CT "shop"]
+    , []
+    , [CT "Activity", CT "Widget manufacturing"]
+    , [CT "production amount", CN 1]
+    , [CT "reference product", CT "widget"]
+    , [CT "location", CT "GLO"]
+    , [CT "unit", CT "kilogram"]
+    , [CT "Parameters", CT "widget group"]
+    , [CT "name", CT "amount", CT "uncertainty type", CT "loc", CT "scale", CT "code", CT "database"]
+    , [CT "share", CN 0.5, CN 3, CN 0.5, CN 0.1, CT "widget", CT "shop"]
+    , []
+    , [CT "Exchanges"]
+    , [CT "name", CT "amount", CT "reference product", CT "location", CT "unit", CT "categories", CT "type", CT "formula"]
+    , [CT "Widget manufacturing", CN 1, CT "widget", CT "GLO", CT "kilogram", CE, CT "production", CE]
+    , [CT "Steel production", CN 0, CT "steel", CT "GLO", CT "kilogram", CE, CT "technosphere", CT "Max(mass * 2 - 1, 0) ** 2"]
+    , [CT "Plastic production", CN 0, CT "plastic", CT "GLO", CT "g", CE, CT "technosphere", CT "mass * (1 + loss) * share"]
+    , [CT "Carbon dioxide, fossil", CN 5, CE, CT "GLO", CT "kilogram", CT "air", CT "biosphere", CT "twice"]
+    , [CT "Water", CN 0.5, CE, CT "GLO", CT "cubic meter", CT "natural resource::in water", CT "biosphere", CT "volume * 2"]
     ]
 
 {- | A workbook whose own coke, weighed in kilograms, is spelt like the coke

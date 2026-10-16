@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | The formula languages: what each computes, how VoLCA's writes any of
@@ -34,6 +35,11 @@ unreadableNaming word got = case got of
     Left (Unreadable reason) -> reason `shouldSatisfy` T.isInfixOf word
     Left (Unresolved names) -> expectationFailure ("unresolved " <> show names)
     Right x -> expectationFailure ("read as " <> show x)
+
+isUnreadable :: Either Refusal Double -> Bool
+isUnreadable = \case
+    Left (Unreadable _) -> True
+    _ -> False
 
 spec :: Spec
 spec = do
@@ -173,6 +179,46 @@ spec = do
             Expr.isExpression SimaPro "not defined" `shouldBe` False
         it "collects a parameter named like a function, and not and or" $
             collectIdentifiers SimaPro "iff(a=1 AND b<>2;1;0) + int" `shouldBe` ["a", "b", "int"]
+
+    describe "Python, in which a Brightway workbook writes its formulas" $ do
+        let python env = Expr.evaluate Python (M.fromList env)
+        it "binds ** tighter than a sign before it, chaining from the right, and takes a signed exponent" $ do
+            python [] "2 ** 3 ** 2" `shouldBe` Right 512
+            python [] "-2 ** 2" `shouldBe` Right (-4)
+            python [] "2 ** -1" `shouldBe` Right 0.5
+            python [] "7 / 2 * 2" `shouldBe` Right 7
+        it "chains comparisons, each meaning the next as with and" $ do
+            python [("x", 2)] "1 < x < 3" `shouldBe` Right 1
+            python [("x", 5)] "1 < x < 3" `shouldBe` Right 0
+            python [("x", 2)] "(x == 2) + (x != 2)" `shouldBe` Right 1
+        it "reads a conditional expression, computing only the branch it takes" $ do
+            python [("mass", 2)] "mass * 2 if mass > 1 else 0" `shouldBe` Right 4
+            python [("mass", 0.5)] "mass * 2 if mass > 1 else 0" `shouldBe` Right 0
+            python [("a", 0)] "1 if a else 2 if missing else 3" `shouldBe` Left (Unresolved ("missing" :| []))
+            python [("a", 1)] "1 if a else 2 if missing else 3" `shouldBe` Right 1
+        it "gives an operand from and and or, as Python does, and stops at the first that settles it" $ do
+            python [] "0 or 5" `shouldBe` Right 5
+            python [] "3 and 4" `shouldBe` Right 4
+            python [] "0 and missing" `shouldBe` Right 0
+            python [] "not 0" `shouldBe` Right 1
+            python [] "True + True + False" `shouldBe` Right 2
+        it "calls functions with commas, by their Python names or sympy's" $ do
+            python [("mass", 2)] "Max(mass * 2 - 1, 0) ** 2" `shouldBe` Right 9
+            near 3 (python [] "log(8, 2)")
+            near 1 (python [] "log(e)")
+            near 1 (python [] "sin(pi / 2)")
+            python [] "round(2.5) + ceiling(1.2) + ceil(1.2)" `shouldBe` Right 6
+        it "refuses what Python means otherwise: ^ is not a power, // and % are not division" $ do
+            python [] "2 ^ 3" `shouldSatisfy` isUnreadable
+            python [] "7 // 2" `shouldSatisfy` isUnreadable
+            python [] "7 % 2" `shouldSatisfy` isUnreadable
+        it "refuses a formula that gives no finite number, as Python raises" $
+            unreadableNaming "finite" (python [] "1 / 0")
+        it "is written in VoLCA's language" $ do
+            translate Python "mass * (1 + loss)" `shouldBe` Right "mass * (1 + loss)"
+            translate Python "x ** 2" `shouldBe` Right "x ^ 2"
+            translate Python "a if c > 1 else b" `shouldBe` Right "if(c > 1; a; b)"
+            translate Python "Max(a, 0) + log(x)" `shouldBe` Right "max(a; 0) + ln(x)"
 
     describe "the older dialects keep a non-finite result" $
         it "gives Infinity for 1/0" $ do

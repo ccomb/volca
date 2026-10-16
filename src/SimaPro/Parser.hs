@@ -33,6 +33,7 @@ module SimaPro.Parser (
     generateFlowUUID,
     generateUnitUUID,
     canonicalRow,
+    canonicalFactor,
     unitDeclarations,
     workerRanges,
     normalizeSimaProCompartment,
@@ -395,12 +396,13 @@ data GlobalParams = GlobalParams
 
 instance NFData GlobalParams
 
--- | A parameter line: the name, the value or formula as written, what its comment says, and the spread of an input.
+-- | A parameter line: the name, the value or formula as written, what its comment says, the spread of an input, and its unit where the format states one.
 data ParamRow = ParamRow
     { parName :: !Text
     , parValue :: !Text
     , parComment :: !Text
     , parUncertainty :: !(Maybe Uncertainty)
+    , parUnit :: !(Maybe Text)
     }
     deriving (Show, Eq, Generic)
 
@@ -647,6 +649,7 @@ parseParamRow cfg kind line =
                                 , parUncertainty = case kind of
                                     InputParam -> (`spread` map cell rest) =<< readAmount (cell value)
                                     CalculatedParam -> Nothing
+                                , parUnit = Nothing
                                 }
         _ -> Nothing
 
@@ -1460,7 +1463,9 @@ blockLabel pb = case nonEmptyText (T.strip (pbName pb)) of
     Nothing -> maybe "unnamed process" prName (listToMaybe (pbProducts pb))
 
 {- | Build the resolved parameter environment and the parameters from the
-levels of a file, the most general first: database, project, process. Each
+levels of a file, the most general first: database, project, process in a
+SimaPro file, project, database, activity group in a Brightway workbook, each
+read in the dialect given. Each
 level is its input parameters and its calculated ones. A name means its
 definition at the finest level that has one, input or calculated, and every
 formula reads it so: a process input replaces a project formula of its name.
@@ -1474,8 +1479,8 @@ reading it is among the 'fallbackAmounts'; so is an input whose value does
 not read, which is no parameter. Either still replaces the more general
 definition of its name, whose value would not be the one the level meant.
 -}
-buildParamEnv :: [ParamLevel] -> (M.Map Text Double, M.Map Text Parameter)
-buildParamEnv levels =
+buildParamEnv :: Expr.Dialect -> [ParamLevel] -> (M.Map Text Double, M.Map Text Parameter)
+buildParamEnv dialect levels =
     ( env
     , foldl' (flip (uncurry respell)) M.empty ([(parName r, described r (InputParameter value (parUncertainty r))) | r <- inputGroup, Just value <- [M.lookup (parName r) inputs]] ++ calculated)
     )
@@ -1505,21 +1510,21 @@ buildParamEnv levels =
 
     -- A formula that does not settle has no value: no input of its name is left to lend one.
     env :: M.Map Text Double
-    env = fst (Expr.settle Expr.SimaPro inputs [(parName r, parValue r) | r <- calcGroup])
+    env = fst (Expr.settle dialect inputs [(parName r, parValue r) | r <- calcGroup])
 
     calculated :: [(Text, Parameter)]
     calculated = [(parName r, described r p) | r <- calcGroup, Just p <- [definition (parValue r) (M.lookup (parName r) env)]]
 
     -- A formula VoLCA's language cannot write leaves its value only.
     definition :: Text -> Maybe Double -> Maybe ParameterDefinition
-    definition formula value = either (const ((`InputParameter` Nothing) <$> value)) (\text -> Just (CalculatedParameter text value)) (Expr.translate Expr.SimaPro formula)
+    definition formula value = either (const ((`InputParameter` Nothing) <$> value)) (\text -> Just (CalculatedParameter text value)) (Expr.translate dialect formula)
 
     described :: ParamRow -> ParameterDefinition -> Parameter
-    described r d = Parameter{parameterDefinition = d, parameterUnit = Nothing, parameterDescription = parComment r}
+    described r d = Parameter{parameterDefinition = d, parameterUnit = parUnit r, parameterDescription = parComment r}
 
     evalParam :: M.Map Text Double -> ParamRow -> M.Map Text Double
     evalParam acc r =
-        either (const acc) (\v -> respell (parName r) v acc) (Expr.evaluate Expr.SimaPro acc (parValue r))
+        either (const acc) (\v -> respell (parName r) v acc) (Expr.evaluate dialect acc (parValue r))
 
 -- | Bind a name, dropping the spellings of it that differ only in case.
 respell :: Text -> a -> M.Map Text a -> M.Map Text a
@@ -1534,12 +1539,12 @@ blockParamEnv GlobalParams{..} ProcessBlock{..} =
   where
     own = S.fromList (map (T.toLower . parName) (pbInputParams ++ pbCalcParams))
     (env, parameters) =
-        buildParamEnv [ParamLevel (reverse gpDbInput) (reverse gpDbCalc), ParamLevel (reverse gpProjInput) (reverse gpProjCalc), ParamLevel (reverse pbInputParams) (reverse pbCalcParams)]
+        buildParamEnv Expr.SimaPro [ParamLevel (reverse gpDbInput) (reverse gpDbCalc), ParamLevel (reverse gpProjInput) (reverse gpProjCalc), ParamLevel (reverse pbInputParams) (reverse pbCalcParams)]
 
 -- | The database and project parameters, a project one replacing the database one of its name.
 globalParameters :: GlobalParams -> M.Map Text Parameter
 globalParameters GlobalParams{..} =
-    snd (buildParamEnv [ParamLevel (reverse gpDbInput) (reverse gpDbCalc), ParamLevel (reverse gpProjInput) (reverse gpProjCalc)])
+    snd (buildParamEnv Expr.SimaPro [ParamLevel (reverse gpDbInput) (reverse gpDbCalc), ParamLevel (reverse gpProjInput) (reverse gpProjCalc)])
 
 -- | The names a project parameter takes from a database parameter.
 shadowedByProject :: GlobalParams -> [Text]
