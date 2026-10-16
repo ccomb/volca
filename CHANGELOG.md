@@ -162,6 +162,15 @@
   in France came back with 749 activities, wheat flours, pastas and
   tortillas among them, and now with the 19 that are soft wheat.
 
+- An activity search forgives a typo in a short word, and two letters
+  swapped: "soft wheet", "sotf wheat", "suger" or "tap watr" found nothing
+  and now find what was meant. Among words as close to the typo, the one
+  most names hold comes first ("braed" lists bread before brandy). A word
+  the database holds is taken as typed when shorter than six letters, and
+  reaches only spellings one letter away when longer (trellis, treillis),
+  so a search for a word the names hold gives a few fewer of the names
+  that only hold a neighbour of it.
+
 - The inventory of an activity over HTTP takes `flow` and `limit`, as the
   MCP tool already did: `flow` keeps the flows whose name answers it, read
   the way a flow search reads it, and `limit` keeps that many of them,

@@ -3,7 +3,7 @@
 Pipeline per query token:
   1. If the token is already in the BM25 vocabulary, include it at weight 1.0.
   2. Edit-distance candidates (weight 0.5) – typos and orthographic variants
-     (e.g. trellis ↔ treillis).
+     (e.g. trellis ↔ treillis), two swapped letters counting as one typo.
   3. Prefix-coverage candidates (weight 0.7) – stems like "elec" →
      "electricity". Run alongside edit-distance, not as a fallback: a short
      query like "elec" can have unrelated edit-distance hits ("alec",
@@ -12,8 +12,10 @@ Pipeline per query token:
      higher weight wins (prefix > edit).
   5. If nothing matches at any stage, the token is dropped.
 
-The trigram index on BM25Index acts as a cheap prefilter so we only compute
-edit distance against plausible candidates, not the whole vocabulary.
+The trigram index on BM25Index acts as a cheap prefilter for prefix matches.
+Edit-distance candidates are not drawn from it: one changed letter breaks up
+to three trigrams, so a five-letter typo ("wheet") shares one with the word
+meant ("wheat") and a swap ("sotf") none.
 -}
 module Search.Fuzzy (
     expandTokens,
@@ -35,11 +37,12 @@ import qualified Data.Vector.Unboxed.Mutable as VUM
 import Search.BM25.Types (BM25Index (..))
 
 -- Tunable constants (not wired to config – see plan thresholds section).
-fuzzyWeight, prefixWeight :: Double
+fuzzyWeight, fuzzyStep, prefixWeight :: Double
 fuzzyWeight = 0.5
+fuzzyStep = 0.05
 prefixWeight = 0.7
 
-minSharedTrigrams, topN, prefixTopN, minPrefixLen :: Int
+minSharedTrigrams, topN, prefixTopN, minPrefixLen, minEditLen, minVariantLen :: Int
 minSharedTrigrams = 2
 topN = 3
 -- Stem expansions are inherently a long tail (a 4-5 char prefix typically
@@ -48,9 +51,15 @@ topN = 3
 -- many shorter siblings ("elect", "electa", "electro") share the prefix.
 prefixTopN = 10
 minPrefixLen = 4
+-- Below four letters a word has too many neighbours one letter away ("tea",
+-- "pea", "sea") for any of them to be the one meant.
+minEditLen = 4
+-- A word the vocabulary holds and shorter than this is taken as typed: "milk"
+-- is milk, not silk. Longer ones also reach their spelling variants one
+-- letter away (trellis, treillis), but not two: "potato" is not potash.
+minVariantLen = 6
 
-minJaccard, minCoverage :: Double
-minJaccard = 0.3
+minCoverage :: Double
 minCoverage = 0.9
 
 -- | Maximum Levenshtein distance tolerated for a query token of this length.
@@ -81,34 +90,42 @@ expandTokensGrouped idx = map expand
     expand t =
         let inVocab = t `M.member` bm25Postings idx
             exact = [(t, 1.0) | inVocab]
-            edits = [(c, fuzzyWeight) | c <- take topN (editCandidates idx t), c /= t]
+            len = T.length t
+            edits
+                | len < minEditLen || (inVocab && len < minVariantLen) = []
+                -- Weights fall in the candidates' order, so the names holding the
+                -- closest, most used one come first: "braed" lists bread before
+                -- brandy, which equal weights ranked first for its rarer word.
+                | otherwise = zip [c | c <- take topN (editCandidates idx k t), c /= t] [fuzzyWeight, fuzzyWeight - fuzzyStep ..]
+            k = if inVocab then 1 else maxEditK len
             prefixes = [(c, prefixWeight) | c <- take prefixTopN (prefixCandidates idx t), c /= t]
             -- A candidate can satisfy both edit-distance and prefix-coverage
             -- (e.g. "electricit" → "electricity"). Keep the higher weight.
             variants = M.toList (M.fromListWith max (edits ++ prefixes))
          in exact ++ variants
 
-{- | Candidate tokens within the permitted edit distance of the query.
-Uses the trigram index as a prefilter: only tokens sharing at least
-`minSharedTrigrams` trigrams with the query are considered.
-Results sorted by (jaccard desc, editDistance asc).
+{- | Candidate tokens at most @k@ edits from the query, the
+closest first and, among equally close ones, the most widely used: of
+"sheet", "wheel" and "wheat" for "wheet", a food database means the one
+its names hold most. Every vocabulary token whose length allows it is
+compared, since trigrams miss short typos (see the module header).
 -}
-editCandidates :: BM25Index -> Text -> [Text]
-editCandidates idx q
-    | S.null qTrigs = []
-    | otherwise = map (\(c, _, _) -> c) (sortOn sortKey scored)
+editCandidates :: BM25Index -> Int -> Text -> [Text]
+editCandidates idx k q = map fst (sortOn sortKey scored)
   where
-    qTrigs = trigramsOf q
-    k = maxEditK (T.length q)
-    sortKey (_, ja, d) = (Down ja, d)
+    n = T.length q
+    sortKey (c, d) = (d, Down (documentFrequency idx c))
     scored =
-        [ (c, ja, d)
-        | c <- candidateBucket idx qTrigs
-        , let ja = jaccard qTrigs (trigramsOf c)
-        , ja >= minJaccard
+        [ (c, d)
+        | c <- V.toList (bm25Vocabulary idx)
+        , abs (T.length c - n) <= k
         , let d = editDistance q c
         , d <= k
         ]
+
+-- | How many documents hold a vocabulary token.
+documentFrequency :: BM25Index -> Text -> Int
+documentFrequency idx t = maybe 0 VU.length (M.lookup t (bm25Postings idx))
 
 {- | Candidate tokens that have the query's trigrams as a near-subset
 (prefix/stem matches). Length guard prevents short queries from matching
@@ -163,45 +180,30 @@ trigramsOf t
         | T.length s < 3 = []
         | otherwise = T.take 3 s : go (T.drop 1 s)
 
-jaccard :: S.Set Text -> S.Set Text -> Double
-jaccard a b
-    | S.null a && S.null b = 0
-    | otherwise =
-        let i = S.size (S.intersection a b)
-            u = S.size (S.union a b)
-         in fromIntegral i / fromIntegral u
-
 -- | One-way trigram coverage: |Q ∩ C| / |Q|. Returns 0 if Q is empty.
 coverage :: S.Set Text -> S.Set Text -> Double
 coverage q c
     | S.null q = 0
     | otherwise = fromIntegral (S.size (S.intersection q c)) / fromIntegral (S.size q)
 
-{- | Levenshtein edit distance. Standard DP over an unboxed row buffer;
-O(|a| * |b|) time, O(min |a| |b|) space.
+{- | Edit distance where a letter inserted, deleted, replaced, or swapped with
+its neighbour costs one (optimal string alignment): "sotf" is one typo from
+"soft", where plain Levenshtein counts two.
 -}
 editDistance :: Text -> Text -> Int
-editDistance a b
-    | T.length a < T.length b = editDistance b a
-    | T.null b = T.length a
-    | otherwise = runST $ do
-        let m = T.length a
-            n = T.length b
-            aChars = T.unpack a
-            bChars = T.unpack b
-        prev <- VU.thaw (VU.generate (n + 1) id)
-        curr <- VUM.replicate (n + 1) 0
-        forM_ (zip [1 .. m] aChars) $ \(i, ca) -> do
-            VUM.write curr 0 i
-            forM_ (zip [1 .. n] bChars) $ \(j, cb) -> do
-                up <- VUM.read prev j
-                left <- VUM.read curr (j - 1)
-                diag <- VUM.read prev (j - 1)
-                let subCost = if ca == cb then 0 else 1
-                    dist = minimum [up + 1, left + 1, diag + subCost]
-                VUM.write curr j dist
-            -- swap rows by copying curr → prev
-            forM_ [0 .. n] $ \j -> do
-                v <- VUM.read curr j
-                VUM.write prev j v
-        VUM.read prev n
+editDistance a b = VU.last (snd (foldl' step (VU.empty, VU.enumFromN 0 (n + 1)) (zip [1 ..] (T.unpack a))))
+  where
+    av = VU.fromList (T.unpack a)
+    bv = VU.fromList (T.unpack b)
+    n = VU.length bv
+    -- One row per letter of @a@; the row two above is what a swap reads.
+    step (above2, above) (i, ca) = (above, VU.constructN (n + 1) cell)
+      where
+        cell done
+            | j == 0 = i
+            | otherwise = minimum (above VU.! j + 1 : done VU.! (j - 1) + 1 : above VU.! (j - 1) + cost : swapped)
+          where
+            j = VU.length done
+            cb = bv VU.! (j - 1)
+            cost = if ca == cb then 0 else 1
+            swapped = [above2 VU.! (j - 2) + 1 | i > 1, j > 1, ca == bv VU.! (j - 2), av VU.! (i - 2) == cb]

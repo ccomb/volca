@@ -58,6 +58,29 @@ spec = describe "Search.Fuzzy" $ do
         let idx = indexOfNames ["electricity grid"]
         expandTokens idx ["electri"] `shouldBe` [("electricity", 0.7)]
 
+    it "corrects one letter of a short word, which shares a single trigram with it" $ do
+        let idx = indexOfNames ["Soft wheat grain", "Cardboard sheet"]
+        map fst (expandTokens idx ["wheet"]) `shouldContain` ["wheat"]
+
+    it "corrects two swapped letters as one typo" $ do
+        let idx = indexOfNames ["Soft wheat grain"]
+        expandTokens idx ["sotf"] `shouldBe` [("soft", 0.5)]
+        expandTokens idx ["whaet"] `shouldBe` [("wheat", 0.5)]
+
+    it "keeps the common word among several one letter away" $ do
+        -- Five names one letter from "wheet", the wheat named most often: it
+        -- must survive the cut to the closest few.
+        let idx =
+                indexOfNames
+                    ( ["Cardboard sheet", "Steel wheel", "Garden sweet pea", "Tweet archive", "Wheeze relief"]
+                        ++ replicate 5 "Soft wheat grain"
+                    )
+        map fst (expandTokens idx ["wheet"]) `shouldContain` ["wheat"]
+
+    it "reaches no word two letters from a word the vocabulary holds" $ do
+        let idx = indexOfNames ["Potato, canned", "Potash salt"]
+        expandTokens idx ["potato"] `shouldBe` [("potato", 1.0)]
+
     it "merges edit-distance and prefix matches on the same candidate, keeping the higher weight" $ do
         -- "electricit" reaches "electricity" via both edit-distance (1 char)
         -- and prefix-coverage. After merge, the prefix weight (0.7) wins.
