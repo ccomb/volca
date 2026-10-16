@@ -231,12 +231,16 @@ aggregateIn manager pid scope =
 0.5, takes 1 kg of K nobody makes.
 -}
 withheldDependency :: IO DM.DatabaseManager
-withheldDependency = do
+withheldDependency = dependencyUnder (own [SeeDetailedScores])
+
+-- | The same two databases, the dependency under the licence given.
+dependencyUnder :: Licence -> IO DM.DatabaseManager
+dependencyUnder licence = do
     supplier <- build (simple [((actS, mFlow), mkActivity "S" [reference mFlow, techInput kFlow 1])])
     consumer <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, techInput mFlow 0.5])])
     let linked = linkDatabases consumer supplier "dep" 0.5
         rootDb = linked{dbCrossDBLinks = map (\l -> l{cdlConsumerFlowId = mFlow}) (dbCrossDBLinks linked), dbDependsOn = ["dep"]}
-    managerOf [("dep", own [SeeDetailedScores], supplier), ("main", LicenceUnstated, rootDb)]
+    managerOf [("dep", licence, supplier), ("main", LicenceUnstated, rootDb)]
 
 rootOf :: DM.DatabaseManager -> IO Database
 rootOf manager = DM.getDatabase manager "main" >>= maybe (fail "main not loaded") (pure . DM.ldDatabase)
@@ -334,6 +338,25 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         payload <- mcp manager "compute_sensitivity" [("process_id", String pid), ("perturbations", Array V.empty)]
         let namedIn = [d | Just (Array xs) <- [KM.lookup "cutoff_inputs" payload], Object o <- toList xs, Just d <- [KM.lookup "database" o]]
         namedIn `shouldBe` []
+
+    describe "the supply chain and its consumption aggregate, solved into a dependency" $ do
+        let reached licence = do
+                manager <- dependencyUnder licence
+                pid <- rootOf manager >>= \rootDb -> pidOf rootDb (actR, rFlow)
+                chain <- ok manager (getActivitySupplyChain "main" pid Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing [] [] [] Nothing Nothing Nothing)
+                consumption <- aggregateIn manager pid "consumption"
+                pure
+                    ( (rounded (scrCutoffInputs chain), scrWithheldCutoffs chain)
+                    , (rounded (aggCutoffInputs consumption), aggWithheldCutoffs consumption)
+                    )
+        let named = [cutoff "dep" "K" 0.5 1 noNameMatch]
+            counted = [WithheldCutoffs "dep" 1]
+        it "names the input the dependency leaves unsupplied" $
+            reached LicenceUnstated `shouldReturn` ((named, []), (named, []))
+        it "names it still when the dependency keeps only its detailed scores" $
+            reached (own [SeeDetailedScores]) `shouldReturn` ((named, []), (named, []))
+        it "counts it without naming it when the dependency keeps its inventory" $
+            reached (own [ReadInventory]) `shouldReturn` (([], counted), ([], counted))
 
     it "counts, without naming them, the root's own when its licence refuses to show its inventory" $ do
         db <- build mainSdb
