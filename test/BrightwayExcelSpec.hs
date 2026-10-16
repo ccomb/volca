@@ -228,6 +228,20 @@ spec = describe "BrightwayExcel.Parser" $ do
                 [(bioAmount ex, isJust (bioFormula ex)) | ex@BiosphereExchange{} <- exchanges widget]
                     `shouldBe` [(4, True), (0.5, False)]
 
+        it "keeps an unnamed group to its activity, and says what in it gives no value" $ do
+            (acts, warnings) <- readSheet ownGroupSheet
+            widget <- requireActivity acts "Widget manufacturing"
+            M.keys (activityParameters widget) `shouldBe` ["doubled", "halves", "share", "zero"]
+            fmap parameterDefinition (M.lookup "halves" (activityParameters widget)) `shouldBe` Just (InputParameter 3 Nothing)
+            fmap parameterDefinition (M.lookup "share" (activityParameters widget)) `shouldBe` Just (InputParameter 0.5 Nothing)
+            map techAmount (inputExchanges widget) `shouldBe` [1, 1.5]
+            map (isJust . techFormula) (inputExchanges widget) `shouldBe` [False, True]
+            let about needle = filter (T.isInfixOf needle) warnings
+            about "'share'" `shouldBe` ["activity 'Widget manufacturing' parameter 'share': its uncertainty type 9 is left out, the engine has no such distribution"]
+            map (T.isSuffixOf "; its amount is read") (about "'halves'") `shouldBe` [True]
+            about "'doubled'" `shouldBe` ["activity 'Widget manufacturing' parameter 'doubled': its formula widht * 2 gives no value (unknown variable widht)"]
+            map (T.isInfixOf "no finite number") (about "row 'steel'") `shouldBe` [True]
+
         it "says where a formula and the amount column disagree, and which formula is left aside" $ do
             (_, warnings) <- readSheet parametricSheet
             filter (T.isInfixOf "formula") warnings
@@ -497,6 +511,31 @@ parametricSheet =
     , [CT "Plastic production", CN 0, CT "plastic", CT "GLO", CT "g", CE, CT "technosphere", CT "mass * (1 + loss) * share"]
     , [CT "Carbon dioxide, fossil", CN 5, CE, CT "GLO", CT "kilogram", CT "air", CT "biosphere", CT "twice"]
     , [CT "Water", CN 0.5, CE, CT "GLO", CT "cubic meter", CT "natural resource::in water", CT "biosphere", CT "volume * 2"]
+    ]
+
+{- | An activity whose @Parameters@ section names no group, so they are its
+own. One parameter states a distribution the engine has no shape for, one a
+formula Python's floor division writes, one a formula reading a misspelt name;
+a line divides by a parameter worth 0.
+-}
+ownGroupSheet :: [[Cell]]
+ownGroupSheet =
+    [ [CT "Activity", CT "Widget manufacturing"]
+    , [CT "production amount", CN 1]
+    , [CT "reference product", CT "widget"]
+    , [CT "location", CT "GLO"]
+    , [CT "unit", CT "kilogram"]
+    , [CT "Parameters"]
+    , [CT "name", CT "amount", CT "formula", CT "uncertainty type"]
+    , [CT "share", CN 0.5, CE, CN 9]
+    , [CT "halves", CN 3, CT "7 // 2"]
+    , [CT "doubled", CE, CT "widht * 2"]
+    , [CT "zero", CN 0]
+    , [CT "Exchanges"]
+    , [CT "name", CT "amount", CT "reference product", CT "location", CT "unit", CT "categories", CT "type", CT "formula"]
+    , [CT "Widget manufacturing", CN 1, CT "widget", CT "GLO", CT "kilogram", CE, CT "production", CE]
+    , [CT "Steel production", CN 1, CT "steel", CT "GLO", CT "kilogram", CE, CT "technosphere", CT "1 / zero"]
+    , [CT "Plastic production", CN 0, CT "plastic", CT "GLO", CT "kilogram", CE, CT "technosphere", CT "halves * share"]
     ]
 
 {- | A workbook whose own coke, weighed in kilograms, is spelt like the coke

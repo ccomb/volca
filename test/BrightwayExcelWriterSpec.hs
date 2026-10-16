@@ -876,10 +876,6 @@ expectedNormalized =
 -- Logical-cell extraction (for idempotence)
 -- ---------------------------------------------------------------------------
 
-{- | Re-export the parsed 5-tuple to the writer's input shape. Activities are
-keyed exactly as 'Database.Loader.loadBrightwayExcel' keys them.
--}
-
 -- | A database as the workbook that holds it parses to.
 asWorkbook :: SimpleDatabase -> Workbook
 asWorkbook db =
@@ -891,6 +887,9 @@ asWorkbook db =
         , wbParameters = sdbParameters db
         }
 
+{- | Re-export the parsed workbook to the writer's input shape. Activities are
+keyed exactly as 'Database.Loader.loadBrightwayExcel' keys them.
+-}
 rebuild :: Parsed -> SimpleDatabase
 rebuild Workbook{wbActivities = acts, wbTechFlows = techDB, wbBioFlows = bioDB, wbUnits = unitDB, wbParameters = parameters} =
     SimpleDatabase

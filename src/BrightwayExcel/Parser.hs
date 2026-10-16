@@ -151,7 +151,7 @@ parseBrightwayExcel cfg path = do
         Left err -> pure (Left ("Brightway Excel: " <> err))
         Right sheets -> do
             let (dataSheets, skipped) = partition (validFirstCell . snd) sheets
-                (results, blocks, (globals, globalWarnings)) = readRows cfg (map snd dataSheets)
+                WorkbookRows{wrResults = results, wrBlocks = blocks, wrParameters = parameters, wrWarnings = globalWarnings} = readRows cfg (map snd dataSheets)
                 activities = [a | (a, _, _, _, _) <- results]
                 techFlows = concat [fs | (_, fs, _, _, _) <- results]
                 bioFlows = concat [fs | (_, _, fs, _, _) <- results]
@@ -170,29 +170,46 @@ parseBrightwayExcel cfg path = do
                         , wbTechFlows = techFlowDB
                         , wbBioFlows = bioFlowDB
                         , wbUnits = unitDB
-                        , wbParameters = snd (buildParamEnv Expr.Python globals)
+                        , wbParameters = snd (buildParamEnv Expr.Python (wpGlobals parameters))
                         }
 
-{- | The activities of the worksheets given, each with its flows, units and
-warnings; their blocks; and the parameter levels above every activity, with
-what reading them raised.
--}
-readRows ::
-    UC.UnitConfig ->
-    [[Row]] ->
-    ([(Activity, [TechnosphereFlow], [BiosphereFlow], [Unit], [Text])], [RawActivity], ([ParamLevel], [Text]))
+-- | What the worksheets of a workbook read to.
+data WorkbookRows = WorkbookRows
+    { wrResults :: ![(Activity, [TechnosphereFlow], [BiosphereFlow], [Unit], [Text])]
+    -- ^ Each activity with its flows, units and warnings.
+    , wrBlocks :: ![RawActivity]
+    , wrParameters :: !WorkbookParameters
+    , wrWarnings :: ![Text]
+    -- ^ What reading the parameters above the activities raised.
+    }
+
+-- | The parameters a workbook defines outside any one activity.
+data WorkbookParameters = WorkbookParameters
+    { wpGlobals :: ![ParamLevel]
+    -- ^ The project's, then the databases'.
+    , wpGroups :: !(M.Map Text ParamLevel)
+    -- ^ Each named group's, gathered from every activity that names it.
+    }
+
+readRows :: UC.UnitConfig -> [[Row]] -> WorkbookRows
 readRows cfg sheets =
-    ( map (rawToActivity cfg (ownDatabases sheets blocks) globals groups) blocks
-    , blocks
-    , (globals, globalWarnings ++ groupWarnings ++ valueless "" globals (concatMap levelCalculated globals) ++ groupValueless)
-    )
+    WorkbookRows
+        { wrResults = map (rawToActivity cfg (ownDatabases sheets blocks) parameters) blocks
+        , wrBlocks = blocks
+        , wrParameters = parameters
+        , wrWarnings = globalWarnings ++ groupWarnings ++ globalValueless ++ groupValueless
+        }
   where
     blocks :: [RawActivity]
     blocks = concatMap (mapMaybe parseBlock . activityBlocks) sheets
     (globals, globalWarnings) = workbookLevels sheets
     (groups, groupWarnings) = groupLevels blocks
+    parameters :: WorkbookParameters
+    parameters = WorkbookParameters globals groups
+    globalValueless :: [Text]
+    globalValueless = concat [valueless whose (take n globals) (levelCalculated level) | (n, whose, level) <- zip3 [1 :: Int ..] ["project", "database"] globals]
     groupValueless :: [Text]
-    groupValueless = concat (M.mapWithKey (\group level -> valueless ("group '" <> group <> "', ") (globals ++ [level]) (levelCalculated level)) groups)
+    groupValueless = concat (M.mapWithKey (\group level -> valueless ("group '" <> group <> "'") (globals ++ [level]) (levelCalculated level)) groups)
 
 {- | The parameters above every activity: the project's, then the databases',
 each replacing a project parameter of its name.
@@ -206,7 +223,7 @@ workbookLevels sheets = (map fst levels, concatMap snd levels)
         | (whose, keyword) <- [("project", "project parameters"), ("database", "database parameters")]
         ]
 
--- | Each group's parameters, gathered from every activity that names the group.
+-- | Each named group's parameters, gathered from every activity that names the group.
 groupLevels :: [RawActivity] -> (M.Map Text ParamLevel, [Text])
 groupLevels blocks = (M.map fst levels, concatMap snd (M.elems levels))
   where
@@ -214,18 +231,21 @@ groupLevels blocks = (M.map fst levels, concatMap snd (M.elems levels))
     levels =
         M.mapWithKey
             (\group -> parameterLevel ("group '" <> group <> "'"))
-            (M.fromListWith (flip (++)) [(group, [table]) | RawActivity{raParameters = Just (group, table)} <- blocks])
+            (M.fromListWith (flip (++)) [(group, [table]) | RawActivity{raParameters = Just (SharedGroup group, table)} <- blocks])
 
--- | The calculated parameters given whose formula gives no value in the levels given, which no formula can then read.
+-- | The calculated parameters given whose formula gives no value in the levels given, with why: a formula reading them gets none either.
 valueless :: Text -> [ParamLevel] -> [ParamRow] -> [Text]
 valueless whose levels calculated =
-    [ whose <> "parameter '" <> parName r <> "': left out, its formula " <> parValue r <> " gives no value"
+    [ whose <> " parameter '" <> parName r <> "': its formula " <> parValue r <> " gives no value (" <> Expr.describeRefusal refusal <> ")"
     | r <- calculated
-    , S.notMember (T.toLower (parName r)) defined
+    , S.notMember (T.toLower (parName r)) valued
+    , Left refusal <- [Expr.evaluate Expr.Python env (parValue r)]
     ]
   where
-    defined :: S.Set Text
-    defined = S.map T.toLower (M.keysSet (snd (buildParamEnv Expr.Python levels)))
+    env :: M.Map Text Double
+    env = fst (buildParamEnv Expr.Python levels)
+    valued :: S.Set Text
+    valued = S.map T.toLower (M.keysSet env)
 
 {- | Every table a worksheet opens with the keyword given: the header row after
 it, then the rows down to a blank row or the next section.
@@ -250,6 +270,11 @@ parameterLevel whose tables = (ParamLevel inputs calculated, warnings)
 parameterRow :: Text -> M.Map Text CellValue -> ([Text], [Either ParamRow ParamRow])
 parameterRow whose f = case (fieldText f "name", fieldText f "formula", fieldNum f "amount") of
     (Nothing, _, _) -> ([whose <> " parameters: skipped a row with no name"], [])
+    (Just name, Just formula, Just amount)
+        | Left refusal <- Expr.translate Expr.Python formula ->
+            ( [whose <> " parameter '" <> name <> "': its formula " <> formula <> " is left aside (" <> Expr.describeRefusal refusal <> "); its amount is read"]
+            , [Left (row name (T.pack (show amount)) Nothing)]
+            )
     (Just name, Just formula, _) -> ([], [Right (row name formula Nothing)])
     (Just name, Nothing, Just amount) ->
         let (warnings, spread') = uncertaintyOf (whose <> " parameter '" <> name <> "'") amount f
@@ -269,23 +294,32 @@ parameterRow whose f = case (fieldText f "name", fieldText f "formula", fieldNum
 {- | The distribution a row's columns state, by its uncertainty type: 2
 lognormal, whose @loc@ and @scale@ are the logarithms of its geometric mean and
 deviation; 3 normal; 4 uniform; 5 triangular, whose @loc@ is the most likely
-value. A lognormal whose @loc@ is not the logarithm of the amount is left out
-and said: its @loc@ is then most likely the amount itself.
+value. 0 and 1 state no spread. A lognormal whose @loc@ is not the logarithm
+of the amount is left out and said: its @loc@ is then most likely the amount
+itself. So is a distribution missing a cell it needs, and one of a type the
+engine has no shape for.
 -}
 uncertaintyOf :: Text -> Double -> M.Map Text CellValue -> ([Text], Maybe Uncertainty)
 uncertaintyOf what amount f = case fieldNum f "uncertainty type" of
+    Nothing -> ([], Nothing)
+    Just 0 -> ([], Nothing)
+    Just 1 -> ([], Nothing)
     Just 2 -> case (fieldNum f "loc", fieldNum f "scale") of
         (Just loc, Just scale)
             | Expr.agrees (exp loc) (abs amount) -> ([], spreading (Lognormal (signum amount * exp loc) (exp scale)))
-            | otherwise ->
-                ( [what <> ": its lognormal distribution is left out, its loc " <> T.pack (show loc) <> " is not the logarithm of its amount " <> T.pack (show amount)]
-                , Nothing
-                )
-        _ -> ([], Nothing)
-    Just 3 -> ([], spreading =<< Normal <$> fieldNum f "loc" <*> fieldNum f "scale")
-    Just 4 -> ([], spreading =<< Uniform <$> fieldNum f "minimum" <*> fieldNum f "maximum")
-    Just 5 -> ([], spreading =<< Triangular <$> fieldNum f "minimum" <*> fieldNum f "loc" <*> fieldNum f "maximum")
-    _ -> ([], Nothing)
+            | otherwise -> leftOut ("its loc " <> T.pack (show loc) <> " is not the logarithm of its amount " <> T.pack (show amount))
+        _ -> incomplete "lognormal"
+    Just 3 -> stated "normal" (Normal <$> fieldNum f "loc" <*> fieldNum f "scale")
+    Just 4 -> stated "uniform" (Uniform <$> fieldNum f "minimum" <*> fieldNum f "maximum")
+    Just 5 -> stated "triangular" (Triangular <$> fieldNum f "minimum" <*> fieldNum f "loc" <*> fieldNum f "maximum")
+    Just other -> ([what <> ": its uncertainty type " <> T.pack (show (round other :: Integer)) <> " is left out, the engine has no such distribution"], Nothing)
+  where
+    stated :: Text -> Maybe Uncertainty -> ([Text], Maybe Uncertainty)
+    stated name = maybe (incomplete name) (\u -> ([], spreading u))
+    incomplete :: Text -> ([Text], Maybe Uncertainty)
+    incomplete name = ([what <> ": its " <> name <> " distribution is left out, a cell it needs is empty"], Nothing)
+    leftOut :: Text -> ([Text], Maybe Uncertainty)
+    leftOut why = ([what <> ": its lognormal distribution is left out, " <> why], Nothing)
 
 {- | A worksheet is imported only when its first cell (A1) is a non-empty string
 that is not the sentinel @"skip"@ (matches @bw2io@'s @valid_first_cell@).
@@ -325,9 +359,14 @@ data RawActivity = RawActivity
     -}
     , raHeaders :: ![(Int, Text)]
     , raRows :: ![Row]
-    , raParameters :: !(Maybe (Text, ParameterTable))
+    , raParameters :: !(Maybe (ParameterGroup, ParameterTable))
     -- ^ The group its @Parameters@ section names, and the parameters it defines there.
     }
+
+{- | Whose parameters an activity's @Parameters@ section defines: a group it
+names, which other activities may name too, or, naming none, its own alone.
+-}
+data ParameterGroup = SharedGroup !Text | OwnGroup
 
 -- | A parameter table as a workbook writes one: its column labels and its rows.
 data ParameterTable = ParameterTable
@@ -433,7 +472,7 @@ parseBlock block0 = do
             i <- parIdx
             start <- listToMaybe (drop i block)
             header : rows <- Just (drop (i + 1) (take (fromMaybe (length block) excIdx) block))
-            pure (fromMaybe (T.strip name) (textAt 1 start), ParameterTable (rowHeaders header) rows)
+            pure (maybe OwnGroup SharedGroup (textAt 1 start), ParameterTable (rowHeaders header) rows)
     pure
         RawActivity
             { raName = T.strip name
@@ -485,7 +524,7 @@ sheetToActivities ::
     UC.UnitConfig ->
     [Row] ->
     [(Activity, [TechnosphereFlow], [BiosphereFlow], [Unit], [Text])]
-sheetToActivities cfg rows = let (results, _, _) = readRows cfg [rows] in results
+sheetToActivities cfg rows = wrResults (readRows cfg [rows])
 
 -- | A block's exchange rows, each keyed by its column labels.
 blockFields :: RawActivity -> [M.Map Text CellValue]
@@ -537,56 +576,72 @@ data RowContext = RowContext
     -- ^ The values of the parameters its formulas read.
     }
 
-{- | A row's amount, the formula that gives it, and what reading them raised.
+-- | A row's amount, the formula that gives it in the engine's language, and what reading them raised.
+data AmountReading = AmountReading
+    { arValue :: !(Maybe Double)
+    , arFormula :: !(Maybe Text)
+    , arWarnings :: ![Text]
+    }
+
+{- | Read a row's amount.
 Brightway writes 0, or the value it last computed, in the amount column of a row
 with a formula, so the formula's value at the parameters' values is the amount.
 A formula that does not read, or reads a name with no value, leaves the amount
 column to say it. A formula that is a number keeps no formula.
 -}
-rowAmount :: RowContext -> Text -> M.Map Text CellValue -> (Maybe Double, Maybe Text, [Text])
+rowAmount :: RowContext -> Text -> M.Map Text CellValue -> AmountReading
 rowAmount RowContext{rcEnv = env, rcActivity = actName} rowName f = case fieldText f "formula" of
-    Nothing -> (written, Nothing, [])
-    Just raw -> case Expr.translate Expr.Python raw >>= \text -> (,) text <$> Expr.evaluate Expr.Volca env text of
+    Nothing -> AmountReading written Nothing []
+    Just raw -> case (,) <$> Expr.translate Expr.Python raw <*> Expr.evaluate Expr.Python env raw of
         Left refusal ->
-            (written, Nothing, [whose <> ": its formula " <> raw <> " is left aside (" <> Expr.describeRefusal refusal <> "); its amount column is read"])
+            AmountReading written Nothing [whose <> ": its formula " <> raw <> " is left aside (" <> Expr.describeRefusal refusal <> "); its amount column is read"]
         Right (text, value) ->
-            ( Just value
-            , if isJust (readAmount raw) then Nothing else Just text
-            , [ whose <> ": its formula gives " <> T.pack (show value) <> " where its amount column says " <> T.pack (show w) <> "; the formula's value is read"
-              | Just w <- [written]
-              , w /= 0
-              , not (Expr.agrees w value)
-              ]
-            )
+            AmountReading
+                (Just value)
+                (if isJust (readAmount raw) then Nothing else Just text)
+                [ whose <> ": its formula gives " <> T.pack (show value) <> " where its amount column says " <> T.pack (show w) <> "; the formula's value is read"
+                | Just w <- [written]
+                , w /= 0
+                , not (Expr.agrees w value)
+                ]
   where
     written :: Maybe Double
     written = fieldNum f "amount"
     whose :: Text
     whose = "activity '" <> actName <> "', row '" <> rowName <> "'"
 
--- | A row's unit and amount in the reference unit of its dimension, and its formula carried there.
-inReferenceUnit :: UC.UnitConfig -> Text -> Double -> Maybe Text -> (Text, Double, Maybe ExchangeFormula)
+-- | A row in the reference unit of its dimension: the unit, the amount, and the formula carried there.
+data Measure = Measure
+    { measureUnit :: !Text
+    , measureAmount :: !Double
+    , measureFormula :: !(Maybe ExchangeFormula)
+    }
+
+inReferenceUnit :: UC.UnitConfig -> Text -> Double -> Maybe Text -> Measure
 inReferenceUnit cfg unit amount formula =
-    (unit', amount', ExchangeFormula Nothing . Expr.times (canonicalFactor cfg unit) <$> formula)
+    Measure unit' amount' (ExchangeFormula Nothing . Expr.times (canonicalFactor cfg unit) <$> formula)
   where
     (unit', amount') = canonicalRow cfg unit amount
 
 rawToActivity ::
     UC.UnitConfig ->
     OwnDatabases ->
-    [ParamLevel] ->
-    M.Map Text ParamLevel ->
+    WorkbookParameters ->
     RawActivity ->
     (Activity, [TechnosphereFlow], [BiosphereFlow], [Unit], [Text])
-rawToActivity cfg own globals groups ra =
+rawToActivity cfg own WorkbookParameters{wpGlobals = globals, wpGroups = groups} ra =
     (activity, techFlows, bioFlows, units, warnings)
   where
     meta = metaOf ra
     ctx = RowContext cfg own (raName ra) env
 
     -- The activity's own parameters are its group's; the levels above are the workbook's.
-    group :: Maybe ParamLevel
-    group = (`M.lookup` groups) . fst =<< raParameters ra
+    (group, groupWarnings) = case raParameters ra of
+        Nothing -> (Nothing, [])
+        Just (SharedGroup name, _) -> (M.lookup name groups, [])
+        Just (OwnGroup, table) ->
+            let (level, ws) = parameterLevel ("activity '" <> raName ra <> "'") [table]
+             in (Just level, ws ++ valueless ("activity '" <> raName ra <> "'") (globals ++ [level]) (levelCalculated level))
     (env, defined) = buildParamEnv Expr.Python (globals ++ maybeToList group)
     groupNames = S.fromList [T.toLower (parName r) | level <- maybeToList group, r <- levelInputs level ++ levelCalculated level]
     fieldRows = blockFields ra
@@ -611,7 +666,8 @@ rawToActivity cfg own globals groups ra =
     metaUnit = fromMaybe "" (metaText meta "unit")
 
     warnings =
-        concatMap roWarn allOuts
+        groupWarnings
+            ++ concatMap roWarn allOuts
             ++ [ "activity '" <> raName ra <> "': multiple production rows; coproducts are emitted without allocation"
                | length prodRows > 1
                ]
@@ -657,15 +713,15 @@ verbatim.
 -}
 productRowOut :: RowContext -> M.Map Text CellValue -> Bool -> M.Map Text CellValue -> RowOut
 productRowOut ctx@RowContext{rcUnits = cfg} meta isRef f =
-    RowOut (Just exch) [flow] [] [unit] formulaWarnings
+    RowOut (Just exch) [flow] [] [unit] (arWarnings reading)
   where
     name =
         fromMaybe "(unknown product)" $
             fieldText f "reference product" <|> fieldText f "name" <|> metaText meta "reference product"
     rawUnit = fromMaybe "" (fieldText f "unit" <|> metaText meta "unit")
-    (rowValue, formula, formulaWarnings) = rowAmount ctx name f
-    rawAmount = fromMaybe 1 (rowValue <|> metaNum meta "production amount")
-    (effUnit, effAmount, keptFormula) = inReferenceUnit cfg rawUnit rawAmount formula
+    reading = rowAmount ctx name f
+    rawAmount = fromMaybe 1 (arValue reading <|> metaNum meta "production amount")
+    Measure{measureUnit = effUnit, measureAmount = effAmount, measureFormula = keptFormula} = inReferenceUnit cfg rawUnit rawAmount (arFormula reading)
     flowUUID = productFlowUUID MadeHere name
     unitUUID = generateUnitUUID effUnit
     exch =
@@ -718,13 +774,13 @@ reference product is also @electricity, medium voltage@ in GLO.
 technosphereRowOut :: RowContext -> TechRole -> M.Map Text CellValue -> RowOut
 technosphereRowOut ctx@RowContext{rcUnits = cfg, rcOwn = own, rcActivity = actName} role f
     | T.null name = emptyRowOut{roWarn = ["activity '" <> actName <> "': skipped technosphere row with no name"]}
-    | isNothing rowValue =
-        emptyRowOut{roWarn = formulaWarnings ++ ["activity '" <> actName <> "', row '" <> name <> "': skipped, its amount cell holds no number"]}
-    | otherwise = RowOut (Just exch) [flow] [] [unit] formulaWarnings
+    | isNothing (arValue reading) =
+        emptyRowOut{roWarn = arWarnings reading ++ ["activity '" <> actName <> "', row '" <> name <> "': skipped, its amount cell holds no number"]}
+    | otherwise = RowOut (Just exch) [flow] [] [unit] (arWarnings reading)
   where
     name = fromMaybe "" (fieldText f "reference product" <|> fieldText f "name")
-    (rowValue, formula, formulaWarnings) = rowAmount ctx name f
-    (unitName', amount, keptFormula) = inReferenceUnit cfg (fromMaybe "" (fieldText f "unit")) (fromMaybe 0 rowValue) formula
+    reading = rowAmount ctx name f
+    Measure{measureUnit = unitName', measureAmount = amount, measureFormula = keptFormula} = inReferenceUnit cfg (fromMaybe "" (fieldText f "unit")) (fromMaybe 0 (arValue reading)) (arFormula reading)
     flowUUID = productFlowUUID (madeIn own f) name
     unitUUID = generateUnitUUID unitName'
     exch =
@@ -763,11 +819,11 @@ compartment string as the SimaPro importer so LCIA characterization matches.
 biosphereRowOut :: RowContext -> M.Map Text CellValue -> RowOut
 biosphereRowOut ctx@RowContext{rcUnits = cfg, rcActivity = actName} f
     | T.null name = emptyRowOut{roWarn = ["activity '" <> actName <> "': skipped biosphere row with no name"]}
-    | otherwise = RowOut (Just exch) [] [flow] [unit] (formulaWarnings ++ mediumWarn)
+    | otherwise = RowOut (Just exch) [] [flow] [unit] (arWarnings reading ++ mediumWarn)
   where
     name = fromMaybe "" (fieldText f "name")
-    (rowValue, formula, formulaWarnings) = rowAmount ctx name f
-    (unitName', amount, keptFormula) = inReferenceUnit cfg (fromMaybe "" (fieldText f "unit")) (fromMaybe 0 rowValue) formula
+    reading = rowAmount ctx name f
+    Measure{measureUnit = unitName', measureAmount = amount, measureFormula = keptFormula} = inReferenceUnit cfg (fromMaybe "" (fieldText f "unit")) (fromMaybe 0 (arValue reading)) (arFormula reading)
     (comp, sub) = splitCategories (fromMaybe "" (fieldText f "categories"))
     flowUUID = generateFlowUUID name (normalizeSimaProCompartment comp sub)
     unitUUID = generateUnitUUID unitName'

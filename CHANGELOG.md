@@ -62,14 +62,18 @@
 - A Brightway workbook keeps its parameters and its formulas. Its project
   and database parameters are the database's, a database parameter
   replacing the project parameter of its name; the parameters of an
-  activity's group are the activity's. Each keeps its unit, description and
-  uncertainty (a lognormal whose `loc` is not the logarithm of its amount is
-  left out, with a warning). An exchange formula, written in Python
+  activity's group are the activity's, and a section naming no group is the
+  activity's alone. Each keeps its unit, description and uncertainty (a
+  lognormal whose `loc` is not the logarithm of its amount, or a
+  distribution the engine has no shape for, is left out with a warning). A
+  parameter whose formula Python cannot read here keeps its stated amount,
+  and loading names a formula that gives no value. An exchange formula, written in Python
   (`max(mass * 2 - 1, 0) ** 2`, `a if mass > 1 else b`), gives the line its
   amount: a line written `0` with a formula used to count for nothing. Where
   the amount column says another non-zero number, loading warns and takes
-  the formula's value. A formula reading a name nothing defines is left
-  aside, with a warning, and the amount column is read.
+  the formula's value. A formula reading a name nothing defines, or
+  dividing by zero, is left aside, with a warning, and the amount column is
+  read.
 
 ### Fixed
 

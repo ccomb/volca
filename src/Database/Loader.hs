@@ -608,6 +608,8 @@ History of manual bumps:
      one of its name, input or calculated.
 - 68: a parameter keeps its unit and description.
 - 69: an input parameter keeps its uncertainty.
+- 70: a Brightway workbook keeps its parameters, and a line with a formula
+     the amount the formula gives.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -615,7 +617,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 69
+     in hi `xor` lo `xor` 70
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1390,8 +1392,9 @@ loadSimaProCSV opts csvPath = do
 
 {- | Load a Brightway Excel (.xlsx) inventory.
 
-Mirrors 'loadSimaProCSV': the parser returns the same 5-tuple, activities are
-keyed @(activityUUID, referenceProductUUID)@, and within-file supplier
+Mirrors 'loadSimaProCSV': activities are
+keyed @(activityUUID, referenceProductUUID)@, the workbook's parameters are the
+database's, and within-file supplier
 references are resolved by the shared name-based pass. Cross-database links to a
 background database (e.g. ecoinvent) are resolved later by
 'fixActivityLinksWithCrossDB', exactly as for SimaPro and EcoSpold.
