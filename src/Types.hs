@@ -408,6 +408,10 @@ data SupplierClaim
       ClaimById !UUID
     | -- | The supplier activity by name, from a Brightway workbook's @name@ column.
       ClaimByName !Text
+    | {- | The supplier activity by name, and no product: a workbook as Brightway
+      exports it, whose @name@ column holds the activity and no column the product.
+      -}
+      ClaimByNameAlone !Text
     | -- | The number the supplier dataset is published under, as EcoSpold 1 writes it.
       ClaimByDatasetNumber !Int
     deriving (Eq, Show, Generic, NFData, Store)
@@ -417,6 +421,7 @@ data SupplierClaim
 claimedName :: SupplierClaim -> Maybe Text
 claimedName = \case
     ClaimByName name -> Just name
+    ClaimByNameAlone name -> Just name
     ClaimByProduct -> Nothing
     ClaimById _ -> Nothing
     ClaimByDatasetNumber _ -> Nothing
@@ -427,6 +432,7 @@ claimedId = \case
     ClaimById actId -> Just actId
     ClaimByProduct -> Nothing
     ClaimByName _ -> Nothing
+    ClaimByNameAlone _ -> Nothing
     ClaimByDatasetNumber _ -> Nothing
 
 {- | What one input asked a dependency for: the product, the activity it named

@@ -1451,6 +1451,7 @@ wasteRoleOf target = \case
     namesATreatment = \case
         ClaimById _ -> True
         ClaimByName _ -> True
+        ClaimByNameAlone _ -> True
         ClaimByDatasetNumber _ -> True
         ClaimByProduct -> False
 

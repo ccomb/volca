@@ -134,6 +134,21 @@ spec = describe "BrightwayExcel.Parser" $ do
                     let gas = listToMaybe [ex | ex <- inputExchanges elec, flowName techDB ex == Just "natural gas, high pressure"]
                     fmap techSupplierClaim gas `shouldBe` Just (ClaimByName "natural gas, burned >100kW")
 
+        it "reads a workbook as Brightway exports it, its lines naming supplier activities alone" $
+            withWorkbook (buildWorkbook [("data", exportedSheet)]) $ \path -> do
+                parseBrightwayExcel defaultUnitConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right Workbook{wbActivities = acts, wbTechFlows = techDB} -> do
+                        map activityName acts `shouldBe` ["Bakery", "Flour mill, copied"]
+                        mill <- requireActivity acts "Flour mill, copied"
+                        referenceProductName techDB mill `shouldBe` Just "wheat flour"
+                        map (flowName techDB) (inputExchanges mill) `shouldBe` [Just "market for wheat grain"]
+                        bakery <- requireActivity acts "Bakery"
+                        [(flowName techDB ex, techSupplierClaim ex) | ex@TechnosphereExchange{} <- inputExchanges bakery]
+                            `shouldBe` [ (Just "wheat flour", ClaimByName "Flour mill, copied")
+                                       , (Just "market for electricity, low voltage", ClaimByNameAlone "market for electricity, low voltage")
+                                       ]
+
         it "names no supplier activity on a production row" $ withFixture $ \path -> do
             parseBrightwayExcel defaultUnitConfig path >>= \case
                 Left err -> expectationFailure (T.unpack err)
@@ -449,6 +464,35 @@ twiceAgreeingSheet = map keepGLO twiceStatedSheet
     keepGLO :: [Cell] -> [Cell]
     keepGLO [CT "location", CT _] = [CT "location", CT "GLO"]
     keepGLO row = row
+
+{- | Two activities as Brightway's export writes them: no @reference product@
+and no @database@ column on the lines, each line named by its supplier
+activity. The flour mill is copied from an EcoSpold 2 import, so it keeps an
+@activity@ field, and makes its product with no production line.
+-}
+exportedSheet :: [[Cell]]
+exportedSheet =
+    [ [CT "Database", CT "fg"]
+    , []
+    , [CT "Activity", CT "Bakery"]
+    , [CT "location", CT "GLO"]
+    , [CT "reference product", CT "Bakery"]
+    , [CT "unit", CT "kilogram"]
+    , [CT "Exchanges"]
+    , [CT "name", CT "amount", CT "location", CT "unit", CT "type"]
+    , [CT "Bakery", CN 1, CT "GLO", CT "kilogram", CT "production"]
+    , [CT "Flour mill, copied", CN 0.8, CT "GLO", CT "kilogram", CT "technosphere"]
+    , [CT "market for electricity, low voltage", CN 0.2, CT "FR", CT "kilowatt hour", CT "technosphere"]
+    , []
+    , [CT "Activity", CT "Flour mill, copied"]
+    , [CT "activity", CT "0b6a3f8e-2c1d-4e5f-9a7b-8c9d0e1f2a3b"]
+    , [CT "location", CT "GLO"]
+    , [CT "reference product", CT "wheat flour"]
+    , [CT "unit", CT "kilogram"]
+    , [CT "Exchanges"]
+    , [CT "name", CT "amount", CT "location", CT "unit", CT "type"]
+    , [CT "market for wheat grain", CN 1.2, CT "GLO", CT "kilogram", CT "technosphere"]
+    ]
 
 {- | A block whose exchange table has a @formula@ column, filled on its
 technosphere and biosphere rows with the two cells given.

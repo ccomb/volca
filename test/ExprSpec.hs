@@ -209,6 +209,14 @@ spec = do
             near 1 (python [] "log(e)")
             near 1 (python [] "sin(pi / 2)")
             python [] "round(2.5) + ceiling(1.2) + ceil(1.2)" `shouldBe` Right 6
+        it "reads sympy's Piecewise, its first true clause giving the value, and & and | over comparisons" $ do
+            let ranges = "Piecewise((10*p, (p >= 2.5) & (p < 500.0)), (5*p, (p >= 500.0) | (p < 0)), (0, True))"
+            python [("p", 3)] ranges `shouldBe` Right 30
+            python [("p", 600)] ranges `shouldBe` Right 3000
+            python [("p", 1)] ranges `shouldBe` Right 0
+            python [("p", 3)] "Piecewise((1, p > 2), (2, p > 1))" `shouldBe` Right 1
+            python [("p", 0)] "Piecewise((1, p > 2), (2, p > 1))" `shouldSatisfy` isUnreadable
+            translate Python "Piecewise((a, x < 1), (b, True))" `shouldBe` Right "if(x < 1; a; b)"
         it "refuses what Python means otherwise: ^ is not a power, // and % are not division" $ do
             python [] "2 ^ 3" `shouldSatisfy` isUnreadable
             python [] "7 // 2" `shouldSatisfy` isUnreadable

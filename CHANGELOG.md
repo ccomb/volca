@@ -146,6 +146,20 @@
 
 ### Fixed
 
+- A Brightway workbook loads linked as Brightway exports it. The export
+  writes no product and no database on its lines, only the name of the
+  supplier activity: a line naming no activity of the workbook now asks the
+  database it depends on for that activity, where it asked for a product of
+  that name, which no product has. A workbook of 288 lines, most of them
+  bought from the database it depends on, left 224 unlinked and now links
+  them all. An activity copied from an EcoSpold 2 import keeps an
+  `activity` field, which was read as the start of another activity and cut
+  the copy in two; it is now read as a field. A line naming an activity of
+  the workbook that writes no production line links to it. Python formulas
+  read `Piecewise`, `&` and `|`, so a quantity given by ranges of a
+  parameter keeps its formula. pyvolca has the new kind of supplier claim
+  as `ClaimKind.NAME_ALONE`. Wire revision 71.
+
 - A line whose supplier is in another database is read in its own unit. An
   activity buying 2000 g of a product another database sells per kilogram
   asked that database for 2000 kg, a thousand times too much, since the

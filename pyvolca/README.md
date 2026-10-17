@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 70** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 71** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -394,6 +394,9 @@ How a source file designates the supplier of an exchange.
 location - SimaPro, ILCD, and a Brightway row naming no activity.
 ``ID``: the supplier activity's own identifier, as EcoSpold 2 writes it.
 ``NAME``: the supplier activity by name, from a Brightway ``name`` column.
+``NAME_ALONE``: the supplier activity by name and no product, as a
+Brightway export writes a row bought from another database (wire
+revision 71).
 ``DATASET_NUMBER``: the number the supplier dataset is published under,
 as EcoSpold 1 writes it.
 

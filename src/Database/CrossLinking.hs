@@ -36,6 +36,7 @@ module Database.CrossLinking (
     LocationKind (..),
     IndexedDatabase (..),
     SupplierEntry (..),
+    NamedActivity (..),
     SupplierQuery (..),
 
     -- * Supplier aliases (relink mapping)
@@ -178,6 +179,23 @@ data SupplierEntry = SupplierEntry
     -}
     }
 
+{- | The supplier activity a demand names. Matched first. A name no dependency
+carries falls through to the product name, so a foreground written against
+another release still links; a name that is carried, but not where the demand
+needs it, is refused as any other demand would be rather than answered by a
+different activity that happens to sit closer.
+-}
+data NamedActivity
+    = -- | Beside the product the demand asks for (a 'Types.ClaimByName').
+      NamedWithProduct !Text
+    | {- | With no product (a 'Types.ClaimByNameAlone'): every product the
+      activity makes is a candidate. The demand's name for its flow is the same
+      name, read as a product when no activity carries it, as a workbook
+      written by hand may mean it.
+      -}
+      NamedAlone !Text
+    deriving (Eq, Show)
+
 {- | What one demand asks a dependency for. Four fields, three of them 'Text':
 as positional arguments a caller could transpose the product name, the location
 and the unit and the compiler would say nothing.
@@ -185,14 +203,8 @@ and the unit and the compiler would say nothing.
 data SupplierQuery = SupplierQuery
     { sqProductName :: !Text
     -- ^ Product the consumer asks for
-    , sqSupplierActivity :: !(Maybe Text)
-    {- ^ Activity the source names as its supplier, where it names one apart
-    from the product (a 'Types.ClaimByName'). Matched first. A name no
-    dependency carries falls through to the product name, so a foreground
-    written against another release still links; a name that is carried, but
-    not where the demand needs it, is refused as any other demand would be
-    rather than answered by a different activity that happens to sit closer.
-    -}
+    , sqSupplierActivity :: !(Maybe NamedActivity)
+    -- ^ Activity the source names as its supplier, where it names one apart from the product.
     , sqLocation :: !Text
     -- ^ Location of the consumer
     , sqUnit :: !Text
@@ -787,7 +799,7 @@ plainlyNamed q = do
     pure
         q
             { sqProductName = stated
-            , sqSupplierActivity = sqSupplierActivity q <|> activity
+            , sqSupplierActivity = sqSupplierActivity q <|> fmap NamedWithProduct activity
             , sqLocation = if T.null (sqLocation q) then geography else sqLocation q
             }
 
@@ -845,24 +857,39 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
             --   2. Exact product-name match across all indexed DBs.
             --   3. Synonym-group match if exact yielded nothing, the named
             --      activity preferred among what the group returns.
-            resolveCandidates Nothing $
-                firstNonEmpty
-                    [ byActivityAndProduct
-                    , concatMap (lookupExact (normalizeText productName)) lcIndexedDatabases
-                    , preferNamedActivity $ case lookupSynonymGroup lcSynonymDB (normalizeName productName) of
-                        Just groupId -> concatMap (lookupBySynonym groupId) lcIndexedDatabases
-                        Nothing -> []
-                    ]
+            resolveCandidates Nothing $ case supplierActivity of
+                Just (NamedAlone activity) -> firstNonEmpty (byActivity activity : byProduct)
+                Just (NamedWithProduct activity) -> firstNonEmpty (byActivityAndProduct activity : byProduct)
+                Nothing -> firstNonEmpty byProduct
   where
-    byActivityAndProduct :: [(Text, SupplierEntry)]
-    byActivityAndProduct =
+    byProduct :: [[(Text, SupplierEntry)]]
+    byProduct =
+        [ concatMap (lookupExact (normalizeText productName)) lcIndexedDatabases
+        , preferNamedActivity $ case lookupSynonymGroup lcSynonymDB (normalizeName productName) of
+            Just groupId -> concatMap (lookupBySynonym groupId) lcIndexedDatabases
+            Nothing -> []
+        ]
+
+    byActivityAndProduct :: Text -> [(Text, SupplierEntry)]
+    byActivityAndProduct activity =
         [ (idbName idb, entry)
-        | activity <- maybe [] pure supplierActivity
-        , idb <- lcIndexedDatabases
+        | idb <- lcIndexedDatabases
         , entry <-
             fromMaybe [] $
                 M.lookup (normalizeText activity, normalizeText productName) (idbByActivityAndProductName idb)
         ]
+
+    -- Every product of the activity: the pairs it heads, read off the index's order.
+    byActivity :: Text -> [(Text, SupplierEntry)]
+    byActivity activity =
+        [ (idbName idb, entry)
+        | idb <- lcIndexedDatabases
+        , entry <-
+            concat . M.elems $
+                M.takeWhileAntitone ((== key) . fst) (M.dropWhileAntitone ((< key) . fst) (idbByActivityAndProductName idb))
+        ]
+      where
+        key = normalizeText activity
 
     {- The synonym tier answers under a name the dependency spells otherwise, so
     the pair index could not have matched and the activity name is still
@@ -871,8 +898,8 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
     as the product and the ranking judges, as it did before. -}
     preferNamedActivity :: [(Text, SupplierEntry)] -> [(Text, SupplierEntry)]
     preferNamedActivity candidates = case supplierActivity of
-        Nothing -> candidates
-        Just activity -> firstNonEmpty [filter (named activity) candidates, candidates]
+        Just (NamedWithProduct activity) -> firstNonEmpty [filter (named activity) candidates, candidates]
+        _ -> candidates
       where
         named :: Text -> (Text, SupplierEntry) -> Bool
         named activity (_, entry) = normalizeText activity == normalizeText (seActivityName entry)

@@ -37,6 +37,9 @@ hash identically to the other importers and link through the same
 cross-database pass. This is the one format that names the supplier activity in
 a column apart from its product, so a technosphere row keeps that name
 (as a 'ClaimByName') for the linker to match on ahead of the product name.
+Brightway's own export writes no @reference product@ column on exchanges: a row
+bought from another database then names its supplier activity alone (a
+'ClaimByNameAlone').
 -}
 module BrightwayExcel.Parser (
     parseBrightwayExcel,
@@ -194,7 +197,7 @@ data WorkbookParameters = WorkbookParameters
 readRows :: UC.UnitConfig -> [[Row]] -> WorkbookRows
 readRows cfg sheets =
     WorkbookRows
-        { wrResults = map (rawToActivity cfg (ownDatabases sheets blocks) parameters) blocks
+        { wrResults = map (rawToActivity cfg (ownDatabases sheets blocks) (madeHereNames blocks) parameters) blocks
         , wrBlocks = blocks
         , wrParameters = parameters
         , wrWarnings = globalWarnings ++ groupWarnings ++ globalValueless ++ groupValueless
@@ -429,6 +432,11 @@ rowKeyIs kw row = sectionKeyword row == Just kw
 
 {- | Split a sheet into activity blocks: each starts at an @Activity@ row and runs
 up to (not including) the next section start.
+
+Among the activity's fields, before its @Exchanges@ or @Parameters@ row, a row
+keyed @activity@ in lower case is a field: Brightway writes every field under
+its own key, and an activity copied from an EcoSpold 2 import keeps its
+@activity@ identifier, while the section itself is written @Activity@.
 -}
 activityBlocks :: [Row] -> [[Row]]
 activityBlocks = go
@@ -436,9 +444,11 @@ activityBlocks = go
     go [] = []
     go (r : rs)
         | isActivityStart r =
-            let (blk, rest) = break isSectionStart rs
-             in (r : blk) : go rest
+            let (fields, body) = break endsFields rs
+                (blk, rest) = break isSectionStart body
+             in (r : fields ++ blk) : go rest
         | otherwise = go rs
+    endsFields row = rowKeyIs "exchanges" row || rowKeyIs "parameters" row || (isSectionStart row && textAt 0 row /= Just "activity")
 
 {- | Parse one block into a 'RawActivity', dropping blank rows first (Brightway
 strips empty lines within an activity before locating its sub-sections).
@@ -545,6 +555,32 @@ ownDatabases sheets blocks =
         [name | row <- concat sheets, rowKeyIs "database" row, Just name <- [textAt 1 row]]
             ++ [name | ra <- blocks, f <- blockFields ra, isProductionRow f, Just name <- [fieldText f "database"]]
 
+{- | The names a technosphere row may give a product the workbook makes, each
+with the product it means: the name its production row gives it, or the name of
+the activity making it as its reference, which is what Brightway's export
+writes. A row giving none of them buys from another database. An activity name
+standing for two products stands for neither.
+-}
+madeHereNames :: [RawActivity] -> M.Map Text Text
+madeHereNames blocks = M.union (M.fromSet id (S.fromList [productName (metaOf ra) f | ra <- blocks, f <- productionFields ra])) byActivity
+  where
+    byActivity :: M.Map Text Text
+    byActivity =
+        M.mapMaybe (\products -> if S.size products == 1 then S.lookupMin products else Nothing) $
+            M.fromListWith S.union [(raName ra, S.singleton (productName (metaOf ra) f)) | ra <- blocks, f <- take 1 (productionFields ra)]
+
+{- | An activity's production rows. With none, Brightway counts one unit of the
+product its fields name, which the empty row stands for.
+-}
+productionFields :: RawActivity -> [M.Map Text CellValue]
+productionFields ra = case filter isProductionRow (blockFields ra) of
+    [] -> [M.empty | M.member "reference product" (metaOf ra)]
+    rows -> rows
+
+-- | The product a production row makes, the activity's fields filling what the row leaves out.
+productName :: M.Map Text CellValue -> M.Map Text CellValue -> Text
+productName meta f = fromMaybe "(unknown product)" (fieldText f "reference product" <|> fieldText f "name" <|> metaText meta "reference product")
+
 {- | Where a technosphere row says its product is made: in this workbook, or in
 the database its @database@ column names when that is none of the workbook's
 own. A row naming no database is made here, as every row was read before.
@@ -570,6 +606,7 @@ productFlowUUID = \case
 data RowContext = RowContext
     { rcUnits :: !UC.UnitConfig
     , rcOwn :: !OwnDatabases
+    , rcMadeHere :: !(M.Map Text Text)
     , rcActivity :: !Text
     -- ^ The activity the row belongs to, named in every warning it raises.
     , rcEnv :: !(M.Map Text Double)
@@ -626,14 +663,15 @@ inReferenceUnit cfg unit amount formula =
 rawToActivity ::
     UC.UnitConfig ->
     OwnDatabases ->
+    M.Map Text Text ->
     WorkbookParameters ->
     RawActivity ->
     (Activity, [TechnosphereFlow], [BiosphereFlow], [Unit], [Text])
-rawToActivity cfg own WorkbookParameters{wpGlobals = globals, wpGroups = groups} ra =
+rawToActivity cfg own madeHere WorkbookParameters{wpGlobals = globals, wpGroups = groups} ra =
     (activity, techFlows, bioFlows, units, warnings)
   where
     meta = metaOf ra
-    ctx = RowContext cfg own (raName ra) env
+    ctx = RowContext cfg own madeHere (raName ra) env
 
     -- The activity's own parameters are its group's; the levels above are the workbook's.
     (group, groupWarnings) = case raParameters ra of
@@ -648,9 +686,7 @@ rawToActivity cfg own WorkbookParameters{wpGlobals = globals, wpGroups = groups}
     prodRows = filter isProductionRow fieldRows
     otherRows = filter (not . isProductionRow) fieldRows
 
-    prodOuts = case prodRows of
-        [] -> [productRowOut ctx meta True M.empty | M.member "reference product" meta]
-        (r : rs) -> productRowOut ctx meta True r : map (productRowOut ctx meta False) rs
+    prodOuts = zipWith (productRowOut ctx meta) (True : repeat False) (productionFields ra)
     otherOuts = map (exchangeRowOut ctx) otherRows
     allOuts = prodOuts ++ otherOuts
 
@@ -715,9 +751,7 @@ productRowOut :: RowContext -> M.Map Text CellValue -> Bool -> M.Map Text CellVa
 productRowOut ctx@RowContext{rcUnits = cfg} meta isRef f =
     RowOut (Just exch) [flow] [] [unit] (arWarnings reading)
   where
-    name =
-        fromMaybe "(unknown product)" $
-            fieldText f "reference product" <|> fieldText f "name" <|> metaText meta "reference product"
+    name = productName meta f
     rawUnit = fromMaybe "" (fieldText f "unit" <|> metaText meta "unit")
     reading = rowAmount ctx name f
     rawAmount = fromMaybe 1 (arValue reading <|> metaNum meta "production amount")
@@ -772,13 +806,16 @@ voltage@ from the 26 other activities of a released background database whose
 reference product is also @electricity, medium voltage@ in GLO.
 -}
 technosphereRowOut :: RowContext -> TechRole -> M.Map Text CellValue -> RowOut
-technosphereRowOut ctx@RowContext{rcUnits = cfg, rcOwn = own, rcActivity = actName} role f
+technosphereRowOut ctx@RowContext{rcUnits = cfg, rcOwn = own, rcMadeHere = madeHere, rcActivity = actName} role f
     | T.null name = emptyRowOut{roWarn = ["activity '" <> actName <> "': skipped technosphere row with no name"]}
     | isNothing (arValue reading) =
         emptyRowOut{roWarn = arWarnings reading ++ ["activity '" <> actName <> "', row '" <> name <> "': skipped, its amount cell holds no number"]}
     | otherwise = RowOut (Just exch) [flow] [] [unit] (arWarnings reading)
   where
-    name = fromMaybe "" (fieldText f "reference product" <|> fieldText f "name")
+    name = case (fieldText f "reference product", fieldText f "name", madeIn own f) of
+        (Just stated, _, _) -> stated
+        (Nothing, Just rowName, MadeHere) -> M.findWithDefault rowName rowName madeHere
+        (Nothing, rowName, _) -> fromMaybe "" rowName
     reading = rowAmount ctx name f
     Measure{measureUnit = unitName', measureAmount = amount, measureFormula = keptFormula} = inReferenceUnit cfg (fromMaybe "" (fieldText f "unit")) (fromMaybe 0 (arValue reading)) (arFormula reading)
     flowUUID = productFlowUUID (madeIn own f) name
@@ -790,7 +827,7 @@ technosphereRowOut ctx@RowContext{rcUnits = cfg, rcOwn = own, rcActivity = actNa
             , techUnitId = unitUUID
             , techRole = role
             , techActivityLinkId = Nothing
-            , techSupplierClaim = maybe ClaimByProduct ClaimByName supplierActivity
+            , techSupplierClaim = supplierClaim
             , techLocation = readExchangeLocation (fromMaybe "" (fieldText f "location"))
             , techComment = fieldText f "comment"
             , techPedigree = Nothing
@@ -803,13 +840,20 @@ technosphereRowOut ctx@RowContext{rcUnits = cfg, rcOwn = own, rcActivity = actNa
     unit = Unit unitUUID unitName' unitName' ""
 
     {- The supplier this row names, kept only where it says something the product
-    name does not: with no @reference product@ column the @name@ cell /is/ the
-    product, and a row that repeats the product in both has nothing to add. -}
-    supplierActivity :: Maybe Text
-    supplierActivity = do
-        rowName <- fieldText f "name"
-        _ <- fieldText f "reference product"
-        if rowName == name then Nothing else Just rowName
+    name does not. With no @reference product@ column the @name@ cell keys a
+    product made here, or the activity making it, and is the supplier activity
+    of a product bought elsewhere, as Brightway means it; a row that repeats the
+    product in both columns has nothing to add. -}
+    supplierClaim :: SupplierClaim
+    supplierClaim = case fieldText f "name" of
+        Just rowName
+            | boughtElsewhere && isNothing (fieldText f "reference product") -> ClaimByNameAlone rowName
+            | rowName /= name -> ClaimByName rowName
+        _ -> ClaimByProduct
+    boughtElsewhere :: Bool
+    boughtElsewhere = case madeIn own f of
+        MadeIn _ -> True
+        MadeHere -> M.notMember (fromMaybe "" (fieldText f "name")) madeHere
 
 {- | A biosphere exchange. @categories@ (split on @::@) becomes the compartment;
 a @natural resource@ compartment is read as an extraction ('Resource'),

@@ -412,6 +412,20 @@ spec = do
                 CrossDBNotLinked reason ->
                     expectationFailure $ "Expected the product-name fallback but got: " ++ show reason
 
+        it "links a demand naming its activity alone to that activity's product" $
+            forM_ [marketActivity, landfillActivity] $ \(name, uuid) ->
+                case findSupplierInIndexedDBs ctx (alone name) of
+                    CrossDBLinked{cdlrActivityUUID = linked, cdlrProductName = product'} -> do
+                        linked `shouldBe` uuid
+                        product' `shouldBe` electricity
+                    CrossDBNotLinked reason ->
+                        expectationFailure $ "Expected a link for " ++ show name ++ " but got: " ++ show reason
+
+        it "reads a name alone that no activity carries as a product" $
+            case findSupplierInIndexedDBs ctx (alone electricity) of
+                CrossDBLinked{cdlrProductName = linked} -> linked `shouldBe` electricity
+                CrossDBNotLinked reason -> expectationFailure $ "Expected the product-name fallback but got: " ++ show reason
+
         it "prefers the named activity among a synonym group's candidates" $ do
             -- The dependency spells the product otherwise, so only the synonym
             -- group answers and the (activity, product) index cannot. Both
@@ -580,4 +594,8 @@ query p loc u =
 
 -- | The same demand, naming the supplier activity its source states.
 queryFrom :: Text -> Text -> Text -> Text -> SupplierQuery
-queryFrom activity p loc u = (query p loc u){sqSupplierActivity = Just activity}
+queryFrom activity p loc u = (query p loc u){sqSupplierActivity = Just (NamedWithProduct activity)}
+
+-- | A demand naming its supplier activity and no product, its flow named after the activity.
+alone :: Text -> SupplierQuery
+alone activity = (query activity "GLO" "kWh"){sqSupplierActivity = Just (NamedAlone activity)}

@@ -782,14 +782,14 @@ comparisonSymbols = [("<=", LessOrEqual), ("<>", NotEqual), ("<", Less), (">=", 
 -- | Precedence-climbing formula parser.
 pFormula :: Language -> Parser Formula
 pFormula language
-    | connectives language = joined "or" Or (joined "and" And (pComparison language))
+    | connectives language = joined (connective "or") Or (joined (connective "and") And (pComparison language))
     | otherwise = pComparison language
 
-joined :: Text -> Variadic -> Parser Formula -> Parser Formula
-joined word f operand = operand >>= go
+joined :: Parser Text -> Variadic -> Parser Formula -> Parser Formula
+joined operator f operand = operand >>= go
   where
     go :: Formula -> Parser Formula
-    go acc = (connective word *> operand >>= go . \x -> Variadic f (acc :| [x])) <|> pure acc
+    go acc = (operator *> operand >>= go . \x -> Variadic f (acc :| [x])) <|> pure acc
 
 -- | A word operator in any case, which a longer name merely starting with it (@order@) is not.
 connective :: Text -> Parser Text
@@ -1129,8 +1129,9 @@ olcaCall name args = case lookup name olcaFunctions of
     arity expected = Left (function <> " takes " <> expected <> ", given " <> show (length args))
 
 {- | Python's precedence, lowest first: @if else@, @or@, @and@, @not@,
-comparison, sum, product, sign, power. A power binds tighter than the sign
-before it and takes a signed exponent, so @-2 ** 2@ is -4 and @2 ** -1@ is 0.5.
+comparison, @|@, @&@, sum, product, sign, power. A power binds tighter than the
+sign before it and takes a signed exponent, so @-2 ** 2@ is -4 and @2 ** -1@ is
+0.5.
 -}
 pPython :: Parser Formula
 pPython = do
@@ -1148,8 +1149,8 @@ pPyNot = (pyKeyword "not" *> (Unary Not <$> pPyNot)) <|> pPyComparison
 -- | @a < b < c@ is @a < b and b < c@, each operand read once.
 pPyComparison :: Parser Formula
 pPyComparison = do
-    first' <- pPySum
-    rest <- many ((,) <$> pyComparison <*> pPySum)
+    first' <- pPyJoined
+    rest <- many ((,) <$> pyComparison <*> pPyJoined)
     let each = zipWith3 Binary (map fst rest) (first' : map snd rest) (map snd rest)
     pure $ case each of
         [] -> first'
@@ -1158,6 +1159,13 @@ pPyComparison = do
   where
     pyComparison :: Parser Binary
     pyComparison = choice [f <$ symbol op | (op, f) <- [("<=", LessOrEqual), ("<", Less), (">=", GreaterOrEqual), (">", Greater), ("==", Equal), ("!=", NotEqual)]]
+
+{- | sympy's @|@ and @&@, which join truth values as its @Or@ and @And@ do.
+They bind tighter than a comparison, as in Python, which is why sympy writes
+each comparison it joins in parentheses.
+-}
+pPyJoined :: Parser Formula
+pPyJoined = joined (symbol "|") Or (joined (symbol "&") And pPySum)
 
 pPySum :: Parser Formula
 pPySum = pPyProduct >>= go
@@ -1193,6 +1201,7 @@ pPyPrimary :: Parser Formula
 pPyPrimary =
     choice
         [ between (symbol "(") (symbol ")") pPython
+        , pPiecewise
         , pCallWith pythonCalls pPython ","
         , Literal <$> pNumber
         , named =<< pIdentTok
@@ -1207,6 +1216,23 @@ pPyPrimary =
         word
             | word `elem` pythonKeywords -> fail ("unexpected " <> T.unpack word)
             | otherwise -> pure (Name word)
+
+{- | sympy's @Piecewise((v1, c1), (v2, c2), ...)@: the value of the first clause
+whose condition holds. A last clause on @True@ is the otherwise; with none, no
+clause holding gives no number, as sympy gives nan.
+-}
+pPiecewise :: Parser Formula
+pPiecewise = do
+    _ <- try (pyKeyword "Piecewise" <* symbol "(")
+    clauses <- sepBy1 clause (symbol ",") <* symbol ")"
+    pure (foldr choose (Binary Divide (Literal 0) (Literal 0)) clauses)
+  where
+    clause :: Parser (Formula, Formula)
+    clause = between (symbol "(") (symbol ")") ((,) <$> pPython <* symbol "," <*> pPython)
+
+    choose :: (Formula, Formula) -> Formula -> Formula
+    choose (value, Literal 1) _ = value
+    choose (value, condition) otherwise' = If condition value otherwise'
 
 -- | A word operator, which a longer name merely starting with it (@order@) is not.
 pyKeyword :: Text -> Parser Text

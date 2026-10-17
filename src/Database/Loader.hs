@@ -153,6 +153,7 @@ import Database.CrossLinking (
     IndexedDatabase (..),
     LinkWarning (..),
     LinkingContext (..),
+    NamedActivity (..),
     SupplierEntry (..),
     SupplierQuery (..),
     UnitBridge (..),
@@ -612,6 +613,8 @@ History of manual bumps:
 - 70: a Brightway workbook keeps its parameters, and a line with a formula
      the amount the formula gives.
 - 71: a cross-database link names the consumer exchange it supplies.
+- 72: a Brightway workbook line bought from another database names its
+     supplier activity alone, and its formula may be a sympy @Piecewise@.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -619,7 +622,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 71
+     in hi `xor` lo `xor` 72
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1539,6 +1542,7 @@ claimedNumber = \case
     ClaimByProduct -> Nothing
     ClaimById _ -> Nothing
     ClaimByName _ -> Nothing
+    ClaimByNameAlone _ -> Nothing
 
 {- | Whether the source named an activity by an identifier another database
 could carry. An input that did and still found no supplier there is a dangling
@@ -1555,6 +1559,7 @@ claimsAnActivityUUID = \case
     ClaimByDatasetNumber _ -> False
     ClaimByProduct -> False
     ClaimByName _ -> False
+    ClaimByNameAlone _ -> False
 
 {- | The producers that answer an input, best first.
 
@@ -2807,6 +2812,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                     claimed = ProcessRef actUUID fid
                 ClaimByProduct -> []
                 ClaimByName _ -> []
+                ClaimByNameAlone _ -> []
                 ClaimByDatasetNumber _ -> []
          in case identityMatches of
                 ((entry, srcDb) : rest)
@@ -2828,13 +2834,19 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
     supplierQuery flow flowUnitName =
         SupplierQuery
             { sqProductName = tfName flow
-            , sqSupplierActivity = claimedName claim
+            , sqSupplierActivity = case claim of
+                ClaimByName activity -> Just (NamedWithProduct activity)
+                ClaimByNameAlone activity -> Just (NamedAlone activity)
+                ClaimById _ -> Nothing
+                ClaimByProduct -> Nothing
+                ClaimByDatasetNumber _ -> Nothing
             , sqLocation = loc
             , sqUnit = flowUnitName
             , sqClaimedProcess = case claim of
                 ClaimById actUUID -> Just (ProcessRef actUUID fid)
                 ClaimByProduct -> Nothing
                 ClaimByName _ -> Nothing
+                ClaimByNameAlone _ -> Nothing
                 ClaimByDatasetNumber _ -> Nothing
             }
     {- What the link asks of its supplier: the line in the flow's unit, or, where a

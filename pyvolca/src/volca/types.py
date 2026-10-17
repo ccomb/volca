@@ -1125,6 +1125,9 @@ class ClaimKind(_StrEnum):
     location - SimaPro, ILCD, and a Brightway row naming no activity.
     ``ID``: the supplier activity's own identifier, as EcoSpold 2 writes it.
     ``NAME``: the supplier activity by name, from a Brightway ``name`` column.
+    ``NAME_ALONE``: the supplier activity by name and no product, as a
+    Brightway export writes a row bought from another database (wire
+    revision 71).
     ``DATASET_NUMBER``: the number the supplier dataset is published under,
     as EcoSpold 1 writes it.
     """
@@ -1132,6 +1135,7 @@ class ClaimKind(_StrEnum):
     PRODUCT = "ClaimByProduct"
     ID = "ClaimById"
     NAME = "ClaimByName"
+    NAME_ALONE = "ClaimByNameAlone"
     DATASET_NUMBER = "ClaimByDatasetNumber"
 
 

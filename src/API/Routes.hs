@@ -1595,7 +1595,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 70: the @exchange-contributions@ flag of an activity's scores, what
+(revision 71: the @ClaimByNameAlone@ supplier claim, a supplier activity
+named with no product;
+revision 70: the @exchange-contributions@ flag of an activity's scores, what
 each line adds to each score, and the @position@ of each exchange of an
 activity;
 revision 69: the reduced-model route, the scores of an activity as a function
@@ -1749,7 +1751,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 70
+currentWireVersion = 71
 
 getVersion :: AppM Value
 getVersion = do

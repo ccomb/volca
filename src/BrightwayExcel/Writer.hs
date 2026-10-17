@@ -505,6 +505,7 @@ the flow name where it designated by the product row instead.
 namedSupplier :: SupplierClaim -> Text -> Text
 namedSupplier claim flowName = case claim of
     ClaimByName supplier -> supplier
+    ClaimByNameAlone supplier -> supplier
     ClaimByProduct -> flowName
     ClaimById _ -> flowName
     ClaimByDatasetNumber _ -> flowName
