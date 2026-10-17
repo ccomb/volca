@@ -558,24 +558,32 @@ ownDatabases sheets blocks =
             ++ [name | ra <- blocks, f <- blockFields ra, isProductionRow f, Just name <- [fieldText f "database"]]
 
 {- | The names a technosphere row may give a product the workbook makes, each
-with the product it means: the name its production row gives it, or the name of
-the activity making it as its reference, which is what Brightway's export
-writes. A row giving none of them buys from another database. An activity name
-standing for two products stands for neither, and is named in a warning.
+with the product it means: a name its production row writes, or the name of the
+activity making it as its reference, which is what Brightway's export writes.
+The product's own name is not one of them, since an exported row names an
+activity: an activity making "wire drawing, steel" may buy from another database
+the activity of that name. A row giving none of them buys from another
+database. A name standing for two products stands for neither, and is named in
+a warning.
 -}
 madeHereNames :: [RawActivity] -> (M.Map Text Text, [Text])
-madeHereNames blocks = (M.union products (M.mapMaybe theOne byActivity), M.foldMapWithKey clash (M.withoutKeys byActivity (M.keysSet products)))
+madeHereNames blocks = (M.mapMaybe theOne named, M.foldMapWithKey clash named)
   where
-    products :: M.Map Text Text
-    products = M.fromSet id (S.fromList [productName (metaOf ra) isRef f | ra <- blocks, (isRef, f) <- zip (True : repeat False) (productionFields ra)])
-    byActivity :: M.Map Text (S.Set Text)
-    byActivity = M.fromListWith S.union [(raName ra, S.singleton (productName (metaOf ra) True f)) | ra <- blocks, f <- take 1 (productionFields ra)]
+    named :: M.Map Text (S.Set Text)
+    named =
+        M.fromListWith
+            S.union
+            [ (key, S.singleton (productName (metaOf ra) isRef f))
+            | ra <- blocks
+            , (isRef, f) <- zip (True : repeat False) (productionFields ra)
+            , key <- [raName ra | isRef] ++ mapMaybe (fieldText f) ["name", "reference product"]
+            ]
     theOne :: S.Set Text -> Maybe Text
     theOne made = if S.size made == 1 then S.lookupMin made else Nothing
     clash :: Text -> S.Set Text -> [Text]
     clash name made
         | S.size made > 1 =
-            ["activities named '" <> name <> "' make " <> T.intercalate ", " (map (\p -> "'" <> p <> "'") (S.toList made)) <> ": a row naming '" <> name <> "' alone is read as bought from another database"]
+            ["'" <> name <> "' names " <> T.intercalate ", " (map (\p -> "'" <> p <> "'") (S.toList made)) <> " in this workbook: a row naming it alone is read as bought from another database"]
         | otherwise = []
 
 {- | An activity's production rows. With none, Brightway counts one unit of the

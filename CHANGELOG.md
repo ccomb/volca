@@ -158,7 +158,9 @@
   the workbook that writes no production line links to it. An activity's
   product takes the name its reference product field gives, where it took
   the activity's own name, and an exported workbook written back by VoLCA
-  reads back linked. Python formulas
+  reads back linked. An activity making "wire drawing, steel" and buying the
+  activity of that name from the database it depends on no longer buys from
+  itself: a model of 25 activities scored 2.3 % too high for it. Python formulas
   read `Piecewise`, `&` and `|`, so a quantity given by ranges of a
   parameter keeps its formula. pyvolca has the new kind of supplier claim
   as `ClaimKind.NAME_ALONE`. Wire revision 71.

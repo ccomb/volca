@@ -142,7 +142,8 @@ spec = describe "BrightwayExcel.Parser" $ do
                         map activityName acts `shouldBe` ["Bakery", "Flour mill, copied"]
                         mill <- requireActivity acts "Flour mill, copied"
                         referenceProductName techDB mill `shouldBe` Just "wheat flour"
-                        map (flowName techDB) (inputExchanges mill) `shouldBe` [Just "market for wheat grain"]
+                        map techSupplierClaim (inputExchanges mill)
+                            `shouldBe` [ClaimByNameAlone "market for wheat grain", ClaimByNameAlone "wheat flour"]
                         bakery <- requireActivity acts "Bakery"
                         referenceProductName techDB bakery `shouldBe` Just "bread"
                         [(flowName techDB ex, techSupplierClaim ex) | ex@TechnosphereExchange{} <- inputExchanges bakery]
@@ -469,7 +470,8 @@ twiceAgreeingSheet = map keepGLO twiceStatedSheet
 {- | Two activities as Brightway's export writes them: no @reference product@
 and no @database@ column on the lines, each line named by its supplier
 activity. The flour mill is copied from an EcoSpold 2 import, so it keeps an
-@activity@ field, and makes its product with no production line.
+@activity@ field, and makes its product with no production line; it buys from
+another database an activity named as its own product.
 -}
 exportedSheet :: [[Cell]]
 exportedSheet =
@@ -493,6 +495,7 @@ exportedSheet =
     , [CT "Exchanges"]
     , [CT "name", CT "amount", CT "location", CT "unit", CT "type"]
     , [CT "market for wheat grain", CN 1.2, CT "GLO", CT "kilogram", CT "technosphere"]
+    , [CT "wheat flour", CN 0.1, CT "GLO", CT "kilogram", CT "technosphere"]
     ]
 
 {- | A block whose exchange table has a @formula@ column, filled on its
