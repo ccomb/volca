@@ -3560,9 +3560,10 @@ it and keep the amount; a named line keeps its name either way.
 
 ### `SetParameter`
 
-A parameter of the activity to add, or to replace under the same
+A parameter of the activity to add, or to replace whole under the same
 spelling: a ``value`` (with an ``uncertainty`` if it varies), or a
-``formula`` in VoLCA's language whose value the engine computes.
+``formula`` in VoLCA's language whose value the engine computes. A
+``unit``, ``description`` or ``uncertainty`` left out is dropped.
 
 | Field | Type | Default |
 |-------|------|---------|
