@@ -29,25 +29,24 @@ data LU
         !(U.Vector Int)
 
 {- | Factorise the @n@×@n@ matrix given row by row, or refuse when it is
-singular: its determinant below 1e-12 in magnitude. For the system of a
-correction, the determinant is the changed matrix's over the loaded one's, the
-same whatever unit each process is counted in, where the size of a pivot is
-not: a process counted in grams has entries a thousand times those of one
-counted in kilograms, though nothing else changed.
+singular: a pivot below 1e-12 of the largest term of the row it came from, the
+1 of the identity a correction adds to counted among them. Each row is judged
+against itself: a process counted in grams has entries a thousand times those
+of one counted in kilograms, and that must not make another process's pivot
+look small.
 -}
 factorLU :: Int -> U.Vector Double -> Either Text LU
 factorLU n entries
     | U.length entries /= n * n = Left "a dense system needs n×n entries"
     | not (U.all isFinite entries) = Left "the system has an entry that is not a finite number"
     | otherwise = case U.createT eliminate of
-        (Just rows, factors) | regular factors -> Right (LU n factors rows)
+        (Just rows, factors) -> Right (LU n factors rows)
         _ -> Left "the system is singular"
   where
     isFinite :: Double -> Bool
     isFinite x = not (isNaN x || isInfinite x)
-    -- In logarithms, so that k pivots of a thousand do not overflow.
-    regular :: U.Vector Double -> Bool
-    regular factors = let logDet = sum [log (abs (factors U.! (i * n + i))) | i <- [0 .. n - 1]] in isFinite logDet && logDet >= log 1e-12
+    scale :: U.Vector Double
+    scale = U.generate n (\r -> U.foldl' (\m x -> max m (abs x)) 1 (U.slice (r * n) n entries))
 
     eliminate :: ST s (Maybe (U.Vector Int), MU.MVector s Double)
     eliminate = do
@@ -60,7 +59,8 @@ factorLU n entries
     step :: MU.MVector s Double -> MU.MVector s Int -> Int -> ST s Bool
     step a rows col = do
         (size, pivotRow) <- foldlM (\best r -> max best . (\v -> (abs v, r)) <$> MU.read a (r * n + col)) (-1, col) [col .. n - 1]
-        if size == 0
+        origin <- MU.read rows pivotRow
+        if size < 1e-12 * scale U.! origin
             then pure False
             else do
                 when (pivotRow /= col) $ do

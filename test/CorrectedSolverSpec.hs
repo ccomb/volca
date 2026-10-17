@@ -28,8 +28,14 @@ spec = do
             isLeft (factorLU 2 (U.fromList [1, 2, 2, 4])) `shouldBe` True
         it "solves a regular system whose entries differ by millions" $
             -- [[1, 0], [4e6, 1]] x = [1, 4e6 + 1] gives x = [1, 1]; pivoting on
-            -- 4e6 leaves a second pivot of 2.5e-7, the determinant staying 1.
+            -- 4e6 leaves a second pivot of 2.5e-7, from the row [1, 0].
             (U.all (\x -> abs (x - 1) < 1e-9) . (`solveLU` U.fromList [1, 4e6 + 1]) <$> factorLU 2 (U.fromList [1, 0, 4e6, 1])) `shouldBe` Right True
+        it "refuses a pivot lost in rounding beside a large one" $
+            -- Pivots 4e6 and 2.5e-16: the determinant is 1e-9, the system singular to rounding.
+            isLeft (factorLU 2 (U.fromList [1, 0, 4e6, 1e-9])) `shouldBe` True
+        it "solves a regular system of many small pivots" $
+            -- A tenth of the identity of size 13: a determinant of 1e-13, nothing singular.
+            (U.all (\x -> abs (x - 1) < 1e-12) . (`solveLU` U.replicate 13 0.1) <$> factorLU 13 (U.generate 169 (\i -> if i `mod` 14 == 0 then 0.1 else 0))) `shouldBe` Right True
 
     describe "a solver corrected by the columns that moved" $ do
         it "answers as a new factorisation of the changed matrix" $

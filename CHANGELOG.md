@@ -169,9 +169,9 @@
   singular when it is not. The test compared each step of the elimination
   with the largest number of the system, so a set moving a process counted in
   hundredths of a unit and another counted in thousands of units was refused,
-  though the changed system was as regular as the loaded one. The test is now
-  the ratio of their determinants, which does not depend on the units the
-  processes are counted in.
+  though the changed system was as regular as the loaded one. Each step is now
+  compared with the row it came from, so the unit one process is counted in no
+  longer decides whether another one's step looks small.
 
 - A line whose supplier is in another database is read in its own unit. An
   activity buying 2000 g of a product another database sells per kilogram
