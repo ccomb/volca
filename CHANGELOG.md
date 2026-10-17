@@ -155,7 +155,10 @@
   them all. An activity copied from an EcoSpold 2 import keeps an
   `activity` field, which was read as the start of another activity and cut
   the copy in two; it is now read as a field. A line naming an activity of
-  the workbook that writes no production line links to it. Python formulas
+  the workbook that writes no production line links to it. An activity's
+  product takes the name its reference product field gives, where it took
+  the activity's own name, and an exported workbook written back by VoLCA
+  reads back linked. Python formulas
   read `Piecewise`, `&` and `|`, so a quantity given by ranges of a
   parameter keeps its formula. pyvolca has the new kind of supplier claim
   as `ClaimKind.NAME_ALONE`. Wire revision 71.
