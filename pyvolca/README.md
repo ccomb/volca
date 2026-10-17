@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 74** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 75** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -748,6 +748,10 @@ Download a flow-synonyms set as its raw CSV bytes.
 
 Raises VoLCAError on an HTTP error (e.g. the set does not exist).
 
+##### `Client.drop_scenario(name: str, *, db_name: str | None = None) -> list[Scenario]`
+
+Drop a saved scenario, and return the scenarios left.
+
 ##### `Client.edit_database_parameters(*, set_parameters: Sequence[SetParameter] = (), remove_parameters: Sequence[str] = (), db_name: str | None = None) -> dict`
 
 Set or remove the database's own parameters, then restate every
@@ -1435,12 +1439,27 @@ Args:
 Returns:
     ``{name: matches}`` for every input name, in input order.
 
+##### `Client.save_scenario(name: str, parameters: Sequence[ParameterValue], *, db_name: str | None = None) -> list[Scenario]`
+
+Save parameter values under a name, replacing what that name held,
+and return the scenarios saved. Refused when a scoring request would
+refuse the values, and on a database read from the engine's
+configuration: copy it first.
+
 ##### `Client.scale_method_factors(collection: str, match: FactorMatch, scale: float) -> dict`
 
 Multiply by ``scale`` every factor ``match`` reaches.
 
 A selector that reaches no factor is refused rather than passed off as
 done; ``touched`` in the answer says how many changed.
+
+##### `Client.scenarios(*, db_name: str | None = None) -> list[Scenario]`
+
+The scenarios saved on the database. Score one by passing its
+``parameters`` to a scoring request::
+
+    high = next(s for s in client.scenarios() if s.name == "high salt")
+    client.get_impacts(pid, "EF 3.1", parameters=high.parameters)
 
 ##### `Client.score_activities(process_ids: list[str], *, collection: str | None = None, top_flows: int | None = None, exclude_long_term: bool | None = None, parameter_sets: list[list[ParameterValue]] | None = None) -> BatchScores`
 
@@ -3470,6 +3489,20 @@ the line's.
 | `reads` | `list[str]` | _required_ |
 | `warnings` | `list[str]` | _required_ |
 | `problem` | `str \| None` | _required_ |
+
+### `Scenario`
+
+Parameter values saved on a database under a name.
+
+To score one, pass its ``parameters`` as the parameters of a scoring
+request. ``problem`` says why its values no longer apply, when an edit of
+the database has since made them stale (a parameter removed, say).
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `parameters` | `list[ParameterValue]` | _required_ |
+| `problem` | `str \| None` | None |
 
 ### `FormulaFunction`
 

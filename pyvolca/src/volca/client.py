@@ -93,6 +93,7 @@ from .types import (
     Parameter,
     ParameterName,
     FormulaCheck,
+    Scenario,
     FormulaLanguage,
     ParameterValue,
     PathResult,
@@ -2903,6 +2904,31 @@ class Client:
             "removeParameters": list(remove_parameters),
         }
         return self._call("edit_database_parameters", body=body, db_name=self._db(db_name))
+
+    def scenarios(self, *, db_name: str | None = None) -> list[Scenario]:
+        """The scenarios saved on the database. Score one by passing its
+        ``parameters`` to a scoring request::
+
+            high = next(s for s in client.scenarios() if s.name == "high salt")
+            client.get_impacts(pid, "EF 3.1", parameters=high.parameters)
+        """
+        self._require_wire(75, "scenarios", engine_hint="0.16.0")
+        return [Scenario.from_json(s) for s in self._call("list_scenarios", db_name=self._db(db_name))]
+
+    def save_scenario(self, name: str, parameters: Sequence[ParameterValue], *, db_name: str | None = None) -> list[Scenario]:
+        """Save parameter values under a name, replacing what that name held,
+        and return the scenarios saved. Refused when a scoring request would
+        refuse the values, and on a database read from the engine's
+        configuration: copy it first.
+        """
+        self._require_wire(75, "save_scenario", engine_hint="0.16.0")
+        body = {"parameters": [p.to_wire() for p in parameters]}
+        return [Scenario.from_json(s) for s in self._call("save_scenario", name=name, body=body, db_name=self._db(db_name))]
+
+    def drop_scenario(self, name: str, *, db_name: str | None = None) -> list[Scenario]:
+        """Drop a saved scenario, and return the scenarios left."""
+        self._require_wire(75, "drop_scenario", engine_hint="0.16.0")
+        return [Scenario.from_json(s) for s in self._call("drop_scenario", name=name, db_name=self._db(db_name))]
 
     # -- Methods --
 

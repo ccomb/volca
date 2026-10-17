@@ -54,6 +54,9 @@ WRAPPER_OPERATIONS = [
     "check_formula",
     "get_database_parameters",
     "edit_database_parameters",
+    "list_scenarios",
+    "save_scenario",
+    "drop_scenario",
 ]
 
 

@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 74
-"""The newest wire revision this pyvolca understands (revision 74 added
+KNOWN_WIRE = 75
+"""The newest wire revision this pyvolca understands (revision 75 added
+the scenarios of a database, which ``scenarios()``, ``save_scenario()``
+and ``drop_scenario()`` list, save and drop; revision 74 added
 the database's own parameters, which ``database_parameters()`` reads and
 ``edit_database_parameters()`` edits; revision 73 added
 the formulas and parameters ``edit_exchanges()`` sets and removes; revision 72 added

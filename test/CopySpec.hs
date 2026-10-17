@@ -19,20 +19,23 @@ import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Data.Map.Strict as M
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text, isInfixOf)
+import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Test.Hspec
 
+import API.Types (ParameterValue (..), ScenarioAPI (..))
 import Config (DatabaseConfig (..), defaultConfig)
 import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
-import Database.Edit (copyDatabase)
+import Database.Edit (copyDatabase, refusalMessage)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
     LoadedDatabase (..),
     initDatabaseManager,
  )
+import Database.Scenarios (dropScenario, listScenarios, saveScenario)
 import qualified Database.UploadedDatabase as UploadedDB
 import Matrix (buildDemandVector)
 import SharedSolver (
@@ -52,6 +55,8 @@ import Types (
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
+    Parameter (..),
+    ParameterDefinition (..),
     Release (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -212,6 +217,54 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
         case result of
             Left msg -> msg `shouldSatisfy` isInfixOf "Invalid copy name"
             Right () -> expectationFailure "expected empty-slug copy name to be rejected"
+
+    scenariosSpec
+
+{- | Scenarios are saved on a database of one's own: a copy here, of a source
+the configuration declares, whose one parameter @salt_kg@ is 0.01.
+-}
+scenariosSpec :: Spec
+scenariosSpec = describe "saved scenarios" $ do
+    let salted = ParameterValue Nothing "salt_kg"
+        withCopy run = do
+            manager <- initDatabaseManager defaultConfig NoCache
+            srcDb <- buildOrFail (supplierDB 100 ["p1"])
+            installLoaded manager "source" srcDb{dbParameters = M.fromList [("salt_kg", Parameter (InputParameter 0.01 Nothing) Nothing "")]}
+            copyDatabase manager "source" "mine" `shouldReturn` Right ()
+            run manager
+        listed manager name = either (fail . T.unpack . refusalMessage) (pure . map (\s -> (saName s, map pvValue (saParameters s), saProblem s))) =<< listScenarios manager name
+        refusal = fmap (either refusalMessage (const ""))
+
+    it "saves, replaces and drops a scenario by its name" $ withCopy $ \manager -> do
+        refusal (saveScenario manager "mine" "high salt" [salted 0.02]) `shouldReturn` ""
+        refusal (saveScenario manager "mine" "low salt" [salted 0.005]) `shouldReturn` ""
+        refusal (saveScenario manager "mine" "high salt" [salted 0.03]) `shouldReturn` ""
+        listed manager "mine" `shouldReturn` [("high salt", [0.03], Nothing), ("low salt", [0.005], Nothing)]
+        refusal (dropScenario manager "mine" "low salt") `shouldReturn` ""
+        listed manager "mine" `shouldReturn` [("high salt", [0.03], Nothing)]
+
+    it "refuses what it could not apply, naming why" $ withCopy $ \manager -> do
+        refusal (dropScenario manager "mine" "low salt") `shouldReturn` "Not in this database: scenario 'low salt'"
+        refusal (saveScenario manager "mine" "typo" [ParameterValue Nothing "salt_kgg" 1]) >>= (`shouldSatisfy` ("salt_kgg" `isInfixOf`))
+        refusal (saveScenario manager "mine" " " [salted 1]) `shouldReturn` "A scenario needs a name."
+        refusal (saveScenario manager "mine" "empty" []) >>= (`shouldSatisfy` ("sets no parameter" `isInfixOf`))
+        listed manager "mine" `shouldReturn` []
+
+    it "refuses a database read from the configuration, which holds none" $ withCopy $ \manager -> do
+        refusal (saveScenario manager "source" "high salt" [salted 0.02]) >>= (`shouldSatisfy` ("Copy it" `isInfixOf`))
+        listed manager "source" `shouldReturn` []
+
+    it "says which scenarios an edit of the database has made stale" $ withCopy $ \manager -> do
+        refusal (saveScenario manager "mine" "high salt" [salted 0.02]) `shouldReturn` ""
+        atomically $ modifyTVar' (dmLoadedDbs manager) (M.adjust (\l -> l{ldDatabase = (ldDatabase l){dbParameters = M.empty}}) "mine")
+        map (\(name, _, problem) -> (name, isJust problem)) <$> listed manager "mine" `shouldReturn` [("high salt", True)]
+
+    it "goes along with a copy of its database" $ withCopy $ \manager -> do
+        refusal (saveScenario manager "mine" "high salt" [salted 0.02]) `shouldReturn` ""
+        copyDatabase manager "mine" "yours" `shouldReturn` Right ()
+        listed manager "yours" `shouldReturn` [("high salt", [0.02], Nothing)]
+        refusal (dropScenario manager "yours" "high salt") `shouldReturn` ""
+        listed manager "mine" `shouldReturn` [("high salt", [0.02], Nothing)]
 
 -- ---------------------------------------------------------------------------
 -- Helpers

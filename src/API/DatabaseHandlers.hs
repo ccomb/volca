@@ -36,6 +36,9 @@ module API.DatabaseHandlers (
     editExchangesHandler,
     editDatabaseParametersHandler,
     parametersReportToAPI,
+    listScenariosHandler,
+    saveScenarioHandler,
+    dropScenarioHandler,
     exportDatabaseHandler,
     documentFileHandler,
     setLicenceHandler,
@@ -152,6 +155,8 @@ import API.Types (
     RelinkRequest (..),
     RelinkResponse (..),
     RestatedLineAPI (..),
+    ScenarioAPI,
+    ScenarioSaveRequest (..),
     SynonymGroupsResponse (..),
     UploadChunk (..),
     UploadResponse (..),
@@ -250,6 +255,7 @@ import Database.Manager (
 import qualified Database.Quality as Quality
 import Database.RelinkMapping (parseAliasMap)
 import Database.Requirements (ReleaseSubstitution)
+import Database.Scenarios (dropScenario, listScenarios, saveScenario)
 import Database.Upload (
     DatabaseFormat (..),
     UploadData (..),
@@ -723,6 +729,28 @@ parametersReportToAPI report =
         , prsTransient = not (prPersisted report)
         , prsWarnings = prWarnings report
         }
+
+-- | The scenarios saved on a database.
+listScenariosHandler :: Text -> AppM [ScenarioAPI]
+listScenariosHandler dbName = do
+    dbManager <- asks aeDbManager
+    either refuseWrite pure =<< liftIO (listScenarios dbManager dbName)
+
+-- | Save a scenario under a name, replacing what it held, and answer the scenarios saved.
+saveScenarioHandler :: Text -> Text -> ScenarioSaveRequest -> AppM [ScenarioAPI]
+saveScenarioHandler dbName name req = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    either refuseWrite pure =<< liftIO (saveScenario dbManager dbName name (ssrParameters req))
+    listScenariosHandler dbName
+
+-- | Drop a saved scenario, and answer the scenarios left.
+dropScenarioHandler :: Text -> Text -> AppM [ScenarioAPI]
+dropScenarioHandler dbName name = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    either refuseWrite pure =<< liftIO (dropScenario dbManager dbName name)
+    listScenariosHandler dbName
 
 -- | A refused write, answered with its status and its message.
 refuseWrite :: WriteRefusal -> AppM a

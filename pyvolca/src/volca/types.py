@@ -1969,6 +1969,28 @@ class FormulaCheck:
 
 
 @dataclass(frozen=True)
+class Scenario:
+    """Parameter values saved on a database under a name.
+
+    To score one, pass its ``parameters`` as the parameters of a scoring
+    request. ``problem`` says why its values no longer apply, when an edit of
+    the database has since made them stale (a parameter removed, say).
+    """
+
+    name: str
+    parameters: list[ParameterValue]
+    problem: str | None = None
+
+    @classmethod
+    def from_json(cls, d: dict) -> "Scenario":
+        return cls(
+            name=d["name"],
+            parameters=[ParameterValue(name=p["name"], value=p["value"], process=p.get("process")) for p in d["parameters"]],
+            problem=d.get("problem"),
+        )
+
+
+@dataclass(frozen=True)
 class FreeParameter:
     """A parameter of a :class:`ReducedModel`: its ``parameter.value`` is the default."""
 

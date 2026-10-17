@@ -194,6 +194,19 @@
   `edit_database_parameters`, and pyvolca `database_parameters()` and
   `edit_database_parameters()`. Wire revision 74.
 
+- Scenarios: parameter values saved on a database under a name, such as
+  "high salt" for `salt_kg` at 0.02. `GET /db/{db}/scenarios` lists them,
+  `PUT /db/{db}/scenarios/{name}` saves one (`{"parameters": [{"name":
+  "salt_kg", "value": 0.02}]}`), replacing what that name held, and
+  `DELETE` drops it. To score one, a client sends its values as the
+  parameters of a scoring request. A save is refused when a scoring request
+  would refuse the values, and on a database the engine reads from its
+  configuration, where it would be lost at the next restart. A scenario an
+  edit of the database has since made unusable is listed with the problem.
+  Scenarios go along with a copy of their database. The assistant has
+  `list_scenarios`, `save_scenario` and `drop_scenario`, and pyvolca
+  `scenarios()`, `save_scenario()` and `drop_scenario()`. Wire revision 75.
+
 ### Fixed
 
 - A process split from a block of several products keeps every formula

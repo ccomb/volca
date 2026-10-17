@@ -403,6 +403,27 @@ data ParameterValue = ParameterValue
 instance FromJSON ParameterValue where
     parseJSON = parseClosed
 
+{- | A scenario saved on a database: its name, its values, and why those no
+longer apply when an edit of the database since made them stale.
+-}
+data ScenarioAPI = ScenarioAPI
+    { saName :: Text
+    , saParameters :: [ParameterValue]
+    , saProblem :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScenarioAPI)
+
+-- | The values a scenario saves.
+newtype ScenarioSaveRequest = ScenarioSaveRequest
+    { ssrParameters :: [ParameterValue]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScenarioSaveRequest)
+
+instance FromJSON ScenarioSaveRequest where
+    parseJSON = parseClosed
+
 {- | Scope of a supplier substitution.
 
 * 'OneEdge' carries the consumer 'ProcessId' ref and replaces the supplier

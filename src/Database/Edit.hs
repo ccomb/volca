@@ -103,6 +103,7 @@ import Database.Manager (
     publishLoaded,
     relinkDatabase,
     removeDatabase,
+    scenariosHome,
     solverFor,
     unloadDatabase,
     withReservedName,
@@ -401,7 +402,8 @@ The copy forks from the source as it stands, not as it was uploaded: what was
 copied is the source's value /after/ its edits, but its files never carry
 them, so the copy starts from a snapshot of the source's journal and a load
 replays the source's edits before its own. Edits the source makes later
-belong to the source alone.
+belong to the source alone. Its saved scenarios come along the same way: they
+are work on that data.
 -}
 recordCopy :: Text -> LoadedDatabase -> IO (Either Text ())
 recordCopy slug src = do
@@ -417,6 +419,11 @@ recordCopy slug src = do
         sourcePath <- makeAbsolute (dcPath config)
         hasJournal <- doesFileExist srcJournal
         when hasJournal $ copyFile srcJournal (journalPath home)
+        let srcScenarios = journalPath (scenariosHome (uploadsDir </> T.unpack (dcName config)))
+        hasScenarios <- doesFileExist srcScenarios
+        when hasScenarios $ do
+            createDirectoryIfMissing True (scenariosHome home)
+            copyFile srcScenarios (journalPath (scenariosHome home))
         UploadedDB.writeUploadMeta
             home
             UploadedDB.UploadMeta

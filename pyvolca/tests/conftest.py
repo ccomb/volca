@@ -153,6 +153,30 @@ def fixture_spec() -> dict[str, Any]:
                     ],
                 },
             },
+            "/api/v1/db/{dbName}/scenarios": {
+                "get": {
+                    "operationId": "list_scenarios",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                },
+            },
+            "/api/v1/db/{dbName}/scenarios/{name}": {
+                "put": {
+                    "operationId": "save_scenario",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "name", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                },
+                "delete": {
+                    "operationId": "drop_scenario",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "name", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                },
+            },
             "/api/v1/db/{dbName}/parameters": {
                 "get": {
                     "operationId": "get_database_parameters",

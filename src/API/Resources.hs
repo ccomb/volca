@@ -110,6 +110,9 @@ data Resource
     | EditExchanges
     | DatabaseParameters
     | EditDatabaseParameters
+    | ListScenarios
+    | SaveScenario
+    | DropScenario
     | CopyMethodCollection
     | EditMethodFactors
     | EditMethodCategories
@@ -211,6 +214,9 @@ resourceMutates r = case r of
     EditExchanges -> True
     DatabaseParameters -> False
     EditDatabaseParameters -> True
+    ListScenarios -> False
+    SaveScenario -> True
+    DropScenario -> True
     CopyMethodCollection -> True
     EditMethodFactors -> True
     EditMethodCategories -> True
@@ -286,6 +292,10 @@ resourceNeeds r = case r of
     EditExchanges -> Nothing
     -- Its reply names the parameters the caller wrote and the processes that moved, no amount.
     EditDatabaseParameters -> Nothing
+    -- Values a caller chose, never the database's.
+    ListScenarios -> Nothing
+    SaveScenario -> Nothing
+    DropScenario -> Nothing
     CompareMethodCollections -> Nothing
     ProfileMethodCollection -> Nothing
     CopyMethodCollection -> Nothing
@@ -346,6 +356,9 @@ resourceUsage r = case r of
     EditExchanges -> Nothing
     DatabaseParameters -> Nothing
     EditDatabaseParameters -> Nothing
+    ListScenarios -> Nothing
+    SaveScenario -> Nothing
+    DropScenario -> Nothing
     GetFlowFactors -> Nothing
     CompareMethodCollections -> Nothing
     ProfileMethodCollection -> Nothing
@@ -425,6 +438,9 @@ apiPath r = case r of
     EditExchanges -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "exchanges"])
     DatabaseParameters -> Just (GET, ["db", "{dbName}", "parameters"])
     EditDatabaseParameters -> Just (POST, ["db", "{dbName}", "parameters"])
+    ListScenarios -> Just (GET, ["db", "{dbName}", "scenarios"])
+    SaveScenario -> Just (PUT, ["db", "{dbName}", "scenarios", "{name}"])
+    DropScenario -> Just (DELETE, ["db", "{dbName}", "scenarios", "{name}"])
     CopyMethodCollection -> Just (POST, ["method-collections", "{collection}", "copy", "{newName}"])
     EditMethodFactors -> Just (POST, ["method-collections", "{collection}", "factors"])
     EditMethodCategories -> Just (POST, ["method-collections", "{collection}", "categories"])
@@ -494,6 +510,9 @@ mcpName r = case r of
     EditExchanges -> "edit_exchanges"
     DatabaseParameters -> "get_database_parameters"
     EditDatabaseParameters -> "edit_database_parameters"
+    ListScenarios -> "list_scenarios"
+    SaveScenario -> "save_scenario"
+    DropScenario -> "drop_scenario"
     CopyMethodCollection -> "copy_method_collection"
     EditMethodFactors -> "edit_method_factors"
     EditMethodCategories -> "edit_method_categories"
@@ -1079,6 +1098,22 @@ description r = case r of
         \value, a removal while a formula still reads the name, and a change \
         \that moves an allocation share. Refused outright on a database the \
         \engine reads from its configuration, as edit_exchanges is."
+    ListScenarios ->
+        "The scenarios saved on a database: each a name and the parameter \
+        \values it sets, as {process?, name, value}. To score one, send its \
+        \values as the parameters of a scoring request. A scenario whose \
+        \values an edit of the database has since made unusable (a parameter \
+        \removed, say) carries the problem. A database the engine reads from \
+        \its configuration has none."
+    SaveScenario ->
+        "Save parameter values on a database under a name, replacing what \
+        \that name held; the answer lists the scenarios saved. Each value is \
+        \{name, value}, with process for a process's own parameter. Refused, \
+        \naming why, when a scoring request would refuse the values, and on a \
+        \database the engine reads from its configuration: copy it first."
+    DropScenario ->
+        "Drop a scenario saved on a database; the answer lists the scenarios \
+        \left. Refused for a name that holds none."
     CopyMethodCollection ->
         "LCA / ACV: copy a method collection under a new name, in order to \
         \change it. A collection the configuration declares, or one built into \
@@ -1618,6 +1653,16 @@ params r = case r of
         [ pDatabase
         , Param "set_parameters" "array" Optional "Parameters of the database to add, or to replace under the same spelling. Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
         , Param "remove_parameters" "array" Optional "Names of the database's parameters to remove, after the ones set here. Refused while a formula still reads one."
+        ]
+    ListScenarios -> [pDatabase]
+    SaveScenario ->
+        [ pDatabase
+        , Param "name" "string" Required "Name of the scenario"
+        , Param "parameters" "array" Required "Values it sets, each {name, value} and process for a process's own parameter"
+        ]
+    DropScenario ->
+        [ pDatabase
+        , Param "name" "string" Required "Name of the scenario"
         ]
     CopyMethodCollection ->
         [ Param "collection" "string" Required "Method collection to copy"

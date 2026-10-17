@@ -207,6 +207,22 @@ findActivityByProcessId db processId =
         then Just $ dbActivities db V.! fromIntegral processId
         else Nothing
 
+{- | A refusal to score and a licence's refusal are sentences written for the
+caller and travel as is; every other error renders as before.
+-}
+serviceMessage :: ServiceError -> Text
+serviceMessage = \case
+    NotScorable msg -> msg
+    Withheld msg -> msg
+    ParameterRefused msg -> msg
+    NoSuchLine msg -> msg
+    e@(InvalidUUID _) -> T.pack (show e)
+    e@(InvalidProcessId _) -> T.pack (show e)
+    e@(AmbiguousActivity _) -> T.pack (show e)
+    e@(ActivityNotFound _) -> T.pack (show e)
+    e@(FlowNotFound _) -> T.pack (show e)
+    e@(MatrixError _) -> T.pack (show e)
+
 {- | A request's parameter values as settings, each naming its process by the
 matrix column the database gives it.
 -}

@@ -52,6 +52,7 @@ module Database.Manager (
     addDatabase,
     removeDatabase,
     editHome,
+    scenariosHome,
 
     -- * Method Operations
     listMethodCollections,
@@ -778,6 +779,10 @@ data DatabaseManager = DatabaseManager
     of them interleaved would each swap in a collection missing the other's
     line. ponytail: one lock for every collection; one per collection if edits
     ever queue.
+    -}
+    , dmScenarioLock :: !(MVar ())
+    {- ^ Held by every save and drop of a scenario, for the same reason: each
+    reads the scenarios file before appending to it.
     -}
     }
 
@@ -1639,6 +1644,7 @@ newManager ManagerSeed{..} = do
     gapIndexAtValuesVar <- newTVarIO M.empty
     scoringSlots <- traverse newQSem msScoringSlots
     methodEditLock <- newMVar ()
+    scenarioLock <- newMVar ()
     factorisationLock <- newMVar ()
     return
         DatabaseManager
@@ -1677,6 +1683,7 @@ newManager ManagerSeed{..} = do
             , dmScoringSlots = scoringSlots
             , dmFactorisationLock = factorisationLock
             , dmMethodEditLock = methodEditLock
+            , dmScenarioLock = scenarioLock
             }
   where
     byName :: [RefDataConfig] -> IO (TVar (Map Text RefDataConfig))
@@ -2788,6 +2795,12 @@ editHome dbConfig
     | otherwise = do
         uploadsDir <- UploadedDB.getDatabaseUploadsDir
         pure (Just (uploadsDir </> T.unpack (dcName dbConfig)))
+
+{- | Where a database's saved scenarios are kept, given its home: a journal of
+their own ("Database.Scenarios"), apart from the database's.
+-}
+scenariosHome :: FilePath -> FilePath
+scenariosHome home = home </> "scenarios"
 
 {- | Whether the journal has moved since the matrix cache was saved from it.
 

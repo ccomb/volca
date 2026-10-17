@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | MCP (Model Context Protocol) server endpoint.
@@ -44,6 +43,7 @@ import Database.Cutoffs (Cutoffs (..))
 import Database.Edit (deriveDatabase, editDatabaseParameters, editExchanges, refusalMessage)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
+import Database.Scenarios (dropScenario, listScenarios, saveScenario)
 import qualified Impact
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
@@ -696,6 +696,14 @@ dispatchTool dbManager presets mHosting mBaseUrl rid name args licence = case na
     "edit_exchanges" -> callEditExchanges dbManager rid args
     "get_database_parameters" -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
     "edit_database_parameters" -> callEditDatabaseParameters dbManager rid args
+    "list_scenarios" -> callScenarios dbManager rid args (\_ -> pure ())
+    "save_scenario" -> callScenarios dbManager rid args $ \dbName -> do
+        scenario <- except (requireText "name" args)
+        values <- except (parseArrayArg "parameters" Nothing args)
+        ExceptT (first refusalMessage <$> saveScenario dbManager dbName scenario values)
+    "drop_scenario" -> callScenarios dbManager rid args $ \dbName -> do
+        scenario <- except (requireText "name" args)
+        ExceptT (first refusalMessage <$> dropScenario dbManager dbName scenario)
     "copy_method_collection" -> callCopyMethodCollection dbManager rid args
     "edit_method_factors" -> callEditMethodFactors dbManager rid args
     "edit_method_categories" -> callEditMethodCategories dbManager rid args
@@ -759,25 +767,9 @@ withParameters dbManager dbName args ld run = do
             settings <- liftService (Service.settingsOf (ldDatabase ld) values)
             ExceptT (join <$> DM.withSettings dbManager dbName (ldDatabase ld, ldSharedSolver ld) settings (\db solver -> runExceptT (run db solver)))
 
--- | Lift a service result, per 'serviceMessage'.
+-- | Lift a service result, per 'Service.serviceMessage'.
 liftService :: Either Service.ServiceError a -> ExceptT Text IO a
-liftService = either (throwE . serviceMessage) pure
-
-{- | A refusal to score and a licence's refusal are sentences written for the
-caller and travel as is; every other error renders as before.
--}
-serviceMessage :: Service.ServiceError -> Text
-serviceMessage = \case
-    Service.NotScorable msg -> msg
-    Service.Withheld msg -> msg
-    Service.ParameterRefused msg -> msg
-    Service.NoSuchLine msg -> msg
-    e@(Service.InvalidUUID _) -> T.pack (show e)
-    e@(Service.InvalidProcessId _) -> T.pack (show e)
-    e@(Service.AmbiguousActivity _) -> T.pack (show e)
-    e@(Service.ActivityNotFound _) -> T.pack (show e)
-    e@(Service.FlowNotFound _) -> T.pack (show e)
-    e@(Service.MatrixError _) -> T.pack (show e)
+liftService = either (throwE . Service.serviceMessage) pure
 
 textArg :: Text -> KeyMap Value -> Maybe Text
 textArg key args = case KM.lookup (fromText key) args of
@@ -1235,7 +1227,7 @@ callAggregate dbManager presets rid args (db, solver) =
                                 (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
                                 result <- Agg.aggregate unitCfg (DM.managerGeographies dbManager) mFlows mUnits db dbName solver (DM.mkDepSolverLookup dbManager) (DM.getGapIndex dbManager) pid params
                                 case result of
-                                    Left err -> return $ toolError rid (serviceMessage err)
+                                    Left err -> return $ toolError rid (Service.serviceMessage err)
                                     Right agg -> return $ toolSuccessJson rid (withCutoffNotice (Cutoffs (aggCutoffInputs agg) (aggWithheldCutoffs agg)) (toJSON agg))
   where
     scopeFromArg = case textArg "scope" args of
@@ -1971,6 +1963,14 @@ callEditDatabaseParameters dbManager rid args = runTool rid $ do
     report <- ExceptT (first refusalMessage <$> editDatabaseParameters dbManager dbName edits)
     return $ toolSuccessJson rid (toJSON (parametersReportToAPI report))
 
+-- | Change the scenarios of a database, then answer the ones it holds.
+callScenarios :: DatabaseManager -> RequestId -> KeyMap Value -> (Text -> ExceptT Text IO ()) -> IO Value
+callScenarios dbManager rid args change = runTool rid $ do
+    dbName <- except (requireText "database" args)
+    change dbName
+    saved <- ExceptT (first refusalMessage <$> listScenarios dbManager dbName)
+    return $ toolSuccessJson rid (toJSON saved)
+
 callCopyMethodCollection :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callCopyMethodCollection dbManager rid args = runTool rid $ do
     collection <- except (requireText "collection" args)
@@ -2677,7 +2677,7 @@ callCheckFormula dbManager rid args (db, _) = runTool rid $ do
     process <- except (optionalText "process_id" args)
     position <- except (optionalWhole "exchange" args)
     unitCfg <- liftIO (DM.getMergedUnitConfig dbManager)
-    either (throwE . serviceMessage) (pure . toolSuccessJson rid . toJSON) $
+    either (throwE . Service.serviceMessage) (pure . toolSuccessJson rid . toJSON) $
         Service.checkFormulaAt unitCfg db (FormulaCheckRequest formula process position)
 
 -- | Translate a 'BI.BatchError' into the MCP 'toolError' payload.
