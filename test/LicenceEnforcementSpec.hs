@@ -23,7 +23,8 @@ import Test.Hspec
 
 import API.DatabaseHandlers (gapReportHandler, qualityReportHandler)
 import API.MCP (callTool, noRequestId)
-import API.Routes (getActivityComparison, getActivityInventory, getActivityTree, getDatabaseComparison)
+import API.Routes (getActivityComparison, getActivityInventory, getActivityTree, getDatabaseComparison, postFormulaCheck)
+import API.Types (FormulaCheckRequest (..))
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..))
 import Database.Manager (DatabaseManager, addDatabase)
@@ -93,6 +94,11 @@ spec = do
             reply <- callOn manager "get_contributing_flows" []
             errorText reply `shouldBe` Just "The licence of sample keeps to itself what weighs in its scores."
 
+        it "refuses a formula check, whose value would read its amounts" $ do
+            manager <- managerUnder detailKept
+            reply <- callOn manager "check_formula" [("formula", String "1")]
+            errorText reply `shouldSatisfy` maybe False ("sample" `T.isInfixOf`)
+
         it "answers the score, with no flow and the reason" $ do
             manager <- managerUnder detailKept
             o <- payload =<< callOn manager "get_impacts" [("top_flows", Number 5)]
@@ -160,6 +166,10 @@ spec = do
             statusOf manager (gapReportHandler "sample" Nothing) `shouldReturn` Just 403
             statusOf manager (qualityReportHandler "sample" Nothing) `shouldReturn` Just 403
 
+        it "refuses a formula check, whose value would read its amounts" $ do
+            manager <- managerUnder inventoryKept
+            statusOf manager (postFormulaCheck "sample" (FormulaCheckRequest "1" Nothing Nothing)) `shouldReturn` Just 403
+
         it "refuses a comparison whose other database keeps its inventory" $ do
             manager <- managerUnder LicenceUnstated
             addDatabase manager sampleConfig{dcName = "kept", dcLicence = inventoryKept}
@@ -169,3 +179,4 @@ spec = do
         it "answers them under a licence that keeps nothing" $ do
             manager <- managerUnder LicenceUnstated
             statusOf manager (getActivityTree "sample" productD) `shouldReturn` Nothing
+            statusOf manager (postFormulaCheck "sample" (FormulaCheckRequest "1" Nothing Nothing)) `shouldReturn` Nothing

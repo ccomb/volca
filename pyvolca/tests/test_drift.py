@@ -50,6 +50,8 @@ WRAPPER_OPERATIONS = [
     "compute_sensitivity",
     "score_activities",
     "get_reduced_model",
+    "get_formula_language",
+    "check_formula",
 ]
 
 

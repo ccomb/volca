@@ -50,6 +50,8 @@ module Expr (
     functions,
     reference,
     functionNames,
+    operators,
+    volcaRules,
 ) where
 
 import Amount (readAmount)
@@ -61,6 +63,7 @@ import Data.Char (isDigit)
 import Data.Either (isRight, lefts)
 import Data.Function (on)
 import Data.Graph (SCC (..), stronglyConnComp)
+import Data.List (findIndex)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -124,6 +127,20 @@ data Dialect
       -}
       Python
     deriving (Eq, Show)
+
+{- | What a writer of VoLCA's language must know beyond its functions and
+operators, as 'Volca' reads it: 'readable' parts the arguments, 'pNumberToken'
+reads a number, 'pIdentTok' a name, 'evaluate' looks names up without case.
+-}
+volcaRules :: [Text]
+volcaRules =
+    [ "A number takes a point before its decimals and may take an exponent: 0.5, 1.2e-3."
+    , "Arguments are parted by a semicolon or a comma: max(a; b) and max(a, b) are one formula."
+    , "A name starts with a letter or an underscore and goes on with letters, digits and underscores. It is a parameter, or a named line of the process, whatever its case: Yield and yield are one name."
+    , "A name followed by an opening parenthesis calls a function; a function the language does not have is refused by its name."
+    , "A comparison gives 1 when it holds and 0 when it does not; a condition holds when it is not 0."
+    , "There is no comment and no word operator: and, or and not are functions, and pi or e is a name like any other."
+    ]
 
 -- | A database's factors from one unit to another, keyed by the two names as written.
 type UnitConversions = M.Map (Text, Text) Double
@@ -515,9 +532,32 @@ nothing, though its distance to any number is within that bound.
 agrees :: Double -> Double -> Bool
 agrees a b = not (isInfinite a || isInfinite b) && (a == b || abs (a - b) <= 1e-9 * max (abs a) (abs b))
 
-{- | A formula in VoLCA's language, with the parentheses its reading needs and
-no other. The levels are the grammar's rules, from 'pComparison' to an atom.
+{- | VoLCA's operators by how tightly they bind, loosest first, as its grammar
+reads them from 'pComparison' to 'pPower'. Operators of two arguments chain
+from the left, but the power, which chains from the right and takes a sign in
+its exponent.
 -}
+operators :: [[Function]]
+operators =
+    [ map TwoArguments [Equal, NotEqual, Less, LessOrEqual, Greater, GreaterOrEqual]
+    , map TwoArguments [Add, Subtract]
+    , map TwoArguments [Multiply, Divide]
+    , [OneArgument Negate]
+    , [TwoArguments Power]
+    ]
+
+-- | How tightly a function binds: its row of 'operators' counted from 1, and tighter than all of them when it is called by name.
+binding :: Function -> Int
+binding f = maybe atom (+ 1) (findIndex (elem f) operators)
+
+-- | How tightly a sign binds, and a negative number with it.
+signBinding :: Int
+signBinding = binding (OneArgument Negate)
+
+atom :: Int
+atom = length operators + 1
+
+-- | A formula in VoLCA's language, with the parentheses its reading needs by 'binding' and no other.
 render :: Formula -> Text
 render = go 0
   where
@@ -533,9 +573,9 @@ render = go 0
             | otherwise -> number x
         Name name -> name
         Unary f a -> case spelling (reference (OneArgument f)) of
-            Prefix op -> op <> go 4 a
+            Prefix op -> op <> go signBinding a
             other -> call other [a]
-        Binary Power a b -> go 6 a <> " ^ " <> go 4 b
+        Binary Power a b -> go atom a <> " ^ " <> go signBinding b
         formula@(Binary f a b) -> case spelling (reference (TwoArguments f)) of
             Infix op -> go (level formula) a <> " " <> op <> " " <> go (level formula + 1) b
             other -> call other [a, b]
@@ -553,29 +593,10 @@ render = go 0
 
     level :: Formula -> Int
     level = \case
-        Binary f _ _ -> binaryLevel f
-        Unary Negate _ -> 4
-        Literal x | x < 0 -> 4
-        _ -> 6
-
-    binaryLevel :: Binary -> Int
-    binaryLevel = \case
-        Equal -> 1
-        NotEqual -> 1
-        Less -> 1
-        LessOrEqual -> 1
-        Greater -> 1
-        GreaterOrEqual -> 1
-        Add -> 2
-        Subtract -> 2
-        Multiply -> 3
-        Divide -> 3
-        Power -> 5
-        LogBase -> 6
-        IntegerPower -> 6
-        Xor -> 6
-        Quotient -> 6
-        Remainder -> 6
+        Binary f _ _ -> binding (TwoArguments f)
+        Unary f _ -> binding (OneArgument f)
+        Literal x | x < 0 -> signBinding
+        _ -> atom
 
     -- Without an exponent where that stays short; 'readAmount' reads back the same Double either way.
     number :: Double -> Text
@@ -1007,10 +1028,10 @@ keyword word = lexeme (try (string word <* notFollowedBy (alphaNumChar <|> oneOf
 
 -- | One operand, then any number of (operator, operand), grouped from the left.
 chainLeft :: Parser Typed -> [(Parser Text, Combine)] -> Parser Typed
-chainLeft operand operators = operand >>= rest
+chainLeft operand symbols = operand >>= rest
   where
     rest :: Typed -> Parser Typed
-    rest acc = (choice [op *> operand >>= either fail pure . combine acc | (op, combine) <- operators] >>= rest) <|> pure acc
+    rest acc = (choice [op *> operand >>= either fail pure . combine acc | (op, combine) <- symbols] >>= rest) <|> pure acc
 
 {- | A name followed by its arguments. Only the name and the parenthesis are
 tried, as in 'pCall': past them a refusal is about this call.

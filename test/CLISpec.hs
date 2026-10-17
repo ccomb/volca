@@ -91,6 +91,7 @@ spec = do
                 , ["dump-openapi"]
                 , ["dump-mcp-tools"]
                 , ["dump-config-schema"]
+                , ["dump-formula-language"]
                 ]
         mapM_
             (\argv -> it (unwords argv <> " --help describes itself") $ answersHelp argv `shouldBe` True)

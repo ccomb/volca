@@ -5,7 +5,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
@@ -39,7 +39,7 @@ import Impact (PartScore (..))
 import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, processScaling, toList)
 import qualified Matrix.Export as MatrixExport
 import Method.Mapping (LongTermMode (..))
-import Parametric (Setting (..), databaseParametersRead)
+import Parametric (Check (..), Setting (..), checkFormula, databaseParametersRead)
 import qualified Progress
 import qualified Search.BM25 as BM25
 import qualified Search.Fuzzy as Fuzzy
@@ -165,7 +165,31 @@ data ServiceError
       Withheld Text
     | -- | The parameter values a request states give no database; the text says why.
       ParameterRefused Text
+    | -- | A request names a line by a position the activity does not have.
+      NoSuchLine Text
     deriving (Show)
+
+{- | A formula checked where it would be written, at the defaults. A formula
+that gives nothing is answered with the reason: that is a check's answer, not a
+refusal of the request.
+-}
+checkFormulaAt :: UnitConfig -> Database -> FormulaCheckRequest -> Either ServiceError FormulaCheckResponse
+checkFormulaAt unitCfg db FormulaCheckRequest{fcqFormula = formula, fcqProcess = process, fcqExchange = position} = do
+    at <- case (process, position) of
+        (Nothing, Nothing) -> Right Nothing
+        (Nothing, Just _) -> Left (NoSuchLine "A line is named by its position in a process: name the process too.")
+        (Just processText, _) -> do
+            (_, act) <- resolveActivityAndProcessId db processText
+            line <- traverse (lineAt act) position
+            Right (Just (act, line))
+    pure $ case checkFormula unitCfg db at formula of
+        Right Check{checkValue = value, checkReads = names, checkWarnings = warnings} -> FormulaCheckResponse (Just value) names warnings Nothing
+        Left problem -> FormulaCheckResponse Nothing [] [] (Just problem)
+  where
+    lineAt :: Activity -> Int -> Either ServiceError Exchange
+    lineAt act i = case drop i (exchanges act) of
+        ex : _ | i >= 0 -> Right ex
+        _ -> Left (NoSuchLine ("No exchange at position " <> T.pack (show i) <> ": the process has " <> T.pack (show (length (exchanges act))) <> "."))
 
 {- | Validate UUID format, returning the parsed UUID so callers do not have to
 re-parse the text afterwards.

@@ -79,6 +79,8 @@ data Resource
     | GetImpacts
     | ComputeSensitivity
     | GetReducedModel
+    | GetFormulaLanguage
+    | CheckFormula
     | ListMethods
     | GetFlowMapping
     | GetCharacterization
@@ -176,6 +178,8 @@ resourceMutates r = case r of
     GetImpacts -> False
     ComputeSensitivity -> False
     GetReducedModel -> False
+    GetFormulaLanguage -> False
+    CheckFormula -> False
     ListMethods -> False
     GetFlowMapping -> False
     GetCharacterization -> False
@@ -238,6 +242,8 @@ resourceNeeds r = case r of
     GetPathTo -> Just ReadInventory
     -- The formulas of the exchanges the parameters move, and their amounts.
     GetReducedModel -> Just ReadInventory
+    -- A formula's value at the defaults reads parameters and named lines: amounts.
+    CheckFormula -> Just ReadInventory
     -- What weighs in a score.
     ComputeSensitivity -> Just SeeDetailedScores
     CompareImpacts -> Just SeeDetailedScores
@@ -262,6 +268,7 @@ resourceNeeds r = case r of
     CountSearchMatches -> Nothing
     ListClassifications -> Nothing
     ListGeographies -> Nothing
+    GetFormulaLanguage -> Nothing
     ListMethods -> Nothing
     ListScoringSets -> Nothing
     GetFlowMapping -> Nothing
@@ -299,6 +306,7 @@ resourceUsage r = case r of
     ScoreActivities -> Just Scoring
     ComputeSensitivity -> Just Scoring
     GetReducedModel -> Just Scoring
+    CheckFormula -> Nothing
     GetContributingFlows -> Just Contributing
     GetContributingActivities -> Just Contributing
     GetScoreContributingFlows -> Just Contributing
@@ -321,6 +329,7 @@ resourceUsage r = case r of
     CountSearchMatches -> Nothing
     ListClassifications -> Nothing
     ListGeographies -> Nothing
+    GetFormulaLanguage -> Nothing
     ListMethods -> Nothing
     ListScoringSets -> Nothing
     GetFlowMapping -> Nothing
@@ -375,6 +384,8 @@ apiPath r = case r of
     GetImpacts -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "impacts", "{collection}", "{methodId}"])
     ComputeSensitivity -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "sensitivity", "{collection}", "{methodId}"])
     GetReducedModel -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "reduced-model", "{collection}"])
+    GetFormulaLanguage -> Just (GET, ["formula-language"])
+    CheckFormula -> Just (POST, ["db", "{dbName}", "formula-check"])
     ListMethods -> Just (GET, ["methods"])
     GetFlowMapping -> Just (GET, ["db", "{dbName}", "method", "{methodId}", "flow-mapping"])
     GetCharacterization -> Just (GET, ["db", "{dbName}", "method", "{methodId}", "characterization"])
@@ -440,6 +451,8 @@ mcpName r = case r of
     GetImpacts -> "get_impacts"
     ComputeSensitivity -> "compute_sensitivity"
     GetReducedModel -> "get_reduced_model"
+    GetFormulaLanguage -> "get_formula_language"
+    CheckFormula -> "check_formula"
     ListMethods -> "list_methods"
     GetFlowMapping -> "get_flow_mapping"
     GetCharacterization -> "get_characterization"
@@ -665,6 +678,21 @@ description r = case r of
         \or moves more than "
             <> T.pack (show maxProcesses)
             <> " processes."
+    GetFormulaLanguage ->
+        "The language parameter and exchange formulas are written in: every \
+        \function and operator with its usage, meaning and an example with its \
+        \value, the operators by how tightly they bind, loosest first, and the \
+        \rules for numbers, names and arguments."
+    CheckFormula ->
+        "Check a formula where it would be written, at the database's own \
+        \values: among the parameters of a process ('process_id'), on one of \
+        \its lines ('exchange', its position among the process's exchanges), \
+        \or among the database's parameters when no process is named. Answers \
+        \the value and the names the formula reads, or the problem: a name \
+        \with no value, a cycle, a formula that does not read. On a line, a \
+        \formula that is one parameter, or a number times one, whose unit does \
+        \not convert to the line's is warned; products and quotients of units \
+        \are not judged."
     ListMethods ->
         "LCA / ACV: list all loaded LCIA methods (impact assessment methods like \
         \climate change, acidification, eutrophication, land use, water scarcity)."
@@ -1363,6 +1391,13 @@ params r = case r of
             \Each entry: {name} for a parameter of the database, {process, name} for a \
             \process's own."
         , pExcludeLongTerm
+        ]
+    GetFormulaLanguage -> []
+    CheckFormula ->
+        [ pDatabase
+        , Param "formula" "string" Required "The formula, in VoLCA's language (get_formula_language)"
+        , Param "process_id" "string" Optional "The process whose parameters and named lines the formula reads; the database's parameters alone when absent"
+        , Param "exchange" "integer" Optional "The line the formula would be written on, by its position among the process's exchanges as get_activity lists them"
         ]
     ListMethods -> []
     GetFlowMapping ->

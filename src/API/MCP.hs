@@ -54,7 +54,7 @@ import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.List (find)
 import qualified Data.List as L
@@ -634,6 +634,8 @@ dispatchTool dbManager presets mHosting mBaseUrl rid name args licence = case na
     "get_impacts" -> callGetImpacts dbManager mBaseUrl licence rid args
     "compute_sensitivity" -> callComputeSensitivity dbManager mBaseUrl rid args
     "get_reduced_model" -> callGetReducedModel dbManager mHosting rid args
+    "get_formula_language" -> pure (toolSuccessJson rid (toJSON formulaLanguage))
+    "check_formula" -> withDb dbManager rid args $ callCheckFormula dbManager rid args
     "list_methods" -> callListMethods dbManager rid
     "get_flow_mapping" -> callGetFlowMapping dbManager rid args
     "get_characterization" -> callGetCharacterization dbManager rid args
@@ -735,6 +737,7 @@ serviceMessage = \case
     Service.NotScorable msg -> msg
     Service.Withheld msg -> msg
     Service.ParameterRefused msg -> msg
+    Service.NoSuchLine msg -> msg
     e@(Service.InvalidUUID _) -> T.pack (show e)
     e@(Service.InvalidProcessId _) -> T.pack (show e)
     e@(Service.AmbiguousActivity _) -> T.pack (show e)
@@ -2621,6 +2624,15 @@ callGetReducedModel dbManager mHosting rid args =
         names <- except (parseArrayArg "parameters" (Just "'parameters' is required (array of {name} or {process, name})") args :: Either Text [ParameterName])
         res <- liftIO $ BI.runReducedModel dbManager mHosting dbName pidText coll (fromMaybe False (boolArg "exclude_long_term" args)) names
         either (throwE . batchErrorMsg) (pure . toolSuccessJson rid . toJSON) res
+
+-- | Handler for the 'check_formula' MCP tool: the REST route's answer, as it is.
+callCheckFormula :: DatabaseManager -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callCheckFormula dbManager rid args (db, _) = runTool rid $ do
+    formula <- except (requireText "formula" args)
+    process <- except (optionalText "process_id" args)
+    unitCfg <- liftIO (DM.getMergedUnitConfig dbManager)
+    either (throwE . serviceMessage) (pure . toolSuccessJson rid . toJSON) $
+        Service.checkFormulaAt unitCfg db (FormulaCheckRequest formula process (intArg "exchange" args))
 
 -- | Translate a 'BI.BatchError' into the MCP 'toolError' payload.
 batchErrorMsg :: BI.BatchError -> Text

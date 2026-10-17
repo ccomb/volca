@@ -142,6 +142,17 @@ def fixture_spec() -> dict[str, Any]:
                     ],
                 },
             },
+            "/api/v1/formula-language": {
+                "get": {"operationId": "get_formula_language", "parameters": []},
+            },
+            "/api/v1/db/{dbName}/formula-check": {
+                "post": {
+                    "operationId": "check_formula",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                },
+            },
             "/api/v1/db/{dbName}/impacts/{collection}": {
                 "post": {
                     "operationId": "score_activities",

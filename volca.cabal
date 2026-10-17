@@ -112,6 +112,7 @@ library
                      , API.Types.Common
                      , API.Types.Comparison
                      , API.Types.Database
+                     , API.Types.Formula
                      , API.Types.Impacts
                      , API.Types.MethodComparison
                      , API.Types.MethodEdit

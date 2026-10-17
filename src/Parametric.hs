@@ -19,11 +19,14 @@ module Parametric (
     Moving (..),
     Input (..),
     moving,
+    Check (..),
+    checkFormula,
 ) where
 
 import Control.Monad (when)
 import Data.Bifunctor (first)
 import Data.Foldable (foldlM, traverse_)
+import Data.List (nub)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, mapMaybe)
@@ -34,7 +37,7 @@ import qualified Data.Vector as V
 import Database.MatrixBuild (findProducer, withActivities)
 import qualified Expr
 import Types
-import UnitConversion (UnitConfig)
+import UnitConversion (UnitConfig, UnitDef (..), lookupUnitDef)
 
 -- | A value for an input parameter: the process's own, or its database's when no process is named.
 data Setting = Setting
@@ -179,19 +182,20 @@ data Scope = Scope
     }
 
 scopeOf :: Database -> Activity -> Scope
-scopeOf db act =
+scopeOf db act = scopeWith (activityParameters act) (databaseParametersRead act (dbParameters db)) (namedLines act)
+
+-- | A scope from a process's own parameters, its database's it may read, and its named lines' formulas.
+scopeWith :: M.Map Text Parameter -> M.Map Text Parameter -> [(Text, Text)] -> Scope
+scopeWith own fromDatabase named =
     Scope
         { scopeOwn = inputs ownParameters
         , scopeDatabase = inputs readFromDatabase
-        , scopeCalculated =
-            formulas ownParameters
-                <> formulas readFromDatabase
-                <> [(T.toLower name, text) | ExchangeFormula{efName = Just name, efText = text} <- mapMaybe exchangeFormula (exchanges act)]
+        , scopeCalculated = formulas ownParameters <> formulas readFromDatabase <> named
         }
   where
     ownParameters, readFromDatabase :: M.Map Text Parameter
-    ownParameters = lowered (activityParameters act)
-    readFromDatabase = lowered (databaseParametersRead act (dbParameters db))
+    ownParameters = lowered own
+    readFromDatabase = lowered fromDatabase
 
     inputs :: M.Map Text Parameter -> Values
     inputs = M.mapMaybe $ \parameter -> case parameterDefinition parameter of
@@ -200,6 +204,10 @@ scopeOf db act =
 
     formulas :: M.Map Text Parameter -> [(Text, Text)]
     formulas parameters = [(key, formula) | (key, CalculatedParameter formula _) <- M.toList (parameterDefinition <$> parameters)]
+
+-- | The formulas of a process's named lines, by lowered name.
+namedLines :: Activity -> [(Text, Text)]
+namedLines act = [(T.toLower name, text) | ExchangeFormula{efName = Just name, efText = text} <- mapMaybe exchangeFormula (exchanges act)]
 
 -- | Every name of a scope with its value, each input replaced by the setting of its level when there is one.
 valuesAt :: Scope -> Values -> Values -> Values
@@ -343,3 +351,71 @@ databaseParametersRead activity databaseWide =
 -- | The allocation shares a process was declared with as formulas, kept as the source wrote them.
 shareFormulas :: Activity -> [Text]
 shareFormulas act = mapMaybe (dsFormula =<<) (activityDeclaredShares act)
+
+-- | What a formula gives where it would be written, at the defaults.
+data Check = Check
+    { checkValue :: !Double
+    , checkReads :: ![Text] -- Each name once, lowered, in the order the formula uses them
+    , checkWarnings :: ![Text]
+    }
+    deriving (Eq, Show)
+
+{- | A formula read in the scope of a process, or of its database when none is
+given, at the defaults: its value and the names it reads, or why it gives
+none. Every parameter of the database is in reach, as a process's formula may
+start reading one it did not. Written for a line, the formula takes that
+line's place, so a name that reads the line back is a cycle; and it is warned
+when it is one parameter, or a number times one, whose unit does not convert
+to the line's. Nothing is said of products and quotients of units.
+-}
+checkFormula :: UnitConfig -> Database -> Maybe (Activity, Maybe Exchange) -> Text -> Either Text Check
+checkFormula unitCfg db at formula = do
+    tree <- first Expr.describeRefusal (Expr.readFormula Expr.Volca formula)
+    let (values, unsettled) = Expr.settle Expr.Volca (M.union (scopeOwn scope) (scopeDatabase scope)) (scopeCalculated scope)
+    value <- first (explain unsettled) (Expr.evaluate Expr.Volca values formula)
+    when (isNaN value || isInfinite value) (Left ("the formula gives no finite number: " <> T.pack (show value)))
+    pure Check{checkValue = value, checkReads = nub (map T.toLower (Expr.collectIdentifiers Expr.Volca formula)), checkWarnings = maybe [] (unitWarnings tree) line}
+  where
+    own :: M.Map Text Parameter
+    own = maybe M.empty (activityParameters . fst) at
+
+    -- A process's own names shadow its database's, whatever their case.
+    fromDatabase :: M.Map Text Parameter
+    fromDatabase = M.withoutKeys (lowered (dbParameters db)) (M.keysSet (lowered own))
+
+    line :: Maybe Exchange
+    line = snd =<< at
+
+    scope :: Scope
+    scope = scopeWith own fromDatabase (filter ((/= lineName) . Just . fst) (maybe [] (namedLines . fst) at) <> maybe [] (\name -> [(name, formula)]) lineName)
+
+    lineName :: Maybe Text
+    lineName = T.toLower <$> (efName =<< exchangeFormula =<< line)
+
+    explain :: [(Text, Expr.Unsettled)] -> Expr.Refusal -> Text
+    explain unsettled = \case
+        Expr.Unresolved names -> T.intercalate "; " (map (why unsettled) (NE.toList names))
+        refusal -> Expr.describeRefusal refusal
+
+    why :: [(Text, Expr.Unsettled)] -> Text -> Text
+    why unsettled name = case lookup (T.toLower name) [(T.toLower n, u) | (n, u) <- unsettled] of
+        Just cycle'@Expr.Circular{} -> Expr.describeUnsettled cycle'
+        Just other -> name <> ": " <> Expr.describeUnsettled other
+        Nothing -> "no parameter or named line '" <> name <> "'"
+
+    unitWarnings :: Expr.Formula -> Exchange -> [Text]
+    unitWarnings tree ex = case (scaled tree, unitName <$> getUnitForExchange (dbUnits db) ex) of
+        (Just name, Just lineUnit)
+            | Just unit <- parameterUnit =<< M.lookup (T.toLower name) (M.union (lowered own) fromDatabase)
+            , Just (UnitDef{udDimension = a}, UnitDef{udDimension = b}) <- (,) <$> lookupUnitDef unitCfg unit <*> lookupUnitDef unitCfg lineUnit
+            , a /= b ->
+                ["parameter '" <> name <> "' is in " <> unit <> ", which does not convert to " <> lineUnit <> ", the line's unit"]
+        _ -> []
+
+    -- The parameter a formula is, or is a number times.
+    scaled :: Expr.Formula -> Maybe Text
+    scaled = \case
+        Expr.Name name -> Just name
+        Expr.Binary Expr.Multiply (Expr.Literal _) (Expr.Name name) -> Just name
+        Expr.Binary Expr.Multiply (Expr.Name name) (Expr.Literal _) -> Just name
+        _ -> Nothing

@@ -91,6 +91,8 @@ from .types import (
     MethodFactor,
     NewMethodFactor,
     ParameterName,
+    FormulaCheck,
+    FormulaLanguage,
     ParameterValue,
     PathResult,
     Preset,
@@ -2806,6 +2808,39 @@ class Client:
             ),
             process_id,
         )
+
+    def formula_language(self) -> FormulaLanguage:
+        """The formula language: every function and operator with its usage,
+        meaning and an example, the operators by how tightly they bind, and
+        the rules for numbers, names and arguments.
+        """
+        self._require_wire(72, "formula_language", engine_hint="0.16.0")
+        return FormulaLanguage.from_json(self._call("get_formula_language"))
+
+    def check_formula(
+        self,
+        formula: str,
+        *,
+        process_id: str | None = None,
+        exchange: int | None = None,
+    ) -> FormulaCheck:
+        """What ``formula`` gives where it would be written, at the database's own values.
+
+        With ``process_id`` it reads the process's parameters and named
+        lines, and the database's; without, the database's parameters alone.
+        ``exchange`` is the line it would be written on, by its ``position``
+        among the process's exchanges: its formula is replaced, so a name that
+        reads the line back is a cycle, and a parameter whose unit does not
+        convert to the line's is warned. A formula that gives nothing comes
+        back with its ``problem``; it is not an error.
+        """
+        self._require_wire(72, "check_formula", engine_hint="0.16.0")
+        body: dict = {"formula": formula}
+        if process_id is not None:
+            body["process"] = process_id
+        if exchange is not None:
+            body["exchange"] = exchange
+        return FormulaCheck.from_json(self._call("check_formula", body=body))
 
     # -- Methods --
 

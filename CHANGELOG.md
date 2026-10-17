@@ -144,6 +144,24 @@
   `score_activity`, and pyvolca as
   `get_impacts_batch(exchange_contributions=True)`. Wire revision 70.
 
+- `GET /formula-language` describes the language parameter and exchange
+  formulas are written in: each function and operator with its usage, its
+  meaning and an example with its value (`sqrt(16)` gives 4), the operators
+  by how tightly they bind, and the rules for numbers, names and arguments.
+  It is read from the table the engine reads formulas with, so the two
+  cannot differ, and `volca dump-formula-language` prints it.
+  `POST /db/{db}/formula-check` gives what a formula would give where it is
+  written, at the database's own values: in a bread whose `yield` is 0.8,
+  `1 / yield` gives 1.25 and reads `yield`. A name that has no value is
+  named, a cycle is called a cycle, and a formula written on a line takes
+  that line's place, so a name reading the line back is a cycle too. On a
+  line, a formula that is one parameter, or a number times one, whose unit
+  does not convert to the line's is warned: a distance in metres on a line
+  in kilograms. It is refused when the database's licence keeps its
+  inventory to itself, since the value reads its amounts. The assistant has
+  them as `get_formula_language` and `check_formula`, and pyvolca as
+  `formula_language()` and `check_formula()`. Wire revision 72.
+
 ### Fixed
 
 - A Brightway workbook loads linked as Brightway exports it. The export

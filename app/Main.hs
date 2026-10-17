@@ -44,6 +44,7 @@ import API.DatabaseHandlers (uploadBodyCeiling)
 import API.Licenses (licensesResponse)
 import API.MCP (WhileWorking, mcpApp, toolDefinitions)
 import API.Routes (lcaAPI, lcaServer, volcaOpenApi)
+import API.Types.Formula (formulaLanguage)
 import App.Env (AppEnv (..))
 import Data.Aeson (encode, object, (.=))
 import Data.Aeson.Types (Pair)
@@ -200,6 +201,7 @@ dumpDocument = \case
     DumpOpenApi -> encode volcaOpenApi
     DumpMcpTools -> encode (toolDefinitions (ReadOnly False))
     DumpConfigSchema -> encode (keyPaths configKeys)
+    DumpFormulaLanguage -> encode formulaLanguage
 
 {- | In desktop mode, print a machine-readable port line for the launcher
 to capture and stay quiet. Otherwise emit the human-facing startup banner,

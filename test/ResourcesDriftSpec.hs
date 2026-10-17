@@ -76,6 +76,10 @@ knownDivergences :: [Divergence]
 knownDivergences =
     [ ("aggregate", "database")
     , ("aggregate", "process_id")
+    , ("check_formula", "database")
+    , ("check_formula", "exchange")
+    , ("check_formula", "formula")
+    , ("check_formula", "process_id")
     , ("compare_activities", "database")
     , ("compare_activities", "process_id")
     , ("compare_databases", "database")

@@ -125,6 +125,7 @@ commandParser =
             ( cmd "dump-openapi" (pure (Dump DumpOpenApi)) "Dump OpenAPI spec as JSON to stdout"
                 <> cmd "dump-mcp-tools" (pure (Dump DumpMcpTools)) "Dump MCP tool definitions as JSON to stdout"
                 <> cmd "dump-config-schema" (pure (Dump DumpConfigSchema)) "Dump the configuration file's key names as JSON to stdout"
+                <> cmd "dump-formula-language" (pure (Dump DumpFormulaLanguage)) "Dump the formula language's functions, operators and rules as JSON to stdout"
                 <> internal
             )
 

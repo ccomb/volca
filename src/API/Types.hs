@@ -15,6 +15,7 @@ module API.Types (
     module API.Types.Common,
     module API.Types.Comparison,
     module API.Types.Database,
+    module API.Types.Formula,
     module API.Types.Impacts,
     module API.Types.MethodComparison,
     module API.Types.MethodEdit,
@@ -25,6 +26,7 @@ import API.Types.Authoring
 import API.Types.Common
 import API.Types.Comparison
 import API.Types.Database
+import API.Types.Formula
 import API.Types.Impacts
 import API.Types.MethodComparison
 import API.Types.MethodEdit

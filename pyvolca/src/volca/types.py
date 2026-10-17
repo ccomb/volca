@@ -1895,6 +1895,66 @@ class ParameterName:
 
 
 @dataclass(frozen=True)
+class FormulaFunction:
+    """A function or an operator of the formula language.
+
+    ``name`` is written as it is in a formula: a function's name, or an
+    operator's symbol. ``form`` is ``"function"``, ``"operator"`` (between two
+    arguments) or ``"prefix"`` (before one); ``value`` is what ``example``
+    gives.
+    """
+
+    name: str
+    form: str
+    usage: str
+    meaning: str
+    example: str
+    value: float
+
+    @classmethod
+    def from_json(cls, d: dict) -> "FormulaFunction":
+        return cls(name=d["name"], form=d["form"], usage=d["usage"], meaning=d["meaning"], example=d["example"], value=d["value"])
+
+
+@dataclass(frozen=True)
+class FormulaLanguage:
+    """The language parameter and exchange formulas are written in.
+
+    ``operators`` lists the operators by how tightly they bind, loosest
+    first; a function called by name binds tighter than all of them.
+    ``rules`` says how numbers, names and arguments are written.
+    """
+
+    functions: list[FormulaFunction]
+    operators: list[list[str]]
+    rules: list[str]
+
+    @classmethod
+    def from_json(cls, d: dict) -> "FormulaLanguage":
+        return cls(functions=[FormulaFunction.from_json(f) for f in d["functions"]], operators=d["operators"], rules=d["rules"])
+
+
+@dataclass(frozen=True)
+class FormulaCheck:
+    """What a formula gives at the database's own values, or why it gives nothing.
+
+    ``problem`` is set exactly when ``value`` is not. ``reads`` lists the
+    names the formula reads, in lower case; ``warnings`` what looks wrong
+    without stopping it, such as a parameter whose unit does not convert to
+    the line's.
+    """
+
+    value: float | None
+    reads: list[str]
+    warnings: list[str]
+    problem: str | None
+
+    @classmethod
+    def from_json(cls, d: dict) -> "FormulaCheck":
+        return cls(value=d.get("value"), reads=d["reads"], warnings=d["warnings"], problem=d.get("problem"))
+
+
+@dataclass(frozen=True)
 class FreeParameter:
     """A parameter of a :class:`ReducedModel`: its ``parameter.value`` is the default."""
 

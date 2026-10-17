@@ -18,6 +18,7 @@ import Test.Hspec
 import Test.Hspec.QuickCheck (prop)
 import Test.QuickCheck (Gen, arbitrary, arbitraryBoundedEnum, choose, elements, forAll, oneof, sized, vectorOf, (===))
 
+import API.Types.Formula (FormulaFunction (..), FormulaLanguage (..), formulaLanguage)
 import Expr (Dialect (..), Formula (..), Refusal (..), Unsettled (..), collectIdentifiers, describeRefusal, settle, translate)
 import qualified Expr
 
@@ -260,6 +261,27 @@ spec = do
                  in translate Volca (Expr.example r) `shouldBe` Right (Expr.example r)
         it "calls each function by a name of its own" $
             nub Expr.functionNames `shouldBe` Expr.functionNames
+        it "lists every function once in its reference, each operator among them" $ do
+            let named = [(ffName f, ffForm f) | f <- flFunctions formulaLanguage]
+            length named `shouldBe` length Expr.functions
+            nub named `shouldBe` named
+            forM_ (concat (flOperators formulaLanguage)) $ \op -> op `shouldSatisfy` (`elem` map fst named)
+        it "lists its operators by how tightly it reads them, loosest first" $ do
+            let infixes = [[(op, b) | Expr.TwoArguments b <- row, b /= Expr.Power, Expr.Infix op <- [Expr.spelling (Expr.reference (Expr.TwoArguments b))]] | row <- Expr.operators]
+            -- Of two operators of different rows, the later one takes its operands first.
+            forM_ [(a, b) | (i, row) <- zip [0 :: Int ..] infixes, (j, row') <- zip [0 ..] infixes, i < j, a <- row, b <- row'] $ \((loose, f), (tight, g)) ->
+                Expr.readFormula Volca ("x " <> loose <> " y " <> tight <> " z") `shouldBe` Right (Binary f (Name "x") (Binary g (Name "y") (Name "z")))
+            Expr.readFormula Volca "-x * y" `shouldBe` Right (Binary Expr.Multiply (Unary Expr.Negate (Name "x")) (Name "y"))
+            Expr.readFormula Volca "-x ^ y" `shouldBe` Right (Unary Expr.Negate (Binary Expr.Power (Name "x") (Name "y")))
+            Expr.readFormula Volca "x ^ y * z" `shouldBe` Right (Binary Expr.Multiply (Binary Expr.Power (Name "x") (Name "y")) (Name "z"))
+        it "holds to the rules its reference states" $ do
+            near 0.5 (volca [] "0.5")
+            near 1.2e-3 (volca [] "1.2e-3")
+            volca [("a", 2), ("b", 5)] "max(a; b)" `shouldBe` volca [("a", 2), ("b", 5)] "max(a, b)"
+            near 3 (volca [("yield", 3)] "Yield")
+            (`elem` Expr.functionNames) <$> ["and", "or", "not"] `shouldBe` [True, True, True]
+            volca [] "pi" `shouldBe` Left (Unresolved ("pi" :| []))
+            near 0 (volca [] "if(0; 1; 0)")
         it "sends a formula as a tree: a number, a name in lower case, or a call spelled as it is written" $
             encode <$> Expr.readFormula Volca "-2 * Yield + if(a > 1; sqrt(b); 0)"
                 `shouldBe` Right "[\"+\",[\"*\",[\"-\",2],\"yield\"],[\"if\",[\">\",\"a\",1],[\"sqrt\",\"b\"],0]]"

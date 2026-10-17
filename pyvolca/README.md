@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 71** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 72** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -537,6 +537,18 @@ the change replaced), ``"different"`` or ``"line-gone"`` (the line is
 not there to judge, or several answer to its name). Needs wire
 revision 57.
 
+##### `Client.check_formula(formula: str, *, process_id: str | None = None, exchange: int | None = None) -> FormulaCheck`
+
+What ``formula`` gives where it would be written, at the database's own values.
+
+With ``process_id`` it reads the process's parameters and named
+lines, and the database's; without, the database's parameters alone.
+``exchange`` is the line it would be written on, by its ``position``
+among the process's exchanges: its formula is replaced, so a name that
+reads the line back is a cycle, and a parameter whose unit does not
+convert to the line's is warned. A formula that gives nothing comes
+back with its ``problem``; it is not an error.
+
 ##### `Client.compare_activities(process_id: str, other_process_id: str, *, other_database: str | None = None) -> ActivityComparison`
 
 Compare one activity with another, exchange by exchange.
@@ -848,6 +860,12 @@ Forget the usage lines collected, up to ``seq`` ``through``.
 ``boot`` is the one `usage` returned; a cursor from another
 start of the engine raises VoLCAError with a 409. Needs wire
 revision 53.
+
+##### `Client.formula_language()`
+
+The formula language: every function and operator with its usage,
+meaning and an example, the operators by how tightly they bind, and
+the rules for numbers, names and arguments.
 
 ##### `Client.get_activity(process_id: str) -> ActivityDetail`
 
@@ -3408,6 +3426,54 @@ out for one of the database's ``database_parameters``.
 |-------|------|---------|
 | `name` | `str` | _required_ |
 | `process` | `str \| None` | None |
+
+### `FormulaCheck`
+
+What a formula gives at the database's own values, or why it gives nothing.
+
+``problem`` is set exactly when ``value`` is not. ``reads`` lists the
+names the formula reads, in lower case; ``warnings`` what looks wrong
+without stopping it, such as a parameter whose unit does not convert to
+the line's.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `value` | `float \| None` | _required_ |
+| `reads` | `list[str]` | _required_ |
+| `warnings` | `list[str]` | _required_ |
+| `problem` | `str \| None` | _required_ |
+
+### `FormulaFunction`
+
+A function or an operator of the formula language.
+
+``name`` is written as it is in a formula: a function's name, or an
+operator's symbol. ``form`` is ``"function"``, ``"operator"`` (between two
+arguments) or ``"prefix"`` (before one); ``value`` is what ``example``
+gives.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `form` | `str` | _required_ |
+| `usage` | `str` | _required_ |
+| `meaning` | `str` | _required_ |
+| `example` | `str` | _required_ |
+| `value` | `float` | _required_ |
+
+### `FormulaLanguage`
+
+The language parameter and exchange formulas are written in.
+
+``operators`` lists the operators by how tightly they bind, loosest
+first; a function called by name binds tighter than all of them.
+``rules`` says how numbers, names and arguments are written.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `functions` | `list[FormulaFunction]` | _required_ |
+| `operators` | `list[list[str]]` | _required_ |
+| `rules` | `list[str]` | _required_ |
 
 ### `ParameterValue`
 

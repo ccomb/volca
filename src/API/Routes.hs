@@ -13,7 +13,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterName (..), ParameterValue, PerturbedEntry (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterName (..), ParameterValue, PerturbedEntry (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import qualified Config
 import Control.Concurrent.Async (mapConcurrently)
@@ -270,6 +270,9 @@ type LCAAPI =
                 :<|> "classification-presets" :> Get '[JSON] [ClassificationPresetInfo]
                 -- The standard licences a database can be published under, as the engine reads them
                 :<|> "licences" :> Get '[JSON] [Licence]
+                -- The formula language, from the table the engine reads formulas with
+                :<|> "formula-language" :> Get '[JSON] FormulaLanguage
+                :<|> "db" :> Capture "dbName" Text :> "formula-check" :> ReqBody '[JSON] FormulaCheckRequest :> Post '[JSON] FormulaCheckResponse
                 -- OpenAPI spec, enriched with operationId/description from API.Resources.
                 -- pyvolca's runtime dispatcher reads this to route operation_id → HTTP.
                 :<|> "openapi.json" :> Get '[JSON] Value
@@ -571,6 +574,7 @@ serviceErrorToServerError = \case
     Service.MatrixError msg -> err422{errBody = utf8Body msg}
     Service.Withheld msg -> err403{errBody = utf8Body msg}
     Service.ParameterRefused msg -> err400{errBody = utf8Body msg}
+    Service.NoSuchLine msg -> err400{errBody = utf8Body msg}
   where
     utf8Body = BSL.fromStrict . T.encodeUtf8
 
@@ -1164,6 +1168,7 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
                 Service.MatrixError _ -> False
                 Service.Withheld _ -> False
                 Service.ParameterRefused _ -> False
+                Service.NoSuchLine _ -> False
             ]
     t0 <- liftIO getCurrentTime
     ctxs <- liftIO $ mapConcurrently (prepMethodCtx dbManager dbName collectionName db) (mcMethods collection)
@@ -1595,7 +1600,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 71: the @ClaimByNameAlone@ supplier claim, a supplier activity
+(revision 72: the formula-language route, the formula language with its
+functions, operators and rules, and the formula-check route, a formula's value
+where it would be written;
+revision 71: the @ClaimByNameAlone@ supplier claim, a supplier activity
 named with no product;
 revision 70: the @exchange-contributions@ flag of an activity's scores, what
 each line adds to each score, and the @position@ of each exchange of an
@@ -1751,7 +1759,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 71
+currentWireVersion = 72
 
 getVersion :: AppM Value
 getVersion = do
@@ -2280,6 +2288,13 @@ postReducedModel dbName processIdText collectionName mExcludeLT ReducedModelRequ
                 , rdmSuppliers = [ModelSupplier (supplierText db s) (supplierDatabase dbName s) (saScores a) (saScalings a) | (s, a) <- answered]
                 , rdmScoringSets = sets
                 }
+
+postFormulaCheck :: Text -> FormulaCheckRequest -> AppM FormulaCheckResponse
+postFormulaCheck dbName request = do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
+    (db, _) <- requireDatabaseByName dbName
+    unitCfg <- liftIO . getMergedUnitConfig =<< asks aeDbManager
+    either throwServiceError pure (Service.checkFormulaAt unitCfg db request)
 
 unprocessable :: Text -> AppM a
 unprocessable msg = throwError err422{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
@@ -3362,6 +3377,8 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getStats
             :<|> getClassificationPresets
             :<|> pure standardLicences
+            :<|> pure formulaLanguage
+            :<|> postFormulaCheck
             :<|> getOpenApiSpec
 
 {- | Build the scoring input map (impact method name → raw score) from LCIA

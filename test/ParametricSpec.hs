@@ -29,6 +29,7 @@ import Data.Aeson (Value (..), decode, toJSON)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy.Char8 as BSL
+import Data.Either (isLeft)
 import Data.List (nub, sort, sortOn, transpose)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isNothing)
@@ -50,7 +51,7 @@ import FlowContributionSpec (payloadOf)
 import Method.Mapping (LongTermMode (..))
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 import qualified Method.Types as MT
-import Parametric (ParameterRefusal (..), Setting (..), describeParameterRefusal, instantiate, parameterised)
+import Parametric (Check (..), ParameterRefusal (..), Setting (..), checkFormula, describeParameterRefusal, instantiate, parameterised)
 import Servant (ServerError (..), runHandler)
 import Service (withholdBatch)
 import SharedSolver (CrossDBSolution (..), SharedSolver (solverDbName), computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
@@ -291,6 +292,48 @@ spec = describe "a database at other values of its parameters" $ do
             callTool manager [] Nothing Nothing noRequestId "get_reduced_model" . KM.fromList $
                 [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("parameters", toJSON names)]
         (Object <$> payloadOf reply) `shouldBe` Just (toJSON model)
+
+    describe "a formula checked where it would be written" $ do
+        let checked at formula = do
+                (bakery, _) <- databases
+                bread <- maybe (fail "no bread") pure (getActivity bakery =<< findProcessId bakery aBread pBread)
+                pure (checkFormula bakeryUnits (withCheckParameters bakery) (at bread) formula)
+            inBread act = Just (act, Nothing)
+            onLine i act = Just (act, Just (exchanges act !! i))
+            -- The flour line, named, as EcoSpold 2 names a line other formulas read.
+            onNamedFlour i act = onLine i act{exchanges = [if j == 1 then withFormula (Just ExchangeFormula{efName = Just "Flour_kg", efText = "2 * yield"}) ex else ex | (j, ex) <- zip [0 :: Int ..] (exchanges act)]}
+            valueOf = fmap checkValue
+            problemOf = either Just (const Nothing)
+
+        it "gives the value at the defaults, and the names the formula reads" $ do
+            fmap (\c -> (checkValue c, checkReads c)) <$> checked inBread "2 * Yield + mix_fr" `shouldReturn` Right (3, ["yield", "mix_fr"])
+            valueOf <$> checked (const Nothing) "ratio / 2" `shouldReturn` Right 2
+
+        it "reads a database's parameter the process does not read yet" $
+            valueOf <$> checked inBread "distance" `shouldReturn` Right 3
+
+        it "names the name that has no value" $ do
+            problemOf <$> checked inBread "nope * 2" `shouldReturn` Just "no parameter or named line 'nope'"
+            -- The bread's own names are not the database's.
+            problemOf <$> checked (const Nothing) "mix_fr" `shouldReturn` Just "no parameter or named line 'mix_fr'"
+
+        it "says a cycle is a cycle, not an unknown name" $
+            checked inBread "loop_a * 2" >>= (`shouldSatisfy` either (\p -> all (`T.isInfixOf` p) ["loop_a", "loop_b", "need each other's values"]) (const False))
+
+        it "puts a line's new formula in place of its old one, so a name that reads it back is a cycle" $ do
+            valueOf <$> checked (onNamedFlour 2) "flour_kg * 2" `shouldReturn` Right 4
+            problemOf <$> checked (onNamedFlour 1) "flour_kg + 1" `shouldReturn` Just "flour_kg needs its own value"
+
+        it "says what does not read, and refuses a value that is not a number" $ do
+            checked inBread "2 +" >>= (`shouldSatisfy` isLeft)
+            problemOf <$> checked inBread "1 / (yield - 1)" `shouldReturn` Just "the formula gives no finite number: Infinity"
+
+        it "warns of a parameter whose unit does not convert to the line's, and judges nothing else" $ do
+            fmap checkWarnings <$> checked (onLine 1) "distance" `shouldReturn` Right ["parameter 'distance' is in m, which does not convert to kg, the line's unit"]
+            fmap (length . checkWarnings) <$> checked (onLine 1) "2 * distance" `shouldReturn` Right 1
+            fmap checkWarnings <$> checked (onLine 1) "distance * yield" `shouldReturn` Right []
+            fmap checkWarnings <$> checked (onLine 1) "dough_mass" `shouldReturn` Right []
+            fmap checkWarnings <$> checked inBread "distance" `shouldReturn` Right []
 
     it "refuses a model it cannot give, naming why" $ do
         manager <- scoringManager
@@ -553,6 +596,22 @@ chainActivities =
         [ (link i, activity "link" (reference (snd (link i)) : [withFormula (formulaOf "yield") (line (snd (link (i - 1))) 1 Input){techActivityLinkId = Just (fst (link (i - 1)))} | i > 0]))
         | i <- [0 .. 129]
         ]
+
+-- | The bakery's parameters with a few more for the formula check: units, and two that read each other.
+withCheckParameters :: Database -> Database
+withCheckParameters db =
+    db
+        { dbParameters =
+            M.union
+                ( M.fromList
+                    [ ("distance", (input 3){parameterUnit = Just "m"})
+                    , ("dough_mass", (input 500){parameterUnit = Just "g"})
+                    , ("loop_a", parameter (CalculatedParameter "loop_b + 1" Nothing))
+                    , ("loop_b", parameter (CalculatedParameter "loop_a * 2" Nothing))
+                    ]
+                )
+                (dbParameters db)
+        }
 
 bakeryParameters :: M.Map Text Parameter
 bakeryParameters =

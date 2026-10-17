@@ -75,6 +75,7 @@ data DumpTarget
     = DumpOpenApi -- OpenAPI specification
     | DumpMcpTools -- MCP tool definitions
     | DumpConfigSchema -- Names of the keys a configuration file may carry
+    | DumpFormulaLanguage -- The formula language: functions, operators, rules
     deriving (Eq, Show, Generic)
 
 -- | Database management actions
