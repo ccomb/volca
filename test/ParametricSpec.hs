@@ -391,10 +391,13 @@ spec = describe "a database at other values of its parameters" $ do
             forM_ ["parameter 'salt_g'", "process 'salted'", "process 'brined'"] (refused `shouldContain`)
             refusedWith [("nope", Nothing)] >>= (`shouldContain` "the database has no parameter 'nope'")
             fmap (M.member "unread" . fst) <$> edited [("unread", Nothing)] `shouldReturn` Right False
+            -- A formula removed by the same edit does not hold back what it read, whatever the order.
+            fmap (M.keys . fst) <$> edited [("twice", Just (parameter (CalculatedParameter "unread * 2" Nothing))), ("unread", Nothing), ("twice", Nothing)] `shouldReturn` Right ["salt_g", "salt_kg", "share_pct"]
 
         it "refuses what would leave a process or a parameter without a value, and a moving share" $ do
             refusedWith [("salt_g", Just (parameter (CalculatedParameter "nope * 2" Nothing)))] >>= (`shouldContain` "process 'brined'")
             refusedWith [("lonely", Just (parameter (CalculatedParameter "nope * 2" Nothing)))] `shouldReturn` "the database: lonely: unknown variable nope"
+            refusedWith [("per_salt", Just (parameter (CalculatedParameter "1 / salt_kg" Nothing))), ("salt_kg", Just (input 0))] `shouldReturn` "the database: per_salt: the formula gives no finite number"
             refusedWith [("share_pct", Just (input 50))] `shouldReturn` T.unpack (describeParameterRefusal (ShareMoves "shared" "share_pct"))
             refusedWith [("Salt_kg", Just (input 1))] >>= (`shouldContain` "already spelt 'salt_kg' in the database")
 

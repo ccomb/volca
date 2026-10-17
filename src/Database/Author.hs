@@ -84,7 +84,7 @@ import qualified Data.UUID.V5 as UUID5
 import qualified Data.Vector as V
 
 import qualified Expr
-import Parametric (describeParameterRefusal, formulaProblems, parameterProblems, restated, shareFormulas)
+import Parametric (Before (..), describeParameterRefusal, formulaProblems, parameterProblems, restated, shareFormulas)
 import Types (
     Activity (..),
     BioDirection (..),
@@ -505,7 +505,7 @@ accumulate across the whole list, as they do for a written batch.
 -}
 applyExchangeEdits :: AuthorContext -> [ExchangeEdit] -> Activity -> Either [Text] EditedActivity
 applyExchangeEdits ctx edits act = case accErrors final of
-    [] -> case restated (acDb ctx, act) (acDb ctx, accActivity final) of
+    [] -> case restated (Before (acDb ctx) act) (acDb ctx) (accActivity final) of
         Left refusal -> Left [describeParameterRefusal refusal]
         Right stated ->
             Right

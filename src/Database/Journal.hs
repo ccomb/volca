@@ -295,11 +295,8 @@ applyOp ctx = \case
     ParametersEdited edits -> do
         (parameters, moved) <- first (T.intercalate "; ") (editedParameters (acDb ctx) edits)
         let withParameters = (acDb ctx){dbParameters = parameters}
-        if M.null moved
-            then pure withParameters
-            else do
-                restatedRows <- traverse (restatedRow withParameters) (M.toList moved)
-                replaceActivities (acUnitConfig ctx) restatedRows withParameters
+        restatedRows <- traverse (restatedRow withParameters) (M.toList moved)
+        replaceActivities (acUnitConfig ctx) restatedRows withParameters
   where
     restatedRow db (pid, act) = do
         key <- processKey db pid

@@ -21,6 +21,7 @@ module Parametric (
     moving,
     Check (..),
     checkFormula,
+    Before (..),
     restated,
     shareFormulas,
     editedParameters,
@@ -242,6 +243,16 @@ amountOf db act atDefaults atSettings ex = case exchangeFormula ex of
     refusal :: Text -> ParameterRefusal
     refusal = NoAmount (activityName act) (maybe "" flowKindName (lookupExchangeFlow db ex))
 
+-- | A process, and the database it was in, as they stood before an edit.
+data Before = Before
+    { beforeDatabase :: Database
+    , beforeActivity :: Activity
+    }
+
+-- | Whether a name settles to a number that is not finite.
+notFinite :: Values -> Text -> Bool
+notFinite at name = maybe False (\value -> isNaN value || isInfinite value) (M.lookup (T.toLower name) at)
+
 {- | A process after an edit, at the defaults: each line whose formula no
 longer gives its amount takes the formula's value, by the same comparison an
 import makes, and each calculated parameter its value. Refused when a formula
@@ -250,8 +261,8 @@ and when the edit moves an allocation share, since the amounts were split by
 the old one. The process before the edit, in its database then, is read for
 those two alone.
 -}
-restated :: (Database, Activity) -> (Database, Activity) -> Either ParameterRefusal Activity
-restated before (db, act) = do
+restated :: Before -> Database -> Activity -> Either ParameterRefusal Activity
+restated before db act = do
     traverse_ shareKept (shareFormulas act)
     case [(name, unsettled) | (name, unsettled) <- unsettledNow, name `notElem` map fst unsettledBefore] of
         (name, _) : _ -> Left (NoValue (activityName act) (unsettledWhy unsettledNow (Expr.Unresolved (name NE.:| []))))
@@ -262,17 +273,14 @@ restated before (db, act) = do
     restatedLines <- traverse line (exchanges act)
     pure act{exchanges = restatedLines, activityParameters = M.mapWithKey refreshed (activityParameters act)}
   where
-    settled :: (Database, Activity) -> (Values, [(Text, Expr.Unsettled)])
-    settled (atDb, at) = let scope = scopeOf atDb at in Expr.settle Expr.Volca (M.union (scopeOwn scope) (scopeDatabase scope)) (scopeCalculated scope)
+    settled :: Database -> Activity -> (Values, [(Text, Expr.Unsettled)])
+    settled atDb at = let scope = scopeOf atDb at in Expr.settle Expr.Volca (M.union (scopeOwn scope) (scopeDatabase scope)) (scopeCalculated scope)
 
     values, valuesBefore :: Values
-    (values, unsettledNow) = settled (db, act)
-    (valuesBefore, unsettledBefore) = settled before
+    (values, unsettledNow) = settled db act
+    (valuesBefore, unsettledBefore) = settled (beforeDatabase before) (beforeActivity before)
 
     unsettledNow, unsettledBefore :: [(Text, Expr.Unsettled)]
-
-    notFinite :: Values -> Text -> Bool
-    notFinite at name = maybe False (\value -> isNaN value || isInfinite value) (M.lookup (T.toLower name) at)
 
     line :: Exchange -> Either ParameterRefusal Exchange
     line ex = case exchangeFormula ex of
@@ -308,15 +316,21 @@ editedParameters :: Database -> [(Text, Maybe Parameter)] -> Either [Text] (M.Ma
 editedParameters db edits = case foldl' step (dbParameters db, []) edits of
     (parameters, []) -> do
         let edited = db{dbParameters = M.mapWithKey (refreshed (fst (settledAlone parameters))) parameters}
-            restatedReaders = [(pid, act, restated (db, act) (edited, act)) | (pid, act) <- readers edited]
+            restatedReaders = [(pid, act, restated (Before db act) edited act) | (pid, act) <- readers edited]
             moved = [(pid, stated) | (pid, act, Right stated) <- restatedReaders, changed act stated]
             readByNoProcess = S.difference editedNames (S.fromList [key | (_, act) <- readers edited, key <- M.keys (lowered (databaseParametersRead act (dbParameters edited)))])
-            (_, unsettledAfter) = settledAlone (dbParameters edited)
+            (valuesAfter, unsettledAfter) = settledAlone (dbParameters edited)
+            valuesBefore = fst (settledAlone (dbParameters db))
         case [describeParameterRefusal refusal | (_, _, Left refusal) <- restatedReaders]
             <> [ "the database: " <> unsettledWhy unsettledAfter (Expr.Unresolved (name NE.:| []))
                | (name, _) <- unsettledAfter
                , S.member name readByNoProcess
                , name `notElem` map fst (snd (settledAlone (dbParameters db)))
+               ]
+            <> [ "the database: " <> name <> ": the formula gives no finite number"
+               | (name, Parameter{parameterDefinition = CalculatedParameter{}}) <- M.toList (dbParameters edited)
+               , notFinite valuesAfter name
+               , not (notFinite valuesBefore name)
                ] of
             [] -> Right (dbParameters edited, M.fromList moved)
             errs -> Left errs
@@ -324,6 +338,10 @@ editedParameters db edits = case foldl' step (dbParameters db, []) edits of
   where
     editedNames :: S.Set Text
     editedNames = S.fromList (map (T.toLower . fst) edits)
+
+    -- A formula the same edit removes reads nothing once it is in.
+    removedNames :: S.Set Text
+    removedNames = S.fromList [T.toLower name | (name, Nothing) <- edits]
 
     step :: (M.Map Text Parameter, [Text]) -> (Text, Maybe Parameter) -> (M.Map Text Parameter, [Text])
     step (parameters, errs) = \case
@@ -342,6 +360,7 @@ editedParameters db edits = case foldl' step (dbParameters db, []) edits of
         [ "parameter '" <> other <> "'"
         | (other, Parameter{parameterDefinition = CalculatedParameter formula _}) <- M.toList parameters
         , T.toLower other /= key
+        , T.toLower other `S.notMember` removedNames
         , key `elem` map T.toLower (Expr.collectIdentifiers Expr.Volca formula)
         ]
             <> nub ["process '" <> activityName act <> "'" | act <- V.toList (dbActivities db), M.member key (lowered (databaseParametersRead act parameters))]
