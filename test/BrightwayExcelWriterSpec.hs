@@ -203,6 +203,14 @@ spec = describe "BrightwayExcel.Writer" $ do
                                 `shouldBe` ["natural gas, high pressure"]
                         other -> expectationFailure ("expected one activity, got " <> show (length other))
 
+        it "round-trips an input naming its supplier activity alone" $
+            withWritten (claimedBy (ClaimByNameAlone "natural gas, high pressure")) $
+                parseBrightwayExcel defaultUnitConfig >=> \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right Workbook{wbActivities = acts} ->
+                        [techSupplierClaim ex | a <- acts, ex@TechnosphereExchange{techRole = Input} <- exchanges a]
+                            `shouldBe` [ClaimByNameAlone "natural gas, high pressure"]
+
         it "(i) canonicalizes a non-canonical reference unit, then is a fixed point" $
             -- The parser normalizes a reference product's unit to canonical at
             -- ingest (g→kg here, scaling 1000→1). So parse(write D) ≠ D for a
@@ -547,12 +555,16 @@ Brightway workbook's @name@ column does when @reference product@ holds the
 product.
 -}
 supplierNamedDb :: SimpleDatabase
-supplierNamedDb =
+supplierNamedDb = claimedBy (ClaimByName "market for natural gas, high pressure")
+
+-- | The base fixture whose technosphere input designates its supplier by this claim.
+claimedBy :: SupplierClaim -> SimpleDatabase
+claimedBy claim =
     fixtureDb{sdbActivities = M.singleton (generateActivityUUID a, getReferenceProductUUID a) a}
   where
     a = elec{exchanges = map named (exchanges elec)}
     named ex = case ex of
-        TechnosphereExchange{techRole = Input} -> ex{techSupplierClaim = ClaimByName "market for natural gas, high pressure"}
+        TechnosphereExchange{techRole = Input} -> ex{techSupplierClaim = claim}
         TechnosphereExchange{} -> ex
         BiosphereExchange{} -> ex
         WasteExchange{} -> ex

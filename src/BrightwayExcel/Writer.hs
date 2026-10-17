@@ -444,7 +444,8 @@ a product made in the workbook. Every row's @database@ column names the
 workbook, so a product another database makes comes back as one made here
 ('productsSpeltAlike' refuses the case where that would merge two products);
 @name@ carries the supplier activity where the source named one, and repeats the
-flow name where it did not.
+flow name where it did not; a supplier named with no product leaves
+@reference product@ empty.
 -}
 exchangeRow :: WriterConfig -> SimpleDatabase -> Exchange -> Maybe [Cell]
 exchangeRow cfg db = \case
@@ -454,7 +455,7 @@ exchangeRow cfg db = \case
         Just
             [ CText (namedSupplier claim name)
             , CNum amt
-            , CText name
+            , statedProduct claim name
             , locCell (locationCode loc)
             , CText unit
             , CEmpty
@@ -509,6 +510,17 @@ namedSupplier claim flowName = case claim of
     ClaimByProduct -> flowName
     ClaimById _ -> flowName
     ClaimByDatasetNumber _ -> flowName
+
+{- | The @reference product@ column: left empty for a supplier named with no
+product, so the row reads back as naming the activity alone.
+-}
+statedProduct :: SupplierClaim -> Text -> Cell
+statedProduct claim flowName = case claim of
+    ClaimByNameAlone _ -> CEmpty
+    ClaimByName _ -> CText flowName
+    ClaimByProduct -> CText flowName
+    ClaimById _ -> CText flowName
+    ClaimByDatasetNumber _ -> CText flowName
 
 -- | Brightway @type@ label for a technosphere role.
 techTypeLabel :: TechRole -> Text

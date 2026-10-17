@@ -144,6 +144,7 @@ spec = describe "BrightwayExcel.Parser" $ do
                         referenceProductName techDB mill `shouldBe` Just "wheat flour"
                         map (flowName techDB) (inputExchanges mill) `shouldBe` [Just "market for wheat grain"]
                         bakery <- requireActivity acts "Bakery"
+                        referenceProductName techDB bakery `shouldBe` Just "bread"
                         [(flowName techDB ex, techSupplierClaim ex) | ex@TechnosphereExchange{} <- inputExchanges bakery]
                             `shouldBe` [ (Just "wheat flour", ClaimByName "Flour mill, copied")
                                        , (Just "market for electricity, low voltage", ClaimByNameAlone "market for electricity, low voltage")
@@ -476,7 +477,7 @@ exportedSheet =
     , []
     , [CT "Activity", CT "Bakery"]
     , [CT "location", CT "GLO"]
-    , [CT "reference product", CT "Bakery"]
+    , [CT "reference product", CT "bread"]
     , [CT "unit", CT "kilogram"]
     , [CT "Exchanges"]
     , [CT "name", CT "amount", CT "location", CT "unit", CT "type"]

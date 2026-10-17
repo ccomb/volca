@@ -899,7 +899,8 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
     preferNamedActivity :: [(Text, SupplierEntry)] -> [(Text, SupplierEntry)]
     preferNamedActivity candidates = case supplierActivity of
         Just (NamedWithProduct activity) -> firstNonEmpty [filter (named activity) candidates, candidates]
-        _ -> candidates
+        Just (NamedAlone _) -> candidates
+        Nothing -> candidates
       where
         named :: Text -> (Text, SupplierEntry) -> Bool
         named activity (_, entry) = normalizeText activity == normalizeText (seActivityName entry)
