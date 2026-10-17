@@ -165,6 +165,14 @@
   parameter keeps its formula. pyvolca has the new kind of supplier claim
   as `ClaimKind.NAME_ALONE`. Wire revision 71.
 
+- A set of parameter values is no longer refused as making the technosphere
+  singular when it is not. The test compared each step of the elimination
+  with the largest number of the system, so a set moving a process counted in
+  hundredths of a unit and another counted in thousands of units was refused,
+  though the changed system was as regular as the loaded one. The test is now
+  the ratio of their determinants, which does not depend on the units the
+  processes are counted in.
+
 - A line whose supplier is in another database is read in its own unit. An
   activity buying 2000 g of a product another database sells per kilogram
   asked that database for 2000 kg, a thousand times too much, since the

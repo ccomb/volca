@@ -29,33 +29,38 @@ data LU
         !(U.Vector Int)
 
 {- | Factorise the @n@×@n@ matrix given row by row, or refuse when it is
-singular: a pivot below 1e-12 times the largest entry.
+singular: its determinant below 1e-12 in magnitude. For the system of a
+correction, the determinant is the changed matrix's over the loaded one's, the
+same whatever unit each process is counted in, where the size of a pivot is
+not: a process counted in grams has entries a thousand times those of one
+counted in kilograms, though nothing else changed.
 -}
 factorLU :: Int -> U.Vector Double -> Either Text LU
 factorLU n entries
     | U.length entries /= n * n = Left "a dense system needs n×n entries"
     | not (U.all isFinite entries) = Left "the system has an entry that is not a finite number"
     | otherwise = case U.createT eliminate of
-        (Just rows, factors) -> Right (LU n factors rows)
-        (Nothing, _) -> Left "the system is singular"
+        (Just rows, factors) | regular factors -> Right (LU n factors rows)
+        _ -> Left "the system is singular"
   where
     isFinite :: Double -> Bool
     isFinite x = not (isNaN x || isInfinite x)
-    tolerance :: Double
-    tolerance = 1e-12 * U.foldl' (\m x -> max m (abs x)) 0 entries
+    -- In logarithms, so that k pivots of a thousand do not overflow.
+    regular :: U.Vector Double -> Bool
+    regular factors = let logDet = sum [log (abs (factors U.! (i * n + i))) | i <- [0 .. n - 1]] in isFinite logDet && logDet >= log 1e-12
 
     eliminate :: ST s (Maybe (U.Vector Int), MU.MVector s Double)
     eliminate = do
         a <- U.thaw entries
         rows <- U.thaw (U.enumFromN 0 n)
-        regular <- foldlM (\ok col -> if ok then step a rows col else pure False) True [0 .. n - 1]
+        eliminated <- foldlM (\ok col -> if ok then step a rows col else pure False) True [0 .. n - 1]
         frozen <- U.freeze rows
-        pure (if regular then Just frozen else Nothing, a)
+        pure (if eliminated then Just frozen else Nothing, a)
 
     step :: MU.MVector s Double -> MU.MVector s Int -> Int -> ST s Bool
     step a rows col = do
         (size, pivotRow) <- foldlM (\best r -> max best . (\v -> (abs v, r)) <$> MU.read a (r * n + col)) (-1, col) [col .. n - 1]
-        if size <= tolerance
+        if size == 0
             then pure False
             else do
                 when (pivotRow /= col) $ do

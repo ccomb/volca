@@ -26,6 +26,10 @@ spec = do
             (U.toList . (`solveLU` U.fromList [4, 5]) <$> factorLU 2 (U.fromList [0, 2, 3, 1])) `shouldBe` Right [1, 2]
         it "refuses a singular system" $
             isLeft (factorLU 2 (U.fromList [1, 2, 2, 4])) `shouldBe` True
+        it "solves a regular system whose entries differ by millions" $
+            -- [[1, 0], [4e6, 1]] x = [1, 4e6 + 1] gives x = [1, 1]; pivoting on
+            -- 4e6 leaves a second pivot of 2.5e-7, the determinant staying 1.
+            (U.all (\x -> abs (x - 1) < 1e-9) . (`solveLU` U.fromList [1, 4e6 + 1]) <$> factorLU 2 (U.fromList [1, 0, 4e6, 1])) `shouldBe` Right True
 
     describe "a solver corrected by the columns that moved" $ do
         it "answers as a new factorisation of the changed matrix" $
