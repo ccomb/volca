@@ -362,6 +362,7 @@ spec = describe "a database at other values of its parameters" $ do
             refusedWith [SetParameter "flour_kg" (input 1)] >>= (`shouldContain` "already names a line")
             forM_ ["sqrt", "2x", "a b"] $ \name -> refusedWith [SetParameter name (input 1)] >>= (`shouldContain` "is not a parameter name")
             refusedWith [SetParameter "k" (input (1 / 0))] >>= (`shouldContain` "finite")
+            refusedWith [SetParameter "k" (parameter (CalculatedParameter "1 / 0" Nothing))] `shouldReturn` "process 'kitchen': k: the formula gives no finite number"
 
         it "sets a parameter on every product of a block" $ do
             (bakery, grid) <- databases

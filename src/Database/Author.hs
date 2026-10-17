@@ -599,8 +599,11 @@ applyOneEdit ctx act edit = case edit of
         Left errs -> Left errs
         Right spelt -> Right (stepTo act{activityParameters = M.delete spelt (activityParameters act)} 1)
   where
+    current :: [Exchange]
     current = exchanges act
+    changed :: [Exchange] -> Int -> EditStep
     changed exchangeList = stepTo act{exchanges = exchangeList}
+    stepTo :: Activity -> Int -> EditStep
     stepTo edited matched =
         EditStep
             { esActivity = edited
@@ -609,6 +612,7 @@ applyOneEdit ctx act edit = case edit of
             , esNewTechFlows = []
             , esWarnings = []
             }
+    onSelected :: [Text] -> ExchangeSelector -> (Exchange -> Exchange) -> Either [Text] EditStep
     onSelected complaints sel change = case (complaints, selectFrom sel current) of
         ([], Right (matched, isSelected)) ->
             Right (changed (map (\ex -> if isSelected ex then change ex else ex) current) matched)
@@ -648,7 +652,9 @@ parameterCheck act name parameter =
                 ["the value of '" <> name <> "' is " <> T.pack (show value) <> "; it must be a finite number" | isNaN value || isInfinite value]
             CalculatedParameter formula _ -> formulaCheck formula
   where
+    key :: Text
     key = T.toLower name
+    nameCheck :: [Text]
     nameCheck = case Expr.readFormula Expr.Volca name of
         Right (Expr.Name read')
             | read' == name
@@ -669,14 +675,19 @@ removalCheck db act name = case [other | other <- M.keys (activityParameters act
             [] -> Right spelt
             some -> Left ["the parameter '" <> name <> "' is still read by " <> T.intercalate ", " (map (\f -> "'" <> f <> "'") some)]
   where
+    key :: Text
     key = T.toLower name
+    readers :: [Text]
     readers =
         nub
             ( [f | f <- exchangeFormulas <> parameterFormulas, reads' Expr.Volca f]
                 <> [f | f <- shareFormulas act, reads' Expr.SimaPro f]
             )
+    reads' :: Expr.Dialect -> Text -> Bool
     reads' dialect formula = key `elem` map T.toLower (Expr.collectIdentifiers dialect formula)
+    exchangeFormulas :: [Text]
     exchangeFormulas = [efText f | Just f <- map exchangeFormula (exchanges act)]
+    parameterFormulas :: [Text]
     parameterFormulas = [f | (other, Parameter{parameterDefinition = CalculatedParameter f _}) <- M.toList (activityParameters act), T.toLower other /= key]
 
 lineNames :: Activity -> [Text]

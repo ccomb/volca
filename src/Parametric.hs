@@ -242,7 +242,7 @@ amountOf db act atDefaults atSettings ex = case exchangeFormula ex of
 {- | A process after an edit, at the defaults: each line whose formula no
 longer gives its amount takes the formula's value, by the same comparison an
 import makes, and each calculated parameter its value. Refused when a formula
-gives no amount, when a parameter that had a value before the edit has none,
+gives no amount, when a parameter that had a finite value before the edit has none,
 and when the edit moves an allocation share, since the amounts were split by
 the old one. The process before the edit is read for those two alone.
 -}
@@ -251,6 +251,9 @@ restated db before act = do
     traverse_ shareKept (shareFormulas act)
     case [(name, unsettled) | (name, unsettled) <- unsettledNow, name `notElem` map fst unsettledBefore] of
         (name, _) : _ -> Left (NoValue (activityName act) (unsettledWhy unsettledNow (Expr.Unresolved (name NE.:| []))))
+        [] -> pure ()
+    case [name | (name, Parameter{parameterDefinition = CalculatedParameter{}}) <- M.toList (activityParameters act), notFinite values name, not (notFinite valuesBefore name)] of
+        name : _ -> Left (NoValue (activityName act) (name <> ": the formula gives no finite number"))
         [] -> pure ()
     restatedLines <- traverse line (exchanges act)
     pure act{exchanges = restatedLines, activityParameters = M.mapWithKey refreshed (activityParameters act)}
@@ -263,6 +266,9 @@ restated db before act = do
     (valuesBefore, unsettledBefore) = settled before
 
     unsettledNow, unsettledBefore :: [(Text, Expr.Unsettled)]
+
+    notFinite :: Values -> Text -> Bool
+    notFinite at name = maybe False (\value -> isNaN value || isInfinite value) (M.lookup (T.toLower name) at)
 
     line :: Exchange -> Either ParameterRefusal Exchange
     line ex = case exchangeFormula ex of

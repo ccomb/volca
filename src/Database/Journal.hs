@@ -298,7 +298,10 @@ applyOp ctx = \case
         SetText _ -> True
         SetParameter _ _ -> True
         RemoveParameter _ -> True
-        _ -> False
+        RemoveExchange _ -> False
+        SetAmount _ _ -> False
+        AddExchange _ -> False
+        SetFormula _ _ -> False
     siblingsOf pid activityUUID =
         [ other
         | other <- maybe [] NE.toList (M.lookup activityUUID (dbActivityUUIDIndex (acDb ctx)))

@@ -198,9 +198,12 @@ the texts to restate, and its parameters.
 
 Lists rather than one tagged list, for the reason 'ActivityInput' has
 three: what makes sense on an addition cannot be sent on a removal and back
-again. They apply in the order they are listed here, so an edit that drops one
-supplier and adds another is never ambiguous about which happened first, and
-a parameter is removed once the formulas set here have stopped reading it.
+again. They apply in one order: removals, parameters set, amounts, formulas,
+additions, texts, parameters removed. So an edit that drops one supplier and
+adds another is never ambiguous about which happened first, a formula reads
+the parameters set beside it, and a parameter is removed once the formulas set
+here have stopped reading it. A parameter set is replaced whole: a unit,
+description or uncertainty left out is dropped.
 
 Once every change is in, each line whose formula no longer gives its amount
 takes the formula's value, and the answer lists those lines.

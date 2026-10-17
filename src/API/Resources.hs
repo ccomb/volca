@@ -1579,7 +1579,7 @@ params r = case r of
         , Param "set_name" "string" Optional "The activity's new name."
         , Param "set_location" "string" Optional "The activity's new location code (e.g. FR)."
         , Param "set_description" "array" Optional "The activity's new description, one string per paragraph; an empty array clears it."
-        , Param "set_parameters" "array" Optional "Parameters of the activity to add, or to replace under the same spelling. Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
+        , Param "set_parameters" "array" Optional "Parameters of the activity to add, or to replace whole under the same spelling (a unit, description or uncertainty left out is dropped). Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
         , Param "set_formulas" "array" Optional "Lines to give a formula. Each is {select: {kind, provider|flow}, formula}; a null formula drops it and keeps the amount."
         , Param "remove_parameters" "array" Optional "Names of the activity's parameters to remove, once the formulas set here no longer read them. Refused while a formula still reads one the database does not define."
         ]
