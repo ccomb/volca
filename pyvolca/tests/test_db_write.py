@@ -21,7 +21,10 @@ from volca.types import (
     BioExchange,
     ExchangeSelector,
     SetAmount,
+    SetFormula,
+    SetParameter,
     TechInput,
+    Uncertainty,
 )
 
 
@@ -528,6 +531,41 @@ class TestEditExchanges:
         # An empty description clears it, so it is sent, not dropped.
         assert body["setDescription"] == []
         assert "setLocation" not in body
+
+    def test_parameters_and_formulas_travel_only_when_stated(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=73)
+        _ok(session, {"removed": [], "amountsSet": [], "added": 0, "restated": [], "transient": False, "warnings": []})
+        client.edit_exchanges(
+            "a_b",
+            set_parameters=[
+                SetParameter("yield", value=0.8, uncertainty=Uncertainty("uniform", minimum=0.5, maximum=1.0)),
+                SetParameter("ratio", formula="2 * yield"),
+            ],
+            set_formulas=[
+                SetFormula(ExchangeSelector.input_from("c_d"), "1 / yield"),
+                SetFormula(ExchangeSelector.biosphere_flow("f-1"), None),
+            ],
+            remove_parameters=["old"],
+        )
+        body = session.post.call_args[1]["json"]
+        assert body["setParameters"] == [
+            {"name": "yield", "value": 0.8, "uncertainty": {"distribution": "uniform", "minimum": 0.5, "maximum": 1.0}},
+            {"name": "ratio", "formula": "2 * yield"},
+        ]
+        # A null formula drops the line's formula, so it is sent, not dropped.
+        assert body["setFormulas"] == [
+            {"select": {"kind": "input", "provider": "c_d"}, "formula": "1 / yield"},
+            {"select": {"kind": "biosphere", "flow": "f-1"}, "formula": None},
+        ]
+        assert body["removeParameters"] == ["old"]
+
+    def test_parameters_never_sent_to_an_engine_that_cannot_edit_them(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=72)
+        with pytest.raises(VoLCAError, match="wire revision >= 73"):
+            client.edit_exchanges("a_b", remove_parameters=["old"])
+        session.post.assert_not_called()
 
     def test_texts_never_sent_to_an_engine_that_cannot_restate_them(self, mocked_client):
         client, session = mocked_client

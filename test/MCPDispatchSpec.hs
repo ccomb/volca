@@ -291,8 +291,11 @@ spec = describe "MCP database load/unload tools" $ do
                            , ("add_inputs", "object")
                            , ("add_waste_outputs", "object")
                            , ("remove", "object")
+                           , ("remove_parameters", "string")
                            , ("set_amounts", "object")
                            , ("set_description", "string")
+                           , ("set_formulas", "object")
+                           , ("set_parameters", "object")
                            ]
 
     describe "quality-report tool" $ do

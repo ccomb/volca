@@ -113,7 +113,7 @@ import Database.Rebuild (
     resolveProcess,
  )
 import Progress (ProgressLevel (..), reportProgress)
-import Types (BioDirection (..), Compartment (..), Database (..), getActivity)
+import Types (BioDirection (..), Compartment (..), Database (..), Parameter (..), ParameterDefinition (..), getActivity)
 
 -- ---------------------------------------------------------------------------
 -- What a journal records
@@ -273,8 +273,8 @@ applyOp ctx = \case
         key <- processKey (acDb ctx) pid
         act <- maybe (Left ("Unknown process id: " <> target)) Right (getActivity (acDb ctx) pid)
         edited <- first (T.intercalate "; ") (applyExchangeEdits ctx (map fst edits) act)
-        let texts = [SetText t | (SetText t, _) <- edits]
-        siblings <- if null texts then pure [] else traverse (retext texts) (siblingsOf pid (fst key))
+        let shared = filter ofTheActivity (map fst edits)
+        siblings <- if null shared then pure [] else traverse (alongside shared) (siblingsOf pid (fst key))
         if eaMatched edited == map snd edits
             then
                 replaceActivities
@@ -291,18 +291,23 @@ applyOp ctx = \case
             else Left (matchDrift (map snd edits) (eaMatched edited))
   where
     resolve = bimap (T.intercalate "; ") fst . validateAuthored ctx
-    -- The texts belong to the activity, not to one of its products: a block
-    -- read with two products is two rows under one activity UUID, and renaming
-    -- one alone would leave the same activity under two names.
+    -- The texts and parameters belong to the activity, not to one of its
+    -- products: a block read with two products is two rows under one activity
+    -- UUID, and renaming one alone would leave the same activity under two names.
+    ofTheActivity = \case
+        SetText _ -> True
+        SetParameter _ _ -> True
+        RemoveParameter _ -> True
+        _ -> False
     siblingsOf pid activityUUID =
         [ other
         | other <- maybe [] NE.toList (M.lookup activityUUID (dbActivityUUIDIndex (acDb ctx)))
         , other /= pid
         ]
-    retext texts other = do
+    alongside shared other = do
         key <- processKey (acDb ctx) other
         act <- maybe (Left ("ProcessId out of range: " <> T.pack (show other))) Right (getActivity (acDb ctx) other)
-        edited <- first (T.intercalate "; ") (applyExchangeEdits ctx texts act)
+        edited <- first (T.intercalate "; ") (applyExchangeEdits ctx shared act)
         pure ResolvedInsert{riKey = key, riActivity = eaActivity edited, riNewTechFlows = [], riNewBioFlows = []}
 
 {- | The one failure a journal exists to make impossible to miss: the same
@@ -408,6 +413,12 @@ editJSON (edit, matched) = object (("matched" .= matched) : fields edit)
             ["edit" .= ("location" :: Text), "value" .= location]
         SetText (ActivityDescription paragraphs) ->
             ["edit" .= ("description" :: Text), "value" .= paragraphs]
+        SetFormula selector formula ->
+            ["edit" .= ("formula" :: Text), "select" .= selectorJSON selector, "formula" .= formula]
+        SetParameter name parameter ->
+            ["edit" .= ("parameter" :: Text), "name" .= name, "parameter" .= parameterJSON parameter]
+        RemoveParameter name ->
+            ["edit" .= ("unparameter" :: Text), "name" .= name]
 
 parseEdit :: Value -> Parser (ExchangeEdit, Int)
 parseEdit = withObject "exchange edit" $ \o -> do
@@ -420,8 +431,33 @@ parseEdit = withObject "exchange edit" $ \o -> do
             "name" -> SetText . ActivityName <$> o .: "value"
             "location" -> SetText . ActivityLocation <$> o .: "value"
             "description" -> SetText . ActivityDescription <$> o .: "value"
+            "formula" -> SetFormula <$> (o .: "select" >>= parseSelector) <*> o .: "formula"
+            "parameter" -> SetParameter <$> o .: "name" <*> (o .: "parameter" >>= parseParameter)
+            "unparameter" -> RemoveParameter <$> o .: "name"
             other -> fail ("unknown exchange edit: " <> T.unpack other)
     pure (edit, matched)
+
+{- | A parameter as the journal keeps it: a value or a formula, never both. A
+formula's value is not kept: it is computed again from the formula on replay.
+-}
+parameterJSON :: Parameter -> Value
+parameterJSON parameter =
+    object
+        ( definition (parameterDefinition parameter)
+            <> ["unit" .= parameterUnit parameter, "description" .= parameterDescription parameter]
+        )
+  where
+    definition = \case
+        InputParameter value uncertainty -> ["value" .= value, "uncertainty" .= uncertainty]
+        CalculatedParameter formula _ -> ["formula" .= formula]
+
+parseParameter :: Value -> Parser Parameter
+parseParameter = withObject "parameter" $ \o -> do
+    definition <-
+        o .:? "formula" >>= \case
+            Just formula -> pure (CalculatedParameter formula Nothing)
+            Nothing -> InputParameter <$> o .: "value" <*> o .:? "uncertainty"
+    Parameter definition <$> o .:? "unit" <*> o .: "description"
 
 {- | A selector speaks the same vocabulary a written exchange does
 ('exchangeJSON'): the same three kinds, providers by process id, flows by

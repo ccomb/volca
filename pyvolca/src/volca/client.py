@@ -102,6 +102,8 @@ from .types import (
     SensitivityResult,
     ServerVersion,
     SetAmount,
+    SetFormula,
+    SetParameter,
     Substitution,
     SupplyChain,
     TechInput,
@@ -1143,9 +1145,12 @@ class Client:
         name: str | None = None,
         location: str | None = None,
         description: list[str] | None = None,
+        set_parameters: Sequence[SetParameter] = (),
+        set_formulas: Sequence[SetFormula] = (),
+        remove_parameters: Sequence[str] = (),
         db_name: str | None = None,
     ) -> dict:
-        """Change what one activity consumes and emits, or its texts, keeping the activity.
+        """Change what one activity consumes and emits, its texts or its parameters, keeping the activity.
 
         This reaches what :meth:`replace_activity` cannot: an activity that came
         in from a database file. Its identity was minted by whichever parser
@@ -1172,9 +1177,17 @@ class Client:
         with :meth:`replace_activity` instead. ``textsSet`` names the texts
         rewritten.
 
+        ``set_parameters`` adds or replaces parameters of the activity,
+        ``set_formulas`` gives lines a formula (see :meth:`formula_language`),
+        and ``remove_parameters`` removes parameters once the formulas set here
+        no longer read them. With every change in, each line whose formula no
+        longer gives its amount takes the formula's value; ``restated`` lists
+        those lines by ``position``, with the amount moved ``from`` and ``to``.
+
         Only a database of your own accepts edits: copy a configured one first.
 
-        Needs an engine speaking wire revision 7, and 56 for the texts.
+        Needs an engine speaking wire revision 7, 56 for the texts, and 73
+        for the parameters and formulas.
         """
         self._require_wire(7, "edit_exchanges", engine_hint="0.9.5")
         texts = {
@@ -1184,6 +1197,19 @@ class Client:
         }
         if texts:
             self._require_wire(56, "edit_exchanges(name=, location=, description=)", engine_hint="0.15.0")
+        parametric = {
+            key: value
+            for key, value in (
+                ("setParameters", [p.to_wire() for p in set_parameters]),
+                ("setFormulas", [f.to_wire() for f in set_formulas]),
+                ("removeParameters", list(remove_parameters)),
+            )
+            if value
+        }
+        if parametric:
+            self._require_wire(
+                73, "edit_exchanges(set_parameters=, set_formulas=, remove_parameters=)", engine_hint="0.16.0"
+            )
         target = self._db(db_name)
         return self._json(
             self._session.post(
@@ -1195,6 +1221,7 @@ class Client:
                     "addBiosphere": [b.to_wire() for b in add_biosphere],
                     "addWasteOutputs": [w.to_wire() for w in add_waste_outputs],
                     **texts,
+                    **parametric,
                 },
             )
         )

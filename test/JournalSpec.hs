@@ -56,11 +56,14 @@ import Types (
     Exchange (..),
     LocationSource (..),
     Medium (..),
+    Parameter (..),
+    ParameterDefinition (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
     UUID,
+    Uncertainty (..),
     Unit (..),
     noDates,
     noDocumentation,
@@ -346,7 +349,20 @@ richEvents =
     , event (Created [cheese{aaExchanges = [usedOilOut]}] ["a_b"])
     , event editedInventory
     , event retexted
+    , event parametrised
     ]
+
+-- | Formulas set and dropped, parameters of both kinds set and one removed, so none is lost in the codec.
+parametrised :: JournalOp
+parametrised =
+    Edited
+        supplierPid
+        [ (SetFormula (SelectInput supplierPid) (Just "1 / yield"), 1)
+        , (SetFormula (SelectBiosphere co2Id) Nothing, 2)
+        , (SetParameter "yield" Parameter{parameterDefinition = InputParameter 0.8 (Just (Uniform 0.5 1)), parameterUnit = Just "kg", parameterDescription = "Flour per loaf"}, 1)
+        , (SetParameter "ratio" Parameter{parameterDefinition = CalculatedParameter "2 * yield" Nothing, parameterUnit = Nothing, parameterDescription = ""}, 1)
+        , (RemoveParameter "old", 1)
+        ]
 
 -- | One edit of each text, so none of the three can be lost in the codec.
 retexted :: JournalOp

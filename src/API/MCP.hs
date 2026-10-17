@@ -407,6 +407,8 @@ paramsToSchema ps =
         "parameter_sets" -> object ["type" .= ("array" :: Text), "items" .= parameterItemSchema]
         "remove" -> selectorItemSchema
         "set_amounts" -> setAmountItemSchema
+        "set_formulas" -> setFormulaItemSchema
+        "set_parameters" -> setParameterItemSchema
         "add_inputs" -> providerLineSchema "Producer of what is consumed"
         "add_waste_outputs" -> providerLineSchema "Treatment the waste is handed to"
         "add_biosphere" -> bioLineSchema
@@ -457,6 +459,36 @@ paramsToSchema ps =
                     , "amount" .= numberField "New amount for every line the selector names"
                     ]
             , "required" .= (["select", "amount"] :: [Text])
+            ]
+
+    setFormulaItemSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "select" .= selectorItemSchema
+                    , "formula" .= object ["type" .= (["string", "null"] :: [Text]), "description" .= ("Formula in the engine's formula language for every line the selector names; null drops it and keeps the amount" :: Text)]
+                    ]
+            , "required" .= (["select", "formula"] :: [Text])
+            ]
+
+    setParameterItemSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "name" .= stringField "Parameter name: one word of letters, digits and underscores, starting with a letter"
+                    , "value" .= numberField "Value of an input parameter; give it or formula, not both"
+                    , "formula" .= stringField "Formula of a calculated parameter, in the engine's formula language"
+                    , "unit" .= stringField "Unit of the parameter"
+                    , "description" .= stringField "What the parameter stands for"
+                    , "uncertainty"
+                        .= object
+                            [ "type" .= ("object" :: Text)
+                            , "description" .= ("How an input value varies: {distribution: lognormal, geometricMean, geometricSd} | {distribution: normal, mean, sd} | {distribution: triangular, minimum, mode, maximum} | {distribution: uniform, minimum, maximum}" :: Text)
+                            ]
+                    ]
+            , "required" .= (["name"] :: [Text])
             ]
 
     providerLineSchema providerDesc =
@@ -1915,6 +1947,9 @@ callEditExchanges dbManager rid args = runTool rid $ do
                 <*> optionalText "set_name" args
                 <*> optionalText "set_location" args
                 <*> optionalDescription
+                <*> parseArrayArg "set_parameters" Nothing args
+                <*> parseArrayArg "set_formulas" Nothing args
+                <*> parseArrayArg "remove_parameters" Nothing args
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))
     report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName processId edits)
     return $ toolSuccessJson rid (toJSON (editReportToAPI report))

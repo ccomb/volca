@@ -1585,6 +1585,20 @@ class Uncertainty:
             maximum=d.get("maximum"),
         )
 
+    def to_wire(self) -> dict:
+        return _drop_none(
+            {
+                "distribution": self.distribution,
+                "geometricMean": self.geometric_mean,
+                "geometricSd": self.geometric_sd,
+                "mean": self.mean,
+                "sd": self.sd,
+                "minimum": self.minimum,
+                "mode": self.mode,
+                "maximum": self.maximum,
+            }
+        )
+
 
 @dataclass(frozen=True)
 class Parameter:
@@ -3084,6 +3098,44 @@ class SetAmount:
 
     def to_wire(self) -> dict:
         return {"select": self.select.to_wire(), "amount": self.amount}
+
+
+@dataclass(frozen=True)
+class SetFormula:
+    """The lines to give a formula in VoLCA's language, or ``None`` to drop
+    it and keep the amount; a named line keeps its name either way."""
+
+    select: ExchangeSelector
+    formula: str | None
+
+    def to_wire(self) -> dict:
+        return {"select": self.select.to_wire(), "formula": self.formula}
+
+
+@dataclass(frozen=True)
+class SetParameter:
+    """A parameter of the activity to add, or to replace under the same
+    spelling: a ``value`` (with an ``uncertainty`` if it varies), or a
+    ``formula`` in VoLCA's language whose value the engine computes."""
+
+    name: str
+    value: float | None = None
+    formula: str | None = None
+    unit: str | None = None
+    description: str | None = None
+    uncertainty: Uncertainty | None = None
+
+    def to_wire(self) -> dict:
+        return _drop_none(
+            {
+                "name": self.name,
+                "value": self.value,
+                "formula": self.formula,
+                "unit": self.unit,
+                "description": self.description,
+                "uncertainty": self.uncertainty.to_wire() if self.uncertainty else None,
+            }
+        )
 
 
 def _drop_none(d: dict) -> dict:

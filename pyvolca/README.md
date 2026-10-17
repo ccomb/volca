@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 72** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 73** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -742,9 +742,9 @@ Download a flow-synonyms set as its raw CSV bytes.
 
 Raises VoLCAError on an HTTP error (e.g. the set does not exist).
 
-##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, db_name: str | None = None) -> dict`
+##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, set_parameters: Sequence[SetParameter] = (), set_formulas: Sequence[SetFormula] = (), remove_parameters: Sequence[str] = (), db_name: str | None = None) -> dict`
 
-Change what one activity consumes and emits, or its texts, keeping the activity.
+Change what one activity consumes and emits, its texts or its parameters, keeping the activity.
 
 This reaches what `replace_activity` cannot: an activity that came
 in from a database file. Its identity was minted by whichever parser
@@ -771,9 +771,17 @@ is refused a new name or location, which make its identity: rewrite it
 with `replace_activity` instead. ``textsSet`` names the texts
 rewritten.
 
+``set_parameters`` adds or replaces parameters of the activity,
+``set_formulas`` gives lines a formula (see `formula_language`),
+and ``remove_parameters`` removes parameters once the formulas set here
+no longer read them. With every change in, each line whose formula no
+longer gives its amount takes the formula's value; ``restated`` lists
+those lines by ``position``, with the amount moved ``from`` and ``to``.
+
 Only a database of your own accepts edits: copy a configured one first.
 
-Needs an engine speaking wire revision 7, and 56 for the texts.
+Needs an engine speaking wire revision 7, 56 for the texts, and 73
+for the parameters and formulas.
 
 ##### `Client.ensure_database(source: str | Path | bytes, name: str | None = None) -> str`
 
@@ -3539,6 +3547,31 @@ The lines to restate, and what to restate them to.
 |-------|------|---------|
 | `select` | `ExchangeSelector` | _required_ |
 | `amount` | `float` | _required_ |
+
+### `SetFormula`
+
+The lines to give a formula in VoLCA's language, or ``None`` to drop
+it and keep the amount; a named line keeps its name either way.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `select` | `ExchangeSelector` | _required_ |
+| `formula` | `str \| None` | _required_ |
+
+### `SetParameter`
+
+A parameter of the activity to add, or to replace under the same
+spelling: a ``value`` (with an ``uncertainty`` if it varies), or a
+``formula`` in VoLCA's language whose value the engine computes.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `value` | `float \| None` | None |
+| `formula` | `str \| None` | None |
+| `unit` | `str \| None` | None |
+| `description` | `str \| None` | None |
+| `uncertainty` | `Uncertainty \| None` | None |
 
 ### `Substitution`
 

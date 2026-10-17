@@ -1600,7 +1600,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 72: the formula-language route, the formula language with its
+(revision 73: the @setParameters@, @setFormulas@ and @removeParameters@ an
+edit of an activity's exchanges takes, and the @formulasSet@,
+@parametersSet@, @parametersRemoved@ and @restated@ its answer gives;
+revision 72: the formula-language route, the formula language with its
 functions, operators and rules, and the formula-check route, a formula's value
 where it would be written;
 revision 71: the @ClaimByNameAlone@ supplier claim, a supplier activity
@@ -1759,7 +1762,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 72
+currentWireVersion = 73
 
 getVersion :: AppM Value
 getVersion = do

@@ -579,8 +579,11 @@ inEditOrder = L.sortOn rank
     rank :: ExchangeEdit -> Int
     rank = \case
         SetText _ -> 0
+        SetParameter _ _ -> 0
         SetAmount _ _ -> 1
+        SetFormula _ _ -> 1
         RemoveExchange _ -> 2
+        RemoveParameter _ -> 2
         AddExchange _ -> 3
 
 summaryLanding :: SummaryChange -> ChangePresence -> Landing

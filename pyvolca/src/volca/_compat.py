@@ -32,8 +32,9 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 72
-"""The newest wire revision this pyvolca understands (revision 72 added
+KNOWN_WIRE = 73
+"""The newest wire revision this pyvolca understands (revision 73 added
+the formulas and parameters ``edit_exchanges()`` sets and removes; revision 72 added
 the formula language, which ``formula_language()`` reads, and the formula
 check, which ``check_formula()`` asks for; revision 71 added
 the ``NAME_ALONE`` supplier claim; revision 70 added

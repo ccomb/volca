@@ -72,6 +72,7 @@ import Database.Author (
     EditedActivity (..),
     ExchangeEdit (..),
     ResolvedInsert (..),
+    RestatedLine (..),
     applyExchangeEdits,
     retextsAuthoredIdentity,
     validateAuthored,
@@ -560,6 +561,10 @@ data EditReport = EditReport
     , erAdded :: Int
     , erTextsSet :: [Text]
     -- ^ The texts rewritten, spelt as a request names them: @name@, @location@, @description@.
+    , erFormulasSet :: [Int]
+    , erParametersSet :: [Text]
+    , erParametersRemoved :: [Text]
+    , erRestated :: [RestatedLine]
     , erPersisted :: Bool
     , erWarnings :: [Text]
     }
@@ -599,7 +604,7 @@ editExchanges manager dbName target edits =
                         ctx <- authorContext manager (ldDatabase loaded)
                         case applyExchangeEdits ctx edits activity of
                             Left errs -> pure (Left (Malformed errs))
-                            Right edited -> commit (renderKey key) (eaMatched edited) (eaWarnings edited)
+                            Right edited -> commit (renderKey key) edited
   where
     -- The identity is recorded canonically even when the caller addressed the
     -- activity by its bare UUID, so the journal keeps naming the same process
@@ -609,7 +614,8 @@ editExchanges manager dbName target edits =
         key <- either (const Nothing) Just (processKey db pid)
         activity <- getActivity db pid
         pure (key, activity)
-    commit key matched warnings = do
+    commit key edited = do
+        let matched = eaMatched edited
         outcome <- mutateUploadedDatabase manager dbName (Edited key (zip edits matched))
         pure $ case outcome of
             Left err -> Left (WriteFailed err)
@@ -620,8 +626,12 @@ editExchanges manager dbName target edits =
                         , erAmountsSet = [n | (SetAmount _ _, n) <- zip edits matched]
                         , erAdded = length [() | AddExchange _ <- edits]
                         , erTextsSet = [textField text | SetText text <- edits]
+                        , erFormulasSet = [n | (SetFormula _ _, n) <- zip edits matched]
+                        , erParametersSet = [name | SetParameter name _ <- edits]
+                        , erParametersRemoved = [name | RemoveParameter name <- edits]
+                        , erRestated = eaRestated edited
                         , erPersisted = moPersisted done
-                        , erWarnings = warnings <> moWarnings done
+                        , erWarnings = eaWarnings edited <> moWarnings done
                         }
 
 textField :: ActivityText -> Text

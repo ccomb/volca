@@ -58,6 +58,7 @@ module Database.Author (
     ExchangeEdit (..),
     ActivityText (..),
     EditedActivity (..),
+    RestatedLine (..),
     applyExchangeEdits,
     retextsAuthoredIdentity,
     describeSelector,
@@ -82,6 +83,8 @@ import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import qualified Data.Vector as V
 
+import qualified Expr
+import Parametric (describeParameterRefusal, restated, shareFormulas)
 import Types (
     Activity (..),
     BioDirection (..),
@@ -89,7 +92,10 @@ import Types (
     Compartment (..),
     Database (..),
     Exchange (..),
+    ExchangeFormula (..),
     Medium (..),
+    Parameter (..),
+    ParameterDefinition (..),
     ProcessId,
     ProcessRef (..),
     SupplierClaim (..),
@@ -99,6 +105,8 @@ import Types (
     Unit (..),
     UnitDB,
     declaredLocationSource,
+    exchangeAmount,
+    exchangeFormula,
     exchangeIsInput,
     exchangeIsReference,
     findProcessIdByActivityUUID,
@@ -108,6 +116,7 @@ import Types (
     noProperties,
     parseProcessRef,
     withAmount,
+    withFormula,
  )
 import UnitConversion (UnitConfig, UnitReading (..), convertUnit, readUnit, unitKey)
 
@@ -406,16 +415,21 @@ data ExchangeSelector
       SelectWaste Text
     deriving (Eq, Show)
 
-{- | One change to an activity: a line of its inventory, or one of its texts.
-Edits apply in the order given, so removing a line and then setting its amount
-is refused – by then it matches nothing – rather than quietly reordered into
-something that works.
+{- | One change to an activity: a line of its inventory, one of its texts, or
+one of its parameters. Edits apply in the order given, so removing a line and
+then setting its amount is refused – by then it matches nothing – rather than
+quietly reordered into something that works.
 -}
 data ExchangeEdit
     = RemoveExchange ExchangeSelector
     | SetAmount ExchangeSelector Double
     | AddExchange AuthoredExchange
     | SetText ActivityText
+    | -- | A line's formula in VoLCA's language, or none; a named line keeps its name either way.
+      SetFormula ExchangeSelector (Maybe Text)
+    | -- | A parameter of the activity, added, or replaced under the same spelling.
+      SetParameter Text Parameter
+    | RemoveParameter Text
     deriving (Eq, Show)
 
 -- | A text of an activity, as an edit restates it.
@@ -460,15 +474,30 @@ data EditedActivity = EditedActivity
     , eaNewBioFlows :: [BiosphereFlow]
     , eaNewTechFlows :: [TechnosphereFlow]
     , eaWarnings :: [Text]
+    , eaRestated :: [RestatedLine]
     }
+
+-- | A line whose formula no longer gave its amount once the edits were made, and the amount it took.
+data RestatedLine = RestatedLine
+    { rlPosition :: Int
+    , rlFrom :: Double
+    , rlTo :: Double
+    }
+    deriving (Eq, Show)
 
 {- | Apply edits to one activity's inventory, or report everything wrong with
 them.
 
-Only 'exchanges' and the texts an edit names change. Classification, synonyms, parameters, allocation,
-native type, pedigree on the lines left alone – all carried through as they
-were, which is the whole point: an imported activity can be adjusted without
-being re-described as something a description can express.
+Only 'exchanges' and the texts and parameters an edit names change.
+Classification, synonyms, allocation, native type, pedigree on the lines left
+alone – all carried through as they were, which is the whole point: an
+imported activity can be adjusted without being re-described as something a
+description can express.
+
+A kept formula gives its line's amount at the defaults, and an edit can break
+that: a new default, a new formula, a named line set to another amount that
+other formulas read. So the edited activity is restated ('Parametric.restated')
+once every edit is in, and the lines it moved are reported.
 
 A selector matching nothing is refused rather than passed off as done. One
 matching several lines applies to all of them and reports how many. Complaints
@@ -476,22 +505,28 @@ accumulate across the whole list, as they do for a written batch.
 -}
 applyExchangeEdits :: AuthorContext -> [ExchangeEdit] -> Activity -> Either [Text] EditedActivity
 applyExchangeEdits ctx edits act = case accErrors final of
-    [] ->
-        Right
-            EditedActivity
-                { eaActivity = (accRetext final act){exchanges = accExchanges final}
-                , eaMatched = accMatched final
-                , eaNewBioFlows = accNewFlows final
-                , eaNewTechFlows = accNewTechFlows final
-                , eaWarnings = accWarnings final
-                }
+    [] -> case restated (acDb ctx) act (accActivity final) of
+        Left refusal -> Left [describeParameterRefusal refusal]
+        Right stated ->
+            Right
+                EditedActivity
+                    { eaActivity = stated
+                    , eaMatched = accMatched final
+                    , eaNewBioFlows = accNewFlows final
+                    , eaNewTechFlows = accNewTechFlows final
+                    , eaWarnings = accWarnings final
+                    , eaRestated =
+                        [ RestatedLine{rlPosition = position, rlFrom = exchangeAmount before, rlTo = exchangeAmount after}
+                        | (position, before, after) <- zip3 [0 ..] (exchanges (accActivity final)) (exchanges stated)
+                        , exchangeAmount before /= exchangeAmount after
+                        ]
+                    }
     errs -> Left errs
   where
     final = foldl' (applyStep ctx) initial edits
     initial =
         EditAcc
-            { accExchanges = exchanges act
-            , accRetext = id
+            { accActivity = act
             , accMatched = []
             , accNewFlows = []
             , accNewTechFlows = []
@@ -499,10 +534,9 @@ applyExchangeEdits ctx edits act = case accErrors final of
             , accErrors = []
             }
 
--- | The inventory as edited so far, and what there is to report about it.
+-- | The activity as edited so far, and what there is to report about it.
 data EditAcc = EditAcc
-    { accExchanges :: [Exchange]
-    , accRetext :: Activity -> Activity
+    { accActivity :: Activity
     , accMatched :: [Int]
     , accNewFlows :: [BiosphereFlow]
     , accNewTechFlows :: [TechnosphereFlow]
@@ -515,12 +549,11 @@ edits after it are still judged against something coherent and the author sees
 every complaint in one pass.
 -}
 applyStep :: AuthorContext -> EditAcc -> ExchangeEdit -> EditAcc
-applyStep ctx acc edit = case applyOneEdit ctx (accExchanges acc) edit of
+applyStep ctx acc edit = case applyOneEdit ctx (accActivity acc) edit of
     Left errs -> acc{accErrors = accErrors acc <> errs}
     Right step ->
         acc
-            { accExchanges = esExchanges step
-            , accRetext = esRetext step . accRetext acc
+            { accActivity = esActivity step
             , accMatched = accMatched acc <> [esMatched step]
             , accNewFlows = accNewFlows acc <> esNewFlows step
             , accNewTechFlows = accNewTechFlows acc <> esNewTechFlows step
@@ -529,24 +562,20 @@ applyStep ctx acc edit = case applyOneEdit ctx (accExchanges acc) edit of
 
 -- | What one applied edit leaves behind.
 data EditStep = EditStep
-    { esExchanges :: [Exchange]
-    , esRetext :: Activity -> Activity
+    { esActivity :: Activity
     , esMatched :: Int
     , esNewFlows :: [BiosphereFlow]
     , esNewTechFlows :: [TechnosphereFlow]
     , esWarnings :: [Text]
     }
 
-applyOneEdit :: AuthorContext -> [Exchange] -> ExchangeEdit -> Either [Text] EditStep
-applyOneEdit ctx current edit = case edit of
+applyOneEdit :: AuthorContext -> Activity -> ExchangeEdit -> Either [Text] EditStep
+applyOneEdit ctx act edit = case edit of
     RemoveExchange sel -> case selectFrom sel current of
         Left err -> Left [err]
         Right (matched, isSelected) -> Right (changed (filter (not . isSelected) current) matched)
-    SetAmount sel amount -> case (amountCheck amount, selectFrom sel current) of
-        ([], Right (matched, isSelected)) ->
-            Right (changed (map (restate isSelected amount) current) matched)
-        (errs, Right _) -> Left errs
-        (errs, Left err) -> Left (errs <> [err])
+    SetAmount sel amount -> onSelected (amountCheck amount) sel (withAmount amount)
+    SetFormula sel formula -> onSelected (foldMap formulaCheck formula) sel (reformulated formula)
     -- An added line resolves exactly as a written one does: same provider
     -- lookup, same unit rules, same new-flow warning.
     AddExchange authored -> case resolveOne ctx authored of
@@ -554,27 +583,104 @@ applyOneEdit ctx current edit = case edit of
         Right resolved ->
             Right
                 EditStep
-                    { esExchanges = current <> [reExchange resolved]
-                    , esRetext = id
+                    { esActivity = act{exchanges = current <> [reExchange resolved]}
                     , esMatched = 1
                     , esNewFlows = maybeToList (reNewBioFlow resolved)
                     , esNewTechFlows = maybeToList (reNewTechFlow resolved)
                     , esWarnings = reWarnings resolved
                     }
     SetText text -> case textCheck text of
-        [] -> Right (changed current 1){esRetext = restateText text}
+        [] -> Right (stepTo (restateText text act) 1)
         errs -> Left errs
+    SetParameter name parameter -> case parameterCheck act name parameter of
+        [] -> Right (stepTo act{activityParameters = M.insert name parameter (activityParameters act)} 1)
+        errs -> Left errs
+    RemoveParameter name -> case removalCheck (acDb ctx) act name of
+        Left errs -> Left errs
+        Right spelt -> Right (stepTo act{activityParameters = M.delete spelt (activityParameters act)} 1)
   where
-    changed exchangeList matched =
+    current = exchanges act
+    changed exchangeList = stepTo act{exchanges = exchangeList}
+    stepTo edited matched =
         EditStep
-            { esExchanges = exchangeList
-            , esRetext = id
+            { esActivity = edited
             , esMatched = matched
             , esNewFlows = []
             , esNewTechFlows = []
             , esWarnings = []
             }
-    restate isSelected amount ex = if isSelected ex then withAmount amount ex else ex
+    onSelected complaints sel change = case (complaints, selectFrom sel current) of
+        ([], Right (matched, isSelected)) ->
+            Right (changed (map (\ex -> if isSelected ex then change ex else ex) current) matched)
+        (errs, Right _) -> Left errs
+        (errs, Left err) -> Left (errs <> [err])
+
+{- | A line given a formula keeps its name, and its amount until the activity
+is restated; a line given none keeps its amount, and a named line its name on
+that number.
+-}
+reformulated :: Maybe Text -> Exchange -> Exchange
+reformulated = \case
+    Nothing -> \ex -> withAmount (exchangeAmount ex) ex
+    Just formula -> \ex -> withFormula (Just ExchangeFormula{efName = efName =<< exchangeFormula ex, efText = T.strip formula}) ex
+
+formulaCheck :: Text -> [Text]
+formulaCheck formula = case Expr.readFormula Expr.Volca formula of
+    Left refusal -> ["the formula '" <> formula <> "' does not read: " <> Expr.describeRefusal refusal]
+    Right _ -> []
+
+{- | A parameter an activity can carry: one name of the language that no
+function takes, the only spelling of it among the activity's parameters and
+not a line's name, since a formula reads names without case; with a finite
+value, or a formula that reads.
+-}
+parameterCheck :: Activity -> Text -> Parameter -> [Text]
+parameterCheck act name parameter =
+    nameCheck
+        <> [ "the parameter '" <> name <> "' is already spelt '" <> other <> "' on this activity"
+           | other <- M.keys (activityParameters act)
+           , other /= name
+           , T.toLower other == key
+           ]
+        <> ["'" <> name <> "' already names a line of this activity" | key `elem` lineNames act]
+        <> case parameterDefinition parameter of
+            InputParameter value _ ->
+                ["the value of '" <> name <> "' is " <> T.pack (show value) <> "; it must be a finite number" | isNaN value || isInfinite value]
+            CalculatedParameter formula _ -> formulaCheck formula
+  where
+    key = T.toLower name
+    nameCheck = case Expr.readFormula Expr.Volca name of
+        Right (Expr.Name read')
+            | read' == name
+            , key `notElem` map T.toLower Expr.functionNames ->
+                []
+        _ -> ["'" <> name <> "' is not a parameter name: one word of letters, digits and underscores, starting with a letter, and not a function's name"]
+
+{- | The spelling of the parameter to remove, unless a formula of the activity
+still reads it and its database has no parameter of that name to take over.
+-}
+removalCheck :: Database -> Activity -> Text -> Either [Text] Text
+removalCheck db act name = case [other | other <- M.keys (activityParameters act), T.toLower other == key] of
+    [] ->
+        Left ["this activity has no parameter '" <> name <> "'"]
+    spelt : _
+        | key `elem` map T.toLower (M.keys (dbParameters db)) -> Right spelt
+        | otherwise -> case readers of
+            [] -> Right spelt
+            some -> Left ["the parameter '" <> name <> "' is still read by " <> T.intercalate ", " (map (\f -> "'" <> f <> "'") some)]
+  where
+    key = T.toLower name
+    readers =
+        nub
+            ( [f | f <- exchangeFormulas <> parameterFormulas, reads' Expr.Volca f]
+                <> [f | f <- shareFormulas act, reads' Expr.SimaPro f]
+            )
+    reads' dialect formula = key `elem` map T.toLower (Expr.collectIdentifiers dialect formula)
+    exchangeFormulas = [efText f | Just f <- map exchangeFormula (exchanges act)]
+    parameterFormulas = [f | (other, Parameter{parameterDefinition = CalculatedParameter f _}) <- M.toList (activityParameters act), T.toLower other /= key]
+
+lineNames :: Activity -> [Text]
+lineNames act = [T.toLower n | Just ExchangeFormula{efName = Just n} <- map exchangeFormula (exchanges act)]
 
 -- | A name or a location left blank names nothing to find the activity by.
 textCheck :: ActivityText -> [Text]

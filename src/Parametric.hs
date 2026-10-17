@@ -21,6 +21,8 @@ module Parametric (
     moving,
     Check (..),
     checkFormula,
+    restated,
+    shareFormulas,
 ) where
 
 import Control.Monad (when)
@@ -61,6 +63,8 @@ data ParameterRefusal
       NoAmount !Text !Text !Text
     | -- | A process whose allocation share is a formula the settings move, and that formula.
       ShareMoves !Text !Text
+    | -- | A process, and why one of its parameters no longer has a value.
+      NoValue !Text !Text
     deriving (Eq, Show)
 
 describeParameterRefusal :: ParameterRefusal -> Text
@@ -71,6 +75,7 @@ describeParameterRefusal = \case
     SetTwice at name -> "parameter '" <> name <> "' " <> level at <> " is set twice"
     NoAmount process flow why -> "process '" <> process <> "', exchange '" <> flow <> "': " <> why
     ShareMoves process formula -> "process '" <> process <> "' is allocated by the formula '" <> formula <> "', which these values change: a share that follows parameters is not computed yet"
+    NoValue process why -> "process '" <> process <> "': " <> why
   where
     level :: Maybe Text -> Text
     level = maybe "in the database" (\process -> "in process '" <> process <> "'")
@@ -234,6 +239,66 @@ amountOf db act atDefaults atSettings ex = case exchangeFormula ex of
     refusal :: Text -> ParameterRefusal
     refusal = NoAmount (activityName act) (maybe "" flowKindName (lookupExchangeFlow db ex))
 
+{- | A process after an edit, at the defaults: each line whose formula no
+longer gives its amount takes the formula's value, by the same comparison an
+import makes, and each calculated parameter its value. Refused when a formula
+gives no amount, when a parameter that had a value before the edit has none,
+and when the edit moves an allocation share, since the amounts were split by
+the old one. The process before the edit is read for those two alone.
+-}
+restated :: Database -> Activity -> Activity -> Either ParameterRefusal Activity
+restated db before act = do
+    traverse_ shareKept (shareFormulas act)
+    case [(name, unsettled) | (name, unsettled) <- unsettledNow, name `notElem` map fst unsettledBefore] of
+        (name, _) : _ -> Left (NoValue (activityName act) (unsettledWhy unsettledNow (Expr.Unresolved (name NE.:| []))))
+        [] -> pure ()
+    restatedLines <- traverse line (exchanges act)
+    pure act{exchanges = restatedLines, activityParameters = M.mapWithKey refreshed (activityParameters act)}
+  where
+    settled :: Activity -> (Values, [(Text, Expr.Unsettled)])
+    settled at = let scope = scopeOf db at in Expr.settle Expr.Volca (M.union (scopeOwn scope) (scopeDatabase scope)) (scopeCalculated scope)
+
+    values, valuesBefore :: Values
+    (values, unsettledNow) = settled act
+    (valuesBefore, unsettledBefore) = settled before
+
+    unsettledNow, unsettledBefore :: [(Text, Expr.Unsettled)]
+
+    line :: Exchange -> Either ParameterRefusal Exchange
+    line ex = case exchangeFormula ex of
+        Nothing -> Right ex
+        Just ExchangeFormula{efText = formula} -> do
+            value <- first (refusal ex . unsettledWhy unsettledNow) (Expr.evaluate Expr.Volca values formula)
+            when (isNaN value || isInfinite value) (Left (refusal ex ("the formula gives no finite number: " <> T.pack (show value))))
+            pure (if Expr.agrees (exchangeAmount ex) value then ex else withFormula (exchangeFormula ex) (withAmount value ex))
+
+    refusal :: Exchange -> Text -> ParameterRefusal
+    refusal ex = NoAmount (activityName act) (maybe "" flowKindName (lookupExchangeFlow db ex))
+
+    refreshed :: Text -> Parameter -> Parameter
+    refreshed name parameter = case parameterDefinition parameter of
+        CalculatedParameter formula _ -> parameter{parameterDefinition = CalculatedParameter formula (M.lookup (T.toLower name) values)}
+        InputParameter{} -> parameter
+
+    shareKept :: Text -> Either ParameterRefusal ()
+    shareKept formula
+        | Expr.evaluate Expr.SimaPro valuesBefore formula == Expr.evaluate Expr.SimaPro values formula = Right ()
+        | otherwise = Left (ShareMoves (activityName act) formula)
+
+{- | Why a formula gives no value, its unknown names explained by what a scope
+could not settle: a cycle said as a cycle, a name settled nowhere as unknown.
+-}
+unsettledWhy :: [(Text, Expr.Unsettled)] -> Expr.Refusal -> Text
+unsettledWhy unsettled = \case
+    Expr.Unresolved names -> T.intercalate "; " (map why (NE.toList names))
+    refusal -> Expr.describeRefusal refusal
+  where
+    why :: Text -> Text
+    why name = case lookup (T.toLower name) [(T.toLower n, u) | (n, u) <- unsettled] of
+        Just cycle'@Expr.Circular{} -> Expr.describeUnsettled cycle'
+        Just other -> name <> ": " <> Expr.describeUnsettled other
+        Nothing -> "no parameter or named line '" <> name <> "'"
+
 -- | Where an input of a reduced model's process starts from: its value, or the position of the free parameter it is.
 data Input = Fixed !Double | Free !Int
     deriving (Eq, Show)
@@ -372,7 +437,7 @@ checkFormula :: UnitConfig -> Database -> Maybe (Activity, Maybe Exchange) -> Te
 checkFormula unitCfg db at formula = do
     tree <- first Expr.describeRefusal (Expr.readFormula Expr.Volca formula)
     let (values, unsettled) = Expr.settle Expr.Volca (M.union (scopeOwn scope) (scopeDatabase scope)) (scopeCalculated scope)
-    value <- first (explain unsettled) (Expr.evaluate Expr.Volca values formula)
+    value <- first (unsettledWhy unsettled) (Expr.evaluate Expr.Volca values formula)
     when (isNaN value || isInfinite value) (Left ("the formula gives no finite number: " <> T.pack (show value)))
     pure Check{checkValue = value, checkReads = nub (map T.toLower (Expr.collectIdentifiers Expr.Volca formula)), checkWarnings = maybe [] (unitWarnings tree) line}
   where
@@ -391,17 +456,6 @@ checkFormula unitCfg db at formula = do
 
     lineName :: Maybe Text
     lineName = T.toLower <$> (efName =<< exchangeFormula =<< line)
-
-    explain :: [(Text, Expr.Unsettled)] -> Expr.Refusal -> Text
-    explain unsettled = \case
-        Expr.Unresolved names -> T.intercalate "; " (map (why unsettled) (NE.toList names))
-        refusal -> Expr.describeRefusal refusal
-
-    why :: [(Text, Expr.Unsettled)] -> Text -> Text
-    why unsettled name = case lookup (T.toLower name) [(T.toLower n, u) | (n, u) <- unsettled] of
-        Just cycle'@Expr.Circular{} -> Expr.describeUnsettled cycle'
-        Just other -> name <> ": " <> Expr.describeUnsettled other
-        Nothing -> "no parameter or named line '" <> name <> "'"
 
     unitWarnings :: Expr.Formula -> Exchange -> [Text]
     unitWarnings tree ex = case (scaled tree, unitName <$> getUnitForExchange (dbUnits db) ex) of

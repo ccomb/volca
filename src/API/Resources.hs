@@ -1030,9 +1030,10 @@ description r = case r of
         \location and description, keeping the activity itself. The tool that writes a database's data. Use it to adjust an \
         \imported dataset to the study at hand: drop a substance the scope \
         \excludes, correct an amount, add a supplier the dataset is missing, \
-        \correct a name or a location. \
+        \correct a name or a location, give a line a formula, set or remove a \
+        \parameter of the activity. \
         \Everything the edit does not name stays as it is (classification, \
-        \synonyms, parameters, pedigree, coproducts), which is why this exists \
+        \synonyms, pedigree, coproducts), which is why this exists \
         \rather than rewriting the activity. Only the inventory side is \
         \addressable: an input by its provider's process_id, a waste output by \
         \its treatment's process_id, a biosphere line by its flow id (from \
@@ -1040,7 +1041,11 @@ description r = case r of
         \reachable, because changing those changes what the activity IS. A \
         \selector that matches nothing is refused rather than silently doing \
         \nothing, and one that matches several lines edits all of them and says \
-        \how many. Refused outright on a database the engine reads from its \
+        \how many. Formulas are in the engine's formula language \
+        \(get_formula_language; check_formula tries one first). Once every \
+        \change is in, each line whose formula no longer gives its amount takes \
+        \the formula's value, and the answer lists those lines under restated. \
+        \Refused outright on a database the engine reads from its \
         \configuration: copy it first (that background data is shared with \
         \everyone). If the answer says transient, the edit is in memory only \
         \and an unload undoes it."
@@ -1574,6 +1579,9 @@ params r = case r of
         , Param "set_name" "string" Optional "The activity's new name."
         , Param "set_location" "string" Optional "The activity's new location code (e.g. FR)."
         , Param "set_description" "array" Optional "The activity's new description, one string per paragraph; an empty array clears it."
+        , Param "set_parameters" "array" Optional "Parameters of the activity to add, or to replace under the same spelling. Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
+        , Param "set_formulas" "array" Optional "Lines to give a formula. Each is {select: {kind, provider|flow}, formula}; a null formula drops it and keeps the amount."
+        , Param "remove_parameters" "array" Optional "Names of the activity's parameters to remove, once the formulas set here no longer read them. Refused while a formula still reads one the database does not define."
         ]
     CopyMethodCollection ->
         [ Param "collection" "string" Required "Method collection to copy"

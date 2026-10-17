@@ -42,8 +42,10 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
 import Database.Allocation (Allocating (..), allocate)
+import Database.Author (AuthorContext (..), EditedActivity (..), ExchangeEdit (..), ExchangeSelector (..), RestatedLine (..), applyExchangeEdits)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Cutoffs (gapIndexOf)
+import Database.Journal (JournalOp (..), applyOp)
 import Database.Loader (findAllCrossDBLinks)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getGapIndex, initDatabaseManager, withSettings)
 import Database.MatrixBuild (technosphereChange, withActivities)
@@ -309,6 +311,65 @@ spec = describe "a database at other values of its parameters" $ do
                 forM_ [(exchangeAmount ex, efText f) | ex <- exchanges act, Just f <- [exchangeFormula ex]] $ \(stored, formula) ->
                     (checkValue <$> checkFormula bakeryUnits mill (Just (act, Nothing)) formula) `shouldSatisfy` either (const False) (Expr.agrees stored)
 
+    describe "an activity edited in place" $ do
+        let edited edits = do
+                db <- kitchenDb
+                pure (applyExchangeEdits AuthorContext{acDb = db, acDeps = [], acUnitConfig = bakeryUnits} edits kitchen)
+            accepted edits = do
+                db <- kitchenDb
+                after <- either (fail . show) (pure . eaActivity) =<< edited edits
+                -- Whatever the edit, every kept formula still gives its line's amount.
+                forM_ [(exchangeAmount ex, efText f) | ex <- exchanges after, Just f <- [exchangeFormula ex]] $ \(stored, formula) ->
+                    (checkValue <$> checkFormula bakeryUnits db (Just (after, Nothing)) formula) `shouldSatisfy` either (const False) (Expr.agrees stored)
+                pure after
+            amountsAfter edits = map exchangeAmount . exchanges <$> accepted edits
+            refusedWith edits = either (T.unpack . T.intercalate "; ") (const "") <$> edited edits
+            flourLine = SelectInput (processIdText (aFlour, pFlour))
+
+        it "moves every line a new default moves, and says which" $ do
+            amountsAfter [SetParameter "yield" (input 0.5)] `shouldReturn` [1, 2, 1]
+            fmap eaRestated <$> edited [SetParameter "yield" (input 0.5)] `shouldReturn` Right [RestatedLine 1 1.25 2, RestatedLine 2 0.625 1]
+
+        it "gives a line the value of its new formula, keeping its name, and its readers follow" $ do
+            after <- accepted [SetFormula flourLine (Just "1 / yield + 0.1")]
+            map exchangeAmount (exchanges after) `shouldSatisfy` and . zipWith (withinTolerance 1e-12) [1, 1.35, 0.675]
+            (efName =<< exchangeFormula (exchanges after !! 1)) `shouldBe` Just "flour_kg"
+
+        it "moves the formulas reading a named line set to another amount" $
+            amountsAfter [SetAmount flourLine 3] `shouldReturn` [1, 3, 1.5]
+
+        it "keeps the amount of a line whose formula is dropped" $
+            amountsAfter [SetFormula flourLine Nothing] `shouldReturn` [1, 1.25, 0.625]
+
+        it "refreshes the value a calculated parameter shows" $ do
+            after <- accepted [SetParameter "double_yield" (parameter (CalculatedParameter "2 * yield" Nothing))]
+            (parameterDefinition <$> M.lookup "double_yield" (activityParameters after)) `shouldBe` Just (CalculatedParameter "2 * yield" (Just 1.6))
+
+        it "refuses to remove a parameter a formula or a share still reads, naming the formula" $ do
+            refusedWith [RemoveParameter "yield"] >>= (`shouldContain` "'1 / yield'")
+            refusedWith [RemoveParameter "own_share"] >>= (`shouldContain` "'own_share'")
+            refusedWith [RemoveParameter "nope"] >>= (`shouldContain` "no parameter 'nope'")
+            amountsAfter [SetFormula flourLine (Just "1.5"), SetFormula (SelectBiosphere co2) (Just "0.75"), RemoveParameter "yield"] `shouldReturn` [1, 1.5, 0.75]
+
+        it "refuses a share the edit moves, a cycle as a cycle, and a formula that reads nothing known" $ do
+            refusedWith [SetParameter "own_share" (input 50)] `shouldReturn` T.unpack (describeParameterRefusal (ShareMoves "kitchen" "own_share"))
+            refusedWith [SetParameter "a" (parameter (CalculatedParameter "b" Nothing)), SetParameter "b" (parameter (CalculatedParameter "a" Nothing))] >>= (`shouldContain` "need each other's values")
+            refusedWith [SetFormula flourLine (Just "nope + 1")] `shouldReturn` "process 'kitchen': flour_kg: unknown variable nope"
+            refusedWith [SetFormula flourLine (Just "2 +")] >>= (`shouldContain` "does not read")
+
+        it "refuses a name formulas could not tell apart from another" $ do
+            refusedWith [SetParameter "Yield" (input 1)] >>= (`shouldContain` "already spelt 'yield'")
+            refusedWith [SetParameter "flour_kg" (input 1)] >>= (`shouldContain` "already names a line")
+            forM_ ["sqrt", "2x", "a b"] $ \name -> refusedWith [SetParameter name (input 1)] >>= (`shouldContain` "is not a parameter name")
+            refusedWith [SetParameter "k" (input (1 / 0))] >>= (`shouldContain` "finite")
+
+        it "sets a parameter on every product of a block" $ do
+            (bakery, grid) <- databases
+            let ctx = AuthorContext{acDb = bakery, acDeps = [grid], acUnitConfig = bakeryUnits}
+            after <- either (fail . T.unpack) pure (applyOp ctx (Edited (processIdText (aMill, pMeal)) [(SetParameter "grind" (input 2), 1)]))
+            forM_ [pMeal, pBran] $ \product' ->
+                (map exchangeAmount . exchanges <$> (getActivity after =<< findProcessId after aMill product')) `shouldBe` Just [1, 2]
+
     describe "a formula checked where it would be written" $ do
         let checked at formula = do
                 (bakery, _) <- databases
@@ -371,6 +432,24 @@ spec = describe "a database at other values of its parameters" $ do
 
     flour db = fromMaybe (-1) (findProcessId db aFlour pFlour)
     bread' db = fromMaybe (-1) (findProcessId db aBread pBread)
+
+{- | A kitchen whose flour line, named, is a formula of its own @yield@, and
+whose smoke reads the flour line; its share is a formula of its own too.
+-}
+kitchen :: Activity
+kitchen =
+    ( activity
+        "kitchen"
+        [ (reference pBread){techShare = Just DeclaredShare{dsPercent = 100, dsFormula = Just "own_share"}}
+        , (withFormula (named "flour_kg" "1 / yield") (line pFlour 1.25 Input)){techActivityLinkId = Just aFlour}
+        , emission "0.5 * flour_kg" 0.625
+        ]
+    )
+        { activityParameters = M.fromList [("yield", input 0.8), ("own_share", input 100)]
+        }
+
+kitchenDb :: IO Database
+kitchenDb = build "kitchen" techFlows (M.fromList [((aBread, pBread), kitchen), ((aFlour, pFlour), activity "flour" [reference pFlour])]) M.empty
 
 refusal :: Either ParameterRefusal a -> Maybe ParameterRefusal
 refusal = either Just (const Nothing)

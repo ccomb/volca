@@ -153,6 +153,9 @@ mutatingHandlers =
             , eerSetName = Nothing
             , eerSetLocation = Nothing
             , eerSetDescription = Nothing
+            , eerSetParameters = []
+            , eerSetFormulas = []
+            , eerRemoveParameters = []
             }
     nothingInParticular =
         ActivityInput

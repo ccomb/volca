@@ -147,6 +147,7 @@ import API.Types (
     RefDataStatusAPI (..),
     RelinkRequest (..),
     RelinkResponse (..),
+    RestatedLineAPI (..),
     SynonymGroupsResponse (..),
     UploadChunk (..),
     UploadResponse (..),
@@ -165,6 +166,7 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime, utctDay)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
+import Database.Author (RestatedLine (..))
 import Database.Crate (CrateInput (..), Package (..), Packaging (..), openPackage, packageExport, parsePackaging, requiredReleases)
 import Database.Edit (
     DeleteOutcome (..),
@@ -688,6 +690,10 @@ editReportToAPI report =
         , eepAmountsSet = erAmountsSet report
         , eepAdded = erAdded report
         , eepTextsSet = erTextsSet report
+        , eepFormulasSet = erFormulasSet report
+        , eepParametersSet = erParametersSet report
+        , eepParametersRemoved = erParametersRemoved report
+        , eepRestated = [RestatedLineAPI{rsPosition = rlPosition line, rsFrom = rlFrom line, rsTo = rlTo line} | line <- erRestated report]
         , eepTransient = not (erPersisted report)
         , eepWarnings = erWarnings report
         }

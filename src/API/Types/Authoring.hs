@@ -9,7 +9,7 @@ import API.JsonOptions (Stripped (..))
 import Data.Aeson
 import Data.Bifunctor (first)
 import Data.Either (partitionEithers)
-import Data.Maybe (maybeToList)
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.OpenApi (ToSchema (..))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -26,6 +26,9 @@ import GHC.Generics
 import Types (
     BioDirection (..),
     Compartment (..),
+    Parameter (..),
+    ParameterDefinition (..),
+    Uncertainty,
     parseMedium,
     unknownMedium,
  )
@@ -168,13 +171,39 @@ data SetAmountAPI = SetAmountAPI
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetAmountAPI)
 
-{- | Changes to one activity: lines to drop, lines to restate, lines to add,
-and the texts to restate.
+-- | The lines to give a formula, and the formula, in VoLCA's language; none drops it and keeps the amount.
+data SetFormulaAPI = SetFormulaAPI
+    { sfSelect :: ExchangeSelectorAPI
+    , sfFormula :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetFormulaAPI)
 
-Five lists rather than one tagged list, for the reason 'ActivityInput' has
+{- | A parameter of the activity to add, or to replace under the same spelling:
+a value, or a formula in VoLCA's language whose value the engine computes.
+-}
+data SetParameterAPI = SetParameterAPI
+    { spName :: Text
+    , spValue :: Maybe Double
+    , spFormula :: Maybe Text
+    , spUnit :: Maybe Text
+    , spDescription :: Maybe Text
+    , spUncertainty :: Maybe Uncertainty -- An input parameter's only
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetParameterAPI)
+
+{- | Changes to one activity: lines to drop, lines to restate, lines to add,
+the texts to restate, and its parameters.
+
+Lists rather than one tagged list, for the reason 'ActivityInput' has
 three: what makes sense on an addition cannot be sent on a removal and back
 again. They apply in the order they are listed here, so an edit that drops one
-supplier and adds another is never ambiguous about which happened first.
+supplier and adds another is never ambiguous about which happened first, and
+a parameter is removed once the formulas set here have stopped reading it.
+
+Once every change is in, each line whose formula no longer gives its amount
+takes the formula's value, and the answer lists those lines.
 
 A text left unstated stays as it is. A description of no paragraphs clears it.
 
@@ -191,6 +220,9 @@ data ExchangeEditRequest = ExchangeEditRequest
     , eerSetName :: Maybe Text
     , eerSetLocation :: Maybe Text
     , eerSetDescription :: Maybe [Text]
+    , eerSetParameters :: [SetParameterAPI]
+    , eerSetFormulas :: [SetFormulaAPI]
+    , eerRemoveParameters :: [Text]
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ExchangeEditRequest)
@@ -210,6 +242,9 @@ instance FromJSON ExchangeEditRequest where
             <*> o .:? "setName"
             <*> o .:? "setLocation"
             <*> o .:? "setDescription"
+            <*> o .:? "setParameters" .!= []
+            <*> o .:? "setFormulas" .!= []
+            <*> o .:? "removeParameters" .!= []
 
 {- | What an inventory edit produced: one count per selector, in the order the
 selectors were stated. A caller that meant to drop one line and reads three
@@ -221,12 +256,26 @@ data ExchangeEditResponse = ExchangeEditResponse
     , eepAdded :: Int
     , eepTextsSet :: [Text]
     -- ^ The texts rewritten: @name@, @location@, @description@.
+    , eepFormulasSet :: [Int]
+    , eepParametersSet :: [Text]
+    , eepParametersRemoved :: [Text]
+    , eepRestated :: [RestatedLineAPI]
+    -- ^ The lines whose amounts followed their formulas once the edits were in.
     , eepTransient :: Bool
     -- ^ True when the edit lives in memory only and an unload would undo it.
     , eepWarnings :: [Text]
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExchangeEditResponse)
+
+-- | A line by its position among the activity's exchanges, and the amount its formula moved it from and to.
+data RestatedLineAPI = RestatedLineAPI
+    { rsPosition :: Int
+    , rsFrom :: Double
+    , rsTo :: Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped RestatedLineAPI)
 
 -- ---------------------------------------------------------------------------
 -- Wire → authoring input
@@ -314,11 +363,14 @@ toExchangeEdits req = case partitionEithers stated of
   where
     stated =
         map (fmap RemoveExchange . toSelector) (eerRemove req)
+            <> map toSetParameter (eerSetParameters req)
             <> map toSetAmount (eerSetAmounts req)
+            <> map toSetFormula (eerSetFormulas req)
             <> map (Right . AddExchange . toTechInput) (eerAddInputs req)
             <> map (fmap AddExchange . toBio) (eerAddBiosphere req)
             <> map (Right . AddExchange . toWasteOutput) (eerAddWasteOutputs req)
             <> map (Right . SetText) texts
+            <> map (Right . RemoveParameter) (eerRemoveParameters req)
     texts =
         concat
             [ ActivityName <$> maybeToList (eerSetName req)
@@ -326,6 +378,27 @@ toExchangeEdits req = case partitionEithers stated of
             , ActivityDescription <$> maybeToList (eerSetDescription req)
             ]
     toSetAmount sa = flip SetAmount (saAmount sa) <$> toSelector (saSelect sa)
+    toSetFormula sf = flip SetFormula (sfFormula sf) <$> toSelector (sfSelect sf)
+
+{- | A parameter states a value or a formula, never both: a calculated
+parameter's value is what its formula gives, and an uncertainty spreads a
+stated value alone.
+-}
+toSetParameter :: SetParameterAPI -> Either [Text] ExchangeEdit
+toSetParameter sp = SetParameter (spName sp) . definedBy <$> definition
+  where
+    definition = case (spValue sp, spFormula sp, spUncertainty sp) of
+        (Just value, Nothing, uncertainty) -> Right (InputParameter value uncertainty)
+        (Nothing, Just formula, Nothing) -> Right (CalculatedParameter formula Nothing)
+        (Nothing, Just _, Just _) -> Left ["the parameter " <> spName sp <> " has a formula, so it takes no uncertainty"]
+        (Just _, Just _, _) -> Left ["the parameter " <> spName sp <> " states a value and a formula: it takes one of them"]
+        (Nothing, Nothing, _) -> Left ["the parameter " <> spName sp <> " states neither a value nor a formula"]
+    definedBy defined =
+        Parameter
+            { parameterDefinition = defined
+            , parameterUnit = spUnit sp
+            , parameterDescription = fromMaybe "" (spDescription sp)
+            }
 
 {- | A selector names a provider or a flow, according to its kind. Sending the
 other one, or both, is refused rather than resolved by precedence: a caller who

@@ -400,6 +400,9 @@ noEdits =
         , eerSetName = Nothing
         , eerSetLocation = Nothing
         , eerSetDescription = Nothing
+        , eerSetParameters = []
+        , eerSetFormulas = []
+        , eerRemoveParameters = []
         }
 
 bioSelector :: UUID -> ExchangeSelectorAPI

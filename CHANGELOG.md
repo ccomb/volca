@@ -162,6 +162,23 @@
   them as `get_formula_language` and `check_formula`, and pyvolca as
   `formula_language()` and `check_formula()`. Wire revision 72.
 
+- An edit of an activity's exchanges can set an activity's parameters, give
+  a line a formula or drop it, and remove a parameter: `setParameters`,
+  `setFormulas` and `removeParameters`. Once the edit is in, each line whose
+  formula no longer gives its amount takes the formula's value, and the
+  answer lists it under `restated`: in a bread whose flour is `1 / yield`
+  (1.25 kg at a yield of 0.8), setting the yield to 0.5 moves the flour to
+  2 kg, and a smoke line reading the flour line by its name moves with it.
+  Setting a named line to another amount moves the lines that read it too,
+  where they used to keep their old amounts. A parameter set on one product
+  of a block is set on every product of it. A removal is refused while a
+  formula still reads the name, a cycle is refused as a cycle, and so is a
+  second spelling of a name, or the name of a line. An edit that would move
+  an allocation share is refused, since the amounts were split by the old
+  one. The assistant's `edit_exchanges` takes the same, and pyvolca's
+  `edit_exchanges(set_parameters=, set_formulas=, remove_parameters=)`.
+  Wire revision 73.
+
 ### Fixed
 
 - A process split from a block of several products keeps every formula
