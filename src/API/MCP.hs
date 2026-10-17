@@ -41,7 +41,7 @@ import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
 import Database (Geographies, filterByName, flowSearchFields)
 import Database.Cutoffs (Cutoffs (..))
-import Database.Edit (deriveDatabase, editExchanges, refusalMessage)
+import Database.Edit (deriveDatabase, editDatabaseParameters, editExchanges, refusalMessage)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
 import qualified Impact
@@ -49,12 +49,12 @@ import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
 
 import qualified API.BatchImpacts as BI
-import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, qualityReportToAPI, quotaCounts)
+import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toScoringEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.List (find)
 import qualified Data.List as L
@@ -694,6 +694,8 @@ dispatchTool dbManager presets mHosting mBaseUrl rid name args licence = case na
     "get_computed_quality_report" -> callGetComputedQualityReport dbManager mHosting rid args
     "get_characterization_coverage" -> callGetCoverageReport dbManager rid args
     "edit_exchanges" -> callEditExchanges dbManager rid args
+    "get_database_parameters" -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
+    "edit_database_parameters" -> callEditDatabaseParameters dbManager rid args
     "copy_method_collection" -> callCopyMethodCollection dbManager rid args
     "edit_method_factors" -> callEditMethodFactors dbManager rid args
     "edit_method_categories" -> callEditMethodCategories dbManager rid args
@@ -1960,6 +1962,14 @@ callEditExchanges dbManager rid args = runTool rid $ do
         Nothing -> Right Nothing
         Just Null -> Right Nothing
         Just _ -> Just <$> parseArrayArg "set_description" Nothing args
+
+callEditDatabaseParameters :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callEditDatabaseParameters dbManager rid args = runTool rid $ do
+    dbName <- except (requireText "database" args)
+    request <- except (ParametersEditRequest <$> parseArrayArg "set_parameters" Nothing args <*> parseArrayArg "remove_parameters" Nothing args)
+    edits <- except (first (T.intercalate "\n") (toParameterEdits request))
+    report <- ExceptT (first refusalMessage <$> editDatabaseParameters dbManager dbName edits)
+    return $ toolSuccessJson rid (toJSON (parametersReportToAPI report))
 
 callCopyMethodCollection :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callCopyMethodCollection dbManager rid args = runTool rid $ do

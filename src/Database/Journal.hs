@@ -112,6 +112,7 @@ import Database.Rebuild (
     replaceActivities,
     resolveProcess,
  )
+import Parametric (editedParameters)
 import Progress (ProgressLevel (..), reportProgress)
 import Types (BioDirection (..), Compartment (..), Database (..), Parameter (..), ParameterDefinition (..), getActivity)
 
@@ -140,6 +141,8 @@ data JournalOp
       each with the number of exchanges it matched at the time.
       -}
       Edited Text [(ExchangeEdit, Int)]
+    | -- | The database's parameters set, or removed when given none.
+      ParametersEdited [(Text, Maybe Parameter)]
     deriving (Eq, Show)
 
 -- ---------------------------------------------------------------------------
@@ -289,7 +292,18 @@ applyOp ctx = \case
                     )
                     (acDb ctx)
             else Left (matchDrift (map snd edits) (eaMatched edited))
+    ParametersEdited edits -> do
+        (parameters, moved) <- first (T.intercalate "; ") (editedParameters (acDb ctx) edits)
+        let withParameters = (acDb ctx){dbParameters = parameters}
+        if M.null moved
+            then pure withParameters
+            else do
+                restatedRows <- traverse (restatedRow withParameters) (M.toList moved)
+                replaceActivities (acUnitConfig ctx) restatedRows withParameters
   where
+    restatedRow db (pid, act) = do
+        key <- processKey db pid
+        pure ResolvedInsert{riKey = key, riActivity = act, riNewTechFlows = [], riNewBioFlows = []}
     resolve = bimap (T.intercalate "; ") fst . validateAuthored ctx
     -- The texts and parameters belong to the activity, not to one of its
     -- products: a block read with two products is two rows under one activity
@@ -352,6 +366,7 @@ opName = \case
     Replaced _ _ -> "replace"
     Deleted _ -> "delete"
     Edited _ _ -> "edit"
+    ParametersEdited _ -> "parameters"
 
 -- ---------------------------------------------------------------------------
 -- Codec
@@ -381,6 +396,8 @@ databaseOpFields = \case
         ["op" .= ("delete" :: Text), "targets" .= targets]
     Edited target edits ->
         ["op" .= ("edit" :: Text), "target" .= target, "edits" .= map editJSON edits]
+    ParametersEdited edits ->
+        ["op" .= ("parameters" :: Text), "edits" .= [object ["name" .= name, "parameter" .= fmap parameterJSON parameter] | (name, parameter) <- edits]]
 
 databaseParseOp :: Object -> Parser JournalOp
 databaseParseOp o =
@@ -393,6 +410,8 @@ databaseParseOp o =
             Deleted <$> o .: "targets"
         "edit" ->
             Edited <$> o .: "target" <*> (o .: "edits" >>= traverse parseEdit)
+        "parameters" ->
+            ParametersEdited <$> (o .: "edits" >>= traverse (withObject "parameter edit" (\e -> (,) <$> e .: "name" <*> (e .:? "parameter" >>= traverse parseParameter))))
         other -> fail ("unknown journal operation: " <> T.unpack other)
 
 {- | One edit, with the number of exchanges it matched when it was made. That

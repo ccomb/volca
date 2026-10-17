@@ -43,6 +43,8 @@ module Database.Edit (
     writeActivities,
     EditReport (..),
     editExchanges,
+    ParametersReport (..),
+    editDatabaseParameters,
     authorContext,
     refusalMessage,
 ) where
@@ -109,6 +111,7 @@ import Database.Rebuild (processKey, renderKey, resolveProcess)
 import Database.Upload (DatabaseFormat (..), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
 import Matrix (clearCachedSolver)
+import Parametric (editedParameters)
 import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
 import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches)
@@ -116,6 +119,7 @@ import Types (
     AllocationKey,
     ClassificationFilter,
     Database (..),
+    Parameter,
     ProcessId,
     allocationKeyText,
     findProcessIdByActivityUUID,
@@ -633,6 +637,43 @@ editExchanges manager dbName target edits =
                         , erPersisted = moPersisted done
                         , erWarnings = eaWarnings edited <> moWarnings done
                         }
+
+-- | What an edit of a database's parameters produced.
+data ParametersReport = ParametersReport
+    { prSet :: [Text]
+    , prRemoved :: [Text]
+    , prRestated :: [Text]
+    -- ^ The processes whose amounts or parameter values followed, by process id.
+    , prPersisted :: Bool
+    , prWarnings :: [Text]
+    }
+
+{- | Set or remove parameters of a loaded database, each one set ('Just') or
+removed, and restate every process that reads them. Refused for the reasons
+an edit of one activity is, and checked whole before anything is written.
+-}
+editDatabaseParameters :: DatabaseManager -> Text -> [(Text, Maybe Parameter)] -> IO (Either WriteRefusal ParametersReport)
+editDatabaseParameters _ _ [] = pure (Left (Malformed ["There is nothing to change: the edit names no parameter."]))
+editDatabaseParameters manager dbName edits =
+    getDatabase manager dbName >>= \case
+        Nothing -> pure (Left (NotLoaded dbName))
+        Just loaded
+            | not (dcIsUploaded (ldConfig loaded)) -> pure (Left (NotWritable dbName))
+            | otherwise -> case editedParameters (ldDatabase loaded) edits of
+                Left errs -> pure (Left (Malformed errs))
+                Right (_, moved) -> do
+                    outcome <- mutateUploadedDatabase manager dbName (ParametersEdited edits)
+                    pure $ case outcome of
+                        Left err -> Left (WriteFailed err)
+                        Right done ->
+                            Right
+                                ParametersReport
+                                    { prSet = [name | (name, Just _) <- edits]
+                                    , prRemoved = [name | (name, Nothing) <- edits]
+                                    , prRestated = [renderKey key | Right key <- map (processKey (ldDatabase loaded)) (M.keys moved)]
+                                    , prPersisted = moPersisted done
+                                    , prWarnings = moWarnings done
+                                    }
 
 textField :: ActivityText -> Text
 textField = \case

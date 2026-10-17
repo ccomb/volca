@@ -34,6 +34,8 @@ module API.DatabaseHandlers (
     createActivitiesHandler,
     replaceActivityHandler,
     editExchangesHandler,
+    editDatabaseParametersHandler,
+    parametersReportToAPI,
     exportDatabaseHandler,
     documentFileHandler,
     setLicenceHandler,
@@ -140,6 +142,8 @@ import API.Types (
     GapEntryAPI (..),
     GapReportAPI (..),
     LoadDatabaseResponse (..),
+    ParametersEditRequest,
+    ParametersEditResponse (..),
     QualityCheckAPI (..),
     QualityOffenderAPI (..),
     QualityReportAPI (..),
@@ -153,6 +157,7 @@ import API.Types (
     UploadResponse (..),
     toAuthoredActivities,
     toExchangeEdits,
+    toParameterEdits,
  )
 import App.Env (AppEnv (..), AppM)
 import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, licenceOf, messageOr, readOnlyRefusalFor)
@@ -172,12 +177,14 @@ import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
     EditReport (..),
+    ParametersReport (..),
     WriteRefusal (..),
     WriteReport (..),
     WriteVerb (..),
     copyDatabase,
     deleteActivitiesInDB,
     deriveDatabase,
+    editDatabaseParameters,
     editExchanges,
     refusalMessage,
     writeActivities,
@@ -696,6 +703,25 @@ editReportToAPI report =
         , eepRestated = [RestatedLineAPI{rsPosition = rlPosition line, rsFrom = rlFrom line, rsTo = rlTo line} | line <- erRestated report]
         , eepTransient = not (erPersisted report)
         , eepWarnings = erWarnings report
+        }
+
+-- | Set or remove a database's parameters, and restate the processes that read them.
+editDatabaseParametersHandler :: Text -> ParametersEditRequest -> AppM ParametersEditResponse
+editDatabaseParametersHandler dbName req = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    edits <- either (writeErr err400 . T.intercalate "\n") pure (toParameterEdits req)
+    outcome <- liftIO (editDatabaseParameters dbManager dbName edits)
+    either refuseWrite (pure . parametersReportToAPI) outcome
+
+parametersReportToAPI :: ParametersReport -> ParametersEditResponse
+parametersReportToAPI report =
+    ParametersEditResponse
+        { prsParametersSet = prSet report
+        , prsParametersRemoved = prRemoved report
+        , prsRestatedProcesses = prRestated report
+        , prsTransient = not (prPersisted report)
+        , prsWarnings = prWarnings report
         }
 
 -- | A refused write, answered with its status and its message.

@@ -2,7 +2,7 @@
 
 import pytest
 
-from volca import VoLCAError
+from volca import SetParameter, Uncertainty, VoLCAError
 
 
 def test_formula_language_dispatch(mocked_client, make_response):
@@ -51,5 +51,48 @@ def test_formula_routes_need_revision_72(mocked_client):
         client.check_formula("1")
     with pytest.raises(VoLCAError, match="wire revision >= 72"):
         client.formula_language()
+    session.post.assert_not_called()
+    session.get.assert_not_called()
+
+
+def test_database_parameters_dispatch(mocked_client, make_response):
+    client, session = mocked_client
+    client._checked = True
+    client._server_wire = 74
+    session.get.return_value = make_response(
+        [{"name": "distance", "value": 120, "formula": None, "unit": "km", "description": "Truck route", "uncertainty": None}]
+    )
+    parameters = client.database_parameters()
+    assert session.get.call_args[0][0] == "http://test.local/api/v1/db/testdb/parameters"
+    assert parameters[0].name == "distance" and parameters[0].value == 120
+
+
+def test_edit_database_parameters_dispatch(mocked_client, make_response):
+    client, session = mocked_client
+    client._checked = True
+    client._server_wire = 74
+    session.post.return_value = make_response(
+        {"parametersSet": ["distance"], "parametersRemoved": ["old"], "restatedProcesses": ["a_b"], "transient": False, "warnings": []}
+    )
+    answer = client.edit_database_parameters(
+        set_parameters=[SetParameter("distance", value=150, uncertainty=Uncertainty("uniform", minimum=100, maximum=200))],
+        remove_parameters=["old"],
+    )
+    assert session.post.call_args[0][0] == "http://test.local/api/v1/db/testdb/parameters"
+    assert session.post.call_args[1]["json"] == {
+        "setParameters": [{"name": "distance", "value": 150, "uncertainty": {"distribution": "uniform", "minimum": 100, "maximum": 200}}],
+        "removeParameters": ["old"],
+    }
+    assert answer["restatedProcesses"] == ["a_b"]
+
+
+def test_database_parameters_need_revision_74(mocked_client):
+    client, session = mocked_client
+    client._checked = True
+    client._server_wire = 73
+    with pytest.raises(VoLCAError, match="wire revision >= 74"):
+        client.database_parameters()
+    with pytest.raises(VoLCAError, match="wire revision >= 74"):
+        client.edit_database_parameters(remove_parameters=["old"])
     session.post.assert_not_called()
     session.get.assert_not_called()

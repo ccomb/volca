@@ -153,6 +153,20 @@ def fixture_spec() -> dict[str, Any]:
                     ],
                 },
             },
+            "/api/v1/db/{dbName}/parameters": {
+                "get": {
+                    "operationId": "get_database_parameters",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                },
+                "post": {
+                    "operationId": "edit_database_parameters",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                },
+            },
             "/api/v1/db/{dbName}/impacts/{collection}": {
                 "post": {
                     "operationId": "score_activities",

@@ -350,7 +350,17 @@ richEvents =
     , event editedInventory
     , event retexted
     , event parametrised
+    , event databaseParameters
     ]
+
+-- | A database's parameters set, of both kinds, and one removed.
+databaseParameters :: JournalOp
+databaseParameters =
+    ParametersEdited
+        [ ("distance", Just Parameter{parameterDefinition = InputParameter 120 (Just (Triangular 80 120 200)), parameterUnit = Just "km", parameterDescription = "Truck route"})
+        , ("tonne_km", Just Parameter{parameterDefinition = CalculatedParameter "distance / 1000" Nothing, parameterUnit = Nothing, parameterDescription = ""})
+        , ("old", Nothing)
+        ]
 
 -- | Formulas set and dropped, parameters of both kinds set and one removed, so none is lost in the codec.
 parametrised :: JournalOp

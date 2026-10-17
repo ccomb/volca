@@ -84,7 +84,7 @@ import qualified Data.UUID.V5 as UUID5
 import qualified Data.Vector as V
 
 import qualified Expr
-import Parametric (describeParameterRefusal, restated, shareFormulas)
+import Parametric (describeParameterRefusal, formulaProblems, parameterProblems, restated, shareFormulas)
 import Types (
     Activity (..),
     BioDirection (..),
@@ -505,7 +505,7 @@ accumulate across the whole list, as they do for a written batch.
 -}
 applyExchangeEdits :: AuthorContext -> [ExchangeEdit] -> Activity -> Either [Text] EditedActivity
 applyExchangeEdits ctx edits act = case accErrors final of
-    [] -> case restated (acDb ctx) act (accActivity final) of
+    [] -> case restated (acDb ctx, act) (acDb ctx, accActivity final) of
         Left refusal -> Left [describeParameterRefusal refusal]
         Right stated ->
             Right
@@ -575,7 +575,7 @@ applyOneEdit ctx act edit = case edit of
         Left err -> Left [err]
         Right (matched, isSelected) -> Right (changed (filter (not . isSelected) current) matched)
     SetAmount sel amount -> onSelected (amountCheck amount) sel (withAmount amount)
-    SetFormula sel formula -> onSelected (foldMap formulaCheck formula) sel (reformulated formula)
+    SetFormula sel formula -> onSelected (foldMap formulaProblems formula) sel (reformulated formula)
     -- An added line resolves exactly as a written one does: same provider
     -- lookup, same unit rules, same new-flow warning.
     AddExchange authored -> case resolveOne ctx authored of
@@ -592,7 +592,7 @@ applyOneEdit ctx act edit = case edit of
     SetText text -> case textCheck text of
         [] -> Right (stepTo (restateText text act) 1)
         errs -> Left errs
-    SetParameter name parameter -> case parameterCheck act name parameter of
+    SetParameter name parameter -> case parameterProblems "this activity" (activityParameters act) (lineNames act) name parameter of
         [] -> Right (stepTo act{activityParameters = M.insert name parameter (activityParameters act)} 1)
         errs -> Left errs
     RemoveParameter name -> case removalCheck (acDb ctx) act name of
@@ -627,40 +627,6 @@ reformulated :: Maybe Text -> Exchange -> Exchange
 reformulated = \case
     Nothing -> \ex -> withAmount (exchangeAmount ex) ex
     Just formula -> \ex -> withFormula (Just ExchangeFormula{efName = efName =<< exchangeFormula ex, efText = T.strip formula}) ex
-
-formulaCheck :: Text -> [Text]
-formulaCheck formula = case Expr.readFormula Expr.Volca formula of
-    Left refusal -> ["the formula '" <> formula <> "' does not read: " <> Expr.describeRefusal refusal]
-    Right _ -> []
-
-{- | A parameter an activity can carry: one name of the language that no
-function takes, the only spelling of it among the activity's parameters and
-not a line's name, since a formula reads names without case; with a finite
-value, or a formula that reads.
--}
-parameterCheck :: Activity -> Text -> Parameter -> [Text]
-parameterCheck act name parameter =
-    nameCheck
-        <> [ "the parameter '" <> name <> "' is already spelt '" <> other <> "' on this activity"
-           | other <- M.keys (activityParameters act)
-           , other /= name
-           , T.toLower other == key
-           ]
-        <> ["'" <> name <> "' already names a line of this activity" | key `elem` lineNames act]
-        <> case parameterDefinition parameter of
-            InputParameter value _ ->
-                ["the value of '" <> name <> "' is " <> T.pack (show value) <> "; it must be a finite number" | isNaN value || isInfinite value]
-            CalculatedParameter formula _ -> formulaCheck formula
-  where
-    key :: Text
-    key = T.toLower name
-    nameCheck :: [Text]
-    nameCheck = case Expr.readFormula Expr.Volca name of
-        Right (Expr.Name read')
-            | read' == name
-            , key `notElem` map T.toLower Expr.functionNames ->
-                []
-        _ -> ["'" <> name <> "' is not a parameter name: one word of letters, digits and underscores, starting with a letter, and not a function's name"]
 
 {- | The spelling of the parameter to remove, unless a formula of the activity
 still reads it and its database has no parameter of that name to take over.

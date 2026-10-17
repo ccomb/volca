@@ -179,6 +179,21 @@
   `edit_exchanges(set_parameters=, set_formulas=, remove_parameters=)`.
   Wire revision 73.
 
+- A database's own parameters, the ones every process reads unless it
+  defines its own, can be read and edited: `GET /db/{db}/parameters` lists
+  them, and `POST /db/{db}/parameters` sets and removes them
+  (`setParameters`, `removeParameters`). Every process that reads an edited
+  parameter, directly or through a calculated one, is restated as an edit of
+  that process would restate it, and the answer names the processes that
+  moved: with `salt_g = salt_kg * 1000` and a line `salt_g / 100`, setting
+  `salt_kg` from 0.01 to 0.02 moves that line from 0.1 to 0.2, and
+  `salt_g` shows 20. A removal is refused while a formula still reads the
+  name, naming what reads it, and so is an edit that leaves a process or a
+  calculated parameter without a value. Reading them needs the licence to
+  read the inventory. The assistant has `get_database_parameters` and
+  `edit_database_parameters`, and pyvolca `database_parameters()` and
+  `edit_database_parameters()`. Wire revision 74.
+
 ### Fixed
 
 - A process split from a block of several products keeps every formula

@@ -23,7 +23,7 @@ import Test.Hspec
 
 import API.DatabaseHandlers (gapReportHandler, qualityReportHandler)
 import API.MCP (callTool, noRequestId)
-import API.Routes (getActivityComparison, getActivityInventory, getActivityTree, getDatabaseComparison, postFormulaCheck)
+import API.Routes (getActivityComparison, getActivityInventory, getActivityTree, getDatabaseComparison, getDatabaseParameters, postFormulaCheck)
 import API.Types (FormulaCheckRequest (..))
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..))
@@ -99,6 +99,11 @@ spec = do
             reply <- callOn manager "check_formula" [("formula", String "1")]
             errorText reply `shouldSatisfy` maybe False ("sample" `T.isInfixOf`)
 
+        it "refuses the database's parameters, whose values give amounts away" $ do
+            manager <- managerUnder detailKept
+            reply <- callOn manager "get_database_parameters" []
+            errorText reply `shouldSatisfy` maybe False ("sample" `T.isInfixOf`)
+
         it "answers the score, with no flow and the reason" $ do
             manager <- managerUnder detailKept
             o <- payload =<< callOn manager "get_impacts" [("top_flows", Number 5)]
@@ -169,6 +174,7 @@ spec = do
         it "refuses a formula check, whose value would read its amounts" $ do
             manager <- managerUnder inventoryKept
             statusOf manager (postFormulaCheck "sample" (FormulaCheckRequest "1" Nothing Nothing)) `shouldReturn` Just 403
+            statusOf manager (getDatabaseParameters "sample") `shouldReturn` Just 403
 
         it "refuses a comparison whose other database keeps its inventory" $ do
             manager <- managerUnder LicenceUnstated
@@ -180,3 +186,4 @@ spec = do
             manager <- managerUnder LicenceUnstated
             statusOf manager (getActivityTree "sample" productD) `shouldReturn` Nothing
             statusOf manager (postFormulaCheck "sample" (FormulaCheckRequest "1" Nothing Nothing)) `shouldReturn` Nothing
+            statusOf manager (getDatabaseParameters "sample") `shouldReturn` Nothing

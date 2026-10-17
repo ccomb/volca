@@ -52,6 +52,8 @@ WRAPPER_OPERATIONS = [
     "get_reduced_model",
     "get_formula_language",
     "check_formula",
+    "get_database_parameters",
+    "edit_database_parameters",
 ]
 
 

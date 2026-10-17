@@ -23,6 +23,9 @@ module Parametric (
     checkFormula,
     restated,
     shareFormulas,
+    editedParameters,
+    parameterProblems,
+    formulaProblems,
 ) where
 
 import Control.Monad (when)
@@ -244,10 +247,11 @@ longer gives its amount takes the formula's value, by the same comparison an
 import makes, and each calculated parameter its value. Refused when a formula
 gives no amount, when a parameter that had a finite value before the edit has none,
 and when the edit moves an allocation share, since the amounts were split by
-the old one. The process before the edit is read for those two alone.
+the old one. The process before the edit, in its database then, is read for
+those two alone.
 -}
-restated :: Database -> Activity -> Activity -> Either ParameterRefusal Activity
-restated db before act = do
+restated :: (Database, Activity) -> (Database, Activity) -> Either ParameterRefusal Activity
+restated before (db, act) = do
     traverse_ shareKept (shareFormulas act)
     case [(name, unsettled) | (name, unsettled) <- unsettledNow, name `notElem` map fst unsettledBefore] of
         (name, _) : _ -> Left (NoValue (activityName act) (unsettledWhy unsettledNow (Expr.Unresolved (name NE.:| []))))
@@ -258,11 +262,11 @@ restated db before act = do
     restatedLines <- traverse line (exchanges act)
     pure act{exchanges = restatedLines, activityParameters = M.mapWithKey refreshed (activityParameters act)}
   where
-    settled :: Activity -> (Values, [(Text, Expr.Unsettled)])
-    settled at = let scope = scopeOf db at in Expr.settle Expr.Volca (M.union (scopeOwn scope) (scopeDatabase scope)) (scopeCalculated scope)
+    settled :: (Database, Activity) -> (Values, [(Text, Expr.Unsettled)])
+    settled (atDb, at) = let scope = scopeOf atDb at in Expr.settle Expr.Volca (M.union (scopeOwn scope) (scopeDatabase scope)) (scopeCalculated scope)
 
     values, valuesBefore :: Values
-    (values, unsettledNow) = settled act
+    (values, unsettledNow) = settled (db, act)
     (valuesBefore, unsettledBefore) = settled before
 
     unsettledNow, unsettledBefore :: [(Text, Expr.Unsettled)]
@@ -290,6 +294,118 @@ restated db before act = do
     shareKept formula
         | Expr.evaluate Expr.SimaPro valuesBefore formula == Expr.evaluate Expr.SimaPro values formula = Right ()
         | otherwise = Left (ShareMoves (activityName act) formula)
+
+{- | A database's parameters after edits, each one set or removed (Nothing),
+and the processes they move, restated as an edit of the process restates it.
+A calculated parameter of the database takes the value it settles to among
+the database's parameters, and keeps the one it had when it reads a name only
+processes define. Refused, naming why: a parameter no activity could carry
+either, a removal of a name the database does not define or that a formula
+still reads, a process the edits leave without a value, and a calculated
+parameter no process reads that settles to none.
+-}
+editedParameters :: Database -> [(Text, Maybe Parameter)] -> Either [Text] (M.Map Text Parameter, M.Map ProcessId Activity)
+editedParameters db edits = case foldl' step (dbParameters db, []) edits of
+    (parameters, []) -> do
+        let edited = db{dbParameters = M.mapWithKey (refreshed (fst (settledAlone parameters))) parameters}
+            restatedReaders = [(pid, act, restated (db, act) (edited, act)) | (pid, act) <- readers edited]
+            moved = [(pid, stated) | (pid, act, Right stated) <- restatedReaders, changed act stated]
+            readByNoProcess = S.difference editedNames (S.fromList [key | (_, act) <- readers edited, key <- M.keys (lowered (databaseParametersRead act (dbParameters edited)))])
+            (_, unsettledAfter) = settledAlone (dbParameters edited)
+        case [describeParameterRefusal refusal | (_, _, Left refusal) <- restatedReaders]
+            <> [ "the database: " <> unsettledWhy unsettledAfter (Expr.Unresolved (name NE.:| []))
+               | (name, _) <- unsettledAfter
+               , S.member name readByNoProcess
+               , name `notElem` map fst (snd (settledAlone (dbParameters db)))
+               ] of
+            [] -> Right (dbParameters edited, M.fromList moved)
+            errs -> Left errs
+    (_, errs) -> Left errs
+  where
+    editedNames :: S.Set Text
+    editedNames = S.fromList (map (T.toLower . fst) edits)
+
+    step :: (M.Map Text Parameter, [Text]) -> (Text, Maybe Parameter) -> (M.Map Text Parameter, [Text])
+    step (parameters, errs) = \case
+        (name, Just parameter) -> case parameterProblems "the database" parameters [] name parameter of
+            [] -> (M.insert name parameter parameters, errs)
+            problems -> (parameters, errs <> problems)
+        (name, Nothing) -> case [spelt | spelt <- M.keys parameters, T.toLower spelt == T.toLower name] of
+            [] -> (parameters, errs <> ["the database has no parameter '" <> name <> "'"])
+            spelt : _ -> case readersOf (T.toLower name) parameters of
+                [] -> (M.delete spelt parameters, errs)
+                some -> (parameters, errs <> ["the parameter '" <> name <> "' is still read by " <> listed some])
+
+    -- What reads a database parameter: the database's other formulas, and the processes that do not define it themselves.
+    readersOf :: Text -> M.Map Text Parameter -> [Text]
+    readersOf key parameters =
+        [ "parameter '" <> other <> "'"
+        | (other, Parameter{parameterDefinition = CalculatedParameter formula _}) <- M.toList parameters
+        , T.toLower other /= key
+        , key `elem` map T.toLower (Expr.collectIdentifiers Expr.Volca formula)
+        ]
+            <> nub ["process '" <> activityName act <> "'" | act <- V.toList (dbActivities db), M.member key (lowered (databaseParametersRead act parameters))]
+
+    listed :: [Text] -> Text
+    listed some = case splitAt 3 some of
+        (shown, []) -> T.intercalate ", " shown
+        (shown, rest) -> T.intercalate ", " shown <> " and " <> T.pack (show (length rest)) <> " more"
+
+    -- The processes that read an edited name, before the edits or after them.
+    readers :: Database -> [(ProcessId, Activity)]
+    readers edited =
+        [ (pid, act)
+        | (pid, act) <- zip [0 ..] (V.toList (dbActivities db))
+        , any (readsEdited act) [dbParameters db, dbParameters edited]
+        ]
+
+    readsEdited :: Activity -> M.Map Text Parameter -> Bool
+    readsEdited act parameters = not (S.disjoint editedNames (M.keysSet (lowered (databaseParametersRead act parameters))))
+
+    settledAlone :: M.Map Text Parameter -> (Values, [(Text, Expr.Unsettled)])
+    settledAlone parameters = let scope = scopeWith M.empty parameters [] in Expr.settle Expr.Volca (scopeDatabase scope) (scopeCalculated scope)
+
+    refreshed :: Values -> Text -> Parameter -> Parameter
+    refreshed values name parameter = case (parameterDefinition parameter, M.lookup (T.toLower name) values) of
+        (CalculatedParameter formula _, Just value) -> parameter{parameterDefinition = CalculatedParameter formula (Just value)}
+        _ -> parameter
+
+    changed :: Activity -> Activity -> Bool
+    changed act stated = map exchangeAmount (exchanges act) /= map exchangeAmount (exchanges stated) || activityParameters act /= activityParameters stated
+
+{- | A parameter that can be set among others, in a place a sentence names
+("this activity", "the database"): one name of the language that no function
+takes, the only spelling of it there and not a line's name, since a formula
+reads names without case; with a finite value, or a formula that reads.
+-}
+parameterProblems :: Text -> M.Map Text Parameter -> [Text] -> Text -> Parameter -> [Text]
+parameterProblems place existing lineNames name parameter =
+    nameCheck
+        <> [ "the parameter '" <> name <> "' is already spelt '" <> other <> "' in " <> place
+           | other <- M.keys existing
+           , other /= name
+           , T.toLower other == key
+           ]
+        <> ["'" <> name <> "' already names a line of " <> place | key `elem` lineNames]
+        <> case parameterDefinition parameter of
+            InputParameter value _ ->
+                ["the value of '" <> name <> "' is " <> T.pack (show value) <> "; it must be a finite number" | isNaN value || isInfinite value]
+            CalculatedParameter formula _ -> formulaProblems formula
+  where
+    key :: Text
+    key = T.toLower name
+    nameCheck :: [Text]
+    nameCheck = case Expr.readFormula Expr.Volca name of
+        Right (Expr.Name read')
+            | read' == name
+            , key `notElem` map T.toLower Expr.functionNames ->
+                []
+        _ -> ["'" <> name <> "' is not a parameter name: one word of letters, digits and underscores, starting with a letter, and not a function's name"]
+
+formulaProblems :: Text -> [Text]
+formulaProblems formula = case Expr.readFormula Expr.Volca formula of
+    Left refusal -> ["the formula '" <> formula <> "' does not read: " <> Expr.describeRefusal refusal]
+    Right _ -> []
 
 {- | Why a formula gives no value, its unknown names explained by what a scope
 could not settle: a cycle said as a cycle, a name settled nowhere as unknown.

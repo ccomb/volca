@@ -108,6 +108,8 @@ data Resource
     | GetComputedQualityReport
     | GetCoverageReport
     | EditExchanges
+    | DatabaseParameters
+    | EditDatabaseParameters
     | CopyMethodCollection
     | EditMethodFactors
     | EditMethodCategories
@@ -207,6 +209,8 @@ resourceMutates r = case r of
     GetComputedQualityReport -> False
     GetCoverageReport -> False
     EditExchanges -> True
+    DatabaseParameters -> False
+    EditDatabaseParameters -> True
     CopyMethodCollection -> True
     EditMethodFactors -> True
     EditMethodCategories -> True
@@ -244,6 +248,8 @@ resourceNeeds r = case r of
     GetReducedModel -> Just ReadInventory
     -- A formula's value at the defaults reads parameters and named lines: amounts.
     CheckFormula -> Just ReadInventory
+    -- Their values give the amounts of the lines whose formulas read them.
+    DatabaseParameters -> Just ReadInventory
     -- What weighs in a score.
     ComputeSensitivity -> Just SeeDetailedScores
     CompareImpacts -> Just SeeDetailedScores
@@ -278,6 +284,8 @@ resourceNeeds r = case r of
     GetFlowFactors -> Nothing
     -- Its reply echoes the lines the caller wrote.
     EditExchanges -> Nothing
+    -- Its reply names the parameters the caller wrote and the processes that moved, no amount.
+    EditDatabaseParameters -> Nothing
     CompareMethodCollections -> Nothing
     ProfileMethodCollection -> Nothing
     CopyMethodCollection -> Nothing
@@ -336,6 +344,8 @@ resourceUsage r = case r of
     GetCharacterization -> Nothing
     ExplainCF -> Nothing
     EditExchanges -> Nothing
+    DatabaseParameters -> Nothing
+    EditDatabaseParameters -> Nothing
     GetFlowFactors -> Nothing
     CompareMethodCollections -> Nothing
     ProfileMethodCollection -> Nothing
@@ -413,6 +423,8 @@ apiPath r = case r of
     GetComputedQualityReport -> Just (GET, ["db", "{dbName}", "computed-quality-report"])
     GetCoverageReport -> Just (GET, ["db", "{dbName}", "characterization-coverage"])
     EditExchanges -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "exchanges"])
+    DatabaseParameters -> Just (GET, ["db", "{dbName}", "parameters"])
+    EditDatabaseParameters -> Just (POST, ["db", "{dbName}", "parameters"])
     CopyMethodCollection -> Just (POST, ["method-collections", "{collection}", "copy", "{newName}"])
     EditMethodFactors -> Just (POST, ["method-collections", "{collection}", "factors"])
     EditMethodCategories -> Just (POST, ["method-collections", "{collection}", "categories"])
@@ -480,6 +492,8 @@ mcpName r = case r of
     GetComputedQualityReport -> "get_computed_quality_report"
     GetCoverageReport -> "get_characterization_coverage"
     EditExchanges -> "edit_exchanges"
+    DatabaseParameters -> "get_database_parameters"
+    EditDatabaseParameters -> "edit_database_parameters"
     CopyMethodCollection -> "copy_method_collection"
     EditMethodFactors -> "edit_method_factors"
     EditMethodCategories -> "edit_method_categories"
@@ -1049,6 +1063,22 @@ description r = case r of
         \configuration: copy it first (that background data is shared with \
         \everyone). If the answer says transient, the edit is in memory only \
         \and an unload undoes it."
+    DatabaseParameters ->
+        "The parameters of a database that every process's formulas read \
+        \unless the process defines its own of the same name: each with its \
+        \value, or its formula and the value it gives, its unit, description \
+        \and uncertainty. A process's own parameters are in get_activity."
+    EditDatabaseParameters ->
+        "Set or remove parameters of a database, then restate every process \
+        \that reads them: each line whose formula no longer gives its amount \
+        \takes the formula's value. The answer lists the processes that moved. \
+        \Formulas are in the engine's formula language (get_formula_language). \
+        \Refused, naming why: a name that is not one word of the language or \
+        \is a function's, a second spelling of a parameter, a value that is \
+        \not finite, a formula that does not read, a process left without a \
+        \value, a removal while a formula still reads the name, and a change \
+        \that moves an allocation share. Refused outright on a database the \
+        \engine reads from its configuration, as edit_exchanges is."
     CopyMethodCollection ->
         "LCA / ACV: copy a method collection under a new name, in order to \
         \change it. A collection the configuration declares, or one built into \
@@ -1582,6 +1612,12 @@ params r = case r of
         , Param "set_parameters" "array" Optional "Parameters of the activity to add, or to replace whole under the same spelling (a unit, description or uncertainty left out is dropped). Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
         , Param "set_formulas" "array" Optional "Lines to give a formula. Each is {select: {kind, provider|flow}, formula}; a null formula drops it and keeps the amount."
         , Param "remove_parameters" "array" Optional "Names of the activity's parameters to remove, once the formulas set here no longer read them. Refused while a formula still reads one the database does not define."
+        ]
+    DatabaseParameters -> [pDatabase]
+    EditDatabaseParameters ->
+        [ pDatabase
+        , Param "set_parameters" "array" Optional "Parameters of the database to add, or to replace under the same spelling. Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
+        , Param "remove_parameters" "array" Optional "Names of the database's parameters to remove, after the ones set here. Refused while a formula still reads one."
         ]
     CopyMethodCollection ->
         [ Param "collection" "string" Required "Method collection to copy"

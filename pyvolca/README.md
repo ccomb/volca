@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 73** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 74** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -668,6 +668,12 @@ Its ``Single score`` adds up the rows that have a weight. ``unit`` is
 ``Pt`` when not given. Every change to a set is one journal line,
 undone whole with `undo_method_edit`.
 
+##### `Client.database_parameters(*, db_name: str | None = None) -> list[Parameter]`
+
+The database's own parameters, which every process's formulas read
+unless the process defines its own of the same name. A process's own
+are in `get_activity`.
+
 ##### `Client.default_method_collection()`
 
 The method collection the configuration offers a reader first, by
@@ -741,6 +747,20 @@ not hold it, a 403 when the database's ``licence`` refuses downloads.
 Download a flow-synonyms set as its raw CSV bytes.
 
 Raises VoLCAError on an HTTP error (e.g. the set does not exist).
+
+##### `Client.edit_database_parameters(*, set_parameters: Sequence[SetParameter] = (), remove_parameters: Sequence[str] = (), db_name: str | None = None) -> dict`
+
+Set or remove the database's own parameters, then restate every
+process that reads them: each line whose formula no longer gives its
+amount takes the formula's value. The answer names the parameters set
+and removed, and ``restatedProcesses`` the process ids that moved::
+
+    {"parametersSet": ["distance"], "parametersRemoved": [],
+     "restatedProcesses": ["a_b"], "transient": False, "warnings": []}
+
+Removals come after the parameters set, and are refused while a
+formula still reads the name. Only a database of your own accepts
+edits: copy a configured one first.
 
 ##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, set_parameters: Sequence[SetParameter] = (), set_formulas: Sequence[SetFormula] = (), remove_parameters: Sequence[str] = (), db_name: str | None = None) -> dict`
 
@@ -3560,8 +3580,8 @@ it and keep the amount; a named line keeps its name either way.
 
 ### `SetParameter`
 
-A parameter of the activity to add, or to replace whole under the same
-spelling: a ``value`` (with an ``uncertainty`` if it varies), or a
+A parameter to add, of an activity or of a database, or to replace whole
+under the same spelling: a ``value`` (with an ``uncertainty`` if it varies), or a
 ``formula`` in VoLCA's language whose value the engine computes. A
 ``unit``, ``description`` or ``uncertainty`` left out is dropped.
 

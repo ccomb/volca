@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module API.Types.Authoring where
 
@@ -388,7 +389,10 @@ parameter's value is what its formula gives, and an uncertainty spreads a
 stated value alone.
 -}
 toSetParameter :: SetParameterAPI -> Either [Text] ExchangeEdit
-toSetParameter sp = SetParameter (spName sp) . definedBy <$> definition
+toSetParameter = fmap (uncurry SetParameter) . toParameter
+
+toParameter :: SetParameterAPI -> Either [Text] (Text, Parameter)
+toParameter sp = (spName sp,) . definedBy <$> definition
   where
     definition = case (spValue sp, spFormula sp, spUncertainty sp) of
         (Just value, Nothing, uncertainty) -> Right (InputParameter value uncertainty)
@@ -402,6 +406,38 @@ toSetParameter sp = SetParameter (spName sp) . definedBy <$> definition
             , parameterUnit = spUnit sp
             , parameterDescription = fromMaybe "" (spDescription sp)
             }
+
+{- | The parameters of a database to set, and the names of those to remove
+after. A list left unstated is a list of nothing.
+-}
+data ParametersEditRequest = ParametersEditRequest
+    { pqSetParameters :: [SetParameterAPI]
+    , pqRemoveParameters :: [Text]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ParametersEditRequest)
+
+instance FromJSON ParametersEditRequest where
+    parseJSON = withObject "ParametersEditRequest" $ \o ->
+        ParametersEditRequest <$> o .:? "setParameters" .!= [] <*> o .:? "removeParameters" .!= []
+
+-- | What an edit of a database's parameters produced.
+data ParametersEditResponse = ParametersEditResponse
+    { prsParametersSet :: [Text]
+    , prsParametersRemoved :: [Text]
+    , prsRestatedProcesses :: [Text]
+    -- ^ The processes whose amounts or parameter values followed, by process id.
+    , prsTransient :: Bool
+    , prsWarnings :: [Text]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ParametersEditResponse)
+
+-- | The parameters to set, then the names to remove, as the domain takes them.
+toParameterEdits :: ParametersEditRequest -> Either [Text] [(Text, Maybe Parameter)]
+toParameterEdits req = case partitionEithers (map toParameter (pqSetParameters req)) of
+    ([], set) -> Right (map (fmap Just) set <> map (,Nothing) (pqRemoveParameters req))
+    (errs, _) -> Left (concat errs)
 
 {- | A selector names a provider or a flow, according to its kind. Sending the
 other one, or both, is refused rather than resolved by precedence: a caller who

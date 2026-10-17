@@ -90,6 +90,7 @@ from .types import (
     MethodDetail,
     MethodFactor,
     NewMethodFactor,
+    Parameter,
     ParameterName,
     FormulaCheck,
     FormulaLanguage,
@@ -2868,6 +2869,40 @@ class Client:
         if exchange is not None:
             body["exchange"] = exchange
         return FormulaCheck.from_json(self._call("check_formula", body=body))
+
+    def database_parameters(self, *, db_name: str | None = None) -> list[Parameter]:
+        """The database's own parameters, which every process's formulas read
+        unless the process defines its own of the same name. A process's own
+        are in :meth:`get_activity`.
+        """
+        self._require_wire(74, "database_parameters", engine_hint="0.16.0")
+        return [Parameter.from_json(p) for p in self._call("get_database_parameters", db_name=self._db(db_name))]
+
+    def edit_database_parameters(
+        self,
+        *,
+        set_parameters: Sequence[SetParameter] = (),
+        remove_parameters: Sequence[str] = (),
+        db_name: str | None = None,
+    ) -> dict:
+        """Set or remove the database's own parameters, then restate every
+        process that reads them: each line whose formula no longer gives its
+        amount takes the formula's value. The answer names the parameters set
+        and removed, and ``restatedProcesses`` the process ids that moved::
+
+            {"parametersSet": ["distance"], "parametersRemoved": [],
+             "restatedProcesses": ["a_b"], "transient": False, "warnings": []}
+
+        Removals come after the parameters set, and are refused while a
+        formula still reads the name. Only a database of your own accepts
+        edits: copy a configured one first.
+        """
+        self._require_wire(74, "edit_database_parameters", engine_hint="0.16.0")
+        body = {
+            "setParameters": [p.to_wire() for p in set_parameters],
+            "removeParameters": list(remove_parameters),
+        }
+        return self._call("edit_database_parameters", body=body, db_name=self._db(db_name))
 
     # -- Methods --
 

@@ -55,7 +55,7 @@ import FlowContributionSpec (payloadOf)
 import Method.Mapping (LongTermMode (..))
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 import qualified Method.Types as MT
-import Parametric (Check (..), ParameterRefusal (..), Setting (..), checkFormula, describeParameterRefusal, instantiate, parameterised)
+import Parametric (Check (..), ParameterRefusal (..), Setting (..), checkFormula, describeParameterRefusal, editedParameters, instantiate, parameterised)
 import Servant (ServerError (..), runHandler)
 import Service (withholdBatch)
 import SharedSolver (CrossDBSolution (..), SharedSolver (solverDbName), computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
@@ -371,6 +371,39 @@ spec = describe "a database at other values of its parameters" $ do
             forM_ [pMeal, pBran] $ \product' ->
                 (map exchangeAmount . exchanges <$> (getActivity after =<< findProcessId after aMill product')) `shouldBe` Just [1, 2]
 
+    describe "a database's parameters edited" $ do
+        let edited edits = (`editedParameters` edits) <$> pantryDb
+            accepted edits = either (fail . T.unpack . T.intercalate "; ") pure =<< edited edits
+            refusedWith edits = either (T.unpack . T.intercalate "; ") (const "") <$> edited edits
+            amountsOf moved pid = map exchangeAmount . exchanges <$> M.lookup pid moved
+
+        it "moves every process that reads a new default, directly or through a calculated parameter, and those alone" $ do
+            db <- pantryDb
+            (parameters, moved) <- accepted [("salt_kg", Just (input 0.02))]
+            let pidOf a p = fromMaybe (-1) (findProcessId db a p)
+            M.keys moved `shouldBe` sort [pidOf aBread pBread, pidOf aFlour pFlour]
+            amountsOf moved (pidOf aBread pBread) `shouldBe` Just [1, 0.04]
+            fmap (and . zipWith (withinTolerance 1e-12) [1, 0.2]) (amountsOf moved (pidOf aFlour pFlour)) `shouldBe` Just True
+            (parameterDefinition <$> M.lookup "salt_g" parameters) `shouldBe` Just (CalculatedParameter "salt_kg * 1000" (Just 20))
+
+        it "refuses to remove a parameter a formula still reads, naming what reads it" $ do
+            refused <- refusedWith [("salt_kg", Nothing)]
+            forM_ ["parameter 'salt_g'", "process 'salted'", "process 'brined'"] (refused `shouldContain`)
+            refusedWith [("nope", Nothing)] >>= (`shouldContain` "the database has no parameter 'nope'")
+            fmap (M.member "unread" . fst) <$> edited [("unread", Nothing)] `shouldReturn` Right False
+
+        it "refuses what would leave a process or a parameter without a value, and a moving share" $ do
+            refusedWith [("salt_g", Just (parameter (CalculatedParameter "nope * 2" Nothing)))] >>= (`shouldContain` "process 'brined'")
+            refusedWith [("lonely", Just (parameter (CalculatedParameter "nope * 2" Nothing)))] `shouldReturn` "the database: lonely: unknown variable nope"
+            refusedWith [("share_pct", Just (input 50))] `shouldReturn` T.unpack (describeParameterRefusal (ShareMoves "shared" "share_pct"))
+            refusedWith [("Salt_kg", Just (input 1))] >>= (`shouldContain` "already spelt 'salt_kg' in the database")
+
+        it "is replayed from the journal to the same database" $ do
+            db <- pantryDb
+            after <- either (fail . T.unpack) pure (applyOp AuthorContext{acDb = db, acDeps = [], acUnitConfig = bakeryUnits} (ParametersEdited [("salt_kg", Just (input 0.02)), ("unread", Nothing)]))
+            M.keys (dbParameters after) `shouldBe` ["salt_g", "salt_kg", "share_pct"]
+            (map exchangeAmount . exchanges <$> (getActivity after =<< findProcessId after aBread pBread)) `shouldBe` Just [1, 0.04]
+
     describe "a formula checked where it would be written" $ do
         let checked at formula = do
                 (bakery, _) <- databases
@@ -448,6 +481,27 @@ kitchen =
     )
         { activityParameters = M.fromList [("yield", input 0.8), ("own_share", input 100)]
         }
+
+-- | Two processes in two blocks read a database parameter, one through a calculated one; a third reads nothing, a fourth a share.
+pantryDb :: IO Database
+pantryDb =
+    build
+        "pantry"
+        techFlows
+        ( M.fromList
+            [ ((aBread, pBread), activity "salted" [reference pBread, emission "salt_kg * 2" 0.02])
+            , ((aFlour, pFlour), activity "brined" [reference pFlour, emission "salt_g / 100" 0.1])
+            , ((aLoaf, pLoaf), activity "plain" [reference pLoaf])
+            , ((aJam, pJam), activity "shared" [(reference pJam){techShare = Just DeclaredShare{dsPercent = 100, dsFormula = Just "share_pct"}}])
+            ]
+        )
+        ( M.fromList
+            [ ("salt_kg", input 0.01)
+            , ("salt_g", parameter (CalculatedParameter "salt_kg * 1000" (Just 10)))
+            , ("share_pct", input 100)
+            , ("unread", input 7)
+            ]
+        )
 
 kitchenDb :: IO Database
 kitchenDb = build "kitchen" techFlows (M.fromList [((aBread, pBread), kitchen), ((aFlour, pFlour), activity "flour" [reference pFlour])]) M.empty
