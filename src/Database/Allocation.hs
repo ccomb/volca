@@ -117,6 +117,9 @@ Each process keeps its own product as the reference, in the position the
 source gave it, followed by the shared exchanges (inputs, avoided products,
 biosphere, waste) scaled by @share / 100@. Its unit is the product's, and its
 classification is the activity's with whatever the product row states on top.
+A named line becomes a calculated parameter of each process, its formula as
+the source wrote it: other formulas read the name as the block's amount, so
+the share they are scaled by is not applied to it a second time.
 'allocateWith' gives single exchanges a share of their own.
 -}
 allocate :: Allocating -> Activity -> NonEmpty Activity
@@ -161,10 +164,22 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
     process :: SharesFrom -> (Int, Exchange) -> Double -> Activity
     process from (productAt, productEx) share =
         normalised
-            { exchanges = applied from share (asReference productEx) : map (scaled from productAt share) shared
+            { exchanges = map unnamed (applied from share (asReference productEx) : map (scaled from productAt share) shared)
+            , activityParameters = M.union (activityParameters normalised) namedLines
             , activityUnit = getUnitNameForExchange unitDB productEx
             , activityClassification = M.union (exchangeClassification productEx) (activityClassification normalised)
             }
+
+    namedLines :: M.Map Text Parameter
+    namedLines =
+        M.fromList
+            [ (name, Parameter{parameterDefinition = CalculatedParameter text (Just (exchangeAmount ex)), parameterUnit = Just (getUnitNameForExchange unitDB ex), parameterDescription = ""})
+            | (_, ex) <- placed
+            , Just ExchangeFormula{efName = Just name, efText = text} <- [exchangeFormula ex]
+            ]
+
+    unnamed :: Exchange -> Exchange
+    unnamed ex = withFormula ((\f -> f{efName = Nothing}) <$> exchangeFormula ex) ex
 
     scaled :: SharesFrom -> Int -> Double -> (Int, Exchange) -> Exchange
     scaled from productAt share (at, ex) = scaleExchange (exchangeShare / 100) ex

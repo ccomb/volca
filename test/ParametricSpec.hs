@@ -31,6 +31,7 @@ import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Either (isLeft)
 import Data.List (nub, sort, sortOn, transpose)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.Set as S
@@ -40,6 +41,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
+import Database.Allocation (Allocating (..), allocate)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Cutoffs (gapIndexOf)
 import Database.Loader (findAllCrossDBLinks)
@@ -292,6 +294,20 @@ spec = describe "a database at other values of its parameters" $ do
             callTool manager [] Nothing Nothing noRequestId "get_reduced_model" . KM.fromList $
                 [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("parameters", toJSON names)]
         (Object <$> payloadOf reply) `shouldBe` Just (toJSON model)
+
+    describe "a block split by its shares" $
+        it "reads a named line as its source wrote it, so every formula still gives its amount" $ do
+            -- 1.25 kg of flour feeds 0.625 kg of emission; the meal takes 60 %, the bran 40 %.
+            -- The emission reads the bran line too, which the meal's process does not hold.
+            let block =
+                    (activity "mill" [declared 60 (reference pMeal), declared 40 (withFormula (named "bran_kg" "1") (line pBran 1 Coproduct)), withFormula (named "Flour_kg" "1 / yield") (line pFlour 1.25 Input), emission "0.5 * flour_kg * bran_kg" 0.625])
+                        { activityParameters = M.singleton "yield" (input 0.8)
+                        }
+                split = NE.toList (allocate Allocating{alKey = Declared, alUnitConfig = bakeryUnits, alUnitDB = units} block)
+            mill <- build "mill" techFlows (M.fromList (zip [(aMill, pMeal), (aMill, pBran)] split)) M.empty
+            forM_ split $ \act ->
+                forM_ [(exchangeAmount ex, efText f) | ex <- exchanges act, Just f <- [exchangeFormula ex]] $ \(stored, formula) ->
+                    (checkValue <$> checkFormula bakeryUnits mill (Just (act, Nothing)) formula) `shouldSatisfy` either (const False) (Expr.agrees stored)
 
     describe "a formula checked where it would be written" $ do
         let checked at formula = do
@@ -701,6 +717,12 @@ emission formula amount =
         , bioPedigree = Nothing
         , bioFormula = formulaOf formula
         }
+
+named :: Text -> Text -> Maybe ExchangeFormula
+named name formula = Just ExchangeFormula{efName = Just name, efText = formula}
+
+declared :: Double -> Exchange -> Exchange
+declared percent ex = ex{techShare = Just DeclaredShare{dsPercent = percent, dsFormula = Nothing}}
 
 formulaOf :: Text -> Maybe ExchangeFormula
 formulaOf formula = Just ExchangeFormula{efName = Nothing, efText = formula}

@@ -164,6 +164,13 @@
 
 ### Fixed
 
+- A process split from a block of several products keeps every formula
+  true. A line named in the block, read by other formulas, was scaled by the
+  product's share, and the formulas reading it were scaled again: with a
+  share of 60 %, `0.5 * flour_kg` over 1.25 kg of flour gave 0.225 where the
+  line holds 0.375, and any other value of the parameters moved it wrongly.
+  Such a name is now a calculated parameter of each process, its formula as
+  the source wrote it.
 - A Brightway workbook loads linked as Brightway exports it. The export
   writes no product and no database on its lines, only the name of the
   supplier activity: a line naming no activity of the workbook now asks the

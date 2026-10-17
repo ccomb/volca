@@ -615,6 +615,8 @@ History of manual bumps:
 - 71: a cross-database link names the consumer exchange it supplies.
 - 72: a Brightway workbook line bought from another database names its
      supplier activity alone, and its formula may be a sympy @Piecewise@.
+- 73: a named line of a block split by its shares is a calculated parameter
+     of each process, so the share is not applied twice to its readers.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -622,7 +624,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 72
+     in hi `xor` lo `xor` 73
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
