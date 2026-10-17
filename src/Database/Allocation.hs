@@ -119,7 +119,9 @@ biosphere, waste) scaled by @share / 100@. Its unit is the product's, and its
 classification is the activity's with whatever the product row states on top.
 A named line becomes a calculated parameter of each process, its formula as
 the source wrote it: other formulas read the name as the block's amount, so
-the share they are scaled by is not applied to it a second time.
+the share they are scaled by is not applied to it a second time. The line
+itself loses the name, so a new amount set on it leaves those formulas as they
+were: they follow the parameter.
 'allocateWith' gives single exchanges a share of their own.
 -}
 allocate :: Allocating -> Activity -> NonEmpty Activity
