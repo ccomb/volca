@@ -737,7 +737,7 @@ class Client:
         # Substitute path captures. The spec uses `{name}` placeholders.
         url_path = op.path_template
         for name, value in path_values.items():
-            url_path = url_path.replace("{" + name + "}", str(value))
+            url_path = url_path.replace("{" + name + "}", urllib.parse.quote(str(value), safe=""))
         url = self.base_url + url_path
 
         # Upgrade to POST when substitutions are supplied; otherwise an

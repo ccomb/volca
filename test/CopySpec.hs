@@ -247,6 +247,7 @@ scenariosSpec = describe "saved scenarios" $ do
         refusal (dropScenario manager "mine" "low salt") `shouldReturn` "Not in this database: scenario 'low salt'"
         refusal (saveScenario manager "mine" "typo" [ParameterValue Nothing "salt_kgg" 1]) >>= (`shouldSatisfy` ("salt_kgg" `isInfixOf`))
         refusal (saveScenario manager "mine" " " [salted 1]) `shouldReturn` "A scenario needs a name."
+        refusal (saveScenario manager "mine" "high salt " [salted 1]) >>= (`shouldSatisfy` ("starts or ends with a space" `isInfixOf`))
         refusal (saveScenario manager "mine" "empty" []) >>= (`shouldSatisfy` ("sets no parameter" `isInfixOf`))
         listed manager "mine" `shouldReturn` []
 

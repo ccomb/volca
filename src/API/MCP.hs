@@ -43,7 +43,7 @@ import Database.Cutoffs (Cutoffs (..))
 import Database.Edit (deriveDatabase, editDatabaseParameters, editExchanges, refusalMessage)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
-import Database.Scenarios (dropScenario, listScenarios, saveScenario)
+import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario)
 import qualified Impact
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
@@ -700,10 +700,10 @@ dispatchTool dbManager presets mHosting mBaseUrl rid name args licence = case na
     "save_scenario" -> callScenarios dbManager rid args $ \dbName -> do
         scenario <- except (requireText "name" args)
         values <- except (parseArrayArg "parameters" Nothing args)
-        ExceptT (first refusalMessage <$> saveScenario dbManager dbName scenario values)
+        ExceptT (first refusalMessage <$> saveScenario dbManager dbName (ScenarioName scenario) values)
     "drop_scenario" -> callScenarios dbManager rid args $ \dbName -> do
         scenario <- except (requireText "name" args)
-        ExceptT (first refusalMessage <$> dropScenario dbManager dbName scenario)
+        ExceptT (first refusalMessage <$> dropScenario dbManager dbName (ScenarioName scenario))
     "copy_method_collection" -> callCopyMethodCollection dbManager rid args
     "edit_method_factors" -> callEditMethodFactors dbManager rid args
     "edit_method_categories" -> callEditMethodCategories dbManager rid args

@@ -255,7 +255,7 @@ import Database.Manager (
 import qualified Database.Quality as Quality
 import Database.RelinkMapping (parseAliasMap)
 import Database.Requirements (ReleaseSubstitution)
-import Database.Scenarios (dropScenario, listScenarios, saveScenario)
+import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario)
 import Database.Upload (
     DatabaseFormat (..),
     UploadData (..),
@@ -741,7 +741,7 @@ saveScenarioHandler :: Text -> Text -> ScenarioSaveRequest -> AppM [ScenarioAPI]
 saveScenarioHandler dbName name req = do
     guardMutation
     dbManager <- asks aeDbManager
-    either refuseWrite pure =<< liftIO (saveScenario dbManager dbName name (ssrParameters req))
+    either refuseWrite pure =<< liftIO (saveScenario dbManager dbName (ScenarioName name) (ssrParameters req))
     listScenariosHandler dbName
 
 -- | Drop a saved scenario, and answer the scenarios left.
@@ -749,7 +749,7 @@ dropScenarioHandler :: Text -> Text -> AppM [ScenarioAPI]
 dropScenarioHandler dbName name = do
     guardMutation
     dbManager <- asks aeDbManager
-    either refuseWrite pure =<< liftIO (dropScenario dbManager dbName name)
+    either refuseWrite pure =<< liftIO (dropScenario dbManager dbName (ScenarioName name))
     listScenariosHandler dbName
 
 -- | A refused write, answered with its status and its message.

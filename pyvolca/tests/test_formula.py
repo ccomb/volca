@@ -109,12 +109,12 @@ def test_scenarios_dispatch(mocked_client, make_response):
 
     session.put.return_value = make_response(saved)
     client.save_scenario("high salt", [ParameterValue("salt_kg", 0.02)])
-    assert session.put.call_args[0][0] == "http://test.local/api/v1/db/testdb/scenarios/high salt"
+    assert session.put.call_args[0][0] == "http://test.local/api/v1/db/testdb/scenarios/high%20salt"
     assert session.put.call_args[1]["json"] == {"parameters": [{"name": "salt_kg", "value": 0.02}]}
 
     session.delete.return_value = make_response([])
     assert client.drop_scenario("high salt") == []
-    assert session.delete.call_args[0][0] == "http://test.local/api/v1/db/testdb/scenarios/high salt"
+    assert session.delete.call_args[0][0] == "http://test.local/api/v1/db/testdb/scenarios/high%20salt"
 
 
 def test_scenarios_need_revision_75(mocked_client):

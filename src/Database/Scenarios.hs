@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -19,6 +21,7 @@ drop reads the file, which holds a handful of lines.
 -}
 module Database.Scenarios (
     ScenarioOp (..),
+    ScenarioName (..),
     scenariosOf,
     scenarioProblem,
     listScenarios,
@@ -32,6 +35,7 @@ import Data.Aeson (Value, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Types (Parser)
 import Data.Bifunctor (first)
 import qualified Data.Map.Strict as M
+import Data.String (IsString)
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -42,6 +46,10 @@ import Database.Manager (DatabaseManager (..), LoadedDatabase (..), editHome, ge
 import Parametric (describeParameterRefusal, instantiate)
 import Service (serviceMessage, settingsOf)
 import Types (Database)
+
+-- | The name a scenario is saved under, apart from the name of its database.
+newtype ScenarioName = ScenarioName Text
+    deriving newtype (IsString)
 
 -- | What a line of the scenarios journal says.
 data ScenarioOp
@@ -102,9 +110,10 @@ listScenarios manager dbName =
 scoring request would refuse the values, and on a database read from the
 configuration, where a scenario would be lost at the next restart.
 -}
-saveScenario :: DatabaseManager -> Text -> Text -> [ParameterValue] -> IO (Either WriteRefusal ())
-saveScenario manager dbName name values
+saveScenario :: DatabaseManager -> Text -> ScenarioName -> [ParameterValue] -> IO (Either WriteRefusal ())
+saveScenario manager dbName (ScenarioName name) values
     | T.null (T.strip name) = pure (Left (Malformed ["A scenario needs a name."]))
+    | T.strip name /= name = pure (Left (Malformed ["The scenario name '" <> name <> "' starts or ends with a space."]))
     | null values = pure (Left (Malformed ["The scenario '" <> name <> "' sets no parameter: the defaults need no scenario."]))
     | otherwise = withScenarios manager dbName $ \db home _ ->
         case scenarioProblem db values of
@@ -112,8 +121,8 @@ saveScenario manager dbName name values
             Nothing -> first WriteFailed <$> appendEntry home (Saved name values)
 
 -- | Drop a saved scenario. Refused for a name that holds none.
-dropScenario :: DatabaseManager -> Text -> Text -> IO (Either WriteRefusal ())
-dropScenario manager dbName name = withScenarios manager dbName $ \_ home saved ->
+dropScenario :: DatabaseManager -> Text -> ScenarioName -> IO (Either WriteRefusal ())
+dropScenario manager dbName (ScenarioName name) = withScenarios manager dbName $ \_ home saved ->
     if M.member name saved
         then first WriteFailed <$> appendEntry home (Dropped name)
         else pure (Left (NotPresent ["scenario '" <> name <> "'"]))
