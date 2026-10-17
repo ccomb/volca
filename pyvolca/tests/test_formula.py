@@ -12,14 +12,14 @@ def test_formula_language_dispatch(mocked_client, make_response):
     session.get.return_value = make_response(
         {
             "functions": [{"name": "sqrt", "form": "function", "usage": "sqrt(x)", "meaning": "the square root of x", "example": "sqrt(16)", "value": 4}],
-            "operators": [["+", "-"], ["*", "/"]],
+            "operators": [["a + b", "a - b"], ["-x"]],
             "rules": ["Names are read without case."],
         }
     )
     language = client.formula_language()
     assert session.get.call_args[0][0] == "http://test.local/api/v1/formula-language"
     assert language.functions[0].name == "sqrt" and language.functions[0].value == 4
-    assert language.operators == [["+", "-"], ["*", "/"]]
+    assert language.operators == [["a + b", "a - b"], ["-x"]]
 
 
 def test_check_formula_dispatch(mocked_client, make_response):

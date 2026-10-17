@@ -15,7 +15,7 @@ import GHC.Generics
 -- | VoLCA's formula language, as the engine reads it.
 data FormulaLanguage = FormulaLanguage
     { flFunctions :: [FormulaFunction]
-    , flOperators :: [[Text]] -- The operators by how tightly they bind, loosest first; a function called by name binds tighter than all of them
+    , flOperators :: [[Text]] -- The operators by how tightly they bind, loosest first, each by its usage so the sign (-x) and the subtraction (a - b) stay apart; a function called by name binds tighter than all of them
     , flRules :: [Text] -- What a writer must know beyond the functions and operators
     }
     deriving (Generic)
@@ -37,7 +37,7 @@ formulaLanguage :: FormulaLanguage
 formulaLanguage =
     FormulaLanguage
         { flFunctions = map (described . Expr.reference) Expr.functions
-        , flOperators = map (map (written . Expr.spelling . Expr.reference)) Expr.operators
+        , flOperators = map (map (Expr.usage . Expr.reference)) Expr.operators
         , flRules = Expr.volcaRules
         }
   where

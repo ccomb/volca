@@ -183,8 +183,9 @@ checkFormulaAt unitCfg db FormulaCheckRequest{fcqFormula = formula, fcqProcess =
             line <- traverse (lineAt act) position
             Right (Just (act, line))
     pure $ case checkFormula unitCfg db at formula of
-        Right Check{checkValue = value, checkReads = names, checkWarnings = warnings} -> FormulaCheckResponse (Just value) names warnings Nothing
-        Left problem -> FormulaCheckResponse Nothing [] [] (Just problem)
+        Right Check{checkValue = value, checkReads = names, checkWarnings = warnings} ->
+            FormulaCheckResponse{fcrValue = Just value, fcrReads = names, fcrWarnings = warnings, fcrProblem = Nothing}
+        Left problem -> FormulaCheckResponse{fcrValue = Nothing, fcrReads = [], fcrWarnings = [], fcrProblem = Just problem}
   where
     lineAt :: Activity -> Int -> Either ServiceError Exchange
     lineAt act i = case drop i (exchanges act) of

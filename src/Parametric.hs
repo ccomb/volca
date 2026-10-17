@@ -406,11 +406,17 @@ checkFormula unitCfg db at formula = do
     unitWarnings :: Expr.Formula -> Exchange -> [Text]
     unitWarnings tree ex = case (scaled tree, unitName <$> getUnitForExchange (dbUnits db) ex) of
         (Just name, Just lineUnit)
-            | Just unit <- parameterUnit =<< M.lookup (T.toLower name) (M.union (lowered own) fromDatabase)
-            , Just (UnitDef{udDimension = a}, UnitDef{udDimension = b}) <- (,) <$> lookupUnitDef unitCfg unit <*> lookupUnitDef unitCfg lineUnit
-            , a /= b ->
-                ["parameter '" <> name <> "' is in " <> unit <> ", which does not convert to " <> lineUnit <> ", the line's unit"]
+            | Just unit <- parameterUnit =<< M.lookup (T.toLower name) (M.union (lowered own) fromDatabase) ->
+                case (lookupUnitDef unitCfg unit, lookupUnitDef unitCfg lineUnit) of
+                    (Just UnitDef{udDimension = a}, Just UnitDef{udDimension = b})
+                        | a /= b -> ["parameter '" <> name <> "' is in " <> unit <> ", which does not convert to " <> lineUnit <> ", the line's unit"]
+                        | otherwise -> []
+                    (Nothing, _) -> [unknown name unit]
+                    (_, Nothing) -> [unknown name lineUnit]
         _ -> []
+
+    unknown :: Text -> Text -> Text
+    unknown name unit = "unit '" <> unit <> "' is not in the unit table, so parameter '" <> name <> "' was not compared with the line's unit"
 
     -- The parameter a formula is, or is a number times.
     scaled :: Expr.Formula -> Maybe Text
@@ -418,4 +424,6 @@ checkFormula unitCfg db at formula = do
         Expr.Name name -> Just name
         Expr.Binary Expr.Multiply (Expr.Literal _) (Expr.Name name) -> Just name
         Expr.Binary Expr.Multiply (Expr.Name name) (Expr.Literal _) -> Just name
+        Expr.Binary Expr.Divide (Expr.Name name) (Expr.Literal _) -> Just name
+        Expr.Unary Expr.Negate inner -> scaled inner
         _ -> Nothing

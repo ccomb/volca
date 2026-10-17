@@ -330,7 +330,9 @@ spec = describe "a database at other values of its parameters" $ do
 
         it "warns of a parameter whose unit does not convert to the line's, and judges nothing else" $ do
             fmap checkWarnings <$> checked (onLine 1) "distance" `shouldReturn` Right ["parameter 'distance' is in m, which does not convert to kg, the line's unit"]
-            fmap (length . checkWarnings) <$> checked (onLine 1) "2 * distance" `shouldReturn` Right 1
+            forM_ ["2 * distance", "distance / 2", "-distance"] $ \f ->
+                fmap (length . checkWarnings) <$> checked (onLine 1) f `shouldReturn` Right 1
+            fmap checkWarnings <$> checked (onLine 1) "odd_unit" `shouldReturn` Right ["unit 'furlongs' is not in the unit table, so parameter 'odd_unit' was not compared with the line's unit"]
             fmap checkWarnings <$> checked (onLine 1) "distance * yield" `shouldReturn` Right []
             fmap checkWarnings <$> checked (onLine 1) "dough_mass" `shouldReturn` Right []
             fmap checkWarnings <$> checked inBread "distance" `shouldReturn` Right []
@@ -606,6 +608,7 @@ withCheckParameters db =
                 ( M.fromList
                     [ ("distance", (input 3){parameterUnit = Just "m"})
                     , ("dough_mass", (input 500){parameterUnit = Just "g"})
+                    , ("odd_unit", (input 1){parameterUnit = Just "furlongs"})
                     , ("loop_a", parameter (CalculatedParameter "loop_b + 1" Nothing))
                     , ("loop_b", parameter (CalculatedParameter "loop_a * 2" Nothing))
                     ]

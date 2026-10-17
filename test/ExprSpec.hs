@@ -265,7 +265,7 @@ spec = do
             let named = [(ffName f, ffForm f) | f <- flFunctions formulaLanguage]
             length named `shouldBe` length Expr.functions
             nub named `shouldBe` named
-            forM_ (concat (flOperators formulaLanguage)) $ \op -> op `shouldSatisfy` (`elem` map fst named)
+            forM_ (concat (flOperators formulaLanguage)) $ \op -> op `shouldSatisfy` (`elem` map ffUsage (flFunctions formulaLanguage))
         it "lists its operators by how tightly it reads them, loosest first" $ do
             let infixes = [[(op, b) | Expr.TwoArguments b <- row, b /= Expr.Power, Expr.Infix op <- [Expr.spelling (Expr.reference (Expr.TwoArguments b))]] | row <- Expr.operators]
             -- Of two operators of different rows, the later one takes its operands first.

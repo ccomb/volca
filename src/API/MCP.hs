@@ -2630,9 +2630,10 @@ callCheckFormula :: DatabaseManager -> RequestId -> KeyMap Value -> (Database, S
 callCheckFormula dbManager rid args (db, _) = runTool rid $ do
     formula <- except (requireText "formula" args)
     process <- except (optionalText "process_id" args)
+    position <- except (optionalWhole "exchange" args)
     unitCfg <- liftIO (DM.getMergedUnitConfig dbManager)
     either (throwE . serviceMessage) (pure . toolSuccessJson rid . toJSON) $
-        Service.checkFormulaAt unitCfg db (FormulaCheckRequest formula process (intArg "exchange" args))
+        Service.checkFormulaAt unitCfg db (FormulaCheckRequest formula process position)
 
 -- | Translate a 'BI.BatchError' into the MCP 'toolError' payload.
 batchErrorMsg :: BI.BatchError -> Text

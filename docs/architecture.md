@@ -74,6 +74,7 @@ of the system; the CLI and REPL are just thin HTTP clients.
 | `volca dump-openapi`      | Emits the OpenAPI specification on stdout                         |
 | `volca dump-mcp-tools`    | Emits the MCP tool definitions on stdout                         |
 | `volca dump-config-schema` | Emits the names of the keys a configuration file may carry       |
+| `volca dump-formula-language` | Emits the formula language: functions, operators and rules     |
 | `volca stop`              | Stops the running server                                         |
 
 ## Two key flows

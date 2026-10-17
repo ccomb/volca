@@ -3466,7 +3466,7 @@ gives.
 The language parameter and exchange formulas are written in.
 
 ``operators`` lists the operators by how tightly they bind, loosest
-first; a function called by name binds tighter than all of them.
+first, each by its usage (``"-x"`` apart from ``"a - b"``); a function called by name binds tighter than all of them.
 ``rules`` says how numbers, names and arguments are written.
 
 | Field | Type | Default |
