@@ -166,10 +166,14 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         sdbScenarios (builtDatabase b)
             `shouldBe` M.fromList [("Widgets: Baseline", [ScenarioValue Nothing "leak_method" 1, ScenarioValue (Just formulasJ) "a" 3])]
 
-    it "leaves out two sets of one name, a set of nothing the engine reads, and an impact category's value, and says so" $ \(b, _) -> do
+    it "leaves out two sets of one name, a set of nothing the engine reads, and the values it does not read, and says so" $ \(b, _) -> do
         [what | ScenarioLeftOut what <- builtNotices b]
             `shouldBe` ["Widgets: High: 2 parameter sets of this name", "Widgets: Method only: sets no parameter the engine reads"]
-        [what | MethodParameter what <- builtNotices b] `shouldBe` ["Widgets: Baseline · cf", "Widgets: Method only · cf"]
+        [what | ValueLeftOut what <- builtNotices b]
+            `shouldBe` [ "Widgets: Baseline · cf, an impact category's parameter"
+                       , "Widgets: Method only · cf, an impact category's parameter"
+                       , "Widgets: Method only · m, a parameter of a ImpactMethod"
+                       ]
 
     it "keeps the package's global parameters on the database, not on each process" $ \_ -> do
         pkg <- readFixture

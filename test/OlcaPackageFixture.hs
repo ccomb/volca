@@ -161,11 +161,12 @@ ref i = object ["@id" .= i]
 
 {- | Two product systems of one name, so their sets named alike collide. The
 first's "Baseline" sets a global parameter, a process's own, and an impact
-category's; its "Method only" sets nothing else than an impact category's.
+category's; its "Method only" sets only parameters the engine does not read,
+one of a kind the schema does not name; its "Empty" sets none.
 -}
 productSystems :: [(UUID, Value)]
 productSystems =
-    [ system (uid 501) [("Baseline", [redef "leak_method" 1 Nothing, redef "a" 3 (Just ("Process", formulasJ)), redef "cf" 2 (Just ("ImpactCategory", uid 601))]), ("High", [redef "a" 5 (Just ("Process", formulasJ))]), ("Method only", [redef "cf" 4 (Just ("ImpactCategory", uid 601))])]
+    [ system (uid 501) [("Baseline", [redef "leak_method" 1 Nothing, redef "a" 3 (Just ("Process", formulasJ)), redef "cf" 2 (Just ("ImpactCategory", uid 601))]), ("High", [redef "a" 5 (Just ("Process", formulasJ))]), ("Method only", [redef "cf" 4 (Just ("ImpactCategory", uid 601)), redef "m" 1 (Just ("ImpactMethod", uid 602))]), ("Empty", [])]
     , system (uid 502) [("High", [redef "a" 6 (Just ("Process", formulasJ))])]
     ]
   where

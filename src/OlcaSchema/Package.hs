@@ -201,8 +201,8 @@ data Redefinition = Redefinition
     }
     deriving (Generic, NFData)
 
--- | Whose parameter a redefinition sets.
-data RedefinitionContext = OfDatabase | OfProcess !UUID | OfImpactCategory !UUID
+-- | Whose parameter a redefinition sets: a kind of owner the schema does not name is kept by its name.
+data RedefinitionContext = OfDatabase | OfProcess !UUID | OfImpactCategory !UUID | OfOtherContext !Text
     deriving (Eq, Show, Generic, NFData)
 
 reference :: A.Value -> A.Parser UUID
@@ -430,11 +430,10 @@ instance FromJSON Redefinition where
         context :: A.Value -> A.Parser RedefinitionContext
         context = withObject "context" $ \c -> do
             kind <- c .: "@type"
-            owner <- c .: "@id"
             case kind :: Text of
-                "Process" -> pure (OfProcess owner)
-                "ImpactCategory" -> pure (OfImpactCategory owner)
-                other -> fail ("a parameter redefinition in the context of a " <> T.unpack other <> ", where a process or an impact category is expected")
+                "Process" -> OfProcess <$> c .: "@id"
+                "ImpactCategory" -> OfImpactCategory <$> c .: "@id"
+                other -> pure (OfOtherContext other)
 
 newtype SchemaVersion = SchemaVersion Int
     deriving (Generic, NFData)
