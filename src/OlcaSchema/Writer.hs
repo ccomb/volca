@@ -53,6 +53,7 @@ import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import Numeric (readHex)
 
+import Database.ExportFormulas (hasFormulas)
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
 import OlcaSchema.Parser (directionOf)
 import Types
@@ -336,12 +337,6 @@ warnings cx = splitWarnings (cxDb cx) <> mapMaybe counted kinds
     isCoproduct ex = case ex of
         TechnosphereExchange{techRole = Coproduct} -> True
         _ -> False
-    hasFormulas :: Activity -> Bool
-    hasFormulas a = any isCalculated (activityParameters a) || any (isJust . exchangeFormula) (exchanges a)
-    isCalculated :: Parameter -> Bool
-    isCalculated p = case parameterDefinition p of
-        CalculatedParameter{} -> True
-        InputParameter{} -> False
     produced = S.fromList [exchangeFlowId ex | a <- acts, ex <- exchanges a, exchangeIsReference ex]
     unlinkedProduced =
         [ activityName a <> " · " <> maybe "" ofName (M.lookup (exchangeFlowId ex) (cxFlows cx))

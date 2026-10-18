@@ -41,10 +41,10 @@ amounts and only the metadata SimaPro itself carries, so a few things present in
 databases imported from /other/ formats are dropped – always score-preserving
 (the numbers that drive the matrix are kept), never silently wrong:
 
-  * parameter provenance – @Input@ / @Calculated parameters@ sections and any
-    per-exchange raw formula expression are flattened to their resolved
-    'Double'; 'activityAllocationFormula' likewise re-parses as 'Nothing' (the
-    numeric allocation percentage is preserved);
+  * a formula SimaPro reads otherwise, or not at all, is written as its value,
+    and a parameter's unit has no column; both are listed in the warnings
+    ('simaProWarnings', from "Database.ExportFormulas"), and every other
+    parameter and formula is written as SimaPro reads it;
   * classification keys other than @Category type@ / @Category@ (e.g. ISIC/CPC
     from an EcoSpold import) are not emitted;
   * reference- and co-product comments are dropped (SimaPro product rows carry a
@@ -74,6 +74,7 @@ module SimaPro.Writer (
     writeSimaProCSV,
     serializeSimaProCSV,
     checkSimaProExportable,
+    simaProWarnings,
 
     -- * Pure helpers (exposed for testing and for "Method.WriterSimaPro")
     escapeField,
@@ -84,16 +85,20 @@ module SimaPro.Writer (
 import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import Data.Either (lefts)
+import qualified Data.IntMap.Strict as IM
 import Data.List (find, partition, sortOn)
 import qualified Data.Map.Strict as M
+import Numeric (showEFloat)
 
-import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time (Day, defaultTimeLocale, formatTime)
 import Database.Allocation (AllocationRefusal (..), asAllocated, describeRefusal)
+import Database.ExportFormulas (Exported (..), Scaled (..), Written (..), exportFormulas, formulaWarnings)
+import qualified Expr
 import SimaPro.Parser (extractLocation, isMetadataKey, parsePedigreePrefix)
 import Types
 import qualified Version
@@ -266,9 +271,9 @@ checkSimaProExportable db =
             [] -> Right ()
             ((name, cmt) : _) ->
                 Left $
-                    "SimaPro export cannot represent activity \""
+                    "SimaPro export cannot represent a comment of \""
                         <> name
-                        <> "\": the comment \""
+                        <> "\": \""
                         <> cmt
                         <> "\" begins with a pedigree-shaped (r,c,t,g,f) quintuple, so the"
                         <> " parser would re-read it as a data-quality pedigree on import."
@@ -335,6 +340,12 @@ checkSimaProExportable db =
         , Just cmt <- [exchangeComment ex]
         , isJust (fst (parsePedigreePrefix cmt))
         ]
+            -- A parameter's description is read as a comment too.
+            <> [ (place, cmt)
+               | (place, params) <- ("the database", sdbParameters db) : [(activityName act, activityParameters act) | act <- M.elems (sdbActivities db)]
+               , cmt <- map parameterDescription (M.elems params)
+               , isJust (fst (parsePedigreePrefix cmt))
+               ]
     metaKeyOffenders =
         [ (activityName act, val)
         | act <- M.elems (sdbActivities db)
@@ -500,6 +511,7 @@ data Line = Line
     , lCompartment :: !Text -- sub-compartment for bio rows; "" otherwise
     , lUnit :: !Text
     , lAmount :: !Double
+    , lFormula :: !(Maybe Text) -- As SimaPro writes it, in place of the amount
     , lComment :: !Text
     }
 
@@ -648,6 +660,7 @@ techInputLine cats TechnosphereExchange{..} = case techRole of
                 , lCompartment = ""
                 , lUnit = unitNameOf (catUnits cats) techUnitId
                 , lAmount = techAmount
+                , lFormula = Nothing
                 , lComment = renderComment techPedigree techComment
                 }
 techInputLine _ BiosphereExchange{} = Nothing
@@ -665,6 +678,7 @@ bioLine cats BiosphereExchange{..} =
                     , lCompartment = fromMaybe "" (bfCompartmentSub flow)
                     , lUnit = unitNameOf (catUnits cats) bioUnitId
                     , lAmount = bioAmount
+                    , lFormula = Nothing
                     , lComment = renderComment bioPedigree bioComment
                     }
 bioLine _ TechnosphereExchange{} = Nothing
@@ -682,6 +696,7 @@ wasteLine cats WasteExchange{..} =
                     , lCompartment = ""
                     , lUnit = unitNameOf (catUnits cats) waUnitId
                     , lAmount = waAmount
+                    , lFormula = Nothing
                     , lComment = renderComment waPedigree waComment
                     }
 wasteLine _ TechnosphereExchange{} = Nothing
@@ -738,7 +753,7 @@ the technosphere outputs matching @keep@. Used for both the @Products@ section
 rendered identically but the parser routes them to different exchange roles, so
 they must be emitted under their own headers, never merged.
 -}
-productLines :: (Exchange -> Bool) -> Catalogs -> Text -> [Exchange] -> [Text]
+productLines :: (Exchange -> Bool) -> Catalogs -> Text -> [(Maybe Text, Exchange)] -> [Text]
 productLines keep cats category exchs =
     let
         -- Extract the row fields in the comprehension, where the exchange is
@@ -749,17 +764,18 @@ productLines keep cats category exchs =
         entries =
             [ ( tfName flow
               , unitNameOf (catUnits cats) (exchangeUnitId ex)
-              , exchangeAmount ex
-              , maybe 100 dsPercent (exchangeDeclaredShare ex)
+              , amountCell (exchangeAmount ex) formula
+              , maybe "100" shareCell (exchangeDeclaredShare ex)
               , M.findWithDefault category "Category" (exchangeClassification ex)
               , renderComment (exchangePedigree ex) (exchangeComment ex)
               )
-            | ex@TechnosphereExchange{} <- exchs
+            | (formula, ex@TechnosphereExchange{}) <- exchs
             , keep ex
             , Just flow <- [M.lookup (exchangeFlowId ex) (catTech cats)]
             ]
+        shareCell share = maybe (formatAmount (dsPercent share)) simaProCell (dsFormula share)
         mkRow (nm, unit, amt, share, rowCategory, comment) =
-            row [nm, unit, formatAmount amt, formatAmount share, "not defined", rowCategory, comment]
+            row [nm, unit, amt, share, "not defined", rowCategory, comment]
      in
         map mkRow (sortOn id entries)
 
@@ -813,7 +829,7 @@ sit in the eighth column or it lands in a placeholder and is dropped on parse-ba
 -}
 techRowText :: Line -> Text
 techRowText Line{..} =
-    row [lName, lUnit, formatAmount lAmount, "Undefined", "0", "0", "0", lComment]
+    row [lName, lUnit, amountCell lAmount lFormula, "Undefined", "0", "0", "0", lComment]
 
 {- | Render a biosphere/waste row: name;compartment;unit;amount;Undefined;;;;;;comment
 The parser skips three distribution columns after the uncertainty type
@@ -824,15 +840,15 @@ expected layout.
 -}
 bioRowText :: Line -> Text
 bioRowText Line{..} =
-    row [lName, lCompartment, lUnit, formatAmount lAmount, "Undefined", "", "", "", "", "", lComment]
+    row [lName, lCompartment, lUnit, amountCell lAmount lFormula, "Undefined", "", "", "", "", "", lComment]
 
 {- | Serialize a single activity to a @Process … End@ block (list of lines,
 without trailing terminator). Flow/unit names are resolved through the
 respective DBs; exchanges whose flow is missing are dropped (the matrix
 builder is the authority on unknown flows, not the serializer).
 -}
-serializeActivity :: Catalogs -> Activity -> [Text]
-serializeActivity cats act@Activity{..} =
+serializeActivity :: Catalogs -> M.Map Text (Parameter, Written) -> IM.IntMap Text -> IM.IntMap Text -> Activity -> [Text]
+serializeActivity cats parameters formulas shares act@Activity{..} =
     let category = M.findWithDefault "" "Category" activityClassification
 
         -- The parser scales every shared exchange (everything but the reference
@@ -845,27 +861,35 @@ serializeActivity cats act@Activity{..} =
         -- amount to 0, so there is nothing to divide back out – emit the stored
         -- zeros as-is and the re-import scales 0 by 0 again. 'checkSimaProExportable'
         -- still rejects a non-finite allocation, so the division below is finite.
-        allocFraction = maybe 100 dsPercent (activityReferenceShare act) / 100
+        allocFraction = allocationFraction act
         unscale ex
             | exchangeIsReference ex = ex
             | allocFraction == 0 = ex
             | otherwise = scaleExchange (1 / allocFraction) ex
-        unscaledExchanges = map unscale exchanges
+        -- Each exchange with its formula, and its share's, as SimaPro writes them, where it has them.
+        unscaledExchanges = [(IM.lookup i formulas, withShare i (unscale ex)) | (i, ex) <- zip [0 ..] exchanges]
+        withShare i ex = case ex of
+            TechnosphereExchange{techShare = Just share} -> ex{techShare = Just share{dsFormula = IM.lookup i shares}}
+            TechnosphereExchange{} -> ex
+            BiosphereExchange{} -> ex
+            WasteExchange{} -> ex
+        linesOf build exs = [l{lFormula = formula} | (formula, ex) <- exs, Just l <- [build cats ex]]
 
-        techLines = mapMaybe (techInputLine cats) unscaledExchanges
+        techLines = linesOf techInputLine unscaledExchanges
         bioByName name = [l | (sec, l) <- bioPaired, sec == name]
         bioPaired =
-            [ (sec, l)
-            | ex@BiosphereExchange{} <- unscaledExchanges
+            [ (sec, l{lFormula = formula})
+            | (formula, ex@BiosphereExchange{}) <- unscaledExchanges
             , Just sec <- [bioSection cats ex]
             , Just l <- [bioLine cats ex]
             ]
         -- A waste row goes to the section that says what the format will
         -- read back: a named treatment makes it an input from that treatment,
         -- and with none nothing treats it, which is a final waste flow.
-        (treatedWaste, finalWaste) = partition linkedWaste unscaledExchanges
-        treatmentLines = mapMaybe (wasteLine cats) treatedWaste
-        wasteLines = mapMaybe (wasteLine cats) finalWaste
+        (treatedWaste, finalWaste) = partition (linkedWaste . snd) unscaledExchanges
+        treatmentLines = linesOf wasteLine treatedWaste
+        wasteLines = linesOf wasteLine finalWaste
+        (inputParameters, calculatedParameters) = parameterRows parameters
      in concat
             [ ["Process", ""]
             , concatMap (uncurry meta) (activityMetaLines (catSystems cats) act)
@@ -889,6 +913,8 @@ serializeActivity cats act@Activity{..} =
               -- source but this format's own waste axis produces
               -- ('bioSection'), and a waste exchange that names no treatment.
               withBlank (section "Final waste flows" bioRowText (bioByName SecWaste ++ wasteLines))
+            , withBlank (headed "Input parameters" inputParameters)
+            , withBlank (headed "Calculated parameters" calculatedParameters)
             , ["End", ""]
             ]
   where
@@ -899,6 +925,8 @@ serializeActivity cats act@Activity{..} =
     -- Append a blank separator line after a non-empty section.
     withBlank [] = []
     withBlank ls = ls ++ [""]
+    headed _ [] = []
+    headed header rows = header : rows
 
 -- ============================================================================
 -- Header
@@ -930,10 +958,88 @@ serializeSimaProCSV :: WriterConfig -> SimpleDatabase -> Either Text BS.ByteStri
 serializeSimaProCSV cfg db@SimpleDatabase{..} = do
     checkSimaProExportable db
     let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities) (systemNamesOf db)
-        acts = sortOn (\a -> (activityName a, activityLocation a)) (M.elems sdbActivities)
-        blocks = concatMap (serializeActivity cats) acts
-        allLines = headerLines cfg ++ blocks ++ libraryLines sdbDocumentation
+        exported = simaProFormulas db
+        acts = sortOn (\(_, a) -> (activityName a, activityLocation a)) (M.toList sdbActivities)
+        ofKey key field = M.findWithDefault mempty key (field exported)
+        blocks = concatMap (\(key, act) -> serializeActivity cats (ofKey key exProcesses) (ofKey key exLines) (ofKey key exShares) act) acts
+        allLines = headerLines cfg ++ blocks ++ databaseParameterLines (exDatabase exported) ++ libraryLines sdbDocumentation
     pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf))
+
+-- | The parameters and formulas a SimaPro export writes, each line's formula brought back from its share as its amount is.
+simaProFormulas :: SimpleDatabase -> Exported
+simaProFormulas db = exportFormulas Expr.SimaPro unscaling db
+  where
+    unscaling :: (UUID, UUID) -> Exchange -> Scaled
+    unscaling key ex = case M.lookup key (sdbActivities db) of
+        Just act | not (exchangeIsReference ex), allocationFraction act /= 0 -> DividedBy (allocationFraction act)
+        _ -> Times 1
+
+-- | What a SimaPro export writes differently from the database: the formulas it writes as their values, the parameters' units.
+simaProWarnings :: SimpleDatabase -> [Text]
+simaProWarnings db =
+    formulaWarnings (simaProFormulas db)
+        <> [ T.pack (show (length offCentre)) <> " parameters spread around another value than their own, which SimaPro reads centred on the value:" <> foldMap ("\n  " <>) (take 10 offCentre)
+           | not (null offCentre)
+           ]
+  where
+    offCentre =
+        [ place <> " · " <> name
+        | (place, params) <- ("the database", sdbParameters db) : [(activityName act, activityParameters act) | act <- M.elems (sdbActivities db)]
+        , (name, Parameter{parameterDefinition = InputParameter value (Just spread)}) <- M.toList params
+        , any (/= value) (centre spread)
+        ]
+    centre = \case
+        Lognormal m _ -> Just m
+        Normal m _ -> Just m
+        Triangular _ mode _ -> Just mode
+        Uniform _ _ -> Nothing
+
+-- | The share of its block an activity's reference takes, which the parser scales every other line by.
+allocationFraction :: Activity -> Double
+allocationFraction act = maybe 100 dsPercent (activityReferenceShare act) / 100
+
+{- | An amount cell: the line's formula where SimaPro writes one, its amount
+otherwise. In a file whose decimal mark is a point, SimaPro parts the
+arguments of a function with a comma.
+-}
+amountCell :: Double -> Maybe Text -> Text
+amountCell amount = maybe (formatAmount amount) simaProCell
+
+simaProCell :: Text -> Text
+simaProCell = T.replace ";" ","
+
+{- | A table of input parameters and one of calculated parameters, as rows:
+an input's distribution in the columns 'SimaPro.Parser.spread' reads (the
+lognormal's cell the squared geometric deviation, the normal's twice the
+deviation), never hidden, its description as the comment.
+-}
+parameterRows :: M.Map Text (Parameter, Written) -> ([Text], [Text])
+parameterRows parameters =
+    ( [row ([name, formatAmount v] <> spreadCells u <> ["No", described p]) | (name, (p, WrittenValue v u)) <- M.toList parameters]
+    , [row [name, simaProCell f, described p] | (name, (p, WrittenFormula f)) <- M.toList parameters]
+    )
+  where
+    described :: Parameter -> Text
+    described = encodeNewlines . parameterDescription
+
+    spreadCells :: Maybe Uncertainty -> [Text]
+    spreadCells = \case
+        Nothing -> ["Undefined", "0", "0", "0"]
+        Just (Lognormal _ g) -> ["Lognormal", formatAmount (significant (g * g)), "0", "0"]
+        Just (Normal _ sd) -> ["Normal", formatAmount (2 * sd), "0", "0"]
+        Just (Triangular lo _ hi) -> ["Triangle", "0", formatAmount lo, formatAmount hi]
+        Just (Uniform lo hi) -> ["Uniform", "0", formatAmount lo, formatAmount hi]
+
+    -- The square of a deviation read as a square root carries noise in its last digit.
+    significant :: Double -> Double
+    significant x = read (showEFloat (Just 14) x "")
+
+-- | The database's parameters, in the file-level blocks SimaPro writes after its processes.
+databaseParameterLines :: M.Map Text (Parameter, Written) -> [Text]
+databaseParameterLines parameters =
+    concat [header : rows <> ["", "End", ""] | (header, rows) <- [("Database Input parameters", inputs), ("Database Calculated parameters", calculated)], not (null rows)]
+  where
+    (inputs, calculated) = parameterRows parameters
 
 -- | The names of the system descriptions a database writes in its trailer.
 systemNamesOf :: SimpleDatabase -> S.Set Text

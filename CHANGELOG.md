@@ -207,6 +207,21 @@
   `list_scenarios`, `save_scenario` and `drop_scenario`, and pyvolca
   `scenarios()`, `save_scenario()` and `drop_scenario()`. Wire revision 75.
 
+- A SimaPro export writes the parameters and formulas of the database: its
+  own parameters in the file's database parameter tables, each process's in
+  its block, and each line's formula in its amount cell, so the file read
+  back moves with its parameters as the database does. A database parameter
+  `yield` at 0.8, spread uniformly from 0.6 to 0.9, is written
+  `yield;0.8;Uniform;0;0.6;0.9;No;`, and a flour line `1 / yield` keeps that
+  formula. A formula is written only when SimaPro reads it back as the same
+  formula; otherwise its value is written and the export's warnings name it
+  (`round` is one: SimaPro rounds half to even). A line another formula reads
+  by its name becomes a parameter of that name. The warnings also count the
+  parameters stating a unit, which SimaPro has no column for. The EcoSpold 1
+  and 2, ILCD and Brightway exports, which write no parameter, now say which
+  processes have formulas written as their values, and every export says how
+  many saved scenarios it leaves out.
+
 ### Fixed
 
 - A process split from a block of several products keeps every formula

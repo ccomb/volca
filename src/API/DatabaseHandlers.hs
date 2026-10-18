@@ -795,7 +795,14 @@ exportDatabaseHandler dbName req = do
         RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt) >>= either (failWith err400) pure)
     units <- liftIO (getMergedUnitConfig dbManager)
     (bytes, warnings) <- either (failWith err400) pure (serializeDatabase units fmt (ldDatabase ld))
-    pure (addHeader (encodeExportWarnings warnings) (BinaryContent (package bytes)))
+    scenarios <- liftIO (listScenarios dbManager dbName)
+    pure (addHeader (encodeExportWarnings (warnings <> scenariosLeftOut scenarios)) (BinaryContent (package bytes)))
+  where
+    -- No format written keeps a saved scenario.
+    scenariosLeftOut = \case
+        Right [] -> []
+        Right saved -> [T.pack (show (length saved)) <> " saved scenarios are not in the export"]
+        Left _ -> ["the saved scenarios could not be read: any there are not in the export"]
 
 {- | What the package of a loaded database says of it: the licence it is served
 under, and the releases of the databases it links to.

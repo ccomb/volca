@@ -334,6 +334,11 @@ spec = do
             Expr.writtenIn SimaPro "sum(a; b)" `shouldBe` Nothing
             Expr.writtenIn SimaPro "and(a; b; c)" `shouldBe` Nothing
             Expr.writtenIn SimaPro "a +" `shouldBe` Nothing
+        it "writes no name the language reads as an operator" $ do
+            Expr.writtenIn SimaPro "x * And" `shouldBe` Nothing
+            Expr.writtenIn SimaPro "or + 1" `shouldBe` Nothing
+            Expr.writtenIn OpenLca "div + mod" `shouldBe` Nothing
+            Expr.writtenIn OpenLca "true + 1" `shouldBe` Nothing
         it "writes every function SimaPro names back by a name SimaPro reads" $
             forM_ ["abs", "sqr", "sqrt", "exp", "ln", "log", "trunc", "frac", "round", "ceil", "floor", "sin", "cos", "tan", "cotan", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "not"] $ \name ->
                 (Expr.writtenIn SimaPro =<< either (const Nothing) Just (translate SimaPro (name <> "(a)"))) `shouldSatisfy` (/= Nothing)

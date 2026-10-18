@@ -41,6 +41,7 @@ module Expr (
     render,
     writtenIn,
     times,
+    dividedBy,
     agrees,
     settle,
     settledInOrder,
@@ -527,6 +528,16 @@ times factor formula = case readFormula Volca formula of
     Right tree -> render (Binary Multiply tree (Literal factor))
     Left _ -> "(" <> formula <> ") * " <> render (Literal factor)
 
+{- | A formula in VoLCA's language divided by a number, as the amount it gives
+is when a scaled line is brought back: the factor 'times' put on it is taken
+off when it ends in that very factor, else it is multiplied by the inverse.
+-}
+dividedBy :: Double -> Text -> Text
+dividedBy 1 formula = formula
+dividedBy factor formula = case readFormula Volca formula of
+    Right (Binary Multiply inner (Literal k)) | k == factor -> render inner
+    _ -> times (recip factor) formula
+
 {- | Whether a formula's value is the amount stated beside it: within 1e-9
 relative, and with no floor, since a formula kept on a line of 1e-11
 recomputes it and must not let 3e-10 pass. An infinite value agrees with
@@ -552,19 +563,21 @@ operators =
 {- | How a language writes VoLCA's functions: each one's spelling, in the
 effect @f@ (a language with no name for a function gives none), and its
 operators by how tightly they bind, loosest first, each chaining from the left
-but the power, which chains as 'powerChains' says.
+but the power, which chains as 'powerChains' says, and the words it reads as
+operators, which its names cannot be although its grammar may read them so.
 -}
 data Writing f = Writing
     { spelledAs :: Function -> f Spelling
     , bindings :: [[Function]]
     , powerChains :: Chaining
+    , reservedWords :: [Text]
     }
 
 -- | The side a chain of one operator groups from: @2 ^ 3 ^ 2@ is @2 ^ 9@ from the right.
 data Chaining = FromLeft | FromRight
 
 volcaWriting :: (Applicative f) => Writing f
-volcaWriting = Writing{spelledAs = pure . spelling . reference, bindings = operators, powerChains = FromRight}
+volcaWriting = Writing{spelledAs = pure . spelling . reference, bindings = operators, powerChains = FromRight, reservedWords = []}
 
 -- | A formula in VoLCA's language, with the parentheses its reading needs and no other.
 render :: Formula -> Text
@@ -652,7 +665,8 @@ writtenIn dialect text = do
     writing <- writingOf dialect
     out <- writeWith writing formula
     back <- either (const Nothing) Just (readFormula dialect out)
-    if folded back == folded formula then Just out else Nothing
+    let reserved = any ((`elem` reservedWords writing) . T.toLower) (collectIdentifiers Volca text)
+    if folded back == folded formula && not reserved then Just out else Nothing
   where
     folded :: Formula -> Formula
     folded = \case
@@ -691,12 +705,16 @@ olcaWriting =
             , [OneArgument Negate]
             ]
         , powerChains = FromLeft
+        , reservedWords = map snd infixWords
         }
   where
+    infixWords :: [(Binary, Text)]
+    infixWords = [(Xor, "xor"), (Quotient, "div"), (Remainder, "mod")]
+
     keywords :: [(Function, Spelling)]
     keywords =
         [(f, operator) | row <- operators, f <- row, let operator = spelling (reference f)]
-            <> [(TwoArguments f, Infix name) | (f, name) <- [(Xor, "xor"), (Quotient, "div"), (Remainder, "mod")]]
+            <> [(TwoArguments f, Infix name) | (f, name) <- infixWords]
 
     named :: [(Function, Spelling)]
     named = [(f, Called name) | (name, known) <- olcaFunctions, Just f <- [builds known]]
@@ -723,6 +741,7 @@ languageWriting language =
         { spelledAs = spelled
         , bindings = [[AnyArguments f] | connectives language, f <- [Or, And]] <> operators
         , powerChains = FromRight
+        , reservedWords = [name | (_, Infix name) <- connectiveWords]
         }
   where
     spelled :: Function -> Maybe Spelling
