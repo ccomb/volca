@@ -271,6 +271,19 @@
   system of the same name has a set of that name). A cached openLCA package
   is read again once.
 
+- An EcoSpold 2 export writes each dataset's model: its parameters, with
+  their unit, spread and comment, and each line's formula and the name other
+  formulas read it by. EcoSpold 2 has no parameter for the whole database, so
+  each dataset carries a copy of those it reads, at the value they take
+  there: a database parameter `loss = 1 - yield * waste_rate` (0.2 at
+  `yield = 0.8`, `waste_rate = 1`), read by a process with its own
+  `waste_rate = 0.5`, is written in that dataset as 0.6. Read back, the engine
+  computes the same amounts at any value of the parameters. A formula
+  EcoSpold 2 cannot write (one calling `round`) is written as its value, and
+  the export names it, as it counts the database's parameters no process
+  reads. A parameter whose name in the file is its variable's no longer reads
+  that name as its description.
+
 ### Fixed
 
 - A process split from a block of several products keeps every formula

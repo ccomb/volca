@@ -1,11 +1,13 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Parameters and formulas written to SimaPro and read back: the file the
-writer gives is the database again, at its defaults and at other values.
+{- | Parameters and formulas written to SimaPro, openLCA and EcoSpold 2 and
+read back: the file the writer gives is the database again, at its defaults
+and at other values.
 -}
 module ExportFormulasSpec (spec) where
 
-import Control.Monad ((<=<))
+import Control.Monad (forM_, (<=<))
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
@@ -16,13 +18,15 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Database (buildDatabaseWithMatrices)
-import Database.Loader (defaultLoadOptions, loadSimaProCSV)
+import Database.Loader (defaultLoadOptions, loadDatabase, loadSimaProCSV)
+import EcoSpold.Writer2 (noVolatileMeta, writeEcoSpold2WithWarnings)
 import OlcaPackageFixture (throughPackage)
 import OlcaSchema.Writer (serializeOlcaPackage)
 import Parametric (Setting (..), describeParameterRefusal, instantiate)
 import SimaPro.Writer (defaultWriterConfig, serializeSimaProCSV, serializeSimaProCSVWithWarnings)
+import System.FilePath ((</>))
 import System.IO (hClose)
-import System.IO.Temp (withSystemTempFile)
+import System.IO.Temp (withSystemTempDirectory, withSystemTempFile)
 import Test.Hspec
 import Test.QuickCheck (Property, choose, counterexample, forAll, ioProperty, withNumTests)
 import Types
@@ -32,6 +36,84 @@ spec :: Spec
 spec = do
     simaProSpec
     olcaSpec
+    ecoSpold2Spec
+
+ecoSpold2Spec :: Spec
+ecoSpold2Spec = describe "EcoSpold 2 export of parameters and formulas" $ do
+    it "gives the same amounts at other values, each dataset carrying the database's parameters it reads" $
+        sameAmountsAtWith throughEcoSpold2 eachProcess (loadBytes bakeryCSV)
+
+    it "gives a process the database formula it reads at its value there, with a name it redefines" $
+        sameAmountsAtWith throughEcoSpold2 eachProcess (ownWasteRate <$> loadBytes bakeryCSV)
+
+    it "writes a copied database formula at the value it takes in the process" $ do
+        back <- throughEcoSpold2 . ownWasteRate =<< loadBytes bakeryCSV
+        [v | a <- M.elems (sdbActivities back), activityName a == "Bread", Just Parameter{parameterDefinition = CalculatedParameter _ (Just v)} <- [M.lookup "loss" (activityParameters a)]]
+            `shouldSatisfy` \vs -> length vs == 1 && all (close 0.6) vs
+
+    it "gives a process the database formula that reads one of its lines by the line's name" $
+        sameAmountsAtWith throughEcoSpold2 eachProcess (lossReadsLine <$> loadBytes bakeryCSV)
+
+    it "keeps a line's name rather than making it a parameter" $ do
+        source <- loadBytes bakeryCSV
+        back <- throughEcoSpold2 source{sdbActivities = M.map nameFlour (sdbActivities source)}
+        [(efName f, M.member "flour_kg" (activityParameters a)) | a <- M.elems (sdbActivities back), activityName a == "Bread", Just f <- map exchangeFormula (exchanges a), efName f == Just "flour_kg"]
+            `shouldBe` [(Just "flour_kg", False)]
+
+    it "copies into a dataset only the database's parameters it reads" $ do
+        back <- throughEcoSpold2 =<< loadBytes bakeryCSV
+        sdbParameters back `shouldBe` M.empty
+        M.fromList [(activityName a, M.keys (activityParameters a)) | a <- M.elems (sdbActivities back), activityName a /= "Mill"]
+            `shouldBe` M.fromList [("Bread", ["flour_per_loaf", "loss", "waste_rate", "water", "water_ratio", "yield"]), ("Grain", [])]
+
+    it "writes each kind of spread so it reads back the same" $ do
+        source <- loadBytes bakeryCSV
+        let spreads =
+                M.fromList
+                    [ ("n", Parameter (InputParameter 2 (Just (Normal 2 0.3))) (Just "kg") "")
+                    , ("t", Parameter (InputParameter 2 (Just (Triangular 1 2 4))) Nothing "")
+                    , ("u", Parameter (InputParameter 1 (Just (Uniform 0.5 1.5))) Nothing "")
+                    , ("g", Parameter (InputParameter 1.6 (Just (Lognormal 1.6 1.1))) Nothing "an area")
+                    ]
+            spreadOf p = case parameterDefinition p of
+                InputParameter v u -> (v, u, parameterUnit p, parameterDescription p)
+                CalculatedParameter _ v -> (sum v, Nothing, parameterUnit p, parameterDescription p)
+            numbers (v, u, _, _) =
+                v : case u of
+                    Just (Normal m d) -> [m, d]
+                    Just (Triangular a b c) -> [a, b, c]
+                    Just (Uniform a b) -> [a, b]
+                    Just (Lognormal m d) -> [m, d]
+                    Nothing -> []
+            kind (_, u, unit, about) = (fmap kindOf u, unit, about)
+            kindOf :: Uncertainty -> Text
+            kindOf = \case
+                Normal{} -> "normal"
+                Triangular{} -> "triangular"
+                Uniform{} -> "uniform"
+                Lognormal{} -> "lognormal"
+        back <- throughEcoSpold2 (onBread (\a -> a{activityParameters = M.union spreads (activityParameters a)}) source)
+        let read' = M.unions [M.map spreadOf (M.restrictKeys (activityParameters a) (M.keysSet spreads)) | a <- M.elems (sdbActivities back), activityName a == "Bread"]
+        M.map kind read' `shouldBe` M.map (kind . spreadOf) spreads
+        and (M.intersectionWith (\a b -> and (zipWith (\x y -> abs (x - y) <= 1e-12) (numbers a) (numbers b))) read' (M.map spreadOf spreads)) `shouldBe` True
+
+    it "says how many of the database's parameters no process reads" $ do
+        source <- loadBytes bakeryCSV
+        let unread = source{sdbParameters = M.insert "salt" (Parameter (InputParameter 1 Nothing) Nothing "") (sdbParameters source)}
+        warnings <- either (fail . T.unpack) (pure . snd) (writeEcoSpold2WithWarnings noVolatileMeta unread)
+        warnings `shouldSatisfy` any ("1 parameters of the database are read by no process" `T.isInfixOf`)
+
+    it "writes a formula EcoSpold 2 cannot read as its value, and says so" $ do
+        source <- loadBytes bakeryCSV
+        let rounded = source{sdbActivities = M.map (onFlour "round(flour_per_loaf)") (sdbActivities source)}
+        warnings <- either (fail . T.unpack) (pure . snd) (writeEcoSpold2WithWarnings noVolatileMeta rounded)
+        warnings `shouldSatisfy` any ("Bread · Flour: round(flour_per_loaf)" `T.isInfixOf`)
+        back <- throughEcoSpold2 rounded
+        [exchangeFormula ex | a <- M.elems (sdbActivities back), activityName a == "Bread", ex@TechnosphereExchange{techRole = Input} <- exchanges a] `shouldBe` [Nothing]
+  where
+    -- A database-wide value, set on every dataset carrying a copy of it, once per block: a value set on one product of a block is set on all.
+    eachProcess :: Database -> Double -> [Setting]
+    eachProcess db v = M.elems (M.fromListWith (\_ first' -> first') [(fst key, Setting (Just pid) "yield" v) | (pid, key, a) <- zip3 [0 ..] (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db)), M.member "yield" (activityParameters a)])
 
 simaProSpec :: Spec
 simaProSpec = describe "SimaPro export of parameters and formulas" $ do
@@ -101,17 +183,7 @@ simaProSpec = describe "SimaPro export of parameters and formulas" $ do
     orIt ex = case ex of
         TechnosphereExchange{techShare = Just share@DeclaredShare{dsFormula = Just "flour_share"}} -> ex{techShare = Just share{dsFormula = Just "flour_share * or"}}
         _ -> ex
-    nameFlour act = act{exchanges = map nameIt (exchanges act)}
-    nameIt ex = case exchangeFormula ex of
-        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula (Just "flour_kg") "flour_per_loaf")) ex
-        Just ExchangeFormula{efText = "0.5 * water + loss"} -> withFormula (Just (ExchangeFormula Nothing "0.5 * flour_kg")) ex
-        _ -> ex
     roundFlour = onFlour "round(flour_per_loaf)"
-    -- The bread's flour line given another formula.
-    onFlour formula act = act{exchanges = map (flourAs formula) (exchanges act)}
-    flourAs formula ex = case exchangeFormula ex of
-        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing formula)) ex
-        _ -> ex
 
 olcaSpec :: Spec
 olcaSpec = describe "openLCA export of parameters and formulas" $ do
@@ -139,17 +211,6 @@ olcaSpec = describe "openLCA export of parameters and formulas" $ do
         either (fail . T.unpack) (pure . snd) (serializeOlcaPackage defaultUnitConfig M.empty compared)
             >>= (`shouldSatisfy` any ("Bread · Flour: (yield < 1) * flour_per_loaf" `T.isInfixOf`))
   where
-    -- The bread redefines the waste rate its database's loss reads, so its emission is 0.5 * 0.75 + (1 - 0.8 * 0.5).
-    ownWasteRate = onBread (\a -> a{activityParameters = M.insert "waste_rate" (Parameter (InputParameter 0.5 Nothing) Nothing "") (activityParameters a), exchanges = map (restateLoss 0.975) (exchanges a)})
-    -- The database's loss reads the bread's flour line by its name, so the bread's emission is 0.5 * 0.75 + (1 - 1.25 / 2).
-    lossReadsLine sdb = (onBread (\a -> a{exchanges = map (nameFlourIn . restateLoss 0.75) (exchanges a)}) sdb){sdbParameters = M.insert "loss" (Parameter (CalculatedParameter "1 - flour_in / 2" Nothing) Nothing "") (sdbParameters sdb)}
-    onBread change sdb = sdb{sdbActivities = M.map (\a -> if activityName a == "Bread" then change a else a) (sdbActivities sdb)}
-    restateLoss amount ex = case exchangeFormula ex of
-        Just ExchangeFormula{efText = "0.5 * water + loss"} -> withFormula (exchangeFormula ex) (withAmount amount ex)
-        _ -> ex
-    nameFlourIn ex = case exchangeFormula ex of
-        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula (Just "flour_in") "flour_per_loaf")) ex
-        _ -> ex
     comparing act = act{exchanges = map compareIt (exchanges act)}
     compareIt ex = case exchangeFormula ex of
         Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing "(yield < 1) * flour_per_loaf")) ex
@@ -159,18 +220,70 @@ olcaSpec = describe "openLCA export of parameters and formulas" $ do
         Just (A.Object doc) | Just (A.Array xs) <- KM.lookup "exchanges" doc -> [f | A.Object line <- V.toList xs, Just (A.String f) <- [KM.lookup "amountFormula" line]]
         _ -> []
 
+-- | The bread's flour line named, and its emission reading the line by that name.
+nameFlour :: Activity -> Activity
+nameFlour act = act{exchanges = map nameIt (exchanges act)}
+  where
+    nameIt :: Exchange -> Exchange
+    nameIt ex = case exchangeFormula ex of
+        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula (Just "flour_kg") "flour_per_loaf")) ex
+        Just ExchangeFormula{efText = "0.5 * water + loss"} -> withFormula (Just (ExchangeFormula Nothing "0.5 * flour_kg")) ex
+        _ -> ex
+
+-- | The bread's flour line given another formula.
+onFlour :: Text -> Activity -> Activity
+onFlour formula act = act{exchanges = map flourAs (exchanges act)}
+  where
+    flourAs :: Exchange -> Exchange
+    flourAs ex = case exchangeFormula ex of
+        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing formula)) ex
+        _ -> ex
+
+-- | The bread redefines the waste rate its database's loss reads, so its emission is 0.5 * 0.75 + (1 - 0.8 * 0.5).
+ownWasteRate :: SimpleDatabase -> SimpleDatabase
+ownWasteRate = onBread (\a -> a{activityParameters = M.insert "waste_rate" (Parameter (InputParameter 0.5 Nothing) Nothing "") (activityParameters a), exchanges = map (restateLoss 0.975) (exchanges a)})
+
+-- | The database's loss reads the bread's flour line by its name, so the bread's emission is 0.5 * 0.75 + (1 - 1.25 / 2).
+lossReadsLine :: SimpleDatabase -> SimpleDatabase
+lossReadsLine sdb = (onBread (\a -> a{exchanges = map (nameFlourIn . restateLoss 0.75) (exchanges a)}) sdb){sdbParameters = M.insert "loss" (Parameter (CalculatedParameter "1 - flour_in / 2" Nothing) Nothing "") (sdbParameters sdb)}
+  where
+    nameFlourIn :: Exchange -> Exchange
+    nameFlourIn ex = case exchangeFormula ex of
+        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula (Just "flour_in") "flour_per_loaf")) ex
+        _ -> ex
+
+onBread :: (Activity -> Activity) -> SimpleDatabase -> SimpleDatabase
+onBread change sdb = sdb{sdbActivities = M.map (\a -> if activityName a == "Bread" then change a else a) (sdbActivities sdb)}
+
+-- | The bread's emission restated at the amount its formula gives once the database is changed.
+restateLoss :: Double -> Exchange -> Exchange
+restateLoss amount ex = case exchangeFormula ex of
+    Just ExchangeFormula{efText = "0.5 * water + loss"} -> withFormula (exchangeFormula ex) (withAmount amount ex)
+    _ -> ex
+
+-- | The database written as EcoSpold 2 datasets, and read back.
+throughEcoSpold2 :: SimpleDatabase -> IO SimpleDatabase
+throughEcoSpold2 sdb = withSystemTempDirectory "es2-formulas" $ \dir -> do
+    files <- either (fail . T.unpack) (pure . fst) (writeEcoSpold2WithWarnings noVolatileMeta sdb)
+    forM_ files $ \(name, doc) -> BS.writeFile (dir </> name) (TE.encodeUtf8 doc)
+    either (fail . T.unpack) pure =<< loadDatabase defaultUnitConfig dir
+
 -- | The database read back holds the source's amounts, and for random values of the yield moves every process as the source does.
 sameAmountsAt :: (SimpleDatabase -> IO SimpleDatabase) -> IO SimpleDatabase -> Property
-sameAmountsAt readBack loaded = withNumTests 20 $ forAll (choose (0.6, 0.9)) $ \v -> ioProperty $ do
+sameAmountsAt readBack = sameAmountsAtWith readBack (\_ v -> [Setting Nothing "yield" v])
+
+-- | As 'sameAmountsAt', the database read back set to the yield as given.
+sameAmountsAtWith :: (SimpleDatabase -> IO SimpleDatabase) -> (Database -> Double -> [Setting]) -> IO SimpleDatabase -> Property
+sameAmountsAtWith readBack settingsBack loaded = withNumTests 20 $ forAll (choose (0.6, 0.9)) $ \v -> ioProperty $ do
     source <- loaded
     back <- readBack source
-    let at sdb = do
+    let at settings sdb = do
             db <- built sdb
-            either (fail . T.unpack . describeParameterRefusal) (pure . amountsOf db) (instantiate db [Setting Nothing "yield" v])
+            either (fail . T.unpack . describeParameterRefusal) (pure . amountsOf db) (instantiate db (settings db v))
         stored sdb = M.fromList [((activityName a, referenceName sdb a), sort (map exchangeAmount (exchanges a))) | a <- M.elems (sdbActivities sdb)]
         same expected got = M.keys got == M.keys expected && and (M.intersectionWith (\a b -> length a == length b && and (zipWith close a b)) got expected)
-    expected <- at source
-    got <- at back
+    expected <- at (\_ value -> [Setting Nothing "yield" value]) source
+    got <- at settingsBack back
     pure (counterexample (show ((stored source, stored back), (expected, got))) (not (M.null expected) && same (stored source) (stored back) && same expected got))
 
 close :: Double -> Double -> Bool

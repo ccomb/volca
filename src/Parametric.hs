@@ -16,6 +16,7 @@ module Parametric (
     instantiate,
     parameterised,
     databaseParametersRead,
+    databaseParametersIn,
     Moving (..),
     Input (..),
     moving,
@@ -554,6 +555,25 @@ databaseParametersRead activity databaseWide =
             | S.member name found || S.member name ownNames -> reach found rest
             | Just (_, parameter) <- M.lookup name byName -> reach (S.insert name found) (maybe [] namesRead (formulaOf parameter) <> rest)
             | otherwise -> reach found rest
+
+{- | The database's parameters a process reads, each calculated one at the
+value it settles to among the process's names, which a database formula reads
+before the database's: what the process computes with, for a format that has
+no database-wide parameter to write them once.
+-}
+databaseParametersIn :: Activity -> M.Map Text Parameter -> M.Map Text Parameter
+databaseParametersIn activity databaseWide = M.mapWithKey valued readHere
+  where
+    readHere :: M.Map Text Parameter
+    readHere = databaseParametersRead activity databaseWide
+
+    values :: Values
+    values = let scope = scopeWith (activityParameters activity) readHere (namedLines activity) in fst (Expr.settle Expr.Volca (M.union (scopeOwn scope) (scopeDatabase scope)) (scopeCalculated scope))
+
+    valued :: Text -> Parameter -> Parameter
+    valued name parameter = case parameterDefinition parameter of
+        CalculatedParameter formula _ -> parameter{parameterDefinition = CalculatedParameter formula (M.lookup (T.toLower name) values)}
+        InputParameter{} -> parameter
 
 -- | The allocation shares a process was declared with as formulas, kept as the source wrote them.
 shareFormulas :: Activity -> [Text]

@@ -1278,7 +1278,8 @@ parseWithXeno conversions xmlContent = do
                  in Parameter
                         { parameterDefinition = maybe (InputParameter value (distribution pending)) (\f -> CalculatedParameter f (Just value)) (keptFormula names value =<< M.lookup var (psParamExprs st))
                         , parameterUnit = nonEmptyText (ppUnit pending)
-                        , parameterDescription = joinParts "\n" [ppName pending, ppComment pending]
+                        , -- A name that is the variable's says nothing more, and written back as one it would grow at each read.
+                          parameterDescription = joinParts "\n" [if T.toLower (ppName pending) == T.toLower var then "" else ppName pending, ppComment pending]
                         }
             formulaCheck = checkFormulas names pairs
             (dates, dateWarnings) = datasetDates (psDocs st)

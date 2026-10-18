@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Canonical, deterministic EcoSpold2 serializer – the inverse of
@@ -25,6 +26,13 @@ discards (per-exchange @id@/@unitId@ attribute *strings*, production volumes,
 properties). Those are either omitted or synthesised from the stable UUIDs, so
 a parse→write→parse cycle is a fixed point.
 
+A dataset carries its model: its parameters as @\<parameter\>@ elements, a
+line's formula as its @mathematicalRelation@ and the name other formulas read
+it by as its @variableName@, each in the format's language. EcoSpold 2 has no
+database-wide parameter, so each dataset carries a copy of those of the
+database it reads, at the value they settle to there. A formula the format
+cannot write is written as its value, and the warnings name it.
+
 The contract is fixed-point over the parser's /image/, not @parse(write(x)) == x@
 for an arbitrary 'SimpleDatabase'. The parser normalises as it reads – e.g. it
 trims surrounding whitespace from text nodes – so a value that never came from a
@@ -35,6 +43,7 @@ module EcoSpold.Writer2 (
     VolatileMeta (..),
     noVolatileMeta,
     writeEcoSpold2,
+    writeEcoSpold2WithWarnings,
     checkEcoSpold2Exportable,
     activityFileName,
     renderActivity,
@@ -43,15 +52,21 @@ module EcoSpold.Writer2 (
 
 import Amount (readAmount)
 import Control.Applicative ((<|>))
+import qualified Data.ByteString as BS
+import qualified Data.IntMap.Strict as IM
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, isJust, listToMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Time.Calendar (Day)
 import qualified Data.UUID as UUID
+import qualified Data.UUID.V5 as UUID5
+import Database.ExportFormulas (Exported, ProcessExport (..), Scaled (..), Written (..), databaseCopies, exportFormulas, frozenWarnings, processExport)
 import EcoSpold.Common (showFFloatTrim)
+import qualified Expr
 import Types
 
 {- | Volatile, non-semantic metadata that the parser ignores: the tool that
@@ -81,13 +96,33 @@ format cannot represent faithfully, so an unguarded caller cannot silently emit
 a corrupt archive.
 -}
 writeEcoSpold2 :: VolatileMeta -> SimpleDatabase -> Either Text [(FilePath, Text)]
-writeEcoSpold2 meta sdb = do
+writeEcoSpold2 meta = fmap fst . writeEcoSpold2WithWarnings meta
+
+-- | The documents, and what the export says of the formulas and parameters it could not write.
+writeEcoSpold2WithWarnings :: VolatileMeta -> SimpleDatabase -> Either Text ([(FilePath, Text)], [Text])
+writeEcoSpold2WithWarnings meta sdb = do
     checkEcoSpold2Exportable sdb
     pure
-        [ (activityFileName actUUID prodUUID, renderActivity meta env act)
-        | ((actUUID, prodUUID), act) <- M.toAscList (sdbActivities sdb)
-        ]
+        ( [ (activityFileName actUUID prodUUID, renderActivity meta env (DatasetModel actUUID (processExport exported key)) act)
+          | (key@(actUUID, prodUUID), act) <- M.toAscList (sdbActivities carrying)
+          ]
+        , frozenWarnings exported
+            <> [T.pack (show (S.size unread)) <> " parameters of the database are read by no process, and not written" | not (S.null unread)]
+        )
   where
+    copies :: M.Map (UUID.UUID, UUID.UUID) (M.Map Text Parameter)
+    copies = databaseCopies sdb
+
+    -- Each dataset with the database's parameters it reads as its own.
+    carrying :: SimpleDatabase
+    carrying = sdb{sdbActivities = M.mapWithKey (\key act -> act{activityParameters = M.union (activityParameters act) (M.findWithDefault M.empty key copies)}) (sdbActivities sdb), sdbParameters = M.empty}
+
+    exported :: Exported
+    exported = exportFormulas (Expr.EcoSpold2 M.empty) (\_ ex -> Times (writtenSign ex)) carrying
+
+    unread :: S.Set Text
+    unread = S.difference (M.keysSet (sdbParameters sdb)) (S.unions (map M.keysSet (M.elems copies)))
+
     env =
         ResolveEnv
             { reTechName = \u -> tfName <$> M.lookup u techFlows
@@ -233,9 +268,15 @@ data ResolveEnv = ResolveEnv
 -- Document rendering
 -- ============================================================================
 
+-- | What a dataset writes of its model: its parameters and its lines' formulas and names, as exported.
+data DatasetModel = DatasetModel
+    { dmActivity :: !UUID.UUID
+    , dmExport :: !ProcessExport
+    }
+
 -- | Render one activity to a complete EcoSpold2 document.
-renderActivity :: VolatileMeta -> ResolveEnv -> Activity -> Text
-renderActivity meta env act =
+renderActivity :: VolatileMeta -> ResolveEnv -> DatasetModel -> Activity -> Text
+renderActivity meta env model act =
     T.unlines $
         [ "<?xml version='1.0' encoding='UTF-8'?>"
         , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold02\">"
@@ -249,7 +290,9 @@ renderActivity meta env act =
             ++ renderClassifications (activityClassification act)
             ++ renderGeography (activityLocation act)
             ++ ["    </activityDescription>", "    <flowData>"]
-            ++ concatMap (renderExchange env) (sortExchanges (exchanges act))
+            -- Numbered before the sort: the exported formulas know a line by its place in the activity.
+            ++ concatMap (\(i, ex) -> renderExchange env (lineFormula (dmExport model) i ex) ex) (sortOn (exchangeSortKey . snd) (zip [0 ..] (exchanges act)))
+            ++ concatMap (renderParameter (dmActivity model)) (M.toAscList (peParameters (dmExport model)))
             ++ ["    </flowData>"]
             ++ renderAdminInfo (activityDates act)
             ++ ["  </activityDataset>", "</ecoSpold>"]
@@ -363,12 +406,120 @@ exchangeSortKey ex = (kindRank, not (exchangeIsReference ex), UUID.toText (excha
         WasteExchange{} -> 1
         BiosphereExchange{} -> 2
 
+-- | The name other formulas read a line by, and the formula its amount follows, as written.
+data LineFormula = LineFormula
+    { lfName :: !(Maybe Text)
+    , lfRelation :: !(Maybe Text)
+    }
+
+{- | A line's name and formula from the process's export. A named line whose
+formula is a bare number is written with its name alone, as the reader reads
+such a line back.
+-}
+lineFormula :: ProcessExport -> Int -> Exchange -> LineFormula
+lineFormula pe i ex = LineFormula{lfName = name, lfRelation = if isJust name && stated then Nothing else IM.lookup i (peLines pe)}
+  where
+    name :: Maybe Text
+    name = IM.lookup i (peLineNames pe)
+
+    stated :: Bool
+    stated = case Expr.readFormula Expr.Volca . efText <$> exchangeFormula ex of
+        Just (Right (Expr.Literal _)) -> True
+        Just (Right _) -> False
+        Just (Left _) -> False
+        Nothing -> False
+
+-- | The @variableName@, @mathematicalRelation@ and @isCalculatedAmount@ attributes of a line.
+formulaAttrs :: LineFormula -> Text
+formulaAttrs lf =
+    maybe "" (\n -> " variableName=\"" <> escapeAttr n <> "\"") (lfName lf)
+        <> maybe "" (\r -> " mathematicalRelation=\"" <> escapeAttr r <> "\" isCalculatedAmount=\"true\"") (lfRelation lf)
+
 -- | Render a single exchange to its XML lines.
-renderExchange :: ResolveEnv -> Exchange -> [Text]
-renderExchange env ex = case ex of
-    TechnosphereExchange{} -> renderTechnosphere env ex
-    WasteExchange{} -> renderWaste env ex
-    BiosphereExchange{} -> renderBiosphere env ex
+renderExchange :: ResolveEnv -> LineFormula -> Exchange -> [Text]
+renderExchange env lf ex = case ex of
+    TechnosphereExchange{} -> renderTechnosphere env lf ex
+    WasteExchange{} -> renderWaste env lf ex
+    BiosphereExchange{} -> renderBiosphere env lf ex
+
+{- | The sign a line's amount is written with, which its formula follows: an
+avoided product is written as the negative input ecoinvent writes for a
+substitution.
+-}
+writtenSign :: Exchange -> Double
+writtenSign = \case
+    TechnosphereExchange{techRole = role} -> case role of
+        AvoidedProduct -> -1
+        ReferenceProduct -> 1
+        Coproduct -> 1
+        Input -> 1
+        ReferenceInput -> 1
+    WasteExchange{} -> 1
+    BiosphereExchange{} -> 1
+
+{- | A parameter as a @\<parameter\>@ element, its id derived from the
+activity and the name (the reader keeps none, the bytes stay stable). A
+calculated parameter with no value is not written here: EcoSpold 2 states an
+amount beside every formula, and 'exportFormulas' leaves such a one out for it.
+-}
+renderParameter :: UUID.UUID -> (Text, (Parameter, Written)) -> [Text]
+renderParameter activity (name, (parameter, written)) = case amount of
+    Nothing -> []
+    Just value ->
+        [ "      <parameter parameterId=\""
+            <> UUID.toText (UUID5.generateNamed activity (BS.unpack (TE.encodeUtf8 name)))
+            <> "\" variableName=\""
+            <> escapeAttr name
+            <> "\" amount=\""
+            <> doubleAttr value
+            <> "\""
+            <> relation
+            <> ">"
+        ]
+            ++ nameLine 8 (Just name)
+            ++ unitNameLine 8 (parameterUnit parameter)
+            ++ uncertaintyLines spread
+            ++ commentLines 8 (if T.null (parameterDescription parameter) then Nothing else Just (parameterDescription parameter))
+            ++ ["      </parameter>"]
+  where
+    amount :: Maybe Double
+    amount = case written of
+        WrittenValue v _ -> Just v
+        WrittenFormula _ -> case parameterDefinition parameter of
+            CalculatedParameter _ value -> value
+            InputParameter v _ -> Just v
+
+    relation :: Text
+    relation = case written of
+        WrittenFormula f -> " mathematicalRelation=\"" <> escapeAttr f <> "\" isCalculatedAmount=\"true\""
+        WrittenValue{} -> ""
+
+    spread :: Maybe Uncertainty
+    spread = case written of
+        WrittenValue _ u -> u
+        WrittenFormula _ -> Nothing
+
+{- | A spread as the reader reads it back: a lognormal's deviation is the
+exponential of the root of its variance, a normal's deviation the root of its
+own. A number with no finite value (the @mu@ of a zero mean) is left out.
+-}
+uncertaintyLines :: Maybe Uncertainty -> [Text]
+uncertaintyLines = \case
+    Nothing -> []
+    Just u ->
+        [ "        <uncertainty>"
+        , "          <" <> element <> T.concat [" " <> k <> "=\"" <> doubleAttr v <> "\"" | (k, v) <- numbers, not (isNaN v || isInfinite v)] <> "/>"
+        , "        </uncertainty>"
+        ]
+      where
+        (element, numbers) = case u of
+            Lognormal mean deviation ->
+                let variance = log deviation ^ (2 :: Int)
+                 in ("lognormal", [("meanValue", mean), ("mu", log (abs mean)), ("variance", variance), ("varianceWithPedigreeUncertainty", variance)])
+            Normal mean deviation ->
+                ("normal", [("meanValue", mean), ("variance", deviation * deviation), ("varianceWithPedigreeUncertainty", deviation * deviation)])
+            Triangular low likely high -> ("triangular", [("minValue", low), ("mostLikelyValue", likely), ("maxValue", high)])
+            Uniform low high -> ("uniform", [("minValue", low), ("maxValue", high)])
 
 {- | Technosphere exchange → @intermediateExchange@.
 
@@ -382,19 +533,22 @@ Inverse of the parser's role logic:
     substitution. It re-parses to a negative 'Input', the same matrix entry.
   * 'Input' / 'ReferenceInput' → input, @\<inputGroup\>5\</inputGroup\>@
 -}
-renderTechnosphere :: ResolveEnv -> Exchange -> [Text]
-renderTechnosphere env ex =
+renderTechnosphere :: ResolveEnv -> LineFormula -> Exchange -> [Text]
+renderTechnosphere env lf ex =
     intermediateExchange
-        (reTechName env flowId)
-        flowId
-        (techUnitId ex)
-        signedAmount
-        (reUnitName env (techUnitId ex))
-        (reTechSyns env flowId)
-        groupLine
-        (statedLink ex)
-        Nothing
-        (techComment ex)
+        IntermediateLine
+            { ilName = reTechName env flowId
+            , ilFlow = flowId
+            , ilUnit = techUnitId ex
+            , ilAmount = writtenSign ex * techAmount ex
+            , ilUnitName = reUnitName env (techUnitId ex)
+            , ilSynonyms = reTechSyns env flowId
+            , ilGroup = groupLine
+            , ilLink = statedLink ex
+            , ilClassification = Nothing
+            , ilComment = techComment ex
+            , ilFormula = lf
+            }
   where
     flowId = techFlowId ex
     groupLine = case techRole ex of
@@ -403,12 +557,6 @@ renderTechnosphere env ex =
         AvoidedProduct -> inputGroupLine "5"
         Input -> inputGroupLine "5"
         ReferenceInput -> inputGroupLine "5"
-    signedAmount = case techRole ex of
-        AvoidedProduct -> negate (techAmount ex)
-        ReferenceProduct -> techAmount ex
-        Coproduct -> techAmount ex
-        Input -> techAmount ex
-        ReferenceInput -> techAmount ex
 
 {- | Waste exchange → @intermediateExchange@ tagged with the
 @By-product classification = Waste@ classification. The
@@ -419,19 +567,22 @@ reference @0@. A waste output shares group @2@ with an ordinary coproduct; it is
 the @Waste@ classification, not the group number, that re-routes it to a
 'WasteExchange' on parse, so the kind is preserved.
 -}
-renderWaste :: ResolveEnv -> Exchange -> [Text]
-renderWaste env ex =
+renderWaste :: ResolveEnv -> LineFormula -> Exchange -> [Text]
+renderWaste env lf ex =
     intermediateExchange
-        (reWasteName env flowId)
-        flowId
-        (waUnitId ex)
-        (waAmount ex)
-        (reUnitName env (waUnitId ex))
-        (reWasteSyns env flowId)
-        groupLine
-        (statedLink ex)
-        (Just ("By-product classification", "Waste"))
-        (waComment ex)
+        IntermediateLine
+            { ilName = reWasteName env flowId
+            , ilFlow = flowId
+            , ilUnit = waUnitId ex
+            , ilAmount = waAmount ex
+            , ilUnitName = reUnitName env (waUnitId ex)
+            , ilSynonyms = reWasteSyns env flowId
+            , ilGroup = groupLine
+            , ilLink = statedLink ex
+            , ilClassification = Just ("By-product classification", "Waste")
+            , ilComment = waComment ex
+            , ilFormula = lf
+            }
   where
     flowId = waFlowId ex
     groupLine = if waIsInput ex then inputGroupLine "5" else outputGroupLine "2"
@@ -440,8 +591,8 @@ renderWaste env ex =
 'Resource' → @inputGroup@ 4, 'Emission' → @outputGroup@ 4. The compartment is
 taken from the registry's 'BiosphereFlow'.
 -}
-renderBiosphere :: ResolveEnv -> Exchange -> [Text]
-renderBiosphere env ex =
+renderBiosphere :: ResolveEnv -> LineFormula -> Exchange -> [Text]
+renderBiosphere env lf ex =
     [openTag]
         ++ nameLine 8 (reBioFlow env flowId >>= justName)
         ++ unitNameLine 8 (reUnitName env (bioUnitId ex))
@@ -465,6 +616,7 @@ renderBiosphere env ex =
             <> doubleAttr (bioAmount ex)
             <> "\""
             <> casAttr
+            <> formulaAttrs lf
             <> ">"
     groupLine = case bioDirection ex of
         Resource -> "        <inputGroup>4</inputGroup>"
@@ -480,45 +632,53 @@ when it is read back beside that background.
 statedLink :: Exchange -> Maybe UUID.UUID
 statedLink ex = exchangeActivityLinkId ex <|> claimedId (exchangeSupplierClaim ex)
 
+-- | What an @intermediateExchange@ element writes, for a technosphere or a waste line.
+data IntermediateLine = IntermediateLine
+    { ilName :: !(Maybe Text)
+    -- ^ The flow's name, as resolved.
+    , ilFlow :: !UUID.UUID
+    , ilUnit :: !UUID.UUID
+    , ilAmount :: !Double
+    , ilUnitName :: !(Maybe Text)
+    , ilSynonyms :: !(M.Map Text (S.Set Text))
+    , ilGroup :: !Text
+    -- ^ The in or out group line, at an indent of eight.
+    , ilLink :: !(Maybe UUID.UUID)
+    , ilClassification :: !(Maybe (Text, Text))
+    -- ^ The classification system and value tagging a waste line.
+    , ilComment :: !(Maybe Text)
+    , ilFormula :: !LineFormula
+    }
+
 {- | Shared @intermediateExchange@ emitter for technosphere and waste flows.
 The @activityLinkId@ is emitted only when the exchange names an activity (matching
 the parser, which treats a nil or empty attribute as "no link"). An optional
 @classification@ tags waste flows.
 -}
-intermediateExchange ::
-    Maybe Text -> -- resolved flow name
-    UUID.UUID -> -- flow id
-    UUID.UUID -> -- unit id
-    Double -> -- amount
-    Maybe Text -> -- resolved unit name
-    M.Map Text (S.Set Text) -> -- synonyms
-    Text -> -- the in/out group line (8-space indent)
-    Maybe UUID.UUID -> -- activity link id (absent = omit)
-    Maybe (Text, Text) -> -- optional (classificationSystem, classificationValue)
-    Maybe Text -> -- comment
-    [Text]
-intermediateExchange mName flowId unitUUID amount mUnit syns groupLine linkId mClass mComment =
+intermediateExchange :: IntermediateLine -> [Text]
+intermediateExchange line =
     [openTag]
-        ++ nameLine 8 mName
-        ++ unitNameLine 8 mUnit
-        ++ [groupLine]
-        ++ classificationBlock mClass
-        ++ synonymLines 8 syns
-        ++ commentLines 8 mComment
+        ++ nameLine 8 (ilName line)
+        ++ unitNameLine 8 (ilUnitName line)
+        ++ [ilGroup line]
+        ++ classificationBlock (ilClassification line)
+        ++ synonymLines 8 (ilSynonyms line)
+        ++ commentLines 8 (ilComment line)
         ++ ["      </intermediateExchange>"]
   where
     openTag =
         "      <intermediateExchange intermediateExchangeId=\""
-            <> escapeAttr (UUID.toText flowId)
+            <> escapeAttr (UUID.toText (ilFlow line))
             <> "\" unitId=\""
-            <> escapeAttr (UUID.toText unitUUID)
+            <> escapeAttr (UUID.toText (ilUnit line))
             <> "\" amount=\""
-            <> doubleAttr amount
+            <> doubleAttr (ilAmount line)
             <> "\""
             <> linkAttr
+            <> formulaAttrs (ilFormula line)
             <> ">"
     linkAttr
-        | Just linked <- linkId = " activityLinkId=\"" <> escapeAttr (UUID.toText linked) <> "\""
+        | Just linked <- ilLink line = " activityLinkId=\"" <> escapeAttr (UUID.toText linked) <> "\""
         | otherwise = ""
 
 -- ============================================================================

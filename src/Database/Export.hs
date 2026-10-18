@@ -71,7 +71,7 @@ serializeDatabase units fmt saved db = case fmt of
     -- One lazy chunk per dataset, never one value holding the file: see
     -- 'ES1.writeSimpleDatabaseChunks' for what a single chunk costs at this size.
     EcoSpold1 -> valuesOnlyWith [] (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
-    EcoSpold2 -> valuesOnlyWith [] (zipText <$> ES2.writeEcoSpold2 ES2.noVolatileMeta sdb)
+    EcoSpold2 -> first zipText <$> ES2.writeEcoSpold2WithWarnings ES2.noVolatileMeta sdb
     ILCDProcess -> valuesOnlyWith (ILCD.splitWarnings sdb) (ILCD.writeILCDArchive ILCD.defaultWriteOptions sdb)
     BrightwayExcel -> valuesOnlyWith (BE.wasteManifest sdb) (BE.renderWorkbook BE.defaultWriterConfig sdb)
     OpenLcaImpactCategory ->

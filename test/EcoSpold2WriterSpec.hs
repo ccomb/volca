@@ -366,8 +366,75 @@ assertInventoryRoundTrips sdb = do
                 inv' <- either (fail . show) pure =<< computeInventoryMatrix db' (fromIntegral pid')
                 inventoriesClose inv inv' `shouldBe` True
 
+{- | A dataset carrying its model: a parameter named otherwise than its
+variable, with a unit, a spread and a comment; one whose name is its
+variable's; a line other formulas read by its name, listed after the line
+reading it, so the writer's sort moves them; a reference product.
+-}
+modelDataset :: Text
+modelDataset =
+    T.unlines
+        [ "<?xml version='1.0' encoding='UTF-8'?>"
+        , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold02\">"
+        , "  <activityDataset>"
+        , "    <activityDescription>"
+        , "      <activity><activityName xml:lang=\"en\">wheat growing</activityName></activity>"
+        , "      <geography><shortname xml:lang=\"en\">CH</shortname></geography>"
+        , "    </activityDescription>"
+        , "    <flowData>"
+        , "      <elementaryExchange elementaryExchangeId=\"" <> UUID.toText land <> "\" unitId=\"" <> UUID.toText unitM2a <> "\" amount=\"1.6\" mathematicalRelation=\"co2_kg * 2\">"
+        , "        <name xml:lang=\"en\">Occupation, arable land</name><unitName xml:lang=\"en\">m2*year</unitName>"
+        , "        <compartment><compartment xml:lang=\"en\">natural resource</compartment><subcompartment xml:lang=\"en\">land</subcompartment></compartment><inputGroup>4</inputGroup>"
+        , "      </elementaryExchange>"
+        , "      <elementaryExchange elementaryExchangeId=\"" <> UUID.toText co2 <> "\" unitId=\"" <> UUID.toText unitKg <> "\" amount=\"0.8\" variableName=\"co2_kg\" mathematicalRelation=\"yield * 0.2\">"
+        , "        <name xml:lang=\"en\">Carbon dioxide, fossil</name><unitName xml:lang=\"en\">kg</unitName>"
+        , "        <compartment><compartment xml:lang=\"en\">air</compartment><subcompartment xml:lang=\"en\">unspecified</subcompartment></compartment><outputGroup>4</outputGroup>"
+        , "      </elementaryExchange>"
+        , "      <intermediateExchange intermediateExchangeId=\"" <> UUID.toText prodA <> "\" unitId=\"" <> UUID.toText unitKg <> "\" amount=\"1\">"
+        , "        <name xml:lang=\"en\">wheat grain</name><unitName xml:lang=\"en\">kg</unitName><outputGroup>0</outputGroup>"
+        , "      </intermediateExchange>"
+        , "      <parameter parameterId=\"" <> UUID.toText actB <> "\" variableName=\"yield\" amount=\"4\">"
+        , "        <name xml:lang=\"en\">yield of wheat</name><unitName xml:lang=\"en\">t/ha</unitName>"
+        , "        <uncertainty><lognormal meanValue=\"4\" mu=\"1.386\" variance=\"0.04\" varianceWithPedigreeUncertainty=\"0.0441\"/></uncertainty>"
+        , "        <comment xml:lang=\"en\">measured on site</comment>"
+        , "      </parameter>"
+        , "      <parameter parameterId=\"" <> UUID.toText prodB <> "\" variableName=\"moisture\" amount=\"0.14\"><name xml:lang=\"en\">moisture</name></parameter>"
+        , "    </flowData>"
+        , "  </activityDataset>"
+        , "</ecoSpold>"
+        ]
+
+-- | The datasets read from a directory holding these documents.
+loadDocuments :: [(FilePath, Text)] -> IO SimpleDatabase
+loadDocuments docs = withSystemTempDirectory "es2-model" $ \dir -> do
+    forM_ docs $ \(fname, doc) -> BS.writeFile (dir </> fname) (TE.encodeUtf8 doc)
+    either (fail . T.unpack) pure =<< loadDatabase defaultUnitConfig dir
+
+modelSpec :: Spec
+modelSpec = describe "the model a dataset carries" $ do
+    let file = [(T.unpack (UUID.toText actA <> "_" <> UUID.toText prodA <> ".spold"), modelDataset)]
+        parametersOf sdb = maybe M.empty activityParameters (M.lookup (actA, prodA) (sdbActivities sdb))
+        formulasOf sdb = sort [(exchangeFlowId ex, efName f, efText f) | a <- M.elems (sdbActivities sdb), ex <- exchanges a, Just f <- [exchangeFormula ex]]
+
+    it "reads a parameter's name as its description only when it is not its variable's" $ do
+        sdb <- loadDocuments file
+        M.map parameterDescription (parametersOf sdb) `shouldBe` M.fromList [("moisture", ""), ("yield", "yield of wheat\nmeasured on site")]
+
+    it "writes its parameters and its lines' formulas and names so they read back the same" $ do
+        once <- loadDocuments file
+        back <- loadDocuments (writeOrFail noVolatileMeta once)
+        parametersOf back `shouldBe` parametersOf once
+        formulasOf back `shouldBe` formulasOf once
+        formulasOf once `shouldBe` sort [(co2, Just "co2_kg", "yield * 0.2"), (land, Nothing, "co2_kg * 2")]
+
+    it "writes the same documents from what it reads back" $ do
+        written <- writeOrFail noVolatileMeta <$> loadDocuments file
+        rewritten <- writeOrFail noVolatileMeta <$> loadDocuments written
+        rewritten `shouldBe` written
+
 spec :: Spec
 spec = describe "EcoSpold2 writer round-trip" $ do
+    modelSpec
     -- (a) Idempotence modulo volatile metadata.
     it "is idempotent modulo volatile metadata: write . parse . write == write" $ do
         sdb <- loadFixtureSimple
