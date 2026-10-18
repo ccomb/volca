@@ -218,9 +218,9 @@
   (`round` is one: SimaPro rounds half to even). A line another formula reads
   by its name becomes a parameter of that name. The warnings also count the
   parameters stating a unit, which SimaPro has no column for. The EcoSpold 1
-  and 2, ILCD and Brightway exports, which write no parameter, now say which
-  processes have formulas written as their values, and every export says how
-  many saved scenarios it leaves out.
+  and ILCD exports, which write no parameter, now say which processes have
+  formulas written as their values, and every export says how many saved
+  scenarios it leaves out.
 
 - An openLCA export writes the parameters and formulas too: the database's
   as global parameters, each process's as its own, and each line's formula as
@@ -283,6 +283,24 @@
   the export names it, as it counts the database's parameters no process
   reads. A parameter whose name in the file is its variable's no longer reads
   that name as its description.
+
+- A Brightway workbook export writes the parameters and formulas too: the
+  database's in a `Database parameters` section, each process's in a
+  `Parameters` section of its activity, and each line's formula in a
+  `formula` column, written in Python as Brightway reads them
+  (`2 if a > 1 else 3`, `x ** 2`). Brightway reads the workbook back and
+  computes every formula to the amount the engine gives. Brightway computes
+  the database's parameters once, where the engine computes them with a
+  process's own names: a database formula reaching a name the process
+  defines is copied into that process's section. A parameter whose name
+  Brightway reserves (`power`, `sum`, `yield`) is left out and the formulas
+  reading it are written as their values, as are formulas Python computes
+  otherwise (`round` rounds a half to even, `and` gives one of its operands);
+  the export names them. It also names the processes with formulas and no
+  parameter of their own, which Brightway keeps without recomputing, and the
+  lognormal spreads it cannot write (one centred elsewhere than the
+  parameter's amount). Every export writes each name a formula reads as its
+  parameter spells it: Brightway tells `Yield` from `yield`.
 
 ### Fixed
 

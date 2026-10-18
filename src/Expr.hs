@@ -40,6 +40,7 @@ module Expr (
     translate,
     render,
     writtenIn,
+    respelt,
     times,
     dividedBy,
     agrees,
@@ -62,7 +63,7 @@ import Control.Lens ((&), (?~))
 import Control.Monad (when)
 import Data.Aeson (ToJSON (..), Value (String))
 import Data.Bifunctor (first)
-import Data.Char (isDigit)
+import Data.Char (isAlpha, isDigit)
 import Data.Either (isRight, lefts)
 import Data.Function (on)
 import Data.Functor.Identity (Identity (..))
@@ -564,21 +565,27 @@ operators =
 {- | How a language writes VoLCA's functions: each one's spelling, in the
 effect @f@ (a language with no name for a function gives none), and its
 operators by how tightly they bind, loosest first, each chaining from the left
-but the power, which chains as 'powerChains' says, and the words it reads as
-operators, which its names cannot be although its grammar may read them so.
+but the power, which chains as 'powerChains' says, the text between a call's
+arguments, how it writes a condition, and the names it reserves, which a
+parameter cannot have although its grammar may read them so.
 -}
 data Writing f = Writing
     { spelledAs :: Function -> f Spelling
     , bindings :: [[Function]]
     , powerChains :: Chaining
-    , reservedWords :: [Text]
+    , argumentSeparator :: Text
+    , conditions :: ConditionForm
+    , reserves :: Text -> Bool
     }
 
 -- | The side a chain of one operator groups from: @2 ^ 3 ^ 2@ is @2 ^ 9@ from the right.
 data Chaining = FromLeft | FromRight
 
+-- | A condition as a call of three arguments, or as Python's @y if c else n@, binding as its row in 'bindings' says.
+data ConditionForm = ConditionCalled | ValueIfElse
+
 volcaWriting :: (Applicative f) => Writing f
-volcaWriting = Writing{spelledAs = pure . spelling . reference, bindings = operators, powerChains = FromRight, reservedWords = []}
+volcaWriting = Writing{spelledAs = pure . spelling . reference, bindings = operators, powerChains = FromRight, argumentSeparator = "; ", conditions = ConditionCalled, reserves = const False}
 
 -- | A formula in VoLCA's language, with the parentheses its reading needs and no other.
 render :: Formula -> Text
@@ -597,9 +604,9 @@ writeWith writing = go 0
             | x < 0 -> pure ("-" <> number (negate x))
             | otherwise -> pure (number x)
         Name name -> pure name
-        Unary f a ->
+        formula@(Unary f a) ->
             spelledAs writing (OneArgument f) >>= \case
-                Prefix op -> (op <>) <$> go sign a
+                Prefix op -> (prefixed op <>) <$> go (level formula) a
                 other -> call other [a]
         formula@(Binary f a b) ->
             spelledAs writing (TwoArguments f) >>= \case
@@ -611,13 +618,20 @@ writeWith writing = go 0
             spelledAs writing (AnyArguments f) >>= \case
                 Infix op -> foldl (infixed op) <$> go (level formula) x <*> traverse (go (level formula + 1)) xs
                 other -> call other (x : xs)
-        If c y n -> spelledAs writing Conditional >>= \name -> call name [c, y, n]
+        formula@(If c y n) -> case conditions writing of
+            -- Python reads the value and the test tighter than a condition, and the otherwise as one.
+            ValueIfElse -> (\value test otherwise' -> value <> " if " <> test <> " else " <> otherwise') <$> go (level formula + 1) y <*> go (level formula + 1) c <*> go (level formula) n
+            ConditionCalled -> spelledAs writing Conditional >>= \name -> call name [c, y, n]
 
     infixed :: Text -> Text -> Text -> Text
     infixed op a b = a <> " " <> op <> " " <> b
 
+    -- A prefix in letters is a word, which its operand must not run into.
+    prefixed :: Text -> Text
+    prefixed op = if T.all isAlpha op then op <> " " else op
+
     call :: Spelling -> [Formula] -> f Text
-    call name args = (\parts -> word name <> "(" <> T.intercalate "; " parts <> ")") <$> traverse (go 0) args
+    call name args = (\parts -> word name <> "(" <> T.intercalate (argumentSeparator writing) parts <> ")") <$> traverse (go 0) args
 
     word :: Spelling -> Text
     word = \case
@@ -641,8 +655,10 @@ writeWith writing = go 0
         Binary f _ _ -> binding (TwoArguments f)
         Unary f _ -> binding (OneArgument f)
         Variadic f _ -> binding (AnyArguments f)
+        If{} -> binding Conditional
         Literal x | x < 0 -> sign
-        _ -> atom
+        Literal _ -> atom
+        Name _ -> atom
 
     -- Without an exponent where that stays short; 'readAmount' reads back the same Double either way.
     number :: Double -> Text
@@ -666,17 +682,29 @@ writtenIn dialect text = do
     writing <- writingOf dialect
     out <- writeWith writing formula
     back <- either (const Nothing) Just (readFormula dialect out)
-    let reserved = any ((`elem` reservedWords writing) . T.toLower) (collectIdentifiers Volca text)
+    let reserved = any (reserves writing) (collectIdentifiers Volca text)
     if folded back == folded formula && not reserved then Just out else Nothing
   where
     folded :: Formula -> Formula
-    folded = \case
-        Name name -> Name (T.toLower name)
-        Unary f a -> Unary f (folded a)
-        Binary f a b -> Binary f (folded a) (folded b)
-        Variadic f args -> Variadic f (fmap folded args)
-        If c y n -> If (folded c) (folded y) (folded n)
-        literal@(Literal _) -> literal
+    folded = renamed T.toLower
+
+{- | A formula of VoLCA's language with each name it reads spelt as the map
+gives it by the name's lowercase form, any other left as it is: the names as
+their definitions spell them, for a format that reads a name in its case. A
+formula that does not read is left as it is.
+-}
+respelt :: M.Map Text Text -> Text -> Text
+respelt spellings text = either (const text) (render . renamed (\name -> M.findWithDefault name (T.toLower name) spellings)) (readFormula Volca text)
+
+-- | A formula with each name it reads renamed.
+renamed :: (Text -> Text) -> Formula -> Formula
+renamed f = \case
+    Name name -> Name (f name)
+    Unary g a -> Unary g (renamed f a)
+    Binary g a b -> Binary g (renamed f a) (renamed f b)
+    Variadic g args -> Variadic g (fmap (renamed f) args)
+    If c y n -> If (renamed f c) (renamed f y) (renamed f n)
+    literal@(Literal _) -> literal
 
 -- | How a dialect writes VoLCA's functions, for the dialects VoLCA writes formulas in.
 writingOf :: Dialect -> Maybe (Writing Maybe)
@@ -685,7 +713,97 @@ writingOf = \case
     SimaPro -> Just (languageWriting simaProLanguage)
     EcoSpold2 conversions -> Just (languageWriting (ecoSpold2Language conversions))
     OpenLca -> Just olcaWriting
-    Python -> Nothing
+    Python -> Just pythonWriting
+
+{- | How Python, as Brightway evaluates it, writes VoLCA's functions: its
+operators binding as 'pPython' reads them, a condition as @y if c else n@, and
+for a function it calls by name, the first of its names in 'pythonCalls'. It
+writes no @and@, @or@ or @xor@ (Python's own give an operand, and Brightway's
+@&@ and @|@ refuse numbers), no integer division or remainder, which 'pPython'
+does not read, and no @round@ going half upward: Python's goes half to even.
+-}
+pythonWriting :: Writing Maybe
+pythonWriting =
+    Writing
+        { spelledAs = \f -> lookup f (symbols <> namedBy pythonCalls)
+        , bindings =
+            [ [Conditional]
+            , [OneArgument Not]
+            , map TwoArguments [Equal, NotEqual, Less, LessOrEqual, Greater, GreaterOrEqual]
+            , map TwoArguments [Add, Subtract]
+            , map TwoArguments [Multiply, Divide]
+            , [OneArgument Negate]
+            , [TwoArguments Power]
+            ]
+        , powerChains = FromRight
+        , argumentSeparator = ", "
+        , conditions = ValueIfElse
+        , reserves = (`elem` pythonReserved)
+        }
+  where
+    symbols :: [(Function, Spelling)]
+    symbols =
+        [ (TwoArguments f, Infix op)
+        | (op, f) <- [("+", Add), ("-", Subtract), ("*", Multiply), ("/", Divide), ("**", Power), ("==", Equal), ("!=", NotEqual), ("<", Less), ("<=", LessOrEqual), (">", Greater), (">=", GreaterOrEqual)]
+        ]
+            <> [(OneArgument Negate, Prefix "-"), (OneArgument Not, Prefix "not")]
+
+{- | The names a Brightway parameter cannot have, in their case: Python's
+keywords, and the symbols its interpreter defines (asteval 1.0, through
+bw2parameters 1.1), which refuses a parameter named like one of them.
+-}
+pythonReserved :: [Text]
+pythonReserved =
+    concatMap
+        T.words
+        [ "ArithmeticError AssertionError AttributeError BaseException BufferError"
+        , "BytesWarning DeprecationWarning EOFError EnvironmentError Exception False"
+        , "FloatingPointError IOError ImportError ImportWarning IndentationError"
+        , "IndexError KeyError KeyboardInterrupt LookupError MemoryError NameError None"
+        , "NotImplementedError OSError OverflowError ReferenceError RuntimeError"
+        , "RuntimeWarning StopIteration SyntaxError SyntaxWarning SystemError True"
+        , "TypeError UnboundLocalError UnicodeDecodeError UnicodeEncodeError"
+        , "UnicodeError UnicodeTranslateError UnicodeWarning ValueError Warning"
+        , "ZeroDivisionError abs acos acosh add all amax amin and angle any append"
+        , "arange arccos arccosh arcsin arcsinh arctan arctan2 arctanh argmax argmin"
+        , "argsort argwhere around array as asarray asin asinh assert async atan atan2"
+        , "atanh atleast_1d atleast_2d atleast_3d average await bartlett bin"
+        , "bitwise_and bitwise_not bitwise_or bitwise_xor blackman bool break broadcast"
+        , "bytearray bytes ceil choose chr class clip column_stack common_type complex"
+        , "complex128 compress concatenate conjugate continue convolve copysign"
+        , "corrcoef correlate cos cosh cov cross cumprod cumsum datetime_data def"
+        , "deg2rad degrees del delete diag diag_indices diag_indices_from diagflat"
+        , "diagonal dict diff digitize dir divide divmod dot dsplit dstack dtype e"
+        , "ediff1d elif else empty empty_like enumerate equal except exp exp2"
+        , "expand_dims expm1 extract eye fabs factorial fill_diagonal filter finally"
+        , "finfo fix flatiter flatnonzero fliplr flipud float float64 floor"
+        , "floor_divide fmax fmin fmod for format frexp from frombuffer fromfile"
+        , "fromfunction fromiter frompyfunc fromregex fromstring frozenset fsum"
+        , "genfromtxt getbufsize geterr global gradient greater greater_equal hamming"
+        , "hanning hash hex histogram histogram2d histogramdd hsplit hstack hypot i0 id"
+        , "identity if iinfo imag import in indices inexact inf info inner insert int"
+        , "int32 integer interp intersect1d invert is iscomplex iscomplexobj isfinite"
+        , "isinf isinstance isnan isneginf isposinf isreal isrealobj isscalar iterable"
+        , "kaiser kron lambda ldexp left_shift len less less_equal linspace list"
+        , "little_endian ln loadtxt log log10 log1p log2 logaddexp logaddexp2"
+        , "logical_and logical_not logical_or logical_xor logspace longdouble longlong"
+        , "map mask_indices matrix max maximum may_share_memory mean median meshgrid"
+        , "min minimum mintypecode mod modf multiply nan nan_to_num nanargmax nanargmin"
+        , "nanmax nanmin nansum ndarray ndenumerate ndim ndindex negative nextafter"
+        , "nonlocal nonzero not not_equal number oct ones ones_like open or ord outer"
+        , "packbits pass percentile pi piecewise place poly poly1d polyadd polyder"
+        , "polydiv polyint polymul polysub polyval pow power print prod ptp put putmask"
+        , "rad2deg radians raise range ravel real real_if_close reciprocal record"
+        , "remainder repeat repr reshape resize return reversed right_shift rint roll"
+        , "rollaxis roots rot90 round searchsorted select set setbufsize setdiff1d"
+        , "seterr setxor1d shape short sign signbit signedinteger sin sinc single sinh"
+        , "size slice sort sort_complex sorted spacing split sqrt square squeeze std"
+        , "str subtract sum swapaxes take tan tanh tensordot tile trace transpose tri"
+        , "tril tril_indices tril_indices_from trim_zeros triu triu_indices"
+        , "triu_indices_from true_divide trunc try tuple type ubyte uint uint32 union1d"
+        , "unique unravel_index unsignedinteger unwrap ushort vander var vdot vectorize"
+        , "vsplit vstack where while with yield zeros zeros_like zip"
+        ]
 
 {- | How openLCA writes VoLCA's functions: its operators, @xor@, @div@ and
 @mod@ among them, binding as 'pOlcaExpression' reads them, and for a
@@ -706,7 +824,9 @@ olcaWriting =
             , [OneArgument Negate]
             ]
         , powerChains = FromLeft
-        , reservedWords = map snd infixWords
+        , argumentSeparator = "; "
+        , conditions = ConditionCalled
+        , reserves = (`elem` map snd infixWords) . T.toLower
         }
   where
     infixWords :: [(Binary, Text)]
@@ -742,20 +862,23 @@ languageWriting language =
         { spelledAs = spelled
         , bindings = [[AnyArguments f] | connectives language, f <- [Or, And]] <> operators
         , powerChains = FromRight
-        , reservedWords = [name | (_, Infix name) <- connectiveWords]
+        , argumentSeparator = "; "
+        , conditions = ConditionCalled
+        , reserves = (`elem` [name | (_, Infix name) <- connectiveWords]) . T.toLower
         }
   where
     spelled :: Function -> Maybe Spelling
     spelled f = case spelling (reference f) of
-        Called _ -> lookup f (connectiveWords <> named)
+        Called _ -> lookup f (connectiveWords <> namedBy (calls language))
         operator -> Just operator
 
     connectiveWords :: [(Function, Spelling)]
     connectiveWords = [(AnyArguments f, Infix name) | connectives language, (f, name) <- [(And, "and"), (Or, "or")]]
 
-    named :: [(Function, Spelling)]
-    named = [(f, Called name) | (name, build) <- calls language, Right formula <- map build probes, Just f <- [builtBy formula]]
-
+-- | Each function a table of calls builds, called by the first of its names that builds it.
+namedBy :: [(Text, Builder)] -> [(Function, Spelling)]
+namedBy table = [(f, Called name) | (name, build) <- table, Right formula <- map build probes, Just f <- [builtBy formula]]
+  where
     probes :: [[Formula]]
     probes = [map Name (take n ["a", "b", "c"]) | n <- [1 .. 3]]
 
@@ -955,6 +1078,12 @@ two = builder . TwoArguments
 
 several :: Variadic -> Builder
 several = builder . AnyArguments
+
+-- | Python's @min@ and @max@, which iterate an argument given alone.
+twoOrMore :: Variadic -> Builder
+twoOrMore f = \case
+    args@(_ : _ : _) -> several f args
+    _ -> Left "two or more arguments"
 
 -- | Longer operators first: a symbol that is a prefix of another would take its first character.
 comparisonSymbols :: [(Text, Binary)]
@@ -1431,8 +1560,8 @@ pythonCalls =
     , ("log", logOr Ln)
     , ("log10", one Log10)
     , ("pow", two Power)
-    , ("min", several Minimum)
-    , ("max", several Maximum)
+    , ("min", twoOrMore Minimum)
+    , ("max", twoOrMore Maximum)
     , ("ceil", one Ceil)
     , ("ceiling", one Ceil)
     , ("floor", one Floor)

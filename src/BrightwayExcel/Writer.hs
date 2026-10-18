@@ -11,18 +11,34 @@ It serializes a 'SimpleDatabase' (the natural writer input, obtained from a
 @
 Database              <database name>
 
+Database parameters
+name        amount  formula          unit  uncertainty type  loc  scale  minimum  maximum  description
+yield_rate  0.8                            4                              0.6      0.9
+loss        0.2     1 - yield_rate
+
 Activity              <activity name>
 production amount     1
 reference product     <product>
 location              GLO
 unit                  kilogram
+Parameters
+name   amount   formula ...
 Exchanges
-name   amount   reference product   location   unit   categories   type           database
-...    1        <product>           GLO        kg                  production     <db>
-...    0.5      <supplier product>  RoW        kg                  technosphere   <db>
-Water  1.6e-4                       GLO        m3     air           biosphere      <db>
+name   amount   reference product   location   unit   categories   type           comment  database  formula
+...    1        <product>           GLO        kg                  production              <db>
+...    0.5      <supplier product>  RoW        kg                  technosphere            <db>      2 * loss
+Water  1.6e-4                       GLO        m3     air           biosphere               <db>
 
 @
+
+== Parameters and formulas
+
+The database's parameters and each process's own are written with their
+formulas in Python, as Brightway reads them ('Database.ExportFormulas'): a
+formula Python cannot state is written as its value and the warnings name it.
+An activity's @Parameters@ row names no group, which Brightway reads as the
+activity's own. Brightway recomputes a line's formula only in an activity with
+parameters of its own, which the warnings say of the others.
 
 == Determinism
 
@@ -56,22 +72,24 @@ module BrightwayExcel.Writer (
     defaultWriterConfig,
     writeBrightwayExcel,
     renderWorkbook,
+    renderWorkbookWithWarnings,
     checkBrightwayExportable,
     wasteManifest,
 
     -- * Exposed for testing
     Cell (..),
-    activityRows,
+    sheetRows,
     formatAmount,
     renderCategories,
 ) where
 
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (chr, ord)
+import qualified Data.IntMap.Strict as IM
 import Data.List (sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -79,7 +97,9 @@ import qualified Data.Text.Encoding as TE
 
 import Amount (readAmount)
 import Data.Indexing (collisions)
+import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, frozenWarnings, processExport)
 import EcoSpold.Common (showFFloatTrim)
+import qualified Expr
 import Types
 import Zip (zipFiles)
 
@@ -127,18 +147,53 @@ writeBrightwayExcel cfg db path =
 
 -- | Pure: assemble the full @.xlsx@ byte stream from the database.
 renderWorkbook :: WriterConfig -> SimpleDatabase -> Either Text BL.ByteString
-renderWorkbook cfg db = do
+renderWorkbook cfg = fmap fst . renderWorkbookWithWarnings cfg
+
+-- | The workbook, and what it could not write as the database holds it.
+renderWorkbookWithWarnings :: WriterConfig -> SimpleDatabase -> Either Text (BL.ByteString, [Text])
+renderWorkbookWithWarnings cfg db = do
     checkBrightwayExportable db
-    pure $
-        zipFiles
+    pure
+        ( zipFiles
             [ ("[Content_Types].xml", enc contentTypesXml)
             , ("_rels/.rels", enc packageRelsXml)
             , ("xl/workbook.xml", enc workbookXml)
             , ("xl/_rels/workbook.xml.rels", enc relsXml)
             , ("xl/worksheets/sheet1.xml", enc (sheetXml (sheetRows cfg db)))
             ]
+        , wasteManifest db
+            <> frozenWarnings exported
+            <> [tshow (length spreadless) <> " parameters are written without their spread, a lognormal whose mean is not the amount or a number with no finite value:" <> foldMap ("\n  " <>) (take 10 spreadless) | not (null spreadless)]
+            <> [ tshow (length unrecomputed) <> " processes have formulas and no parameter of their own, so Brightway keeps their formulas without recomputing them:" <> foldMap ("\n  " <>) (take 10 unrecomputed)
+               | not (null unrecomputed)
+               ]
+        )
   where
     enc = TE.encodeUtf8
+
+    exported :: Exported
+    exported = exportedOf db
+
+    spreadless :: [Text]
+    spreadless =
+        [ place <> " · " <> name
+        | (place, params) <- ("the database", exDatabase exported) : [(activityName act, peParameters (processExport exported key)) | (key, act) <- M.toAscList (sdbActivities db)]
+        , (name, (_, WrittenValue v (Just u))) <- M.toAscList params
+        , isNothing (spreadCells v u)
+        ]
+
+    unrecomputed :: [Text]
+    unrecomputed =
+        [ activityName act
+        | (key, act) <- M.toAscList (sdbActivities db)
+        , let pe = processExport exported key
+        , M.null (peParameters pe)
+        , not (IM.null (peLines pe))
+        ]
+
+-- | The parameters and formulas as the workbook writes them: every amount as the engine holds it.
+exportedOf :: SimpleDatabase -> Exported
+exportedOf = exportFormulas Expr.Python (\_ _ -> Times 1)
 
 {- | Guard a Brightway Excel export against exchanges the writer cannot encode.
 'exchangeRow' resolves each exchange's flow name and unit name from the database
@@ -216,6 +271,7 @@ checkBrightwayExportable db =
         , refInputMsg <$> listToMaybe refInputOffenders
         , directionMsg <$> listToMaybe directionOffenders
         , roundTripMsg <$> listToMaybe roundTripOffenders
+        , parameterMsg <$> listToMaybe parameterOffenders
         , alikeMsg <$> listToMaybe (productsSpeltAlike db)
         ] of
         [] -> Right ()
@@ -233,6 +289,8 @@ checkBrightwayExportable db =
             <> "a reference input (treatment process) has no Brightway encoding;"
             <> " it would round-trip to a duplicated, role-flipped exchange."
     directionMsg consumer = cannot consumer <> "a resource biosphere flow's compartment would re-parse as an emission."
+    parameterMsg (place, name, v) =
+        "Brightway Excel export cannot represent " <> place <> ": parameter " <> name <> " is " <> tshow v <> ", which has no decimal form that re-parses to it."
     roundTripMsg (consumer, amt) =
         cannot consumer
             <> "exchange amount "
@@ -265,6 +323,15 @@ checkBrightwayExportable db =
         , not (amountRoundTrips amt)
         ]
     amountRoundTrips amt = readAmount (formatAmount amt) == Just amt
+    parameterOffenders =
+        [ (place, name, v)
+        | (place, params) <- ("the database", sdbParameters db) : [("activity \"" <> activityName act <> "\"", activityParameters act) | act <- M.elems (sdbActivities db)]
+        , (name, parameter) <- M.toAscList params
+        , v <- case parameterDefinition parameter of
+            InputParameter x _ -> [x]
+            CalculatedParameter _ x -> maybeToList x
+        , not (amountRoundTrips v)
+        ]
 
 {- | The products the exchanges name that a workbook cannot tell apart. The reader
 knows a product by its name folded in case and refuses one written in two units,
@@ -316,26 +383,78 @@ flowResolvable db ex = case ex of
 -- Sheet content (pure)
 -- ---------------------------------------------------------------------------
 
-{- | The whole worksheet as a list of rows. A leading @Database@ section, then
-one activity block per activity, separated by blank rows. Activities are sorted
-by @(name, location)@ for determinism.
+{- | The whole worksheet as a list of rows. A leading @Database@ section, the
+database's parameters, then one activity block per activity, separated by
+blank rows. Activities are sorted by @(name, location)@ for determinism.
+Brightway reads a section's rows down to the next blank one, so the
+parameters stand between two.
 -}
 sheetRows :: WriterConfig -> SimpleDatabase -> [[Cell]]
 sheetRows cfg db =
     [ [CText "Database", CText (wcDatabaseName cfg)]
     , []
     ]
-        ++ concatMap (\a -> activityRows cfg db a ++ [[]]) sortedActivities
+        ++ (if M.null (exDatabase exported) then [] else [CText "Database parameters"] : parameterTable (exDatabase exported) ++ [[]])
+        ++ concatMap (\(key, a) -> activityRows cfg db (processExport exported key) a ++ [[]]) sortedActivities
   where
+    exported :: Exported
+    exported = exportedOf db
+    sortedActivities :: [((UUID, UUID), Activity)]
     sortedActivities =
-        sortOn (\a -> (activityName a, activityLocation a)) (M.elems (sdbActivities db))
+        sortOn (\(_, a) -> (activityName a, activityLocation a)) (M.toList (sdbActivities db))
+
+-- | A parameter table: its header, then one row per parameter, by name.
+parameterTable :: M.Map Text (Parameter, Written) -> [[Cell]]
+parameterTable params =
+    map CText ["name", "amount", "formula", "unit", "uncertainty type", "loc", "scale", "minimum", "maximum", "description"]
+        : [ [CText name, amount, formula, maybe CEmpty CText (parameterUnit p)] ++ spread ++ [if T.null (parameterDescription p) then CEmpty else CText (parameterDescription p)]
+          | (name, (p, written)) <- M.toAscList params
+          , let (amount, formula, spread) = case written of
+                    WrittenValue v u -> (CNum v, CEmpty, fromMaybe noSpread (spreadCells v =<< u))
+                    WrittenFormula f -> (maybe CEmpty CNum (computed p), CText f, noSpread)
+          ]
+  where
+    noSpread :: [Cell]
+    noSpread = replicate 5 CEmpty
+
+    computed :: Parameter -> Maybe Double
+    computed p = case parameterDefinition p of
+        CalculatedParameter _ v -> v
+        InputParameter v _ -> Just v
+
+{- | A spread as the columns @uncertainty type@, @loc@, @scale@, @minimum@ and
+@maximum@ state it, the inverse of 'BrightwayExcel.Parser.uncertaintyOf'. None
+for a lognormal whose geometric mean is not the amount, which the reader would
+leave out, and for one with a number of no finite value.
+-}
+spreadCells :: Double -> Uncertainty -> Maybe [Cell]
+spreadCells amount u = if all finite numbers && agreeing then Just (map numberCell cells) else Nothing
+  where
+    cells :: [Maybe Double]
+    cells = case u of
+        Lognormal mean deviation -> [Just 2, Just (log (abs mean)), Just (log deviation), Nothing, Nothing]
+        Normal mean deviation -> [Just 3, Just mean, Just deviation, Nothing, Nothing]
+        Uniform low high -> [Just 4, Nothing, Nothing, Just low, Just high]
+        Triangular low likely high -> [Just 5, Just likely, Nothing, Just low, Just high]
+    numbers :: [Double]
+    numbers = catMaybes cells
+    agreeing :: Bool
+    agreeing = case u of
+        Lognormal mean _ -> Expr.agrees (exp (log (abs mean))) (abs amount)
+        Normal{} -> True
+        Uniform{} -> True
+        Triangular{} -> True
+    finite :: Double -> Bool
+    finite x = not (isNaN x || isInfinite x)
+    numberCell :: Maybe Double -> Cell
+    numberCell = maybe CEmpty CNum
 
 -- | The fixed canonical @Exchanges@ table header.
 exchangeHeader :: [Cell]
 exchangeHeader =
     map
         CText
-        ["name", "amount", "reference product", "location", "unit", "categories", "type", "comment", "database"]
+        ["name", "amount", "reference product", "location", "unit", "categories", "type", "comment", "database", "formula"]
 
 {- | One activity block: the @Activity@ row, metadata key/value rows, the
 @Exchanges@ header, then one row per exchange in canonical order. The metadata
@@ -351,8 +470,8 @@ paragraph split does not). Once parsed it has ≤1 element and round-trips exact
 – the same "fixed-point over the parser's image" caveat the parser documents for
 reference-unit canonicalization.
 -}
-activityRows :: WriterConfig -> SimpleDatabase -> Activity -> [[Cell]]
-activityRows cfg db act =
+activityRows :: WriterConfig -> SimpleDatabase -> ProcessExport -> Activity -> [[Cell]]
+activityRows cfg db pe act =
     [ [CText "Activity", CText (activityName act)]
     , [CText "production amount", CNum refAmount]
     ]
@@ -360,12 +479,15 @@ activityRows cfg db act =
         ++ [[CText "location", CText (activityLocation act)]]
         ++ [[CText "unit", CText u] | u <- maybeToList refUnit, not (T.null u)]
         ++ [[CText "comment", CText comment] | not (null (activityDescription act))]
+        ++ (if M.null (peParameters pe) then [] else [CText "Parameters"] : parameterTable (peParameters pe))
         ++ [[CText "Exchanges"], exchangeHeader]
         ++ exchangeDataRows
   where
     comment = T.intercalate "\n" (activityDescription act)
-    ordered = orderedExchanges db (exchanges act)
-    exchangeDataRows = mapMaybe (exchangeRow cfg db) ordered
+    -- Numbered before the sort: a line's formula is found by its place in the activity.
+    numbered = orderedExchanges snd db (zip [0 ..] (exchanges act))
+    ordered = map snd numbered
+    exchangeDataRows = mapMaybe (\(i, ex) -> (++ [maybe CEmpty CText (IM.lookup i (peLines pe))]) <$> exchangeRow cfg db ex) numbered
     refExchange = lookup' exchangeIsReference ordered
     refProduct = refExchange >>= flowNameOf db
     refUnit = (`unitNameOf` db) . exchangeUnitId =<< refExchange
@@ -377,15 +499,15 @@ name, with the flow id as a stable tiebreaker for same-named flows. Sorting by
 name keeps the exported columns legible; the id tiebreaker keeps the order total
 and deterministic, so two databases with the same content serialize identically.
 -}
-orderedExchanges :: SimpleDatabase -> [Exchange] -> [Exchange]
-orderedExchanges db exs = concatMap (sortOn sortKey) groups
+orderedExchanges :: (a -> Exchange) -> SimpleDatabase -> [a] -> [a]
+orderedExchanges exchangeOf db exs = concatMap (sortOn (sortKey . exchangeOf)) groups
   where
     groups = [refs, coproducts, techInputs, bios, wastes]
-    refs = filter exchangeIsReference exs
-    coproducts = filter (\ex -> isCoproduct ex || isAvoidedProduct ex) exs
-    techInputs = filter isTechInput exs
-    bios = filter isBio exs
-    wastes = filter isWaste exs
+    refs = filter (exchangeIsReference . exchangeOf) exs
+    coproducts = filter ((\ex -> isCoproduct ex || isAvoidedProduct ex) . exchangeOf) exs
+    techInputs = filter (isTechInput . exchangeOf) exs
+    bios = filter (isBio . exchangeOf) exs
+    wastes = filter (isWaste . exchangeOf) exs
     sortKey ex = (flowNameOf db ex, exchangeFlowId ex)
 
 isCoproduct :: Exchange -> Bool

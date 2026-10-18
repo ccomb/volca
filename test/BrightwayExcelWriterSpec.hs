@@ -28,12 +28,12 @@ import BrightwayExcel.Parser (Workbook (..), parseBrightwayExcel)
 import BrightwayExcel.Writer (
     Cell (..),
     WriterConfig (..),
-    activityRows,
     checkBrightwayExportable,
     defaultWriterConfig,
     formatAmount,
     renderCategories,
     renderWorkbook,
+    sheetRows,
     wasteManifest,
  )
 import Codec.Archive.Zip (filesInArchive, toArchive)
@@ -919,16 +919,13 @@ rebuild Workbook{wbActivities = acts, wbTechFlows = techDB, wbBioFlows = bioDB, 
         , sdbProductSystems = []
         }
 
-{- | The deterministic logical cells the writer would emit for a database: the
-per-activity 'activityRows' (which already carry every value the format records,
-addressed by column). Comparing these is the logical-cell idempotence contract:
-byte identity of the zip is deliberately not required.
+{- | The deterministic logical cells the writer would emit for a database: its
+'sheetRows' (which carry every value the format records, addressed by column).
+Comparing these is the logical-cell idempotence contract: byte identity of the
+zip is deliberately not required.
 -}
-logicalCells :: SimpleDatabase -> [[[Cell]]]
-logicalCells db =
-    [ activityRows cfg db a
-    | a <- sortOn (\x -> (activityName x, activityLocation x)) (M.elems (sdbActivities db))
-    ]
+logicalCells :: SimpleDatabase -> [[Cell]]
+logicalCells = sheetRows cfg
 
 -- ---------------------------------------------------------------------------
 -- Scoring (c)

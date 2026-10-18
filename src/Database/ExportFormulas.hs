@@ -19,6 +19,14 @@ language, follows the same rule.
 EcoSpold 2 states an amount beside every formula and has no database-wide
 parameter: a calculated parameter with no value cannot be written there, and
 each dataset carries the database's parameters it reads ('databaseCopies').
+
+Brightway computes the database's parameters once, before any process's: a
+database formula reading a name a process defines is also written among that
+process's parameters, at the value it settles to there ('ownCopies'), and one
+that settles to no value at the database's level is not written there.
+
+Each name a formula reads is written as the parameter it resolves to spells
+it, the process's own first: Python reads a name in its case.
 -}
 module Database.ExportFormulas (
     Exported (..),
@@ -88,14 +96,27 @@ lineNames = \case
     Expr.Volca -> LinesAsParameters
     Expr.Python -> LinesAsParameters
 
--- | Whether a format states an amount beside every formula, so that a formula with no value cannot be written.
-statesEveryAmount :: Expr.Dialect -> Bool
-statesEveryAmount = \case
+{- | Whether a format cannot write a calculated parameter with no value: it
+states an amount beside every formula (EcoSpold 2), or computes the
+database's parameters before any process's, where a formula with no value
+reads a name no parameter of that level has (Brightway).
+-}
+leavesOutValueless :: Expr.Dialect -> Bool
+leavesOutValueless = \case
     Expr.EcoSpold2 _ -> True
+    Expr.Python -> True
     Expr.SimaPro -> False
     Expr.OpenLca -> False
     Expr.Volca -> False
-    Expr.Python -> False
+
+-- | Whether a format computes the database's parameters once, before any process's.
+computesDatabaseFirst :: Expr.Dialect -> Bool
+computesDatabaseFirst = \case
+    Expr.Python -> True
+    Expr.EcoSpold2 _ -> False
+    Expr.SimaPro -> False
+    Expr.OpenLca -> False
+    Expr.Volca -> False
 
 -- | What is written of a process, nothing for one the database does not hold.
 processExport :: Exported -> (UUID, UUID) -> ProcessExport
@@ -113,9 +134,12 @@ exportFormulas dialect scaledBy db =
     databaseUnwritten :: S.Set Text
     databaseUnwritten = unwritable dialect S.empty (sdbParameters db)
 
+    databaseSpellings :: M.Map Text Text
+    databaseSpellings = spellings (sdbParameters db)
+
     database :: [(Text, (Parameter, Written))]
     databaseFrozen :: [Text]
-    (database, databaseFrozen) = parametersIn dialect "the database" databaseUnwritten (sdbParameters db)
+    (database, databaseFrozen) = parametersIn dialect "the database" databaseSpellings databaseUnwritten (sdbParameters db)
 
     processes :: M.Map (UUID, UUID) (ProcessExport, [Text])
     processes = M.mapWithKey process (sdbActivities db)
@@ -127,13 +151,20 @@ exportFormulas dialect scaledBy db =
         , parametersFrozen <> lefts lines' <> lefts shares
         )
       where
-        -- The process's names: its own parameters, and the lines formulas read by name.
-        viewed = namedLinesAsParameters (const True) (namesReadByDatabase db) source
+        -- The process's names: its own parameters, the lines formulas read by name, and the database's it must compute itself.
+        viewed = withOwnCopies (namedLinesAsParameters (const True) (namesReadByDatabase db) source)
         act = case lineNames dialect of
             NamedLines -> namedLinesAsParameters (not . asHeld . scaledBy key) (namesReadByDatabase db) source
             LinesAsParameters -> viewed
+        withOwnCopies :: Activity -> Activity
+        withOwnCopies a
+            | computesDatabaseFirst dialect = a{activityParameters = M.union (activityParameters a) (ownCopies db a)}
+            | otherwise = a
         unwritten = unwritable dialect databaseUnwritten (activityParameters viewed)
-        (parameters, parametersFrozen) = parametersIn dialect (activityName act) unwritten (activityParameters act)
+        spelt = M.union (spellings (activityParameters viewed)) databaseSpellings
+        written :: Text -> Maybe Text
+        written = writtenWith dialect unwritten . Expr.respelt spelt
+        (parameters, parametersFrozen) = parametersIn dialect (activityName act) spelt unwritten (activityParameters act)
         taken = S.map T.toLower (M.keysSet (activityParameters source))
         named = case lineNames dialect of
             NamedLines ->
@@ -146,14 +177,14 @@ exportFormulas dialect scaledBy db =
                     ]
             LinesAsParameters -> IM.empty
         lines' =
-            [ maybe (Left (activityName act <> " · " <> flowName db ex <> ": " <> text)) (Right . (,) i) (writtenWith dialect unwritten text)
+            [ maybe (Left (activityName act <> " · " <> flowName db ex <> ": " <> text)) (Right . (,) i) (written text)
             | (i, ex) <- zip [0 ..] (exchanges act)
             , Just f <- [exchangeFormula ex]
             , let text = scaled (scaledBy key ex) (efText f)
             ]
         -- A share's formula is kept in SimaPro's language, as it was read.
         shares =
-            [ maybe (Left (activityName act <> " · share of " <> flowName db ex <> ": " <> f)) (Right . (,) i) (writtenWith dialect unwritten =<< either (const Nothing) Just (Expr.translate Expr.SimaPro f))
+            [ maybe (Left (activityName act <> " · share of " <> flowName db ex <> ": " <> f)) (Right . (,) i) (written =<< either (const Nothing) Just (Expr.translate Expr.SimaPro f))
             | (i, ex) <- zip [0 ..] (exchanges act)
             , Just DeclaredShare{dsFormula = Just f} <- [exchangeDeclaredShare ex]
             ]
@@ -168,6 +199,38 @@ there, a line read by a name shadowing a database parameter of that name.
 -}
 databaseCopies :: SimpleDatabase -> M.Map (UUID, UUID) (M.Map Text Parameter)
 databaseCopies db = M.map (\act -> databaseParametersIn (namedLinesAsParameters (const True) (namesReadByDatabase db) act) (sdbParameters db)) (sdbActivities db)
+
+{- | The database's calculated parameters a process reads whose formula
+reads, itself or through others of the database, a name the process defines,
+at the value each settles to there: in a format that computes the database's
+parameters first, the database's level would compute them without the
+process's names.
+-}
+ownCopies :: SimpleDatabase -> Activity -> M.Map Text Parameter
+ownCopies db act = M.filter (reachesOwn S.empty . namesRead) (databaseParametersIn act (sdbParameters db))
+  where
+    own :: S.Set Text
+    own = S.map T.toLower (M.keysSet (activityParameters act))
+
+    byName :: M.Map Text Parameter
+    byName = M.fromList [(T.toLower name, p) | (name, p) <- M.toList (sdbParameters db)]
+
+    namesRead :: Parameter -> [Text]
+    namesRead p = case parameterDefinition p of
+        CalculatedParameter f _ -> map T.toLower (Expr.collectIdentifiers Expr.Volca f)
+        InputParameter{} -> []
+
+    reachesOwn :: S.Set Text -> [Text] -> Bool
+    reachesOwn seen = \case
+        [] -> False
+        name : rest
+            | S.member name own -> True
+            | S.member name seen -> reachesOwn seen rest
+            | otherwise -> reachesOwn (S.insert name seen) (maybe [] namesRead (M.lookup name byName) <> rest)
+
+-- | Each name of a scope by its lowercase form, as its definition spells it.
+spellings :: M.Map Text Parameter -> M.Map Text Text
+spellings params = M.fromList [(T.toLower name, name) | name <- M.keys params]
 
 -- | A formula as the format writes it, unless it reads a name the format does not.
 writtenWith :: Expr.Dialect -> S.Set Text -> Text -> Maybe Text
@@ -203,18 +266,18 @@ unwritable dialect enclosing params = grown (S.union outer (S.fromList (map T.to
         | S.null more = out
         | otherwise = grown (S.union out more)
       where
-        more = S.fromList [name | (name, f) <- valueless, S.notMember name out, statesEveryAmount dialect || isNothing (writtenWith dialect out f)]
+        more = S.fromList [name | (name, f) <- valueless, S.notMember name out, leavesOutValueless dialect || isNothing (writtenWith dialect out f)]
 
 -- | Parameters as the format writes them, and those frozen or left out.
-parametersIn :: Expr.Dialect -> Text -> S.Set Text -> M.Map Text Parameter -> ([(Text, (Parameter, Written))], [Text])
-parametersIn dialect place unwritten params = (concatMap fst each, concatMap snd each)
+parametersIn :: Expr.Dialect -> Text -> M.Map Text Text -> S.Set Text -> M.Map Text Parameter -> ([(Text, (Parameter, Written))], [Text])
+parametersIn dialect place spelt unwritten params = (concatMap fst each, concatMap snd each)
   where
     each = map one (M.toList params)
     one (name, p)
         | S.member (T.toLower name) unwritten = ([], [place <> " · " <> name <> ": left out, the format cannot write it"])
         | otherwise = case parameterDefinition p of
             InputParameter v u -> ([(name, (p, WrittenValue v u))], [])
-            CalculatedParameter f value -> case writtenWith dialect unwritten f of
+            CalculatedParameter f value -> case writtenWith dialect unwritten (Expr.respelt spelt f) of
                 Just text -> ([(name, (p, WrittenFormula text))], [])
                 Nothing -> case value of
                     Just v -> ([(name, (p, WrittenValue v Nothing))], [place <> " · " <> name <> ": " <> f])

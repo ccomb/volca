@@ -1,16 +1,18 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Parameters and formulas written to SimaPro, openLCA and EcoSpold 2 and
-read back: the file the writer gives is the database again, at its defaults
+{- | Parameters and formulas written to SimaPro, openLCA, EcoSpold 2 and a
+Brightway workbook and read back: the file the writer gives is the database again, at its defaults
 and at other values.
 -}
 module ExportFormulasSpec (spec) where
 
+import qualified BrightwayExcel.Writer as BE
 import Control.Monad (forM_, (<=<))
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft)
 import Data.List (sort)
 import qualified Data.Map.Strict as M
@@ -38,6 +40,69 @@ spec = do
     simaProSpec
     olcaSpec
     ecoSpold2Spec
+    brightwaySpec
+
+brightwaySpec :: Spec
+brightwaySpec = describe "Brightway workbook export of parameters and formulas" $ do
+    it "gives the same amounts at other values" $
+        sameAmountsAt throughBrightway (loadBytes bakeryCSV)
+
+    it "finds each line's formula after the workbook sorts the lines" $
+        sameAmountsAt throughBrightway (reversedLines <$> loadBytes bakeryCSV)
+
+    it "gives a process the database formula it reads with a name it redefines" $
+        sameAmountsAt throughBrightway (ownWasteRate <$> loadBytes bakeryCSV)
+
+    it "gives a process the database formula that reads one of its lines" $
+        sameAmountsAt throughBrightway (lossReadsLine <$> loadBytes bakeryCSV)
+
+    it "writes the database's formula a process must compute itself among that process's parameters, at its value there" $ do
+        source <- ownWasteRate <$> loadBytes bakeryCSV
+        let cells = concat (BE.sheetRows BE.defaultWriterConfig source)
+        -- Once for the database, once for the bread, whose own waste rate gives 0.6.
+        length (filter (== BE.CText "1 - yield_rate * waste_rate") cells) `shouldBe` 2
+        cells `shouldContain` [BE.CText "loss", BE.CNum 0.6, BE.CText "1 - yield_rate * waste_rate"]
+
+    it "leaves out at the database's level a formula that reads a process's line" $ do
+        source <- lossReadsLine <$> loadBytes bakeryCSV
+        let rows = BE.sheetRows BE.defaultWriterConfig source
+            databaseRows = takeWhile (/= [BE.CText "Activity", BE.CText "Bread"]) rows
+        [row | row@(BE.CText "loss" : _) <- databaseRows] `shouldBe` []
+        [row | row@(BE.CText "loss" : _) <- rows] `shouldSatisfy` ((== 1) . length)
+
+    it "writes a name as its parameter spells it" $ do
+        source <- loadBytes bakeryCSV
+        let shouted = source{sdbActivities = M.map (onFlour "1 / YIELD_RATE") (sdbActivities source)}
+        concat (BE.sheetRows BE.defaultWriterConfig shouted) `shouldContain` [BE.CText "1 / yield_rate"]
+
+    it "leaves out a parameter named as Brightway reserves, and writes its readers as their values" $ do
+        source <- loadBytes bakeryCSV
+        let reserved = source{sdbParameters = M.insert "power" (Parameter (InputParameter 1 Nothing) Nothing "") (sdbParameters source), sdbActivities = M.map (onFlour "flour_per_loaf * power") (sdbActivities source)}
+        warnings <- brightwayWarnings reserved
+        warnings `shouldSatisfy` any (\w -> "the database · power: left out" `T.isInfixOf` w && "Bread · Flour: flour_per_loaf * power" `T.isInfixOf` w)
+
+    it "writes a formula Python computes otherwise as its value, and says so" $ do
+        source <- loadBytes bakeryCSV
+        warnings <- brightwayWarnings source{sdbActivities = M.map (onFlour "and(yield_rate; flour_per_loaf)") (sdbActivities source)}
+        warnings `shouldSatisfy` any ("Bread · Flour: and(yield_rate; flour_per_loaf)" `T.isInfixOf`)
+
+    it "names the processes whose formulas Brightway does not recompute, having no parameter of their own" $ do
+        warnings <- brightwayWarnings =<< loadBytes bakeryCSV
+        warnings `shouldSatisfy` any (\w -> "have formulas and no parameter of their own" `T.isInfixOf` w && "Mill" `T.isInfixOf` w && not ("Bread" `T.isInfixOf` w))
+
+    it "writes each kind of spread so it reads back the same" $
+        spreadsReadBack throughBrightway
+
+    it "writes no lognormal spread around another value than its amount, and says so" $ do
+        source <- loadBytes bakeryCSV
+        let offCentre = onBread (\a -> a{activityParameters = M.insert "g" (Parameter (InputParameter 2 (Just (Lognormal 3 1.2))) Nothing "") (activityParameters a)}) source
+        warnings <- brightwayWarnings offCentre
+        warnings `shouldSatisfy` any (\w -> "1 parameters are written without their spread" `T.isInfixOf` w && "Bread · g" `T.isInfixOf` w)
+
+    it "writes the same workbook from what it reads back" $ do
+        once <- throughBrightway =<< loadBytes bakeryCSV
+        twice <- throughBrightway once
+        BE.sheetRows BE.defaultWriterConfig twice `shouldBe` BE.sheetRows BE.defaultWriterConfig once
 
 ecoSpold2Spec :: Spec
 ecoSpold2Spec = describe "EcoSpold 2 export of parameters and formulas" $ do
@@ -79,38 +144,10 @@ ecoSpold2Spec = describe "EcoSpold 2 export of parameters and formulas" $ do
         back <- throughEcoSpold2 =<< loadBytes bakeryCSV
         sdbParameters back `shouldBe` M.empty
         M.fromList [(activityName a, M.keys (activityParameters a)) | a <- M.elems (sdbActivities back), activityName a /= "Mill"]
-            `shouldBe` M.fromList [("Bread", ["flour_per_loaf", "loss", "waste_rate", "water", "water_ratio", "yield"]), ("Grain", [])]
+            `shouldBe` M.fromList [("Bread", ["flour_per_loaf", "loss", "waste_rate", "water", "water_ratio", "yield_rate"]), ("Grain", [])]
 
-    it "writes each kind of spread so it reads back the same" $ do
-        source <- loadBytes bakeryCSV
-        let spreads =
-                M.fromList
-                    [ ("n", Parameter (InputParameter 2 (Just (Normal 2 0.3))) (Just "kg") "")
-                    , ("t", Parameter (InputParameter 2 (Just (Triangular 1 2 4))) Nothing "")
-                    , ("u", Parameter (InputParameter 1 (Just (Uniform 0.5 1.5))) Nothing "")
-                    , ("g", Parameter (InputParameter 1.6 (Just (Lognormal 1.6 1.1))) Nothing "an area")
-                    ]
-            spreadOf p = case parameterDefinition p of
-                InputParameter v u -> (v, u, parameterUnit p, parameterDescription p)
-                CalculatedParameter _ v -> (sum v, Nothing, parameterUnit p, parameterDescription p)
-            numbers (v, u, _, _) =
-                v : case u of
-                    Just (Normal m d) -> [m, d]
-                    Just (Triangular a b c) -> [a, b, c]
-                    Just (Uniform a b) -> [a, b]
-                    Just (Lognormal m d) -> [m, d]
-                    Nothing -> []
-            kind (_, u, unit, about) = (fmap kindOf u, unit, about)
-            kindOf :: Uncertainty -> Text
-            kindOf = \case
-                Normal{} -> "normal"
-                Triangular{} -> "triangular"
-                Uniform{} -> "uniform"
-                Lognormal{} -> "lognormal"
-        back <- throughEcoSpold2 (onBread (\a -> a{activityParameters = M.union spreads (activityParameters a)}) source)
-        let read' = M.unions [M.map spreadOf (M.restrictKeys (activityParameters a) (M.keysSet spreads)) | a <- M.elems (sdbActivities back), activityName a == "Bread"]
-        M.map kind read' `shouldBe` M.map (kind . spreadOf) spreads
-        and (M.intersectionWith (\a b -> and (zipWith (\x y -> abs (x - y) <= 1e-12) (numbers a) (numbers b))) read' (M.map spreadOf spreads)) `shouldBe` True
+    it "writes each kind of spread so it reads back the same" $
+        spreadsReadBack throughEcoSpold2
 
     it "says how many of the database's parameters no process reads" $ do
         source <- loadBytes bakeryCSV
@@ -128,7 +165,40 @@ ecoSpold2Spec = describe "EcoSpold 2 export of parameters and formulas" $ do
   where
     -- A database-wide value, set on every dataset carrying a copy of it, once per block: a value set on one product of a block is set on all.
     eachProcess :: Database -> Double -> [Setting]
-    eachProcess db v = M.elems (M.fromListWith (\_ first' -> first') [(fst key, Setting (Just pid) "yield" v) | (pid, key, a) <- zip3 [0 ..] (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db)), M.member "yield" (activityParameters a)])
+    eachProcess db v = M.elems (M.fromListWith (\_ first' -> first') [(fst key, Setting (Just pid) "yield_rate" v) | (pid, key, a) <- zip3 [0 ..] (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db)), M.member "yield_rate" (activityParameters a)])
+
+-- | The bread given a parameter with each kind of spread, read back with the same spreads, their numbers within 1e-12.
+spreadsReadBack :: (SimpleDatabase -> IO SimpleDatabase) -> Expectation
+spreadsReadBack readBack = do
+    source <- loadBytes bakeryCSV
+    let spreads =
+            M.fromList
+                [ ("n", Parameter (InputParameter 2 (Just (Normal 2 0.3))) (Just "kg") "")
+                , ("t", Parameter (InputParameter 2 (Just (Triangular 1 2 4))) Nothing "")
+                , ("u", Parameter (InputParameter 1 (Just (Uniform 0.5 1.5))) Nothing "")
+                , ("g", Parameter (InputParameter 1.6 (Just (Lognormal 1.6 1.1))) Nothing "an area")
+                ]
+        spreadOf p = case parameterDefinition p of
+            InputParameter v u -> (v, u, parameterUnit p, parameterDescription p)
+            CalculatedParameter _ v -> (sum v, Nothing, parameterUnit p, parameterDescription p)
+        numbers (v, u, _, _) =
+            v : case u of
+                Just (Normal m d) -> [m, d]
+                Just (Triangular a b c) -> [a, b, c]
+                Just (Uniform a b) -> [a, b]
+                Just (Lognormal m d) -> [m, d]
+                Nothing -> []
+        kind (_, u, unit, about) = (fmap kindOf u, unit, about)
+        kindOf :: Uncertainty -> Text
+        kindOf = \case
+            Normal{} -> "normal"
+            Triangular{} -> "triangular"
+            Uniform{} -> "uniform"
+            Lognormal{} -> "lognormal"
+    back <- readBack (onBread (\a -> a{activityParameters = M.union spreads (activityParameters a)}) source)
+    let read' = M.unions [M.map spreadOf (M.restrictKeys (activityParameters a) (M.keysSet spreads)) | a <- M.elems (sdbActivities back), activityName a == "Bread"]
+    M.map kind read' `shouldBe` M.map (kind . spreadOf) spreads
+    and (M.intersectionWith (\a b -> and (zipWith (\x y -> abs (x - y) <= 1e-12) (numbers a) (numbers b))) read' (M.map spreadOf spreads)) `shouldBe` True
 
 simaProSpec :: Spec
 simaProSpec = describe "SimaPro export of parameters and formulas" $ do
@@ -145,7 +215,7 @@ simaProSpec = describe "SimaPro export of parameters and formulas" $ do
 
     it "writes a shared line without its share" $ do
         out <- written' =<< loadBytes bakeryCSV
-        rowsUnder out "Materials/fuels" `shouldContain` ["Grain;kg;2 * yield;Undefined;0;0;0;"]
+        rowsUnder out "Materials/fuels" `shouldContain` ["Grain;kg;2 * yield_rate;Undefined;0;0;0;"]
 
     it "writes a share's formula in the allocation cell" $ do
         out <- written' =<< loadBytes bakeryCSV
@@ -224,11 +294,11 @@ olcaSpec = describe "openLCA export of parameters and formulas" $ do
         source <- loadBytes bakeryCSV
         let compared = source{sdbActivities = M.map comparing (sdbActivities source)}
         either (fail . T.unpack) (pure . snd) (serializeOlcaPackage defaultUnitConfig M.empty compared)
-            >>= (`shouldSatisfy` any ("Bread · Flour: (yield < 1) * flour_per_loaf" `T.isInfixOf`))
+            >>= (`shouldSatisfy` any ("Bread · Flour: (yield_rate < 1) * flour_per_loaf" `T.isInfixOf`))
   where
     comparing act = act{exchanges = map compareIt (exchanges act)}
     compareIt ex = case exchangeFormula ex of
-        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing "(yield < 1) * flour_per_loaf")) ex
+        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing "(yield_rate < 1) * flour_per_loaf")) ex
         _ -> ex
     packaged sdb = either (fail . T.unpack) (pure . fst) (serializeOlcaPackage defaultUnitConfig M.empty sdb)
     amountFormulas bytes = case A.decodeStrict bytes of
@@ -273,7 +343,7 @@ avoidedLineRead = onBread (\a -> a{exchanges = concatMap avoid (exchanges a)})
   where
     avoid :: Exchange -> [Exchange]
     avoid ex = case (ex, exchangeFormula ex) of
-        (TechnosphereExchange{}, Just ExchangeFormula{efText = "flour_per_loaf"}) -> [ex, withFormula (Just (ExchangeFormula (Just "av") "2 * yield")) (withAmount 1.6 ex{techRole = AvoidedProduct})]
+        (TechnosphereExchange{}, Just ExchangeFormula{efText = "flour_per_loaf"}) -> [ex, withFormula (Just (ExchangeFormula (Just "av") "2 * yield_rate")) (withAmount 1.6 ex{techRole = AvoidedProduct})]
         (_, Just ExchangeFormula{efText = "0.5 * water + loss"}) -> [withFormula (Just (ExchangeFormula Nothing "1 + av")) (withAmount 2.6 ex)]
         _ -> [ex]
 
@@ -293,11 +363,25 @@ throughEcoSpold2 sdb = withSystemTempDirectory "es2-formulas" $ \dir -> do
     forM_ files $ \(name, doc) -> BS.writeFile (dir </> name) (TE.encodeUtf8 doc)
     either (fail . T.unpack) pure =<< loadDatabase defaultUnitConfig dir
 
--- | The database read back holds the source's amounts, and for random values of the yield moves every process as the source does.
-sameAmountsAt :: (SimpleDatabase -> IO SimpleDatabase) -> IO SimpleDatabase -> Property
-sameAmountsAt readBack = sameAmountsAtWith readBack (\_ v -> [Setting Nothing "yield" v])
+-- | Every process with its lines listed the other way round, so a writer sorting them moves them.
+reversedLines :: SimpleDatabase -> SimpleDatabase
+reversedLines sdb = sdb{sdbActivities = M.map (\a -> a{exchanges = reverse (exchanges a)}) (sdbActivities sdb)}
 
--- | As 'sameAmountsAt', the database read back set to the yield as given.
+-- | The database written as a Brightway workbook, and read back.
+throughBrightway :: SimpleDatabase -> IO SimpleDatabase
+throughBrightway sdb = withSystemTempFile "formulas.xlsx" $ \path h -> do
+    BL.hPut h =<< either (fail . T.unpack) pure (BE.renderWorkbook BE.defaultWriterConfig sdb)
+    hClose h
+    either (fail . T.unpack) pure =<< loadDatabase defaultUnitConfig path
+
+brightwayWarnings :: SimpleDatabase -> IO [Text]
+brightwayWarnings = either (fail . T.unpack) (pure . snd) . BE.renderWorkbookWithWarnings BE.defaultWriterConfig
+
+-- | The database read back holds the source's amounts, and for random values of its yield rate moves every process as the source does.
+sameAmountsAt :: (SimpleDatabase -> IO SimpleDatabase) -> IO SimpleDatabase -> Property
+sameAmountsAt readBack = sameAmountsAtWith readBack (\_ v -> [Setting Nothing "yield_rate" v])
+
+-- | As 'sameAmountsAt', the database read back set to the yield rate as given.
 sameAmountsAtWith :: (SimpleDatabase -> IO SimpleDatabase) -> (Database -> Double -> [Setting]) -> IO SimpleDatabase -> Property
 sameAmountsAtWith readBack settingsBack loaded = withNumTests 20 $ forAll (choose (0.6, 0.9)) $ \v -> ioProperty $ do
     source <- loaded
@@ -307,7 +391,7 @@ sameAmountsAtWith readBack settingsBack loaded = withNumTests 20 $ forAll (choos
             either (fail . T.unpack . describeParameterRefusal) (pure . amountsOf db) (instantiate db (settings db v))
         stored sdb = M.fromList [((activityName a, referenceName sdb a), sort (map exchangeAmount (exchanges a))) | a <- M.elems (sdbActivities sdb)]
         same expected got = M.keys got == M.keys expected && and (M.intersectionWith (\a b -> length a == length b && and (zipWith close a b)) got expected)
-    expected <- at (\_ value -> [Setting Nothing "yield" value]) source
+    expected <- at (\_ value -> [Setting Nothing "yield_rate" value]) source
     got <- at settingsBack back
     pure (counterexample (show ((stored source, stored back), (expected, got))) (not (M.null expected) && same (stored source) (stored back) && same expected got))
 
@@ -390,7 +474,7 @@ bakeryCSV =
         , "water_ratio;0.6;Lognormal;1.21;0;0;No;"
         , ""
         , "Calculated parameters"
-        , "flour_per_loaf;1 / yield;"
+        , "flour_per_loaf;1 / yield_rate;"
         , "water;max(water_ratio, 0.5) * flour_per_loaf;"
         , ""
         , "End"
@@ -414,7 +498,7 @@ bakeryCSV =
         , "Bran;kg;0.5;100 - flour_share;not defined;material;"
         , ""
         , "Materials/fuels"
-        , "Grain;kg;2 * yield;Undefined;0;0;0;"
+        , "Grain;kg;2 * yield_rate;Undefined;0;0;0;"
         , ""
         , "End"
         , ""
@@ -441,14 +525,14 @@ bakeryCSV =
         , "End"
         , ""
         , "Database Input parameters"
-        , "yield;0.8;Uniform;0;0.6;0.9;No;share of flour kept"
+        , "yield_rate;0.8;Uniform;0;0.6;0.9;No;share of flour kept"
         , "flour_share;60;Undefined;0;0;0;No;"
         , "waste_rate;1;Undefined;0;0;0;No;"
         , ""
         , "End"
         , ""
         , "Database Calculated parameters"
-        , "loss;1 - yield * waste_rate;"
+        , "loss;1 - yield_rate * waste_rate;"
         , ""
         , "End"
         ]

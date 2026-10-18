@@ -73,7 +73,7 @@ serializeDatabase units fmt saved db = case fmt of
     EcoSpold1 -> valuesOnlyWith [] (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
     EcoSpold2 -> first zipText <$> ES2.writeEcoSpold2WithWarnings ES2.noVolatileMeta sdb
     ILCDProcess -> valuesOnlyWith (ILCD.splitWarnings sdb) (ILCD.writeILCDArchive ILCD.defaultWriteOptions sdb)
-    BrightwayExcel -> valuesOnlyWith (BE.wasteManifest sdb) (BE.renderWorkbook BE.defaultWriterConfig sdb)
+    BrightwayExcel -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig sdb
     OpenLcaImpactCategory ->
         Left "openLCA JSON-LD export is not supported"
     OpenLcaPackage -> first zipFiles <$> OLCA.serializeOlcaPackage units saved sdb

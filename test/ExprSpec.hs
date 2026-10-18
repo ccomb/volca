@@ -351,11 +351,28 @@ spec = do
             Expr.writtenIn OpenLca "(a < b) * 2" `shouldBe` Nothing
             Expr.writtenIn OpenLca "if(a; 1; 2)" `shouldBe` Nothing
             Expr.writtenIn OpenLca "log(8; 2)" `shouldBe` Nothing
+        it "writes Python as Brightway reads it: ** for a power, a condition as y if c else n, commas between arguments" $ do
+            Expr.writtenIn Python "if(a > 1; 2; 3)" `shouldBe` Just "2 if a > 1 else 3"
+            Expr.writtenIn Python "-2 ^ 2" `shouldBe` Just "-2 ** 2"
+            Expr.writtenIn Python "2 ^ 3 ^ 2" `shouldBe` Just "2 ** 3 ** 2"
+            Expr.writtenIn Python "not(a > 1) + 1" `shouldBe` Just "(not a > 1) + 1"
+            Expr.writtenIn Python "max(a; b; c)" `shouldBe` Just "max(a, b, c)"
+            Expr.writtenIn Python "ln(x) * log10(y) + log(x; 2)" `shouldBe` Just "log(x) * log10(y) + log(x, 2)"
+            Expr.writtenIn Python "roundeven(x)" `shouldBe` Just "round(x)"
+        it "writes a condition inside a condition as Python groups it" $ do
+            Expr.writtenIn Python "if(d; if(c; a; b); f)" `shouldBe` Just "(a if c else b) if d else f"
+            Expr.writtenIn Python "if(if(c; a; b); d; f)" `shouldBe` Just "d if (a if c else b) else f"
+            Expr.writtenIn Python "if(c; a; if(d; b; f))" `shouldBe` Just "a if c else b if d else f"
+        it "writes nothing Python computes otherwise or has no name for, and no name Brightway reserves" $
+            forM_ ["round(x)", "and(a; b)", "or(a; b)", "xor(a; b)", "mod(a; 2)", "div(a; 2)", "max(a)", "(a < b) < c", "sqr(a)", "power * 2", "e + 1", "yield * 2"] $ \f ->
+                Expr.writtenIn Python f `shouldBe` Nothing
+        it "reserves a name in its case alone, as Brightway compares them" $
+            Expr.writtenIn Python "Power * 2" `shouldBe` Just "Power * 2"
         prop "writes every formula in VoLCA's language as it is" $
             forAll (sized formula) $ \f ->
                 Expr.writtenIn Volca (Expr.render f) === Just (Expr.render f)
-        prop "writes a formula in SimaPro's or openLCA's language only when it computes the same there" $
-            forAll (sized formula) $ \f -> forAll (elements [SimaPro, OpenLca]) $ \dialect ->
+        prop "writes a formula in SimaPro's, openLCA's or Python's language only when it computes the same there" $
+            forAll (sized formula) $ \f -> forAll (elements [SimaPro, OpenLca, Python]) $ \dialect ->
                 let env = M.fromList [("a", 1.5), ("b_2", -2), ("leak", 0.3)]
                  in case Expr.writtenIn dialect (Expr.render f) of
                         Nothing -> True
