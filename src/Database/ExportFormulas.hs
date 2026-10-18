@@ -16,6 +16,8 @@ kept in SimaPro's language, follows the same rule.
 module Database.ExportFormulas (
     Exported (..),
     Written (..),
+    ProcessExport (..),
+    processExport,
     Scaled (..),
     exportFormulas,
     formulaWarnings,
@@ -47,31 +49,38 @@ data Scaled = Times !Double | DividedBy !Double
 data Exported = Exported
     { exDatabase :: !(M.Map Text (Parameter, Written))
     -- ^ The database's parameters.
-    , exProcesses :: !(M.Map (UUID, UUID) (M.Map Text (Parameter, Written)))
-    -- ^ Each process's own parameters, its named lines among them.
-    , exLines :: !(M.Map (UUID, UUID) (IM.IntMap Text))
-    -- ^ The formula of each line written with one, by its position in the activity.
-    , exShares :: !(M.Map (UUID, UUID) (IM.IntMap Text))
-    -- ^ The formula of each product's share written with one, by its position.
+    , exProcesses :: !(M.Map (UUID, UUID) ProcessExport)
     , exFrozen :: ![Text]
     -- ^ Each formula written as its value, or parameter left out, and why.
     , exUnits :: !Int
     -- ^ How many parameters state a unit.
     }
 
+-- | What a format writes of one process's parameters and formulas.
+data ProcessExport = ProcessExport
+    { peParameters :: !(M.Map Text (Parameter, Written))
+    -- ^ The process's own parameters, its named lines among them.
+    , peLines :: !(IM.IntMap Text)
+    -- ^ The formula of each line written with one, by its position in the activity.
+    , peShares :: !(IM.IntMap Text)
+    -- ^ The formula of each product's share written with one, by its position.
+    }
+
+-- | What is written of a process, nothing for one the database does not hold.
+processExport :: Exported -> (UUID, UUID) -> ProcessExport
+processExport exported key = M.findWithDefault (ProcessExport M.empty IM.empty IM.empty) key (exProcesses exported)
+
 exportFormulas :: Expr.Dialect -> ((UUID, UUID) -> Exchange -> Scaled) -> SimpleDatabase -> Exported
 exportFormulas dialect scaledBy db =
     Exported
         { exDatabase = M.fromList database
-        , exProcesses = M.map (\(ps, _, _, _) -> M.fromList ps) processes
-        , exLines = M.map (\(_, ls, _, _) -> IM.fromList ls) processes
-        , exShares = M.map (\(_, _, ss, _) -> IM.fromList ss) processes
-        , exFrozen = databaseFrozen <> concatMap (\(_, _, _, fs) -> fs) (M.elems processes)
+        , exProcesses = M.map fst processes
+        , exFrozen = databaseFrozen <> concatMap snd (M.elems processes)
         , exUnits = length [() | p <- M.elems (sdbParameters db) <> concatMap (M.elems . activityParameters) (M.elems (sdbActivities db)), isJust (parameterUnit p)]
         }
   where
     databaseUnwritten :: S.Set Text
-    databaseUnwritten = unwritable dialect (sdbParameters db)
+    databaseUnwritten = unwritable dialect S.empty (sdbParameters db)
 
     database :: [(Text, (Parameter, Written))]
     databaseFrozen :: [Text]
@@ -81,20 +90,25 @@ exportFormulas dialect scaledBy db =
     databaseReads :: [Text]
     databaseReads = concat [Expr.collectIdentifiers Expr.Volca f | CalculatedParameter f _ <- map parameterDefinition (M.elems (sdbParameters db))]
 
-    processes :: M.Map (UUID, UUID) ([(Text, (Parameter, Written))], [(Int, Text)], [(Int, Text)], [Text])
+    processes :: M.Map (UUID, UUID) (ProcessExport, [Text])
     processes = M.mapWithKey process (sdbActivities db)
 
-    process :: (UUID, UUID) -> Activity -> ([(Text, (Parameter, Written))], [(Int, Text)], [(Int, Text)], [Text])
-    process key source = (parameters, rights lines', rights shares, parametersFrozen <> lefts lines' <> lefts shares)
+    -- A process's parameters and formulas as written, and those frozen.
+    process :: (UUID, UUID) -> Activity -> (ProcessExport, [Text])
+    process key source =
+        ( ProcessExport{peParameters = M.fromList parameters, peLines = IM.fromList (rights lines'), peShares = IM.fromList (rights shares)}
+        , parametersFrozen <> lefts lines' <> lefts shares
+        )
       where
         act = namedLinesAsParameters databaseReads source
         own = activityParameters act
-        unwritten = unwritable dialect own <> S.difference databaseUnwritten (S.map T.toLower (M.keysSet own))
+        unwritten = unwritable dialect databaseUnwritten own
         (parameters, parametersFrozen) = parametersIn dialect (activityName act) unwritten own
         lines' =
-            [ maybe (Left (activityName act <> " · " <> flowName db ex <> ": " <> efText f)) (Right . (,) i) (writtenWith dialect unwritten (scaled (scaledBy key ex) (efText f)))
+            [ maybe (Left (activityName act <> " · " <> flowName db ex <> ": " <> text)) (Right . (,) i) (writtenWith dialect unwritten text)
             | (i, ex) <- zip [0 ..] (exchanges act)
             , Just f <- [exchangeFormula ex]
+            , let text = scaled (scaledBy key ex) (efText f)
             ]
         -- A share's formula is kept in SimaPro's language, as it was read.
         shares =
@@ -114,16 +128,23 @@ scaled = \case
     Times k -> Expr.times k
     DividedBy k -> Expr.dividedBy k
 
-{- | The names, lowercased, the format cannot give its parameters: one it does
-not read as a name, and a calculated parameter with no value whose formula it
-cannot write, which could be written neither way.
+{- | The names, lowercased, a scope cannot write, given those its enclosing
+scope cannot and the scope's own parameters, which shadow them: one the format
+does not read as a name, and a calculated parameter with no value whose
+formula reads such a name or cannot be written, which could be written
+neither way and so leaves its own readers without it.
 -}
-unwritable :: Expr.Dialect -> M.Map Text Parameter -> S.Set Text
-unwritable dialect params = S.fromList (map T.toLower (unnamed <> valueless))
+unwritable :: Expr.Dialect -> S.Set Text -> M.Map Text Parameter -> S.Set Text
+unwritable dialect enclosing params = grown (S.union outer (S.fromList (map T.toLower unnamed)))
   where
+    outer = S.difference enclosing (S.map T.toLower (M.keysSet params))
     unnamed = [name | name <- M.keys params, Expr.writtenIn dialect name /= Just name]
-    unnamedSet = S.fromList (map T.toLower unnamed)
-    valueless = [name | (name, Parameter{parameterDefinition = CalculatedParameter f Nothing}) <- M.toList params, isNothing (writtenWith dialect unnamedSet f)]
+    valueless = [(T.toLower name, f) | (name, Parameter{parameterDefinition = CalculatedParameter f Nothing}) <- M.toList params]
+    grown out
+        | S.null more = out
+        | otherwise = grown (S.union out more)
+      where
+        more = S.fromList [name | (name, f) <- valueless, S.notMember name out, isNothing (writtenWith dialect out f)]
 
 -- | Parameters as the format writes them, and those frozen or left out.
 parametersIn :: Expr.Dialect -> Text -> S.Set Text -> M.Map Text Parameter -> ([(Text, (Parameter, Written))], [Text])

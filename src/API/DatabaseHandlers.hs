@@ -799,10 +799,11 @@ exportDatabaseHandler dbName req = do
     pure (addHeader (encodeExportWarnings (warnings <> scenariosLeftOut scenarios)) (BinaryContent (package bytes)))
   where
     -- No format written keeps a saved scenario.
+    scenariosLeftOut :: Either WriteRefusal [ScenarioAPI] -> [Text]
     scenariosLeftOut = \case
         Right [] -> []
         Right saved -> [T.pack (show (length saved)) <> " saved scenarios are not in the export"]
-        Left _ -> ["the saved scenarios could not be read: any there are not in the export"]
+        Left refusal -> ["the saved scenarios could not be read (" <> refusalMessage refusal <> "): any there are not in the export"]
 
 {- | What the package of a loaded database says of it: the licence it is served
 under, and the releases of the databases it links to.

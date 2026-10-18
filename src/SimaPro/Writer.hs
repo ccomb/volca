@@ -36,15 +36,16 @@ possible. CSV escaping reuses the same rule as 'Matrix.Export.escapeCsvField'.
 
 The writer is a faithful inverse for /SimaPro-origin/ databases: a
 @parse → write → parse@ cycle preserves activities, flows, units, and the LCIA
-inventory exactly (pinned by "SimaProWriterSpec"). It writes /resolved numeric/
-amounts and only the metadata SimaPro itself carries, so a few things present in
-databases imported from /other/ formats are dropped – always score-preserving
-(the numbers that drive the matrix are kept), never silently wrong:
+inventory exactly (pinned by "SimaProWriterSpec"). It writes the amounts, the
+parameters and formulas SimaPro reads back unchanged, and only the metadata
+SimaPro itself carries, so a few things present in databases imported from
+/other/ formats are dropped – always score-preserving (the numbers that drive
+the matrix are kept), never silently wrong:
 
   * a formula SimaPro reads otherwise, or not at all, is written as its value,
     and a parameter's unit has no column; both are listed in the warnings
-    ('simaProWarnings', from "Database.ExportFormulas"), and every other
-    parameter and formula is written as SimaPro reads it;
+    ('serializeSimaProCSVWithWarnings', from "Database.ExportFormulas"), and
+    every other parameter and formula is written as SimaPro reads it;
   * classification keys other than @Category type@ / @Category@ (e.g. ISIC/CPC
     from an EcoSpold import) are not emitted;
   * reference- and co-product comments are dropped (SimaPro product rows carry a
@@ -74,7 +75,7 @@ module SimaPro.Writer (
     writeSimaProCSV,
     serializeSimaProCSV,
     checkSimaProExportable,
-    simaProWarnings,
+    serializeSimaProCSVWithWarnings,
 
     -- * Pure helpers (exposed for testing and for "Method.WriterSimaPro")
     escapeField,
@@ -97,9 +98,10 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time (Day, defaultTimeLocale, formatTime)
 import Database.Allocation (AllocationRefusal (..), asAllocated, describeRefusal)
-import Database.ExportFormulas (Exported (..), Scaled (..), Written (..), exportFormulas, formulaWarnings)
+import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, formulaWarnings, processExport)
 import qualified Expr
 import SimaPro.Parser (extractLocation, isMetadataKey, parsePedigreePrefix)
+import Text.Read (readMaybe)
 import Types
 import qualified Version
 
@@ -847,8 +849,8 @@ without trailing terminator). Flow/unit names are resolved through the
 respective DBs; exchanges whose flow is missing are dropped (the matrix
 builder is the authority on unknown flows, not the serializer).
 -}
-serializeActivity :: Catalogs -> M.Map Text (Parameter, Written) -> IM.IntMap Text -> IM.IntMap Text -> Activity -> [Text]
-serializeActivity cats parameters formulas shares act@Activity{..} =
+serializeActivity :: Catalogs -> ProcessExport -> Activity -> [Text]
+serializeActivity cats ProcessExport{peParameters = parameters, peLines = formulas, peShares = shares} act@Activity{..} =
     let category = M.findWithDefault "" "Category" activityClassification
 
         -- The parser scales every shared exchange (everything but the reference
@@ -865,7 +867,7 @@ serializeActivity cats parameters formulas shares act@Activity{..} =
         unscale ex
             | exchangeIsReference ex = ex
             | allocFraction == 0 = ex
-            | otherwise = scaleExchange (1 / allocFraction) ex
+            | otherwise = scaleExchange (1 / allocFraction) (withFormula Nothing ex)
         -- Each exchange with its formula, and its share's, as SimaPro writes them, where it has them.
         unscaledExchanges = [(IM.lookup i formulas, withShare i (unscale ex)) | (i, ex) <- zip [0 ..] exchanges]
         withShare i ex = case ex of
@@ -955,15 +957,18 @@ emit a corrupt or lossy file. Activities are sorted by (name, location) so the
 byte stream is independent of the underlying 'Map' iteration order.
 -}
 serializeSimaProCSV :: WriterConfig -> SimpleDatabase -> Either Text BS.ByteString
-serializeSimaProCSV cfg db@SimpleDatabase{..} = do
+serializeSimaProCSV cfg db = fst <$> serializeSimaProCSVWithWarnings cfg db
+
+-- | The bytes 'serializeSimaProCSV' writes, and what they say differently from the database.
+serializeSimaProCSVWithWarnings :: WriterConfig -> SimpleDatabase -> Either Text (BS.ByteString, [Text])
+serializeSimaProCSVWithWarnings cfg db@SimpleDatabase{..} = do
     checkSimaProExportable db
     let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities) (systemNamesOf db)
         exported = simaProFormulas db
         acts = sortOn (\(_, a) -> (activityName a, activityLocation a)) (M.toList sdbActivities)
-        ofKey key field = M.findWithDefault mempty key (field exported)
-        blocks = concatMap (\(key, act) -> serializeActivity cats (ofKey key exProcesses) (ofKey key exLines) (ofKey key exShares) act) acts
+        blocks = concatMap (\(key, act) -> serializeActivity cats (processExport exported key) act) acts
         allLines = headerLines cfg ++ blocks ++ databaseParameterLines (exDatabase exported) ++ libraryLines sdbDocumentation
-    pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf))
+    pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf), simaProWarnings db exported)
 
 -- | The parameters and formulas a SimaPro export writes, each line's formula brought back from its share as its amount is.
 simaProFormulas :: SimpleDatabase -> Exported
@@ -975,9 +980,9 @@ simaProFormulas db = exportFormulas Expr.SimaPro unscaling db
         _ -> Times 1
 
 -- | What a SimaPro export writes differently from the database: the formulas it writes as their values, the parameters' units.
-simaProWarnings :: SimpleDatabase -> [Text]
-simaProWarnings db =
-    formulaWarnings (simaProFormulas db)
+simaProWarnings :: SimpleDatabase -> Exported -> [Text]
+simaProWarnings db exported =
+    formulaWarnings exported
         <> [ T.pack (show (length offCentre)) <> " parameters spread around another value than their own, which SimaPro reads centred on the value:" <> foldMap ("\n  " <>) (take 10 offCentre)
            | not (null offCentre)
            ]
@@ -1032,7 +1037,7 @@ parameterRows parameters =
 
     -- The square of a deviation read as a square root carries noise in its last digit.
     significant :: Double -> Double
-    significant x = read (showEFloat (Just 14) x "")
+    significant x = fromMaybe x (readMaybe (showEFloat (Just 14) x ""))
 
 -- | The database's parameters, in the file-level blocks SimaPro writes after its processes.
 databaseParameterLines :: M.Map Text (Parameter, Written) -> [Text]

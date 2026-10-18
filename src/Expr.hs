@@ -530,13 +530,14 @@ times factor formula = case readFormula Volca formula of
 
 {- | A formula in VoLCA's language divided by a number, as the amount it gives
 is when a scaled line is brought back: the factor 'times' put on it is taken
-off when it ends in that very factor, else it is multiplied by the inverse.
+off when it ends in that very factor, else the formula is divided by it.
 -}
 dividedBy :: Double -> Text -> Text
 dividedBy 1 formula = formula
 dividedBy factor formula = case readFormula Volca formula of
     Right (Binary Multiply inner (Literal k)) | k == factor -> render inner
-    _ -> times (recip factor) formula
+    Right tree -> render (Binary Divide tree (Literal factor))
+    Left _ -> "(" <> formula <> ") / " <> render (Literal factor)
 
 {- | Whether a formula's value is the amount stated beside it: within 1e-9
 relative, and with no floor, since a formula kept on a line of 1e-11

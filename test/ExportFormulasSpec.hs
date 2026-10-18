@@ -14,7 +14,7 @@ import qualified Data.Text.Encoding as TE
 import Database (buildDatabaseWithMatrices)
 import Database.Loader (defaultLoadOptions, loadSimaProCSV)
 import Parametric (Setting (..), describeParameterRefusal, instantiate)
-import SimaPro.Writer (defaultWriterConfig, serializeSimaProCSV, simaProWarnings)
+import SimaPro.Writer (defaultWriterConfig, serializeSimaProCSV, serializeSimaProCSVWithWarnings)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
@@ -48,12 +48,12 @@ spec = describe "SimaPro export of parameters and formulas" $ do
         let reserved = source{sdbParameters = M.insert "or" (Parameter (InputParameter 1 Nothing) Nothing "") (sdbParameters source), sdbActivities = M.map orShare (sdbActivities source)}
         out <- written' reserved
         rowsUnder out "Products" `shouldContain` ["Flour;kg;1;60;not defined;material;"]
-        simaProWarnings reserved `shouldSatisfy` any ("Mill · share of Flour: flour_share * or" `T.isInfixOf`)
+        warningsOf reserved >>= (`shouldSatisfy` any ("Mill · share of Flour: flour_share * or" `T.isInfixOf`))
 
     it "says which parameters spread around another value than their own" $ do
         source <- loadBytes bakeryCSV
         let offCentre = source{sdbParameters = M.insert "salt" (Parameter (InputParameter 1 (Just (Normal 2 0.1))) Nothing "") (sdbParameters source)}
-        simaProWarnings offCentre `shouldSatisfy` any ("the database · salt" `T.isInfixOf`)
+        warningsOf offCentre >>= (`shouldSatisfy` any ("the database · salt" `T.isInfixOf`))
 
     it "writes arguments apart with a comma, as SimaPro reads them" $ do
         out <- written' =<< loadBytes bakeryCSV
@@ -77,7 +77,15 @@ spec = describe "SimaPro export of parameters and formulas" $ do
         let rounded = source{sdbActivities = M.map roundFlour (sdbActivities source)}
         out <- written' rounded
         rowsUnder out "Materials/fuels" `shouldContain` ["Flour;kg;1.25;Undefined;0;0;0;"]
-        simaProWarnings rounded `shouldSatisfy` any ("Bread · Flour: round(flour_per_loaf)" `T.isInfixOf`)
+        warningsOf rounded >>= (`shouldSatisfy` any ("Bread · Flour: round(flour_per_loaf)" `T.isInfixOf`))
+
+    it "writes as its value a formula reading a parameter left out through another" $ do
+        source <- loadBytes bakeryCSV
+        let calculated f = Parameter (CalculatedParameter f Nothing) Nothing ""
+            chained = source{sdbParameters = M.union (M.fromList [("p1", calculated "round(zz)"), ("p2", calculated "p1 * 2")]) (sdbParameters source), sdbActivities = M.map (onFlour "p2 * 3") (sdbActivities source)}
+        out <- written' chained
+        rowsUnder out "Materials/fuels" `shouldContain` ["Flour;kg;1.25;Undefined;0;0;0;"]
+        warningsOf chained >>= (`shouldSatisfy` any ("Bread · Flour: p2 * 3" `T.isInfixOf`))
 
     it "writes a line another formula reads by its name as a parameter of that name" $ do
         source <- loadBytes bakeryCSV
@@ -96,9 +104,11 @@ spec = describe "SimaPro export of parameters and formulas" $ do
         Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula (Just "flour_kg") "flour_per_loaf")) ex
         Just ExchangeFormula{efText = "0.5 * water + loss"} -> withFormula (Just (ExchangeFormula Nothing "0.5 * flour_kg")) ex
         _ -> ex
-    roundFlour act = act{exchanges = map roundIt (exchanges act)}
-    roundIt ex = case exchangeFormula ex of
-        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing "round(flour_per_loaf)")) ex
+    roundFlour = onFlour "round(flour_per_loaf)"
+    -- The bread's flour line given another formula.
+    onFlour formula act = act{exchanges = map (flourAs formula) (exchanges act)}
+    flourAs formula ex = case exchangeFormula ex of
+        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing formula)) ex
         _ -> ex
 
 close :: Double -> Double -> Bool
@@ -120,6 +130,9 @@ referenceName db a = T.intercalate "," [maybe "?" tfName (M.lookup (exchangeFlow
 
 written' :: SimpleDatabase -> IO BS.ByteString
 written' = either (fail . T.unpack) pure . serializeSimaProCSV defaultWriterConfig
+
+warningsOf :: SimpleDatabase -> IO [T.Text]
+warningsOf = either (fail . T.unpack) (pure . snd) . serializeSimaProCSVWithWarnings defaultWriterConfig
 
 built :: SimpleDatabase -> IO Database
 built sdb = either (fail . T.unpack) pure =<< buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) sdb
