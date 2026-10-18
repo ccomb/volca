@@ -23,6 +23,8 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, openLCA JSON-LD, and B
 - **Archive support**: Load databases directly from .zip, .7z, .gz, or .xz archives – no manual extraction
 - **Cross-database linking**: Resolve supplier references across databases, with configurable dependencies and topological load ordering. EcoSpold2 inputs link to a loaded background by exact `activityLinkId` identity (so a partial import resolves against its matching release), falling back to attribute matching – flagged as approximate – when the background is a different release
 - **Cross-DB what-if substitutions**: Swap an upstream activity at any depth – including suppliers in dependency databases – and recompute inventory and impacts through one endpoint
+- **Editing databases**: on an uploaded or copied database, change what an activity consumes and emits (each line addressed by the `selector` `get_activity` gives it), its name, location and description; every change is kept in a journal and replayed at the next load
+- **Parameters, formulas and scenarios**: parameters (with their uncertainty) and line formulas read from EcoSpold 2, SimaPro CSV, openLCA JSON-LD and Brightway Excel, in one formula language whatever the source; edited with every dependent line restated; scored at other values without editing, one set or a batch of sets per request; saved as named scenarios, an openLCA package's parameter sets listed as the scenarios it ships; written back by the SimaPro, openLCA, EcoSpold 2 and Brightway exports
 - **LCIA method collections**: Load ILCD method packages (ZIP or directory), SimaPro method CSV exports, openLCA JSON-LD impact categories, or tabular CSV from config, beside a built-in `plain-indicators` collection that counts raw physical quantities; export any loaded collection back as SimaPro method CSV, columnar CSV (one column per impact category – the spreadsheet view), an openLCA JSON-LD zip, or an ILCD method package zip
 - **Normalization and weighting**: a method collection carries scoring sets, each turning impact scores into named single scores (Pt). A SimaPro method file gives one per normalization-weighting set, named after it, whose variables are its damage categories: each sums the impact categories it groups, times their coefficients, and the `Single score` adds up the damages that have a weight, and a normalization as well unless the set normalizes nothing (SimaPro's normalization switched off). A damage that groups no impact category reads as zero. Variable names are short names the engine makes from the damage names (lowercase ASCII letters and digits, each run of anything else one underscore); the `labels` and `units` of the set carry the names and units as the file wrote them. A file with damage categories and no normalization-weighting set gives one set named `Damage assessment`, with no score
 - **Contribution analysis**: Per-flow and per-activity contributions to any LCIA score, ranked by share
@@ -550,6 +552,16 @@ POST   /api/v1/db/{dbName}/remove-dependency/{depName}                   Remove 
 POST   /api/v1/db/{dbName}/accept-substitution                           Accept a database in place of a required release
 POST   /api/v1/db/{dbName}/set-data-path                                 Repoint the source path
 
+# Editing, parameters and scenarios
+POST   /api/v1/db/{dbName}/activity/{processId}/exchanges                Change an activity's lines, parameters, formulas and texts
+GET    /api/v1/db/{dbName}/parameters                                    The database's own parameters
+POST   /api/v1/db/{dbName}/parameters                                    Set or remove them, restating every process that reads them
+GET    /api/v1/db/{dbName}/scenarios                                     Saved scenarios, and those the database ships
+PUT    /api/v1/db/{dbName}/scenarios/{name}                              Save parameter values under a name
+DELETE /api/v1/db/{dbName}/scenarios/{name}                              Drop a saved scenario
+GET    /api/v1/formula-language                                          The formula language: functions, operators, rules
+POST   /api/v1/db/{dbName}/formula-check                                 A formula's value where it would be written, or its problem
+
 # Methods and method collections
 GET    /api/v1/methods                                                   List individual methods (flattened)
 GET    /api/v1/method/{methodId}                                         Method details
@@ -646,6 +658,15 @@ Available tools – auto-derived at runtime from the single resource registry (`
 | `compare_activities` | Two activities side by side, exchange by exchange, in one database or across two |
 | `compare_databases` | Two loaded databases side by side: activities added, removed, changed and not paired, down to the exchanges |
 | `compare_method_collections` | Two loaded method collections side by side: for each pair of impact categories, the characterization factors added, removed and changed, with both values and their ratio |
+| `edit_exchanges` | Change an activity's lines, parameters, formulas, name, location and description |
+| `get_database_parameters` | The parameters a database's processes read unless they define their own |
+| `edit_database_parameters` | Set or remove database parameters, restating every process that reads them |
+| `list_scenarios` | A database's scenarios, saved and shipped, each with the parameter values it sets |
+| `save_scenario` | Save parameter values under a name |
+| `drop_scenario` | Drop a saved scenario |
+| `get_formula_language` | The language formulas are written in, with an example of each function |
+| `check_formula` | A formula's value where it would be written, or its problem |
+| `get_reduced_model` | An activity's scores as a function of chosen parameters, to run many values away from the engine |
 | `copy_method_collection` | Copy a method collection under a new name, to change the copy |
 | `edit_method_factors` | Change a copy's factors: set, remove or add one, or scale or set every factor a selector reaches |
 | `edit_method_categories` | Change a copy's categories: add, rename, change the unit of or remove one |
@@ -804,7 +825,8 @@ volca database relink my-db --to bg-db --mapping aliases.csv
 volca database delete-activities my-db --name "electricity"  # delete filtered set
 volca database delete-activities my-db --id UUID_UUID --id UUID_UUID  # delete exactly these
 volca database export my-db --format simapro --out out.csv
-#   formats: simapro | ecospold1 | ecospold2 | ilcd | brightway
+#   formats: simapro | ecospold1 | ecospold2 | ilcd | brightway | openlca
+#   all but ecospold1 and ilcd keep parameters and formulas
 volca database export my-db --format ecospold2 --package ro-crate --out my-db.zip
 #   the export, unchanged, beside an RO-Crate ro-crate-metadata.json naming its
 #   licence and the release of every database it links to (each must declare one)
