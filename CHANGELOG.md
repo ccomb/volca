@@ -4,6 +4,13 @@
 
 ### Added
 
+- A method collection can be read from an openLCA method package, the
+  archive that holds many methods side by side. `package-method` names the
+  one to read; its impact categories become the collection and its
+  normalisation and weighting sets become single scores. A package with
+  several methods and no `package-method` is refused with the list of the
+  methods it holds.
+
 - The database quality report now checks the water balance of each
   activity: water released to rivers and soil should not exceed, by far, the
   water the activity withdraws or buys. A published greenhouse tomato

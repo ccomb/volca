@@ -91,6 +91,11 @@ data UploadMeta = UploadMeta
     database its reader accepted in its place, if any. A file written before
     this field existed requires none, which is what it meant.
     -}
+    , umPackageMethod :: !(Maybe Text)
+    {- ^ For a method collection read from an openLCA package, the method of it
+    the collection holds; a copy keeps its source's. A file written before this
+    field existed names none, which is what it meant.
+    -}
     }
     deriving (Show, Eq, Generic)
 
@@ -227,6 +232,7 @@ parseMetaToml content = do
             , umLicence = licence
             , umRelease = release
             , umRequires = requires
+            , umPackageMethod = unquote <$> getValue "package_method"
             }
 
 {- | The key-value pairs before the first @[[requires]]@ header, and those of
@@ -347,6 +353,7 @@ formatMetaToml UploadMeta{..} =
                ]
             ++ maybe [] (\s -> ["source = " <> quote s]) umSource
             ++ maybe [] (\b -> ["builtin = " <> quote b]) umBuiltIn
+            ++ maybe [] (\m -> ["package_method = " <> quote m]) umPackageMethod
             ++ licenceLines (licenceKeys umLicence)
             ++ maybe [] releaseLines umRelease
             ++ concatMap requirementLines umRequires

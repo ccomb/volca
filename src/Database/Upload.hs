@@ -29,6 +29,7 @@ module Database.Upload (
     -- * Method directory detection
     findMethodDirectory,
     findAllMethodDirectories,
+    isOlcaMethodPackage,
     countMethodFilesIn,
     anyMethodFilesIn,
     detectMethodFormat,
@@ -586,7 +587,9 @@ Picks the candidate with the most method files (same pattern as findDataDirector
 findMethodDirectory :: FilePath -> IO FilePath
 findMethodDirectory dir = do
     candidates <- findAllMethodDirectories dir
+    packages <- filterM isOlcaMethodPackage candidates
     case candidates of
+        _ | (package : _) <- packages -> return package
         [] -> return dir
         [one] -> return one
         many -> do
@@ -610,7 +613,8 @@ detectMethodFormat dir = do
         Right fs -> do
             let withExt e = [dir </> f | f <- fs, map toLower (takeExtension f) == e]
             firstMatch
-                [ (ILCDProcess, anyM isMethodXml (withExt ".xml"))
+                [ (OpenLcaImpactCategory, isOlcaMethodPackage dir)
+                , (ILCDProcess, anyM isMethodXml (withExt ".xml"))
                 , (OpenLcaImpactCategory, anyM isOlcaJsonFile (withExt ".json"))
                 , -- Content-checked, like the two above: a stray spreadsheet
                   -- export next to the method files is not a SimaPro method.
@@ -625,12 +629,20 @@ detectMethodFormat dir = do
 findAllMethodDirectories :: FilePath -> IO [FilePath]
 findAllMethodDirectories = go
   where
-    go dir = do
+    go dir = isOlcaMethodPackage dir >>= \package -> if package then return [dir] else scan dir
+    scan dir = do
         hasMethod <- anyMethodFilesIn dir
         entries <- listDirectory dir
         subdirs <- filterM doesDirectoryExist (map (dir </>) entries)
         childResults <- concat <$> mapM go subdirs
         if hasMethod then return (dir : childResults) else return childResults
+
+{- | Whether a directory is an openLCA method package: its methods and their
+impact categories side by side. Such a directory is one method source, read
+whole; its @lcia_categories@ alone would merge every method the package holds.
+-}
+isOlcaMethodPackage :: FilePath -> IO Bool
+isOlcaMethodPackage dir = (&&) <$> doesDirectoryExist (dir </> "lcia_methods") <*> doesDirectoryExist (dir </> "lcia_categories")
 
 -- | Count method files (ILCD XML, CSV, or openLCA JSON-LD) in a single directory (non-recursive).
 countMethodFilesIn :: FilePath -> IO Int

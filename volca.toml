@@ -130,6 +130,14 @@ host = "127.0.0.1"
 # [[methods]]
 # name = "EF-3.1"
 # path = "DBs/EF-v3.1.zip"
+#
+# An openLCA method package holds several methods; package-method names the one
+# to read, with its normalisation and weighting sets:
+#
+# [[methods]]
+# name = "EF-3.1-openLCA"
+# path = "DBs/openLCA LCIA Methods.zip"
+# package-method = "EF 3.1 Method (adapted)"
 
 #
 # One collection is built into the engine and on without a word here:

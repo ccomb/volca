@@ -71,6 +71,7 @@ active = true
 default = true
 description = "a method collection"
 global-methods = ["Land use"]
+package-method = "EF 3.1"
 
 [[methods.scoring]]
 name = "ECS"

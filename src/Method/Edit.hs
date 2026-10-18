@@ -152,6 +152,7 @@ recordMethodCopy home slug source seed = do
                     , UploadedDB.umLicence = LicenceUnstated
                     , UploadedDB.umRelease = Nothing
                     , UploadedDB.umRequires = []
+                    , UploadedDB.umPackageMethod = mcPackageMethod source
                     }
     pure $ case written of
         Right result -> first (\err -> "could not record the copy " <> slug <> ": " <> err) result

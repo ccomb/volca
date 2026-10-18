@@ -26,6 +26,7 @@ baseMeta =
         , umLicence = LicenceUnstated
         , umRelease = Nothing
         , umRequires = []
+        , umPackageMethod = Nothing
         }
 
 spec :: Spec
@@ -107,6 +108,7 @@ spec = do
                         , umLicence = LicenceUnstated
                         , umRelease = Nothing
                         , umRequires = []
+                        , umPackageMethod = Nothing
                         }
 
         it "parses meta with description" $ do

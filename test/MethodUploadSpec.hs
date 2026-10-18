@@ -180,6 +180,7 @@ spec = do
                             , mcScoringSets = []
                             , mcGlobalMethods = []
                             , mcPatches = []
+                            , mcPackageMethod = Nothing
                             }
                 loaded <- loadMethodCollectionFromConfig mc
                 case loaded of
@@ -244,4 +245,5 @@ spec = do
             , mcScoringSets = []
             , mcGlobalMethods = []
             , mcPatches = []
+            , mcPackageMethod = Nothing
             }

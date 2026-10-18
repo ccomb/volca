@@ -33,6 +33,7 @@ config sets =
         , Config.mcScoringSets = sets
         , Config.mcGlobalMethods = []
         , Config.mcPatches = []
+        , Config.mcPackageMethod = Nothing
         }
 
 spec :: Spec

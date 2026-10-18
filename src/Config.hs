@@ -81,7 +81,7 @@ import Data.Indexing (repeated)
 import Data.List (find, isPrefixOf, isSuffixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -389,6 +389,10 @@ data MethodConfig = MethodConfig
     the untouched source file on every reload rather than mutating a persisted
     store. Empty = the collection is used exactly as parsed.
     -}
+    , mcPackageMethod :: !(Maybe Text)
+    {- ^ The method to read from an openLCA package, which holds many: the name
+    the package gives it. Needed only when the package holds more than one.
+    -}
     }
     deriving (Show, Eq, Generic)
 
@@ -598,6 +602,7 @@ builtinMethodEntry m =
         , mcScoringSets = []
         , mcGlobalMethods = []
         , mcPatches = []
+        , mcPackageMethod = Nothing
         }
 
 -- | Where a table comes from, for a log line.
@@ -771,6 +776,9 @@ instance DecodeTOML MethodConfig where
         mcScoringSets <- fromMaybe [] <$> getFieldOpt "scoring"
         mcGlobalMethods <- fromMaybe [] <$> getFieldOpt "global-methods"
         mcPatches <- fromMaybe [] <$> getFieldOpt "patches"
+        mcPackageMethod <- getFieldOpt "package-method"
+        when (isJust mcPackageMethod && isNothing mPath) $
+            fail "package-method names a method inside a package, so it needs the package's path"
         pure MethodConfig{..}
 
 instance DecodeTOML MethodPatchMatch where
@@ -1008,7 +1016,7 @@ configKeys =
         ,
             ( "methods"
             , keys $
-                map plain ["name", "path", "active", "default", "description", "global-methods"]
+                map plain ["name", "path", "active", "default", "description", "global-methods", "package-method"]
                     <> [("scoring", scoringSet), ("patches", patch)]
             )
         , ("flow-synonyms", refData)

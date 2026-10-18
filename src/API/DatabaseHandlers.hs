@@ -1256,6 +1256,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , UploadedDB.umLicence = licence
                             , UploadedDB.umRelease = Nothing
                             , UploadedDB.umRequires = requires
+                            , UploadedDB.umPackageMethod = Nothing
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1478,6 +1479,7 @@ uploadMethodHandler mName mDesc src =
                             , UploadedDB.umLicence = LicenceUnstated
                             , UploadedDB.umRelease = Nothing
                             , UploadedDB.umRequires = []
+                            , UploadedDB.umPackageMethod = Nothing
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1495,6 +1497,7 @@ uploadMethodHandler mName mDesc src =
                             , mcScoringSets = []
                             , mcGlobalMethods = []
                             , mcPatches = []
+                            , mcPackageMethod = Nothing
                             }
                 liftIO $ addMethodCollection dbManager mc
 

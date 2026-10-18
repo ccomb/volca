@@ -242,6 +242,7 @@ methodConfig path =
         , mcScoringSets = []
         , mcGlobalMethods = []
         , mcPatches = []
+        , mcPackageMethod = Nothing
         }
 
 isRefused :: Text -> Either Text a -> Bool
