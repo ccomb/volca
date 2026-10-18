@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -23,6 +24,13 @@ same.
 A line in another unit than its flow is converted to the flow's, the one unit
 of its unit group here. Location codes differing only by case are one location
 to openLCA, written under the code the database uses most.
+
+Parameters and formulas are written as openLCA reads them back
+("Database.ExportFormulas"), a line's formula times the factor its amount is
+written with. openLCA settles a global formula among the globals, where the
+engine reads it with the process's own values: a process that redefines a name
+some database formula it reads reaches gets that formula as its own
+parameter, so both compute the same.
 
 What the package cannot say faithfully refuses the export, line by line;
 what it says differently is a warning.
@@ -53,9 +61,12 @@ import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import Numeric (readHex)
 
-import Database.ExportFormulas (hasFormulas)
+import qualified Data.IntMap.Strict as IM
+import qualified Database.ExportFormulas as EF
+import qualified Expr
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
 import OlcaSchema.Parser (directionOf)
+import Parametric (databaseParametersRead, namesReached)
 import Types
 import UnitConversion (UnitConfig, convertUnit)
 
@@ -81,6 +92,8 @@ data Context = Context
     -- ^ Each location code to the one written for every code differing from it only by case.
     , cxLocations :: ![Text]
     -- ^ The location codes written.
+    , cxFormulas :: EF.Exported
+    -- ^ The parameters and formulas written, which read the lines' factors back from this context.
     }
 
 data OutType = OutProduct | OutWaste | OutElementary !(Maybe Compartment)
@@ -94,8 +107,12 @@ data OutFlow = OutFlow
     }
 
 context :: UnitConfig -> SimpleDatabase -> Context
-context units db = Context{cxDb = db, cxFlows = flows, cxShared = sharedActivityUUIDs db, cxUnits = units, cxPlaces = places, cxLocations = written}
+context units source = cx
   where
+    db = localised source
+    cx = Context{cxDb = db, cxFlows = flows, cxShared = sharedActivityUUIDs db, cxUnits = units, cxPlaces = places, cxLocations = written, cxFormulas = EF.exportFormulas Expr.OpenLca factorOf db}
+    -- A line refused here refuses the export, so its factor is never written.
+    factorOf key ex = EF.Times (either (const 1) lnFactor (maybe (Left (NoFlow "")) (\act -> lineOf cx act ex) (M.lookup key (sdbActivities db))))
     uses = locationUses db
     written = S.toList (S.fromList [M.findWithDefault code code places | code <- M.keys uses])
     places =
@@ -142,6 +159,8 @@ wasteFlowIds db =
 data Line = Line
     { lnFlow :: !OutFlow
     , lnAmount :: !Double
+    , lnFactor :: !Double
+    -- ^ What the stored amount is multiplied by to give 'lnAmount', which the line's formula is too.
     , lnInput :: !Bool
     , lnReference :: !Bool
     , lnAvoided :: !Bool
@@ -153,6 +172,7 @@ data Line = Line
 -- | A process as written: its identifier, the activity, and its lines.
 data Written = Written
     { wrId :: !UUID
+    , wrKey :: !(UUID, UUID)
     , wrActivity :: !Activity
     , wrLines :: ![Line]
     }
@@ -215,7 +235,7 @@ locationId code = fromMaybe UUID.nil (UUID.fromByteString (BL.fromStrict (BS.pac
 -- | A process's lines, or why some cannot be written.
 processLines :: Context -> (UUID, UUID) -> Activity -> Either [Refusal] Written
 processLines cx key act = case partitionEithers lines' of
-    ([], ok) -> Right Written{wrId = ilcdProcessUUID (cxShared cx) key, wrActivity = act, wrLines = ok}
+    ([], ok) -> Right Written{wrId = ilcdProcessUUID (cxShared cx) key, wrKey = key, wrActivity = act, wrLines = ok}
     (bad, _) -> Left bad
   where
     lines' = map (lineOf cx act) (exchanges act)
@@ -224,10 +244,13 @@ lineOf :: Context -> Activity -> Exchange -> Either Refusal Line
 lineOf cx act ex = do
     flow <- maybe (Left (NoFlow named)) Right (M.lookup (exchangeFlowId ex) (cxFlows cx))
     whenLeft (isNaN (exchangeAmount ex) || isInfinite (exchangeAmount ex)) (NotFinite named)
-    amount <- maybe (Left (OtherUnit named)) Right (inUnitOf flow)
-    let line input a = Line{lnFlow = flow, lnAmount = a, lnInput = input, lnReference = False, lnAvoided = False, lnProvider = provider, lnLocation = place cx (exchangeLocation ex), lnComment = exchangeComment ex}
+    conversion <- maybe (Left (OtherUnit named)) Right (inUnitOf flow)
+    let amount = conversion * exchangeAmount ex
+        -- The line written with the stored amount in the flow's unit, times a sign.
+        line input sign = Line{lnFlow = flow, lnAmount = sign * amount, lnFactor = sign * conversion, lnInput = input, lnReference = False, lnAvoided = False, lnProvider = provider, lnLocation = place cx (exchangeLocation ex), lnComment = exchangeComment ex}
         -- A line sent to a treatment, by the demand it puts on it: written as the waste output openLCA reads it as.
-        sent demand = pure (line False (demand * treatmentSign))
+        sent sign = pure (line False (sign * treatmentSign))
+        sideOf output = if output then 1 else -1
     case (ex, ofType flow) of
         {- The engine signs an elementary amount by the line's kind, openLCA by
         its side, and a reader takes the kind from the compartment. Written on
@@ -235,40 +258,40 @@ lineOf cx act ex = do
         matrix takes the sign alone. -}
         (BiosphereExchange{}, OutElementary comp) ->
             pure $ case directionOf comp of
-                Emission -> (line (amount < 0) (abs amount)){lnProvider = Nothing}
-                Resource -> (line (amount >= 0) (abs amount)){lnProvider = Nothing}
+                Emission -> (line (amount < 0) (sideOf (amount >= 0))){lnProvider = Nothing}
+                Resource -> (line (amount >= 0) (sideOf (amount >= 0))){lnProvider = Nothing}
         (BiosphereExchange{}, _) -> Left (NoFlow named)
         (_, OutElementary _) -> Left (NoFlow named)
         (TechnosphereExchange{techRole = role}, OutProduct) -> pure $ case role of
-            ReferenceProduct -> (line False amount){lnReference = True, lnProvider = Nothing}
-            Coproduct -> (line False amount){lnProvider = Nothing}
-            Input -> line True amount
-            AvoidedProduct -> (line True amount){lnAvoided = True}
+            ReferenceProduct -> (line False 1){lnReference = True, lnProvider = Nothing}
+            Coproduct -> (line False 1){lnProvider = Nothing}
+            Input -> line True 1
+            AvoidedProduct -> (line True 1){lnAvoided = True}
             -- Never: a reference input makes its flow a waste flow.
-            ReferenceInput -> (line True amount){lnReference = True, lnProvider = Nothing}
+            ReferenceInput -> (line True 1){lnReference = True, lnProvider = Nothing}
         (TechnosphereExchange{techRole = role}, OutWaste) -> case role of
             ReferenceProduct
-                | amount < 0 -> pure (line True (negate amount)){lnReference = True, lnProvider = Nothing}
+                | amount < 0 -> pure (line True (-1)){lnReference = True, lnProvider = Nothing}
                 | otherwise -> Left (PositiveWasteReference named)
             -- Read back as a reference output of the opposite amount, which turns the column's sign.
-            ReferenceInput -> pure (line True amount){lnReference = True, lnProvider = Nothing}
-            Coproduct -> pure (line True (negate amount)){lnProvider = Nothing}
-            Input -> sent amount
-            AvoidedProduct -> sent (negate amount)
+            ReferenceInput -> pure (line True 1){lnReference = True, lnProvider = Nothing}
+            Coproduct -> pure (line True (-1)){lnProvider = Nothing}
+            Input -> sent 1
+            AvoidedProduct -> sent (-1)
         (WasteExchange{waIsInput = True}, _)
-            | isJust treatment -> sent amount
+            | isJust treatment -> sent 1
             | otherwise -> Left (TreatmentAbsent named)
-        (WasteExchange{}, _) -> sent (negate amount)
+        (WasteExchange{}, _) -> sent (-1)
   where
     unitNamed u = unitName <$> M.lookup u (sdbUnits (cxDb cx))
 
-    -- The amount in the flow's unit, the only one its unit group holds here.
+    -- What one unit of the line is in the flow's unit, the only one its unit group holds here.
     inUnitOf flow
-        | exchangeUnitId ex == ofUnit flow = Just (exchangeAmount ex)
+        | exchangeUnitId ex == ofUnit flow = Just 1
         | otherwise = do
             from <- unitNamed (exchangeUnitId ex)
             to <- unitNamed (ofUnit flow)
-            convertUnit (cxUnits cx) from to (exchangeAmount ex)
+            convertUnit (cxUnits cx) from to 1
 
     named = activityName act <> " · " <> maybe (UUID.toText (exchangeFlowId ex)) ofName (M.lookup (exchangeFlowId ex) (cxFlows cx))
 
@@ -321,7 +344,7 @@ openLCA to a producer of the package, and formulas are written as their
 values.
 -}
 warnings :: Context -> [Text]
-warnings cx = splitWarnings (cxDb cx) <> mapMaybe counted kinds
+warnings cx = splitWarnings (cxDb cx) <> EF.formulaWarnings (cxFormulas cx) <> mapMaybe counted kinds
   where
     acts = M.elems (sdbActivities (cxDb cx))
     counted (what, named) = case named of
@@ -330,7 +353,7 @@ warnings cx = splitWarnings (cxDb cx) <> mapMaybe counted kinds
     kinds =
         [ ("processes keep a product they did not allocate; openLCA reads it with the whole inventory:", [activityName a | a <- acts, any isCoproduct (exchanges a)])
         , ("inputs name no supplier, and openLCA will link them to a producer of the package:", unlinkedProduced)
-        , ("processes have formulas, written as the values they computed:", [activityName a | a <- acts, hasFormulas a])
+        , ("processes are split by a share formula, which openLCA has no place for, and written at the share's value:", [activityName a | (k, pe) <- M.toList (EF.exProcesses (cxFormulas cx)), not (IM.null (EF.peShares pe)), Just a <- [M.lookup k (sdbActivities (cxDb cx))]])
         , ("processes state an elementary flow against its compartment, written on its side with the same inventory:", S.toList (S.fromList against))
         , ("location codes differ from another only by case, one location to openLCA, and are written as it:", [code <> " as " <> written | (code, written) <- M.toList (cxPlaces cx), code /= written])
         ]
@@ -366,9 +389,65 @@ documents cx written =
             <> [("flows/" <> uuidPath (ofId f), encode (flowDoc cx f)) | f <- M.elems (cxFlows cx)]
             <> [("locations/" <> uuidPath (locationId c), encode (locationDoc c)) | c <- cxLocations cx]
             <> [("processes/" <> uuidPath (wrId w), encode (processDoc cx w)) | w <- written]
+            <> [("parameters/" <> uuidPath (parameterId "" name), encode (parameterDoc "GLOBAL_SCOPE" "" (name, p))) | (name, p) <- M.toList (EF.exDatabase (cxFormulas cx))]
   where
     units = M.elems (sdbUnits (cxDb cx))
     uuidPath u = UUID.toString u <> ".json"
+
+{- | A parameter as openLCA reads it: an input with its value and spread, or a
+formula, with the value it computed when the engine holds one. Identified by
+its name within its owner, @owner@ empty for the database.
+-}
+parameterDoc :: Text -> Text -> (Text, (Parameter, EF.Written)) -> Encoding
+parameterDoc scope owner (name, (p, written)) =
+    pairs $
+        "@type" .= ("Parameter" :: Text)
+            <> "@id" .= UUID.toText (parameterId owner name)
+            <> "name" .= name
+            <> "parameterScope" .= scope
+            <> nonEmpty "description" (parameterDescription p)
+            <> case written of
+                EF.WrittenValue value spread -> "isInputParameter" .= True <> "value" .= value <> maybe mempty (pair "uncertainty" . uncertaintyDoc) spread
+                EF.WrittenFormula formula -> "isInputParameter" .= False <> "formula" .= formula <> maybe mempty ("value" .=) (computed (parameterDefinition p))
+  where
+    computed = \case
+        CalculatedParameter _ value -> value
+        InputParameter{} -> Nothing
+
+-- | A spread in the fields 'OlcaSchema.Package.distribution' reads.
+uncertaintyDoc :: Uncertainty -> Encoding
+uncertaintyDoc = \case
+    Lognormal mean sd -> pairs ("distributionType" .= ("LOG_NORMAL_DISTRIBUTION" :: Text) <> "geomMean" .= mean <> "geomSd" .= sd)
+    Normal mean sd -> pairs ("distributionType" .= ("NORMAL_DISTRIBUTION" :: Text) <> "mean" .= mean <> "sd" .= sd)
+    Triangular low mode high -> pairs ("distributionType" .= ("TRIANGLE_DISTRIBUTION" :: Text) <> "minimum" .= low <> "mode" .= mode <> "maximum" .= high)
+    Uniform low high -> pairs ("distributionType" .= ("UNIFORM_DISTRIBUTION" :: Text) <> "minimum" .= low <> "maximum" .= high)
+
+parameterId :: Text -> Text -> UUID
+parameterId owner name = UUID5.generateNamed namespace (BS.unpack (TE.encodeUtf8 ("parameter:" <> owner <> T.toLower name)))
+
+{- | Each process given, as its own parameters, the database formulas it reads
+that reach a name it redefines, which openLCA would settle with the database's
+value. A copy has no value of its own computed yet.
+-}
+localised :: SimpleDatabase -> SimpleDatabase
+localised db = db{sdbActivities = M.map copied (sdbActivities db)}
+  where
+    calculated = M.fromList [(T.toLower name, f) | (name, Parameter{parameterDefinition = CalculatedParameter f _}) <- M.toList (sdbParameters db)]
+    copied act =
+        act
+            { activityParameters =
+                M.union
+                    own
+                    ( M.fromList
+                        [ (name, p{parameterDefinition = CalculatedParameter f Nothing})
+                        | (name, p@Parameter{parameterDefinition = CalculatedParameter f _}) <- M.toList (databaseParametersRead act (sdbParameters db))
+                        , not (S.disjoint ownNames (namesReached Expr.Volca calculated f))
+                        ]
+                    )
+            }
+      where
+        own = activityParameters act
+        ownNames = S.map T.toLower (M.keysSet own)
 
 encode :: Encoding -> BS.ByteString
 encode = BL.toStrict . encodingToLazyByteString
@@ -454,17 +533,24 @@ processDoc cx w =
             <> locationRef (place cx (activityLocation act))
             <> pair "exchanges" (list (uncurry (exchangeDoc cx)) numbered)
             <> "lastInternalId" .= length numbered
+            <> parametersOf (M.toList (EF.peParameters ownFormulas))
   where
     act = wrActivity w
-    numbered = zip [1 :: Int ..] (wrLines w)
+    ownFormulas = EF.processExport (cxFormulas cx) (wrKey w)
+    formulas = EF.peLines ownFormulas
+    numbered = zip [1 :: Int ..] [(IM.lookup i formulas, ln) | (i, ln) <- zip [0 ..] (wrLines w)]
+    parametersOf = \case
+        [] -> mempty
+        params -> pair "parameters" (list (parameterDoc "PROCESS_SCOPE" (UUID.toText (wrId w) <> ":")) params)
 
-exchangeDoc :: Context -> Int -> Line -> Encoding
-exchangeDoc cx internalId ln =
+exchangeDoc :: Context -> Int -> (Maybe Text, Line) -> Encoding
+exchangeDoc cx internalId (formula, ln) =
     pairs $
         "@type" .= ("Exchange" :: Text)
             <> "internalId" .= internalId
             <> pair "flow" (ref "Flow" (ofId flow) (ofName flow))
             <> "amount" .= lnAmount ln
+            <> maybe mempty ("amountFormula" .=) formula
             <> unitRefs
             <> flag "isInput" (lnInput ln)
             <> flag "isQuantitativeReference" (lnReference ln)

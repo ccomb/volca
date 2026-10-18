@@ -22,7 +22,6 @@ module Database.ExportFormulas (
     exportFormulas,
     formulaWarnings,
     valuesOnly,
-    hasFormulas,
 ) where
 
 import Data.Either (lefts, rights)

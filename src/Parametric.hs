@@ -27,6 +27,7 @@ module Parametric (
     editedParameters,
     parameterProblems,
     formulaProblems,
+    namesReached,
 ) where
 
 import Control.Monad (when)

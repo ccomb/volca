@@ -222,6 +222,17 @@
   processes have formulas written as their values, and every export says how
   many saved scenarios it leaves out.
 
+- An openLCA export writes the parameters and formulas too: the database's
+  as global parameters, each process's as its own, and each line's formula as
+  its amount formula, times the unit conversion and sign its amount is written
+  with. A formula openLCA would read otherwise is written as its value and
+  named in the warnings, as for SimaPro. openLCA computes a global formula
+  with the global values only, where the engine uses the process's own: a
+  process that redefines a name a database formula it reads depends on gets
+  that formula as its own parameter, so both compute the same amount. A
+  process split by a share formula is written at the share's value, and the
+  warnings say so.
+
 ### Fixed
 
 - A process split from a block of several products keeps every formula

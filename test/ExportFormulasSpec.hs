@@ -5,25 +5,36 @@ writer gives is the database again, at its defaults and at other values.
 -}
 module ExportFormulasSpec (spec) where
 
+import Control.Monad ((<=<))
+import qualified Data.Aeson as A
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
 import Data.List (sort)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Vector as V
 import Database (buildDatabaseWithMatrices)
 import Database.Loader (defaultLoadOptions, loadSimaProCSV)
+import OlcaPackageFixture (throughPackage)
+import OlcaSchema.Writer (serializeOlcaPackage)
 import Parametric (Setting (..), describeParameterRefusal, instantiate)
 import SimaPro.Writer (defaultWriterConfig, serializeSimaProCSV, serializeSimaProCSVWithWarnings)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
-import Test.QuickCheck (choose, forAll, ioProperty, withNumTests)
+import Test.QuickCheck (Property, choose, counterexample, forAll, ioProperty, withNumTests)
 import Types
 import UnitConversion (defaultUnitConfig)
 
 spec :: Spec
-spec = describe "SimaPro export of parameters and formulas" $ do
+spec = do
+    simaProSpec
+    olcaSpec
+
+simaProSpec :: Spec
+simaProSpec = describe "SimaPro export of parameters and formulas" $ do
     it "reads back the same parameters and formulas" $ do
         source <- loadBytes bakeryCSV
         written <- loadBytes =<< written' source
@@ -61,16 +72,7 @@ spec = describe "SimaPro export of parameters and formulas" $ do
         rowsUnder out "Calculated parameters" `shouldContain` ["water;max(water_ratio, 0.5) * flour_per_loaf;"]
 
     it "gives the same amounts at other values" $
-        withNumTests 20 $
-            forAll (choose (0.6, 0.9)) $ \v -> ioProperty $ do
-                source <- loadBytes bakeryCSV
-                back <- loadBytes =<< written' source
-                let at sdb = do
-                        db <- built sdb
-                        either (fail . T.unpack . describeParameterRefusal) (pure . amountsOf db) (instantiate db [Setting Nothing "yield" v])
-                expected <- at source
-                got <- at back
-                pure (not (M.null expected) && M.keys got == M.keys expected && and (M.intersectionWith (\a b -> length a == length b && and (zipWith close a b)) got expected))
+        sameAmountsAt (loadBytes <=< written') (loadBytes bakeryCSV)
 
     it "writes a formula SimaPro reads otherwise as its value, and says so" $ do
         source <- loadBytes bakeryCSV
@@ -110,6 +112,57 @@ spec = describe "SimaPro export of parameters and formulas" $ do
     flourAs formula ex = case exchangeFormula ex of
         Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing formula)) ex
         _ -> ex
+
+olcaSpec :: Spec
+olcaSpec = describe "openLCA export of parameters and formulas" $ do
+    it "gives the same amounts at other values" $
+        sameAmountsAt throughPackage (loadBytes bakeryCSV)
+
+    it "gives a process the database formula it reads with a name it redefines" $
+        sameAmountsAt throughPackage (ownWasteRate <$> loadBytes bakeryCSV)
+
+    it "writes a line's formula times the factor its amount is written with" $ do
+        source <- loadBytes bakeryCSV
+        files <- packaged source
+        [f | (path, doc) <- files, take 10 path == "processes/", f <- amountFormulas doc] `shouldContain` ["flour_per_loaf"]
+
+    it "writes the database's parameters as global ones" $ do
+        files <- packaged =<< loadBytes bakeryCSV
+        length [() | (path, _) <- files, take 11 path == "parameters/"] `shouldBe` 4
+
+    it "writes a formula openLCA reads otherwise as its value, and says so" $ do
+        source <- loadBytes bakeryCSV
+        let compared = source{sdbActivities = M.map comparing (sdbActivities source)}
+        either (fail . T.unpack) (pure . snd) (serializeOlcaPackage defaultUnitConfig compared)
+            >>= (`shouldSatisfy` any ("Bread · Flour: (yield < 1) * flour_per_loaf" `T.isInfixOf`))
+  where
+    -- The bread redefines the waste rate its database's loss reads, so its emission is 0.5 * 0.75 + (1 - 0.8 * 0.5).
+    ownWasteRate sdb = sdb{sdbActivities = M.map (\a -> if activityName a == "Bread" then a{activityParameters = M.insert "waste_rate" (Parameter (InputParameter 0.5 Nothing) Nothing "") (activityParameters a), exchanges = map restateLoss (exchanges a)} else a) (sdbActivities sdb)}
+    restateLoss ex = case exchangeFormula ex of
+        Just ExchangeFormula{efText = "0.5 * water + loss"} -> withFormula (exchangeFormula ex) (withAmount 0.975 ex)
+        _ -> ex
+    comparing act = act{exchanges = map compareIt (exchanges act)}
+    compareIt ex = case exchangeFormula ex of
+        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing "(yield < 1) * flour_per_loaf")) ex
+        _ -> ex
+    packaged sdb = either (fail . T.unpack) (pure . fst) (serializeOlcaPackage defaultUnitConfig sdb)
+    amountFormulas bytes = case A.decodeStrict bytes of
+        Just (A.Object doc) | Just (A.Array xs) <- KM.lookup "exchanges" doc -> [f | A.Object line <- V.toList xs, Just (A.String f) <- [KM.lookup "amountFormula" line]]
+        _ -> []
+
+-- | The database read back holds the source's amounts, and for random values of the yield moves every process as the source does.
+sameAmountsAt :: (SimpleDatabase -> IO SimpleDatabase) -> IO SimpleDatabase -> Property
+sameAmountsAt readBack loaded = withNumTests 20 $ forAll (choose (0.6, 0.9)) $ \v -> ioProperty $ do
+    source <- loaded
+    back <- readBack source
+    let at sdb = do
+            db <- built sdb
+            either (fail . T.unpack . describeParameterRefusal) (pure . amountsOf db) (instantiate db [Setting Nothing "yield" v])
+        stored sdb = M.fromList [((activityName a, referenceName sdb a), sort (map exchangeAmount (exchanges a))) | a <- M.elems (sdbActivities sdb)]
+        same expected got = M.keys got == M.keys expected && and (M.intersectionWith (\a b -> length a == length b && and (zipWith close a b)) got expected)
+    expected <- at source
+    got <- at back
+    pure (counterexample (show ((stored source, stored back), (expected, got))) (not (M.null expected) && same (stored source) (stored back) && same expected got))
 
 close :: Double -> Double -> Bool
 close a b = abs (a - b) <= 1e-9 * max 1 (max (abs a) (abs b))
@@ -243,11 +296,12 @@ bakeryCSV =
         , "Database Input parameters"
         , "yield;0.8;Uniform;0;0.6;0.9;No;share of flour kept"
         , "flour_share;60;Undefined;0;0;0;No;"
+        , "waste_rate;1;Undefined;0;0;0;No;"
         , ""
         , "End"
         , ""
         , "Database Calculated parameters"
-        , "loss;1 - yield;"
+        , "loss;1 - yield * waste_rate;"
         , ""
         , "End"
         ]
