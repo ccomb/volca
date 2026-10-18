@@ -263,11 +263,13 @@
   exported processes name their suppliers. A scenario saved as "PV system:
   Hot climate" becomes that system's set "Hot climate", in place of a set of
   that name; one saved under another name goes, under that name, on the
-  first system whose name no other system has. Read back, each scenario is
-  listed once. The export says which product systems it leaves out (their
-  reference process is no longer in the database), which values name a
-  process gone, and which saved scenarios have a problem or no system to go
-  on. A cached openLCA package is read again once.
+  first system whose name no other system has and that has no set of that
+  name. Read back, each scenario is listed once. The export says which
+  product systems it leaves out (their reference process is no longer in the
+  database), which values name a process gone, which saved scenarios have a
+  problem or no system to go on, and which would read back as none (another
+  system of the same name has a set of that name). A cached openLCA package
+  is read again once.
 
 ### Fixed
 
