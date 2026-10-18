@@ -32,6 +32,10 @@ engine reads it with the process's own values: a process that redefines a name
 some database formula it reads reaches gets that formula as its own
 parameter, so both compute the same.
 
+The product systems the database was read with are written back around
+their reference process, with the processes and links its lines' providers
+reach, and their parameter sets carry the saved scenarios too, each once.
+
 What the package cannot say faithfully refuses the export, line by line;
 what it says differently is a warning.
 -}
@@ -47,12 +51,12 @@ import qualified Data.Aeson.Key as K
 import Data.Bits ((.&.), (.|.))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import Data.Either (partitionEithers)
+import Data.Either (lefts, partitionEithers, rights)
 import Data.Indexing (collisions)
 import Data.List (sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -71,11 +75,14 @@ import Types
 import UnitConversion (UnitConfig, convertUnit)
 
 {- | The package's documents, by path, and what the package says differently
-from the database. 'Left' names every line the format cannot carry.
+from the database, its product systems carrying the saved scenarios given.
+'Left' names every line the format cannot carry.
 -}
-serializeOlcaPackage :: UnitConfig -> SimpleDatabase -> Either Text ([(FilePath, BS.ByteString)], [Text])
-serializeOlcaPackage units db = case (partitionEithers written, slashes) of
-    (([], ok), []) -> Right (sortOn fst (documents cx ok), warnings cx)
+serializeOlcaPackage :: UnitConfig -> M.Map Text [ScenarioValue] -> SimpleDatabase -> Either Text ([(FilePath, BS.ByteString)], [Text])
+serializeOlcaPackage units saved db = case (partitionEithers written, slashes) of
+    (([], ok), []) ->
+        let systems = productSystems cx saved ok
+         in Right (sortOn fst (documents cx ok <> swDocuments systems), warnings cx <> swWarnings systems)
     ((bad, _), _) -> Left (describeRefusals (concat bad <> slashes))
   where
     cx = context units db
@@ -398,6 +405,204 @@ documents cx written =
 
 -- | Where a parameter is defined: the database, or one process.
 data Scope = Global | InProcess !UUID
+
+-- | The product systems as written, and what they say differently.
+data SystemsWritten = SystemsWritten
+    { swDocuments :: ![(FilePath, BS.ByteString)]
+    , swWarnings :: ![Text]
+    }
+
+-- | A product system written around its reference row, with the parameter sets it carries.
+data Carried = Carried
+    { caSystem :: !ProductSystem
+    , caReference :: !Written
+    , caSets :: ![ParameterSet]
+    }
+
+-- | A product system whose reference row is not written, and why.
+data Unheld = Unheld
+    { unSystem :: !ProductSystem
+    , unWhy :: !Text
+    }
+
+-- | A line of a written process openLCA links to the written process providing it.
+data ProcessLink = ProcessLink
+    { plLine :: !Int
+    -- ^ The line's internal id, as 'processDoc' numbers the lines
+    , plFlow :: !OutFlow
+    , plProvider :: !Written
+    }
+
+-- | The system a saved scenario goes on, and the set it is written as there.
+data Home = Home
+    { hoSystem :: !UUID
+    , hoSet :: !ParameterSet
+    }
+
+{- | The product systems whose reference row is written, each with its sets as
+read, a saved scenario named after one of them in its place. A saved scenario
+named "<system>: <set>" goes on that system as that set, any other on the
+first system whose name no other written one has, under its own name: each is
+written once, so it reads back once.
+-}
+productSystems :: Context -> M.Map Text [ScenarioValue] -> [Written] -> SystemsWritten
+productSystems cx saved written =
+    SystemsWritten
+        { swDocuments = [("product_systems/" <> UUID.toString (systemId (caSystem c)) <> ".json", encode (systemDoc c)) | c <- carried]
+        , swWarnings =
+            catMaybes
+                [ counted "product systems reference a process the database does not hold, and are not written:" [systemName (unSystem u) <> ": " <> unWhy u | u <- unheld]
+                , counted "product systems have lines linked to no process of the package:" [systemName (caSystem c) <> ": " <> tshow n <> " lines" | c <- carried, let n = unlinked c, n > 0]
+                , counted "parameter set values name a process the database does not hold, and are left out:" (concatMap valuesLeftOut carried)
+                , counted "saved scenarios are not in the export, no product system being written to carry them:" (M.keys (M.filter isNothing homes))
+                ]
+        }
+  where
+    byKey :: M.Map (UUID, UUID) Written
+    byKey = M.fromList [(wrKey w, w) | w <- written]
+
+    byId :: M.Map UUID Written
+    byId = M.fromList [(wrId w, w) | w <- written]
+
+    rowsOf :: M.Map UUID [UUID]
+    rowsOf = M.fromListWith (flip (<>)) [(fst (wrKey w), [wrId w]) | w <- written]
+
+    held :: [Either Unheld Carried]
+    held =
+        [ case systemReference s of
+            Nothing -> Left (Unheld s "its reference was not read")
+            Just (ProcessRef activity productId) ->
+                maybe
+                    (Left (Unheld s ("process " <> UUID.toText activity <> "_" <> UUID.toText productId)))
+                    (\w -> Right Carried{caSystem = s, caReference = w, caSets = systemSets s})
+                    (M.lookup (activity, productId) byKey)
+        | s <- sdbProductSystems (cxDb cx)
+        ]
+
+    unheld :: [Unheld]
+    unheld = lefts held
+
+    ordered :: [Carried]
+    ordered = sortOn (\c -> (systemName (caSystem c), systemId (caSystem c))) (rights held)
+
+    carried :: [Carried]
+    carried = [c{caSets = foldl (flip withSet) (caSets c) (M.findWithDefault [] (systemId (caSystem c)) placed)} | c <- ordered]
+
+    homes :: M.Map Text (Maybe Home)
+    homes = M.mapWithKey home saved
+
+    placed :: M.Map UUID [ParameterSet]
+    placed = M.fromListWith (flip (<>)) [(hoSystem h, [hoSet h]) | Just h <- M.elems homes]
+
+    home :: Text -> [ScenarioValue] -> Maybe Home
+    home name values = case sortOn (negate . T.length . systemName) [s | s <- systems, (systemName s <> ": ") `T.isPrefixOf` name] of
+        s : _ -> Just (homeOn s (T.drop (T.length (systemName s) + 2) name))
+        [] -> (`homeOn` name) <$> listToMaybe [s | s <- systems, length (filter ((== systemName s) . systemName) systems) == 1]
+      where
+        homeOn :: ProductSystem -> Text -> Home
+        homeOn s setName = Home{hoSystem = systemId s, hoSet = ParameterSet setName (map redefinitionOf values)}
+
+    systems :: [ProductSystem]
+    systems = map caSystem ordered
+
+    redefinitionOf :: ScenarioValue -> Redefinition
+    redefinitionOf v = Redefinition{redefinedName = svName v, redefinedValue = svValue v, redefinedContext = maybe OfDatabase OfProcess (svProcess v)}
+
+    -- The set in place of the first of its name, or after the others when none has it.
+    withSet :: ParameterSet -> [ParameterSet] -> [ParameterSet]
+    withSet set sets = case break ((== parameterSetName set) . parameterSetName) sets of
+        (before, _ : after) -> before <> [set] <> filter ((/= parameterSetName set) . parameterSetName) after
+        (_, []) -> sets <> [set]
+
+    -- The processes reached from the reference through the providers of their linked lines.
+    reached :: Written -> [Written]
+    reached start = go S.empty [start]
+      where
+        go :: S.Set UUID -> [Written] -> [Written]
+        go seen = \case
+            [] -> []
+            w : rest
+                | S.member (wrId w) seen -> go seen rest
+                | otherwise -> w : go (S.insert (wrId w) seen) (rest <> map plProvider (links w))
+
+    links :: Written -> [ProcessLink]
+    links w = [ProcessLink{plLine = i, plFlow = lnFlow ln, plProvider = p} | (i, ln) <- zip [1 ..] (wrLines w), linkable ln, Just p <- [(`M.lookup` byId) =<< lnProvider ln]]
+
+    unlinked :: Carried -> Int
+    unlinked c = length [() | w <- reached (caReference c), ln <- wrLines w, linkable ln, maybe True (`M.notMember` byId) (lnProvider ln)]
+
+    systemDoc :: Carried -> Encoding
+    systemDoc c =
+        pairs $
+            "@type" .= ("ProductSystem" :: Text)
+                <> "@id" .= UUID.toText (systemId (caSystem c))
+                <> "name" .= systemName (caSystem c)
+                <> pair "referenceProcess" (processRef reference)
+                <> pair "referenceExchange" (pairs ("@type" .= ("Exchange" :: Text) <> "internalId" .= fromMaybe 1 (listToMaybe [i | (i, ln) <- numbered, lnReference ln])))
+                <> "targetAmount" .= systemTarget (caSystem c)
+                <> foldMap (targetUnit . lnFlow) (listToMaybe [ln | (_, ln) <- numbered, lnReference ln])
+                <> pair "processes" (list processRef processes)
+                <> pair "processLinks" (list id [linkDoc p l | p <- processes, l <- links p])
+                <> pair "parameterSets" (list setDoc (caSets c))
+      where
+        reference :: Written
+        reference = caReference c
+
+        numbered :: [(Int, Line)]
+        numbered = zip [1 ..] (wrLines reference)
+
+        processes :: [Written]
+        processes = reached reference
+
+        targetUnit :: OutFlow -> Series
+        targetUnit flow = case M.lookup (ofUnit flow) (sdbUnits (cxDb cx)) of
+            Just u -> pair "targetUnit" (ref "Unit" (unitId u) (unitName u)) <> pair "targetFlowProperty" (ref "FlowProperty" (propertyId u) (unitName u))
+            Nothing -> mempty
+
+    processRef :: Written -> Encoding
+    processRef w = ref "Process" (wrId w) (activityName (wrActivity w))
+
+    linkDoc :: Written -> ProcessLink -> Encoding
+    linkDoc p l =
+        pairs $
+            pair "provider" (processRef (plProvider l))
+                <> pair "flow" (ref "Flow" (ofId (plFlow l)) (ofName (plFlow l)))
+                <> pair "process" (processRef p)
+                <> pair "exchange" (pairs ("@type" .= ("Exchange" :: Text) <> "internalId" .= plLine l))
+
+    setDoc :: ParameterSet -> Encoding
+    setDoc set = pairs ("@type" .= ("ParameterRedefSet" :: Text) <> "name" .= parameterSetName set <> pair "parameters" (list id [redefinitionDoc r owner | r <- parameterSetValues set, owner <- owners r]))
+
+    redefinitionDoc :: Redefinition -> Series -> Encoding
+    redefinitionDoc r owner = pairs ("@type" .= ("ParameterRedef" :: Text) <> "name" .= redefinedName r <> "value" .= redefinedValue r <> owner)
+
+    -- The values of a system's sets left out for naming a process the database does not hold.
+    valuesLeftOut :: Carried -> [Text]
+    valuesLeftOut c = [systemName (caSystem c) <> ": " <> parameterSetName set <> " · " <> redefinedName r | set <- caSets c, r <- parameterSetValues set, null (owners r)]
+
+    -- The context of each redefinition written for a value: one per written row of a process's block, none for a process gone.
+    owners :: Redefinition -> [Series]
+    owners r = case redefinedContext r of
+        OfDatabase -> [mempty]
+        OfProcess activity -> [pair "context" (pairs ("@type" .= ("Process" :: Text) <> "@id" .= UUID.toText row)) | row <- M.findWithDefault [] activity rowsOf]
+        OfImpactCategory category -> [pair "context" (pairs ("@type" .= ("ImpactCategory" :: Text) <> "@id" .= UUID.toText category))]
+        OfOtherContext kind owner -> [pair "context" (pairs ("@type" .= kind <> foldMap (("@id" .=) . UUID.toText) owner))]
+
+    counted :: Text -> [Text] -> Maybe Text
+    counted what = \case
+        [] -> Nothing
+        named -> Just (tshow (length named) <> " " <> what <> foldMap ("\n  " <>) (take 10 named))
+
+{- | A line openLCA links to a provider: a product input, an avoided product
+among them, or a waste output sent to its treatment.
+-}
+linkable :: Line -> Bool
+linkable ln
+    | lnReference ln = False
+    | otherwise = case ofType (lnFlow ln) of
+        OutProduct -> lnInput ln
+        OutWaste -> not (lnInput ln)
+        OutElementary _ -> False
 
 {- | A parameter as openLCA reads it: an input with its value and spread, or a
 formula, with the value it computed when the engine holds one.

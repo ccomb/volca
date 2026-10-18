@@ -15,7 +15,7 @@ import Test.Hspec
 
 import OlcaPackageFixture
 import OlcaSchema.Package
-import Types (Uncertainty (..))
+import Types (ParameterSet (..), Redefinition (..), RedefinitionContext (..), Uncertainty (..))
 
 withPackage :: (FilePath -> IO a) -> IO a
 withPackage act = withSystemTempDirectory "olca-package" $ \dir -> writePackage dir >> act dir
@@ -44,14 +44,19 @@ spec = describe "readPackage" $ do
         M.size (pkFlows pkg) `shouldBe` 18
         length (pkProcesses pkg) `shouldBe` 15
         map paName (pkGlobals pkg) `shouldBe` ["leak_method"]
-        length (pkProductSystems pkg) `shouldBe` 2
+        length (pkProductSystems pkg) `shouldBe` 4
 
     it "reads whose parameter each value of a product system's set sets, a kind it does not know by its name" $ do
         pkg <- readFixture
-        [(setName set, [(rdName r, rdValue r, rdContext r) | r <- setValues set]) | s <- pkProductSystems pkg, set <- psSets s, setName set `elem` ["Baseline", "Method only"]]
+        [(parameterSetName set, [(redefinedName r, redefinedValue r, redefinedContext r) | r <- parameterSetValues set]) | s <- pkProductSystems pkg, set <- sdSets s, parameterSetName set `elem` ["Baseline", "Method only"]]
             `shouldBe` [ ("Baseline", [("leak_method", 1, OfDatabase), ("a", 3, OfProcess formulasJ), ("cf", 2, OfImpactCategory (UUID.fromWords 0 0 0 601))])
-                       , ("Method only", [("cf", 4, OfImpactCategory (UUID.fromWords 0 0 0 601)), ("m", 1, OfOtherContext "ImpactMethod")])
+                       , ("Method only", [("cf", 4, OfImpactCategory (UUID.fromWords 0 0 0 601)), ("m", 1, OfOtherContext "ImpactMethod" (Just (UUID.fromWords 0 0 0 602)))])
                        ]
+
+    it "reads the line a product system is built around, and how much of it, as its file states them" $ do
+        pkg <- readFixture
+        [(sdName s, sdProcess s, sdLine s, sdTarget s, sdUnit s) | s <- pkProductSystems pkg, sdName s == "Widgets"]
+            `shouldBe` [("Widgets", Just formulasJ, Just 1, 2, Just kgU), ("Widgets", Just formulasJ, Just 1, 0.5, Just tU)]
 
     it "reads a line with no isInput as an output, and one with no isAvoidedProduct as not avoided" $ do
         pkg <- readFixture

@@ -31,14 +31,14 @@ spec = describe "Database.Export dispatcher" $ do
     it "serializes a simple database to every writable format" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
         forM_ [SimaProCSV, EcoSpold1, EcoSpold2, ILCDProcess, BrightwayExcel, OpenLcaPackage] $ \fmt ->
-            case serializeDatabase defaultUnitConfig fmt db of
+            case serializeDatabase defaultUnitConfig fmt M.empty db of
                 Left err -> expectationFailure (show fmt <> ": " <> T.unpack err)
                 Right (bytes, _warnings) -> BL.null bytes `shouldBe` False
 
     it "fails loudly for formats with no writer (never a silent empty file)" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
-        serializeDatabase defaultUnitConfig OpenLcaImpactCategory db `shouldSatisfy` isLeft
-        serializeDatabase defaultUnitConfig UnknownFormat db `shouldSatisfy` isLeft
+        serializeDatabase defaultUnitConfig OpenLcaImpactCategory M.empty db `shouldSatisfy` isLeft
+        serializeDatabase defaultUnitConfig UnknownFormat M.empty db `shouldSatisfy` isLeft
 
     it "writes an exclusion row only to the format that reads the marker back" $ do
         -- VoLCA's own columnar CSV parses "!…" as an exception and must keep it,
@@ -79,7 +79,7 @@ spec = describe "Database.Export dispatcher" $ do
         -- SimaPro writer's own guard rejects it; the dispatcher must surface that
         -- Left rather than emit a corrupt file.
         db <- buildFixture (Compartment NaturalResource Nothing)
-        serializeDatabase defaultUnitConfig SimaProCSV db `shouldSatisfy` isLeft
+        serializeDatabase defaultUnitConfig SimaProCSV M.empty db `shouldSatisfy` isLeft
 
 {- | One activity: a reference product and a single biosphere emission whose
 compartment is @comp@ (air for the all-formats case, "raw" for the guard case).
@@ -97,7 +97,7 @@ buildFixture comp = do
                 , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
-                , sdbScenarios = M.empty
+                , sdbProductSystems = []
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . T.unpack) pure r
   where

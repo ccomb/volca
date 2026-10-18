@@ -29,10 +29,7 @@ module OlcaSchema.Package (
     AllocationFactor (..),
     Parameter (..),
     ParameterValue (..),
-    ProductSystem (..),
-    ParameterSet (..),
-    Redefinition (..),
-    RedefinitionContext (..),
+    SystemDoc (..),
     Unread (..),
     isOlcaPackage,
     readPackage,
@@ -60,7 +57,7 @@ import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import Data.Indexing (uniqueIndex)
 import EcoSpold.Common (acrossCapabilities)
 import System.FilePath (takeExtension, (</>))
-import Types (Uncertainty (..), spreading)
+import Types (ParameterSet (..), Redefinition (..), RedefinitionContext (..), Uncertainty (..), spreading)
 
 -- | Every document the reader needs, by kind.
 data Package = Package
@@ -72,7 +69,7 @@ data Package = Package
     -- ^ Each location's code
     , pkGlobals :: ![Parameter]
     , pkProcesses :: ![Process]
-    , pkProductSystems :: ![ProductSystem]
+    , pkProductSystems :: ![SystemDoc]
     }
 
 data UnitGroup = UnitGroup
@@ -179,31 +176,22 @@ data Parameter = Parameter
     }
     deriving (Generic, NFData)
 
--- | A product system, of which only the parameter sets it ships are read: the engine links by itself.
-data ProductSystem = ProductSystem
-    { psName :: !Text
-    , psSets :: ![ParameterSet]
+{- | A product system as its file states it: the process line it is built
+around, how much, and its parameter sets. Its process list and links are not
+read: the engine links by itself.
+-}
+data SystemDoc = SystemDoc
+    { sdId :: !UUID
+    , sdName :: !Text
+    , sdProcess :: !(Maybe UUID)
+    , sdLine :: !(Maybe Int)
+    -- ^ The @internalId@ of the reference line in that process
+    , sdTarget :: !Double
+    , sdUnit :: !(Maybe UUID)
+    , sdProperty :: !(Maybe UUID)
+    , sdSets :: ![ParameterSet]
     }
     deriving (Generic, NFData)
-
--- | A named set of parameter values, a scenario of the product system.
-data ParameterSet = ParameterSet
-    { setName :: !Text
-    , setValues :: ![Redefinition]
-    }
-    deriving (Generic, NFData)
-
--- | A value a set gives a parameter.
-data Redefinition = Redefinition
-    { rdName :: !Text
-    , rdValue :: !Double
-    , rdContext :: !RedefinitionContext
-    }
-    deriving (Generic, NFData)
-
--- | Whose parameter a redefinition sets: a kind of owner the schema does not name is kept by its name.
-data RedefinitionContext = OfDatabase | OfProcess !UUID | OfImpactCategory !UUID | OfOtherContext !Text
-    deriving (Eq, Show, Generic, NFData)
 
 reference :: A.Value -> A.Parser UUID
 reference = withObject "reference" (.: "@id")
@@ -414,26 +402,38 @@ instance FromJSON Process where
                 , prUnread = [DataQuality | isJust (nonBlank quality)] <> [SocialAspects | not (null social)] <> concatMap rxUnread exchanges
                 }
 
-instance FromJSON ProductSystem where
-    parseJSON = withObject "ProductSystem" $ \o -> ProductSystem <$> o .: "name" <*> o .:? "parameterSets" .!= []
+instance FromJSON SystemDoc where
+    parseJSON = withObject "ProductSystem" $ \o -> do
+        sets <- o .:? "parameterSets" .!= []
+        SystemDoc
+            <$> o .: "@id"
+            <*> o .: "name"
+            <*> optionalReference o "referenceProcess"
+            <*> (o .:? "referenceExchange" >>= traverse (withObject "referenceExchange" (.: "internalId")))
+            <*> o .:? "targetAmount" .!= 1
+            <*> optionalReference o "targetUnit"
+            <*> optionalReference o "targetFlowProperty"
+            <*> traverse parameterSet sets
 
-instance FromJSON ParameterSet where
-    parseJSON = withObject "ParameterRedefSet" $ \o -> ParameterSet <$> o .: "name" <*> o .:? "parameters" .!= []
+parameterSet :: A.Value -> A.Parser ParameterSet
+parameterSet = withObject "ParameterRedefSet" $ \o -> do
+    values <- o .:? "parameters" .!= []
+    ParameterSet <$> o .: "name" <*> traverse redefinition values
 
-instance FromJSON Redefinition where
-    parseJSON = withObject "ParameterRedef" $ \o ->
-        Redefinition
-            <$> o .: "name"
-            <*> o .:? "value" .!= 0
-            <*> (o .:? "context" >>= maybe (pure OfDatabase) context)
-      where
-        context :: A.Value -> A.Parser RedefinitionContext
-        context = withObject "context" $ \c -> do
-            kind <- c .: "@type"
-            case kind :: Text of
-                "Process" -> OfProcess <$> c .: "@id"
-                "ImpactCategory" -> OfImpactCategory <$> c .: "@id"
-                other -> pure (OfOtherContext other)
+redefinition :: A.Value -> A.Parser Redefinition
+redefinition = withObject "ParameterRedef" $ \o ->
+    Redefinition
+        <$> o .: "name"
+        <*> o .:? "value" .!= 0
+        <*> (o .:? "context" >>= maybe (pure OfDatabase) context)
+  where
+    context :: A.Value -> A.Parser RedefinitionContext
+    context = withObject "context" $ \c -> do
+        kind <- c .: "@type"
+        case kind :: Text of
+            "Process" -> OfProcess <$> c .: "@id"
+            "ImpactCategory" -> OfImpactCategory <$> c .: "@id"
+            other -> OfOtherContext other <$> c .:? "@id"
 
 newtype SchemaVersion = SchemaVersion Int
     deriving (Generic, NFData)

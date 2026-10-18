@@ -73,6 +73,6 @@ butter = do
                             , ("yield", parameter (InputParameter 4 Nothing))
                             , ("unused", parameter (InputParameter 9 Nothing))
                             ]
-                    , sdbScenarios = M.empty
+                    , sdbProductSystems = []
                     }
     either (fail . show) (pure . uncurry (convertActivityForAPI db)) (resolveActivityAndProcessId db (UUID.toText process <> "_" <> UUID.toText product'))

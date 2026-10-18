@@ -134,7 +134,7 @@ mkDB acts flows =
         , sdbUnits = M.fromList [(kgUnit, Unit kgUnit "kg" "" ""), (gUnit, Unit gUnit "g" "" ""), (sUnit, Unit sUnit "s" "" "")]
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
 
 ctxFor :: [IndexedDatabase] -> LinkingContext

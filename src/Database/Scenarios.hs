@@ -30,6 +30,7 @@ module Database.Scenarios (
     scenariosOf,
     scenarioProblem,
     listScenarios,
+    savedForExport,
     saveScenario,
     dropScenario,
 ) where
@@ -50,9 +51,10 @@ import API.Types (ParameterValue (..), ScenarioAPI (..))
 import Data.JournalFile (Entry (..), JournalVocabulary (..), appendEntry, readEntries)
 import Database.Edit (WriteRefusal (..))
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), editHome, getDatabase, scenariosHome)
-import Parametric (describeParameterRefusal, instantiate)
+import OlcaSchema.Parser (shippedScenarios)
+import Parametric (Setting (..), describeParameterRefusal, instantiate)
 import Service (serviceMessage, settingsOf)
-import Types (Database (..), ScenarioValue (..), processIdToText)
+import Types (Database (..), ProcessRef (..), ScenarioValue (..), processIdToRef, processIdToText)
 
 -- | The name a scenario is saved under, apart from the name of its database.
 newtype ScenarioName = ScenarioName Text
@@ -114,11 +116,39 @@ listScenarios manager dbName =
                         Left err -> Left (WriteFailed err)
                         Right entries -> Right (scenarioListing (ldDatabase loaded) (scenariosOf entries))
 
+{- | The saved scenarios of a listing as an export writes them, each value's
+process named by its activity, and why each one left out is: one with a
+problem would not apply to the database read back either.
+-}
+savedForExport :: Database -> [ScenarioAPI] -> (M.Map Text [ScenarioValue], [Text])
+savedForExport db scenarios =
+    ( M.fromList [(saName s, values) | (s, Right values) <- resolved]
+    , [saName s <> ": " <> why | (s, Left why) <- resolved]
+    )
+  where
+    resolved :: [(ScenarioAPI, Either Text [ScenarioValue])]
+    resolved = [(s, resolve s) | s <- scenarios, not (saShipped s)]
+
+    resolve :: ScenarioAPI -> Either Text [ScenarioValue]
+    resolve s = do
+        maybe (Right ()) Left (saProblem s)
+        settings <- first serviceMessage (settingsOf db (saParameters s))
+        traverse value settings
+
+    value :: Setting -> Either Text ScenarioValue
+    value Setting{settingProcess = pid, settingName = name, settingValue = v} = do
+        process <- traverse (maybe (Left "its process is not in the database") (Right . prActivity) . processIdToRef db) pid
+        Right ScenarioValue{svProcess = process, svName = name, svValue = v}
+
+-- | The scenarios the database ships, by name.
+shipped :: Database -> M.Map Text [ScenarioValue]
+shipped = fst . shippedScenarios . dbProductSystems
+
 -- | The shipped scenarios no saved one replaces, then the saved ones, each with its problem.
 scenarioListing :: Database -> M.Map Text [ParameterValue] -> [ScenarioAPI]
 scenarioListing db saved =
     [ ScenarioAPI{saName = name, saParameters = values, saProblem = scenarioProblem db values, saShipped = True}
-    | (name, values) <- M.toList (M.map (map (shippedValue db)) (dbScenarios db))
+    | (name, values) <- M.toList (M.map (map (shippedValue db)) (shipped db))
     , M.notMember name saved
     ]
         <> [ScenarioAPI{saName = name, saParameters = values, saProblem = scenarioProblem db values, saShipped = False} | (name, values) <- M.toList saved]
@@ -147,7 +177,7 @@ saveScenario manager dbName (ScenarioName name) values
     | null values = pure (Left (Malformed ["The scenario '" <> name <> "' sets no parameter: the defaults need no scenario."]))
     | otherwise = withScenarios manager dbName $ \db home saved ->
         -- One saved before the database shipped a scenario of its name is the one listed, so it stays replaceable.
-        if M.member name (dbScenarios db) && M.notMember name saved
+        if M.member name (shipped db) && M.notMember name saved
             then pure (Left (Malformed ["The scenario '" <> name <> "' ships with the database: save under another name."]))
             else case scenarioProblem db values of
                 Just problem -> pure (Left (Malformed [problem]))
@@ -160,7 +190,7 @@ dropScenario manager dbName (ScenarioName name) = withScenarios manager dbName $
         then first WriteFailed <$> appendEntry home (Dropped name)
         else
             pure . Left $
-                if M.member name (dbScenarios db)
+                if M.member name (shipped db)
                     then Malformed ["The scenario '" <> name <> "' ships with the database, and comes back at the next load."]
                     else NotPresent ["scenario '" <> name <> "'"]
 

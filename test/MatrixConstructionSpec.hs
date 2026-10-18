@@ -211,7 +211,7 @@ spec = do
                         , sdbUnits = unitDB
                         , sdbDocumentation = noDocumentation
                         , sdbParameters = M.empty
-                        , sdbScenarios = M.empty
+                        , sdbProductSystems = []
                         }
             case result of
                 Left err -> expectationFailure $ "buildDatabaseWithMatrices failed: " <> T.unpack err
@@ -301,7 +301,7 @@ spec = do
                         , sdbUnits = unitDB
                         , sdbDocumentation = noDocumentation
                         , sdbParameters = M.empty
-                        , sdbScenarios = M.empty
+                        , sdbProductSystems = []
                         }
             case result of
                 Left err -> expectationFailure $ "buildDatabaseWithMatrices failed: " <> T.unpack err
@@ -433,7 +433,7 @@ spec = do
                         , sdbUnits = unitDB
                         , sdbDocumentation = noDocumentation
                         , sdbParameters = M.empty
-                        , sdbScenarios = M.empty
+                        , sdbProductSystems = []
                         }
             case result of
                 Left err -> expectationFailure $ "buildDatabaseWithMatrices failed: " <> T.unpack err

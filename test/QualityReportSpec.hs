@@ -232,7 +232,7 @@ dbOf acts =
                 ]
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
 
 -- | The report of a one-activity database, for the many single-defect cases.

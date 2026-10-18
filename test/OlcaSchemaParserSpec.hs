@@ -163,8 +163,22 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         [what | Divergent what <- builtNotices b, "steel production" `T.isPrefixOf` what] `shouldBe` []
 
     it "keeps the parameter sets of the product systems as scenarios, named by system and set" $ \(b, _) ->
-        sdbScenarios (builtDatabase b)
+        fst (shippedScenarios (sdbProductSystems (builtDatabase b)))
             `shouldBe` M.fromList [("Widgets: Baseline", [ScenarioValue Nothing "leak_method" 1, ScenarioValue (Just formulasJ) "a" 3])]
+
+    it "keeps each product system's reference row and target in its flow's unit, and every set as read" $ \(b, _) ->
+        [(systemName s, systemReference s, systemTarget s, map parameterSetName (systemSets s)) | s <- sdbProductSystems (builtDatabase b)]
+            `shouldBe` [ ("Widgets", Just (ProcessRef formulasJ widgetF), 2, ["Baseline", "High", "Method only", "Empty"])
+                       , ("Widgets", Just (ProcessRef formulasJ widgetF), 500, ["High"])
+                       , ("Lost line", Nothing, 1, [])
+                       , ("Wrong unit", Nothing, 1, [])
+                       ]
+
+    it "says which product systems have a reference it cannot tell, and why" $ \(b, _) ->
+        [what | Unreferenced what <- builtNotices b]
+            `shouldBe` [ "Lost line: its reference line 9 is not a line of process " <> UUID.toText formulasJ
+                       , "Wrong unit: its target unit has no factor to the reference flow's unit"
+                       ]
 
     it "leaves out two sets of one name, a set of nothing the engine reads, and the values it does not read, and says so" $ \(b, _) -> do
         [what | ScenarioLeftOut what <- builtNotices b]

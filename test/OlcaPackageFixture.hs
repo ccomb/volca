@@ -10,6 +10,7 @@ boolean only when it is true.
 module OlcaPackageFixture (
     writePackage,
     throughPackage,
+    throughPackageSaving,
     kgU,
     lbU,
     tU,
@@ -59,6 +60,7 @@ import Data.Aeson (Value, object, (.=))
 import qualified Data.Aeson as A
 import qualified Data.Aeson.Key as Key
 import qualified Data.ByteString as BS
+import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -71,7 +73,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import OlcaSchema.Package (readPackage)
 import OlcaSchema.Parser (Built (..), buildDatabase)
 import OlcaSchema.Writer (serializeOlcaPackage)
-import Types (AllocationKey (..), SimpleDatabase)
+import Types (AllocationKey (..), ScenarioValue, SimpleDatabase)
 import UnitConversion (defaultUnitConfig)
 
 -- | Identifiers that read as what they are when a test prints one.
@@ -130,8 +132,12 @@ pairN = uid 315
 
 -- | A database written as a package, then read back as the reader reads one.
 throughPackage :: SimpleDatabase -> IO SimpleDatabase
-throughPackage sdb = withSystemTempDirectory "olca-written" $ \dir -> do
-    (files, _) <- either (fail . T.unpack) pure (serializeOlcaPackage defaultUnitConfig sdb)
+throughPackage = throughPackageSaving M.empty
+
+-- | A database written as a package with these saved scenarios, then read back.
+throughPackageSaving :: M.Map Text [ScenarioValue] -> SimpleDatabase -> IO SimpleDatabase
+throughPackageSaving saved sdb = withSystemTempDirectory "olca-written" $ \dir -> do
+    (files, _) <- either (fail . T.unpack) pure (serializeOlcaPackage defaultUnitConfig saved sdb)
     forM_ files $ \(path, bytes) -> do
         createDirectoryIfMissing True (takeDirectory (dir </> path))
         BS.writeFile (dir </> path) bytes
@@ -159,19 +165,34 @@ writePackage dir = do
 ref :: UUID -> Value
 ref i = object ["@id" .= i]
 
-{- | Two product systems of one name, so their sets named alike collide. The
-first's "Baseline" sets a global parameter, a process's own, and an impact
-category's; its "Method only" sets only parameters the engine does not read,
-one of a kind the schema does not name; its "Empty" sets none.
+{- | Two product systems of one name around the widget, so their sets named
+alike collide: 2 kg of it, and half a tonne. The first's "Baseline" sets a
+global parameter, a process's own, and an impact category's; its "Method
+only" sets only parameters the engine does not read, one of a kind the schema
+does not name; its "Empty" sets none. Two more name a line the widget process
+does not have, and a target in a unit of energy, and have no reference.
 -}
 productSystems :: [(UUID, Value)]
 productSystems =
-    [ system (uid 501) [("Baseline", [redef "leak_method" 1 Nothing, redef "a" 3 (Just ("Process", formulasJ)), redef "cf" 2 (Just ("ImpactCategory", uid 601))]), ("High", [redef "a" 5 (Just ("Process", formulasJ))]), ("Method only", [redef "cf" 4 (Just ("ImpactCategory", uid 601)), redef "m" 1 (Just ("ImpactMethod", uid 602))]), ("Empty", [])]
-    , system (uid 502) [("High", [redef "a" 6 (Just ("Process", formulasJ))])]
+    [ system (uid 501) "Widgets" 1 (2, kgU) [("Baseline", [redef "leak_method" 1 Nothing, redef "a" 3 (Just ("Process", formulasJ)), redef "cf" 2 (Just ("ImpactCategory", uid 601))]), ("High", [redef "a" 5 (Just ("Process", formulasJ))]), ("Method only", [redef "cf" 4 (Just ("ImpactCategory", uid 601)), redef "m" 1 (Just ("ImpactMethod", uid 602))]), ("Empty", [])]
+    , system (uid 502) "Widgets" 1 (0.5, tU) [("High", [redef "a" 6 (Just ("Process", formulasJ))])]
+    , system (uid 503) "Lost line" 9 (1, kgU) []
+    , system (uid 504) "Wrong unit" 1 (1, mjU) []
     ]
   where
-    system :: UUID -> [(Text, [Value])] -> (UUID, Value)
-    system i sets = (i, object ["@id" .= i, "name" .= ("Widgets" :: Text), "parameterSets" .= [object ["name" .= name, "parameters" .= values] | (name, values) <- sets]])
+    system :: UUID -> Text -> Int -> (Double, UUID) -> [(Text, [Value])] -> (UUID, Value)
+    system i name line (target, targetUnit) sets =
+        ( i
+        , object
+            [ "@id" .= i
+            , "name" .= name
+            , "referenceProcess" .= ref formulasJ
+            , "referenceExchange" .= object ["internalId" .= line]
+            , "targetAmount" .= target
+            , "targetUnit" .= ref targetUnit
+            , "parameterSets" .= [object ["name" .= setName, "parameters" .= values] | (setName, values) <- sets]
+            ]
+        )
     redef :: Text -> Double -> Maybe (Text, UUID) -> Value
     redef name value context = object (["name" .= name, "value" .= value] <> [Key.fromText "context" .= object ["@type" .= kind, "@id" .= i] | Just (kind, i) <- [context]])
 

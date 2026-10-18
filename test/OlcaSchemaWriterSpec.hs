@@ -11,6 +11,7 @@ import Data.Aeson (Value (..), decodeStrict)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
+import qualified Data.Set as S
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
@@ -22,7 +23,7 @@ import ILCD.Writer (ilcdProcessUUID, sharedActivityUUIDs)
 import Matrix (computeInventoryMatrix)
 import OlcaPackageFixture
 import OlcaSchema.Package (readPackage)
-import OlcaSchema.Parser (Built (..), buildDatabase)
+import OlcaSchema.Parser (Built (..), buildDatabase, shippedScenarios)
 import OlcaSchema.Writer (locationId, serializeOlcaPackage)
 import Types
 import UnitConversion (buildFromCSV, defaultUnitConfig)
@@ -46,7 +47,7 @@ near :: Double -> Double -> Bool
 near a b = abs (a - b) <= 1e-9 * max 1 (max (abs a) (abs b))
 
 written :: SimpleDatabase -> [(FilePath, Value)]
-written sdb = case serializeOlcaPackage defaultUnitConfig sdb of
+written sdb = case serializeOlcaPackage defaultUnitConfig M.empty sdb of
     Left why -> error (T.unpack why)
     Right (files, _) -> [(path, fromMaybe Null (decodeStrict bytes)) | (path, bytes) <- files]
 
@@ -82,7 +83,7 @@ oneProcess lines' =
         , sdbUnits = M.singleton kg (Unit kg "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     activity =
@@ -107,14 +108,41 @@ bio :: UUID -> Double -> BioDirection -> Exchange
 bio flow amount dir = BiosphereExchange flow amount kg dir "" Nothing Nothing Nothing
 
 warned :: SimpleDatabase -> [T.Text]
-warned sdb = either (error . T.unpack) snd (serializeOlcaPackage defaultUnitConfig sdb)
+warned sdb = either (error . T.unpack) snd (serializeOlcaPackage defaultUnitConfig M.empty sdb)
 
 -- | The elementary amounts of a database, in the order its lines are given.
 bioAmounts :: SimpleDatabase -> [Double]
 bioAmounts sdb = [exchangeAmount ex | a <- M.elems (sdbActivities sdb), ex <- exchanges a, isBiosphereExchange ex]
 
+-- | The product system documents written with these saved scenarios, by id, and the warnings: a refusal is one, with no document.
+systemDocs :: M.Map T.Text [ScenarioValue] -> SimpleDatabase -> (M.Map UUID (KM.KeyMap Value), [T.Text])
+systemDocs saved sdb = case serializeOlcaPackage defaultUnitConfig saved sdb of
+    Left why -> (M.empty, [why])
+    Right (files, warnings) ->
+        ( M.fromList [(i, doc) | (path, bytes) <- files, take 16 path == "product_systems/", Just (Object doc) <- [decodeStrict bytes], Just (String t) <- [KM.lookup "@id" doc], Just i <- [UUID.fromText t]]
+        , warnings
+        )
+
+-- | The written ids a field of a document lists, each under @\@id@ or under one more key.
+idsAt :: [KM.Key] -> KM.KeyMap Value -> [UUID]
+idsAt path doc = [i | v <- go path (Object doc), String t <- [v], Just i <- [UUID.fromText t]]
+  where
+    go :: [KM.Key] -> Value -> [Value]
+    go keys value = case (keys, value) of
+        ([], _) -> [value]
+        (_, Array xs) -> concatMap (go keys) (V.toList xs)
+        (k : rest, Object o) -> maybe [] (go rest) (KM.lookup k o)
+        (_ : _, _) -> []
+
+sid :: Word -> UUID
+sid = UUID.fromWords 0 0 7 . fromIntegral
+
+-- | A product system with no set, around the row given.
+system :: Word -> T.Text -> (UUID, UUID) -> ProductSystem
+system n name (activity, product) = ProductSystem{systemId = sid n, systemName = name, systemReference = Just (ProcessRef activity product), systemTarget = 1, systemSets = []}
+
 refused :: SimpleDatabase -> T.Text -> Expectation
-refused sdb because = case serializeOlcaPackage defaultUnitConfig sdb of
+refused sdb because = case serializeOlcaPackage defaultUnitConfig M.empty sdb of
     Left why -> T.unpack why `shouldContain` T.unpack because
     Right _ -> expectationFailure "the export was not refused"
 
@@ -136,7 +164,7 @@ spec = describe "an openLCA package written from a database" $ do
     it "writes the same bytes once read back" $ do
         once <- throughPackage =<< fixture
         twice <- throughPackage once
-        serializeOlcaPackage defaultUnitConfig twice `shouldBe` serializeOlcaPackage defaultUnitConfig once
+        serializeOlcaPackage defaultUnitConfig M.empty twice `shouldBe` serializeOlcaPackage defaultUnitConfig M.empty once
 
     it "identifies a location as openLCA does, from its code in lower case" $ do
         locationId "us" `shouldBe` read "0b3b97fa-6688-3c56-88ee-4ae80ec0c3c2"
@@ -172,7 +200,7 @@ spec = describe "an openLCA package written from a database" $ do
         let g = UUID.fromWords 9 0 0 9
             sdb = (oneProcess [BiosphereExchange co2 1500 g Emission "" Nothing Nothing Nothing]){sdbUnits = M.fromList [(kg, Unit kg "kg" "kg" ""), (g, Unit g "g" "g" "")]}
             grams = either (error . T.unpack) id (buildFromCSV "name,dimension,factor\nkg,mass,1.0\ng,mass,0.001\n")
-        case serializeOlcaPackage grams sdb of
+        case serializeOlcaPackage grams M.empty sdb of
             Left why -> expectationFailure (T.unpack why)
             Right (files, _) ->
                 [ KM.lookup "amount" line
@@ -190,6 +218,74 @@ spec = describe "an openLCA package written from a database" $ do
         back <- throughPackage sdb
         [activityLocation a | a <- M.elems (sdbActivities back)] `shouldBe` ["us"]
         T.concat (warned sdb) `shouldSatisfy` T.isInfixOf "US as us"
+
+    describe "product systems" $ do
+        let recycling =
+                (system 1 "Recycling" (recyclingI, recycledF))
+                    { systemTarget = 3
+                    , systemSets = [ParameterSet "Base" [Redefinition "leak_method" 2 OfDatabase, Redefinition "cf" 1 (OfImpactCategory (sid 601))], ParameterSet "Empty" []]
+                    }
+            withSystems systems sdb = sdb{sdbProductSystems = systems}
+            setsOf db = [(systemName s, [(parameterSetName set, [(redefinedName r, redefinedValue r) | r <- parameterSetValues set]) | set <- systemSets s]) | s <- sdbProductSystems db]
+
+        it "come back with their id, reference, target and sets, those the engine does not read among them" $ do
+            db <- withSystems [recycling] <$> fixture
+            back <- throughPackage db
+            sdbProductSystems back `shouldBe` [recycling]
+
+        it "list the processes their reference reaches through its suppliers and the treatment of its waste, each line linked to the line's own" $ do
+            db <- withSystems [recycling] <$> fixture
+            let (docs, _) = systemDocs M.empty db
+                doc = M.findWithDefault KM.empty (sid 1) docs
+                processDocs = M.fromList [(i, d) | (path, Object d) <- written db, take 10 path == "processes/", Just (String t) <- [KM.lookup "@id" d], Just i <- [UUID.fromText t]]
+                lineAt process n = [x | Just (Array xs) <- [KM.lookup "exchanges" =<< M.lookup process processDocs], Object x <- V.toList xs, KM.lookup "internalId" x == Just (Number n)]
+            -- Steel sends its slag to its treatment, which buys electricity of the aggregated process.
+            S.fromList (idsAt ["processes", "@id"] doc) `shouldBe` S.fromList [recyclingI, elecB, elecB2, steelA, gasP, slagD]
+            idsAt ["referenceProcess", "@id"] doc `shouldBe` [recyclingI]
+            [KM.lookup "isQuantitativeReference" x | Just (Object r) <- [KM.lookup "referenceExchange" doc], Just (Number n) <- [KM.lookup "internalId" r], x <- lineAt recyclingI n] `shouldBe` [Just (Bool True)]
+            let links = [l | Just (Array ls) <- [KM.lookup "processLinks" doc], Object l <- V.toList ls]
+            length links `shouldBe` 6
+            forM_ links $ \l -> do
+                let lines' = [x | Just (Object e) <- [KM.lookup "exchange" l], Just (Number n) <- [KM.lookup "internalId" e], process <- idsAt ["process", "@id"] l, x <- lineAt process n]
+                [(idsAt ["flow", "@id"] x, idsAt ["defaultProvider", "@id"] x) | x <- lines'] `shouldBe` [(idsAt ["flow", "@id"] l, idsAt ["provider", "@id"] l)]
+
+        it "keep a waste treatment's target positive, and count the lines linked to no process" $ do
+            db <- withSystems [(system 2 "Slag" (slagD, slagF)){systemTarget = 4}] <$> fixture
+            back <- throughPackage db
+            map systemTarget (sdbProductSystems back) `shouldBe` [4]
+            let unlinked ex = case ex of
+                    TechnosphereExchange{techRole = Input} -> ex{techActivityLinkId = Nothing}
+                    _ -> ex
+                unsupplied = M.adjust (\a -> a{exchanges = map unlinked (exchanges a)}) (slagD, slagF) (sdbActivities db)
+            T.unlines (snd (systemDocs M.empty db)) `shouldNotSatisfy` T.isInfixOf "linked to no process"
+            T.unlines (snd (systemDocs M.empty db{sdbActivities = unsupplied})) `shouldSatisfy` T.isInfixOf "Slag: 1 lines"
+
+        it "give a process's value to every row of its block" $ do
+            db <- withSystems [recycling{systemSets = [ParameterSet "Split" [Redefinition "share" 1 (OfProcess cogenF)]]}] <$> fixture
+            let shared = sharedActivityUUIDs db
+            S.fromList (idsAt ["parameterSets", "parameters", "context", "@id"] (M.findWithDefault KM.empty (sid 1) (fst (systemDocs M.empty db))))
+                `shouldBe` S.fromList [ilcdProcessUUID shared (cogenF, heatF), ilcdProcessUUID shared (cogenF, powerF)]
+
+        it "carry a saved scenario in place of the set it is named after, and any other on the first system named once" $ do
+            db <- withSystems [recycling, system 2 "Slag" (slagD, slagF)] <$> fixture
+            back <-
+                throughPackageSaving
+                    (M.fromList [("Recycling: Base", [ScenarioValue Nothing "leak_method" 5]), ("Hot", [ScenarioValue (Just formulasJ) "a" 7])])
+                    db
+            setsOf back `shouldBe` [("Recycling", [("Base", [("leak_method", 5)]), ("Empty", []), ("Hot", [("a", 7)])]), ("Slag", [])]
+
+        it "write a saved scenario once beside two systems of one name, so it reads back once" $ do
+            db <- withSystems [system 4 "Twin" (slagD, slagF), system 5 "Twin" (recyclingI, recycledF), system 2 "Slag" (slagD, slagF)] <$> fixture
+            back <- throughPackageSaving (M.fromList [("Hot", [ScenarioValue Nothing "leak_method" 5]), ("Twin: Cold", [ScenarioValue Nothing "leak_method" 0])]) db
+            M.keys (fst (shippedScenarios (sdbProductSystems back))) `shouldBe` ["Slag: Hot", "Twin: Cold"]
+
+        it "leave out, and say so, a system whose reference the database does not hold, a value of a process it does not hold, and a saved scenario with no system" $ do
+            db <- withSystems [system 6 "Gone" (sid 999, sid 998), recycling{systemSets = [ParameterSet "Base" [Redefinition "a" 1 (OfProcess (sid 997))]]}] <$> fixture
+            let (docs, warnings) = systemDocs M.empty db
+            M.keys docs `shouldBe` [sid 1]
+            T.unlines warnings `shouldSatisfy` T.isInfixOf "1 product systems reference a process the database does not hold"
+            T.unlines warnings `shouldSatisfy` T.isInfixOf "Recycling: Base · a"
+            T.unlines (snd (systemDocs (M.singleton "Hot" [ScenarioValue Nothing "leak_method" 5]) (withSystems [] db))) `shouldSatisfy` T.isInfixOf "1 saved scenarios are not in the export"
 
     describe "refuses what it would carry wrong" $ do
         it "a line in a unit that does not convert to its flow's" $ do

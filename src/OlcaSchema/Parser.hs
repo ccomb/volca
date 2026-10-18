@@ -21,12 +21,14 @@ module OlcaSchema.Parser (
     Notice (..),
     describeNotices,
     directionOf,
+    shippedScenarios,
 ) where
 
 import Control.DeepSeq (NFData, force)
 import Control.Monad (guard)
 import Data.Bifunctor (first)
 import Data.Either (partitionEithers, rights)
+import qualified Data.IntSet as IS
 import Data.List (find)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -69,6 +71,8 @@ data Notice
       ScenarioLeftOut !Text
     | -- | A parameter set's value for a parameter the engine does not read, such as an impact category's.
       ValueLeftOut !Text
+    | -- | A product system whose reference the reader cannot tell, and why.
+      Unreferenced !Text
     deriving (Eq, Show, Generic, NFData)
 
 data Built = Built
@@ -104,6 +108,8 @@ data Context = Context
     , cxAllocating :: !Allocating
     , cxGlobals :: !(M.Map Text Double, [(Text, Expr.Unsettled)])
     -- ^ The package's global parameters settled among themselves, and those left with no value
+    , cxReferenceLines :: !(M.Map UUID IS.IntSet)
+    -- ^ For each process, the lines a product system names as its reference
     }
 
 buildDatabase :: UnitConfig -> AllocationKey -> P.Package -> Either Text Built
@@ -115,7 +121,9 @@ buildDatabase cfg key pkg =
     producers `seq` case partitionEithers (map (force . readProcess cx) (P.pkProcesses pkg)) of
         ([], processes) -> do
             activities <- first describeRepeated (uniqueIndex (concatMap rpActivities processes))
-            let (scenarios, scenarioNotices) = shippedScenarios (P.pkProductSystems pkg)
+            let referenceFlows = M.fromList [((rlProcess r, rlLine r), rlFlow r) | p <- processes, r <- rpReferenceLines p]
+                (systems, systemNotices) = unzip (map (productSystem pkg activities referenceFlows) (P.pkProductSystems pkg))
+                scenarioNotices = snd (shippedScenarios systems)
             Right
                 Built
                     { builtDatabase =
@@ -127,9 +135,9 @@ buildDatabase cfg key pkg =
                             , sdbUnits = unitDB
                             , sdbDocumentation = noDocumentation
                             , sdbParameters = M.fromList [(P.paName q, parameter globalValues q) | q <- globals]
-                            , sdbScenarios = scenarios
+                            , sdbProductSystems = systems
                             }
-                    , builtNotices = ftNotices tables <> concatMap rpNotices processes <> scenarioNotices
+                    , builtNotices = ftNotices tables <> concatMap rpNotices processes <> concat systemNotices <> scenarioNotices
                     }
         (failures, _) -> Left (describeUnreadable (concat failures))
   where
@@ -163,6 +171,7 @@ buildDatabase cfg key pkg =
             , cxProducers = producers
             , cxAllocating = Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitDB}
             , cxGlobals = (globalValues, globalUnsettled)
+            , cxReferenceLines = M.fromListWith IS.union [(process, IS.singleton line) | P.SystemDoc{P.sdProcess = Just process, P.sdLine = Just line} <- P.pkProductSystems pkg]
             }
 
 -- | Two activities of one (process, product). Once a process's lines of one product are merged this cannot happen, so it is reported rather than one silently dropped.
@@ -337,6 +346,16 @@ choose producers = case M.keys producers of
 data ReadProcess = ReadProcess
     { rpActivities :: ![((UUID, UUID), Activity)]
     , rpNotices :: ![Notice]
+    , rpReferenceLines :: ![ReferenceLine]
+    -- ^ The lines of the process a product system names as its reference
+    }
+    deriving (Generic, NFData)
+
+-- | A line a product system names as its reference, kept for its flow once the process's lines are let go.
+data ReferenceLine = ReferenceLine
+    { rlProcess :: !UUID
+    , rlLine :: !Int
+    , rlFlow :: !UUID
     }
     deriving (Generic, NFData)
 
@@ -442,7 +461,7 @@ readLine cx p env at raw = do
     let named = P.prName p <> " · " <> P.flName flow
         (amount, outcome) = computed env (P.rxAmount raw) (P.rxFormula raw)
     unit <- maybe (Left (NoReferenceUnit named)) Right (M.lookup (P.flId flow) (cxFlowUnits cx))
-    factor <- maybe (Left (NoConversion named)) Right (toReference pkg flow raw)
+    factor <- maybe (Left (NoConversion named)) Right (toReference pkg flow (P.rxUnit raw) (P.rxProperty raw))
     let converted = amount * factor
     pure Line{lnAt = at, lnRaw = raw, lnFlow = flow, lnUnit = unit, lnAmount = converted, lnFormula = (\formula -> lineFormula env factor formula converted) =<< P.rxFormula raw, lnOutcome = outcome}
   where
@@ -470,15 +489,15 @@ computed env stored formula' = case formula' of
             | abs (value - stored) <= 1e-9 * max 1 (max (abs value) (abs stored)) -> (value, Agrees)
             | otherwise -> (value, Diverges stored)
 
-{- | What one of a line's unit is in the flow's reference unit: the unit's
-factor in its group, then, for a line stated in another property than the
-flow's own (a gas in megajoules), the flow's factor for that property.
+{- | What one of a unit is in the flow's reference unit: the unit's factor in
+its group, then, for a unit of another property than the flow's own (a gas in
+megajoules), the flow's factor for that property.
 -}
-toReference :: P.Package -> P.Flow -> P.RawExchange -> Maybe Double
-toReference pkg flow raw = do
-    let property = fromMaybe (P.flReference flow) (P.rxProperty raw)
+toReference :: P.Package -> P.Flow -> UUID -> Maybe UUID -> Maybe Double
+toReference pkg flow unit stated = do
+    let property = fromMaybe (P.flReference flow) stated
     groupId <- M.lookup property (P.pkPropertyGroups pkg)
-    entry <- M.lookup (P.rxUnit raw) . P.ugUnits =<< M.lookup groupId (P.pkUnitGroups pkg)
+    entry <- M.lookup unit . P.ugUnits =<< M.lookup groupId (P.pkUnitGroups pkg)
     factor <- M.lookup property (P.flFactors flow)
     guard (factor /= 0)
     pure (P.ueFactor entry / factor)
@@ -594,6 +613,13 @@ assemble cx p env notices lines' =
             | a <- NE.toList (allocateWith (cxAllocating cx) (exchangeShares (spPairs division)) activity)
             ]
         , rpNotices = notices <> spNotices division <> concatMap snd built <> map NotRead (P.prUnread p)
+        , rpReferenceLines =
+            [ ReferenceLine{rlProcess = P.prId p, rlLine = P.rxInternalId raw, rlFlow = P.rxFlow raw}
+            | let named = M.findWithDefault IS.empty (P.prId p) (cxReferenceLines cx)
+            , not (IS.null named)
+            , raw <- P.prExchanges p
+            , IS.member (P.rxInternalId raw) named
+            ]
         }
   where
     products :: [Line]
@@ -633,39 +659,68 @@ assemble cx p env notices lines' =
     referenceFlow :: Activity -> UUID
     referenceFlow a = fromMaybe (P.prId p) (listToMaybe [exchangeFlowId ex | ex <- exchanges a, exchangeIsReference ex])
 
+{- | A product system as the engine keeps it: its reference row and target in
+the reference flow's unit when the reader can tell them, and why not
+otherwise. A target in a unit with no factor to the flow's is no target: no
+factor of 1 is assumed.
+-}
+productSystem :: P.Package -> M.Map (UUID, UUID) Activity -> M.Map (UUID, Int) UUID -> P.SystemDoc -> (ProductSystem, [Notice])
+productSystem pkg activities referenceFlows doc = case reference of
+    Right (row, target) -> (system (Just row) target, [])
+    Left why -> (system Nothing (P.sdTarget doc), [Unreferenced (P.sdName doc <> ": " <> why)])
+  where
+    system :: Maybe ProcessRef -> Double -> ProductSystem
+    system row target = ProductSystem{systemId = P.sdId doc, systemName = P.sdName doc, systemReference = row, systemTarget = target, systemSets = P.sdSets doc}
+
+    reference :: Either Text (ProcessRef, Double)
+    reference = do
+        process <- maybe (Left "it names no reference process") Right (P.sdProcess doc)
+        line <- maybe (Left "it names no reference line") Right (P.sdLine doc)
+        flowId <- maybe (Left ("its reference line " <> T.pack (show line) <> " is not a line of process " <> UUID.toText process)) Right (M.lookup (process, line) referenceFlows)
+        let row = ProcessRef process flowId
+        unlessRow (M.member (process, flowId) activities) ("its reference line is no product of its own in process " <> UUID.toText process)
+        flow <- maybe (Left ("its reference flow " <> UUID.toText flowId <> " is not in the package")) Right (M.lookup flowId (P.pkFlows pkg))
+        factor <- case P.sdUnit doc of
+            Nothing -> Right 1
+            Just unit -> maybe (Left "its target unit has no factor to the reference flow's unit") Right (toReference pkg flow unit (P.sdProperty doc))
+        pure (row, P.sdTarget doc * factor)
+
+    unlessRow :: Bool -> Text -> Either Text ()
+    unlessRow held why = if held then Right () else Left why
+
 {- | The scenarios the product systems ship, each named by its system and its
 set, so two systems' sets of one name stay apart. Two sets that still share a
 name are both left out: which one openLCA meant is not ours to guess. A set
 with no value, as openLCA may write a product system's baseline, is no
 scenario.
 -}
-shippedScenarios :: [P.ProductSystem] -> (M.Map Text [ScenarioValue], [Notice])
+shippedScenarios :: [ProductSystem] -> (M.Map Text [ScenarioValue], [Notice])
 shippedScenarios systems =
     ( M.mapMaybe (either (const Nothing) Just) scenarios
     , [ScenarioLeftOut why | Left why <- M.elems scenarios]
-        <> [ValueLeftOut (name <> " · " <> P.rdName r <> ", " <> why) | (name, set) <- sets, r <- P.setValues set, Left why <- [scenarioValue r]]
+        <> [ValueLeftOut (name <> " · " <> redefinedName r <> ", " <> why) | (name, set) <- sets, r <- parameterSetValues set, Left why <- [scenarioValue r]]
     )
   where
-    sets :: [(Text, P.ParameterSet)]
-    sets = [(P.psName system <> ": " <> P.setName set, set) | system <- systems, set <- P.psSets system, not (null (P.setValues set))]
+    sets :: [(Text, ParameterSet)]
+    sets = [(systemName system <> ": " <> parameterSetName set, set) | system <- systems, set <- systemSets system, not (null (parameterSetValues set))]
 
     scenarios :: M.Map Text (Either Text [ScenarioValue])
     scenarios = M.mapWithKey scenario (M.fromListWith (flip (<>)) [(name, [set]) | (name, set) <- sets])
 
-    scenario :: Text -> [P.ParameterSet] -> Either Text [ScenarioValue]
+    scenario :: Text -> [ParameterSet] -> Either Text [ScenarioValue]
     scenario name = \case
-        [set] -> case rights (map scenarioValue (P.setValues set)) of
+        [set] -> case rights (map scenarioValue (parameterSetValues set)) of
             [] -> Left (name <> ": sets no parameter the engine reads")
             values -> Right values
         repeated -> Left (name <> ": " <> T.pack (show (length repeated)) <> " parameter sets of this name")
 
     -- The value a scenario keeps, or whose parameter it sets when the engine reads none of that kind.
-    scenarioValue :: P.Redefinition -> Either Text ScenarioValue
-    scenarioValue r = case P.rdContext r of
-        P.OfDatabase -> Right ScenarioValue{svProcess = Nothing, svName = P.rdName r, svValue = P.rdValue r}
-        P.OfProcess process -> Right ScenarioValue{svProcess = Just process, svName = P.rdName r, svValue = P.rdValue r}
-        P.OfImpactCategory _ -> Left "an impact category's parameter"
-        P.OfOtherContext kind -> Left ("a parameter of a " <> kind)
+    scenarioValue :: Redefinition -> Either Text ScenarioValue
+    scenarioValue r = case redefinedContext r of
+        OfDatabase -> Right ScenarioValue{svProcess = Nothing, svName = redefinedName r, svValue = redefinedValue r}
+        OfProcess process -> Right ScenarioValue{svProcess = Just process, svName = redefinedName r, svValue = redefinedValue r}
+        OfImpactCategory _ -> Left "an impact category's parameter"
+        OfOtherContext kind _ -> Left ("a parameter of a " <> kind)
 
 formulaCheck :: [Line] -> Maybe FormulaCheck
 formulaCheck lines'
@@ -849,3 +904,4 @@ describeNotices notices =
         NotRead P.Costs -> ("lines with a cost: costs are not read yet", Nothing)
         ScenarioLeftOut what -> ("parameter sets of the product systems are not kept as scenarios:", Just what)
         ValueLeftOut what -> ("parameter set values the engine does not read are left out:", Just what)
+        Unreferenced what -> ("product systems have a reference the reader cannot tell, and an openLCA export leaves them out:", Just what)

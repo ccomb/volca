@@ -88,7 +88,7 @@ data ProcessRef = ProcessRef
     { prActivity :: !UUID
     , prProduct :: !UUID
     }
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Generic, NFData, Store)
 
 {- | The medium a biosphere flow exchanges with.
 
@@ -1696,6 +1696,40 @@ data ScenarioValue = ScenarioValue
     }
     deriving (Eq, Show, Generic, NFData, Store)
 
+{- | A product system an openLCA package ships: the row it is built around,
+how much of its product, and its parameter sets as the file states them,
+which the engine lists as scenarios and an openLCA export writes back.
+-}
+data ProductSystem = ProductSystem
+    { systemId :: !UUID
+    , systemName :: !Text
+    , systemReference :: !(Maybe ProcessRef)
+    -- ^ The row of its reference product, or none when the reader could not tell it.
+    , systemTarget :: !Double
+    -- ^ How much of the reference product, positive, in its flow's reference unit.
+    , systemSets :: ![ParameterSet]
+    }
+    deriving (Eq, Show, Generic, NFData, Store)
+
+-- | A named set of parameter values, a scenario of a product system.
+data ParameterSet = ParameterSet
+    { parameterSetName :: !Text
+    , parameterSetValues :: ![Redefinition]
+    }
+    deriving (Eq, Show, Generic, NFData, Store)
+
+-- | A value a set gives a parameter.
+data Redefinition = Redefinition
+    { redefinedName :: !Text
+    , redefinedValue :: !Double
+    , redefinedContext :: !RedefinitionContext
+    }
+    deriving (Eq, Show, Generic, NFData, Store)
+
+-- | Whose parameter a redefinition sets: a kind of owner the schema does not name is kept as stated.
+data RedefinitionContext = OfDatabase | OfProcess !UUID | OfImpactCategory !UUID | OfOtherContext !Text !(Maybe UUID)
+    deriving (Eq, Show, Generic, NFData, Store)
+
 -- | Complete database with indexes for efficient searches
 data Database = Database
     { -- UUID interning tables for ProcessId ↔ (UUID, UUID) conversion
@@ -1725,7 +1759,7 @@ data Database = Database
     , dbBuiltWith :: !BuildInputs
     , dbDocumentation :: !DatabaseDocumentation -- What the database says about itself (serialized to cache)
     , dbParameters :: !(M.Map Text Parameter) -- Parameters every process reads unless it defines its own of the same name
-    , dbScenarios :: !(M.Map Text [ScenarioValue]) -- Scenarios the source ships, by name
+    , dbProductSystems :: ![ProductSystem] -- The product systems the source ships, with their parameter sets
     , -- Runtime-only fields (not serialized to cache)
       dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
     , dbFlowsByName :: !(M.Map Text [BiosphereFlow]) -- Biosphere flow name index for LCIA matching
@@ -1764,7 +1798,7 @@ instance Store Database where
             + getSize (dbBuiltWith db)
             + getSize (dbDocumentation db)
             + getSize (dbParameters db)
-            + getSize (dbScenarios db)
+            + getSize (dbProductSystems db)
 
     poke db = do
         poke (dbProcessIdTable db)
@@ -1790,7 +1824,7 @@ instance Store Database where
         poke (dbBuiltWith db)
         poke (dbDocumentation db)
         poke (dbParameters db)
-        poke (dbScenarios db)
+        poke (dbProductSystems db)
 
     -- Runtime-only fields are NOT serialized
 
@@ -1817,7 +1851,7 @@ instance Store Database where
         builtWith <- peek
         documentation <- peek
         parameters <- peek
-        scenarios <- peek
+        productSystems <- peek
         return
             Database
                 { dbProcessIdTable = processIdTable
@@ -1843,7 +1877,7 @@ instance Store Database where
                 , dbBuiltWith = builtWith
                 , dbDocumentation = documentation
                 , dbParameters = parameters
-                , dbScenarios = scenarios
+                , dbProductSystems = productSystems
                 , -- Runtime-only fields set to defaults
                   dbSynonymDB = Nothing
                 , dbFlowsByName = M.empty
@@ -2190,7 +2224,7 @@ data SimpleDatabase = SimpleDatabase
     , sdbUnits :: !UnitDB
     , sdbDocumentation :: !DatabaseDocumentation
     , sdbParameters :: !(M.Map Text Parameter)
-    , sdbScenarios :: !(M.Map Text [ScenarioValue])
+    , sdbProductSystems :: ![ProductSystem]
     }
     deriving (Generic, Store)
 
@@ -2211,7 +2245,7 @@ simpleDatabaseOf db pids =
         , sdbUnits = dbUnits db
         , sdbDocumentation = dbDocumentation db
         , sdbParameters = dbParameters db
-        , sdbScenarios = dbScenarios db
+        , sdbProductSystems = dbProductSystems db
         }
 
 -- | Blocking reason for cross-database linking failure

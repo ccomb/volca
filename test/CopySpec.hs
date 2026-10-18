@@ -37,7 +37,7 @@ import Database.Manager (
     LoadedDatabase (..),
     initDatabaseManager,
  )
-import Database.Scenarios (dropScenario, listScenarios, saveScenario)
+import Database.Scenarios (dropScenario, listScenarios, saveScenario, savedForExport)
 import qualified Database.UploadedDatabase as UploadedDB
 import Matrix (buildDemandVector)
 import SharedSolver (
@@ -59,6 +59,11 @@ import Types (
     LocationSource (..),
     Parameter (..),
     ParameterDefinition (..),
+    ParameterSet (..),
+    ProcessRef (..),
+    ProductSystem (..),
+    Redefinition (..),
+    RedefinitionContext (..),
     Release (..),
     ScenarioValue (..),
     SimpleDatabase (..),
@@ -265,13 +270,20 @@ scenariosSpec = describe "saved scenarios" $ do
 
     describe "shipped with the database" $ do
         let shipped =
-                M.fromList
-                    [ ("Plant: high salt", [ScenarioValue Nothing "salt_kg" 0.04])
-                    , ("Plant: p1's own", [ScenarioValue (Just (mkUUID 101)) "salt_kg" 1])
-                    , ("Plant: gone", [ScenarioValue (Just (mkUUID 999)) "salt_kg" 1])
-                    ]
+                [ ProductSystem
+                    { systemId = mkUUID 900
+                    , systemName = "Plant"
+                    , systemReference = Just (ProcessRef (mkUUID 101) (mkUUID 102))
+                    , systemTarget = 1
+                    , systemSets =
+                        [ ParameterSet "high salt" [Redefinition "salt_kg" 0.04 OfDatabase]
+                        , ParameterSet "p1's own" [Redefinition "salt_kg" 1 (OfProcess (mkUUID 101))]
+                        , ParameterSet "gone" [Redefinition "salt_kg" 1 (OfProcess (mkUUID 999))]
+                        ]
+                    }
+                ]
             withShipped run = withCopy $ \manager -> do
-                atomically $ modifyTVar' (dmLoadedDbs manager) (M.map (\l -> l{ldDatabase = (ldDatabase l){dbScenarios = shipped}}))
+                atomically $ modifyTVar' (dmLoadedDbs manager) (M.map (\l -> l{ldDatabase = (ldDatabase l){dbProductSystems = shipped}}))
                 run manager
             listing manager name = either (fail . T.unpack . refusalMessage) (pure . map (\s -> (saName s, saShipped s, map pvProcess (saParameters s)))) =<< listScenarios manager name
 
@@ -288,7 +300,7 @@ scenariosSpec = describe "saved scenarios" $ do
 
         it "travel with the database through the cache" $ do
             db <- buildOrFail (supplierDB 100 ["p1"])
-            dbScenarios (decodeEx (encode db{dbScenarios = shipped})) `shouldBe` shipped
+            dbProductSystems (decodeEx (encode db{dbProductSystems = shipped})) `shouldBe` shipped
 
         it "are neither replaced nor dropped" $ withShipped $ \manager -> do
             refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.02]) >>= (`shouldSatisfy` ("ships with the database" `isInfixOf`))
@@ -296,12 +308,24 @@ scenariosSpec = describe "saved scenarios" $ do
 
         it "give way to a scenario saved under their name, which stays replaceable and droppable" $ withCopy $ \manager -> do
             refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.02]) `shouldReturn` ""
-            atomically $ modifyTVar' (dmLoadedDbs manager) (M.map (\l -> l{ldDatabase = (ldDatabase l){dbScenarios = shipped}}))
+            atomically $ modifyTVar' (dmLoadedDbs manager) (M.map (\l -> l{ldDatabase = (ldDatabase l){dbProductSystems = shipped}}))
             filter (\(name, _, _) -> name == "Plant: high salt") <$> listing manager "mine" `shouldReturn` [("Plant: high salt", False, [Nothing])]
             refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.03]) `shouldReturn` ""
             filter (\(name, _, _) -> name == "Plant: high salt") <$> listed manager "mine" `shouldReturn` [("Plant: high salt", [0.03], Nothing)]
             refusal (dropScenario manager "mine" "Plant: high salt") `shouldReturn` ""
             filter (\(name, _, _) -> name == "Plant: high salt") <$> listing manager "mine" `shouldReturn` [("Plant: high salt", True, [Nothing])]
+
+    it "gives an export the saved scenarios by activity, the shipped ones and those with a problem left out" $ do
+        db <- buildOrFail (supplierDB 100 ["p1"])
+        let p1 = UUID.toText (mkUUID 101) <> "_" <> UUID.toText (mkUUID 102)
+            scenario name values problem shipped' = ScenarioAPI{saName = name, saParameters = values, saProblem = problem, saShipped = shipped'}
+        savedForExport
+            db
+            [ scenario "own" [ParameterValue (Just p1) "salt_kg" 1, salted 0.02] Nothing False
+            , scenario "Plant: high salt" [salted 0.04] Nothing True
+            , scenario "stale" [salted 0.03] (Just "no salt_kg") False
+            ]
+            `shouldBe` (M.fromList [("own", [ScenarioValue (Just (mkUUID 101)) "salt_kg" 1, ScenarioValue Nothing "salt_kg" 0.02])], ["stale: no salt_kg"])
 
     it "goes along with a copy of its database" $ withCopy $ \manager -> do
         refusal (saveScenario manager "mine" "high salt" [salted 0.02]) `shouldReturn` ""
@@ -372,7 +396,7 @@ buildOrFail (SimpleParts acts flows units) = do
                 , sdbUnits = units
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
-                , sdbScenarios = M.empty
+                , sdbProductSystems = []
                 }
     case r of
         Right db -> pure db

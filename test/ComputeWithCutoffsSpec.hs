@@ -112,7 +112,7 @@ simple acts =
         , sdbUnits = units
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
 
 {- | The database as the loader leaves it: its linking statistics name what

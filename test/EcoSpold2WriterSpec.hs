@@ -103,7 +103,7 @@ fixtureSimple =
                 ]
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     activityA =
@@ -163,7 +163,7 @@ fixtureDupBio =
         , sdbUnits = M.singleton unitKg (Unit unitKg "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     activityDup =
@@ -200,7 +200,7 @@ fixtureWithExchange ex =
         , sdbUnits = M.singleton unitKg (Unit unitKg "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     activity =
@@ -239,7 +239,7 @@ fixtureWithBioSynonyms =
         , sdbUnits = M.singleton unitKg (Unit unitKg "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     syns = M.singleton "en" (S.fromList ["CO2", "carbonic anhydride"])
@@ -285,7 +285,7 @@ fixtureWasteCoproduct =
         , sdbUnits = M.singleton unitKg (Unit unitKg "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     coprodU, wasteInU, wasteOutU :: UUID

@@ -249,7 +249,7 @@ toSimple (acts, tech, bio, waste, units) =
         , sdbUnits = units
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
 
 {- | Stable key for an activity: its reference product flow UUID paired with a
@@ -358,7 +358,7 @@ inventoryByName (acts, tech, bio, waste, units) target = do
                 , sdbUnits = units
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
-                , sdbScenarios = M.empty
+                , sdbProductSystems = []
                 }
     case built of
         Left err -> expectationFailure (T.unpack err) >> pure M.empty
@@ -742,7 +742,7 @@ emissionDb comp =
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     actU, prodU, bioU, unitU :: UUID
@@ -783,7 +783,7 @@ wasteDb mTreatment =
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     actU, prodU, wasteU, unitU :: UUID
@@ -844,7 +844,7 @@ designationDb =
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     actU, prodU, marketU, elecU, ureaU, unitU :: UUID
@@ -913,7 +913,7 @@ allocationDb =
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     actU, prodU, matU, unitU :: UUID
@@ -958,7 +958,7 @@ zeroAllocationDb =
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     actU, prodU, matU, unitU :: UUID
@@ -1006,7 +1006,7 @@ commentDb ped cmt =
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     actU, prodU, matU, unitU :: UUID
@@ -1046,7 +1046,7 @@ namedDb name =
         , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     actU, prodU, unitU :: UUID
@@ -1121,7 +1121,7 @@ guardDb alloc ntype exs =
         , sdbUnits = M.singleton gUnit (Unit gUnit "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     act =

@@ -151,7 +151,7 @@ buildDb acts flows = do
                 , sdbUnits = M.empty
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
-                , sdbScenarios = M.empty
+                , sdbProductSystems = []
                 }
     case res of
         Left err -> error ("buildDatabaseWithMatrices failed: " <> show err)

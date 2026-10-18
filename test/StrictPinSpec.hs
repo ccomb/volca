@@ -179,7 +179,7 @@ buildOrFail (SimpleParts acts flows units) = do
                 , sdbUnits = units
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
-                , sdbScenarios = M.empty
+                , sdbProductSystems = []
                 }
     case r of
         Right db -> pure db

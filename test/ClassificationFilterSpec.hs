@@ -279,7 +279,7 @@ fixture =
         , sdbUnits = M.singleton kgUnitId (Unit{unitId = kgUnitId, unitName = "kg", unitSymbol = "kg", unitComment = ""})
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     classified :: Text -> UUID -> Activity

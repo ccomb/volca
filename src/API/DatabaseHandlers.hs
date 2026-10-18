@@ -255,7 +255,7 @@ import Database.Manager (
 import qualified Database.Quality as Quality
 import Database.RelinkMapping (parseAliasMap)
 import Database.Requirements (ReleaseSubstitution)
-import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario)
+import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario, savedForExport)
 import Database.Upload (
     DatabaseFormat (..),
     UploadData (..),
@@ -794,19 +794,32 @@ exportDatabaseHandler dbName req = do
         Plain -> pure id
         RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt) >>= either (failWith err400) pure)
     units <- liftIO (getMergedUnitConfig dbManager)
-    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase units fmt (ldDatabase ld))
     scenarios <- liftIO (listScenarios dbManager dbName)
-    pure (addHeader (encodeExportWarnings (warnings <> scenariosLeftOut scenarios)) (BinaryContent (package bytes)))
+    let (saved, problems) = either (const (M.empty, [])) (savedForExport (ldDatabase ld)) scenarios
+    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase units fmt saved (ldDatabase ld))
+    pure (addHeader (encodeExportWarnings (warnings <> either unread (scenariosLeftOut fmt problems) scenarios)) (BinaryContent (package bytes)))
   where
-    -- No format written keeps a scenario, shipped or saved.
-    scenariosLeftOut :: Either WriteRefusal [ScenarioAPI] -> [Text]
-    scenariosLeftOut = \case
-        Right scenarios ->
+    unread :: WriteRefusal -> [Text]
+    unread refusal = ["the saved scenarios could not be read (" <> refusalMessage refusal <> "): any there are not in the export"]
+
+    -- An openLCA package keeps the scenarios on its product systems, and says itself which it could not; no other format keeps one.
+    scenariosLeftOut :: DatabaseFormat -> [Text] -> [ScenarioAPI] -> [Text]
+    scenariosLeftOut fmt problems scenarios = case fmt of
+        OpenLcaPackage -> [T.pack (show (length problems)) <> " saved scenarios have a problem and are not in the export:" <> foldMap ("\n  " <>) problems | not (null problems)]
+        SimaProCSV -> notKept
+        EcoSpold1 -> notKept
+        EcoSpold2 -> notKept
+        ILCDProcess -> notKept
+        OpenLcaImpactCategory -> notKept
+        BrightwayExcel -> notKept
+        UnknownFormat -> notKept
+      where
+        notKept :: [Text]
+        notKept =
             [ T.pack (show n) <> " " <> kind <> " are not in the export"
             | (kind, n) <- [("scenarios shipped with the database", length (filter saShipped scenarios)), ("saved scenarios", length (filter (not . saShipped) scenarios))]
             , n > 0
             ]
-        Left refusal -> ["the saved scenarios could not be read (" <> refusalMessage refusal <> "): any there are not in the export"]
 
 {- | What the package of a loaded database says of it: the licence it is served
 under, and the releases of the databases it links to.

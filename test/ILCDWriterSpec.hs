@@ -542,7 +542,7 @@ multiOutputDb =
         , sdbUnits = M.singleton moUnitU (Unit moUnitU "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     techFlow :: UUID -> Text -> TechnosphereFlow
@@ -619,7 +619,7 @@ oneActivityDb bios exs =
         , sdbUnits = fUnits
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     act =

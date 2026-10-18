@@ -25,6 +25,7 @@ module Database.Export (
 import Control.Exception (SomeException, try)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -43,13 +44,15 @@ import qualified Method.WriterOlcaSchema as MWO
 import qualified Method.WriterSimaPro as MW
 import qualified OlcaSchema.Writer as OLCA
 import qualified SimaPro.Writer as SP
-import Types (Database, toSimpleDatabase)
+import Types (Database, ScenarioValue, toSimpleDatabase)
 import UnitConversion (UnitConfig)
 import Zip (zipFiles)
 
 {- | Serialize a database to a single byte stream in the requested format, paired
 with any best-effort approximation warnings. Pure: the multi-file formats are
-zipped in-memory. Fails loudly for formats without a writer.
+zipped in-memory. Fails loudly for formats without a writer. The saved
+scenarios given, by name, are written by an openLCA package alone, on its
+product systems.
 
 The warning list is empty for a faithful export and non-empty when a writer had
 to approximate. Three writers approximate today (an openLCA package as ILCD does,
@@ -60,8 +63,8 @@ so a multi-output activity's products export as separate, unlinked datasets
 ('ILCD.Writer.splitWarnings'). Returning bytes and warnings together shares the
 one 'toSimpleDatabase' conversion and keeps them from drifting apart.
 -}
-serializeDatabase :: UnitConfig -> DatabaseFormat -> Database -> Either Text (BL.ByteString, [Text])
-serializeDatabase units fmt db = case fmt of
+serializeDatabase :: UnitConfig -> DatabaseFormat -> M.Map Text [ScenarioValue] -> Database -> Either Text (BL.ByteString, [Text])
+serializeDatabase units fmt saved db = case fmt of
     -- Each writer runs its own check*Exportable and returns 'Left' on a database
     -- the format cannot represent faithfully, so the guard is unskippable.
     SimaProCSV -> first BL.fromStrict <$> SP.serializeSimaProCSVWithWarnings SP.defaultWriterConfig sdb
@@ -73,7 +76,7 @@ serializeDatabase units fmt db = case fmt of
     BrightwayExcel -> valuesOnlyWith (BE.wasteManifest sdb) (BE.renderWorkbook BE.defaultWriterConfig sdb)
     OpenLcaImpactCategory ->
         Left "openLCA JSON-LD export is not supported"
-    OpenLcaPackage -> first zipFiles <$> OLCA.serializeOlcaPackage units sdb
+    OpenLcaPackage -> first zipFiles <$> OLCA.serializeOlcaPackage units saved sdb
     UnknownFormat ->
         Left "cannot export to an unknown format"
   where

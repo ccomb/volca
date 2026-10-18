@@ -293,7 +293,7 @@ fixtureDb =
         , sdbUnits = M.fromList [(unitId u, u) | u <- [kwh, m3, kg]]
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
 
 elec :: Activity
@@ -403,7 +403,7 @@ specialDb =
         , sdbUnits = M.singleton (unitId kg) kg
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
 
 specialProductName, specialInputName, specialBioName :: Text
@@ -642,7 +642,7 @@ coproductDb =
         , sdbUnits = M.singleton (unitId kg) kg
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
 
 {- | The (role, amount) pairs of an activity's technosphere production rows,
@@ -653,7 +653,7 @@ roleAmounts a = [(role, techAmount ex) | ex@TechnosphereExchange{techRole = role
 
 -- | A database with no activities, flows, or units.
 emptyDb :: SimpleDatabase
-emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation M.empty M.empty
+emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation M.empty []
 
 {- | A single input exchange whose amount sits at the 1e15 integer/scientific
 boundary of 'formatAmount'.
@@ -703,7 +703,7 @@ gramRefDb =
         , sdbUnits = M.singleton (unitId gramUnit) gramUnit
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     act =
@@ -916,7 +916,7 @@ rebuild Workbook{wbActivities = acts, wbTechFlows = techDB, wbBioFlows = bioDB, 
         , sdbUnits = unitDB
         , sdbDocumentation = noDocumentation
         , sdbParameters = parameters
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
 
 {- | The deterministic logical cells the writer would emit for a database: the

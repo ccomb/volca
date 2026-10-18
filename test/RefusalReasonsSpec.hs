@@ -87,7 +87,7 @@ consumerDB =
         , sdbUnits = unitTable
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     baking :: Activity
@@ -116,7 +116,7 @@ supplierDB =
         , sdbUnits = unitTable
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     growing :: Activity

@@ -359,7 +359,7 @@ unitNamesDisagreeing h =
 -- | The tables of a harvest that make a database, and the literature its datasets cite; the rest describes the reading.
 harvestDatabase :: Harvest -> SimpleDatabase
 harvestDatabase h =
-    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h) noDocumentation{dbdocLiterature = S.toList (hvLiterature h)} M.empty M.empty
+    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h) noDocumentation{dbdocLiterature = S.toList (hvLiterature h)} M.empty []
 
 {- |
 Schema signature of the cache payload.
@@ -619,6 +619,8 @@ History of manual bumps:
      of each process, so the share is not applied twice to its readers.
 - 74: an openLCA package keeps the parameter sets its product systems ship,
      as scenarios of the database.
+- 75: it keeps the product systems themselves, their reference and target,
+     and their parameter sets as the file states them.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -626,7 +628,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 74
+     in hi `xor` lo `xor` 75
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1394,7 +1396,7 @@ loadSimaProCSV opts csvPath = do
                     forM_ collisions $ reportProgress Warning . T.unpack
 
                     -- Build initial database
-                    let simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB documentation parameters M.empty
+                    let simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB documentation parameters []
 
                     -- Fix activity links using supplier lookup (same as EcoSpold1)
                     Right <$> linkWithinDatabaseByName unitConfig simpleDb
@@ -1418,7 +1420,7 @@ loadBrightwayExcel opts xlsxPath = do
             | null activities -> return $ Left "No activities found in Brightway Excel file."
             | otherwise -> do
                 let (procMap, collisions) = indexActivities (allocateAll (allocating opts unitDB) activities)
-                    simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB M.empty unitDB noDocumentation parameters M.empty
+                    simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB M.empty unitDB noDocumentation parameters []
                 forM_ collisions $ reportProgress Warning . T.unpack
                 Right <$> linkWithinDatabaseByName unitConfig simpleDb
 

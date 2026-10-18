@@ -186,7 +186,7 @@ simpleDB acts =
         , sdbUnits = M.singleton kgU (Unit kgU "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
 
 buildDB :: T.Text -> M.Map (UUID, UUID) Activity -> IO Database

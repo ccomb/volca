@@ -106,7 +106,7 @@ consumerDB =
         , sdbUnits = units
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
   where
     breadExchanges =
@@ -139,7 +139,7 @@ supplierDB =
         , sdbUnits = units
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
-        , sdbScenarios = M.empty
+        , sdbProductSystems = []
         }
 
 stats :: CrossDBLinkingStats

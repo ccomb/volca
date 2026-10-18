@@ -136,7 +136,7 @@ olcaSpec = describe "openLCA export of parameters and formulas" $ do
     it "writes a formula openLCA reads otherwise as its value, and says so" $ do
         source <- loadBytes bakeryCSV
         let compared = source{sdbActivities = M.map comparing (sdbActivities source)}
-        either (fail . T.unpack) (pure . snd) (serializeOlcaPackage defaultUnitConfig compared)
+        either (fail . T.unpack) (pure . snd) (serializeOlcaPackage defaultUnitConfig M.empty compared)
             >>= (`shouldSatisfy` any ("Bread · Flour: (yield < 1) * flour_per_loaf" `T.isInfixOf`))
   where
     -- The bread redefines the waste rate its database's loss reads, so its emission is 0.5 * 0.75 + (1 - 0.8 * 0.5).
@@ -154,7 +154,7 @@ olcaSpec = describe "openLCA export of parameters and formulas" $ do
     compareIt ex = case exchangeFormula ex of
         Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing "(yield < 1) * flour_per_loaf")) ex
         _ -> ex
-    packaged sdb = either (fail . T.unpack) (pure . fst) (serializeOlcaPackage defaultUnitConfig sdb)
+    packaged sdb = either (fail . T.unpack) (pure . fst) (serializeOlcaPackage defaultUnitConfig M.empty sdb)
     amountFormulas bytes = case A.decodeStrict bytes of
         Just (A.Object doc) | Just (A.Array xs) <- KM.lookup "exchanges" doc -> [f | A.Object line <- V.toList xs, Just (A.String f) <- [KM.lookup "amountFormula" line]]
         _ -> []
@@ -185,7 +185,7 @@ amountsOf :: Database -> M.Map ProcessId Activity -> M.Map (Text, Text) [Double]
 amountsOf db moved = M.fromList [((activityName a, referenceName (simpleOf db) a), sort (map exchangeAmount (exchanges a))) | a <- M.elems moved]
 
 simpleOf :: Database -> SimpleDatabase
-simpleOf db = SimpleDatabase M.empty (dbTechFlows db) M.empty M.empty M.empty noDocumentation M.empty M.empty
+simpleOf db = SimpleDatabase M.empty (dbTechFlows db) M.empty M.empty M.empty noDocumentation M.empty []
 
 referenceName :: SimpleDatabase -> Activity -> Text
 referenceName db a = T.intercalate "," [maybe "?" tfName (M.lookup (exchangeFlowId ex) (sdbTechFlows db)) | ex <- exchanges a, exchangeIsReference ex]

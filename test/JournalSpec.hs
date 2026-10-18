@@ -489,7 +489,7 @@ buildDepFixture = do
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
-                , sdbScenarios = M.empty
+                , sdbProductSystems = []
                 }
     either (fail . show) pure built
 
@@ -510,7 +510,7 @@ buildFixtureWith extra = do
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
-                , sdbScenarios = M.empty
+                , sdbProductSystems = []
                 }
     either (fail . show) pure built
 
