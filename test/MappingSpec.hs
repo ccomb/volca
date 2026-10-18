@@ -1006,6 +1006,31 @@ spec = do
                 "low. pop., long-term"
                 `shouldReturn` 3.0
 
+    describe "an openLCA factor reaches an EcoSpold 1 flow (compartments.csv)" $ do
+        -- openLCA files a factor under "Emission to air/high population
+        -- density"; EcoSpold 1 files the same air as "air/high. pop.". Both
+        -- the singular medium and openLCA's subcompartment words must reach
+        -- the flow, or every emission scores zero.
+        cmap <- runIO $ do
+            csv <- BL.readFile "data/compartments.csv"
+            either (fail . ("compartments.csv: " <>)) pure (buildCompartmentMapFromCSV csv)
+        let scoreAt medium flowSub cf = do
+                fid <- nextRandom
+                let flow = mkFlow fid "Carbon dioxide, fossil" medium (Just flowSub)
+                    tables = buildMethodTables (Placing cmap mempty) defaultUnitConfig M.empty [(cf, Just (Resolution flow ByName))]
+                pure (loScore (computeLCIAScoreFromTables defaultUnitConfig M.empty (M.singleton fid flow) (M.singleton fid 1.0) tables))
+            olca sub = mkCFComp "Carbon dioxide, fossil" "Emission to air" sub 1.0
+            olcaWater sub = mkCFComp "Carbon dioxide, fossil" "Emission to water" sub 1.0
+
+        it "places the singular medium openLCA writes" $
+            scoreAt Air "unspecified" (olca "unspecified") `shouldReturn` 1.0
+
+        it "translates openLCA's population density and ground water words" $ do
+            scoreAt Air "high. pop." (olca "high population density") `shouldReturn` 1.0
+            scoreAt Air "low. pop." (olca "low population density") `shouldReturn` 1.0
+            scoreAt Water "ground-" (olcaWater "ground water") `shouldReturn` 1.0
+            scoreAt Water "ground-, long-term" (olcaWater "ground water, long-term") `shouldReturn` 1.0
+
     describe "final waste flows and inventory indicators meet the same factor" $ do
         -- A method writing an ecofactor for landfilled waste puts "Waste" in
         -- its compartment column. One format files that flow under a medium

@@ -449,13 +449,19 @@ covers every @(emissions to air, *, *)@ variant by remapping just the medium
 and preserving the original sub/qualifier. Returns the input unchanged if
 neither key resolves; callers can use that as a "no rule for this
 compartment" signal.
+
+A full key spelled with another word for the same medium (@Emission to air@
+where the row says @air@) still reaches the row, so one row per
+subcompartment serves every spelling of its medium.
 -}
 normalizeCompartment :: CompartmentMap -> Compartment -> Compartment
 normalizeCompartment cmap (Compartment med sub qual) =
     let lmed = T.toLower med
         lsub = T.toLower sub
         lqual = T.toLower qual
-     in case M.lookup (lmed, lsub, lqual) (cmSpellings cmap) of
+        rowFor m = M.lookup (m, lsub, lqual) (cmSpellings cmap)
+        canonical = either (const Nothing) (Just . mediumText) (parseMedium med)
+     in case rowFor lmed <|> (rowFor =<< canonical) of
             Just c -> c
             Nothing -> case M.lookup (lmed, T.empty, T.empty) (cmSpellings cmap) of
                 Just (Compartment med' _ _) -> Compartment med' sub qual
