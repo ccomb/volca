@@ -64,6 +64,7 @@ simple acts =
         , sdbUnits = units
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
+        , sdbScenarios = M.empty
         }
 
 build :: SimpleDatabase -> IO Database

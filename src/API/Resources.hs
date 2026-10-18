@@ -1099,21 +1099,25 @@ description r = case r of
         \that moves an allocation share. Refused outright on a database the \
         \engine reads from its configuration, as edit_exchanges is."
     ListScenarios ->
-        "The scenarios saved on a database: each a name and the parameter \
-        \values it sets, as {process?, name, value}. To score one, send its \
-        \values as the parameters of a scoring request. A scenario whose \
+        "The scenarios of a database: each a name and the parameter values it \
+        \sets, as {process?, name, value}. To score one, send its values as the \
+        \parameters of a scoring request. Those marked shipped come with the \
+        \database itself (an openLCA package's parameter sets, named after their \
+        \product system); the others were saved on it, which a database the \
+        \engine reads from its configuration cannot hold. A scenario whose \
         \values an edit of the database has since made unusable (a parameter \
-        \removed, say) carries the problem. A database the engine reads from \
-        \its configuration has none."
+        \removed, say) carries the problem."
     SaveScenario ->
         "Save parameter values on a database under a name, replacing what \
         \that name held; the answer lists the scenarios saved. Each value is \
         \{name, value}, with process for a process's own parameter. Refused, \
-        \naming why, when a scoring request would refuse the values, and on a \
-        \database the engine reads from its configuration: copy it first."
+        \naming why, when a scoring request would refuse the values, under the \
+        \name of a scenario the database ships, and on a database the engine \
+        \reads from its configuration: copy it first."
     DropScenario ->
         "Drop a scenario saved on a database; the answer lists the scenarios \
-        \left. Refused for a name that holds none."
+        \left. Refused for a name that holds none, and for a scenario the \
+        \database ships, which comes back with it at every load."
     CopyMethodCollection ->
         "LCA / ACV: copy a method collection under a new name, in order to \
         \change it. A collection the configuration declares, or one built into \

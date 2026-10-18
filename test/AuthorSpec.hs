@@ -958,6 +958,7 @@ buildFixtureAt actId prodId = do
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
+                , sdbScenarios = M.empty
                 }
     either (fail . show) pure r
 
@@ -988,6 +989,7 @@ buildTwoProductTreatment = do
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
+                , sdbScenarios = M.empty
                 }
     either (fail . show) pure r
 
@@ -1009,6 +1011,7 @@ buildBareFixture = do
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
+                , sdbScenarios = M.empty
                 }
     either (fail . show) pure r
 

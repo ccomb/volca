@@ -44,6 +44,12 @@ spec = describe "readPackage" $ do
         M.size (pkFlows pkg) `shouldBe` 18
         length (pkProcesses pkg) `shouldBe` 15
         map paName (pkGlobals pkg) `shouldBe` ["leak_method"]
+        length (pkProductSystems pkg) `shouldBe` 2
+
+    it "reads whose parameter each value of a product system's set sets" $ do
+        pkg <- readFixture
+        [(psName s, setName set, [(rdName r, rdValue r, rdContext r) | r <- setValues set]) | s <- pkProductSystems pkg, set <- psSets s, setName set == "Baseline"]
+            `shouldBe` [("Widgets", "Baseline", [("leak_method", 1, OfDatabase), ("a", 3, OfProcess formulasJ), ("cf", 2, OfImpactCategory (UUID.fromWords 0 0 0 601))])]
 
     it "reads a line with no isInput as an output, and one with no isAvoidedProduct as not avoided" $ do
         pkg <- readFixture

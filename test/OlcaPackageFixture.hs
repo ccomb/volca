@@ -149,6 +149,7 @@ writePackage dir = do
     mapM_ (uncurry (write "flows")) flows
     write "parameters" (uid 401) (parameterDoc "leak_method" (Left 1))
     mapM_ (\p -> write "processes" (pcId p) (processDoc p)) processes
+    mapM_ (uncurry (write "product_systems")) productSystems
   where
     write :: FilePath -> UUID -> Value -> IO ()
     write folder docId doc = do
@@ -157,6 +158,21 @@ writePackage dir = do
 
 ref :: UUID -> Value
 ref i = object ["@id" .= i]
+
+{- | Two product systems of one name, so their sets named alike collide. The
+first's "Baseline" sets a global parameter, a process's own, and an impact
+category's; its "Method only" sets nothing else than an impact category's.
+-}
+productSystems :: [(UUID, Value)]
+productSystems =
+    [ system (uid 501) [("Baseline", [redef "leak_method" 1 Nothing, redef "a" 3 (Just ("Process", formulasJ)), redef "cf" 2 (Just ("ImpactCategory", uid 601))]), ("High", [redef "a" 5 (Just ("Process", formulasJ))]), ("Method only", [redef "cf" 4 (Just ("ImpactCategory", uid 601))])]
+    , system (uid 502) [("High", [redef "a" 6 (Just ("Process", formulasJ))])]
+    ]
+  where
+    system :: UUID -> [(Text, [Value])] -> (UUID, Value)
+    system i sets = (i, object ["@id" .= i, "name" .= ("Widgets" :: Text), "parameterSets" .= [object ["name" .= name, "parameters" .= values] | (name, values) <- sets]])
+    redef :: Text -> Double -> Maybe (Text, UUID) -> Value
+    redef name value context = object (["name" .= name, "value" .= value] <> [Key.fromText "context" .= object ["@type" .= kind, "@id" .= i] | Just (kind, i) <- [context]])
 
 unitGroup :: UUID -> [Value] -> Value
 unitGroup gid units = object ["@id" .= gid, "name" .= ("units" :: Text), "units" .= units]

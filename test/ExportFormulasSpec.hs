@@ -185,7 +185,7 @@ amountsOf :: Database -> M.Map ProcessId Activity -> M.Map (Text, Text) [Double]
 amountsOf db moved = M.fromList [((activityName a, referenceName (simpleOf db) a), sort (map exchangeAmount (exchanges a))) | a <- M.elems moved]
 
 simpleOf :: Database -> SimpleDatabase
-simpleOf db = SimpleDatabase M.empty (dbTechFlows db) M.empty M.empty M.empty noDocumentation M.empty
+simpleOf db = SimpleDatabase M.empty (dbTechFlows db) M.empty M.empty M.empty noDocumentation M.empty M.empty
 
 referenceName :: SimpleDatabase -> Activity -> Text
 referenceName db a = T.intercalate "," [maybe "?" tfName (M.lookup (exchangeFlowId ex) (sdbTechFlows db)) | ex <- exchanges a, exchangeIsReference ex]

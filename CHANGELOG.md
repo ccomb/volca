@@ -246,6 +246,16 @@
   `selector` of each exchange. A journal holding an edit by flow is not read
   by an older engine. Wire revision 76.
 
+- An openLCA package's parameter sets are read as scenarios of the database.
+  A product system "PV system" with a set "Long life" (`lifetime` at 35) is
+  listed as the scenario "PV system: Long life", marked `shipped`, beside the
+  scenarios saved on the database, and on a database read from the
+  configuration too. A shipped scenario can be neither replaced nor dropped:
+  it comes back with the package at every load. Two sets that end up with the
+  same name are both left out, and so is a value set on an impact category's
+  parameter, which the engine does not read; loading the package says which.
+  pyvolca has `Scenario.shipped`. Wire revision 77.
+
 ### Fixed
 
 - A process split from a block of several products keeps every formula

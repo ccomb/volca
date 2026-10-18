@@ -457,6 +457,7 @@ buildOrFail (SimpleParts acts flows units) = do
                 , sdbUnits = units
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
+                , sdbScenarios = M.empty
                 }
     case r of
         Right db -> pure db

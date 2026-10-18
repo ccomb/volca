@@ -404,13 +404,15 @@ data ParameterValue = ParameterValue
 instance FromJSON ParameterValue where
     parseJSON = parseClosed
 
-{- | A scenario saved on a database: its name, its values, and why those no
+{- | A scenario of a database: its name, its values, and why those no
 longer apply when an edit of the database since made them stale.
 -}
 data ScenarioAPI = ScenarioAPI
     { saName :: Text
     , saParameters :: [ParameterValue]
     , saProblem :: Maybe Text
+    , saShipped :: Bool
+    -- ^ It ships with the database, which comes back with it at every load: it cannot be dropped or replaced.
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ScenarioAPI)

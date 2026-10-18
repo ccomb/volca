@@ -82,6 +82,7 @@ oneProcess lines' =
         , sdbUnits = M.singleton kg (Unit kg "kg" "kg" "")
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
+        , sdbScenarios = M.empty
         }
   where
     activity =

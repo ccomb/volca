@@ -748,6 +748,7 @@ build name flows acts parameters =
                 , sdbUnits = units
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = parameters
+                , sdbScenarios = M.empty
                 }
 
 -- | The activity and product of the chain's link @i@.

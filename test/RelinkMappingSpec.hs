@@ -143,6 +143,7 @@ targetDB =
         , sdbUnits = M.empty
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
+        , sdbScenarios = M.empty
         }
   where
     techFlow fid name =
@@ -577,4 +578,5 @@ consumerTaking flow name input =
         , sdbUnits = units
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
+        , sdbScenarios = M.empty
         }

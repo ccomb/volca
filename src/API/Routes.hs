@@ -1607,7 +1607,8 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 76: the @selector@ of each exchange of an activity, and the selectors
+(revision 77: the scenarios a database ships, marked @shipped@ in its scenario listing;
+revision 76: the @selector@ of each exchange of an activity, and the selectors
 naming an input or a waste output by its flow and location;
 revision 75: the scenarios of a database, listed, saved and dropped;
 revision 74: the parameters route of a database, read and edited;
@@ -1773,7 +1774,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 76
+currentWireVersion = 77
 
 getVersion :: AppM Value
 getVersion = do

@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | An openLCA package computed into a database: units converted to each
@@ -29,7 +30,7 @@ import Data.Either (partitionEithers)
 import Data.List (find)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, listToMaybe, maybeToList)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -64,6 +65,10 @@ data Notice
       Unplaced !Text
     | -- | Something the package states that this reader does not read yet.
       NotRead !P.Unread
+    | -- | A parameter set a product system ships, not kept as a scenario, and why.
+      ScenarioLeftOut !Text
+    | -- | A parameter set's value for an impact category's parameter, which the engine does not read.
+      MethodParameter !Text
     deriving (Eq, Show, Generic, NFData)
 
 data Built = Built
@@ -110,6 +115,7 @@ buildDatabase cfg key pkg =
     producers `seq` case partitionEithers (map (force . readProcess cx) (P.pkProcesses pkg)) of
         ([], processes) -> do
             activities <- first describeRepeated (uniqueIndex (concatMap rpActivities processes))
+            let (scenarios, scenarioNotices) = shippedScenarios (P.pkProductSystems pkg)
             Right
                 Built
                     { builtDatabase =
@@ -121,13 +127,14 @@ buildDatabase cfg key pkg =
                             , sdbUnits = unitDB
                             , sdbDocumentation = noDocumentation
                             , sdbParameters = M.fromList [(P.paName q, parameter globalValues q) | q <- globals]
+                            , sdbScenarios = scenarios
                             }
-                    , builtNotices = ftNotices tables <> concatMap rpNotices processes
+                    , builtNotices = ftNotices tables <> concatMap rpNotices processes <> scenarioNotices
                     }
         (failures, _) -> Left (describeUnreadable (concat failures))
   where
     shared :: P.Package
-    shared = pkg{P.pkProcesses = []}
+    shared = pkg{P.pkProcesses = [], P.pkProductSystems = []}
 
     globals :: [P.Parameter]
     globals = M.elems (byName (P.pkGlobals pkg))
@@ -626,6 +633,42 @@ assemble cx p env notices lines' =
     referenceFlow :: Activity -> UUID
     referenceFlow a = fromMaybe (P.prId p) (listToMaybe [exchangeFlowId ex | ex <- exchanges a, exchangeIsReference ex])
 
+{- | The scenarios the product systems ship, each named by its system and its
+set, so two systems' sets of one name stay apart. Two sets that still share a
+name are both left out: which one openLCA meant is not ours to guess.
+-}
+shippedScenarios :: [P.ProductSystem] -> (M.Map Text [ScenarioValue], [Notice])
+shippedScenarios systems =
+    ( M.mapMaybe (either (const Nothing) Just) scenarios
+    , [ScenarioLeftOut why | Left why <- M.elems scenarios]
+        <> [MethodParameter (name <> " · " <> P.rdName r) | (name, P.ParameterSet{P.setValues = values}) <- sets, r <- values, isMethodParameter (P.rdContext r)]
+    )
+  where
+    sets :: [(Text, P.ParameterSet)]
+    sets = [(P.psName system <> ": " <> P.setName set, set) | system <- systems, set <- P.psSets system]
+
+    scenarios :: M.Map Text (Either Text [ScenarioValue])
+    scenarios = M.mapWithKey scenario (M.fromListWith (flip (<>)) [(name, [set]) | (name, set) <- sets])
+
+    scenario :: Text -> [P.ParameterSet] -> Either Text [ScenarioValue]
+    scenario name = \case
+        [set] -> case mapMaybe scenarioValue (P.setValues set) of
+            [] -> Left (name <> ": sets no parameter the engine reads")
+            values -> Right values
+        repeated -> Left (name <> ": " <> T.pack (show (length repeated)) <> " parameter sets of this name")
+
+    scenarioValue :: P.Redefinition -> Maybe ScenarioValue
+    scenarioValue r = case P.rdContext r of
+        P.OfDatabase -> Just ScenarioValue{svProcess = Nothing, svName = P.rdName r, svValue = P.rdValue r}
+        P.OfProcess process -> Just ScenarioValue{svProcess = Just process, svName = P.rdName r, svValue = P.rdValue r}
+        P.OfImpactCategory _ -> Nothing
+
+    isMethodParameter :: P.RedefinitionContext -> Bool
+    isMethodParameter = \case
+        P.OfImpactCategory _ -> True
+        P.OfProcess _ -> False
+        P.OfDatabase -> False
+
 formulaCheck :: [Line] -> Maybe FormulaCheck
 formulaCheck lines'
     | null outcomes = Nothing
@@ -806,3 +849,5 @@ describeNotices notices =
         NotRead P.DataQuality -> ("data quality entries are not read yet", Nothing)
         NotRead P.SocialAspects -> ("processes with social aspects: those are not read yet", Nothing)
         NotRead P.Costs -> ("lines with a cost: costs are not read yet", Nothing)
+        ScenarioLeftOut what -> ("parameter sets of the product systems are not kept as scenarios:", Just what)
+        MethodParameter what -> ("parameter set values of an impact category's parameter are left out, the engine reads no method parameter:", Just what)

@@ -117,6 +117,12 @@ def test_scenarios_dispatch(mocked_client, make_response):
     assert session.delete.call_args[0][0] == "http://test.local/api/v1/db/testdb/scenarios/high%20salt"
 
 
+def test_scenario_shipped_with_the_database():
+    shipped = {"name": "Widgets: High", "parameters": [{"process": None, "name": "a", "value": 5}], "problem": None, "shipped": True}
+    assert Scenario.from_json(shipped).shipped
+    assert not Scenario.from_json({"name": "high salt", "parameters": []}).shipped
+
+
 def test_scenarios_need_revision_75(mocked_client):
     client, session = mocked_client
     client._checked = True

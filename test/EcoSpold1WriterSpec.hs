@@ -163,6 +163,7 @@ assembleSimpleDb datasets =
         , sdbUnits = M.fromList [(unitId u, u) | ParsedDataset{pdUnits = us} <- datasets, u <- us]
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
+        , sdbScenarios = M.empty
         }
 
 {- | An injective @(activityUUID, productUUID)@ key for the matrix builder. The
@@ -206,6 +207,7 @@ soloDb name prodU extra techs bios wastes =
         , sdbUnits = units1
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
+        , sdbScenarios = M.empty
         }
   where
     ref = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
@@ -213,7 +215,7 @@ soloDb name prodU extra techs bios wastes =
 
 -- | Empty database: no activities, no flows.
 emptyDb :: SimpleDatabase
-emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation M.empty
+emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation M.empty M.empty
 
 {- | Two activities where the consumer's technosphere input is a resolved link
 to the supplier. The link UUID is the supplier's stored activity UUID
@@ -235,6 +237,7 @@ linkedDb link =
         , sdbUnits = units1
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
+        , sdbScenarios = M.empty
         }
   where
     supU = supplierLink
@@ -270,6 +273,7 @@ coproductDb =
         , sdbUnits = units1
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
+        , sdbScenarios = M.empty
         }
   where
     supU = supplierLink
@@ -757,6 +761,7 @@ spec = do
                         , sdbUnits = units1
                         , sdbDocumentation = noDocumentation
                         , sdbParameters = M.empty
+                        , sdbScenarios = M.empty
                         }
             case roundTrip sdb of
                 Left err -> expectationFailure ("round-trip failed: " ++ err)

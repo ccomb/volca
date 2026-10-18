@@ -141,6 +141,7 @@ mkDB locsAndEmissions =
             , dbFlowsByCAS = M.empty
             , dbProductSearchIndex = M.empty
             , dbBM25Index = Nothing
+            , dbScenarios = M.empty
             }
 
 -- Build a method mapping with one regional CF per (location, value), all on

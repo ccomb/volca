@@ -162,6 +162,7 @@ mkDB offset locs bioTriples =
             , dbFlowsByCAS = M.empty
             , dbProductSearchIndex = M.empty
             , dbBM25Index = Nothing
+            , dbScenarios = M.empty
             }
 
 {- | Add a 'CrossDBLink' from the first activity of @consumerDb@ to the

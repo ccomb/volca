@@ -102,6 +102,7 @@ chainOfFour = do
                     , sdbUnits = units
                     , sdbDocumentation = noDocumentation
                     , sdbParameters = M.empty
+                    , sdbScenarios = M.empty
                     }
          in buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty Declared []) sdb >>= either (fail . show) pure
 

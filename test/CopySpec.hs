@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Tests for the COPY primitive ('Database.Edit.copyDatabase' and the pure
@@ -18,6 +19,7 @@ module CopySpec (spec) where
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Data.Map.Strict as M
 import Data.Maybe (isJust, isNothing)
+import Data.Store (decodeEx, encode)
 import Data.Text (Text, isInfixOf)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -58,6 +60,7 @@ import Types (
     Parameter (..),
     ParameterDefinition (..),
     Release (..),
+    ScenarioValue (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
@@ -260,6 +263,44 @@ scenariosSpec = describe "saved scenarios" $ do
         atomically $ modifyTVar' (dmLoadedDbs manager) (M.adjust (\l -> l{ldDatabase = (ldDatabase l){dbParameters = M.empty}}) "mine")
         map (\(name, _, problem) -> (name, isJust problem)) <$> listed manager "mine" `shouldReturn` [("high salt", True)]
 
+    describe "shipped with the database" $ do
+        let shipped =
+                M.fromList
+                    [ ("Plant: high salt", [ScenarioValue Nothing "salt_kg" 0.04])
+                    , ("Plant: p1's own", [ScenarioValue (Just (mkUUID 101)) "salt_kg" 1])
+                    , ("Plant: gone", [ScenarioValue (Just (mkUUID 999)) "salt_kg" 1])
+                    ]
+            withShipped run = withCopy $ \manager -> do
+                atomically $ modifyTVar' (dmLoadedDbs manager) (M.map (\l -> l{ldDatabase = (ldDatabase l){dbScenarios = shipped}}))
+                run manager
+            listing manager name = either (fail . T.unpack . refusalMessage) (pure . map (\s -> (saName s, saShipped s, map pvProcess (saParameters s)))) =<< listScenarios manager name
+
+        it "are listed on a database read from the configuration, its process named by its first product" $ withShipped $ \manager -> do
+            listing manager "source"
+                `shouldReturn` [ ("Plant: gone", True, [Just (UUID.toText (mkUUID 999))])
+                               , ("Plant: high salt", True, [Nothing])
+                               , ("Plant: p1's own", True, [Just (UUID.toText (mkUUID 101) <> "_" <> UUID.toText (mkUUID 102))])
+                               ]
+            problems <- map (\(_, _, problem) -> problem) <$> listed manager "source"
+            problems `shouldSatisfy` \case
+                [Just gone, Nothing, Just own] -> UUID.toText (mkUUID 999) `isInfixOf` gone && "does not define 'salt_kg'" `isInfixOf` own
+                _ -> False
+
+        it "travel with the database through the cache" $ do
+            db <- buildOrFail (supplierDB 100 ["p1"])
+            dbScenarios (decodeEx (encode db{dbScenarios = shipped})) `shouldBe` shipped
+
+        it "are neither replaced nor dropped" $ withShipped $ \manager -> do
+            refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.02]) >>= (`shouldSatisfy` ("ships with the database" `isInfixOf`))
+            refusal (dropScenario manager "mine" "Plant: high salt") >>= (`shouldSatisfy` ("comes back at the next load" `isInfixOf`))
+
+        it "give way to a scenario saved under their name, which stays droppable" $ withCopy $ \manager -> do
+            refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.02]) `shouldReturn` ""
+            atomically $ modifyTVar' (dmLoadedDbs manager) (M.map (\l -> l{ldDatabase = (ldDatabase l){dbScenarios = shipped}}))
+            filter (\(name, _, _) -> name == "Plant: high salt") <$> listing manager "mine" `shouldReturn` [("Plant: high salt", False, [Nothing])]
+            refusal (dropScenario manager "mine" "Plant: high salt") `shouldReturn` ""
+            filter (\(name, _, _) -> name == "Plant: high salt") <$> listing manager "mine" `shouldReturn` [("Plant: high salt", True, [Nothing])]
+
     it "goes along with a copy of its database" $ withCopy $ \manager -> do
         refusal (saveScenario manager "mine" "high salt" [salted 0.02]) `shouldReturn` ""
         copyDatabase manager "mine" "yours" `shouldReturn` Right ()
@@ -329,6 +370,7 @@ buildOrFail (SimpleParts acts flows units) = do
                 , sdbUnits = units
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
+                , sdbScenarios = M.empty
                 }
     case r of
         Right db -> pure db

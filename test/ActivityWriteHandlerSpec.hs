@@ -550,6 +550,7 @@ buildFrom activities techFlows = do
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
+                , sdbScenarios = M.empty
                 }
     either (fail . show) pure r
 

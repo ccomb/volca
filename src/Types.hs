@@ -1685,6 +1685,17 @@ data BuildInputs = BuildInputs
     }
     deriving (Eq, Show, Generic, NFData, Store)
 
+{- | A value a scenario shipped with the database sets: of the database's
+parameter without a process, else of that activity's own, which is the same
+parameter on each product of its block.
+-}
+data ScenarioValue = ScenarioValue
+    { svProcess :: !(Maybe UUID)
+    , svName :: !Text
+    , svValue :: !Double
+    }
+    deriving (Eq, Show, Generic, NFData, Store)
+
 -- | Complete database with indexes for efficient searches
 data Database = Database
     { -- UUID interning tables for ProcessId ↔ (UUID, UUID) conversion
@@ -1714,6 +1725,7 @@ data Database = Database
     , dbBuiltWith :: !BuildInputs
     , dbDocumentation :: !DatabaseDocumentation -- What the database says about itself (serialized to cache)
     , dbParameters :: !(M.Map Text Parameter) -- Parameters every process reads unless it defines its own of the same name
+    , dbScenarios :: !(M.Map Text [ScenarioValue]) -- Scenarios the source ships, by name
     , -- Runtime-only fields (not serialized to cache)
       dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
     , dbFlowsByName :: !(M.Map Text [BiosphereFlow]) -- Biosphere flow name index for LCIA matching
@@ -1752,6 +1764,7 @@ instance Store Database where
             + getSize (dbBuiltWith db)
             + getSize (dbDocumentation db)
             + getSize (dbParameters db)
+            + getSize (dbScenarios db)
 
     poke db = do
         poke (dbProcessIdTable db)
@@ -1777,6 +1790,7 @@ instance Store Database where
         poke (dbBuiltWith db)
         poke (dbDocumentation db)
         poke (dbParameters db)
+        poke (dbScenarios db)
 
     -- Runtime-only fields are NOT serialized
 
@@ -1803,6 +1817,7 @@ instance Store Database where
         builtWith <- peek
         documentation <- peek
         parameters <- peek
+        scenarios <- peek
         return
             Database
                 { dbProcessIdTable = processIdTable
@@ -1828,6 +1843,7 @@ instance Store Database where
                 , dbBuiltWith = builtWith
                 , dbDocumentation = documentation
                 , dbParameters = parameters
+                , dbScenarios = scenarios
                 , -- Runtime-only fields set to defaults
                   dbSynonymDB = Nothing
                 , dbFlowsByName = M.empty
@@ -2174,6 +2190,7 @@ data SimpleDatabase = SimpleDatabase
     , sdbUnits :: !UnitDB
     , sdbDocumentation :: !DatabaseDocumentation
     , sdbParameters :: !(M.Map Text Parameter)
+    , sdbScenarios :: !(M.Map Text [ScenarioValue])
     }
     deriving (Generic, Store)
 
@@ -2194,6 +2211,7 @@ simpleDatabaseOf db pids =
         , sdbUnits = dbUnits db
         , sdbDocumentation = dbDocumentation db
         , sdbParameters = dbParameters db
+        , sdbScenarios = dbScenarios db
         }
 
 -- | Blocking reason for cross-database linking failure

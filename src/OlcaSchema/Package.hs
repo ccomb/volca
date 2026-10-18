@@ -29,6 +29,10 @@ module OlcaSchema.Package (
     AllocationFactor (..),
     Parameter (..),
     ParameterValue (..),
+    ProductSystem (..),
+    ParameterSet (..),
+    Redefinition (..),
+    RedefinitionContext (..),
     Unread (..),
     isOlcaPackage,
     readPackage,
@@ -68,6 +72,7 @@ data Package = Package
     -- ^ Each location's code
     , pkGlobals :: ![Parameter]
     , pkProcesses :: ![Process]
+    , pkProductSystems :: ![ProductSystem]
     }
 
 data UnitGroup = UnitGroup
@@ -173,6 +178,32 @@ data Parameter = Parameter
     , paUncertainty :: !(Maybe Uncertainty)
     }
     deriving (Generic, NFData)
+
+-- | A product system, of which only the parameter sets it ships are read: the engine links by itself.
+data ProductSystem = ProductSystem
+    { psName :: !Text
+    , psSets :: ![ParameterSet]
+    }
+    deriving (Generic, NFData)
+
+-- | A named set of parameter values, a scenario of the product system.
+data ParameterSet = ParameterSet
+    { setName :: !Text
+    , setValues :: ![Redefinition]
+    }
+    deriving (Generic, NFData)
+
+-- | A value a set gives a parameter.
+data Redefinition = Redefinition
+    { rdName :: !Text
+    , rdValue :: !Double
+    , rdContext :: !RedefinitionContext
+    }
+    deriving (Generic, NFData)
+
+-- | Whose parameter a redefinition sets.
+data RedefinitionContext = OfDatabase | OfProcess !UUID | OfImpactCategory !UUID
+    deriving (Eq, Show, Generic, NFData)
 
 reference :: A.Value -> A.Parser UUID
 reference = withObject "reference" (.: "@id")
@@ -383,6 +414,28 @@ instance FromJSON Process where
                 , prUnread = [DataQuality | isJust (nonBlank quality)] <> [SocialAspects | not (null social)] <> concatMap rxUnread exchanges
                 }
 
+instance FromJSON ProductSystem where
+    parseJSON = withObject "ProductSystem" $ \o -> ProductSystem <$> o .: "name" <*> o .:? "parameterSets" .!= []
+
+instance FromJSON ParameterSet where
+    parseJSON = withObject "ParameterRedefSet" $ \o -> ParameterSet <$> o .: "name" <*> o .:? "parameters" .!= []
+
+instance FromJSON Redefinition where
+    parseJSON = withObject "ParameterRedef" $ \o ->
+        Redefinition
+            <$> o .: "name"
+            <*> o .:? "value" .!= 0
+            <*> (o .:? "context" >>= maybe (pure OfDatabase) context)
+      where
+        context :: A.Value -> A.Parser RedefinitionContext
+        context = withObject "context" $ \c -> do
+            kind <- c .: "@type"
+            owner <- c .: "@id"
+            case kind :: Text of
+                "Process" -> pure (OfProcess owner)
+                "ImpactCategory" -> pure (OfImpactCategory owner)
+                other -> fail ("a parameter redefinition in the context of a " <> T.unpack other <> ", where a process or an impact category is expected")
+
 newtype SchemaVersion = SchemaVersion Int
     deriving (Generic, NFData)
 
@@ -406,6 +459,7 @@ readPackage dir = runExceptT $ do
     locations <- ExceptT (decodeFolder (dir </> "locations"))
     globals <- ExceptT (decodeFolder (dir </> "parameters"))
     processes <- ExceptT (decodeFolder (dir </> "processes"))
+    systems <- ExceptT (decodeFolder (dir </> "product_systems"))
     unitGroups <- unique "unit groups" [(ugId g, g) | g <- groups]
     propertyGroups <- unique "flow properties" [(p, g) | PropertyDoc p g <- properties]
     flowIndex <- unique "flows" [(flId f, f) | f <- flows]
@@ -419,6 +473,7 @@ readPackage dir = runExceptT $ do
             , pkLocations = locationIndex
             , pkGlobals = globals
             , pkProcesses = processes
+            , pkProductSystems = systems
             }
   where
     -- Two documents with one identifier: which one openLCA would keep is not ours to guess.

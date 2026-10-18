@@ -97,6 +97,7 @@ buildFixture comp = do
                 , sdbUnits = M.singleton unitU (Unit unitU "kg" "kg" "")
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
+                , sdbScenarios = M.empty
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . T.unpack) pure r
   where

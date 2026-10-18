@@ -241,6 +241,7 @@ simpleDBOf acts flows =
         , sdbUnits = M.empty
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
+        , sdbScenarios = M.empty
         }
 
 -- ---------------------------------------------------------------------------

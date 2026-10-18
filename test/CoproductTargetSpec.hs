@@ -243,6 +243,7 @@ buildFixture consumer rows flows = do
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
+                , sdbScenarios = M.empty
                 }
     either (fail . show) pure r
 

@@ -155,7 +155,7 @@ import API.Types (
     RelinkRequest (..),
     RelinkResponse (..),
     RestatedLineAPI (..),
-    ScenarioAPI,
+    ScenarioAPI (..),
     ScenarioSaveRequest (..),
     SynonymGroupsResponse (..),
     UploadChunk (..),
@@ -798,11 +798,14 @@ exportDatabaseHandler dbName req = do
     scenarios <- liftIO (listScenarios dbManager dbName)
     pure (addHeader (encodeExportWarnings (warnings <> scenariosLeftOut scenarios)) (BinaryContent (package bytes)))
   where
-    -- No format written keeps a saved scenario.
+    -- No format written keeps a scenario, shipped or saved.
     scenariosLeftOut :: Either WriteRefusal [ScenarioAPI] -> [Text]
     scenariosLeftOut = \case
-        Right [] -> []
-        Right saved -> [T.pack (show (length saved)) <> " saved scenarios are not in the export"]
+        Right scenarios ->
+            [ T.pack (show n) <> " " <> kind <> " are not in the export"
+            | (kind, n) <- [("scenarios shipped with the database", length (filter saShipped scenarios)), ("saved scenarios", length (filter (not . saShipped) scenarios))]
+            , n > 0
+            ]
         Left refusal -> ["the saved scenarios could not be read (" <> refusalMessage refusal <> "): any there are not in the export"]
 
 {- | What the package of a loaded database says of it: the licence it is served

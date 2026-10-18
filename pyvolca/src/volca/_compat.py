@@ -32,8 +32,9 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 76
-"""The newest wire revision this pyvolca understands (revision 76 added
+KNOWN_WIRE = 77
+"""The newest wire revision this pyvolca understands (revision 77 added
+the scenarios a database ships, which ``Scenario.shipped`` marks; revision 76 added
 the ``selector`` of each exchange, and the selectors naming an input or a
 waste output by its flow and location; revision 75 added
 the scenarios of a database, which ``scenarios()``, ``save_scenario()``

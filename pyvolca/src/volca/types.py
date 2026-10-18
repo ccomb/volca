@@ -1985,16 +1985,19 @@ class FormulaCheck:
 
 @dataclass(frozen=True)
 class Scenario:
-    """Parameter values saved on a database under a name.
+    """Parameter values of a database under a name.
 
     To score one, pass its ``parameters`` as the parameters of a scoring
     request. ``problem`` says why its values no longer apply, when an edit of
     the database has since made them stale (a parameter removed, say).
+    ``shipped`` marks one that comes with the database itself (an openLCA
+    package's parameter set), which can be neither replaced nor dropped.
     """
 
     name: str
     parameters: list[ParameterValue]
     problem: str | None = None
+    shipped: bool = False
 
     @classmethod
     def from_json(cls, d: dict) -> "Scenario":
@@ -2002,6 +2005,7 @@ class Scenario:
             name=d["name"],
             parameters=[ParameterValue(name=p["name"], value=p["value"], process=p.get("process")) for p in d["parameters"]],
             problem=d.get("problem"),
+            shipped=d.get("shipped", False),
         )
 
 
