@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 75** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 76** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -802,10 +802,15 @@ no longer read them. With every change in, each line whose formula no
 longer gives its amount takes the formula's value; ``restated`` lists
 those lines by ``position``, with the amount moved ``from`` and ``to``.
 
+Each line of `get_activity` carries the selector that reaches it
+(``selector``), including a line no provider is named for, which is
+selected by its flow and location.
+
 Only a database of your own accepts edits: copy a configured one first.
 
-Needs an engine speaking wire revision 7, 56 for the texts, and 73
-for the parameters and formulas.
+Needs an engine speaking wire revision 7, 56 for the texts, 73
+for the parameters and formulas, and 76 for a selector by flow of an
+input or a waste output.
 
 ##### `Client.ensure_database(source: str | Path | bytes, name: str | None = None) -> str`
 
@@ -2387,6 +2392,7 @@ recorded no compartment. Everything else restates as
 | `comment` | `str \| None` | None |
 | `formula` | `ExchangeFormula \| None` | None |
 | `position` | `int \| None` | None |
+| `selector` | `ExchangeSelector \| None` | None |
 | `is_biosphere` | `bool` | True |
 | `is_waste` | `bool` | False |
 
@@ -2686,9 +2692,14 @@ the other activity has it when the line was added.
 Which lines of an inventory an edit is about.
 
 ``kind`` is ``"input"``, ``"waste"`` or ``"biosphere"``. The first two name
-their provider by process id; the third names its flow by identity. There
-is no kind for the reference product or a coproduct: changing those changes
-what the activity *is*, which is not what an inventory edit does.
+their provider by process id, or, for a line that names no provider, its
+``flow`` and the ``location`` it states (``""`` for none; ``None`` reaches
+every location); the third names its flow by identity. There is no kind
+for the reference product or a coproduct: changing those changes what the
+activity *is*, which is not what an inventory edit does.
+
+Each line of `Client.get_activity` carries the selector that reaches
+it as ``selector`` (wire revision 76), which is the one to send.
 
 A selector may name several lines, and then it applies to all of them;
 `Client.edit_exchanges` reports how many. Naming none is refused by
@@ -2699,6 +2710,13 @@ the engine rather than passed off as done.
 | `kind` | `str` | _required_ |
 | `provider` | `str \| None` | None |
 | `flow` | `str \| None` | None |
+| `location` | `str \| None` | None |
+
+#### Properties
+
+##### `by_flow`
+
+True for an input or a waste output named by its flow (wire revision 76).
 
 #### Methods
 
@@ -2709,6 +2727,14 @@ A biosphere exchange, by flow id.
 ##### `ExchangeSelector.input_from(provider: str) -> ExchangeSelector`
 
 A technosphere input, by the process id of what supplies it.
+
+##### `ExchangeSelector.input_of_flow(flow: str, location: str | None = None) -> ExchangeSelector`
+
+A technosphere input naming no provider, by its flow and location.
+
+##### `ExchangeSelector.waste_of_flow(flow: str, location: str | None = None) -> ExchangeSelector`
+
+A waste output naming no treatment, by its flow and location.
 
 ##### `ExchangeSelector.waste_to(provider: str) -> ExchangeSelector`
 
@@ -3809,6 +3835,7 @@ is the answer, this is what was asked (wire revision 23).
 | `supplier_claim` | `SupplierClaim \| None` | None |
 | `formula` | `ExchangeFormula \| None` | None |
 | `position` | `int \| None` | None |
+| `selector` | `ExchangeSelector \| None` | None |
 | `is_biosphere` | `bool` | False |
 | `is_waste` | `bool` | False |
 
@@ -3886,6 +3913,7 @@ treatment it names was not loaded.
 | `supplier_claim` | `SupplierClaim \| None` | None |
 | `formula` | `ExchangeFormula \| None` | None |
 | `position` | `int \| None` | None |
+| `selector` | `ExchangeSelector \| None` | None |
 | `is_biosphere` | `bool` | False |
 | `is_waste` | `bool` | True |
 

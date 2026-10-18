@@ -445,7 +445,8 @@ paramsToSchema ps =
                 .= object
                     [ "kind" .= stringField "input | waste | biosphere"
                     , "provider" .= stringField "ProcessId of the provider, for kind input or waste"
-                    , "flow" .= stringField "Flow id, for kind biosphere (from get_activity)"
+                    , "flow" .= stringField "Flow id, for kind biosphere, or for kind input or waste naming no provider"
+                    , "location" .= stringField "With a flow of kind input or waste: the location the line states (\"\" for none); omitted, any"
                     ]
             , "required" .= (["kind"] :: [Text])
             ]

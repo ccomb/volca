@@ -581,10 +581,37 @@ class TestEditExchanges:
             client.edit_exchanges("a_b", remove=[ExchangeSelector.biosphere_flow("f-1")])
         session.post.assert_not_called()
 
+    def test_a_line_naming_no_provider_is_selected_by_flow_and_location(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=76)
+        _ok(session, {"removed": [], "amountsSet": [1, 2], "added": 0, "transient": False, "warnings": []})
+        client.edit_exchanges(
+            "a_b",
+            set_amounts=[
+                SetAmount(ExchangeSelector.input_of_flow("f-1", "FR"), 4.0),
+                SetAmount(ExchangeSelector.waste_of_flow("f-2", ""), 1.0),
+            ],
+        )
+        body = session.post.call_args[1]["json"]
+        # A location stated as none ("") is sent: it is not "any location".
+        assert [a["select"] for a in body["setAmounts"]] == [
+            {"kind": "input", "flow": "f-1", "location": "FR"},
+            {"kind": "waste", "flow": "f-2", "location": ""},
+        ]
+
+    def test_a_selector_by_flow_never_sent_to_an_engine_that_reads_none(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=75)
+        with pytest.raises(VoLCAError, match="wire revision >= 76"):
+            client.edit_exchanges("a_b", remove=[ExchangeSelector.input_of_flow("f-1")])
+        session.post.assert_not_called()
+
     def test_a_selector_names_the_key_its_kind_calls_for(self):
         # Caught before the round trip: the engine refuses the same shapes.
         with pytest.raises(ValueError, match="names its provider"):
-            ExchangeSelector(kind="input", flow="f-1")
+            ExchangeSelector(kind="input", provider="c_d", flow="f-1")
+        with pytest.raises(ValueError, match="names its provider"):
+            ExchangeSelector(kind="input", provider="c_d", location="FR")
         with pytest.raises(ValueError, match="names its flow"):
             ExchangeSelector(kind="biosphere", provider="c_d")
         with pytest.raises(ValueError, match="unknown selector kind"):

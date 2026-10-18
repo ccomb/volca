@@ -103,6 +103,7 @@ import Database.Author (
     ExchangeSelector (..),
     FlowRef (..),
     applyExchangeEdits,
+    lineSelector,
     retextsAuthoredIdentity,
  )
 import Service (ReferenceProductInfo (..), ServiceError, TargetRef (..), buildCrossDBLinkMap, crossDBLinkIndex, crossDBLinksOf, mkActivitySummary, referenceProductOf, resolveActivityAndProcessId, resolveTarget)
@@ -635,36 +636,15 @@ sameUnit line after = case singleUnit line of
         | otherwise -> Left ("The change is in " <> qtyUnit after <> " and the line in " <> qtyUnit now <> ".")
     Nothing -> Left "The line is in several units."
 
-{- | How an edit names the one line a group holds. The selector is read from
-the line found, not from the change, since the line may have been found by its
-flow's name.
+{- | How an edit names the one line a group holds: by what the line stores,
+as every edit does, so a line supplied from another database is named as
+well as one linked in this one.
 -}
 selectorOf :: Activity -> LineGroup -> Either Text ExchangeSelector
-selectorOf act line = case (lgRole line, lgSuppliers line) of
-    (_, _ : _ : _) -> Left "Several lines answer to this flow: an edit would change each of them."
-    (BioLine _, _) -> Right (SelectBiosphere (lgFlowId line))
-    (TechLine Input, suppliers) -> SelectInput <$> (localSupplier suppliers <* linked)
-    (WasteLine WasteOutput, suppliers) -> SelectWaste <$> (localSupplier suppliers <* linked)
-    (TechLine role, _) -> Left (unreachable (TechLine role))
-    (WasteLine WasteInput, _) -> Left (unreachable (WasteLine WasteInput))
-  where
-    localSupplier :: [Maybe TargetRef] -> Either Text Text
-    localSupplier = \case
-        [Just target] -> case T.breakOn "::" (trProcessId target) of
-            (pid, "") -> Right pid
-            (dbName, _) -> Left ("The supplier lives in " <> dbName <> ": an edit selects a line by a supplier of this database.")
-        _ -> Left "The line names no supplier to select it by."
-    -- An edit selects a line by the supplier it is linked to; a line the
-    -- database supplies by its product alone carries no link to select it by.
-    linked :: Either Text ()
-    linked
-        | all (isJust . linkOf) [ex | ex <- exchanges act, exchangeFlowId ex == lgFlowId line, roleOf ex == lgRole line] = Right ()
-        | otherwise = Left "The line is supplied by its product, not linked to a supplier: an edit selects a line by the supplier it is linked to."
-    linkOf :: Exchange -> Maybe UUID
-    linkOf = \case
-        TechnosphereExchange{techActivityLinkId = lid} -> lid
-        WasteExchange{waActivityLinkId = lid} -> lid
-        BiosphereExchange{} -> Nothing
+selectorOf act line = case [ex | ex <- exchanges act, exchangeFlowId ex == lgFlowId line, roleOf ex == lgRole line] of
+    [ex] -> maybe (Left (unreachable (lgRole line))) Right (lineSelector ex)
+    _ : _ : _ -> Left "Several lines answer to this flow: an edit would change each of them."
+    [] -> Left "The activity holds no such line."
 
 unreachable :: LineRole -> Text
 unreachable = \case

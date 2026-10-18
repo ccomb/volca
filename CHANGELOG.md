@@ -233,6 +233,19 @@
   process split by a share formula is written at the share's value, and the
   warnings say so.
 
+- Every inventory line can be edited, including one supplied from another
+  database or by its product. Each exchange of an activity carries the
+  `selector` an edit reaches it by, taken from what the line itself states:
+  its supplier when it names one, otherwise its flow and its location. A
+  bread that buys electricity by two lines naming no supplier, one in France
+  and one in Germany, gets `{"kind": "input", "flow": "…", "location": "FR"}`
+  and the same with `"DE"`, so each can be changed alone, and the edit still
+  replays when the database supplying the electricity is not loaded.
+  Comparing two activities and applying the changes now lands on those lines
+  too. pyvolca has `ExchangeSelector.input_of_flow`, `waste_of_flow` and the
+  `selector` of each exchange. A journal holding an edit by flow is not read
+  by an older engine. Wire revision 76.
+
 ### Fixed
 
 - A process split from a block of several products keeps every formula

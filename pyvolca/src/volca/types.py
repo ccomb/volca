@@ -1187,6 +1187,10 @@ class TechnosphereExchange:
     """The line's position among the activity's exchanges, which names it in
     :attr:`LCIAResult.exchange_contributions` (wire revision 70); None where
     the engine does not say it."""
+    selector: "ExchangeSelector | None" = None
+    """What :meth:`Client.edit_exchanges` reaches this line by (wire revision
+    76); None on the product side, which no edit reaches, and where the engine
+    does not say it."""
 
     is_biosphere: bool = False  # discriminator for callers using duck typing
     is_waste: bool = False
@@ -1223,6 +1227,7 @@ class TechnosphereExchange:
             comment=_exchange_comment(ewu, inner),
             formula=ExchangeFormula.from_json(inner.get("formula")),
             position=ewu.get("position"),
+            selector=ExchangeSelector.from_json(ewu.get("selector")),
             supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
 
@@ -1276,6 +1281,10 @@ class BiosphereExchange:
     """The line's position among the activity's exchanges, which names it in
     :attr:`LCIAResult.exchange_contributions` (wire revision 70); None where
     the engine does not say it."""
+    selector: "ExchangeSelector | None" = None
+    """What :meth:`Client.edit_exchanges` reaches this line by (wire revision
+    76); None on the product side, which no edit reaches, and where the engine
+    does not say it."""
 
     is_biosphere: bool = True  # discriminator for callers using duck typing
     is_waste: bool = False
@@ -1311,6 +1320,7 @@ class BiosphereExchange:
             comment=_exchange_comment(ewu, inner),
             formula=ExchangeFormula.from_json(inner.get("formula")),
             position=ewu.get("position"),
+            selector=ExchangeSelector.from_json(ewu.get("selector")),
         )
 
 
@@ -1360,6 +1370,10 @@ class WasteExchange:
     """The line's position among the activity's exchanges, which names it in
     :attr:`LCIAResult.exchange_contributions` (wire revision 70); None where
     the engine does not say it."""
+    selector: "ExchangeSelector | None" = None
+    """What :meth:`Client.edit_exchanges` reaches this line by (wire revision
+    76); None on the product side, which no edit reaches, and where the engine
+    does not say it."""
 
     is_biosphere: bool = False
     is_waste: bool = True
@@ -1388,6 +1402,7 @@ class WasteExchange:
             comment=_exchange_comment(ewu, inner),
             formula=ExchangeFormula.from_json(inner.get("formula")),
             position=ewu.get("position"),
+            selector=ExchangeSelector.from_json(ewu.get("selector")),
             role=WasteRole(raw_role) if raw_role else None,
             supplier_claim=SupplierClaim.from_json(inner.get("supplierClaim")),
         )
@@ -3064,9 +3079,14 @@ class ExchangeSelector:
     """Which lines of an inventory an edit is about.
 
     ``kind`` is ``"input"``, ``"waste"`` or ``"biosphere"``. The first two name
-    their provider by process id; the third names its flow by identity. There
-    is no kind for the reference product or a coproduct: changing those changes
-    what the activity *is*, which is not what an inventory edit does.
+    their provider by process id, or, for a line that names no provider, its
+    ``flow`` and the ``location`` it states (``""`` for none; ``None`` reaches
+    every location); the third names its flow by identity. There is no kind
+    for the reference product or a coproduct: changing those changes what the
+    activity *is*, which is not what an inventory edit does.
+
+    Each line of :meth:`Client.get_activity` carries the selector that reaches
+    it as ``selector`` (wire revision 76), which is the one to send.
 
     A selector may name several lines, and then it applies to all of them;
     :meth:`Client.edit_exchanges` reports how many. Naming none is refused by
@@ -3076,6 +3096,7 @@ class ExchangeSelector:
     kind: str
     provider: str | None = None
     flow: str | None = None
+    location: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in ("input", "waste", "biosphere"):
@@ -3083,14 +3104,22 @@ class ExchangeSelector:
                 f"unknown selector kind {self.kind!r} (expected input, waste or biosphere)"
             )
         if self.kind == "biosphere":
-            if self.flow is None or self.provider is not None:
+            if self.flow is None or self.provider is not None or self.location is not None:
                 raise ValueError(
                     "a biosphere selector names its flow (flow=...), and nothing else"
                 )
-        elif self.provider is None or self.flow is not None:
+        elif (self.provider is None) == (self.flow is None) or (
+            self.provider is not None and self.location is not None
+        ):
             raise ValueError(
-                f"a selector of kind {self.kind} names its provider (provider=...), and nothing else"
+                f"a selector of kind {self.kind} names its provider (provider=...), "
+                "or its flow (flow=...) and perhaps its location, and nothing else"
             )
+
+    @property
+    def by_flow(self) -> bool:
+        """True for an input or a waste output named by its flow (wire revision 76)."""
+        return self.kind != "biosphere" and self.flow is not None
 
     @classmethod
     def input_from(cls, provider: str) -> "ExchangeSelector":
@@ -3098,17 +3127,35 @@ class ExchangeSelector:
         return cls(kind="input", provider=provider)
 
     @classmethod
+    def input_of_flow(cls, flow: str, location: str | None = None) -> "ExchangeSelector":
+        """A technosphere input naming no provider, by its flow and location."""
+        return cls(kind="input", flow=flow, location=location)
+
+    @classmethod
     def waste_to(cls, provider: str) -> "ExchangeSelector":
         """A waste output, by the process id of the treatment it goes to."""
         return cls(kind="waste", provider=provider)
+
+    @classmethod
+    def waste_of_flow(cls, flow: str, location: str | None = None) -> "ExchangeSelector":
+        """A waste output naming no treatment, by its flow and location."""
+        return cls(kind="waste", flow=flow, location=location)
 
     @classmethod
     def biosphere_flow(cls, flow: str) -> "ExchangeSelector":
         """A biosphere exchange, by flow id."""
         return cls(kind="biosphere", flow=flow)
 
+    @classmethod
+    def from_json(cls, d: dict | None) -> "ExchangeSelector | None":
+        if d is None:
+            return None
+        return cls(kind=d["kind"], provider=d.get("provider"), flow=d.get("flow"), location=d.get("location"))
+
     def to_wire(self) -> dict:
-        return _drop_none({"kind": self.kind, "provider": self.provider, "flow": self.flow})
+        return _drop_none(
+            {"kind": self.kind, "provider": self.provider, "flow": self.flow, "location": self.location}
+        )
 
 
 @dataclass(frozen=True)

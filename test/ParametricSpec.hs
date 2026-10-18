@@ -19,7 +19,7 @@ module ParametricSpec (spec) where
 
 import API.MCP (callTool, noRequestId)
 import API.Routes (ScoreLines (..), activityLCIABatchH, batchImpactsH, postReducedModel)
-import API.Types (BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), ExchangeContribution (..), FreeParameter (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), ReducedModel (..), ReducedModelRequest (..), Substitution (..), SubstitutionRequest (..), SubstitutionScope (..))
+import API.Types (ActivityForAPI (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), ExchangeContribution (..), ExchangeWithUnit (..), FreeParameter (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), ReducedModel (..), ReducedModelRequest (..), Substitution (..), SubstitutionRequest (..), SubstitutionScope (..), toSelector)
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
@@ -57,7 +57,7 @@ import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringS
 import qualified Method.Types as MT
 import Parametric (Check (..), ParameterRefusal (..), Setting (..), checkFormula, describeParameterRefusal, editedParameters, instantiate, parameterised)
 import Servant (ServerError (..), runHandler)
-import Service (withholdBatch)
+import Service (convertActivityForAPI, withholdBatch)
 import SharedSolver (CrossDBSolution (..), SharedSolver (solverDbName), computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
 import SynonymDB (emptySynonymDB)
 import System.Mem.StableName (makeStableName)
@@ -97,6 +97,18 @@ spec = describe "a database at other values of its parameters" $ do
         (bakery, _) <- databases
         sort [(cdlLocation link, aePosition <$> cdlAnswers link) | link <- dbCrossDBLinks bakery, cdlConsumerActUUID link == aBread]
             `shouldBe` [("DE", Just 3), ("FR", Just 2)]
+
+    it "gives a line the other database supplies the selector an edit reaches it by" $ do
+        -- The page shows the grid's process as the supplier, which the line
+        -- does not store: its selector names what it stores.
+        (bakery, grid) <- databases
+        bread <- pidOf bakery (aBread, pBread)
+        act <- maybe (fail "no bread") pure (getActivity bakery bread)
+        let selectorAt i = ewuSelector (pfaExchanges (convertActivityForAPI bakery bread act) !! i)
+        french <- maybe (fail "no selector on the French electricity") (either (fail . show) pure . toSelector) (selectorAt 2)
+        case applyExchangeEdits AuthorContext{acDb = bakery, acDeps = [grid], acUnitConfig = bakeryUnits} [SetAmount french 7] act of
+            Left errs -> expectationFailure (show errs)
+            Right edited -> (eaMatched edited, map exchangeAmount (take 2 (drop 2 (exchanges (eaActivity edited))))) `shouldBe` ([1], [7, exchangeAmount (exchanges act !! 3)])
 
     it "scores the supplier the settings move the electricity to, in the other database" $ do
         (bakery, grid) <- databases

@@ -5,7 +5,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, subAnchorRef, unresolvedFlowName)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, selectorAPI, subAnchorRef, unresolvedFlowName)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
@@ -33,6 +33,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, bm25DocsMatchingName, filterByName, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, flowSearchFields, locationAnswers)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
+import Database.Author (lineSelector)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, cutoffsReached, gapIndexOf)
 import Database.MatrixBuild (findProducer, linkedProducer)
 import Impact (PartScore (..))
@@ -1560,6 +1561,7 @@ toExchangeWithUnit db links position exchange =
             , ewuWasteRole = wasteRoleOf target exchange
             , ewuExComment = exchangeComment exchange
             , ewuPedigree = exchangePedigree exchange
+            , ewuSelector = selectorAPI <$> lineSelector exchange
             }
 
 {- | Get reference product name from activity exchanges. Reference products

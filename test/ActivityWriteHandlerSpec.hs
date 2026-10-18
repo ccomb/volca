@@ -301,9 +301,12 @@ editingSpec = describe "editing an activity's exchanges over HTTP" $ do
 
     it "refuses a selector whose kind and key disagree" $
         withWritableDb $ \env -> do
-            let confused = (bioSelector co2Id){esKind = "input"}
+            let confused = (bioSelector co2Id){esProvider = Just supplierPid}
+                both = (bioSelector co2Id){esKind = "input", esProvider = Just supplierPid}
             res <- edit env "authored" supplierPid noEdits{eerRemove = [confused]}
-            void res `shouldSatisfy` refusedWith "names its provider"
+            void res `shouldSatisfy` refusedWith "names its flow, and nothing else"
+            res' <- edit env "authored" supplierPid noEdits{eerRemove = [both]}
+            void res' `shouldSatisfy` refusedWith "names its provider, or its flow"
 
     it "refuses to edit a database the engine only reads" $
         withDb buildFixture (\name dataDir -> (uploadedConfig name dataDir){dcIsUploaded = False}) $ \env -> do
@@ -407,7 +410,7 @@ noEdits =
 
 bioSelector :: UUID -> ExchangeSelectorAPI
 bioSelector flowId =
-    ExchangeSelectorAPI{esKind = "biosphere", esProvider = Nothing, esFlow = Just (UUID.toText flowId)}
+    ExchangeSelectorAPI{esKind = "biosphere", esProvider = Nothing, esFlow = Just (UUID.toText flowId), esLocation = Nothing}
 
 refusedWith :: String -> Either ServerError () -> Bool
 refusedWith needle = either ((needle `isInfixOf`) . bodyOf) (const False)

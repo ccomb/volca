@@ -1186,10 +1186,15 @@ class Client:
         longer gives its amount takes the formula's value; ``restated`` lists
         those lines by ``position``, with the amount moved ``from`` and ``to``.
 
+        Each line of :meth:`get_activity` carries the selector that reaches it
+        (``selector``), including a line no provider is named for, which is
+        selected by its flow and location.
+
         Only a database of your own accepts edits: copy a configured one first.
 
-        Needs an engine speaking wire revision 7, 56 for the texts, and 73
-        for the parameters and formulas.
+        Needs an engine speaking wire revision 7, 56 for the texts, 73
+        for the parameters and formulas, and 76 for a selector by flow of an
+        input or a waste output.
         """
         self._require_wire(7, "edit_exchanges", engine_hint="0.9.5")
         texts = {
@@ -1212,6 +1217,8 @@ class Client:
             self._require_wire(
                 73, "edit_exchanges(set_parameters=, set_formulas=, remove_parameters=)", engine_hint="0.16.0"
             )
+        if any(s.by_flow for s in [*remove, *(a.select for a in set_amounts), *(f.select for f in set_formulas)]):
+            self._require_wire(76, "edit_exchanges(a selector by flow for an input or a waste output)", engine_hint="0.16.0")
         target = self._db(db_name)
         return self._json(
             self._session.post(

@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
@@ -29,8 +30,11 @@ import Types (
     Compartment (..),
     Parameter (..),
     ParameterDefinition (..),
+    UUID,
     Uncertainty,
+    locationCode,
     parseMedium,
+    readExchangeLocation,
     unknownMedium,
  )
 
@@ -147,7 +151,9 @@ data ActivityWriteResponse = ActivityWriteResponse
 {- | Which lines of an inventory an edit addresses.
 
 @esKind@ is @input@, @waste@ or @biosphere@: the first two name their provider
-by process id, the third names its flow by identity. The product side – the
+by process id, the third names its flow by identity. An input or a waste output
+that names no provider is named by its flow instead, and by its location when
+@esLocation@ is given. The product side – the
 reference product, coproducts, a treatment's reference input – has no kind
 here, because changing those changes what the activity /is/, not what it
 consumes.
@@ -160,6 +166,8 @@ data ExchangeSelectorAPI = ExchangeSelectorAPI
     { esKind :: Text
     , esProvider :: Maybe Text
     , esFlow :: Maybe Text
+    , esLocation :: Maybe Text
+    -- ^ For an input or a waste output named by its flow: the location the line states, "" for none; absent, any location.
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExchangeSelectorAPI)
@@ -445,18 +453,31 @@ meant a flow and typed a provider would otherwise edit whatever the provider
 happened to name.
 -}
 toSelector :: ExchangeSelectorAPI -> Either [Text] ExchangeSelector
-toSelector es = case (T.toLower (T.strip (esKind es)), esProvider es, esFlow es) of
-    ("input", Just provider, Nothing) -> Right (SelectInput provider)
-    ("waste", Just provider, Nothing) -> Right (SelectWaste provider)
-    ("biosphere", Nothing, Just flowId) ->
-        maybe (Left ["not a flow identifier: " <> flowId]) (Right . SelectBiosphere) (UUID.fromText flowId)
-    (kind, _, _)
+toSelector es = case (T.toLower (T.strip (esKind es)), esProvider es, esFlow es, esLocation es) of
+    ("input", Just provider, Nothing, Nothing) -> Right (SelectInput provider)
+    ("waste", Just provider, Nothing, Nothing) -> Right (SelectWaste provider)
+    ("input", Nothing, Just flowId, location) -> (`SelectUnlinkedInput` fmap readExchangeLocation location) <$> flowNamed flowId
+    ("waste", Nothing, Just flowId, location) -> (`SelectUnlinkedWaste` fmap readExchangeLocation location) <$> flowNamed flowId
+    ("biosphere", Nothing, Just flowId, Nothing) -> SelectBiosphere <$> flowNamed flowId
+    (kind, _, _, _)
         | kind `elem` ["input", "waste"] ->
-            Left ["a selector of kind " <> kind <> " names its provider, and nothing else"]
+            Left ["a selector of kind " <> kind <> " names its provider, or its flow and perhaps its location, and nothing else"]
         | kind == "biosphere" ->
             Left ["a biosphere selector names its flow, and nothing else"]
         | otherwise ->
             Left ["unknown selector kind: " <> kind <> " (expected input|waste|biosphere)"]
+  where
+    flowNamed :: Text -> Either [Text] UUID
+    flowNamed flowId = maybe (Left ["not a flow identifier: " <> flowId]) Right (UUID.fromText flowId)
+
+-- | A selector as the wire writes it, which 'toSelector' reads back.
+selectorAPI :: ExchangeSelector -> ExchangeSelectorAPI
+selectorAPI = \case
+    SelectInput provider -> ExchangeSelectorAPI "input" (Just provider) Nothing Nothing
+    SelectWaste provider -> ExchangeSelectorAPI "waste" (Just provider) Nothing Nothing
+    SelectBiosphere flowId -> ExchangeSelectorAPI "biosphere" Nothing (Just (UUID.toText flowId)) Nothing
+    SelectUnlinkedInput flowId location -> ExchangeSelectorAPI "input" Nothing (Just (UUID.toText flowId)) (locationCode <$> location)
+    SelectUnlinkedWaste flowId location -> ExchangeSelectorAPI "waste" Nothing (Just (UUID.toText flowId)) (locationCode <$> location)
 
 {- | A biosphere line names a flow by identifier, or in words. Both at once is
 ambiguous and neither says nothing, so both are refused instead of picking a

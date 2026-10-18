@@ -35,6 +35,7 @@ import Database.Author (
     applyExchangeEdits,
     authoredActivityUUID,
     authoredProductUUID,
+    lineSelector,
     validateAuthored,
  )
 import Database.Rebuild (deleteActivities, insertActivities, replaceActivities)
@@ -49,6 +50,7 @@ import Types (
     Database (..),
     DeclaredShare (..),
     Exchange (..),
+    ExchangeLocation (..),
     LocationSource (..),
     Medium (..),
     Parameter (..),
@@ -527,6 +529,44 @@ spec = do
                 edited <- editOrFail [RemoveExchange (SelectInput (UUID.toText supplierActId))]
                 eaMatched edited `shouldBe` [1]
 
+            describe "a line that names no provider" $ do
+                -- Milk bought in France and in Germany with no supplier named,
+                -- next to the linked French milk, and used oil sent nowhere named.
+                let unlinked =
+                        importedActivity
+                            { exchanges =
+                                exchanges importedActivity
+                                    <> [unlinkedMilk "FR" 2, unlinkedMilk "DE" 3, unlinkedOil]
+                            }
+                    editUnlinked edits = case applyExchangeEdits (contextOf fixtureDb) edits unlinked of
+                        Left errs -> fail ("applyExchangeEdits: " <> show errs)
+                        Right edited -> pure edited
+
+                it "is named by its flow and its location, apart from a linked line of that flow" $ do
+                    edited <- editUnlinked [SetAmount (SelectUnlinkedInput supplierProdId (Just (LocationCode "FR"))) 5]
+                    eaMatched edited `shouldBe` [1]
+                    map techAmount (inputsOf (eaActivity edited)) `shouldBe` [8, 5, 3]
+
+                it "is named at every location when the selector states none" $ do
+                    edited <- editUnlinked [SetAmount (SelectUnlinkedInput supplierProdId Nothing) 4]
+                    map techAmount (inputsOf (eaActivity edited)) `shouldBe` [8, 4, 4]
+
+                it "is a waste output named by its flow, apart from the linked one" $ do
+                    edited <- editUnlinked [RemoveExchange (SelectUnlinkedWaste usedOilId (Just LocationNone))]
+                    [waAmount ex | ex@WasteExchange{waIsInput = False} <- exchanges (eaActivity edited)] `shouldBe` [0.5]
+
+                it "gets from each line the selector that reaches it, and none on the product side" $ do
+                    -- Every line but the products and the treated waste is reached by
+                    -- its own selector: setting through it moves that line.
+                    let reached = [(i, s) | (i, ex) <- zip [0 :: Int ..] (exchanges unlinked), Just s <- [lineSelector ex]]
+                    map fst reached `shouldBe` [2, 3, 4, 5, 7, 8, 9]
+                    mapM_
+                        ( \(i, s) -> do
+                            edited <- editUnlinked [SetAmount s 42]
+                            exchangeAmount (exchanges (eaActivity edited) !! i) `shouldBe` 42
+                        )
+                        reached
+
             it "sets an amount and leaves the rest of the line alone" $ do
                 edited <- editOrFail [SetAmount (SelectInput supplierPid) 3]
                 map (\ex -> (techAmount ex, techComment ex, techPedigree ex)) (inputsOf (eaActivity edited))
@@ -850,6 +890,41 @@ importedActivity =
         , activityNativeId = Nothing
         , activityFormulaCheck = Nothing
         , activityDates = noDates
+        }
+
+-- | Milk bought with no supplier named, at a location.
+unlinkedMilk :: Text -> Double -> Exchange
+unlinkedMilk location amount =
+    TechnosphereExchange
+        { techFlowId = supplierProdId
+        , techAmount = amount
+        , techUnitId = kgUnitId
+        , techRole = Input
+        , techActivityLinkId = Nothing
+        , techSupplierClaim = ClaimByProduct
+        , techLocation = LocationCode location
+        , techComment = Nothing
+        , techPedigree = Nothing
+        , techFormula = Nothing
+        , techShare = Nothing
+        , techClassification = M.empty
+        , techProperties = noProperties
+        }
+
+-- | Used oil sent to no treatment named.
+unlinkedOil :: Exchange
+unlinkedOil =
+    WasteExchange
+        { waFlowId = usedOilId
+        , waAmount = 0.7
+        , waUnitId = kgUnitId
+        , waIsInput = False
+        , waActivityLinkId = Nothing
+        , waSupplierClaim = ClaimByProduct
+        , waLocation = ""
+        , waComment = Nothing
+        , waPedigree = Nothing
+        , waFormula = Nothing
         }
 
 -- ---------------------------------------------------------------------------

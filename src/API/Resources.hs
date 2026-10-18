@@ -1636,8 +1636,8 @@ params r = case r of
     EditExchanges ->
         [ pDatabase
         , pProcessId
-        , Param "remove" "array" Optional "Lines to drop. Each is {kind, provider|flow}: kind \"input\" or \"waste\" with the provider's process_id, or kind \"biosphere\" with the flow id."
-        , Param "set_amounts" "array" Optional "Lines to restate. Each is {select: {kind, provider|flow}, amount}."
+        , Param "remove" "array" Optional "Lines to drop. Each is the selector get_activity gives the line: {kind, provider|flow, location?}, kind \"input\" or \"waste\" with the provider's process_id, or with the flow id and location of a line naming no provider, or kind \"biosphere\" with the flow id."
+        , Param "set_amounts" "array" Optional "Lines to restate. Each is {select: {kind, provider|flow, location?}, amount}."
         , Param "add_inputs" "array" Optional "Technosphere inputs to add. Each is {provider, amount} plus optional unit and comment. The flow follows from the provider."
         , Param "add_biosphere" "array" Optional "Biosphere lines to add. Each is {direction, amount} plus either flow (an existing flow id) or name + compartment + unit, which reach the flow the database declares under them and introduce one only when nothing does."
         , Param "add_waste_outputs" "array" Optional "Waste outputs to add. Each is {provider, amount} plus optional unit and comment, where the provider is the treatment process."
@@ -1645,7 +1645,7 @@ params r = case r of
         , Param "set_location" "string" Optional "The activity's new location code (e.g. FR)."
         , Param "set_description" "array" Optional "The activity's new description, one string per paragraph; an empty array clears it."
         , Param "set_parameters" "array" Optional "Parameters of the activity to add, or to replace whole under the same spelling (a unit, description or uncertainty left out is dropped). Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
-        , Param "set_formulas" "array" Optional "Lines to give a formula. Each is {select: {kind, provider|flow}, formula}; a null formula drops it and keeps the amount."
+        , Param "set_formulas" "array" Optional "Lines to give a formula. Each is {select: {kind, provider|flow, location?}, formula}; a null formula drops it and keeps the amount."
         , Param "remove_parameters" "array" Optional "Names of the activity's parameters to remove, once the formulas set here no longer read them. Refused while a formula still reads one the database does not define."
         ]
     DatabaseParameters -> [pDatabase]

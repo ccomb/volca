@@ -54,6 +54,7 @@ import Types (
     Compartment (..),
     Database (..),
     Exchange (..),
+    ExchangeLocation (..),
     LocationSource (..),
     Medium (..),
     Parameter (..),
@@ -201,6 +202,16 @@ spec = do
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> M.member depProdId (dbTechFlows db) `shouldBe` True
 
+        it "edits a line naming no supplier by its flow and location, whatever supplies it" $ do
+            -- Such a line is answered by another database at load, so its
+            -- supplier depends on what is loaded; its flow and location do not.
+            withWheat <- buildFixtureWith [wheatIn "FR" 2, wheatIn "DE" 5]
+            let wheatCtx = ctx{acDb = withWheat}
+                wheatAmounts db = [techAmount ex | act <- V.toList (dbActivities db), ex@TechnosphereExchange{techRole = Input} <- exchanges act]
+            case replayJournal wheatCtx [event (Edited supplierPid [(SetAmount (SelectUnlinkedInput depProdId (Just (LocationCode "FR"))) 3, 1)])] of
+                Left err -> expectationFailure ("replay: " <> show err)
+                Right db -> wheatAmounts db `shouldBe` [3, 5]
+
         it "refuses an edit whose selectors no longer match what they matched" $
             -- The guard that makes a recorded edit safe to replay: the
             -- inventory it was made against must still be the one it named.
@@ -341,6 +352,35 @@ editedInventory =
         , (AddExchange usedOilOut, 1)
         ]
 
+-- | Lines naming no provider, by flow, with a location, with none stated, and at any location.
+unlinkedEdits :: JournalOp
+unlinkedEdits =
+    Edited
+        supplierPid
+        [ (SetAmount (SelectUnlinkedInput depProdId (Just (LocationCode "FR"))) 3, 1)
+        , (SetAmount (SelectUnlinkedInput depProdId (Just LocationNone)) 3, 1)
+        , (RemoveExchange (SelectUnlinkedWaste depProdId Nothing), 2)
+        ]
+
+-- | An input of wheat that names no supplier, at a location.
+wheatIn :: Text -> Double -> Exchange
+wheatIn location amount =
+    TechnosphereExchange
+        { techFlowId = depProdId
+        , techAmount = amount
+        , techUnitId = kgUnitId
+        , techRole = Input
+        , techActivityLinkId = Nothing
+        , techSupplierClaim = ClaimByProduct
+        , techLocation = LocationCode location
+        , techComment = Nothing
+        , techPedigree = Nothing
+        , techFormula = Nothing
+        , techShare = Nothing
+        , techClassification = M.empty
+        , techProperties = noProperties
+        }
+
 richEvents :: [JournalEvent]
 richEvents =
     [ event (Created [cheese] ["a_b"])
@@ -348,6 +388,7 @@ richEvents =
     , event (Deleted ["a_b", "c_d"])
     , event (Created [cheese{aaExchanges = [usedOilOut]}] ["a_b"])
     , event editedInventory
+    , event unlinkedEdits
     , event retexted
     , event parametrised
     , event databaseParameters
@@ -452,13 +493,17 @@ buildDepFixture = do
     either (fail . show) pure built
 
 buildFixture :: IO Database
-buildFixture = do
+buildFixture = buildFixtureWith []
+
+-- | The fixture with more lines on its activity, and then the wheat flow they may name.
+buildFixtureWith :: [Exchange] -> IO Database
+buildFixtureWith extra = do
     built <-
         buildDatabaseWithMatrices
             (BuildInputs defaultUnitConfig mempty Declared [])
             SimpleDatabase
-                { sdbActivities = M.singleton (supplierActId, supplierProdId) supplierActivity
-                , sdbTechFlows = M.singleton supplierProdId milkFlow
+                { sdbActivities = M.singleton (supplierActId, supplierProdId) supplierActivity{exchanges = exchanges supplierActivity <> extra}
+                , sdbTechFlows = M.fromList ((supplierProdId, milkFlow) : [(depProdId, wheatFlow) | not (null extra)])
                 , sdbBioFlows = M.singleton co2Id co2Flow
                 , sdbWasteFlows = M.empty
                 , sdbUnits = unitTable

@@ -114,7 +114,7 @@ import Database.Rebuild (
  )
 import Parametric (editedParameters)
 import Progress (ProgressLevel (..), reportProgress)
-import Types (BioDirection (..), Compartment (..), Database (..), Parameter (..), ParameterDefinition (..), getActivity)
+import Types (BioDirection (..), Compartment (..), Database (..), ExchangeLocation, Parameter (..), ParameterDefinition (..), getActivity, locationCode, readExchangeLocation)
 
 -- ---------------------------------------------------------------------------
 -- What a journal records
@@ -482,24 +482,35 @@ parseParameter = withObject "parameter" $ \o -> do
 ('exchangeJSON'): the same three kinds, providers by process id, flows by
 identity. It differs in one way, and only one: a selector's flow is a bare
 identifier, because a selector names a line that exists and never introduces
-a flow.
+a flow. An input or a waste output naming no provider is named by its flow,
+and by its location when the selector states one.
 -}
 selectorJSON :: ExchangeSelector -> Value
 selectorJSON = \case
     SelectInput provider -> object ["kind" .= ("input" :: Text), "provider" .= provider]
     SelectWaste provider -> object ["kind" .= ("waste" :: Text), "provider" .= provider]
     SelectBiosphere flowId -> object ["kind" .= ("biosphere" :: Text), "flow" .= UUID.toText flowId]
+    SelectUnlinkedInput flowId location -> object (["kind" .= ("input" :: Text), "flow" .= UUID.toText flowId] <> locationPair location)
+    SelectUnlinkedWaste flowId location -> object (["kind" .= ("waste" :: Text), "flow" .= UUID.toText flowId] <> locationPair location)
+  where
+    locationPair :: Maybe ExchangeLocation -> [Pair]
+    locationPair = maybe [] (\stated -> ["location" .= locationCode stated])
 
 parseSelector :: Value -> Parser ExchangeSelector
 parseSelector = withObject "exchange selector" $ \o ->
     o .: "kind" >>= \case
-        ("input" :: Text) -> SelectInput <$> o .: "provider"
-        "waste" -> SelectWaste <$> o .: "provider"
-        "biosphere" -> do
-            raw <- o .: "flow"
-            maybe (fail ("not a flow identifier: " <> T.unpack raw)) (pure . SelectBiosphere) $
-                UUID.fromText raw
+        ("input" :: Text) -> byProviderOrFlow o SelectInput SelectUnlinkedInput
+        "waste" -> byProviderOrFlow o SelectWaste SelectUnlinkedWaste
+        "biosphere" -> SelectBiosphere <$> (flowIn =<< o .: "flow")
         other -> fail ("unknown selector kind: " <> T.unpack other)
+  where
+    byProviderOrFlow :: Object -> (Text -> ExchangeSelector) -> (UUID.UUID -> Maybe ExchangeLocation -> ExchangeSelector) -> Parser ExchangeSelector
+    byProviderOrFlow o linked unlinked =
+        o .:? "provider" >>= \case
+            Just provider -> pure (linked provider)
+            Nothing -> unlinked <$> (flowIn =<< o .: "flow") <*> (fmap readExchangeLocation <$> o .:? "location")
+    flowIn :: Text -> Parser UUID.UUID
+    flowIn raw = maybe (fail ("not a flow identifier: " <> T.unpack raw)) pure (UUID.fromText raw)
 
 activityJSON :: AuthoredActivity -> Value
 activityJSON a =

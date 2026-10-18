@@ -221,13 +221,13 @@ spec = describe "Service.Compare" $ do
         it "does not set one amount on a flow drawn from several suppliers" $ do
             (p, ctx) <- wheatIn [buys 2 barley 0.5, buys 3 barley 0.5] barleySuppliers
             notApplied ctx p (barleyLine (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))) "Several lines answer to this flow: an edit would change each of them."
-        it "does not select a line supplied from another database" $ do
+        it "sets the amount of a line supplied from another database" $ do
             (p, ctx) <- wheatIn [buysUnlinked oat 1] []
-            notApplied
-                ctx
-                p{inLinks = M.singleton (tfId oat) (oatFrom "grains-db")}
-                (ExchangeChange (tfId oat) "oat grain" Nothing (TechLine Input) (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg")))
-                "The supplier lives in grains-db: an edit selects a line by a supplier of this database."
+            let fromGrains = p{inLinks = M.singleton (tfId oat) (oatFrom "grains-db")}
+                (answer, edits) = applicableChanges ctx fromGrains (ChangesQuery [] [ExchangeChange (tfId oat) "oat grain" Nothing (TechLine Input) (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))])
+            capExchanges answer `shouldBe` [OutcomeApplied]
+            after <- applied ctx fromGrains edits
+            [a | TechnosphereExchange{techRole = Input, techAmount = a} <- exchanges after] `shouldBe` [2]
         it "moves a line to another supplier at its new amount" $ do
             (p, ctx) <- wheatIn [buys 2 barley 1] barleySuppliers
             let (answer, edits) = applicableChanges ctx p (ChangesQuery [] [barleyLine organic, barleyLine (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))])
@@ -244,13 +244,12 @@ spec = describe "Service.Compare" $ do
                 `shouldBe` [OutcomeNotApplicable "Several activities of this database make this product: the change does not say which one supplies the added line.", OutcomeApplied]
             after <- applied ctx p edits
             (activityName after, [a | BiosphereExchange{bioAmount = a} <- exchanges after]) `shouldBe` ("wheat production, corrected", [3])
-        it "does not select a line supplied by its product rather than linked to its supplier" $ do
+        it "sets the amount of a line supplied by its product rather than linked to its supplier" $ do
             (p, ctx) <- wheatIn [buysUnlinked barley 1] [row 2 barley "barley production" []]
-            notApplied
-                ctx
-                p
-                (barleyLine (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg")))
-                "The line is supplied by its product, not linked to a supplier: an edit selects a line by the supplier it is linked to."
+            let (answer, edits) = applicableChanges ctx p (ChangesQuery [] [barleyLine (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))])
+            capExchanges answer `shouldBe` [OutcomeApplied]
+            after <- applied ctx p edits
+            [(l, a) | TechnosphereExchange{techRole = Input, techActivityLinkId = l, techAmount = a} <- exchanges after] `shouldBe` [(Nothing, 2)]
         it "does not rename an activity written here, whose name and location make its identity" $ do
             let written = authoredActivityUUID "wheat production" "FR"
             db <- databaseKeyed (const written) [row 1 wheat "wheat production" [emits co2 kg 1]]

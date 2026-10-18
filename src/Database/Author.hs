@@ -62,6 +62,7 @@ module Database.Author (
     applyExchangeEdits,
     retextsAuthoredIdentity,
     describeSelector,
+    lineSelector,
 
     -- * Deterministic identity
     authoredNamespace,
@@ -93,6 +94,7 @@ import Types (
     Database (..),
     Exchange (..),
     ExchangeFormula (..),
+    ExchangeLocation (..),
     Medium (..),
     Parameter (..),
     ParameterDefinition (..),
@@ -111,10 +113,12 @@ import Types (
     exchangeIsReference,
     findProcessIdByActivityUUID,
     getUnitNameForExchange,
+    locationCode,
     mediumText,
     noDates,
     noProperties,
     parseProcessRef,
+    processRefText,
     withAmount,
     withFormula,
  )
@@ -401,7 +405,10 @@ amountCheck amount =
 
 A technosphere input names its provider, a waste output names the treatment it
 hands the waste to, a biosphere exchange names its flow – the same currency an
-author writes in ('AuthoredExchange'). What is missing is missing on purpose:
+author writes in ('AuthoredExchange'). A line that names no provider is named
+by its flow and its location instead, which is what the loader finds its
+supplier by: the supplier found depends on the databases loaded, the line does
+not, so an edit replays whatever is loaded. What is missing is missing on purpose:
 the reference product and any coproduct carry the activity's identity and its
 allocation, and a reference input belongs to the treatment that consumes it.
 Those lines match no selector, so an edit cannot reach them by accident.
@@ -413,6 +420,10 @@ data ExchangeSelector
       SelectBiosphere UUID
     | -- | Waste output, by its treatment provider's process id.
       SelectWaste Text
+    | -- | Technosphere input naming no provider, by its flow, and its location unless any will do.
+      SelectUnlinkedInput UUID (Maybe ExchangeLocation)
+    | -- | Waste output naming no treatment, by its flow, and its location unless any will do.
+      SelectUnlinkedWaste UUID (Maybe ExchangeLocation)
     deriving (Eq, Show)
 
 {- | One change to an activity: a line of its inventory, one of its texts, or
@@ -694,6 +705,8 @@ selectorPredicate sel = case sel of
     SelectBiosphere flowId -> Right (isBiosphereFlow flowId)
     SelectInput provider -> byProvider provider isInputFrom
     SelectWaste provider -> byProvider provider isWasteOutputTo
+    SelectUnlinkedInput flowId location -> Right (isUnlinkedInputOf flowId location)
+    SelectUnlinkedWaste flowId location -> Right (isUnlinkedWasteOutputOf flowId location)
   where
     byProvider provider build = case parseProvider provider of
         Nothing ->
@@ -723,6 +736,41 @@ isWasteOutputTo key = \case
     TechnosphereExchange{} -> False
     BiosphereExchange{} -> False
 
+isUnlinkedInputOf :: UUID -> Maybe ExchangeLocation -> Exchange -> Bool
+isUnlinkedInputOf flowId location = \case
+    TechnosphereExchange{techRole = Input, techActivityLinkId = Nothing, techFlowId = f, techLocation = l} -> f == flowId && atLocation location l
+    TechnosphereExchange{} -> False
+    BiosphereExchange{} -> False
+    WasteExchange{} -> False
+
+isUnlinkedWasteOutputOf :: UUID -> Maybe ExchangeLocation -> Exchange -> Bool
+isUnlinkedWasteOutputOf flowId location = \case
+    WasteExchange{waIsInput = False, waActivityLinkId = Nothing, waFlowId = f, waLocation = l} -> f == flowId && atLocation location l
+    WasteExchange{} -> False
+    TechnosphereExchange{} -> False
+    BiosphereExchange{} -> False
+
+atLocation :: Maybe ExchangeLocation -> ExchangeLocation -> Bool
+atLocation wanted stated = maybe True (== stated) wanted
+
+{- | The selector that names this line from what the line itself stores, so it
+names the same line at every replay; none for the product side, which no
+selector reaches. Two lines it cannot tell apart get the same one, and an edit
+by it changes both.
+-}
+lineSelector :: Exchange -> Maybe ExchangeSelector
+lineSelector = \case
+    TechnosphereExchange{techRole = Input, techActivityLinkId = link, techFlowId = f, techLocation = l} ->
+        Just (maybe (SelectUnlinkedInput f (Just l)) (\a -> SelectInput (providerText a f)) link)
+    TechnosphereExchange{} -> Nothing
+    WasteExchange{waIsInput = False, waActivityLinkId = link, waFlowId = f, waLocation = l} ->
+        Just (maybe (SelectUnlinkedWaste f (Just l)) (\a -> SelectWaste (providerText a f)) link)
+    WasteExchange{} -> Nothing
+    BiosphereExchange{bioFlowId = f} -> Just (SelectBiosphere f)
+  where
+    providerText :: UUID -> UUID -> Text
+    providerText a f = processRefText (ProcessRef a f)
+
 {- | A provider named either way the engine accepts one. Matched against the
 link the exchange already carries rather than resolved in the database, so a
 provider living in a dependency – or one that has gone missing since the
@@ -748,6 +796,14 @@ describeSelector sel = case sel of
     SelectInput provider -> "input from \"" <> provider <> "\""
     SelectWaste provider -> "waste output to \"" <> provider <> "\""
     SelectBiosphere flowId -> "biosphere flow " <> UUID.toText flowId
+    SelectUnlinkedInput flowId location -> "input of flow " <> UUID.toText flowId <> atText location <> " naming no provider"
+    SelectUnlinkedWaste flowId location -> "waste output of flow " <> UUID.toText flowId <> atText location <> " naming no treatment"
+  where
+    atText :: Maybe ExchangeLocation -> Text
+    atText = \case
+        Nothing -> ""
+        Just LocationNone -> " with no location"
+        Just stated -> " in " <> locationCode stated
 
 -- ---------------------------------------------------------------------------
 -- Exchange resolution

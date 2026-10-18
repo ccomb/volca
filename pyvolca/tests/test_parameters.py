@@ -5,6 +5,7 @@ from __future__ import annotations
 from volca.types import (
     ActivityDetail,
     ExchangeFormula,
+    ExchangeSelector,
     Parameter,
     TechnosphereExchange,
     Uncertainty,
@@ -98,3 +99,20 @@ def test_reads_the_position_that_names_a_line_in_its_contributions() -> None:
 
     assert line(position=3) == 3
     assert line() is None
+
+
+def test_reads_the_selector_an_edit_reaches_a_line_by() -> None:
+    def selector(**extra: object) -> ExchangeSelector | None:
+        exchange = parse_exchange(
+            {
+                "exchange": {"tag": "TechnosphereExchange", "amount": 0.2, "role": "Input"},
+                "flowName": "electricity",
+                "unitName": "kWh",
+                **extra,
+            }
+        )
+        assert isinstance(exchange, TechnosphereExchange)
+        return exchange.selector
+
+    assert selector(selector={"kind": "input", "flow": "f", "location": "FR"}) == ExchangeSelector.input_of_flow("f", "FR")
+    assert selector() is None

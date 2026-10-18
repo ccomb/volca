@@ -7,6 +7,7 @@
 module API.Types.Activity where
 
 import API.JsonOptions (Stripped (..), parseClosed)
+import API.Types.Authoring (ExchangeSelectorAPI)
 import API.Types.Common
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
@@ -538,6 +539,7 @@ data ExchangeWithUnit = ExchangeWithUnit
     , ewuWasteRole :: Maybe WasteRole -- What a waste line does; Nothing on every other kind
     , ewuExComment :: Maybe Text -- Free-text per-exchange comment (mirrors exchangeComment)
     , ewuPedigree :: Maybe Pedigree -- LCA data-quality scores when available (mirrors exchangePedigree)
+    , ewuSelector :: Maybe ExchangeSelectorAPI -- What an edit names this line by; Nothing on the product side, which no edit reaches
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExchangeWithUnit)
