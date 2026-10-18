@@ -294,10 +294,12 @@ scenariosSpec = describe "saved scenarios" $ do
             refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.02]) >>= (`shouldSatisfy` ("ships with the database" `isInfixOf`))
             refusal (dropScenario manager "mine" "Plant: high salt") >>= (`shouldSatisfy` ("comes back at the next load" `isInfixOf`))
 
-        it "give way to a scenario saved under their name, which stays droppable" $ withCopy $ \manager -> do
+        it "give way to a scenario saved under their name, which stays replaceable and droppable" $ withCopy $ \manager -> do
             refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.02]) `shouldReturn` ""
             atomically $ modifyTVar' (dmLoadedDbs manager) (M.map (\l -> l{ldDatabase = (ldDatabase l){dbScenarios = shipped}}))
             filter (\(name, _, _) -> name == "Plant: high salt") <$> listing manager "mine" `shouldReturn` [("Plant: high salt", False, [Nothing])]
+            refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.03]) `shouldReturn` ""
+            filter (\(name, _, _) -> name == "Plant: high salt") <$> listed manager "mine" `shouldReturn` [("Plant: high salt", [0.03], Nothing)]
             refusal (dropScenario manager "mine" "Plant: high salt") `shouldReturn` ""
             filter (\(name, _, _) -> name == "Plant: high salt") <$> listing manager "mine" `shouldReturn` [("Plant: high salt", True, [Nothing])]
 

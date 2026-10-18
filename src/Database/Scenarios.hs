@@ -136,7 +136,8 @@ shippedValue db ScenarioValue{svProcess = process, svName = name, svValue = valu
     processText activity = maybe (UUID.toText activity) (processIdToText db . NE.head) (M.lookup activity (dbActivityUUIDIndex db))
 
 {- | Save values under a name, replacing what that name held. Refused when a
-scoring request would refuse the values, and on a database read from the
+scoring request would refuse the values, under the name of a scenario the
+database ships that no saved one holds, and on a database read from the
 configuration, where a scenario would be lost at the next restart.
 -}
 saveScenario :: DatabaseManager -> Text -> ScenarioName -> [ParameterValue] -> IO (Either WriteRefusal ())
@@ -144,8 +145,9 @@ saveScenario manager dbName (ScenarioName name) values
     | T.null (T.strip name) = pure (Left (Malformed ["A scenario needs a name."]))
     | T.strip name /= name = pure (Left (Malformed ["The scenario name '" <> name <> "' starts or ends with a space."]))
     | null values = pure (Left (Malformed ["The scenario '" <> name <> "' sets no parameter: the defaults need no scenario."]))
-    | otherwise = withScenarios manager dbName $ \db home _ ->
-        if M.member name (dbScenarios db)
+    | otherwise = withScenarios manager dbName $ \db home saved ->
+        -- One saved before the database shipped a scenario of its name is the one listed, so it stays replaceable.
+        if M.member name (dbScenarios db) && M.notMember name saved
             then pure (Left (Malformed ["The scenario '" <> name <> "' ships with the database: save under another name."]))
             else case scenarioProblem db values of
                 Just problem -> pure (Left (Malformed [problem]))
