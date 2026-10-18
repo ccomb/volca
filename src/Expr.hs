@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {- | Formulas: VoLCA's own language, and the ones the formats a database
 arrives in write theirs in.
@@ -38,6 +39,7 @@ module Expr (
     evaluate,
     translate,
     render,
+    writtenIn,
     times,
     agrees,
     settle,
@@ -62,6 +64,7 @@ import Data.Bifunctor (first)
 import Data.Char (isDigit)
 import Data.Either (isRight, lefts)
 import Data.Function (on)
+import Data.Functor.Identity (Identity (..))
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (findIndex)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -546,44 +549,61 @@ operators =
     , [TwoArguments Power]
     ]
 
--- | How tightly a function binds: its row of 'operators' counted from 1, and tighter than all of them when it is called by name.
-binding :: Function -> Int
-binding f = maybe atom (+ 1) (findIndex (elem f) operators)
+{- | How a language writes VoLCA's functions: each one's spelling, in the
+effect @f@ (a language with no name for a function gives none), and its
+operators by how tightly they bind, loosest first, each chaining from the left
+but the power, which chains as 'powerChains' says.
+-}
+data Writing f = Writing
+    { spelledAs :: Function -> f Spelling
+    , bindings :: [[Function]]
+    , powerChains :: Chaining
+    }
 
--- | How tightly a sign binds, and a negative number with it.
-signBinding :: Int
-signBinding = binding (OneArgument Negate)
+-- | The side a chain of one operator groups from: @2 ^ 3 ^ 2@ is @2 ^ 9@ from the right.
+data Chaining = FromLeft | FromRight
 
-atom :: Int
-atom = length operators + 1
+volcaWriting :: (Applicative f) => Writing f
+volcaWriting = Writing{spelledAs = pure . spelling . reference, bindings = operators, powerChains = FromRight}
 
--- | A formula in VoLCA's language, with the parentheses its reading needs by 'binding' and no other.
+-- | A formula in VoLCA's language, with the parentheses its reading needs and no other.
 render :: Formula -> Text
-render = go 0
+render = runIdentity . writeWith volcaWriting
+
+-- | A formula as a language writes it, with the parentheses its reading needs and no other, or none when the language has no name for one of its functions.
+writeWith :: forall f. (Monad f) => Writing f -> Formula -> f Text
+writeWith writing = go 0
   where
-    go :: Int -> Formula -> Text
-    go context formula
-        | level formula < context = "(" <> written formula <> ")"
-        | otherwise = written formula
+    go :: Int -> Formula -> f Text
+    go context formula = (\text -> if level formula < context then "(" <> text <> ")" else text) <$> plain formula
 
-    written :: Formula -> Text
-    written = \case
+    plain :: Formula -> f Text
+    plain = \case
         Literal x
-            | x < 0 -> "-" <> number (negate x)
-            | otherwise -> number x
-        Name name -> name
-        Unary f a -> case spelling (reference (OneArgument f)) of
-            Prefix op -> op <> go signBinding a
-            other -> call other [a]
-        Binary Power a b -> go atom a <> " ^ " <> go signBinding b
-        formula@(Binary f a b) -> case spelling (reference (TwoArguments f)) of
-            Infix op -> go (level formula) a <> " " <> op <> " " <> go (level formula + 1) b
-            other -> call other [a, b]
-        Variadic f xs -> call (spelling (reference (AnyArguments f))) (NE.toList xs)
-        If c y n -> call (spelling (reference Conditional)) [c, y, n]
+            | x < 0 -> pure ("-" <> number (negate x))
+            | otherwise -> pure (number x)
+        Name name -> pure name
+        Unary f a ->
+            spelledAs writing (OneArgument f) >>= \case
+                Prefix op -> (op <>) <$> go sign a
+                other -> call other [a]
+        formula@(Binary f a b) ->
+            spelledAs writing (TwoArguments f) >>= \case
+                Infix op -> case (f, powerChains writing) of
+                    (Power, FromRight) -> infixed op <$> go (level formula + 1) a <*> go sign b
+                    _ -> infixed op <$> go (level formula) a <*> go (level formula + 1) b
+                other -> call other [a, b]
+        formula@(Variadic f (x :| xs)) ->
+            spelledAs writing (AnyArguments f) >>= \case
+                Infix op -> foldl (infixed op) <$> go (level formula) x <*> traverse (go (level formula + 1)) xs
+                other -> call other (x : xs)
+        If c y n -> spelledAs writing Conditional >>= \name -> call name [c, y, n]
 
-    call :: Spelling -> [Formula] -> Text
-    call name args = word name <> "(" <> T.intercalate "; " (map (go 0) args) <> ")"
+    infixed :: Text -> Text -> Text -> Text
+    infixed op a b = a <> " " <> op <> " " <> b
+
+    call :: Spelling -> [Formula] -> f Text
+    call name args = (\parts -> word name <> "(" <> T.intercalate "; " parts <> ")") <$> traverse (go 0) args
 
     word :: Spelling -> Text
     word = \case
@@ -591,11 +611,23 @@ render = go 0
         Infix op -> op
         Prefix op -> op
 
+    -- How tightly a function binds: its row counted from 1, and tighter than all of them when it is called by name.
+    binding :: Function -> Int
+    binding f = maybe atom (+ 1) (findIndex (elem f) (bindings writing))
+
+    -- How tightly a sign binds, and a negative number with it.
+    sign :: Int
+    sign = binding (OneArgument Negate)
+
+    atom :: Int
+    atom = length (bindings writing) + 1
+
     level :: Formula -> Int
     level = \case
         Binary f _ _ -> binding (TwoArguments f)
         Unary f _ -> binding (OneArgument f)
-        Literal x | x < 0 -> signBinding
+        Variadic f _ -> binding (AnyArguments f)
+        Literal x | x < 0 -> sign
         _ -> atom
 
     -- Without an exponent where that stays short; 'readAmount' reads back the same Double either way.
@@ -607,6 +639,114 @@ render = go 0
       where
         whole :: Integer
         whole = truncate x
+
+{- | A formula of VoLCA's language as a dialect writes it, when the dialect
+reads the text back to the very same formula, names aside of their case. None
+when the formula does not read, when the dialect has no name for one of its
+functions, or when the text reads otherwise: SimaPro reads @a and b and c@ as
+@(a and b) and c@, and has no @round@ that goes half upward.
+-}
+writtenIn :: Dialect -> Text -> Maybe Text
+writtenIn dialect text = do
+    formula <- either (const Nothing) Just (readFormula Volca text)
+    writing <- writingOf dialect
+    out <- writeWith writing formula
+    back <- either (const Nothing) Just (readFormula dialect out)
+    if folded back == folded formula then Just out else Nothing
+  where
+    folded :: Formula -> Formula
+    folded = \case
+        Name name -> Name (T.toLower name)
+        Unary f a -> Unary f (folded a)
+        Binary f a b -> Binary f (folded a) (folded b)
+        Variadic f args -> Variadic f (fmap folded args)
+        If c y n -> If (folded c) (folded y) (folded n)
+        literal@(Literal _) -> literal
+
+-- | How a dialect writes VoLCA's functions, for the dialects VoLCA writes formulas in.
+writingOf :: Dialect -> Maybe (Writing Maybe)
+writingOf = \case
+    Volca -> Just volcaWriting
+    SimaPro -> Just (languageWriting simaProLanguage)
+    EcoSpold2 conversions -> Just (languageWriting (ecoSpold2Language conversions))
+    OpenLca -> Just olcaWriting
+    Python -> Nothing
+
+{- | How openLCA writes VoLCA's functions: its operators, @xor@, @div@ and
+@mod@ among them, binding as 'pOlcaExpression' reads them, and for a
+function it calls by name, the first of its names in 'olcaFunctions'. Where a
+truth value is wanted and a number given, the text does not read back, which
+'writtenIn' sees.
+-}
+olcaWriting :: Writing Maybe
+olcaWriting =
+    Writing
+        { spelledAs = \f -> lookup f (keywords <> named)
+        , bindings =
+            [ [TwoArguments Xor]
+            , map TwoArguments [Equal, NotEqual, Less, LessOrEqual, Greater, GreaterOrEqual]
+            , map TwoArguments [Add, Subtract]
+            , map TwoArguments [Multiply, Divide, Quotient, Remainder]
+            , [TwoArguments Power]
+            , [OneArgument Negate]
+            ]
+        , powerChains = FromLeft
+        }
+  where
+    keywords :: [(Function, Spelling)]
+    keywords =
+        [(f, operator) | row <- operators, f <- row, let operator = spelling (reference f)]
+            <> [(TwoArguments f, Infix name) | (f, name) <- [(Xor, "xor"), (Quotient, "div"), (Remainder, "mod")]]
+
+    named :: [(Function, Spelling)]
+    named = [(f, Called name) | (name, known) <- olcaFunctions, Just f <- [builds known]]
+
+    builds :: OlcaFunction -> Maybe Function
+    builds = \case
+        OneNumber f -> Just (OneArgument f)
+        TwoNumbers f -> Just (TwoArguments f)
+        Numbers f -> Just (AnyArguments f)
+        Negation -> Just (OneArgument Not)
+        Connective f _ -> Just (AnyArguments f)
+        Choosing -> Just Conditional
+        Constant _ -> Nothing
+        Refused _ -> Nothing
+
+{- | How a language read by 'pFormula' writes VoLCA's functions: the operators
+of the grammar they share, @and@ and @or@ as words where it reads them so, and
+for a function it calls by name, the first of its names that builds that
+function.
+-}
+languageWriting :: Language -> Writing Maybe
+languageWriting language =
+    Writing
+        { spelledAs = spelled
+        , bindings = [[AnyArguments f] | connectives language, f <- [Or, And]] <> operators
+        , powerChains = FromRight
+        }
+  where
+    spelled :: Function -> Maybe Spelling
+    spelled f = case spelling (reference f) of
+        Called _ -> lookup f (connectiveWords <> named)
+        operator -> Just operator
+
+    connectiveWords :: [(Function, Spelling)]
+    connectiveWords = [(AnyArguments f, Infix name) | connectives language, (f, name) <- [(And, "and"), (Or, "or")]]
+
+    named :: [(Function, Spelling)]
+    named = [(f, Called name) | (name, build) <- calls language, Right formula <- map build probes, Just f <- [builtBy formula]]
+
+    probes :: [[Formula]]
+    probes = [map Name (take n ["a", "b", "c"]) | n <- [1 .. 3]]
+
+    builtBy :: Formula -> Maybe Function
+    builtBy = \case
+        Unary f _ -> Just (OneArgument f)
+        Binary f _ _ -> Just (TwoArguments f)
+        Variadic f _ -> Just (AnyArguments f)
+        If{} -> Just Conditional
+        Literal _ -> Nothing
+        Name _ -> Nothing
 
 {- | The value of a formula, or every name in it without one. All of them rather
 than the first: a reader who fixes one would otherwise learn of the next only

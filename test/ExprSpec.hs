@@ -324,6 +324,38 @@ spec = do
             forAll (sized formula) $ \f ->
                 Expr.readFormula Volca (Expr.render f) === Right f
 
+    describe "writtenIn" $ do
+        it "writes a formula by SimaPro's names for VoLCA's functions" $ do
+            Expr.writtenIn SimaPro "log10(x) + if(a > 1; 2; 3)" `shouldBe` Just "log(x) + iff(a > 1; 2; 3)"
+            Expr.writtenIn SimaPro "roundeven(x) * asin(y)" `shouldBe` Just "round(x) * arcsin(y)"
+            Expr.writtenIn SimaPro "and(a > 1; b) + 1" `shouldBe` Just "(a > 1 and b) + 1"
+        it "writes nothing SimaPro would read otherwise, or has no name for" $ do
+            Expr.writtenIn SimaPro "round(x)" `shouldBe` Nothing
+            Expr.writtenIn SimaPro "sum(a; b)" `shouldBe` Nothing
+            Expr.writtenIn SimaPro "and(a; b; c)" `shouldBe` Nothing
+            Expr.writtenIn SimaPro "a +" `shouldBe` Nothing
+        it "writes every function SimaPro names back by a name SimaPro reads" $
+            forM_ ["abs", "sqr", "sqrt", "exp", "ln", "log", "trunc", "frac", "round", "ceil", "floor", "sin", "cos", "tan", "cotan", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "not"] $ \name ->
+                (Expr.writtenIn SimaPro =<< either (const Nothing) Just (translate SimaPro (name <> "(a)"))) `shouldSatisfy` (/= Nothing)
+        it "keeps VoLCA's grouping of ^ and of a sign in openLCA's" $ do
+            Expr.writtenIn OpenLca "-2 ^ 2" `shouldBe` Just "-(2 ^ 2)"
+            Expr.writtenIn OpenLca "2 ^ 3 ^ 2" `shouldBe` Just "2 ^ (3 ^ 2)"
+            Expr.writtenIn OpenLca "if(xor(a > 1; b > 1); div(7; 2); mod(c; 2))" `shouldBe` Just "if(a > 1 xor b > 1; 7 div 2; c mod 2)"
+            Expr.writtenIn OpenLca "log10(x) + ln(x) + average(x; 1)" `shouldBe` Just "log(x) + ln(x) + avg(x; 1)"
+        it "writes no comparison where openLCA wants a number" $ do
+            Expr.writtenIn OpenLca "(a < b) * 2" `shouldBe` Nothing
+            Expr.writtenIn OpenLca "if(a; 1; 2)" `shouldBe` Nothing
+            Expr.writtenIn OpenLca "log(8; 2)" `shouldBe` Nothing
+        prop "writes every formula in VoLCA's language as it is" $
+            forAll (sized formula) $ \f ->
+                Expr.writtenIn Volca (Expr.render f) === Just (Expr.render f)
+        prop "writes a formula in SimaPro's or openLCA's language only when it computes the same there" $
+            forAll (sized formula) $ \f -> forAll (elements [SimaPro, OpenLca]) $ \dialect ->
+                let env = M.fromList [("a", 1.5), ("b_2", -2), ("leak", 0.3)]
+                 in case Expr.writtenIn dialect (Expr.render f) of
+                        Nothing -> True
+                        Just text -> sameValue (Expr.evaluate dialect env text) (Expr.evaluate Volca env (Expr.render f))
+
     describe "times" $ do
         it "multiplies a formula by a number, with the parentheses its reading needs" $ do
             Expr.times 0.5 "2 * a" `shouldBe` "2 * a * 0.5"
@@ -373,3 +405,11 @@ formula size
 
     part :: Gen Formula
     part = formula (size `div` 3)
+
+-- | One value from two languages: equal, both not a number, or refused where only one keeps a number that is not finite.
+sameValue :: Either Refusal Double -> Either Refusal Double -> Bool
+sameValue there here = case (there, here) of
+    (Right x, Right y) -> x == y || (isNaN x && isNaN y)
+    (Left _, Right y) -> isNaN y || isInfinite y
+    (Left _, Left _) -> True
+    (Right _, Left _) -> False
