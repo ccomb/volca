@@ -447,10 +447,11 @@ toParameterEdits req = case partitionEithers (map toParameter (pqSetParameters r
     ([], set) -> Right (map (fmap Just) set <> map (,Nothing) (pqRemoveParameters req))
     (errs, _) -> Left (concat errs)
 
-{- | A selector names a provider or a flow, according to its kind. Sending the
-other one, or both, is refused rather than resolved by precedence: a caller who
-meant a flow and typed a provider would otherwise edit whatever the provider
-happened to name.
+{- | An input or a waste selector names a provider, or a flow and perhaps a
+location; a biosphere selector names a flow. Sending both a provider and a
+flow, or a key the kind does not take, is refused rather than resolved by
+precedence: a caller who meant a flow and typed a provider would otherwise
+edit whatever the provider happened to name.
 -}
 toSelector :: ExchangeSelectorAPI -> Either [Text] ExchangeSelector
 toSelector es = case (T.toLower (T.strip (esKind es)), esProvider es, esFlow es, esLocation es) of
