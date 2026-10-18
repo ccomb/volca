@@ -169,24 +169,26 @@ ref i = object ["@id" .= i]
 alike collide: 2 kg of it, and half a tonne. The first's "Baseline" sets a
 global parameter, a process's own, and an impact category's; its "Method
 only" sets only parameters the engine does not read, one of a kind the schema
-does not name; its "Empty" sets none. Two more name a line the widget process
-does not have, and a target in a unit of energy, and have no reference.
+does not name; its "Empty" sets none. Three more name a line the widget process
+does not have, a target in a unit of energy, and a process the package does
+not hold, and have no reference.
 -}
 productSystems :: [(UUID, Value)]
 productSystems =
-    [ system (uid 501) "Widgets" 1 (2, kgU) [("Baseline", [redef "leak_method" 1 Nothing, redef "a" 3 (Just ("Process", formulasJ)), redef "cf" 2 (Just ("ImpactCategory", uid 601))]), ("High", [redef "a" 5 (Just ("Process", formulasJ))]), ("Method only", [redef "cf" 4 (Just ("ImpactCategory", uid 601)), redef "m" 1 (Just ("ImpactMethod", uid 602))]), ("Empty", [])]
-    , system (uid 502) "Widgets" 1 (0.5, tU) [("High", [redef "a" 6 (Just ("Process", formulasJ))])]
-    , system (uid 503) "Lost line" 9 (1, kgU) []
-    , system (uid 504) "Wrong unit" 1 (1, mjU) []
+    [ system (uid 501) "Widgets" formulasJ 1 (2, kgU) [("Baseline", [redef "leak_method" 1 Nothing, redef "a" 3 (Just ("Process", formulasJ)), redef "cf" 2 (Just ("ImpactCategory", uid 601))]), ("High", [redef "a" 5 (Just ("Process", formulasJ))]), ("Method only", [redef "cf" 4 (Just ("ImpactCategory", uid 601)), redef "m" 1 (Just ("ImpactMethod", uid 602))]), ("Empty", [])]
+    , system (uid 502) "Widgets" formulasJ 1 (0.5, tU) [("High", [redef "a" 6 (Just ("Process", formulasJ))])]
+    , system (uid 503) "Lost line" formulasJ 9 (1, kgU) []
+    , system (uid 504) "Wrong unit" formulasJ 1 (1, mjU) []
+    , system (uid 505) "No process" (uid 506) 1 (1, kgU) []
     ]
   where
-    system :: UUID -> Text -> Int -> (Double, UUID) -> [(Text, [Value])] -> (UUID, Value)
-    system i name line (target, targetUnit) sets =
+    system :: UUID -> Text -> UUID -> Int -> (Double, UUID) -> [(Text, [Value])] -> (UUID, Value)
+    system i name process line (target, targetUnit) sets =
         ( i
         , object
             [ "@id" .= i
             , "name" .= name
-            , "referenceProcess" .= ref formulasJ
+            , "referenceProcess" .= ref process
             , "referenceExchange" .= object ["internalId" .= line]
             , "targetAmount" .= target
             , "targetUnit" .= ref targetUnit

@@ -274,6 +274,24 @@ spec = describe "an openLCA package written from a database" $ do
                     db
             setsOf back `shouldBe` [("Recycling", [("Base", [("leak_method", 5)]), ("Empty", []), ("Hot", [("a", 7)])]), ("Slag", [])]
 
+        it "replace a set only with the saved scenario named after it, any other going where no set has its name" $ do
+            db <- withSystems [recycling, system 2 "Slag" (slagD, slagF)] <$> fixture
+            back <-
+                throughPackageSaving
+                    (M.fromList [("Base", [ScenarioValue Nothing "leak_method" 3]), ("Recycling: Hot", [ScenarioValue Nothing "leak_method" 4]), ("Hot", [ScenarioValue Nothing "leak_method" 6])])
+                    db
+            setsOf back
+                `shouldBe` [ ("Recycling", [("Base", [("leak_method", 2), ("cf", 1)]), ("Empty", []), ("Hot", [("leak_method", 4)])])
+                           , ("Slag", [("Base", [("leak_method", 3)]), ("Hot", [("leak_method", 6)])])
+                           ]
+
+        it "say which saved scenario would read back as none, another system of its name holding a set of its name" $ do
+            db <- withSystems [system 4 "Twin" (slagD, slagF), (system 5 "Twin" (recyclingI, recycledF)){systemSets = [ParameterSet "High" [Redefinition "leak_method" 1 OfDatabase]]}] <$> fixture
+            T.unlines (snd (systemDocs (M.singleton "Twin: High" [ScenarioValue Nothing "leak_method" 5]) db))
+                `shouldSatisfy` T.isInfixOf "1 saved scenarios are written but read back as none"
+            T.unlines (snd (systemDocs (M.singleton "Twin: Low" [ScenarioValue Nothing "leak_method" 5]) db))
+                `shouldNotSatisfy` T.isInfixOf "read back as none"
+
         it "write a saved scenario once beside two systems of one name, so it reads back once" $ do
             db <- withSystems [system 4 "Twin" (slagD, slagF), system 5 "Twin" (recyclingI, recycledF), system 2 "Slag" (slagD, slagF)] <$> fixture
             back <- throughPackageSaving (M.fromList [("Hot", [ScenarioValue Nothing "leak_method" 5]), ("Twin: Cold", [ScenarioValue Nothing "leak_method" 0])]) db

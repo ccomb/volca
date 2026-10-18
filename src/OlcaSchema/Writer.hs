@@ -69,7 +69,7 @@ import qualified Data.IntMap.Strict as IM
 import qualified Database.ExportFormulas as EF
 import qualified Expr
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
-import OlcaSchema.Parser (directionOf)
+import OlcaSchema.Parser (directionOf, shippedScenarios)
 import Parametric (databaseParametersRead, namesReached, shareFormulas)
 import Types
 import UnitConversion (UnitConfig, convertUnit)
@@ -435,15 +435,17 @@ data ProcessLink = ProcessLink
 
 -- | The system a saved scenario goes on, and the set it is written as there.
 data Home = Home
-    { hoSystem :: !UUID
+    { hoSystem :: !ProductSystem
     , hoSet :: !ParameterSet
     }
 
 {- | The product systems whose reference row is written, each with its sets as
 read, a saved scenario named after one of them in its place. A saved scenario
 named "<system>: <set>" goes on that system as that set, any other on the
-first system whose name no other written one has, under its own name: each is
-written once, so it reads back once.
+first system whose name no other written one has and whose sets hold none of
+that name, under its own name: each is written once, and replaces only the set
+it is named after. One that would still not read back (another system of that
+name holding a set of that name) is said.
 -}
 productSystems :: Context -> M.Map Text [ScenarioValue] -> [Written] -> SystemsWritten
 productSystems cx saved written =
@@ -455,6 +457,7 @@ productSystems cx saved written =
                 , counted "product systems have lines linked to no process of the package:" [systemName (caSystem c) <> ": " <> tshow n <> " lines" | c <- carried, let n = unlinked c, n > 0]
                 , counted "parameter set values name a process the database does not hold, and are left out:" (concatMap valuesLeftOut carried)
                 , counted "saved scenarios are not in the export, no product system being written to carry them:" (M.keys (M.filter isNothing homes))
+                , counted "saved scenarios are written but read back as none, another product system of that name holding a set of that name:" unread
                 ]
         }
   where
@@ -489,18 +492,30 @@ productSystems cx saved written =
     carried = [c{caSets = foldl (flip withSet) (caSets c) (M.findWithDefault [] (systemId (caSystem c)) placed)} | c <- ordered]
 
     homes :: M.Map Text (Maybe Home)
-    homes = M.mapWithKey home saved
+    homes = M.union (M.map Just namedAfter) (M.mapWithKey elsewhere (M.difference saved namedAfter))
 
     placed :: M.Map UUID [ParameterSet]
-    placed = M.fromListWith (flip (<>)) [(hoSystem h, [hoSet h]) | Just h <- M.elems homes]
+    placed = M.fromListWith (flip (<>)) [(systemId (hoSystem h), [hoSet h]) | Just h <- M.elems homes]
 
-    home :: Text -> [ScenarioValue] -> Maybe Home
-    home name values = case sortOn (negate . T.length . systemName) [s | s <- systems, (systemName s <> ": ") `T.isPrefixOf` name] of
-        s : _ -> Just (homeOn s (T.drop (T.length (systemName s) + 2) name))
-        [] -> (`homeOn` name) <$> listToMaybe [s | s <- systems, length (filter ((== systemName s) . systemName) systems) == 1]
-      where
-        homeOn :: ProductSystem -> Text -> Home
-        homeOn s setName = Home{hoSystem = systemId s, hoSet = ParameterSet setName (map redefinitionOf values)}
+    -- The saved scenarios named after a system, the longest name first.
+    namedAfter :: M.Map Text Home
+    namedAfter = M.mapMaybeWithKey (\name values -> (\s -> homeOn s (T.drop (T.length (systemName s) + 2) name) values) <$> listToMaybe (sortOn (negate . T.length . systemName) [s | s <- systems, (systemName s <> ": ") `T.isPrefixOf` name])) saved
+
+    -- Any other, on a system whose set names it would not take over.
+    elsewhere :: Text -> [ScenarioValue] -> Maybe Home
+    elsewhere name values = (\s -> homeOn s name values) <$> listToMaybe [s | s <- systems, length (filter ((== systemName s) . systemName) systems) == 1, name `notElem` setNames s]
+
+    setNames :: ProductSystem -> [Text]
+    setNames s = map parameterSetName (systemSets s) <> [parameterSetName (hoSet h) | h <- M.elems namedAfter, systemId (hoSystem h) == systemId s]
+
+    homeOn :: ProductSystem -> Text -> [ScenarioValue] -> Home
+    homeOn s setName values = Home{hoSystem = s, hoSet = ParameterSet setName (map redefinitionOf values)}
+
+    -- The saved scenarios the package, read back, would not list.
+    unread :: [Text]
+    unread =
+        let listed = fst (shippedScenarios [(caSystem c){systemSets = caSets c} | c <- carried])
+         in [name | (name, Just h) <- M.toList homes, M.notMember (systemName (hoSystem h) <> ": " <> parameterSetName (hoSet h)) listed]
 
     systems :: [ProductSystem]
     systems = map caSystem ordered
@@ -514,7 +529,7 @@ productSystems cx saved written =
         (before, _ : after) -> before <> [set] <> filter ((/= parameterSetName set) . parameterSetName) after
         (_, []) -> sets <> [set]
 
-    -- The processes reached from the reference through the providers of their linked lines.
+    -- The processes reached from the reference through the providers of their linked lines, depth first.
     reached :: Written -> [Written]
     reached start = go S.empty [start]
       where
@@ -523,7 +538,7 @@ productSystems cx saved written =
             [] -> []
             w : rest
                 | S.member (wrId w) seen -> go seen rest
-                | otherwise -> w : go (S.insert (wrId w) seen) (rest <> map plProvider (links w))
+                | otherwise -> w : go (S.insert (wrId w) seen) (map plProvider (links w) <> rest)
 
     links :: Written -> [ProcessLink]
     links w = [ProcessLink{plLine = i, plFlow = lnFlow ln, plProvider = p} | (i, ln) <- zip [1 ..] (wrLines w), linkable ln, Just p <- [(`M.lookup` byId) =<< lnProvider ln]]
@@ -538,7 +553,7 @@ productSystems cx saved written =
                 <> "@id" .= UUID.toText (systemId (caSystem c))
                 <> "name" .= systemName (caSystem c)
                 <> pair "referenceProcess" (processRef reference)
-                <> pair "referenceExchange" (pairs ("@type" .= ("Exchange" :: Text) <> "internalId" .= fromMaybe 1 (listToMaybe [i | (i, ln) <- numbered, lnReference ln])))
+                <> foldMap (\i -> pair "referenceExchange" (pairs ("@type" .= ("Exchange" :: Text) <> "internalId" .= i))) (listToMaybe [i | (i, ln) <- numbered, lnReference ln])
                 <> "targetAmount" .= systemTarget (caSystem c)
                 <> foldMap (targetUnit . lnFlow) (listToMaybe [ln | (_, ln) <- numbered, lnReference ln])
                 <> pair "processes" (list processRef processes)

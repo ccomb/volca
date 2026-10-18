@@ -117,12 +117,13 @@ buildDatabase cfg key pkg =
     -- Each process is read through and its package lines let go: what reads a
     -- process sees every table but no process, and the index over all processes
     -- is built first, so the lines and the database built from them never sit in
-    -- memory together.
-    producers `seq` case partitionEithers (map (force . readProcess cx) (P.pkProcesses pkg)) of
+    -- memory together. What is read after the processes is taken out of the
+    -- package before them, so that nothing holds the package meanwhile.
+    producers `seq` globals `seq` systemDocs `seq` case partitionEithers (map (force . readProcess cx) (P.pkProcesses pkg)) of
         ([], processes) -> do
             activities <- first describeRepeated (uniqueIndex (concatMap rpActivities processes))
             let referenceFlows = M.fromList [((rlProcess r, rlLine r), rlFlow r) | p <- processes, r <- rpReferenceLines p]
-                (systems, systemNotices) = unzip (map (productSystem pkg activities referenceFlows) (P.pkProductSystems pkg))
+                (systems, systemNotices) = unzip (map (productSystem shared activities referenceFlows) systemDocs)
                 scenarioNotices = snd (shippedScenarios systems)
             Right
                 Built
@@ -146,6 +147,9 @@ buildDatabase cfg key pkg =
 
     globals :: [P.Parameter]
     globals = M.elems (byName (P.pkGlobals pkg))
+
+    systemDocs :: [P.SystemDoc]
+    systemDocs = P.pkProductSystems pkg
 
     globalValues :: M.Map Text Double
     globalUnsettled :: [(Text, Expr.Unsettled)]
@@ -171,7 +175,7 @@ buildDatabase cfg key pkg =
             , cxProducers = producers
             , cxAllocating = Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitDB}
             , cxGlobals = (globalValues, globalUnsettled)
-            , cxReferenceLines = M.fromListWith IS.union [(process, IS.singleton line) | P.SystemDoc{P.sdProcess = Just process, P.sdLine = Just line} <- P.pkProductSystems pkg]
+            , cxReferenceLines = M.fromListWith IS.union [(process, IS.singleton line) | P.SystemDoc{P.sdProcess = Just process, P.sdLine = Just line} <- systemDocs]
             }
 
 -- | Two activities of one (process, product). Once a process's lines of one product are merged this cannot happen, so it is reported rather than one silently dropped.
@@ -676,6 +680,7 @@ productSystem pkg activities referenceFlows doc = case reference of
     reference = do
         process <- maybe (Left "it names no reference process") Right (P.sdProcess doc)
         line <- maybe (Left "it names no reference line") Right (P.sdLine doc)
+        unlessRow (maybe False ((== process) . fst . fst) (M.lookupGE (process, UUID.nil) activities)) ("it names a process the package does not hold: " <> UUID.toText process)
         flowId <- maybe (Left ("its reference line " <> T.pack (show line) <> " is not a line of process " <> UUID.toText process)) Right (M.lookup (process, line) referenceFlows)
         let row = ProcessRef process flowId
         unlessRow (M.member (process, flowId) activities) ("its reference line is no product of its own in process " <> UUID.toText process)

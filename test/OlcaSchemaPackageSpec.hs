@@ -44,7 +44,7 @@ spec = describe "readPackage" $ do
         M.size (pkFlows pkg) `shouldBe` 18
         length (pkProcesses pkg) `shouldBe` 15
         map paName (pkGlobals pkg) `shouldBe` ["leak_method"]
-        length (pkProductSystems pkg) `shouldBe` 4
+        length (pkProductSystems pkg) `shouldBe` 5
 
     it "reads whose parameter each value of a product system's set sets, a kind it does not know by its name" $ do
         pkg <- readFixture

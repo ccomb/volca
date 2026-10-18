@@ -172,12 +172,14 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
                        , ("Widgets", Just (ProcessRef formulasJ widgetF), 500, ["High"])
                        , ("Lost line", Nothing, 1, [])
                        , ("Wrong unit", Nothing, 1, [])
+                       , ("No process", Nothing, 1, [])
                        ]
 
     it "says which product systems have a reference it cannot tell, and why" $ \(b, _) ->
         [what | Unreferenced what <- builtNotices b]
             `shouldBe` [ "Lost line: its reference line 9 is not a line of process " <> UUID.toText formulasJ
                        , "Wrong unit: its target unit has no factor to the reference flow's unit"
+                       , "No process: it names a process the package does not hold: " <> UUID.toText (UUID.fromWords 0 0 0 506)
                        ]
 
     it "leaves out two sets of one name, a set of nothing the engine reads, and the values it does not read, and says so" $ \(b, _) -> do
