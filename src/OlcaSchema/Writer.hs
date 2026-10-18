@@ -70,7 +70,7 @@ import qualified Database.ExportFormulas as EF
 import qualified Expr
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
 import OlcaSchema.Parser (directionOf, shippedScenarios)
-import Parametric (databaseParametersRead, namesReached, shareFormulas)
+import Parametric (shareFormulas)
 import Types
 import UnitConversion (UnitConfig, convertUnit)
 
@@ -114,9 +114,8 @@ data OutFlow = OutFlow
     }
 
 context :: UnitConfig -> SimpleDatabase -> Context
-context units source = cx
+context units db = cx
   where
-    db = localised source
     cx = Context{cxDb = db, cxFlows = flows, cxShared = sharedActivityUUIDs db, cxUnits = units, cxPlaces = places, cxLocations = written, cxFormulas = EF.exportFormulas Expr.OpenLca factorOf db}
     -- A line refused here refuses the export, so its factor is never written.
     factorOf :: (UUID, UUID) -> Exchange -> EF.Scaled
@@ -659,36 +658,6 @@ parameterId scope name = UUID5.generateNamed namespace (BS.unpack (TE.encodeUtf8
     owner = case scope of
         Global -> ""
         InProcess process -> UUID.toText process <> ":"
-
-{- | Each process given, as its own parameters, the database formulas it reads
-that reach a name it redefines or one of its lines, which openLCA would settle
-with the database's value. A copy has no value of its own computed yet, and
-states no unit: the database's parameter states it once.
--}
-localised :: SimpleDatabase -> SimpleDatabase
-localised db = db{sdbActivities = M.map copied (sdbActivities db)}
-  where
-    calculated :: M.Map Text Text
-    calculated = M.fromList [(T.toLower name, f) | (name, Parameter{parameterDefinition = CalculatedParameter f _}) <- M.toList (sdbParameters db)]
-    copied :: Activity -> Activity
-    copied act =
-        act
-            { activityParameters =
-                M.union
-                    own
-                    ( M.fromList
-                        [ (name, p{parameterDefinition = CalculatedParameter f Nothing, parameterUnit = Nothing})
-                        | (name, p@Parameter{parameterDefinition = CalculatedParameter f _}) <- M.toList (databaseParametersRead act (sdbParameters db))
-                        , not (S.disjoint ownNames (namesReached Expr.Volca calculated f))
-                        ]
-                    )
-            }
-      where
-        own :: M.Map Text Parameter
-        own = activityParameters act
-        -- The engine's scope of a database formula holds the process's line names too.
-        ownNames :: S.Set Text
-        ownNames = S.map T.toLower (M.keysSet own) <> S.fromList [T.toLower n | Just ExchangeFormula{efName = Just n} <- map exchangeFormula (exchanges act)]
 
 encode :: Encoding -> BS.ByteString
 encode = BL.toStrict . encodingToLazyByteString

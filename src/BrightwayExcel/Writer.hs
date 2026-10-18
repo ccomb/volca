@@ -159,7 +159,7 @@ renderWorkbookWithWarnings cfg db = do
             , ("_rels/.rels", enc packageRelsXml)
             , ("xl/workbook.xml", enc workbookXml)
             , ("xl/_rels/workbook.xml.rels", enc relsXml)
-            , ("xl/worksheets/sheet1.xml", enc (sheetXml (sheetRows cfg db)))
+            , ("xl/worksheets/sheet1.xml", enc (sheetXml (rowsWith exported cfg db)))
             ]
         , wasteManifest db
             <> frozenWarnings exported
@@ -390,15 +390,17 @@ Brightway reads a section's rows down to the next blank one, so the
 parameters stand between two.
 -}
 sheetRows :: WriterConfig -> SimpleDatabase -> [[Cell]]
-sheetRows cfg db =
+sheetRows cfg db = rowsWith (exportedOf db) cfg db
+
+-- | The rows, from the parameters and formulas already computed for the warnings.
+rowsWith :: Exported -> WriterConfig -> SimpleDatabase -> [[Cell]]
+rowsWith exported cfg db =
     [ [CText "Database", CText (wcDatabaseName cfg)]
     , []
     ]
         ++ (if M.null (exDatabase exported) then [] else [CText "Database parameters"] : parameterTable (exDatabase exported) ++ [[]])
         ++ concatMap (\(key, a) -> activityRows cfg db (processExport exported key) a ++ [[]]) sortedActivities
   where
-    exported :: Exported
-    exported = exportedOf db
     sortedActivities :: [((UUID, UUID), Activity)]
     sortedActivities =
         sortOn (\(_, a) -> (activityName a, activityLocation a)) (M.toList (sdbActivities db))
@@ -485,8 +487,11 @@ activityRows cfg db pe act =
   where
     comment = T.intercalate "\n" (activityDescription act)
     -- Numbered before the sort: a line's formula is found by its place in the activity.
+    numbered :: [(Int, Exchange)]
     numbered = orderedExchanges snd db (zip [0 ..] (exchanges act))
+    ordered :: [Exchange]
     ordered = map snd numbered
+    exchangeDataRows :: [[Cell]]
     exchangeDataRows = mapMaybe (\(i, ex) -> (++ [maybe CEmpty CText (IM.lookup i (peLines pe))]) <$> exchangeRow cfg db ex) numbered
     refExchange = lookup' exchangeIsReference ordered
     refProduct = refExchange >>= flowNameOf db
