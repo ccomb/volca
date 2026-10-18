@@ -56,7 +56,7 @@ import qualified Data.ByteString as BS
 import qualified Data.IntMap.Strict as IM
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, isJust, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -101,13 +101,14 @@ writeEcoSpold2 meta = fmap fst . writeEcoSpold2WithWarnings meta
 -- | The documents, and what the export says of the formulas and parameters it could not write.
 writeEcoSpold2WithWarnings :: VolatileMeta -> SimpleDatabase -> Either Text ([(FilePath, Text)], [Text])
 writeEcoSpold2WithWarnings meta sdb = do
-    checkEcoSpold2Exportable sdb
+    checkEcoSpold2Exportable carrying
     pure
         ( [ (activityFileName actUUID prodUUID, renderActivity meta env (DatasetModel actUUID (processExport exported key)) act)
           | (key@(actUUID, prodUUID), act) <- M.toAscList (sdbActivities carrying)
           ]
         , frozenWarnings exported
             <> [T.pack (show (S.size unread)) <> " parameters of the database are read by no process, and not written" | not (S.null unread)]
+            <> [T.pack (show (length spreadless)) <> " parameters are written without their spread, a number of it having no finite value:" <> foldMap ("\n  " <>) (take 10 spreadless) | not (null spreadless)]
         )
   where
     copies :: M.Map (UUID.UUID, UUID.UUID) (M.Map Text Parameter)
@@ -122,6 +123,14 @@ writeEcoSpold2WithWarnings meta sdb = do
 
     unread :: S.Set Text
     unread = S.difference (M.keysSet (sdbParameters sdb)) (S.unions (map M.keysSet (M.elems copies)))
+
+    spreadless :: [Text]
+    spreadless =
+        [ activityName act <> " · " <> name
+        | (key, act) <- M.toAscList (sdbActivities carrying)
+        , (name, (_, WrittenValue _ (Just u))) <- M.toAscList (peParameters (processExport exported key))
+        , isNothing (spreadNumbers u)
+        ]
 
     env =
         ResolveEnv
@@ -169,6 +178,10 @@ re-encode.
     correctly-rounded reader). Every finite amount round-trips, so this guards
     the formatter↔reader contract against future drift.
 
+  * __Parameter values.__ A process's parameter value is written as an amount
+    too, and one that is not finite or does not re-parse would leave every
+    formula reading it unbound on re-import.
+
 Reports the first offender and fails loudly rather than emit silently wrong
 data. Databases free of it pass unchanged.
 -}
@@ -186,6 +199,7 @@ checkEcoSpold2Exportable db =
         , [unknownUnitMsg c | c <- unknownUnitOffenders]
         , [missingFlowMsg c | c <- missingFlowOffenders]
         , [nonRoundTripMsg c a | (c, a) <- roundTripOffenders]
+        , [parameterMsg c n v | (c, n, v) <- parameterOffenders]
         ]
     amountOffenders =
         [ (activityName act, amt)
@@ -201,6 +215,15 @@ checkEcoSpold2Exportable db =
         , let amt = exchangeAmount ex
         , not (isNaN amt || isInfinite amt) -- non-finite already reported above
         , not (amountRoundTrips amt)
+        ]
+    parameterOffenders =
+        [ (activityName act, name, value)
+        | act <- M.elems (sdbActivities db)
+        , (name, parameter) <- M.toAscList (activityParameters act)
+        , value <- case parameterDefinition parameter of
+            InputParameter v _ -> [v]
+            CalculatedParameter _ v -> maybeToList v
+        , isNaN value || isInfinite value || not (amountRoundTrips value)
         ]
     -- The written decimal must re-parse to the same Double through the importer's
     -- correctly-rounded reader ('Amount.readAmount'), or the value would change
@@ -240,6 +263,7 @@ checkEcoSpold2Exportable db =
     refInputMsg c = cannotRepresent c <> "a reference input (treatment process) has no EcoSpold2 encoding."
     unknownUnitMsg c = cannotRepresent c <> "an exchange references a unit absent from the registry."
     missingFlowMsg c = cannotRepresent c <> "an exchange references a flow absent from the registry."
+    parameterMsg c n v = cannotRepresent c <> "parameter " <> n <> " is " <> T.pack (show v) <> ", which has no decimal form that re-parses to it."
     nonRoundTripMsg c a =
         cannotRepresent c
             <> "exchange amount "
@@ -424,8 +448,13 @@ lineFormula pe i ex = LineFormula{lfName = name, lfRelation = if isJust name && 
 
     stated :: Bool
     stated = case Expr.readFormula Expr.Volca . efText <$> exchangeFormula ex of
-        Just (Right (Expr.Literal _)) -> True
-        Just (Right _) -> False
+        Just (Right formula) -> case formula of
+            Expr.Literal _ -> True
+            Expr.Name _ -> False
+            Expr.Unary{} -> False
+            Expr.Binary{} -> False
+            Expr.Variadic{} -> False
+            Expr.If{} -> False
         Just (Left _) -> False
         Nothing -> False
 
@@ -499,27 +528,31 @@ renderParameter activity (name, (parameter, written)) = case amount of
         WrittenValue _ u -> u
         WrittenFormula _ -> Nothing
 
-{- | A spread as the reader reads it back: a lognormal's deviation is the
-exponential of the root of its variance, a normal's deviation the root of its
-own. A number with no finite value (the @mu@ of a zero mean) is left out.
--}
+-- | A spread's element and its numbers as the reader reads them back, none when one of them has no finite value (the @mu@ of a zero mean).
+spreadNumbers :: Uncertainty -> Maybe (Text, [(Text, Double)])
+spreadNumbers u = if all (\(_, v) -> not (isNaN v || isInfinite v)) numbers then Just (element, numbers) else Nothing
+  where
+    -- A lognormal's deviation is the exponential of the root of its variance, a normal's the root of its own.
+    element :: Text
+    numbers :: [(Text, Double)]
+    (element, numbers) = case u of
+        Lognormal mean deviation ->
+            let variance = log deviation ^ (2 :: Int)
+             in ("lognormal", [("meanValue", mean), ("mu", log (abs mean)), ("variance", variance), ("varianceWithPedigreeUncertainty", variance)])
+        Normal mean deviation ->
+            ("normal", [("meanValue", mean), ("variance", deviation * deviation), ("varianceWithPedigreeUncertainty", deviation * deviation)])
+        Triangular low likely high -> ("triangular", [("minValue", low), ("mostLikelyValue", likely), ("maxValue", high)])
+        Uniform low high -> ("uniform", [("minValue", low), ("maxValue", high)])
+
+-- | A spread as an @\<uncertainty\>@ element, none when 'spreadNumbers' gives none: the warnings name it.
 uncertaintyLines :: Maybe Uncertainty -> [Text]
-uncertaintyLines = \case
+uncertaintyLines spread = case spreadNumbers =<< spread of
     Nothing -> []
-    Just u ->
+    Just (element, numbers) ->
         [ "        <uncertainty>"
-        , "          <" <> element <> T.concat [" " <> k <> "=\"" <> doubleAttr v <> "\"" | (k, v) <- numbers, not (isNaN v || isInfinite v)] <> "/>"
+        , "          <" <> element <> T.concat [" " <> k <> "=\"" <> doubleAttr v <> "\"" | (k, v) <- numbers] <> "/>"
         , "        </uncertainty>"
         ]
-      where
-        (element, numbers) = case u of
-            Lognormal mean deviation ->
-                let variance = log deviation ^ (2 :: Int)
-                 in ("lognormal", [("meanValue", mean), ("mu", log (abs mean)), ("variance", variance), ("varianceWithPedigreeUncertainty", variance)])
-            Normal mean deviation ->
-                ("normal", [("meanValue", mean), ("variance", deviation * deviation), ("varianceWithPedigreeUncertainty", deviation * deviation)])
-            Triangular low likely high -> ("triangular", [("minValue", low), ("mostLikelyValue", likely), ("maxValue", high)])
-            Uniform low high -> ("uniform", [("minValue", low), ("maxValue", high)])
 
 {- | Technosphere exchange → @intermediateExchange@.
 

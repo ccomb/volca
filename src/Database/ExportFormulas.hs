@@ -11,7 +11,9 @@ becomes an input parameter at its value, and the warnings name it.
 A format that names no line (SimaPro, openLCA) gets each line a formula
 reads by its name as a calculated parameter of its process under that name,
 its formula the line's, and the line reads the parameter. EcoSpold 2 names its
-lines, so there a line keeps its name. A share's formula, kept in SimaPro's
+lines, so there a line keeps its name, unless its amount is written otherwise
+than the engine holds it (an avoided product, negated): the name would then
+give its readers that other amount. A share's formula, kept in SimaPro's
 language, follows the same rule.
 
 EcoSpold 2 states an amount beside every formula and has no database-wide
@@ -126,9 +128,9 @@ exportFormulas dialect scaledBy db =
         )
       where
         -- The process's names: its own parameters, and the lines formulas read by name.
-        viewed = namedLinesAsParameters (namesReadByDatabase db) source
+        viewed = namedLinesAsParameters (const True) (namesReadByDatabase db) source
         act = case lineNames dialect of
-            NamedLines -> source
+            NamedLines -> namedLinesAsParameters (not . asHeld . scaledBy key) (namesReadByDatabase db) source
             LinesAsParameters -> viewed
         unwritten = unwritable dialect databaseUnwritten (activityParameters viewed)
         (parameters, parametersFrozen) = parametersIn dialect (activityName act) unwritten (activityParameters act)
@@ -165,7 +167,7 @@ database-wide parameter copies them into it: at the value they settle to
 there, a line read by a name shadowing a database parameter of that name.
 -}
 databaseCopies :: SimpleDatabase -> M.Map (UUID, UUID) (M.Map Text Parameter)
-databaseCopies db = M.map (\act -> databaseParametersIn (namedLinesAsParameters (namesReadByDatabase db) act) (sdbParameters db)) (sdbActivities db)
+databaseCopies db = M.map (\act -> databaseParametersIn (namedLinesAsParameters (const True) (namesReadByDatabase db) act) (sdbParameters db)) (sdbActivities db)
 
 -- | A formula as the format writes it, unless it reads a name the format does not.
 writtenWith :: Expr.Dialect -> S.Set Text -> Text -> Maybe Text
@@ -177,6 +179,12 @@ scaled :: Scaled -> Text -> Text
 scaled = \case
     Times k -> Expr.times k
     DividedBy k -> Expr.dividedBy k
+
+-- | Whether a line's amount is written as the engine holds it.
+asHeld :: Scaled -> Bool
+asHeld = \case
+    Times k -> k == 1
+    DividedBy k -> k == 1
 
 {- | The names, lowercased, a scope cannot write, given those its enclosing
 scope cannot and the scope's own parameters, which shadow them: one the format
@@ -212,13 +220,14 @@ parametersIn dialect place unwritten params = (concatMap fst each, concatMap snd
                     Just v -> ([(name, (p, WrittenValue v Nothing))], [place <> " · " <> name <> ": " <> f])
                     Nothing -> ([], [place <> " · " <> name <> ": " <> f <> " (no value, left out)"])
 
-{- | The activity with each named line some formula reads made a calculated
-parameter of that name, the line reading it. A name a parameter already has
+{- | The activity with each named line some formula reads, among those
+given, made a calculated parameter of that name, the line reading it. A line
+not given keeps its name. A name a parameter already has
 stays the parameter's: the engine refuses a line of that name at edit, and an
 import keeps no formula reading a name given twice.
 -}
-namedLinesAsParameters :: [Text] -> Activity -> Activity
-namedLinesAsParameters databaseReads act =
+namedLinesAsParameters :: (Exchange -> Bool) -> [Text] -> Activity -> Activity
+namedLinesAsParameters given databaseReads act =
     act
         { exchanges = map unnamed (exchanges act)
         , activityParameters = M.union (activityParameters act) (M.fromList (mapMaybe asParameter (exchanges act)))
@@ -240,14 +249,16 @@ namedLinesAsParameters databaseReads act =
     asParameter :: Exchange -> Maybe (Text, Parameter)
     asParameter ex = case exchangeFormula ex of
         Just ExchangeFormula{efName = Just name, efText = text}
-            | read' name -> Just (name, Parameter{parameterDefinition = CalculatedParameter text (Just (exchangeAmount ex)), parameterUnit = Nothing, parameterDescription = ""})
+            | given ex && read' name -> Just (name, Parameter{parameterDefinition = CalculatedParameter text (Just (exchangeAmount ex)), parameterUnit = Nothing, parameterDescription = ""})
         _ -> Nothing
 
     unnamed :: Exchange -> Exchange
     unnamed ex = case exchangeFormula ex of
         Just ExchangeFormula{efName = Just name}
-            | read' name -> withFormula (Just (ExchangeFormula Nothing name)) ex
-        Just f -> withFormula (Just f{efName = Nothing}) ex
+            | given ex && read' name -> withFormula (Just (ExchangeFormula Nothing name)) ex
+        Just f
+            | given ex -> withFormula (Just f{efName = Nothing}) ex
+            | otherwise -> ex
         Nothing -> ex
 
 -- | The name of a line's flow, as the warnings name it.

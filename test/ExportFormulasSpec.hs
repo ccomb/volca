@@ -11,6 +11,7 @@ import Control.Monad (forM_, (<=<))
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
+import Data.Either (isLeft)
 import Data.List (sort)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -45,6 +46,20 @@ ecoSpold2Spec = describe "EcoSpold 2 export of parameters and formulas" $ do
 
     it "gives a process the database formula it reads at its value there, with a name it redefines" $
         sameAmountsAtWith throughEcoSpold2 eachProcess (ownWasteRate <$> loadBytes bakeryCSV)
+
+    it "gives the readers of an avoided product's name its amount, which the dataset writes negated" $ do
+        back <- throughEcoSpold2 . avoidedLineRead =<< loadBytes bakeryCSV
+        db <- built back
+        -- Read back, the avoided flour is the negative input ecoinvent writes, and the emission still 1 + av.
+        moved <- either (fail . T.unpack . describeParameterRefusal) (pure . amountsOf db) (instantiate db (eachProcess db 0.7))
+        fmap (map (\x -> fromIntegral (round (x * 1e9) :: Integer) / 1e9 :: Double)) (M.lookup ("Bread", "Bread") moved) `shouldBe` Just [-1.4, 1, 1.428571429, 2.4]
+
+    it "refuses a parameter value it cannot write, and says which spread it leaves out" $ do
+        source <- loadBytes bakeryCSV
+        let withParameter name definition = onBread (\a -> a{activityParameters = M.insert name (Parameter definition Nothing "") (activityParameters a)}) source
+        writeEcoSpold2WithWarnings noVolatileMeta (withParameter "k" (InputParameter (1 / 0) Nothing)) `shouldSatisfy` isLeft
+        warnings <- either (fail . T.unpack) (pure . snd) (writeEcoSpold2WithWarnings noVolatileMeta (withParameter "zero" (InputParameter 0 (Just (Lognormal 0 1.2)))))
+        warnings `shouldSatisfy` any ("1 parameters are written without their spread" `T.isInfixOf`)
 
     it "writes a copied database formula at the value it takes in the process" $ do
         back <- throughEcoSpold2 . ownWasteRate =<< loadBytes bakeryCSV
@@ -251,6 +266,16 @@ lossReadsLine sdb = (onBread (\a -> a{exchanges = map (nameFlourIn . restateLoss
     nameFlourIn ex = case exchangeFormula ex of
         Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula (Just "flour_in") "flour_per_loaf")) ex
         _ -> ex
+
+-- | The bread avoids flour by a line named @av@, which its emission reads, so the emission is 1 + 2 * 0.8.
+avoidedLineRead :: SimpleDatabase -> SimpleDatabase
+avoidedLineRead = onBread (\a -> a{exchanges = concatMap avoid (exchanges a)})
+  where
+    avoid :: Exchange -> [Exchange]
+    avoid ex = case (ex, exchangeFormula ex) of
+        (TechnosphereExchange{}, Just ExchangeFormula{efText = "flour_per_loaf"}) -> [ex, withFormula (Just (ExchangeFormula (Just "av") "2 * yield")) (withAmount 1.6 ex{techRole = AvoidedProduct})]
+        (_, Just ExchangeFormula{efText = "0.5 * water + loss"}) -> [withFormula (Just (ExchangeFormula Nothing "1 + av")) (withAmount 2.6 ex)]
+        _ -> [ex]
 
 onBread :: (Activity -> Activity) -> SimpleDatabase -> SimpleDatabase
 onBread change sdb = sdb{sdbActivities = M.map (\a -> if activityName a == "Bread" then change a else a) (sdbActivities sdb)}
