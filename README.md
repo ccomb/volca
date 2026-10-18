@@ -514,6 +514,7 @@ GET    /api/v1/db/{dbName}/activity/{processId}/inventory                Life cy
 POST   /api/v1/db/{dbName}/activity/{processId}/inventory                LCI with substitutions
 GET    /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}     Batch LCIA across a method collection (NW + single-score when available)
 POST   /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}     Batch LCIA with substitutions
+POST   /api/v1/db/{dbName}/activity/{processId}/reduced-model/{collection}   Scores as a function of chosen parameters, to run many values away from the engine
 GET    /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}/{methodId}   LCIA score for one method (with top-flows)
 POST   /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}/{methodId}   Same, with substitutions
 GET    /api/v1/db/{dbName}/activity/{processId}/contributing-flows/{collection}/{methodId}        Top biosphere flows by score share
