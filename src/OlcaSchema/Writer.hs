@@ -66,7 +66,7 @@ import qualified Database.ExportFormulas as EF
 import qualified Expr
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
 import OlcaSchema.Parser (directionOf)
-import Parametric (databaseParametersRead, namesReached)
+import Parametric (databaseParametersRead, namesReached, shareFormulas)
 import Types
 import UnitConversion (UnitConfig, convertUnit)
 
@@ -112,6 +112,7 @@ context units source = cx
     db = localised source
     cx = Context{cxDb = db, cxFlows = flows, cxShared = sharedActivityUUIDs db, cxUnits = units, cxPlaces = places, cxLocations = written, cxFormulas = EF.exportFormulas Expr.OpenLca factorOf db}
     -- A line refused here refuses the export, so its factor is never written.
+    factorOf :: (UUID, UUID) -> Exchange -> EF.Scaled
     factorOf key ex = EF.Times (either (const 1) lnFactor (maybe (Left (NoFlow "")) (\act -> lineOf cx act ex) (M.lookup key (sdbActivities db))))
     uses = locationUses db
     written = S.toList (S.fromList [M.findWithDefault code code places | code <- M.keys uses])
@@ -250,6 +251,7 @@ lineOf cx act ex = do
         line input sign = Line{lnFlow = flow, lnAmount = sign * amount, lnFactor = sign * conversion, lnInput = input, lnReference = False, lnAvoided = False, lnProvider = provider, lnLocation = place cx (exchangeLocation ex), lnComment = exchangeComment ex}
         -- A line sent to a treatment, by the demand it puts on it: written as the waste output openLCA reads it as.
         sent sign = pure (line False (sign * treatmentSign))
+        sideOf :: Bool -> Double
         sideOf output = if output then 1 else -1
     case (ex, ofType flow) of
         {- The engine signs an elementary amount by the line's kind, openLCA by
@@ -353,7 +355,7 @@ warnings cx = splitWarnings (cxDb cx) <> EF.formulaWarnings (cxFormulas cx) <> m
     kinds =
         [ ("processes keep a product they did not allocate; openLCA reads it with the whole inventory:", [activityName a | a <- acts, any isCoproduct (exchanges a)])
         , ("inputs name no supplier, and openLCA will link them to a producer of the package:", unlinkedProduced)
-        , ("processes are split by a share formula, which openLCA has no place for, and written at the share's value:", [activityName a | (k, pe) <- M.toList (EF.exProcesses (cxFormulas cx)), not (IM.null (EF.peShares pe)), Just a <- [M.lookup k (sdbActivities (cxDb cx))]])
+        , ("processes are split by a share formula, which openLCA has no place for, and written at the share's value:", [activityName a | a <- acts, not (null (shareFormulas a))])
         , ("processes state an elementary flow against its compartment, written on its side with the same inventory:", S.toList (S.fromList against))
         , ("location codes differ from another only by case, one location to openLCA, and are written as it:", [code <> " as " <> written | (code, written) <- M.toList (cxPlaces cx), code /= written])
         ]
@@ -389,27 +391,34 @@ documents cx written =
             <> [("flows/" <> uuidPath (ofId f), encode (flowDoc cx f)) | f <- M.elems (cxFlows cx)]
             <> [("locations/" <> uuidPath (locationId c), encode (locationDoc c)) | c <- cxLocations cx]
             <> [("processes/" <> uuidPath (wrId w), encode (processDoc cx w)) | w <- written]
-            <> [("parameters/" <> uuidPath (parameterId "" name), encode (parameterDoc "GLOBAL_SCOPE" "" (name, p))) | (name, p) <- M.toList (EF.exDatabase (cxFormulas cx))]
+            <> [("parameters/" <> uuidPath (parameterId Global name), encode (parameterDoc Global (name, p))) | (name, p) <- M.toList (EF.exDatabase (cxFormulas cx))]
   where
     units = M.elems (sdbUnits (cxDb cx))
     uuidPath u = UUID.toString u <> ".json"
 
+-- | Where a parameter is defined: the database, or one process.
+data Scope = Global | InProcess !UUID
+
 {- | A parameter as openLCA reads it: an input with its value and spread, or a
-formula, with the value it computed when the engine holds one. Identified by
-its name within its owner, @owner@ empty for the database.
+formula, with the value it computed when the engine holds one.
 -}
-parameterDoc :: Text -> Text -> (Text, (Parameter, EF.Written)) -> Encoding
-parameterDoc scope owner (name, (p, written)) =
+parameterDoc :: Scope -> (Text, (Parameter, EF.Written)) -> Encoding
+parameterDoc scope (name, (p, written)) =
     pairs $
         "@type" .= ("Parameter" :: Text)
-            <> "@id" .= UUID.toText (parameterId owner name)
+            <> "@id" .= UUID.toText (parameterId scope name)
             <> "name" .= name
-            <> "parameterScope" .= scope
+            <> "parameterScope" .= scopeName
             <> nonEmpty "description" (parameterDescription p)
             <> case written of
                 EF.WrittenValue value spread -> "isInputParameter" .= True <> "value" .= value <> maybe mempty (pair "uncertainty" . uncertaintyDoc) spread
                 EF.WrittenFormula formula -> "isInputParameter" .= False <> "formula" .= formula <> maybe mempty ("value" .=) (computed (parameterDefinition p))
   where
+    scopeName :: Text
+    scopeName = case scope of
+        Global -> "GLOBAL_SCOPE"
+        InProcess _ -> "PROCESS_SCOPE"
+    computed :: ParameterDefinition -> Maybe Double
     computed = \case
         CalculatedParameter _ value -> value
         InputParameter{} -> Nothing
@@ -422,32 +431,44 @@ uncertaintyDoc = \case
     Triangular low mode high -> pairs ("distributionType" .= ("TRIANGLE_DISTRIBUTION" :: Text) <> "minimum" .= low <> "mode" .= mode <> "maximum" .= high)
     Uniform low high -> pairs ("distributionType" .= ("UNIFORM_DISTRIBUTION" :: Text) <> "minimum" .= low <> "maximum" .= high)
 
-parameterId :: Text -> Text -> UUID
-parameterId owner name = UUID5.generateNamed namespace (BS.unpack (TE.encodeUtf8 ("parameter:" <> owner <> T.toLower name)))
+-- | A parameter identified by its name within its scope, names compared without case.
+parameterId :: Scope -> Text -> UUID
+parameterId scope name = UUID5.generateNamed namespace (BS.unpack (TE.encodeUtf8 ("parameter:" <> owner <> T.toLower name)))
+  where
+    owner :: Text
+    owner = case scope of
+        Global -> ""
+        InProcess process -> UUID.toText process <> ":"
 
 {- | Each process given, as its own parameters, the database formulas it reads
-that reach a name it redefines, which openLCA would settle with the database's
-value. A copy has no value of its own computed yet.
+that reach a name it redefines or one of its lines, which openLCA would settle
+with the database's value. A copy has no value of its own computed yet, and
+states no unit: the database's parameter states it once.
 -}
 localised :: SimpleDatabase -> SimpleDatabase
 localised db = db{sdbActivities = M.map copied (sdbActivities db)}
   where
+    calculated :: M.Map Text Text
     calculated = M.fromList [(T.toLower name, f) | (name, Parameter{parameterDefinition = CalculatedParameter f _}) <- M.toList (sdbParameters db)]
+    copied :: Activity -> Activity
     copied act =
         act
             { activityParameters =
                 M.union
                     own
                     ( M.fromList
-                        [ (name, p{parameterDefinition = CalculatedParameter f Nothing})
+                        [ (name, p{parameterDefinition = CalculatedParameter f Nothing, parameterUnit = Nothing})
                         | (name, p@Parameter{parameterDefinition = CalculatedParameter f _}) <- M.toList (databaseParametersRead act (sdbParameters db))
                         , not (S.disjoint ownNames (namesReached Expr.Volca calculated f))
                         ]
                     )
             }
       where
+        own :: M.Map Text Parameter
         own = activityParameters act
-        ownNames = S.map T.toLower (M.keysSet own)
+        -- The engine's scope of a database formula holds the process's line names too.
+        ownNames :: S.Set Text
+        ownNames = S.map T.toLower (M.keysSet own) <> S.fromList [T.toLower n | Just ExchangeFormula{efName = Just n} <- map exchangeFormula (exchanges act)]
 
 encode :: Encoding -> BS.ByteString
 encode = BL.toStrict . encodingToLazyByteString
@@ -539,9 +560,10 @@ processDoc cx w =
     ownFormulas = EF.processExport (cxFormulas cx) (wrKey w)
     formulas = EF.peLines ownFormulas
     numbered = zip [1 :: Int ..] [(IM.lookup i formulas, ln) | (i, ln) <- zip [0 ..] (wrLines w)]
+    parametersOf :: [(Text, (Parameter, EF.Written))] -> Series
     parametersOf = \case
         [] -> mempty
-        params -> pair "parameters" (list (parameterDoc "PROCESS_SCOPE" (UUID.toText (wrId w) <> ":")) params)
+        params -> pair "parameters" (list (parameterDoc (InProcess (wrId w))) params)
 
 exchangeDoc :: Context -> Int -> (Maybe Text, Line) -> Encoding
 exchangeDoc cx internalId (formula, ln) =

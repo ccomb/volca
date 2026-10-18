@@ -121,6 +121,9 @@ olcaSpec = describe "openLCA export of parameters and formulas" $ do
     it "gives a process the database formula it reads with a name it redefines" $
         sameAmountsAt throughPackage (ownWasteRate <$> loadBytes bakeryCSV)
 
+    it "gives a process the database formula that reads one of its lines" $
+        sameAmountsAt throughPackage (lossReadsLine <$> loadBytes bakeryCSV)
+
     it "writes a line's formula times the factor its amount is written with" $ do
         source <- loadBytes bakeryCSV
         files <- packaged source
@@ -137,9 +140,15 @@ olcaSpec = describe "openLCA export of parameters and formulas" $ do
             >>= (`shouldSatisfy` any ("Bread · Flour: (yield < 1) * flour_per_loaf" `T.isInfixOf`))
   where
     -- The bread redefines the waste rate its database's loss reads, so its emission is 0.5 * 0.75 + (1 - 0.8 * 0.5).
-    ownWasteRate sdb = sdb{sdbActivities = M.map (\a -> if activityName a == "Bread" then a{activityParameters = M.insert "waste_rate" (Parameter (InputParameter 0.5 Nothing) Nothing "") (activityParameters a), exchanges = map restateLoss (exchanges a)} else a) (sdbActivities sdb)}
-    restateLoss ex = case exchangeFormula ex of
-        Just ExchangeFormula{efText = "0.5 * water + loss"} -> withFormula (exchangeFormula ex) (withAmount 0.975 ex)
+    ownWasteRate = onBread (\a -> a{activityParameters = M.insert "waste_rate" (Parameter (InputParameter 0.5 Nothing) Nothing "") (activityParameters a), exchanges = map (restateLoss 0.975) (exchanges a)})
+    -- The database's loss reads the bread's flour line by its name, so the bread's emission is 0.5 * 0.75 + (1 - 1.25 / 2).
+    lossReadsLine sdb = (onBread (\a -> a{exchanges = map (nameFlourIn . restateLoss 0.75) (exchanges a)}) sdb){sdbParameters = M.insert "loss" (Parameter (CalculatedParameter "1 - flour_in / 2" Nothing) Nothing "") (sdbParameters sdb)}
+    onBread change sdb = sdb{sdbActivities = M.map (\a -> if activityName a == "Bread" then change a else a) (sdbActivities sdb)}
+    restateLoss amount ex = case exchangeFormula ex of
+        Just ExchangeFormula{efText = "0.5 * water + loss"} -> withFormula (exchangeFormula ex) (withAmount amount ex)
+        _ -> ex
+    nameFlourIn ex = case exchangeFormula ex of
+        Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula (Just "flour_in") "flour_per_loaf")) ex
         _ -> ex
     comparing act = act{exchanges = map compareIt (exchanges act)}
     compareIt ex = case exchangeFormula ex of
