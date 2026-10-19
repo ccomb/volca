@@ -318,7 +318,8 @@
   "low population density", "ground water") now reach the flows other formats
   file under "high. pop.", "low. pop." and "groundwater": a database in
   EcoSpold 1 scored under openLCA's EF 3.1 got a quarter of its climate change
-  and now agrees with the published figures to 1 % on most categories.
+  and now agrees with the published figures to 1 % on most categories (data
+  version 11).
 - A process split from a block of several products keeps every formula
   true. A line named in the block, read by other formulas, was scaled by the
   product's share, and the formulas reading it were scaled again: with a
