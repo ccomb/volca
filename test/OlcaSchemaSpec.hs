@@ -251,6 +251,17 @@ spec = do
             oimName <$> choosePackageMethod Nothing (take 1 held) `shouldBe` Right "EF 3.1"
             choosePackageMethod Nothing held `shouldSatisfy` refusedWith "\"EF 3.1\", \"IPCC 2021\""
             choosePackageMethod (Just "ReCiPe") held `shouldSatisfy` refusedWith "no method named \"ReCiPe\""
+            choosePackageMethod (Just "ReCiPe") [] `shouldBe` Left "the package holds no method"
+
+        it "refuses a single-score factor that names no category" $
+            let unnamed =
+                    object
+                        [ "@type" .= ("ImpactMethod" :: T.Text)
+                        , "name" .= ("EF 3.1" :: T.Text)
+                        , "nwSets" .= [object ["name" .= ("w" :: T.Text), "factors" .= [object ["impactCategory" .= object ["@id" .= ("acid" :: T.Text)], "weightingFactor" .= (1 :: Double)]]]]
+                        ]
+             in parseOlcaImpactMethodBytes (BL.toStrict (encode unnamed))
+                    `shouldSatisfy` either (T.isInfixOf "names no impact category" . T.pack) (const False)
 
         it "loads the method a configuration names, with its single score" $
             withSystemTempDirectory "olca-package" $ \root -> do
@@ -268,6 +279,8 @@ spec = do
                         map ssName (mcScoringSets collection) `shouldBe` ["EF 3.1 weighting"]
                 unnamed <- loadMethodCollectionFromPath Nothing root
                 unnamed `shouldSatisfy` refusedWith "several methods"
+                notPackage <- loadMethodCollectionFromPath (Just "EF 3.1") (root </> "lcia_categories")
+                notPackage `shouldSatisfy` refusedWith "is not an openLCA method package"
 
     describe "buildMethodTables on parsed openLCA methods" $ do
         it "leaves mtRegionalizedCF empty when no flow matched (Nothing in mappings)" $ do

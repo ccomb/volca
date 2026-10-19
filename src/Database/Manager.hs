@@ -62,6 +62,7 @@ module Database.Manager (
     loadMethodCollectionLocked,
     loadMethodCollectionFromConfig,
     loadMethodCollectionFromPath,
+    loadOlcaPackageMethod,
     applyMethodConfig,
     configToScoringSet,
     namedOnce,
@@ -4539,7 +4540,10 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
     package <- liftIO $ packageIn source
     case package of
         Just root -> (,M.empty) <$> ExceptT (loadOlcaPackageMethod packageMethod root)
-        Nothing -> fromMethodFiles source
+        Nothing -> do
+            forM_ packageMethod $ \named ->
+                throwE ("package-method names \"" <> named <> "\", but " <> T.pack path <> " is not an openLCA method package")
+            fromMethodFiles source
   where
     -- A package is read whole, never as the directory of its categories.
     packageIn :: MethodSource -> IO (Maybe FilePath)

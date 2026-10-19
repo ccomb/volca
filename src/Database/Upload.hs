@@ -581,8 +581,9 @@ anyDataFilesIn d = do
                             let csvFiles = [p | p <- fullPaths, map toLower (takeExtension p) == ".csv"]
                             if null csvFiles then return False else checkForSimaProCSV csvFiles
 
-{- | Find the best directory containing ILCD method XML files.
-Picks the candidate with the most method files (same pattern as findDataDirectory).
+{- | Find the best directory containing method files. An openLCA method
+package wins, since it is read whole; otherwise the candidate with the most
+method files (same pattern as findDataDirectory).
 -}
 findMethodDirectory :: FilePath -> IO FilePath
 findMethodDirectory dir = do

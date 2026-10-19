@@ -143,23 +143,31 @@ parseOlcaImpactMethodBytes bytes = do
         Object o -> do
             assertType o "ImpactMethod"
             name <- requireText o "name"
+            nwSets <- traverse normWeightSet (objectsIn o "nwSets")
             Right
                 OlcaImpactMethod
                     { oimName = name
                     , oimCategories = mapMaybe (`lookupText` "@id") (objectsIn o "impactCategories")
-                    , oimNWSets = map normWeightSet (objectsIn o "nwSets")
+                    , oimNWSets = nwSets
                     }
         _ -> Left "openLCA ImpactMethod: expected a top-level JSON object"
   where
-    normWeightSet :: KM.KeyMap Value -> NormWeightSet
-    normWeightSet nw =
-        let factors = [(c, f) | f <- objectsIn nw "factors", Just c <- [objectField f "impactCategory" >>= (`lookupText` "name")]]
-         in NormWeightSet
-                { -- Scores are reported by set name, and a package may leave a set unnamed.
-                  nwName = fromMaybe "" (lookupText nw "name" <|> lookupText nw "@id")
+    normWeightSet :: KM.KeyMap Value -> Either String NormWeightSet
+    normWeightSet nw = do
+        -- Scores are reported by set name, and a package may leave a set unnamed.
+        let setName = fromMaybe "" (lookupText nw "name" <|> lookupText nw "@id")
+        {- A factor is matched to its category by name; one without a name would
+        leave its category out of the single score without a word. -}
+        factors <- traverse (factorOf setName) (objectsIn nw "factors")
+        Right
+            NormWeightSet
+                { nwName = setName
                 , nwNormalization = M.fromList [(c, 1 / n) | (c, f) <- factors, Just n <- [numberField f "normalisationFactor"], n /= 0]
                 , nwWeighting = M.fromList [(c, w) | (c, f) <- factors, Just w <- [numberField f "weightingFactor"]]
                 }
+    factorOf setName f = case objectField f "impactCategory" >>= (`lookupText` "name") of
+        Just c -> Right (c, f)
+        Nothing -> Left ("openLCA ImpactMethod: a factor of set \"" <> T.unpack setName <> "\" names no impact category")
 
 {- | The method of a package a collection reads: the one it names, or the
 package's only one. 'Left' lists the methods the package holds, which is what
@@ -167,11 +175,15 @@ a reader needs to name one.
 -}
 choosePackageMethod :: Maybe Text -> [OlcaImpactMethod] -> Either Text OlcaImpactMethod
 choosePackageMethod wanted methods = case (wanted, methods) of
+    (_, []) -> Left "the package holds no method"
     (Nothing, [only]) -> Right only
     (Just name, _) | Just m <- find ((== name) . oimName) methods -> Right m
     (Just name, _) -> Left ("the package holds no method named \"" <> name <> "\"; it holds " <> held)
-    (Nothing, []) -> Left "the package holds no method"
-    (Nothing, _) -> Left ("the package holds several methods, so package-method must name one of " <> held)
+    (Nothing, _) ->
+        Left
+            ( "the package holds several methods and none is named (package-method in the configuration, package_method in an upload's meta.toml); it holds "
+                <> held
+            )
   where
     held = T.intercalate ", " ["\"" <> n <> "\"" | n <- sort (map oimName methods)]
 
