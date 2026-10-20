@@ -1488,13 +1488,14 @@ discoverMethods config = do
 discoverRefDataSources :: Config -> IO RefDataSources
 discoverRefDataSources config =
     RefDataSources
-        <$> withUploads "flow synonym" (cfgFlowSynonyms config) "uploads/flow-synonyms"
-        <*> withUploads "compartment mapping" (cfgCompartmentMappings config) "uploads/compartment-mappings"
-        <*> withUploads "unit" (cfgUnits config) "uploads/units"
-        <*> withUploads "energy density" (cfgEnergyDensities config) "uploads/energy-densities"
+        <$> withUploads "flow synonym" (cfgFlowSynonyms config) (rdoUploadSubdir flowSynOps)
+        <*> withUploads "compartment mapping" (cfgCompartmentMappings config) (rdoUploadSubdir compMapOps)
+        <*> withUploads "unit" (cfgUnits config) (rdoUploadSubdir unitDefOps)
+        <*> withUploads "energy density" (cfgEnergyDensities config) (rdoUploadSubdir energyDensityOps)
   where
     withUploads :: String -> [RefDataConfig] -> FilePath -> IO [RefDataConfig]
-    withUploads kind configured dir = do
+    withUploads kind configured subdir = do
+        dir <- UploadedDB.getRefDataUploadsDir subdir
         combined <- (configured ++) <$> discoverUploadedRefData dir
         mapM_ (reportProgress Warning) (shadowedNames (kind <> " source") rdName (describeSource . rdSource) combined)
         pure combined
@@ -1769,8 +1770,7 @@ loadConfiguredMethods manager config =
                         <> " impact categories)"
                 warnZeroTouchPatches (mcName mc) patchStats
                 warnUnknownGlobalMethods (mcName mc) collection
-                let !pairs = extractFromILCDFlows flowInfo
-                autoCreateFlowSynonyms manager (mcName mc) (SynonymOrigin ("Auto-extracted from " <> mcName mc)) pairs
+                autoCreateFlowSynonyms manager (mcName mc) (SynonymOrigin ("Auto-extracted from " <> mcName mc)) (extractFromILCDFlows flowInfo)
 
 {- | Surface a 'global-methods' entry that matches no loaded method: the
 de-regionalization is keyed by method name, so a typo or a renamed method
@@ -5124,7 +5124,7 @@ data RefDataOps a = RefDataOps
     , rdoParse :: !(BL.ByteString -> Either Text a)
     , rdoCount :: !(a -> Int)
     , rdoLabel :: !String
-    , rdoUploadDir :: !FilePath
+    , rdoUploadSubdir :: !FilePath -- under the data directory's uploads/
     , rdoCanDelete :: !(RefDataConfig -> Bool)
     }
 
@@ -5136,7 +5136,7 @@ flowSynOps =
         , rdoParse = first T.pack . buildFromCSV
         , rdoCount = synonymCount
         , rdoLabel = "flow synonyms"
-        , rdoUploadDir = "uploads/flow-synonyms"
+        , rdoUploadSubdir = "flow-synonyms"
         , rdoCanDelete = \rd -> rdIsUploaded rd || rdIsAuto rd
         }
 
@@ -5148,7 +5148,7 @@ compMapOps =
         , rdoParse = first T.pack . buildCompartmentMapFromCSV
         , rdoCount = compartmentMapSize
         , rdoLabel = "compartment mapping"
-        , rdoUploadDir = "uploads/compartment-mappings"
+        , rdoUploadSubdir = "compartment-mappings"
         , rdoCanDelete = rdIsUploaded
         }
 
@@ -5160,7 +5160,7 @@ unitDefOps =
         , rdoParse = UnitConversion.buildFromCSV
         , rdoCount = UnitConversion.unitCount
         , rdoLabel = "units"
-        , rdoUploadDir = "uploads/units"
+        , rdoUploadSubdir = "units"
         , rdoCanDelete = rdIsUploaded
         }
 
@@ -5172,7 +5172,7 @@ energyDensityOps =
         , rdoParse = first T.pack . buildEnergyDensityMapFromCSV
         , rdoCount = energyDensityMapSize
         , rdoLabel = "energy densities"
-        , rdoUploadDir = "uploads/energy-densities"
+        , rdoUploadSubdir = "energy-densities"
         , rdoCanDelete = rdIsUploaded
         }
 
@@ -5252,7 +5252,7 @@ removeRefDataG ops manager name = do
             if M.member name loaded
                 then return $ Left "Unload before deleting"
                 else do
-                    removeUploadedRefData (rdoUploadDir ops) name
+                    UploadedDB.getRefDataUploadsDir (rdoUploadSubdir ops) >>= \dir -> removeUploadedRefData dir name
                     atomically $ modifyTVar' (rdoAvailableVar ops manager) (M.delete name)
                     return $ Right ()
 
@@ -5478,7 +5478,7 @@ maxSynonymFlowFrequency :: Int
 maxSynonymFlowFrequency = 25
 
 {- | Persist auto-extracted synonym pairs as an opt-in candidate set.
-Writes CSV to uploads/flow-synonyms/auto-{source}/data.csv and registers it
+Writes CSV to <data dir>/uploads/flow-synonyms/auto-{source}/data.csv and registers it
 inactive. The pairs never enter the matching: flow matching trusts only the
 curated registry (data/flows.csv) plus sources the user explicitly activates
 (activation lasts for the session and only reaches databases loaded after it);
@@ -5486,15 +5486,16 @@ DB-embedded synonyms are a bootstrap input for offline curation, not a runtime
 one. To regenerate a stale candidate, remove the source and reload.
 -}
 autoCreateFlowSynonyms :: DatabaseManager -> Text -> SynonymOrigin -> [(Text, Text)] -> IO ()
-autoCreateFlowSynonyms _ _ _ [] = return ()
 autoCreateFlowSynonyms manager sourceName (SynonymOrigin description) pairs = do
     let slug = "auto-" <> sourceName
     -- Skip if already registered (persisted candidate from a previous run,
-    -- discovered at startup, or extracted earlier this session)
+    -- discovered at startup, or extracted earlier this session). Asked before
+    -- anything looks at 'pairs': they take seconds to extract from a large
+    -- method, which a start that already holds the candidate must not pay.
     alreadyExtracted <- atomically $ M.member slug <$> readTVar (dmAvailableFlowSyns manager)
     if alreadyExtracted
         then reportProgress Info $ "  [AUTO] " <> T.unpack slug <> ": candidate already extracted"
-        else do
+        else unless (null pairs) $ do
             let (nonJunkPairs, junkTokens) = excludeJunkSynonyms pairs
                 (keptPairs, excludedSyns) =
                     excludeOverFrequentSynonyms maxSynonymFlowFrequency nonJunkPairs
@@ -5517,7 +5518,8 @@ autoCreateFlowSynonyms manager sourceName (SynonymOrigin description) pairs = do
                             ( T.intercalate ", " $
                                 map (\(tok, n) -> tok <> "(" <> T.pack (show n) <> ")") (take 8 excludedSyns)
                             )
-            let dir = "uploads/flow-synonyms" </> T.unpack slug
+            uploadsDir <- UploadedDB.getRefDataUploadsDir (rdoUploadSubdir flowSynOps)
+            let dir = uploadsDir </> T.unpack slug
                 path = dir </> "data.csv"
             createDirectoryIfMissing True dir
             BL.writeFile path (synonymPairsToCSV keptPairs)

@@ -10,7 +10,8 @@ module AutoSynonymsSpec (spec) where
 import Control.Concurrent.STM (readTVarIO)
 import Control.Exception (finally)
 import qualified Data.Map.Strict as M
-import System.Directory (doesFileExist, getCurrentDirectory, setCurrentDirectory)
+import System.Directory (doesFileExist, getCurrentDirectory, makeAbsolute, setCurrentDirectory)
+import System.Environment (setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
@@ -60,3 +61,26 @@ spec = describe "autoCreateFlowSynonyms" $ do
             -- membership alone cannot tell a skip from a silent overwrite.
             readFile ("uploads/flow-synonyms" </> "auto-test-method" </> "data.csv")
                 `shouldReturn` "name1,name2\nalpha,beta\n"
+
+    -- The pairs of a large method take seconds to extract; a start that
+    -- already holds the candidate must not pay for them.
+    it "does not extract the pairs of a candidate it already holds" $
+        withTempManager $ \manager -> do
+            autoCreateFlowSynonyms manager "test-method" (SynonymOrigin "desc") [("alpha", "beta")]
+            autoCreateFlowSynonyms manager "test-method" (SynonymOrigin "desc") (error "pairs extracted again")
+
+    -- A container's working directory is not its data volume: the candidate
+    -- has to land where the databases and methods do, or it is gone at the
+    -- next start and the extraction is redone.
+    it "persists the candidate under the data directory, not the working directory" $
+        withTempManager $ \manager -> do
+            dataDir <- makeAbsolute "volume"
+            setEnv "VOLCA_DATA_DIR" dataDir
+            ( do
+                    autoCreateFlowSynonyms manager "test-method" (SynonymOrigin "desc") [("alpha", "beta")]
+                    doesFileExist (dataDir </> "uploads" </> "flow-synonyms" </> "auto-test-method" </> "data.csv")
+                        `shouldReturn` True
+                    doesFileExist ("uploads" </> "flow-synonyms" </> "auto-test-method" </> "data.csv")
+                        `shouldReturn` False
+                )
+                `finally` unsetEnv "VOLCA_DATA_DIR"

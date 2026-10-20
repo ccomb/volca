@@ -21,6 +21,7 @@ module Database.UploadedDatabase (
     discoverUploadedMethods,
     getDatabaseUploadsDir,
     getMethodUploadsDir,
+    getRefDataUploadsDir,
 
     -- * Data directory
     getDataDir,
@@ -145,6 +146,16 @@ getMethodUploadsDir = do
     let dir = base </> "uploads" </> "methods"
     createDirectoryIfMissing True dir
     return dir
+
+{- | Where one kind of uploaded reference data lives (@flow-synonyms@, @units@, ...).
+Under the data directory like databases and methods, so that a container whose
+working directory is not its data volume still finds, and keeps, what it wrote.
+Not created: the callers that write do it.
+-}
+getRefDataUploadsDir :: FilePath -> IO FilePath
+getRefDataUploadsDir subdir = do
+    base <- getDataDir
+    return (base </> "uploads" </> subdir)
 
 -- | Check if a path belongs to the uploads directory
 isUploadedPath :: FilePath -> Bool
