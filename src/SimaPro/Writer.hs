@@ -100,7 +100,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time (Day, defaultTimeLocale, formatTime)
 import Database.Allocation (AllocationRefusal (..), asAllocated, describeRefusal)
 import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, formulaWarnings, processExport)
-import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, madeAt, makerOf, noDependencies, sharedProducts, unnamedWarnings)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, madeAt, makerOf, namedProducts, noDependencies, unnamedWarnings)
 import qualified Expr
 import SimaPro.Parser (extractLocation, isMetadataKey, parsePedigreePrefix)
 import Text.Read (readMaybe)
@@ -491,7 +491,7 @@ data Catalogs = Catalogs
     -- ^ The system descriptions the file writes, which a process may name.
     , catShared :: !(S.Set UUID)
     -- ^ Products two or more activities of the file make, which rows name by their maker.
-    , catMaker :: (UUID, UUID) -> Int -> Exchange -> Maker
+    , catMaker :: (UUID, UUID) -> (Int, Exchange) -> Maker
     -- ^ Who supplies the exchange at a place of a consumer.
     }
 
@@ -680,21 +680,23 @@ techInputLine cats maker TechnosphereExchange{..} = case techRole of
     AvoidedProduct -> Nothing
   where
     {- Where the row bought, for a row that has to say it. A supplier in a
-    dependency is named by its location and its activity, and so is the maker
-    of a product several activities of the file make, which its own product row
-    names alike. Another maker in the file names its product alone, as its
-    product row does: designating one side alone would part them. -}
+    dependency is named by its location and its activity ('checkLocatedSuppliers'
+    has made sure it has a location), and so is the maker of a product several
+    activities of the file make, which its own product row names alike. Another
+    maker in the file names its product alone, as its product row does:
+    designating one side alone would part them. -}
     boughtFrom :: Maybe BoughtFrom
     boughtFrom = case maker of
-        InDependency e -> do
-            geography <- nonEmpty (elLocation e)
-            pure (BoughtFrom geography (Just (elActivity e)))
-        InFile supplier | S.member techFlowId (catShared cats) -> Just (madeBy supplier)
-        _
-            | S.member techFlowId (catProducedHere cats) -> Nothing
-            | otherwise -> do
-                geography <- statedCode techLocation >>= nonEmpty
-                pure (BoughtFrom geography (claimedName techSupplierClaim))
+        InDependency e -> Just (BoughtFrom (elLocation e) (Just (elActivity e)))
+        OneOfMakers supplier -> Just (madeBy supplier)
+        SoleMaker _ -> stated
+        Dangling _ -> stated
+        NoLink -> stated
+    stated
+        | S.member techFlowId (catProducedHere cats) = Nothing
+        | otherwise = do
+            geography <- statedCode techLocation >>= nonEmpty
+            pure (BoughtFrom geography (claimedName techSupplierClaim))
 
     inputLine :: Maybe Line
     inputLine = do
@@ -793,13 +795,14 @@ data BioSec = SecRes | SecAir | SecWater | SecSoil | SecWaste
     deriving (Eq)
 
 {- | Output rows (@name;unit;amount;allocation;waste_type;category;comment@) for
-the technosphere outputs matching @keep@. Used for both the @Products@ section
+the technosphere outputs given, each with its place in the activity and named
+by @nameOf@. Used for both the @Products@ section
 (references) and the @Avoided products@ section (coproducts) – the two are
 rendered identically but the parser routes them to different exchange roles, so
 they must be emitted under their own headers, never merged.
 -}
-productLines :: (Exchange -> Bool) -> (TechnosphereFlow -> Text) -> Catalogs -> Text -> [(Maybe Text, Exchange)] -> [Text]
-productLines keep nameOf cats category exchs =
+productLines :: ((Int, Exchange) -> TechnosphereFlow -> Text) -> Catalogs -> Text -> [(Int, (Maybe Text, Exchange))] -> [Text]
+productLines nameOf cats category exchs =
     let
         -- Extract the row fields in the comprehension, where the exchange is
         -- known to be a TechnosphereExchange – so mkRow is total (no unreachable
@@ -807,15 +810,14 @@ productLines keep nameOf cats category exchs =
         -- row carries the share and the category its source row declared;
         -- a row that declared none takes the whole and the activity's category.
         entries =
-            [ ( nameOf flow
+            [ ( nameOf (i, ex) flow
               , unitNameOf (catUnits cats) (exchangeUnitId ex)
               , amountCell (exchangeAmount ex) formula
               , maybe "100" shareCell (exchangeDeclaredShare ex)
               , M.findWithDefault category "Category" (exchangeClassification ex)
               , renderComment (exchangePedigree ex) (exchangeComment ex)
               )
-            | (formula, ex@TechnosphereExchange{}) <- exchs
-            , keep ex
+            | (i, (formula, ex@TechnosphereExchange{})) <- exchs
             , Just flow <- [M.lookup (exchangeFlowId ex) (catTech cats)]
             ]
         shareCell share = maybe (formatAmount (dsPercent share)) simaProCell (dsFormula share)
@@ -920,11 +922,20 @@ serializeActivity cats consumer ProcessExport{peParameters = parameters, peLines
             WasteExchange{} -> ex
         linesOf build exs = [l{lFormula = formula} | (formula, ex) <- exs, Just l <- [build cats ex]]
 
-        techLines = [l{lFormula = formula} | (i, (formula, ex)) <- zip [0 ..] unscaledExchanges, Just l <- [techInputLine cats (catMaker cats consumer i ex) ex]]
+        numbered = zip [0 ..] unscaledExchanges
+        rowsOf keep = filter (keep . snd . snd) numbered
+        techLines = [l{lFormula = formula} | (i, (formula, ex)) <- numbered, Just l <- [techInputLine cats (catMaker cats consumer (i, ex)) ex]]
         -- A product another activity of the file makes too is named by who makes it here.
-        referenceName flow
+        referenceName _ flow
             | S.member (tfId flow) (catShared cats) = designation (tfName flow) (Just (madeBy act))
             | otherwise = tfName flow
+        -- And a substitution standing in for it, by the maker it stands in for.
+        avoidedName iex flow = case catMaker cats consumer iex of
+            OneOfMakers maker -> designation (tfName flow) (Just (madeBy maker))
+            SoleMaker _ -> tfName flow
+            InDependency _ -> tfName flow
+            Dangling _ -> tfName flow
+            NoLink -> tfName flow
         bioByName name = [l | (sec, l) <- bioPaired, sec == name]
         bioPaired =
             [ (sec, l{lFormula = formula})
@@ -947,10 +958,10 @@ serializeActivity cats consumer ProcessExport{peParameters = parameters, peLines
               -- coproducts of a block the gate left unsplit follow, each with its
               -- declared share. Avoided products go under their own header.
               "Products"
-                : productLines exchangeIsReference referenceName cats category unscaledExchanges
-                ++ productLines isCoproduct tfName cats category unscaledExchanges
+                : productLines referenceName cats category (rowsOf exchangeIsReference)
+                ++ productLines (const tfName) cats category (rowsOf isCoproduct)
             , [""]
-            , withBlank (avoidedHeader (productLines isAvoidedProduct tfName cats category unscaledExchanges))
+            , withBlank (avoidedHeader (productLines avoidedName cats category (rowsOf isAvoidedProduct)))
             , -- Inputs.
               withBlank (section "Materials/fuels" techRowText techLines)
             , withBlank (section "Waste to treatment" techRowText treatmentLines)
@@ -1010,12 +1021,38 @@ serializeSimaProCSV cfg db = fst <$> serializeSimaProCSVWithWarnings cfg db
 serializeSimaProCSVWithWarnings :: WriterConfig -> SimpleDatabase -> Either Text (BS.ByteString, [Text])
 serializeSimaProCSVWithWarnings cfg db@SimpleDatabase{..} = do
     checkSimaProExportable db
-    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities) (systemNamesOf db) (sharedProducts db) (makerOf (wcDependencies cfg) db)
+    let maker = makerOf (wcDependencies cfg) db
+    checkLocatedSuppliers maker db
+    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities) (systemNamesOf db) (namedProducts db) maker
         exported = simaProFormulas db
         acts = sortOn (\(_, a) -> (activityName a, activityLocation a)) (M.toList sdbActivities)
         blocks = concatMap (\(key, act) -> serializeActivity cats key (processExport exported key) act) acts
         allLines = headerLines cfg ++ blocks ++ databaseParameterLines (exDatabase exported) ++ libraryLines sdbDocumentation
     pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf), simaProWarnings db exported <> unnamedWarnings (wcDependencies cfg) db)
+
+{- | Guard an export against a supplier in a dependency stating no location: a
+row names such a supplier by its location and its activity, and a designation
+with no location is read back as part of the product's name.
+-}
+checkLocatedSuppliers :: ((UUID, UUID) -> (Int, Exchange) -> Maker) -> SimpleDatabase -> Either Text ()
+checkLocatedSuppliers maker db =
+    case [ (activityName act, e)
+         | (key, act) <- M.toList (sdbActivities db)
+         , iex <- zip [0 ..] (exchanges act)
+         , InDependency e <- [maker key iex]
+         , T.null (T.strip (elLocation e))
+         ] of
+        [] -> Right ()
+        ((consumer, e) : _) ->
+            Left $
+                "SimaPro export cannot name the supplier \""
+                    <> elActivity e
+                    <> "\" in "
+                    <> elDatabase e
+                    <> " of an input of \""
+                    <> consumer
+                    <> "\": it states no location, and SimaPro names a supplier by its location and activity. "
+                    <> "EcoSpold 2 and openLCA point at the supplier itself."
 
 -- | The parameters and formulas a SimaPro export writes, each line's formula brought back from its share as its amount is.
 simaProFormulas :: SimpleDatabase -> Exported

@@ -84,7 +84,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.FilePath (joinPath, splitDirectories, (</>))
 
 import Amount (readAmount)
-import Database.ExportSupplier (Dependencies, Maker (..), boughtShared, clashing, makerOf, noDependencies, sharedProducts)
+import Database.ExportSupplier (Dependencies, Maker (..), boughtShared, clashing, makerOf, noDependencies)
 import EcoSpold.Common (showFFloatTrim)
 import Types
 import Zip (zipFiles)
@@ -178,10 +178,10 @@ ilcdFiles :: WriteOptions -> SimpleDatabase -> [(FilePath, BS.ByteString)]
 ilcdFiles opts db = sortOn fst (processes ++ flows ++ flowProps ++ unitGroups)
   where
     shared = sharedActivityUUIDs db
-    sharedProduct = sharedProducts db
+    maker = makerOf (woDependencies opts) db
 
     processes =
-        [ ("processes/" <> uuidStr dsUUID <> ".xml", render (processXML opts dsUUID (placed pair) act))
+        [ ("processes/" <> uuidStr dsUUID <> ".xml", render (processXML opts dsUUID act{exchanges = zipWith (placed pair) [0 ..] (exchanges act)}))
         | (pair, act) <- M.toAscList (sdbActivities db)
         , let dsUUID = ilcdProcessUUID shared pair
         ]
@@ -190,10 +190,16 @@ ilcdFiles opts db = sortOn fst (processes ++ flows ++ flowProps ++ unitGroups)
     its maker is, which is the one thing the reader tells makers apart by;
     'checkILCDSuppliers' has made sure no two of them are at one place. -}
     placed :: (UUID, UUID) -> Int -> Exchange -> Exchange
-    placed pair i ex = case (ex, makerOf (woDependencies opts) db pair i ex) of
-        (TechnosphereExchange{techFlowId = flow}, InFile maker)
-            | S.member flow sharedProduct -> ex{techLocation = readExchangeLocation (activityLocation maker)}
-        _ -> ex
+    placed pair i ex = case maker pair (i, ex) of
+        OneOfMakers m -> atLocation (activityLocation m) ex
+        SoleMaker _ -> ex
+        InDependency _ -> ex
+        Dangling _ -> ex
+        NoLink -> ex
+    atLocation loc = \case
+        ex@TechnosphereExchange{} -> ex{techLocation = readExchangeLocation loc}
+        ex@BiosphereExchange{} -> ex
+        ex@WasteExchange{} -> ex
 
     flows =
         [ ("flows/" <> uuidStr (flowKindId fk) <> ".xml", render (flowXML fk unitRef))
@@ -346,8 +352,7 @@ writeILCDArchive opts db = checkILCDExportable db >> checkILCDSuppliers opts db 
 
 An ILCD exchange names a flow and, at most, a location: never the process
 making it. A supplier in another database, or a link to a process the package
-does not hold, therefore cannot be written at all, which EcoSpold 1 refuses
-alike. Within the package, a product two processes make is told apart by the
+does not hold, therefore cannot be written at all. Within the package, a product two processes make is told apart by the
 location its input states, so two of its makers at one place, or one at none,
 cannot be either.
 -}
@@ -376,12 +381,14 @@ checkILCDSuppliers opts db =
         [ (activityName act, flowName (techFlowId ex))
         | (pair, act) <- M.toList (sdbActivities db)
         , (i, ex@TechnosphereExchange{}) <- zip [0 ..] (exchanges act)
-        , isOutside (makerOf (woDependencies opts) db pair i ex)
+        , isOutside (maker pair (i, ex))
         ]
+    maker = makerOf (woDependencies opts) db
     isOutside = \case
         InDependency _ -> True
         Dangling _ -> True
-        InFile _ -> False
+        SoleMaker _ -> False
+        OneOfMakers _ -> False
         NoLink -> False
     indistinct =
         [ (flowName flow, why)
@@ -435,8 +442,8 @@ several products may share. The reference exchange gets @dataSetInternalID@
 matching @referenceToReferenceFlow@; remaining exchanges follow in their list
 order, so the parser reads them back in the same order it would re-serialize.
 -}
-processXML :: WriteOptions -> UUID -> (Int -> Exchange -> Exchange) -> Activity -> [Text]
-processXML opts dsUUID placed act =
+processXML :: WriteOptions -> UUID -> Activity -> [Text]
+processXML opts dsUUID act =
     [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
     , "<processDataSet xmlns=\"http://lca.jrc.it/ILCD/Process\" xmlns:common=\"http://lca.jrc.it/ILCD/Common\">"
     , "  <processInformation>"
@@ -467,7 +474,7 @@ processXML opts dsUUID placed act =
     -- the (first) reference exchange. When none is marked, emit a sentinel past
     -- the last internalID so the parser's findRefExchange matches no exchange
     -- and preserves the "no reference" state instead of fabricating one at 0.
-    indexedExchanges = zipWith (\i ex -> (i, placed i ex)) [0 ..] (exchanges act)
+    indexedExchanges = zip [0 ..] (exchanges act)
     refIdx :: Int
     refIdx = case [i | (i, ex) <- indexedExchanges, exchangeIsReference ex] of
         (i : _) -> i

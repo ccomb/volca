@@ -66,19 +66,21 @@ one 'toSimpleDatabase' conversion and keeps them from drifting apart.
 
 The dependencies are the suppliers its inputs buy from the databases it
 depends on ('Database.ExportSupplier.dependenciesOf'). SimaPro and Brightway
-name them on the rows buying from them; ILCD, which cannot, refuses them.
+name them on the rows buying from them; ILCD, which cannot, refuses them. Only
+those three read them, so only they fail when the suppliers could not be
+worked out: the formats pointing at a supplier export all the same.
 -}
-serializeDatabase :: UnitConfig -> DatabaseFormat -> M.Map Text [ScenarioValue] -> Dependencies -> Database -> Either Text (BL.ByteString, [Text])
-serializeDatabase units fmt saved deps db = case fmt of
+serializeDatabase :: UnitConfig -> DatabaseFormat -> M.Map Text [ScenarioValue] -> Either Text Dependencies -> Database -> Either Text (BL.ByteString, [Text])
+serializeDatabase units fmt saved dependencies db = case fmt of
     -- Each writer runs its own check*Exportable and returns 'Left' on a database
     -- the format cannot represent faithfully, so the guard is unskippable.
-    SimaProCSV -> first BL.fromStrict <$> SP.serializeSimaProCSVWithWarnings SP.defaultWriterConfig{SP.wcDependencies = deps} sdb
+    SimaProCSV -> dependencies >>= \deps -> first BL.fromStrict <$> SP.serializeSimaProCSVWithWarnings SP.defaultWriterConfig{SP.wcDependencies = deps} sdb
     -- One lazy chunk per dataset, never one value holding the file: see
     -- 'ES1.writeSimpleDatabaseChunks' for what a single chunk costs at this size.
     EcoSpold1 -> valuesOnlyWith [] (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
     EcoSpold2 -> first zipText <$> ES2.writeEcoSpold2WithWarnings ES2.noVolatileMeta sdb
-    ILCDProcess -> valuesOnlyWith (ILCD.splitWarnings sdb) (ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = deps} sdb)
-    BrightwayExcel -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig{BE.wcDependencies = deps} sdb
+    ILCDProcess -> dependencies >>= \deps -> valuesOnlyWith (ILCD.splitWarnings sdb) (ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = deps} sdb)
+    BrightwayExcel -> dependencies >>= \deps -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig{BE.wcDependencies = deps} sdb
     OpenLcaImpactCategory ->
         Left "openLCA JSON-LD export is not supported"
     OpenLcaPackage -> first zipFiles <$> OLCA.serializeOlcaPackage units saved sdb

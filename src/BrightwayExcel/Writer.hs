@@ -98,7 +98,7 @@ import qualified Data.Text.Encoding as TE
 import Amount (readAmount)
 import Data.Indexing (collisions)
 import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, frozenWarnings, processExport)
-import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, madeAt, makerOf, noDependencies, sharedProducts, unnamedWarnings)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, madeAt, makerOf, noDependencies, unnamedWarnings)
 import EcoSpold.Common (showFFloatTrim)
 import qualified Expr
 import Types
@@ -419,10 +419,9 @@ rowsWith exported cfg db =
     , []
     ]
         ++ (if M.null (exDatabase exported) then [] else [CText "Database parameters"] : parameterTable (exDatabase exported) ++ [[]])
-        ++ concatMap (\(key, a) -> activityRows cfg db shared key (processExport exported key) a ++ [[]]) sortedActivities
+        ++ concatMap (\(key, a) -> activityRows cfg db (maker key) (processExport exported key) a ++ [[]]) sortedActivities
   where
-    shared :: S.Set UUID
-    shared = sharedProducts db
+    maker = makerOf (wcDependencies cfg) db
     sortedActivities :: [((UUID, UUID), Activity)]
     sortedActivities =
         sortOn (\(_, a) -> (activityName a, activityLocation a)) (M.toList (sdbActivities db))
@@ -494,8 +493,8 @@ paragraph split does not). Once parsed it has ≤1 element and round-trips exact
 – the same "fixed-point over the parser's image" caveat the parser documents for
 reference-unit canonicalization.
 -}
-activityRows :: WriterConfig -> SimpleDatabase -> S.Set UUID -> (UUID, UUID) -> ProcessExport -> Activity -> [[Cell]]
-activityRows cfg db shared key pe act =
+activityRows :: WriterConfig -> SimpleDatabase -> ((Int, Exchange) -> Maker) -> ProcessExport -> Activity -> [[Cell]]
+activityRows cfg db makerAt pe act =
     [ [CText "Activity", CText (activityName act)]
     , [CText "production amount", CNum refAmount]
     ]
@@ -514,7 +513,7 @@ activityRows cfg db shared key pe act =
     ordered :: [Exchange]
     ordered = map snd numbered
     exchangeDataRows :: [[Cell]]
-    exchangeDataRows = mapMaybe (\(i, ex) -> (++ [maybe CEmpty CText (IM.lookup i (peLines pe))]) <$> exchangeRow cfg db shared (makerOf (wcDependencies cfg) db key i ex) ex) numbered
+    exchangeDataRows = mapMaybe (\(i, ex) -> (++ [maybe CEmpty CText (IM.lookup i (peLines pe))]) <$> exchangeRow cfg db (makerAt (i, ex)) ex) numbered
     refExchange = lookup' exchangeIsReference ordered
     refProduct = refExchange >>= flowNameOf db
     refUnit = (`unitNameOf` db) . exchangeUnitId =<< refExchange
@@ -598,8 +597,8 @@ products), with @name@ carrying the supplier activity where the source named
 one and repeating the flow name where it did not; a supplier named with no
 product leaves @reference product@ empty.
 -}
-exchangeRow :: WriterConfig -> SimpleDatabase -> S.Set UUID -> Maker -> Exchange -> Maybe [Cell]
-exchangeRow cfg db shared maker = \case
+exchangeRow :: WriterConfig -> SimpleDatabase -> Maker -> Exchange -> Maybe [Cell]
+exchangeRow cfg db maker = \case
     ex@TechnosphereExchange{techAmount = amt, techRole = role, techLocation = loc, techSupplierClaim = claim} -> do
         name <- flowNameOf db ex
         unit <- unitNameOf (exchangeUnitId ex) db
@@ -607,8 +606,11 @@ exchangeRow cfg db shared maker = \case
         -- or the maker of a product several activities of the file make.
         let (supplier, product', location, database) = case maker of
                 InDependency e -> (elActivity e, CText name, elLocation e, elDatabase e)
-                InFile a | S.member (exchangeFlowId ex) shared -> (activityName a, CText name, madeAt a, wcDatabaseName cfg)
-                _ -> (namedSupplier claim name, statedProduct claim name, locationCode loc, wcDatabaseName cfg)
+                OneOfMakers a -> (activityName a, CText name, madeAt a, wcDatabaseName cfg)
+                SoleMaker _ -> asStated
+                Dangling _ -> asStated
+                NoLink -> asStated
+            asStated = (namedSupplier claim name, statedProduct claim name, locationCode loc, wcDatabaseName cfg)
         Just
             [ CText supplier
             , CNum amt

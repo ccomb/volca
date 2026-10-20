@@ -325,9 +325,8 @@
   name the supplier's activity and location on the row, as their own
   readers expect. An ILCD export, which can name a product and a location
   but never the process making it, refuses an input bought from a
-  dependency, as EcoSpold 1 already did, and two makers of one product at
-  one place; EcoSpold 2 and openLCA, which point at the supplier itself,
-  export it exactly.
+  dependency and two makers of one product at one place; EcoSpold 2 and
+  openLCA, which point at the supplier itself, export it exactly.
 - A method read from openLCA impact categories characterizes emissions. openLCA
   files a factor under "Emission to air", in the singular, which the engine did
   not read as air, so every emission factor was dropped and only resources

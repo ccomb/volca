@@ -51,6 +51,21 @@ spec = do
         it "refuses a shared product whose name already states a location" $
             SP.serializeSimaProCSV SP.defaultWriterConfig (seedNamed "seed {IN}" (fixture "IN")) `shouldSatisfy` isLeft
 
+        it "refuses a supplier of a dependency stating no location" $
+            SP.serializeSimaProCSV
+                SP.defaultWriterConfig{SP.wcDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" ""))}
+                (fixture "IN")
+                `shouldSatisfy` isLeft
+
+        -- No row asks which farm, so nothing has to say it.
+        it "leaves a product several activities make by its name when nothing buys it" $ do
+            out <- simaPro noDependencies (farmsOnly (fixture ""))
+            rowsUnder out "Products" `shouldSatisfy` all ("seed;" `T.isPrefixOf`)
+
+        it "brings a substitution back to the farm it stands in for" $ do
+            db <- loadSimaPro =<< simaPro noDependencies (avoiding (fixture "IN"))
+            linkedFrom AvoidedProduct db "gin B" `shouldBe` Just "farm A"
+
     describe "Brightway workbook" $ do
         it "brings each gin back to its own farm" $ do
             db <- loadBrightway (fixture "IN")
@@ -62,6 +77,10 @@ spec = do
 
         it "refuses two makers of one product with one name at one place" $
             BE.renderWorkbook BE.defaultWriterConfig (renamed "farm B" "farm A" (fixture "IN")) `shouldSatisfy` isLeft
+
+        it "brings a substitution back to the farm it stands in for" $ do
+            db <- loadBrightway (avoiding (fixture "IN"))
+            linkedFrom AvoidedProduct db "gin B" `shouldBe` Just "farm A"
 
     describe "ILCD" $ do
         it "brings each gin back to its own farm when the farms are at two places" $ do
@@ -119,11 +138,17 @@ ilcdRoundTrip db = withSystemTempDirectory "export-supplier-ilcd" $ \dir -> do
 
 -- | The name of the activity a gin buys its seed from, once read back.
 supplierOf :: SimpleDatabase -> Text -> Maybe Text
-supplierOf db gin =
+supplierOf = linkedFrom Input
+
+-- | The name of the activity the one seed exchange of this role of a gin links to.
+linkedFrom :: TechRole -> SimpleDatabase -> Text -> Maybe Text
+linkedFrom role db gin =
     case [ activityName supplier
          | act <- M.elems (sdbActivities db)
          , activityName act == gin
-         , TechnosphereExchange{techRole = Input, techActivityLinkId = Just link} <- exchanges act
+         , TechnosphereExchange{techRole = role', techActivityLinkId = Just link, techFlowId = flow} <- exchanges act
+         , role' == role
+         , Just "seed" == fmap (T.takeWhile (/= ' ') . tfName) (M.lookup flow (sdbTechFlows db))
          , ((supplierUUID, _), supplier) <- M.toList (sdbActivities db)
          , supplierUUID == link
          ] of
@@ -167,6 +192,16 @@ fixture farmBAt =
 -- | The database the mill's power comes from.
 backgroundDb :: SimpleDatabase
 backgroundDb = simple [((marketU, powerU), activity "power market" "TR" [reference powerU])] [(powerU, "power")]
+
+-- | The two farms alone, whose seed nobody in the file buys.
+farmsOnly :: SimpleDatabase -> SimpleDatabase
+farmsOnly db = db{sdbActivities = M.filterWithKey (\(act, _) _ -> act `elem` [farmAU, farmBU]) (sdbActivities db)}
+
+-- | Gin B's fibre also stands in for seed from farm A.
+avoiding :: SimpleDatabase -> SimpleDatabase
+avoiding db = db{sdbActivities = M.adjust (\a -> a{exchanges = exchanges a ++ [avoided]}) (ginBU, fibreBU) (sdbActivities db)}
+  where
+    avoided = TechnosphereExchange seedU 0.5 kgU AvoidedProduct (Just farmAU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
 
 renamed :: Text -> Text -> SimpleDatabase -> SimpleDatabase
 renamed from to db = db{sdbActivities = M.map (\a -> if activityName a == from then a{activityName = to} else a) (sdbActivities db)}
