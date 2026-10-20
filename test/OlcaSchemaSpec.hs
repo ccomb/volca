@@ -233,6 +233,20 @@ spec = do
             factorDirections (directionDoc "" "" "water")
                 `shouldBe` Right [Output]
 
+        -- openLCA 2 writes every water-use factor positive and lets the
+        -- category's direction subtract the water given back.
+        it "counts a factor on the other side of a directed category against it" $
+            factorValues (directionDoc "\"direction\":\"INPUT\"," "" "Emission to water/unspecified")
+                `shouldBe` Right [-1.0]
+
+        it "keeps a factor on the category's own side as written" $
+            factorValues (directionDoc "\"direction\":\"INPUT\"," "" "natural resource/in water")
+                `shouldBe` Right [1.0]
+
+        it "keeps every factor as written in a category without direction" $
+            factorValues (directionDoc "" "" "Emission to water/unspecified")
+                `shouldBe` Right [1.0]
+
     describe "a method package" $ do
         -- openLCA divides a result by the normalisation factor and multiplies it
         -- by the weight; a zero factor is one openLCA ships for a category it
@@ -358,6 +372,11 @@ categoryDoc name =
 
 refusedWith :: T.Text -> Either T.Text a -> Bool
 refusedWith needle = either (needle `T.isInfixOf`) (const False)
+
+-- | The value of every parsed factor of the given document.
+factorValues :: BS.ByteString -> Either String [Double]
+factorValues bytes =
+    map mcfValue . methodFactors <$> parseOlcaImpactCategoryBytes bytes
 
 -- | The compartment of every parsed factor of the given document.
 factorCompartments :: BS.ByteString -> Either String [Maybe Compartment]

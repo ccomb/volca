@@ -209,6 +209,12 @@ parseImpactFactor docDirection (Object o) = do
                 Nothing -> lookupText l "name"
             Nothing -> Nothing
         direction = factorDirection docDirection o flow
+        {- A category with a direction counts the flows on the other side against
+        it, whatever the sign written: that is how openLCA's water use credits the
+        water a process gives back while every factor in the file is positive. -}
+        signed
+            | Just d <- docDirection, d /= direction = negate value
+            | otherwise = value
         compartment = parseCompartment flow
     -- A factor without a flow name is unmatchable; drop it. (UUID alone could
     -- in theory match by id, but in practice the name carries the matching
@@ -221,7 +227,7 @@ parseImpactFactor docDirection (Object o) = do
                     { mcfFlowRef = flowUuid
                     , mcfFlowName = flowName
                     , mcfDirection = direction
-                    , mcfValue = value
+                    , mcfValue = signed
                     , mcfCompartment = compartment
                     , mcfCAS = flowCas
                     , mcfUnit = unitName
