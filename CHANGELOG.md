@@ -9,7 +9,10 @@
   one to read; its impact categories become the collection and its
   normalisation and weighting sets become single scores. A package with
   several methods and no `package-method` is refused with the list of the
-  methods it holds.
+  methods it holds. A factor takes the CAS number from the package's flow
+  file, since openLCA writes it there and not on the factor: without it, a
+  database that names a refrigerant otherwise than the package scored its
+  ozone depletion nearly two thousand times too low.
 
 - The database quality report now checks the water balance of each
   activity: water released to rivers and soil should not exceed, by far, the

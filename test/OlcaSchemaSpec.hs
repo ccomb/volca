@@ -296,6 +296,17 @@ spec = do
                 notPackage <- loadMethodCollectionFromPath (Just "EF 3.1") (root </> "lcia_categories")
                 notPackage `shouldSatisfy` refusedWith "is not an openLCA method package"
 
+        it "gives a factor the CAS number its flow file holds" $
+            withSystemTempDirectory "olca-package" $ \root -> do
+                mapM_ (createDirectoryIfMissing True . (root </>)) ["lcia_methods", "lcia_categories", "flows"]
+                BS.writeFile (root </> "lcia_methods" </> "ef.json") (methodDoc "EF 3.1" "ozone" [])
+                BS.writeFile
+                    (root </> "lcia_categories" </> "ozone.json")
+                    "{\"@type\":\"ImpactCategory\",\"name\":\"Ozone depletion\",\"impactFactors\":[{\"value\":0.5,\"flow\":{\"@id\":\"9f2b39c2-1b5e-4a0b-9b2e-3f6c1d4e5a7b\",\"name\":\"1,2-Dichloro-1,1,2,2-tetrafluoroethane\",\"category\":\"Elementary flows/Emission to air/unspecified\"}}]}"
+                BS.writeFile (root </> "flows" </> "9f2b39c2-1b5e-4a0b-9b2e-3f6c1d4e5a7b.json") "{\"@type\":\"Flow\",\"cas\":\"76-14-2\"}"
+                loaded <- loadMethodCollectionFromPath (Just "EF 3.1") root
+                fmap (map mcfCAS . concatMap methodFactors . mcMethods . fst) loaded `shouldBe` Right [Just "76-14-2"]
+
     describe "buildMethodTables on parsed openLCA methods" $ do
         it "leaves mtRegionalizedCF empty when no flow matched (Nothing in mappings)" $ do
             -- Without database flows to match against, every CF stays unmapped, so

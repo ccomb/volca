@@ -57,6 +57,9 @@ module Method.Parser.OlcaSchema (
     OlcaImpactMethod (..),
     parseOlcaImpactMethodBytes,
     choosePackageMethod,
+    flowsWithoutCas,
+    parseOlcaFlowCas,
+    withFlowCas,
 ) where
 
 import Control.Applicative ((<|>))
@@ -64,9 +67,10 @@ import Data.Aeson (Value (..), eitherDecodeStrict)
 import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
+import Data.Containers.ListUtils (nubOrd)
 import Data.List (find, sort)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Scientific (toRealFloat)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -89,6 +93,27 @@ isOlcaImpactCategoryJson bytes = case eitherDecodeStrict bytes of
         Just (String "ImpactCategory") -> True
         _ -> False
     _ -> False
+
+{- | The flows a package's factors name without a CAS number. openLCA writes the
+CAS on the flow, not on the factor that points to it, and the matcher needs it
+to reach a database spelling the substance otherwise: the package's
+"1,2-Dichloro-1,1,2,2-tetrafluoroethane" is "Ethane, 1,2-dichloro-1,1,2,2-tetrafluoro-,
+CFC-114" elsewhere.
+-}
+flowsWithoutCas :: [Method] -> [UUID]
+flowsWithoutCas methods = nubOrd [mcfFlowRef cf | m <- methods, cf <- methodFactors m, isNothing (mcfCAS cf)]
+
+-- | The CAS number of one openLCA @Flow@ document, if it gives one.
+parseOlcaFlowCas :: BS.ByteString -> Maybe Text
+parseOlcaFlowCas bytes = case eitherDecodeStrict bytes of
+    Right (Object o) -> T.strip <$> lookupText o "cas"
+    _ -> Nothing
+
+-- | Give each factor without a CAS number the one its flow has.
+withFlowCas :: M.Map UUID Text -> Method -> Method
+withFlowCas cas m = m{methodFactors = map fill (methodFactors m)}
+  where
+    fill cf = cf{mcfCAS = mcfCAS cf <|> M.lookup (mcfFlowRef cf) cas}
 
 -- | Parse one openLCA @ImpactCategory@ JSON-LD document into a 'Method'.
 parseOlcaImpactCategoryBytes :: BS.ByteString -> Either String Method

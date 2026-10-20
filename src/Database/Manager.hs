@@ -4739,7 +4739,11 @@ loadOlcaPackageMethod wanted root = runExceptT $ do
         unless present $ throwE (named <> ", which the package does not hold")
         bytes <- liftIO (BS.readFile file)
         except (first (\e -> named <> ", which could not be read: " <> T.pack e) (OlcaSchema.parseOlcaImpactCategoryBytes bytes))
-    let (collection, warnings) = simaProCollection (SimaProMethodFile categories [] (OlcaSchema.oimNWSets method))
+    cas <- liftIO $ fmap (M.fromList . catMaybes) . forM (OlcaSchema.flowsWithoutCas categories) $ \u -> do
+        let file = root </> "flows" </> UUID.toString u <> ".json"
+        present <- doesFileExist file
+        if present then fmap (u,) . OlcaSchema.parseOlcaFlowCas <$> BS.readFile file else pure Nothing
+    let (collection, warnings) = simaProCollection (SimaProMethodFile (map (OlcaSchema.withFlowCas cas) categories) [] (OlcaSchema.oimNWSets method))
     liftIO $ do
         reportProgress Info $
             "  Read \""
