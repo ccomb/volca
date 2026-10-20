@@ -53,4 +53,5 @@ collection name path =
         , mcScoringSets = []
         , mcGlobalMethods = []
         , mcPatches = []
+        , mcPackageMethod = Nothing
         }

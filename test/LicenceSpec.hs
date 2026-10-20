@@ -87,6 +87,7 @@ withUpload k = withScratchDataDir $ do
             , UploadedDB.umLicence = LicenceUnstated
             , UploadedDB.umRelease = Nothing
             , UploadedDB.umRequires = []
+            , UploadedDB.umPackageMethod = Nothing
             }
     manager <- initDatabaseManager defaultConfig NoCache
     let upload = configured{dcName = "upload", dcIsUploaded = True}

@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 module Database.Manager (
     -- * Types
@@ -60,6 +61,8 @@ module Database.Manager (
     loadMethodCollection,
     loadMethodCollectionLocked,
     loadMethodCollectionFromConfig,
+    loadMethodCollectionFromPath,
+    loadOlcaPackageMethod,
     applyMethodConfig,
     configToScoringSet,
     namedOnce,
@@ -335,7 +338,7 @@ import qualified UnitConversion
 
 import API.Types (DepLoadResult (..))
 import Data.JournalFile (readEntries)
-import Database.Author (AuthorContext (..))
+import Database.Author (editingContext)
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
 import qualified Database.Journal as Journal
@@ -2207,6 +2210,7 @@ discoverUploadedMethodConfigs = do
                         , mcScoringSets = []
                         , mcGlobalMethods = []
                         , mcPatches = []
+                        , mcPackageMethod = UploadedDB.umPackageMethod meta
                         }
 
 {- | Where an uploaded collection's factors come from, and the format they are
@@ -2840,12 +2844,7 @@ replayEdits manager dbConfig loaded =
                     unitConfig <- getMergedUnitConfig manager
                     synonymDB <- getMergedSynonymDB manager
                     let deps = [ldDatabase ld | name <- dcDepends dbConfig, Just ld <- [M.lookup name loadedDbs]]
-                        ctx =
-                            AuthorContext
-                                { acDb = ldDatabase loaded
-                                , acDeps = deps
-                                , acUnitConfig = unitConfig
-                                }
+                        ctx = editingContext unitConfig (ldDatabase loaded) deps
                     reportProgress Info $
                         "Replaying " <> show (length events) <> " recorded edit(s) of " <> T.unpack (dcName dbConfig)
                     case Journal.replayJournal ctx events of
@@ -4497,7 +4496,7 @@ loadMethodCollectionFromConfig mc = (>>= bitraverse namedOnce pure) <$> parsed
     parsed :: IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
     parsed = case mcOrigin mc of
         MethodBuiltIn builtin -> pure (builtinMethodCollection builtin)
-        MethodFromFile path -> loadMethodCollectionFromPath path
+        MethodFromFile path -> loadMethodCollectionFromPath (mcPackageMethod mc) path
 
 {- | Scores are reported by set name, so two sets of one name read from the
 method files would hide each other; the load stops and names them. A check on
@@ -4523,27 +4522,48 @@ builtinMethodCollection builtin =
 
 {- | Load methods from a path (directory or archive).
 Handles ZIP/7z archives via resolveDataPath, finds method XMLs,
-and enriches CFs from ILCD flow XMLs when available.
+and enriches CFs from ILCD flow XMLs when available. An openLCA package
+gives the method @packageMethod@ names, or its only one.
 -}
-loadMethodCollectionFromPath :: FilePath -> IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
-loadMethodCollectionFromPath path = runExceptT $ do
+loadMethodCollectionFromPath :: Maybe Text -> FilePath -> IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
+loadMethodCollectionFromPath packageMethod path = runExceptT $ do
     {- Resolve archives (ZIP to extracted directory). Single .json (openLCA
     JSON-LD ImpactCategory) and .csv (SimaPro method export) files are accepted
     directly without a wrapping directory or archive. -}
     resolvedPath <- ExceptT (resolveDataPath path)
     source <- ExceptT $ methodSourceAt resolvedPath
-    files <- liftIO $ methodFilesOf source
-    when (noMethodFiles files) $
-        throwE ("No method files (.xml/.csv/.json) found in: " <> T.pack (mfDirectory files))
-    flowInfo <- ExceptT $ flowDefinitionsFor source (mfDirectory files)
-    parsed <- liftIO $ parseMethodFiles flowInfo files
-    (collection, scoringWarnings) <- except (collectionOf parsed)
-    liftIO $ reportProgress Info (parseCounts parsed)
-    liftIO $ mapM_ (reportProgress Info) (nwCounts collection)
-    liftIO $ mapM_ (reportProgress Warning . ("  " <>) . T.unpack) scoringWarnings
-    liftIO $ mapM_ (reportProgress Warning) (parseFailures parsed)
-    pure (collection, flowInfo)
+    package <- liftIO $ packageIn source
+    case package of
+        Just root -> (,M.empty) <$> ExceptT (loadOlcaPackageMethod packageMethod root)
+        Nothing -> do
+            forM_ packageMethod $ \named ->
+                throwE ("package-method names \"" <> named <> "\", but " <> T.pack path <> " is not an openLCA method package")
+            fromMethodFiles source
   where
+    -- A package is read whole, never as the directory of its categories.
+    packageIn :: MethodSource -> IO (Maybe FilePath)
+    packageIn (BareMethodFile _) = pure Nothing
+    packageIn (MethodDirectory root) = do
+        dir <- findMethodDirectory root
+        (\package -> if package then Just dir else Nothing) <$> Upload.isOlcaMethodPackage dir
+
+    fromMethodFiles :: MethodSource -> ExceptT Text IO (MethodCollection, M.Map UUID ILCDFlowInfo)
+    fromMethodFiles source = do
+        files <- liftIO $ methodFilesOf source
+        fromFiles source files
+
+    fromFiles :: MethodSource -> MethodFiles -> ExceptT Text IO (MethodCollection, M.Map UUID ILCDFlowInfo)
+    fromFiles source files = do
+        when (noMethodFiles files) $
+            throwE ("No method files (.xml/.csv/.json) found in: " <> T.pack (mfDirectory files))
+        flowInfo <- ExceptT $ flowDefinitionsFor source (mfDirectory files)
+        parsed <- liftIO $ parseMethodFiles flowInfo files
+        (collection, scoringWarnings) <- except (collectionOf parsed)
+        liftIO $ reportProgress Info (parseCounts parsed)
+        liftIO $ mapM_ (reportProgress Info) (nwCounts collection)
+        liftIO $ mapM_ (reportProgress Warning . ("  " <>) . T.unpack) scoringWarnings
+        liftIO $ mapM_ (reportProgress Warning) (parseFailures parsed)
+        pure (collection, flowInfo)
     {- What the path turned out to hold. A bare method file carries its own CFs
     and has no ILCD flows/ sibling; only a real directory does. -}
     methodSourceAt :: FilePath -> IO (Either Text MethodSource)
@@ -4694,6 +4714,42 @@ loadMethodCollectionFromPath path = runExceptT $ do
     parseFailures parsed
         | null (pmfErrors parsed) = Nothing
         | otherwise = Just ("  " <> show (length (pmfErrors parsed)) <> " method file(s) failed to parse")
+
+{- | Read one method of an openLCA package: its impact categories, and its
+normalization and weighting sets as scoring sets. A category the method names
+and the package does not hold, or one that does not parse, stops the load: a
+method short of a category would score as if it were whole.
+-}
+loadOlcaPackageMethod :: Maybe Text -> FilePath -> IO (Either Text MethodCollection)
+loadOlcaPackageMethod wanted root = runExceptT $ do
+    names <- liftIO $ sort . filter ((== ".json") . map toLower . takeExtension) <$> listDirectory (root </> "lcia_methods")
+    parsed <- liftIO $ forM names $ \f -> first (\e -> T.pack (f <> ": " <> e)) . OlcaSchema.parseOlcaImpactMethodBytes <$> BS.readFile (root </> "lcia_methods" </> f)
+    let (unreadable, methods) = partitionEithers parsed
+    liftIO $ mapM_ (reportProgress Warning . ("  method file left out, " <>) . T.unpack) unreadable
+    method <- except (OlcaSchema.choosePackageMethod wanted methods)
+    categories <- forM (OlcaSchema.oimCategories method) $ \c -> do
+        let file = root </> "lcia_categories" </> T.unpack c <> ".json"
+            named = "\"" <> OlcaSchema.oimName method <> "\" names category " <> c
+        present <- liftIO (doesFileExist file)
+        unless present $ throwE (named <> ", which the package does not hold")
+        bytes <- liftIO (BS.readFile file)
+        except (first (\e -> named <> ", which could not be read: " <> T.pack e) (OlcaSchema.parseOlcaImpactCategoryBytes bytes))
+    cas <- liftIO $ fmap (M.fromList . catMaybes) . forM (OlcaSchema.flowsWithoutCas categories) $ \u -> do
+        let file = root </> "flows" </> UUID.toString u <> ".json"
+        present <- doesFileExist file
+        if present then fmap (u,) . OlcaSchema.parseOlcaFlowCas <$> BS.readFile file else pure Nothing
+    let (collection, warnings) = simaProCollection (SimaProMethodFile (map (OlcaSchema.withFlowCas cas) categories) [] (OlcaSchema.oimNWSets method))
+    liftIO $ do
+        reportProgress Info $
+            "  Read \""
+                <> T.unpack (OlcaSchema.oimName method)
+                <> "\" from the openLCA package: "
+                <> show (length categories)
+                <> " categories, "
+                <> show (length (Method.Types.mcScoringSets collection))
+                <> " scoring set(s)"
+        mapM_ (reportProgress Warning . ("  " <>) . T.unpack) warnings
+    pure collection
 
 -- | List all method collections with their status
 listMethodCollections :: DatabaseManager -> IO [MethodCollectionStatus]

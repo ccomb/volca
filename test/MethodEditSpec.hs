@@ -73,6 +73,7 @@ simaProFrom file = do
                 , Config.mcScoringSets = [orphan]
                 , Config.mcGlobalMethods = []
                 , Config.mcPatches = []
+                , Config.mcPackageMethod = Nothing
                 }
     manager <- initDatabaseManager defaultConfig{cfgMethods = [configured]} NoCache
     copied <- copyMethodCollection manager "sp" "copy"

@@ -4,6 +4,16 @@
 
 ### Added
 
+- A method collection can be read from an openLCA method package, the
+  archive that holds many methods side by side. `package-method` names the
+  one to read; its impact categories become the collection and its
+  normalisation and weighting sets become single scores. A package with
+  several methods and no `package-method` is refused with the list of the
+  methods it holds. A factor takes the CAS number from the package's flow
+  file, since openLCA writes it there and not on the factor: without it, a
+  database that names a refrigerant otherwise than the package scored its
+  ozone depletion nearly two thousand times too low.
+
 - The database quality report now checks the water balance of each
   activity: water released to rivers and soil should not exceed, by far, the
   water the activity withdraws or buys. A published greenhouse tomato
@@ -309,6 +319,12 @@
   human toxicity factor, so its human toxicity scored zero. It now reads the
   factor of mecoprop, the racemic mixture, as S-metolachlor already reads
   metolachlor's, and keeps its own ecotoxicity factor (data version 11).
+- A SimaPro waste treatment whose waste type is one word (`Wood`, `Water`,
+  `PE`) keeps its exchanges. The row of a `Waste treatment` section has no
+  allocation field, but the reader took any field that reads as a formula for
+  one, and a single word reads as a parameter name worth 0: the whole
+  treatment, its emissions and its inputs, was scored at 0 %. In that section
+  only a plain number is now read as an allocation.
 - A method read from openLCA impact categories characterizes emissions. openLCA
   files a factor under "Emission to air", in the singular, which the engine did
   not read as air, so every emission factor was dropped and only resources
@@ -326,6 +342,13 @@
 - Emissions of aluminium, cobalt, lithium, selenium and vanadium count in the
   EF 3.1 toxicity categories, which characterize only their ions, as cadmium,
   lead and zinc already did (data version 11).
+- An activity written into an uploaded SimaPro database can buy from the
+  database it depends on in that supplier's unit. A SimaPro import records
+  only the base unit of each dimension, so a line of 0.28 kWh of electricity
+  from ecoinvent was refused, the database knowing no kWh. The database now
+  takes a unit it does not know from the database it depends on, and keeps
+  its own wherever it has one. The same holds when its edits are replayed
+  after a restart.
 - A process split from a block of several products keeps every formula
   true. A line named in the block, read by other formulas, was scaled by the
   product's share, and the formulas reading it were scaled again: with a

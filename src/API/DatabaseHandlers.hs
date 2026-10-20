@@ -232,6 +232,7 @@ import Database.Manager (
     loadCompartmentMappings,
     loadDatabase,
     loadFlowSynonyms,
+    loadOlcaPackageMethod,
     loadUnitDefs,
     readDocumentFile,
     readRefDataSource,
@@ -265,6 +266,7 @@ import Database.Upload (
     findMethodDirectory,
     formatDisplayText,
     handleUpload,
+    isOlcaMethodPackage,
  )
 import qualified Database.UploadedDatabase as UploadedDB
 import qualified Method.Coverage as Coverage
@@ -1256,6 +1258,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , UploadedDB.umLicence = licence
                             , UploadedDB.umRelease = Nothing
                             , UploadedDB.umRequires = requires
+                            , UploadedDB.umPackageMethod = Nothing
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1462,6 +1465,14 @@ uploadMethodHandler mName mDesc src =
                 -- detector: companion spreadsheets shipped alongside a method
                 -- package would otherwise read as a Brightway Excel inventory.
                 methodFormat <- liftIO $ detectMethodFormat methodDir
+                -- An upload names no method, so a package of several is refused here rather than at activation.
+                package <- liftIO $ isOlcaMethodPackage methodDir
+                when package $
+                    liftIO (loadOlcaPackageMethod Nothing methodDir) >>= \case
+                        Right _ -> pure ()
+                        Left err -> do
+                            liftIO $ void (try (System.Directory.removeDirectoryRecursive uploadDir) :: IO (Either SomeException ()))
+                            failWith err400 ("An uploaded openLCA package must hold one method: " <> err <> ". Export that method alone from openLCA.")
 
                 -- Create meta.toml (store path relative to upload dir)
                 let meta =
@@ -1478,6 +1489,7 @@ uploadMethodHandler mName mDesc src =
                             , UploadedDB.umLicence = LicenceUnstated
                             , UploadedDB.umRelease = Nothing
                             , UploadedDB.umRequires = []
+                            , UploadedDB.umPackageMethod = Nothing
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1495,6 +1507,7 @@ uploadMethodHandler mName mDesc src =
                             , mcScoringSets = []
                             , mcGlobalMethods = []
                             , mcPatches = []
+                            , mcPackageMethod = Nothing
                             }
                 liftIO $ addMethodCollection dbManager mc
 

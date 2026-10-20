@@ -2,14 +2,22 @@
 
 module OlcaSchemaSpec (spec) where
 
+import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 import qualified Data.UUID as UUID
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 import UnitConversion (defaultUnitConfig)
 
+import Database.Manager (loadMethodCollectionFromPath)
 import Method.Mapping (MethodTables (..), buildMethodTables)
-import Method.Parser.OlcaSchema (isOlcaImpactCategoryJson, parseOlcaImpactCategoryBytes)
+import Method.Parser.OlcaSchema (OlcaImpactMethod (..), choosePackageMethod, isOlcaImpactCategoryJson, parseOlcaImpactCategoryBytes, parseOlcaImpactMethodBytes)
+import Method.SimaProScoring (NormWeightSet (..))
 import Method.Types
 
 spec :: Spec
@@ -239,6 +247,66 @@ spec = do
             factorValues (directionDoc "" "" "Emission to water/unspecified")
                 `shouldBe` Right [1.0]
 
+    describe "a method package" $ do
+        -- openLCA divides a result by the normalisation factor and multiplies it
+        -- by the weight; a zero factor is one openLCA ships for a category it
+        -- does not normalise, and must not become a division by zero.
+        it "reads a method's categories and its normalisation as a divisor" $
+            case parseOlcaImpactMethodBytes (methodDoc "EF 3.1" "acid" [("Acidification", 2, 0.5), ("Water use", 0, 0.1)]) of
+                Left err -> expectationFailure err
+                Right m -> do
+                    oimCategories m `shouldBe` ["acid"]
+                    map nwNormalization (oimNWSets m) `shouldBe` [M.singleton "Acidification" 0.5]
+                    map nwWeighting (oimNWSets m) `shouldBe` [M.fromList [("Acidification", 0.5), ("Water use", 0.1)]]
+
+        it "names the methods it holds when it is not told which to read" $ do
+            let held = [OlcaImpactMethod "EF 3.1" [] [], OlcaImpactMethod "IPCC 2021" [] []]
+            oimName <$> choosePackageMethod (Just "IPCC 2021") held `shouldBe` Right "IPCC 2021"
+            oimName <$> choosePackageMethod Nothing (take 1 held) `shouldBe` Right "EF 3.1"
+            choosePackageMethod Nothing held `shouldSatisfy` refusedWith "\"EF 3.1\", \"IPCC 2021\""
+            choosePackageMethod (Just "ReCiPe") held `shouldSatisfy` refusedWith "no method named \"ReCiPe\""
+            choosePackageMethod (Just "ReCiPe") [] `shouldBe` Left "the package holds no method"
+
+        it "refuses a single-score factor that names no category" $
+            let unnamed =
+                    object
+                        [ "@type" .= ("ImpactMethod" :: T.Text)
+                        , "name" .= ("EF 3.1" :: T.Text)
+                        , "nwSets" .= [object ["name" .= ("w" :: T.Text), "factors" .= [object ["impactCategory" .= object ["@id" .= ("acid" :: T.Text)], "weightingFactor" .= (1 :: Double)]]]]
+                        ]
+             in parseOlcaImpactMethodBytes (BL.toStrict (encode unnamed))
+                    `shouldSatisfy` either (T.isInfixOf "names no impact category" . T.pack) (const False)
+
+        it "loads the method a configuration names, with its single score" $
+            withSystemTempDirectory "olca-package" $ \root -> do
+                createDirectoryIfMissing True (root </> "lcia_methods")
+                createDirectoryIfMissing True (root </> "lcia_categories")
+                BS.writeFile (root </> "lcia_methods" </> "ef.json") (methodDoc "EF 3.1" "acid" [("Acidification", 2, 0.5)])
+                BS.writeFile (root </> "lcia_methods" </> "other.json") (methodDoc "Other" "ozone" [])
+                BS.writeFile (root </> "lcia_categories" </> "acid.json") (categoryDoc "Acidification")
+                BS.writeFile (root </> "lcia_categories" </> "ozone.json") (categoryDoc "Ozone depletion")
+                loaded <- loadMethodCollectionFromPath (Just "EF 3.1") root
+                case loaded of
+                    Left err -> expectationFailure (T.unpack err)
+                    Right (collection, _) -> do
+                        map methodName (mcMethods collection) `shouldBe` ["Acidification"]
+                        map ssName (mcScoringSets collection) `shouldBe` ["EF 3.1 weighting"]
+                unnamed <- loadMethodCollectionFromPath Nothing root
+                unnamed `shouldSatisfy` refusedWith "several methods"
+                notPackage <- loadMethodCollectionFromPath (Just "EF 3.1") (root </> "lcia_categories")
+                notPackage `shouldSatisfy` refusedWith "is not an openLCA method package"
+
+        it "gives a factor the CAS number its flow file holds" $
+            withSystemTempDirectory "olca-package" $ \root -> do
+                mapM_ (createDirectoryIfMissing True . (root </>)) ["lcia_methods", "lcia_categories", "flows"]
+                BS.writeFile (root </> "lcia_methods" </> "ef.json") (methodDoc "EF 3.1" "ozone" [])
+                BS.writeFile
+                    (root </> "lcia_categories" </> "ozone.json")
+                    "{\"@type\":\"ImpactCategory\",\"name\":\"Ozone depletion\",\"impactFactors\":[{\"value\":0.5,\"flow\":{\"@id\":\"9f2b39c2-1b5e-4a0b-9b2e-3f6c1d4e5a7b\",\"name\":\"1,2-Dichloro-1,1,2,2-tetrafluoroethane\",\"category\":\"Elementary flows/Emission to air/unspecified\"}}]}"
+                BS.writeFile (root </> "flows" </> "9f2b39c2-1b5e-4a0b-9b2e-3f6c1d4e5a7b.json") "{\"@type\":\"Flow\",\"cas\":\"76-14-2\"}"
+                loaded <- loadMethodCollectionFromPath (Just "EF 3.1") root
+                fmap (map mcfCAS . concatMap methodFactors . mcMethods . fst) loaded `shouldBe` Right [Just "76-14-2"]
+
     describe "buildMethodTables on parsed openLCA methods" $ do
         it "leaves mtRegionalizedCF empty when no flow matched (Nothing in mappings)" $ do
             -- Without database flows to match against, every CF stays unmapped, so
@@ -281,6 +349,40 @@ olcaDoc docFields factorFields categoryJson =
 factorDirections :: BS.ByteString -> Either String [FlowDirection]
 factorDirections bytes =
     map mcfDirection . methodFactors <$> parseOlcaImpactCategoryBytes bytes
+
+-- | An ImpactMethod grouping one category, with one set of (category, normalisation, weight).
+methodDoc :: T.Text -> T.Text -> [(T.Text, Double, Double)] -> BS.ByteString
+methodDoc name category factors =
+    BL.toStrict . encode $
+        object
+            [ "@type" .= ("ImpactMethod" :: T.Text)
+            , "name" .= name
+            , "impactCategories" .= [object ["@type" .= ("ImpactCategory" :: T.Text), "@id" .= category]]
+            , "nwSets"
+                .= [ object
+                        [ "name" .= (name <> " weighting")
+                        , "factors"
+                            .= [ object ["impactCategory" .= object ["name" .= c], "normalisationFactor" .= n, "weightingFactor" .= w]
+                               | (c, n, w) <- factors
+                               ]
+                        ]
+                   | not (null factors)
+                   ]
+            ]
+
+-- | An ImpactCategory with one factor on carbon dioxide.
+categoryDoc :: T.Text -> BS.ByteString
+categoryDoc name =
+    BL.toStrict . encode $
+        object
+            [ "@type" .= ("ImpactCategory" :: T.Text)
+            , "name" .= name
+            , "impactFactors"
+                .= [object ["value" .= (1 :: Double), "flow" .= object ["name" .= ("Carbon dioxide" :: T.Text), "category" .= ("Elementary flows/Emission to air/unspecified" :: T.Text)]]]
+            ]
+
+refusedWith :: T.Text -> Either T.Text a -> Bool
+refusedWith needle = either (needle `T.isInfixOf`) (const False)
 
 -- | The value of every parsed factor of the given document.
 factorValues :: BS.ByteString -> Either String [Double]

@@ -59,6 +59,7 @@ configured dir =
         , mcScoringSets = [ScoringSetConfig "Single" "Pt" (M.singleton "eco" "Ecotoxicity") M.empty M.empty M.empty (M.singleton "eco" 1) M.empty Nothing]
         , mcGlobalMethods = ["Ecotoxicity"]
         , mcPatches = [selector "Ammonia" (ScaleBy 2), selector "Neon" (SetValueTo 0)]
+        , mcPackageMethod = Nothing
         }
   where
     selector :: T.Text -> PatchOp -> MethodPatch

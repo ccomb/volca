@@ -35,6 +35,7 @@ import Database.Author (
     applyExchangeEdits,
     authoredActivityUUID,
     authoredProductUUID,
+    editingContext,
     lineSelector,
     validateAuthored,
  )
@@ -300,6 +301,53 @@ spec = do
                     Left errs ->
                         errs `shouldSatisfy` any (isInfixOf "a unit this database does not have")
                     Right _ -> expectationFailure "expected a refusal on the copied flow's unit"
+
+            it "takes the dependency's unit row when the edited database has none" $ do
+                -- What every edit is judged in: a database read from SimaPro
+                -- keeps base units only, so its link to a supplier sold by
+                -- the metre (a kWh, a t*km) needs the dependency's row.
+                built <- buildFixture
+                let inMetres ex@TechnosphereExchange{techFlowId = flow}
+                        | flow == supplierProdId = ex{techUnitId = metreUnitId}
+                    inMetres ex = ex
+                    depDb =
+                        built
+                            { dbTechFlows =
+                                M.adjust (\f -> f{tfUnitId = metreUnitId}) supplierProdId (dbTechFlows built)
+                            , dbActivities = V.map (\a -> a{exchanges = map inMetres (exchanges a)}) (dbActivities built)
+                            }
+                    writing =
+                        (emptyOf fixtureDb)
+                            { dbTechFlows = M.empty
+                            , dbUnits = M.delete metreUnitId (dbUnits fixtureDb)
+                            }
+                    ctx = editingContext defaultUnitConfig writing [depDb]
+                M.member metreUnitId (dbUnits (acDb ctx)) `shouldBe` True
+                M.keys (dbUnits (acDb ctx)) `shouldBe` M.keys (dbUnits fixtureDb)
+                case validateAuthored ctx [baseActivity{aaExchanges = [techInput supplierPid 3 (Just "m")]}] of
+                    Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
+                    Right ([r], _) ->
+                        [tfUnitId f | f <- riNewTechFlows r] `shouldSatisfy` elem metreUnitId
+                    Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
+
+            it "keeps its own unit row for a unit it already names" $ do
+                -- Same spelling, other identifier: the edited database's row
+                -- wins, so its own exchanges and the new ones agree.
+                built <- buildFixture
+                let ownKg = (dbUnits fixtureDb M.! kgUnitId){unitId = UUID.nil}
+                    writing = (emptyOf fixtureDb){dbUnits = M.fromList [(UUID.nil, ownKg)]}
+                    ctx = editingContext defaultUnitConfig writing [built]
+                M.member kgUnitId (dbUnits (acDb ctx)) `shouldBe` False
+
+            it "adopts one row of a unit two dependencies both name" $ do
+                -- One spelling, one row: two rows for the metre would leave
+                -- which one a line names to the order of their identifiers.
+                built <- buildFixture
+                let otherMetre = (dbUnits fixtureDb M.! metreUnitId){unitId = UUID.nil}
+                    other = built{dbUnits = M.insert UUID.nil otherMetre (M.delete metreUnitId (dbUnits built))}
+                    writing = (emptyOf fixtureDb){dbUnits = M.delete metreUnitId (dbUnits fixtureDb)}
+                    units = dbUnits (acDb (editingContext defaultUnitConfig writing [built, other]))
+                (M.member metreUnitId units, M.member UUID.nil units) `shouldBe` (True, False)
 
             it "warns about a biosphere flow new to the database without refusing it" $ do
                 let authored = baseActivity{aaExchanges = [bioOf (FlowByName "Nitrous oxide" air "kg") 0.5 Nothing]}

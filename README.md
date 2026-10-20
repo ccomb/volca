@@ -215,6 +215,11 @@ default = true                 # the collection a reader is offered first (at mo
 # SimaPro method CSV exports and tabular CSV are also accepted:
 # path = "DBs/EF3.1_methods.csv"
 
+# An openLCA method package holds several methods; package-method names the one
+# to read, with its normalisation and weighting sets:
+# path = "DBs/openLCA LCIA Methods.zip"
+# package-method = "EF 3.1 Method (adapted)"
+
 # "plain-indicators" (land occupied, water used, fossil CO2, methane, primary
 # energy, waste heat, cadmium, every factor 1.0) is built into the engine and
 # loaded beside the collections listed here. Name it with a path to replace it,

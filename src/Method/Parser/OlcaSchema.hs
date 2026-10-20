@@ -54,6 +54,12 @@ recognized by 'isOlcaImpactCategoryJson'; the auto-detection in
 module Method.Parser.OlcaSchema (
     parseOlcaImpactCategoryBytes,
     isOlcaImpactCategoryJson,
+    OlcaImpactMethod (..),
+    parseOlcaImpactMethodBytes,
+    choosePackageMethod,
+    flowsWithoutCas,
+    parseOlcaFlowCas,
+    withFlowCas,
 ) where
 
 import Control.Applicative ((<|>))
@@ -61,7 +67,10 @@ import Data.Aeson (Value (..), eitherDecodeStrict)
 import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Containers.ListUtils (nubOrd)
+import Data.List (find, sort)
+import qualified Data.Map.Strict as M
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Scientific (toRealFloat)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -72,6 +81,7 @@ import qualified Data.UUID.V5 as UUID5
 import qualified Data.Vector as V
 import Data.Word (Word8)
 
+import Method.SimaProScoring (NormWeightSet (..))
 import Method.Types
 
 {- | Quick structural sniff: a JSON object with @\"@type\": \"ImpactCategory\"@.
@@ -83,6 +93,27 @@ isOlcaImpactCategoryJson bytes = case eitherDecodeStrict bytes of
         Just (String "ImpactCategory") -> True
         _ -> False
     _ -> False
+
+{- | The flows a package's factors name without a CAS number. openLCA writes the
+CAS on the flow, not on the factor that points to it, and the matcher needs it
+to reach a database spelling the substance otherwise: the package's
+"1,2-Dichloro-1,1,2,2-tetrafluoroethane" is "Ethane, 1,2-dichloro-1,1,2,2-tetrafluoro-,
+CFC-114" elsewhere.
+-}
+flowsWithoutCas :: [Method] -> [UUID]
+flowsWithoutCas methods = nubOrd [mcfFlowRef cf | m <- methods, cf <- methodFactors m, isNothing (mcfCAS cf)]
+
+-- | The CAS number of one openLCA @Flow@ document, if it gives one.
+parseOlcaFlowCas :: BS.ByteString -> Maybe Text
+parseOlcaFlowCas bytes = case eitherDecodeStrict bytes of
+    Right (Object o) -> T.strip <$> lookupText o "cas"
+    _ -> Nothing
+
+-- | Give each factor without a CAS number the one its flow has.
+withFlowCas :: M.Map UUID Text -> Method -> Method
+withFlowCas cas m = m{methodFactors = map fill (methodFactors m)}
+  where
+    fill cf = cf{mcfCAS = mcfCAS cf <|> M.lookup (mcfFlowRef cf) cas}
 
 -- | Parse one openLCA @ImpactCategory@ JSON-LD document into a 'Method'.
 parseOlcaImpactCategoryBytes :: BS.ByteString -> Either String Method
@@ -110,6 +141,82 @@ parseOlcaImpactCategoryBytes bytes = do
                     , methodFactors = factors
                     }
         _ -> Left "openLCA ImpactCategory: expected a top-level JSON object"
+
+{- | One method of an openLCA package: its name, the categories it groups, by
+the @\@id@ each category's file is named after, and its normalization and
+weighting sets.
+-}
+data OlcaImpactMethod = OlcaImpactMethod
+    { oimName :: !Text
+    , oimCategories :: ![Text]
+    , oimNWSets :: ![NormWeightSet]
+    }
+    deriving (Eq, Show)
+
+{- | Parse one openLCA @ImpactMethod@ document.
+
+openLCA divides a category's result by its normalisation factor, then
+multiplies it by its weight. 'NormWeightSet' holds the normalisation as a
+multiplier, as SimaPro writes it, so the factor is inverted here; a category
+with no factor, or a zero one, is left out of the normalisation rather than
+divided by zero.
+-}
+parseOlcaImpactMethodBytes :: BS.ByteString -> Either String OlcaImpactMethod
+parseOlcaImpactMethodBytes bytes = do
+    val <- eitherDecodeStrict bytes
+    case val of
+        Object o -> do
+            assertType o "ImpactMethod"
+            name <- requireText o "name"
+            nwSets <- traverse normWeightSet (objectsIn o "nwSets")
+            Right
+                OlcaImpactMethod
+                    { oimName = name
+                    , oimCategories = mapMaybe (`lookupText` "@id") (objectsIn o "impactCategories")
+                    , oimNWSets = nwSets
+                    }
+        _ -> Left "openLCA ImpactMethod: expected a top-level JSON object"
+  where
+    normWeightSet :: KM.KeyMap Value -> Either String NormWeightSet
+    normWeightSet nw = do
+        -- Scores are reported by set name, and a package may leave a set unnamed.
+        let setName = fromMaybe "" (lookupText nw "name" <|> lookupText nw "@id")
+        {- A factor is matched to its category by name; one without a name would
+        leave its category out of the single score without a word. -}
+        factors <- traverse (factorOf setName) (objectsIn nw "factors")
+        Right
+            NormWeightSet
+                { nwName = setName
+                , nwNormalization = M.fromList [(c, 1 / n) | (c, f) <- factors, Just n <- [numberField f "normalisationFactor"], n /= 0]
+                , nwWeighting = M.fromList [(c, w) | (c, f) <- factors, Just w <- [numberField f "weightingFactor"]]
+                }
+    factorOf setName f = case objectField f "impactCategory" >>= (`lookupText` "name") of
+        Just c -> Right (c, f)
+        Nothing -> Left ("openLCA ImpactMethod: a factor of set \"" <> T.unpack setName <> "\" names no impact category")
+
+{- | The method of a package a collection reads: the one it names, or the
+package's only one. 'Left' lists the methods the package holds, which is what
+a reader needs to name one.
+-}
+choosePackageMethod :: Maybe Text -> [OlcaImpactMethod] -> Either Text OlcaImpactMethod
+choosePackageMethod wanted methods = case (wanted, methods) of
+    (_, []) -> Left "the package holds no method"
+    (Nothing, [only]) -> Right only
+    (Just name, _) | Just m <- find ((== name) . oimName) methods -> Right m
+    (Just name, _) -> Left ("the package holds no method named \"" <> name <> "\"; it holds " <> held)
+    (Nothing, _) ->
+        Left
+            ( "the package holds several methods and none is named (package-method in the configuration, package_method in an upload's meta.toml); it holds "
+                <> held
+            )
+  where
+    held = T.intercalate ", " ["\"" <> n <> "\"" | n <- sort (map oimName methods)]
+
+-- | The objects of an array field; anything else in it, or no such field, gives none.
+objectsIn :: KM.KeyMap Value -> Text -> [KM.KeyMap Value]
+objectsIn o k = case KM.lookup (K.fromText k) o of
+    Just (Array v) -> [inner | Object inner <- V.toList v]
+    _ -> []
 
 parseImpactFactor :: Maybe FlowDirection -> Value -> Maybe MethodCF
 parseImpactFactor docDirection (Object o) = do
