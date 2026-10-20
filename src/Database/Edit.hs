@@ -76,6 +76,7 @@ import Database.Author (
     ResolvedInsert (..),
     RestatedLine (..),
     applyExchangeEdits,
+    editingContext,
     retextsAuthoredIdentity,
     validateAuthored,
  )
@@ -847,7 +848,7 @@ authorContext :: DatabaseManager -> Database -> IO AuthorContext
 authorContext manager db = do
     deps <- loadedDependencies manager db
     unitConfig <- getMergedUnitConfig manager
-    pure AuthorContext{acDb = db, acDeps = deps, acUnitConfig = unitConfig}
+    pure (editingContext unitConfig db deps)
 
 {- | Refuse an edit while another loaded database depends on this one. Shared
 with the delete path, which has the same reason: rebuilding renumbers every

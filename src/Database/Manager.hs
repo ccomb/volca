@@ -338,7 +338,7 @@ import qualified UnitConversion
 
 import API.Types (DepLoadResult (..))
 import Data.JournalFile (readEntries)
-import Database.Author (AuthorContext (..))
+import Database.Author (editingContext)
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
 import qualified Database.Journal as Journal
@@ -2844,12 +2844,7 @@ replayEdits manager dbConfig loaded =
                     unitConfig <- getMergedUnitConfig manager
                     synonymDB <- getMergedSynonymDB manager
                     let deps = [ldDatabase ld | name <- dcDepends dbConfig, Just ld <- [M.lookup name loadedDbs]]
-                        ctx =
-                            AuthorContext
-                                { acDb = ldDatabase loaded
-                                , acDeps = deps
-                                , acUnitConfig = unitConfig
-                                }
+                        ctx = editingContext unitConfig (ldDatabase loaded) deps
                     reportProgress Info $
                         "Replaying " <> show (length events) <> " recorded edit(s) of " <> T.unpack (dcName dbConfig)
                     case Journal.replayJournal ctx events of

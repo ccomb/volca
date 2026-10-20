@@ -331,6 +331,13 @@
 - Emissions of aluminium, cobalt, lithium, selenium and vanadium count in the
   EF 3.1 toxicity categories, which characterize only their ions, as cadmium,
   lead and zinc already did (data version 11).
+- An activity written into an uploaded SimaPro database can buy from the
+  database it depends on in that supplier's unit. A SimaPro import records
+  only the base unit of each dimension, so a line of 0.28 kWh of electricity
+  from ecoinvent was refused, the database knowing no kWh. The database now
+  takes a unit it does not know from the database it depends on, and keeps
+  its own wherever it has one. The same holds when its edits are replayed
+  after a restart.
 - A process split from a block of several products keeps every formula
   true. A line named in the block, read by other formulas, was scaled by the
   product's share, and the formulas reading it were scaled again: with a
