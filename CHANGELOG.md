@@ -313,6 +313,14 @@
   EcoSpold 1 scored under openLCA's EF 3.1 got a quarter of its climate change
   and now agrees with the published figures to 1 % on most categories (data
   version 11).
+- Water use read from an openLCA impact category subtracts the water a process
+  gives back. openLCA writes every water factor positive and gives the
+  category a direction: a flow on the other side counts against it. The engine
+  added the water returned to the water taken, and scored a hydropower plant
+  that takes and returns the same river water some 3 700 times too high.
+- Emissions of aluminium, cobalt, lithium, selenium and vanadium count in the
+  EF 3.1 toxicity categories, which characterize only their ions, as cadmium,
+  lead and zinc already did (data version 11).
 - A process split from a block of several products keeps every formula
   true. A line named in the block, read by other formulas, was scaled by the
   product's share, and the formulas reading it were scaled again: with a
