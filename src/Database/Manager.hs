@@ -108,6 +108,9 @@ module Database.Manager (
     readDocumentFile,
     databaseLicence,
     releasesRead,
+    termsToAccept,
+    acceptedTerms,
+    acceptTerms,
     refusingDatabases,
     setUploadLicence,
     SettingRefusal (..),
@@ -303,6 +306,7 @@ import Types (
     SparseTriple (..),
     SupplierAmbiguity (..),
     SupplierRequest (..),
+    Terms (..),
     UUID,
     Unit (..),
     UnitDB,
@@ -328,6 +332,7 @@ import Types (
     sharedFlowSynonyms,
     statedCode,
     systemModelsRead,
+    termsAsked,
     toSimpleDatabase,
     unresolvedCount,
     upDemands,
@@ -786,6 +791,11 @@ data DatabaseManager = DatabaseManager
     , dmScenarioLock :: !(MVar ())
     {- ^ Held by every save and drop of a scenario, for the same reason: each
     reads the scenarios file before appending to it.
+    -}
+    , dmAcceptedTerms :: !(TVar (Map (Maybe Text) (S.Set Text)))
+    {- ^ The fingerprints of the terms each reader accepted through the MCP
+    tool, which sends no cookie. Kept in memory only: after a restart, a
+    reader is asked again.
     -}
     }
 
@@ -1649,6 +1659,7 @@ newManager ManagerSeed{..} = do
     methodEditLock <- newMVar ()
     scenarioLock <- newMVar ()
     factorisationLock <- newMVar ()
+    acceptedTermsVar <- newTVarIO M.empty
     return
         DatabaseManager
             { dmLoadedDbs = loadedDbsVar
@@ -1687,6 +1698,7 @@ newManager ManagerSeed{..} = do
             , dmFactorisationLock = factorisationLock
             , dmMethodEditLock = methodEditLock
             , dmScenarioLock = scenarioLock
+            , dmAcceptedTerms = acceptedTermsVar
             }
   where
     byName :: [RefDataConfig] -> IO (TVar (Map Text RefDataConfig))
@@ -1995,6 +2007,31 @@ databaseLicence :: DatabaseManager -> Text -> IO (Maybe Licence)
 databaseLicence manager dbName = do
     configs <- readTVarIO (dmAvailableDbs manager)
     pure (licenceOf configs <$> M.lookup dbName configs)
+
+{- | The terms a reader accepts before reading these databases: theirs, and
+those of every database they depend on, since a computation on one reads the
+others' data. A copy is held to its source's terms through 'licenceOf'.
+-}
+termsToAccept :: DatabaseManager -> [Text] -> IO [Terms]
+termsToAccept manager names = do
+    loaded <- readTVarIO (dmLoadedDbs manager)
+    configs <- readTVarIO (dmAvailableDbs manager)
+    pure
+        ( termsAsked
+            [ (name, licenceOf configs config)
+            | name <- concatMap (\n -> n : dependencyNames loaded n) names
+            , Just config <- [M.lookup name configs]
+            ]
+        )
+
+-- | The fingerprints of the terms a reader accepted through the MCP tool.
+acceptedTerms :: DatabaseManager -> Maybe Text -> IO (S.Set Text)
+acceptedTerms manager reader = M.findWithDefault S.empty reader <$> readTVarIO (dmAcceptedTerms manager)
+
+-- | Record that a reader accepted these terms.
+acceptTerms :: DatabaseManager -> Maybe Text -> [Terms] -> IO ()
+acceptTerms manager reader terms =
+    atomically (modifyTVar' (dmAcceptedTerms manager) (M.insertWith S.union reader (S.fromList (map termsFingerprint terms))))
 
 {- | The databases whose licence refuses a permission. One reached as a
 dependency of another is answered in one line, or not at all, rather than

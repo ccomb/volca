@@ -120,6 +120,7 @@ library
                      , API.JsonOptions
                      , API.DatabaseHandlers
                      , API.Auth
+                     , API.Terms
                      , API.MethodEditHandlers
                      , API.MCP
                      , API.MCP.Enrich
@@ -438,6 +439,7 @@ test-suite lca-tests
                      , DocumentFileSpec
                      , LicenceEnforcementSpec
                      , LicenceSpec
+                     , TermsSpec
                      , ExportSpec
                      , ExportHandlerSpec
                      , CrateSpec

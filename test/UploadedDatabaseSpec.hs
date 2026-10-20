@@ -8,7 +8,7 @@ import Test.Hspec
 
 import qualified Data.Set as S
 import Database.UploadedDatabase
-import Types (AllocationKey (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..), Release (..), Requirement (..), StandardLicence (..))
+import Types (Acceptance (..), AllocationKey (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..), Release (..), Requirement (..), StandardLicence (..))
 
 -- | Minimal UploadMeta without description
 baseMeta :: UploadMeta
@@ -165,11 +165,11 @@ spec = do
             fmap umDepends (parseMetaToml (formatMetaToml meta)) `shouldBe` Just ["agribalyse", "ecoinvent"]
 
         it "round-trips an own licence, quotes and all" $ do
-            let licence = LicenceOwn OwnLicence{ownText = "Licensed to \"members\" only", ownRefused = S.fromList [Download, Resell], ownAttribution = AttributionNotRequired}
+            let licence = LicenceOwn OwnLicence{ownText = "Licensed to \"members\" only", ownRefused = S.fromList [Download, Resell], ownAttribution = AttributionNotRequired, ownAcceptance = AcceptanceAsked}
             fmap umLicence (parseMetaToml (formatMetaToml baseMeta{umLicence = licence})) `shouldBe` Just licence
 
         it "round-trips an own licence ending in a quote" $ do
-            let licence = LicenceOwn OwnLicence{ownText = "Licensed to \"members\"", ownRefused = S.empty, ownAttribution = AttributionRequired}
+            let licence = LicenceOwn OwnLicence{ownText = "Licensed to \"members\"", ownRefused = S.empty, ownAttribution = AttributionRequired, ownAcceptance = NoAcceptance}
             fmap umLicence (parseMetaToml (formatMetaToml baseMeta{umLicence = licence})) `shouldBe` Just licence
 
         it "round-trips a standard licence" $

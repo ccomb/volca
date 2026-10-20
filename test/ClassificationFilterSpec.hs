@@ -164,7 +164,7 @@ spec = describe "classification filter match mode" $ do
 
 tool :: DatabaseManager -> [ClassificationPreset] -> Text -> [(Key, Value)] -> IO Value
 tool manager presets name args =
-    callTool manager presets Nothing Nothing noRequestId name (KM.fromList (("database", String fixtureName) : args))
+    callTool Nothing manager presets Nothing Nothing noRequestId name (KM.fromList (("database", String fixtureName) : args))
 
 -- | A field of a tool reply's JSON payload, followed down the given keys.
 answerAt :: [Key] -> Value -> Maybe Value

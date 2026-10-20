@@ -285,12 +285,12 @@ spec = describe "a database at other values of its parameters" $ do
         substituted <- scored (Just (SubstitutionRequest [Substitution (processIdText (aBread, pBread)) (processIdText (aCake, pCake)) AllConsumers] [])) WithLines
         either errHTTPCode (const 200) substituted `shouldBe` 400
         split <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") Nothing IncludeLongTerm WithLines)
-        let kept refused = map (null . lrExchangeContributions) (lbrResults (withholdBatch "bakery" (LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired}) split))
+        let kept refused = map (null . lrExchangeContributions) (lbrResults (withholdBatch "bakery" (LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired, ownAcceptance = NoAcceptance}) split))
         kept [] `shouldBe` [False, False]
         kept [ReadInventory] `shouldBe` [True, True]
         kept [SeeDetailedScores] `shouldBe` [True, True]
         reply <-
-            callTool manager [] Nothing Nothing noRequestId "score_activity" . KM.fromList $
+            callTool Nothing manager [] Nothing Nothing noRequestId "score_activity" . KM.fromList $
                 [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("exchange_contributions", Bool True)]
         let split' = \case
                 Object r | Just (Array a) <- KM.lookup "exchangeContributions" r -> not (null a)
@@ -305,7 +305,7 @@ spec = describe "a database at other values of its parameters" $ do
             names = [ParameterName (Just (processIdText (aBread, pBread))) "mix_de", ParameterName Nothing "hydration"]
         model <- answer manager (postReducedModel "bakery" loaf (CollectionName "model") Nothing (ReducedModelRequest names))
         reply <-
-            callTool manager [] Nothing Nothing noRequestId "get_reduced_model" . KM.fromList $
+            callTool Nothing manager [] Nothing Nothing noRequestId "get_reduced_model" . KM.fromList $
                 [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("parameters", toJSON names)]
         (Object <$> payloadOf reply) `shouldBe` Just (toJSON model)
 

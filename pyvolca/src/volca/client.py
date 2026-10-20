@@ -884,6 +884,47 @@ class Client:
             self._call("unload_database", db_name=db_name), "unload_database"
         )
 
+    def terms_to_accept(self, db_name: str | None = None) -> list[dict]:
+        """The terms of use to accept before reading a database.
+
+        Its own, and those of every database it depends on, when their
+        publisher asks its readers to accept them: until then, the engine
+        answers 403 to every request reading it. Each entry is
+        ``{"database", "text", "fingerprint"}``, once per text. Empty when
+        nothing is asked, and against an engine older than wire revision 78.
+        """
+        databases = {d.name: d for d in self.list_databases()}
+        pending, seen, terms = [db_name or self.db], set(), {}
+        while pending:
+            name = pending.pop(0)
+            if name in seen or name not in databases:
+                continue
+            seen.add(name)
+            licence = databases[name].licence or {}
+            fingerprint = licence.get("acceptance")
+            if fingerprint and fingerprint not in terms:
+                terms[fingerprint] = {"database": name, "text": licence["text"], "fingerprint": fingerprint}
+            pending.extend(databases[name].depends_on)
+        return list(terms.values())
+
+    def accept_terms(self, db_name: str | None = None) -> list[dict]:
+        """Accept, for this client, the terms :meth:`terms_to_accept` returns.
+
+        Call it only once the person running the code has read those terms
+        and agreed to them: accepting binds them, not the client. The
+        acceptance lasts as long as the client. Returns the terms accepted::
+
+            for t in c.terms_to_accept():
+                print(t["text"])
+            if input("Do you accept these terms? [y/N] ") == "y":
+                c.accept_terms()
+        """
+        terms = self.terms_to_accept(db_name)
+        accepted = set(filter(None, (self._session.cookies.get("volca_terms") or "").split(".")))
+        accepted |= {t["fingerprint"] for t in terms}
+        self._session.cookies.set("volca_terms", ".".join(sorted(accepted)))
+        return terms
+
     def derive_database(
         self,
         new_name: str,

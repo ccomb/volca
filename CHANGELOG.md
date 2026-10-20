@@ -14,6 +14,17 @@
   database that names a refrigerant otherwise than the package scored its
   ozone depletion nearly two thousand times too low.
 
+- A publisher can ask the readers of a database to accept its terms of use
+  before reading it: `accept = true` beside `licence_text`, in the engine's
+  configuration and in an upload's metadata. Until a reader accepts them,
+  every request reading that database, or a database built on it, is
+  refused with the terms and how to accept them. A browser or a script
+  accepts by sending the fingerprint of the text in the `volca_terms`
+  cookie; an assistant, by calling the `accept_terms` tool once the user
+  has agreed. New terms have a new fingerprint, so they are asked again.
+  Standard licences never ask it. pyvolca has `terms_to_accept()` and
+  `accept_terms()`. Wire revision 78.
+
 - The database quality report now checks the water balance of each
   activity: water released to rivers and soil should not exceed, by far, the
   water the activity withdraws or buys. A published greenhouse tomato

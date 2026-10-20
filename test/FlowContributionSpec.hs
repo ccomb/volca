@@ -182,7 +182,7 @@ mcpPayload :: Maybe Text -> Text -> [(Key, Value)] -> IO Object
 mcpPayload mBaseUrl tool extraArgs = do
     manager <- loadedManager
     reply <-
-        callTool manager [] Nothing mBaseUrl noRequestId tool $
+        callTool Nothing manager [] Nothing mBaseUrl noRequestId tool $
             KM.fromList $
                 [ ("database", String "sample")
                 , ("process_id", String productD)

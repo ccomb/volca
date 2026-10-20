@@ -270,7 +270,7 @@ metByRInputs = Just [(String "M", Number 2, 6500000)]
 mcp :: DM.DatabaseManager -> Text -> [(Key, Value)] -> IO Object
 mcp manager tool args = do
     reply <-
-        callTool manager [] Nothing Nothing noRequestId tool $
+        callTool Nothing manager [] Nothing Nothing noRequestId tool $
             KM.fromList ([("database", String "main"), ("collection", String collection), ("method_id", String methodText)] ++ args)
     maybe (fail ("unexpected " <> T.unpack tool <> " reply: " <> show reply)) pure (payloadOf reply)
 
@@ -423,7 +423,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
 
         it "give each side of compare_impacts its own list" $ do
             reply <-
-                callTool manager [] Nothing Nothing noRequestId "compare_impacts" $
+                callTool Nothing manager [] Nothing Nothing noRequestId "compare_impacts" $
                     KM.fromList
                         [ ("database_a", String "main")
                         , ("process_id_a", String pidR)

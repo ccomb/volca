@@ -2,6 +2,7 @@
 
 module API.Auth (
     authMiddleware,
+    parseCookieValue,
 ) where
 
 import Data.ByteString (ByteString)
