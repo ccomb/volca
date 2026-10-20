@@ -173,6 +173,7 @@ Acrylate,"Acrylate, ion"
 Actinium,"Actinium, in ground"
 Aldicarb,UC21149
 Aldrin,Aldrosol
+Aluminium,"Aluminium (III)",,022537-23-1,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Aluminium,"Aluminium, in ground"
 Aluminium,"Aluminium, resource correction",input,,ecoinvent 2 correction of the metal content still written by EcoSpold 1 sources; SimaPro imports it as the metal
 Ametryn,Evik
@@ -301,6 +302,7 @@ Clean Crop MSMA 6 Plus,MSMA
 Clodinafop-propargyl,prop-2-ynyl (R)-2-[4-(5-chloro-3-fluoropyridin-2-yloxy)phenoxypropionate
 "Coal, brown","Coal, brown, in ground"
 "Coal, hard","Coal, hard, unspecified, in ground"
+Cobalt,"Cobalt (II)",,022541-53-3,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Cobalt,"Cobalt, in ground"
 "Cobalt, Co 5.0E-2%, in mixed ore","Cobalt, Co 5.0E-2%, in mixed ore, in ground"
 Cobra 2E,Lactofen
@@ -480,6 +482,7 @@ Lead,"Lead, resource correction",input,,ecoinvent 2 correction of the metal cont
 Lead,"Lead (II)",,014280-50-3,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 "Lead, Pb 3.6E-1%, in mixed ore","Lead, Pb 3.6E-1%, in mixed ore, in ground"
 Lead-210,Lead-210/kg
+Lithium,"Lithium (I)",,017341-24-1,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Lithium,"Lithium, in ground"
 Lithium,"Lithium, ion"
 Lutetium,"Lutetium, in ground"
@@ -633,6 +636,7 @@ Ruthenium,"Ruthenium, in ground"
 Samarium,"Samarium, in ground"
 Scandium,"Scandium, in ground"
 Scout-Xtra,Tralomethrin
+Selenium,"Selenium (IV)",,022541-55-5,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Selenium,"Selenium, in ground"
 Shale,"Shale, in ground"
 Silicon,"Silicon, in ground"
@@ -695,6 +699,7 @@ Tri-allate,Triallate
 Tungsten,"Tungsten, in ground"
 Ulexite,"Ulexite, in ground"
 Uranium,"Uranium, in ground"
+Vanadium,"Vanadium (V)",,022537-31-1,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Vanadium,"Vanadium, in ground"
 Vanadium,"Vanadium, ion"
 Vermiculite,"Vermiculite, in ground"
