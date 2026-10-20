@@ -195,6 +195,7 @@ import Database.Edit (
     writeActivities,
  )
 import Database.Export (parseExportFormat, parseMethodExportFormat, serializeDatabase, serializeMethodCollection)
+import Database.ExportSupplier (dependenciesOf)
 import qualified Database.Loader as Loader
 import Database.Manager (
     DatabaseLoadStatus (..),
@@ -798,7 +799,9 @@ exportDatabaseHandler dbName req = do
     units <- liftIO (getMergedUnitConfig dbManager)
     scenarios <- liftIO (listScenarios dbManager dbName)
     let (saved, problems) = either (const (M.empty, [])) (savedForExport (ldDatabase ld)) scenarios
-    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase units fmt saved (ldDatabase ld))
+    indexed <- liftIO (readTVarIO (dmIndexedDbs dbManager))
+    deps <- either (failWith err400) pure (dependenciesOf indexed (ldDatabase ld))
+    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase units fmt saved deps (ldDatabase ld))
     pure (addHeader (encodeExportWarnings (warnings <> either unread (scenariosLeftOut fmt problems) scenarios)) (BinaryContent (package bytes)))
   where
     unread :: WriteRefusal -> [Text]

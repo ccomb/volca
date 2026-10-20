@@ -156,6 +156,7 @@ library
                      , Database.Requirements
                      , Database.Export
                      , Database.ExportFormulas
+                     , Database.ExportSupplier
                      , Search.Normalize
                      , Search.BM25
                      , Search.BM25.Types
@@ -353,6 +354,7 @@ test-suite lca-tests
                      , ExprSpec
                      , SimaProWriterSpec
                      , ExportFormulasSpec
+                     , ExportSupplierSpec
                      , ILCDWriterSpec
                      , MCPSchemaSpec
                      , MCPDispatchSpec

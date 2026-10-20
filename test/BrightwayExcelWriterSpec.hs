@@ -280,7 +280,7 @@ spec = describe "BrightwayExcel.Writer" $ do
 -- ---------------------------------------------------------------------------
 
 cfg :: WriterConfig
-cfg = WriterConfig{wcDatabaseName = "Test_Inventory_DB"}
+cfg = defaultWriterConfig{wcDatabaseName = "Test_Inventory_DB"}
 
 -- One activity producing electricity, consuming gas, emitting CO2.
 fixtureDb :: SimpleDatabase

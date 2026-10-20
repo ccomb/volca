@@ -98,6 +98,7 @@ import qualified Data.Text.Encoding as TE
 import Amount (readAmount)
 import Data.Indexing (collisions)
 import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, frozenWarnings, processExport)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, madeAt, makerOf, noDependencies, sharedProducts, unnamedWarnings)
 import EcoSpold.Common (showFFloatTrim)
 import qualified Expr
 import Types
@@ -112,14 +113,16 @@ the workbook-level @Database@ name written at the top of the sheet and into each
 exchange's @database@ column. Pinning it here (rather than reading a clock or a
 build version) is what makes round-trips reproducible.
 -}
-newtype WriterConfig = WriterConfig
+data WriterConfig = WriterConfig
     { wcDatabaseName :: Text
+    , wcDependencies :: Dependencies
+    -- ^ What the inputs buy from the databases this one depends on, which their rows name.
     }
     deriving (Eq, Show)
 
 -- | A neutral default name for ad-hoc exports.
 defaultWriterConfig :: WriterConfig
-defaultWriterConfig = WriterConfig{wcDatabaseName = "exported-database"}
+defaultWriterConfig = WriterConfig{wcDatabaseName = "exported-database", wcDependencies = noDependencies}
 
 -- ---------------------------------------------------------------------------
 -- Cell model (mirrors the parser's CellValue / the spec emitter)
@@ -162,6 +165,7 @@ renderWorkbookWithWarnings cfg db = do
             , ("xl/worksheets/sheet1.xml", enc (sheetXml (rowsWith exported cfg db)))
             ]
         , wasteManifest db
+            <> unnamedWarnings (wcDependencies cfg) db
             <> frozenWarnings exported
             <> [tshow (length spreadless) <> " parameters are written without their spread, a lognormal whose mean is not the amount or a number with no finite value:" <> foldMap ("\n  " <>) (take 10 spreadless) | not (null spreadless)]
             <> [ tshow (length unrecomputed) <> " processes have formulas and no parameter of their own, so Brightway keeps their formulas without recomputing them:" <> foldMap ("\n  " <>) (take 10 unrecomputed)
@@ -273,6 +277,7 @@ checkBrightwayExportable db =
         , roundTripMsg <$> listToMaybe roundTripOffenders
         , parameterMsg <$> listToMaybe parameterOffenders
         , alikeMsg <$> listToMaybe (productsSpeltAlike db)
+        , sharedMsg <$> listToMaybe sharedOffenders
         ] of
         [] -> Right ()
         violations -> Left (T.intercalate "\n\n" violations)
@@ -296,6 +301,21 @@ checkBrightwayExportable db =
             <> "exchange amount "
             <> tshow amt
             <> " does not re-parse to the same value (a non-finite amount)."
+    -- A row buying a product two activities of the file make names its maker
+    -- by name and location, which two makers may not both write alike.
+    sharedOffenders =
+        [ (maybe "?" tfName (M.lookup flow (sdbTechFlows db)), NE.head same)
+        | (flow, makers) <- boughtShared db
+        , same <- take 1 (clashing (\a -> (activityName a, madeAt a)) makers)
+        ]
+    sharedMsg (product', a) =
+        "Brightway Excel export cannot tell apart the activities making \""
+            <> product'
+            <> "\": two of them are named \""
+            <> activityName a
+            <> "\" at "
+            <> madeAt a
+            <> ", so a re-import would link every input of it to one of them."
     alikeMsg :: NE.NonEmpty TechnosphereFlow -> Text
     alikeMsg flows =
         "Brightway Excel export cannot represent the products "
@@ -399,8 +419,10 @@ rowsWith exported cfg db =
     , []
     ]
         ++ (if M.null (exDatabase exported) then [] else [CText "Database parameters"] : parameterTable (exDatabase exported) ++ [[]])
-        ++ concatMap (\(key, a) -> activityRows cfg db (processExport exported key) a ++ [[]]) sortedActivities
+        ++ concatMap (\(key, a) -> activityRows cfg db shared key (processExport exported key) a ++ [[]]) sortedActivities
   where
+    shared :: S.Set UUID
+    shared = sharedProducts db
     sortedActivities :: [((UUID, UUID), Activity)]
     sortedActivities =
         sortOn (\(_, a) -> (activityName a, activityLocation a)) (M.toList (sdbActivities db))
@@ -472,8 +494,8 @@ paragraph split does not). Once parsed it has ≤1 element and round-trips exact
 – the same "fixed-point over the parser's image" caveat the parser documents for
 reference-unit canonicalization.
 -}
-activityRows :: WriterConfig -> SimpleDatabase -> ProcessExport -> Activity -> [[Cell]]
-activityRows cfg db pe act =
+activityRows :: WriterConfig -> SimpleDatabase -> S.Set UUID -> (UUID, UUID) -> ProcessExport -> Activity -> [[Cell]]
+activityRows cfg db shared key pe act =
     [ [CText "Activity", CText (activityName act)]
     , [CText "production amount", CNum refAmount]
     ]
@@ -492,7 +514,7 @@ activityRows cfg db pe act =
     ordered :: [Exchange]
     ordered = map snd numbered
     exchangeDataRows :: [[Cell]]
-    exchangeDataRows = mapMaybe (\(i, ex) -> (++ [maybe CEmpty CText (IM.lookup i (peLines pe))]) <$> exchangeRow cfg db ex) numbered
+    exchangeDataRows = mapMaybe (\(i, ex) -> (++ [maybe CEmpty CText (IM.lookup i (peLines pe))]) <$> exchangeRow cfg db shared (makerOf (wcDependencies cfg) db key i ex) ex) numbered
     refExchange = lookup' exchangeIsReference ordered
     refProduct = refExchange >>= flowNameOf db
     refUnit = (`unitNameOf` db) . exchangeUnitId =<< refExchange
@@ -567,28 +589,36 @@ isReferenceInput = \case
 cannot be written faithfully, so it is dropped rather than emitted with blanks
 that would re-parse into a different flow). The @reference product@ column
 carries the flow name, from which the parser reconstructs the same flow UUID for
-a product made in the workbook. Every row's @database@ column names the
-workbook, so a product another database makes comes back as one made here
-('productsSpeltAlike' refuses the case where that would merge two products);
-@name@ carries the supplier activity where the source named one, and repeats the
-flow name where it did not; a supplier named with no product leaves
-@reference product@ empty.
+a product made in the workbook. A row buying from a database this one depends
+on names that database, that supplier's activity and its location, which the
+parser reads as bought there; a row buying a product several activities of the
+workbook make names its maker and the maker's location. Any other row names the
+workbook ('productsSpeltAlike' refuses the case where that would merge two
+products), with @name@ carrying the supplier activity where the source named
+one and repeating the flow name where it did not; a supplier named with no
+product leaves @reference product@ empty.
 -}
-exchangeRow :: WriterConfig -> SimpleDatabase -> Exchange -> Maybe [Cell]
-exchangeRow cfg db = \case
+exchangeRow :: WriterConfig -> SimpleDatabase -> S.Set UUID -> Maker -> Exchange -> Maybe [Cell]
+exchangeRow cfg db shared maker = \case
     ex@TechnosphereExchange{techAmount = amt, techRole = role, techLocation = loc, techSupplierClaim = claim} -> do
         name <- flowNameOf db ex
         unit <- unitNameOf (exchangeUnitId ex) db
+        -- Who the row buys from, where it names one: a supplier in a dependency,
+        -- or the maker of a product several activities of the file make.
+        let (supplier, product', location, database) = case maker of
+                InDependency e -> (elActivity e, CText name, elLocation e, elDatabase e)
+                InFile a | S.member (exchangeFlowId ex) shared -> (activityName a, CText name, madeAt a, wcDatabaseName cfg)
+                _ -> (namedSupplier claim name, statedProduct claim name, locationCode loc, wcDatabaseName cfg)
         Just
-            [ CText (namedSupplier claim name)
+            [ CText supplier
             , CNum amt
-            , statedProduct claim name
-            , locCell (locationCode loc)
+            , product'
+            , locCell location
             , CText unit
             , CEmpty
             , CText (techTypeLabel role)
             , commentCell (techComment ex)
-            , CText (wcDatabaseName cfg)
+            , CText database
             ]
     ex@BiosphereExchange{bioAmount = amt, bioLocation = loc} -> do
         flow <- M.lookup (exchangeFlowId ex) (sdbBioFlows db)

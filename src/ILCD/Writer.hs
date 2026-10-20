@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -50,6 +51,7 @@ module ILCD.Writer (
     writeILCDArchive,
     ilcdFiles,
     checkILCDExportable,
+    checkILCDSuppliers,
     exportedFlows,
 
     -- * Pure helpers (exported for testing)
@@ -70,6 +72,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Either (lefts)
 import Data.Indexing (repeated)
 import Data.List (sortOn)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -81,6 +84,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.FilePath (joinPath, splitDirectories, (</>))
 
 import Amount (readAmount)
+import Database.ExportSupplier (Dependencies, Maker (..), boughtShared, clashing, makerOf, noDependencies, sharedProducts)
 import EcoSpold.Common (showFFloatTrim)
 import Types
 import Zip (zipFiles)
@@ -92,14 +96,16 @@ import Zip (zipFiles)
 {- | Knobs that pin or omit volatile metadata. Defaults omit everything
 volatile, so a write→parse→write round-trip is byte-stable.
 -}
-newtype WriteOptions = WriteOptions
+data WriteOptions = WriteOptions
     { woGenerator :: Maybe Text
     -- ^ Pinned generator / tool-version string. 'Nothing' omits it.
+    , woDependencies :: Dependencies
+    -- ^ What the inputs buy from the databases this one depends on, which ILCD cannot name.
     }
 
 -- | Omit all volatile metadata. The right default for reproducible exports.
 defaultWriteOptions :: WriteOptions
-defaultWriteOptions = WriteOptions{woGenerator = Nothing}
+defaultWriteOptions = WriteOptions{woGenerator = Nothing, woDependencies = noDependencies}
 
 --------------------------------------------------------------------------------
 -- Process dataset identity
@@ -172,12 +178,22 @@ ilcdFiles :: WriteOptions -> SimpleDatabase -> [(FilePath, BS.ByteString)]
 ilcdFiles opts db = sortOn fst (processes ++ flows ++ flowProps ++ unitGroups)
   where
     shared = sharedActivityUUIDs db
+    sharedProduct = sharedProducts db
 
     processes =
-        [ ("processes/" <> uuidStr dsUUID <> ".xml", render (processXML opts dsUUID act))
+        [ ("processes/" <> uuidStr dsUUID <> ".xml", render (processXML opts dsUUID (placed pair) act))
         | (pair, act) <- M.toAscList (sdbActivities db)
         , let dsUUID = ilcdProcessUUID shared pair
         ]
+
+    {- An input of a product several processes of the package make states where
+    its maker is, which is the one thing the reader tells makers apart by;
+    'checkILCDSuppliers' has made sure no two of them are at one place. -}
+    placed :: (UUID, UUID) -> Int -> Exchange -> Exchange
+    placed pair i ex = case (ex, makerOf (woDependencies opts) db pair i ex) of
+        (TechnosphereExchange{techFlowId = flow}, InFile maker)
+            | S.member flow sharedProduct -> ex{techLocation = readExchangeLocation (activityLocation maker)}
+        _ -> ex
 
     flows =
         [ ("flows/" <> uuidStr (flowKindId fk) <> ".xml", render (flowXML fk unitRef))
@@ -304,7 +320,7 @@ export guard's 'Left' without touching disk.
 -}
 writeILCDDatabase :: WriteOptions -> FilePath -> SimpleDatabase -> IO (Either Text ())
 writeILCDDatabase opts dir db =
-    case checkILCDExportable db of
+    case checkILCDExportable db >> checkILCDSuppliers opts db of
         Left err -> pure (Left err)
         Right () -> do
             createDirectoryIfMissing True (dir </> "processes")
@@ -324,7 +340,57 @@ database the format cannot represent faithfully, so an unguarded caller cannot
 silently emit a corrupt archive.
 -}
 writeILCDArchive :: WriteOptions -> SimpleDatabase -> Either Text BL.ByteString
-writeILCDArchive opts db = checkILCDExportable db >> pure (zipFiles (ilcdFiles opts db))
+writeILCDArchive opts db = checkILCDExportable db >> checkILCDSuppliers opts db >> pure (zipFiles (ilcdFiles opts db))
+
+{- | Guard an ILCD export against inputs whose supplier a re-import would not find.
+
+An ILCD exchange names a flow and, at most, a location: never the process
+making it. A supplier in another database, or a link to a process the package
+does not hold, therefore cannot be written at all, which EcoSpold 1 refuses
+alike. Within the package, a product two processes make is told apart by the
+location its input states, so two of its makers at one place, or one at none,
+cannot be either.
+-}
+checkILCDSuppliers :: WriteOptions -> SimpleDatabase -> Either Text ()
+checkILCDSuppliers opts db =
+    case (outside, indistinct) of
+        ((consumer, product') : _, _) ->
+            Left $
+                "ILCD export cannot name the supplier of \""
+                    <> product'
+                    <> "\" bought by \""
+                    <> consumer
+                    <> "\": it is not in the exported database, and ILCD names a flow, never the process making it. "
+                    <> "EcoSpold 2 and openLCA point at the supplier itself."
+        ([], (product', why) : _) ->
+            Left $
+                "ILCD export cannot tell apart the processes making \""
+                    <> product'
+                    <> "\": "
+                    <> why
+                    <> ", and ILCD tells them apart by location alone."
+        ([], []) -> Right ()
+  where
+    flowName flow = maybe "?" tfName (M.lookup flow (sdbTechFlows db))
+    outside =
+        [ (activityName act, flowName (techFlowId ex))
+        | (pair, act) <- M.toList (sdbActivities db)
+        , (i, ex@TechnosphereExchange{}) <- zip [0 ..] (exchanges act)
+        , isOutside (makerOf (woDependencies opts) db pair i ex)
+        ]
+    isOutside = \case
+        InDependency _ -> True
+        Dangling _ -> True
+        InFile _ -> False
+        NoLink -> False
+    indistinct =
+        [ (flowName flow, why)
+        | (flow, makers) <- boughtShared db
+        , why <-
+            take 1 $
+                ["\"" <> activityName a <> "\" states no location" | a <- NE.toList makers, T.null (T.strip (activityLocation a))]
+                    ++ ["two of them are at " <> activityLocation a | a <- map NE.head (clashing activityLocation makers)]
+        ]
 
 --------------------------------------------------------------------------------
 -- Flow enumeration (tech ∪ bio ∪ waste), tagged with their unit id
@@ -369,8 +435,8 @@ several products may share. The reference exchange gets @dataSetInternalID@
 matching @referenceToReferenceFlow@; remaining exchanges follow in their list
 order, so the parser reads them back in the same order it would re-serialize.
 -}
-processXML :: WriteOptions -> UUID -> Activity -> [Text]
-processXML opts dsUUID act =
+processXML :: WriteOptions -> UUID -> (Int -> Exchange -> Exchange) -> Activity -> [Text]
+processXML opts dsUUID placed act =
     [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
     , "<processDataSet xmlns=\"http://lca.jrc.it/ILCD/Process\" xmlns:common=\"http://lca.jrc.it/ILCD/Common\">"
     , "  <processInformation>"
@@ -401,7 +467,7 @@ processXML opts dsUUID act =
     -- the (first) reference exchange. When none is marked, emit a sentinel past
     -- the last internalID so the parser's findRefExchange matches no exchange
     -- and preserves the "no reference" state instead of fabricating one at 0.
-    indexedExchanges = zip [0 ..] (exchanges act)
+    indexedExchanges = zipWith (\i ex -> (i, placed i ex)) [0 ..] (exchanges act)
     refIdx :: Int
     refIdx = case [i | (i, ex) <- indexedExchanges, exchangeIsReference ex] of
         (i : _) -> i

@@ -314,6 +314,20 @@
 
 ### Fixed
 
+- A database exported as SimaPro CSV or as a Brightway workbook comes back
+  buying each input from the same supplier. An input bought from a database
+  it depends on was written as the bare product, so the re-import bought a
+  global or a production process in place of the market at the place the
+  engine had linked; and when several activities of the file make one
+  product (fourteen cotton farms all making seed cotton), every buyer came
+  back on the first of them. Uploaded again on the same background, a
+  cotton database scored up to 700 times off on toxicity. Both formats now
+  name the supplier's activity and location on the row, as their own
+  readers expect. An ILCD export, which can name a product and a location
+  but never the process making it, refuses an input bought from a
+  dependency, as EcoSpold 1 already did, and two makers of one product at
+  one place; EcoSpold 2 and openLCA, which point at the supplier itself,
+  export it exactly.
 - A method read from openLCA impact categories characterizes emissions. openLCA
   files a factor under "Emission to air", in the singular, which the engine did
   not read as air, so every emission factor was dropped and only resources
