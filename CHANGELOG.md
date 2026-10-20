@@ -304,6 +304,11 @@
 
 ### Fixed
 
+- Emissions of mecoprop-P count in the EF 3.1 human toxicity categories. The
+  adapted method gives the enantiomer an ecotoxicity factor of its own but no
+  human toxicity factor, so its human toxicity scored zero. It now reads the
+  factor of mecoprop, the racemic mixture, as S-metolachlor already reads
+  metolachlor's, and keeps its own ecotoxicity factor (data version 11).
 - A method read from openLCA impact categories characterizes emissions. openLCA
   files a factor under "Emission to air", in the singular, which the engine did
   not read as air, so every emission factor was dropped and only resources
