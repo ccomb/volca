@@ -329,15 +329,6 @@ harvestOf entries =
     units :: [Unit]
     units = concatMap (pdUnits . snd) entries
 
-{- | The placeholder a declaration with no name carries.
-
-'EcoSpold.Parser2.mkUnit' writes it so that an exchange whose unit the file left
-blank still has a unit; it is not a name the file gave, so it neither displaces
-a real name nor counts as one.
--}
-isPlaceholderUnit :: Unit -> Bool
-isPlaceholderUnit u = unitName u == "UNKNOWN_UNIT"
-
 {- | The unit identifiers the files gave more than one name, with the names.
 
 The identifier is the file's own and the name is what a writer prints and what

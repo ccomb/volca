@@ -114,6 +114,7 @@ import Types (
     exchangeIsReference,
     findProcessIdByActivityUUID,
     getUnitNameForExchange,
+    isPlaceholderUnit,
     locationCode,
     mediumText,
     noDates,
@@ -250,23 +251,26 @@ its dependencies it has no row for.
 An amount to a supplier in a dependency is stated in that supplier's own unit,
 and the exchange names that unit by a row of the edited database. A database
 read from SimaPro records each amount in the base unit of its dimension, so it
-has no row for a kWh or a t*km, and writing it a link to an ecoinvent
-electricity or transport would be refused for want of one. The dependency's
+has no row for a kWh or a t*km, and writing it a link to an EcoSpold 2
+supplier sold by the kWh would be refused for want of one. The dependency's
 row is adopted instead, as its product flow already is. A unit the edited
-database names itself, under any of its spellings, keeps its own row.
+database names itself, under any of its spellings, keeps its own row, and of
+two dependencies naming one unit the first one's row is adopted, so every
+spelling keeps one row.
 -}
 editingContext :: UnitConfig -> Database -> [Database] -> AuthorContext
 editingContext cfg db deps =
-    AuthorContext{acDb = db{dbUnits = M.union (dbUnits db) adopted}, acDeps = deps, acUnitConfig = cfg}
+    AuthorContext{acDb = db{dbUnits = foldl' adopt (dbUnits db) offered}, acDeps = deps, acUnitConfig = cfg}
   where
-    known = unitIndex cfg (dbUnits db)
-    adopted =
-        M.fromList
-            [ (unitId u, u)
-            | dep <- deps
-            , u <- M.elems (dbUnits dep)
-            , all (`M.notMember` known) (spellings u)
-            ]
+    offered :: [Unit]
+    offered = [u | dep <- deps, u <- M.elems (dbUnits dep), not (isPlaceholderUnit u)]
+
+    adopt :: UnitDB -> Unit -> UnitDB
+    adopt units u
+        | any (`M.member` unitIndex cfg units) (spellings u) = units
+        | otherwise = M.insert (unitId u) u units
+
+    spellings :: Unit -> [Text]
     spellings u = [unitKey cfg key | key <- [unitSymbol u, unitName u], not (T.null (T.strip key))]
 
 {- | An authored activity that the database can accept, with the vocabulary it

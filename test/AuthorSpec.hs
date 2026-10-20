@@ -339,6 +339,16 @@ spec = do
                     ctx = editingContext defaultUnitConfig writing [built]
                 M.member kgUnitId (dbUnits (acDb ctx)) `shouldBe` False
 
+            it "adopts one row of a unit two dependencies both name" $ do
+                -- One spelling, one row: two rows for the metre would leave
+                -- which one a line names to the order of their identifiers.
+                built <- buildFixture
+                let otherMetre = (dbUnits fixtureDb M.! metreUnitId){unitId = UUID.nil}
+                    other = built{dbUnits = M.insert UUID.nil otherMetre (M.delete metreUnitId (dbUnits built))}
+                    writing = (emptyOf fixtureDb){dbUnits = M.delete metreUnitId (dbUnits fixtureDb)}
+                    units = dbUnits (acDb (editingContext defaultUnitConfig writing [built, other]))
+                (M.member metreUnitId units, M.member UUID.nil units) `shouldBe` (True, False)
+
             it "warns about a biosphere flow new to the database without refusing it" $ do
                 let authored = baseActivity{aaExchanges = [bioOf (FlowByName "Nitrous oxide" air "kg") 0.5 Nothing]}
                 case validateAuthored (contextOf fixtureDb) [authored] of
