@@ -128,6 +128,10 @@ spec = do
             let body = encode (object ["substitutions" .= [object ["from" .= ("p1" :: Text), "to" .= ("bafu::p2" :: Text)]]])
             fst <$> through asked methodPost ["api", "v1", "db", "mine", "activity", "p", "inventory"] [(hContentType, "application/json")] body `shouldReturn` 403
 
+        it "reads the body whatever the case of its content type" $ do
+            let body = encode (object ["substitutions" .= [object ["from" .= ("p1" :: Text), "to" .= ("bafu::p2" :: Text)]]])
+            fst <$> through asked methodPost ["api", "v1", "db", "mine", "activity", "p", "inventory"] [(hContentType, "Application/JSON")] body `shouldReturn` 403
+
     describe "the MCP tools" $ do
         let asked = termsOf "Terms of the dependency"
             callOn manager reader tool =
@@ -149,6 +153,11 @@ spec = do
             errorText accepted `shouldBe` Nothing
             errorText <$> callOn manager (Just "ana") "get_impacts" `shouldReturn` Nothing
             isJust . errorText <$> callOn manager (Just "bob") "get_impacts" `shouldReturn` True
+
+        it "refuse to accept the terms of a database the engine does not know" $ do
+            manager <- managerOn root dependency asked
+            reply <- callTool (Just "ana") manager [] Nothing Nothing noRequestId "accept_terms" (KM.fromList [("database", String "roto")])
+            errorText reply `shouldBe` Just "Database not found: roto"
 
         it "answer as before when nothing asks terms" $ do
             manager <- managerOn root dependency LicenceUnstated

@@ -17,6 +17,7 @@ import API.Auth (parseCookieValue)
 import Data.Aeson (Value (..), encode, object, (.=))
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
+import Data.Char (toLower)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Lazy as BL
@@ -98,7 +99,7 @@ left unread: an upload streams megabytes the route reads as they come.
 -}
 jsonBody :: Request -> IO (Maybe Value, Request)
 jsonBody req
-    | maybe False ("application/json" `BS.isPrefixOf`) (lookup hContentType (requestHeaders req)) = do
+    | maybe False (("application/json" `BS.isPrefixOf`) . C8.map toLower) (lookup hContentType (requestHeaders req)) = do
         bytes <- strictRequestBody req
         chunks <- newIORef (BL.toChunks bytes)
         let next = atomicModifyIORef' chunks (\case [] -> ([], BS.empty); c : cs -> (cs, c))

@@ -893,8 +893,11 @@ class Client:
         ``{"database", "text", "fingerprint"}``, once per text. Empty when
         nothing is asked, and against an engine older than wire revision 78.
         """
+        root = self._db(db_name)
         databases = {d.name: d for d in self.list_databases()}
-        pending, seen, terms = [db_name or self.db], set(), {}
+        if root not in databases:
+            raise VoLCAError(f"Database not found: {root}")
+        pending, seen, terms = [root], set(), {}
         while pending:
             name = pending.pop(0)
             if name in seen or name not in databases:

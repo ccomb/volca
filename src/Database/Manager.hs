@@ -795,7 +795,9 @@ data DatabaseManager = DatabaseManager
     , dmAcceptedTerms :: !(TVar (Map (Maybe Text) (S.Set Text)))
     {- ^ The fingerprints of the terms each reader accepted through the MCP
     tool, which sends no cookie. Kept in memory only: after a restart, a
-    reader is asked again.
+    reader is asked again. Callers reaching the engine without a proxy that
+    names them all share the 'Nothing' reader: such an engine serves one
+    person, or a team that accepts the terms together.
     -}
     }
 

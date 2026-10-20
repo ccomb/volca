@@ -627,7 +627,7 @@ terms is how its reader gets to read it.
 databasesOfCall :: Text -> KeyMap Value -> [Text]
 databasesOfCall name args
     | name `elem` ["load_database", "unload_database", "accept_terms"] = []
-    | otherwise = [db | key <- ["database", "database_a", "database_b", "other_database"], Just (String db) <- [KM.lookup (fromText key) args]] ++ referencedDatabases (Object args)
+    | otherwise = [db | key <- databaseArguments, Just (String db) <- [KM.lookup (fromText key) args]] ++ referencedDatabases (Object args)
 
 -- | What an assistant is told when terms are missing: the texts, and what to do with them.
 termsRefusalText :: [Terms] -> Text
@@ -642,6 +642,8 @@ termsRefusalText missing =
 callAcceptTerms :: Maybe Text -> DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callAcceptTerms reader dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
+    known <- liftIO (DM.databaseLicence dbManager dbName)
+    when (isNothing known) (throwE ("Database not found: " <> dbName))
     terms <- liftIO (DM.termsToAccept dbManager [dbName])
     liftIO (DM.acceptTerms dbManager reader terms)
     pure (toolSuccessJson rid (object ["database" .= dbName, "accepted" .= map termsDatabase terms]))
@@ -653,6 +655,10 @@ data NamedLicence = NamedLicence
     , nlLicence :: !Licence
     }
 
+-- | The arguments through which a tool names a database it reads.
+databaseArguments :: [Text]
+databaseArguments = ["database", "database_a", "database_b", "other_database"]
+
 {- | The licence of each database a call names, read once for the call. A name
 the engine does not know is left out, so its tool answers its own "not
 loaded". A tool reading two databases names the second as @other_database@,
@@ -660,7 +666,7 @@ or both sides as @database_a@ and @database_b@.
 -}
 requestedLicences :: DatabaseManager -> KeyMap Value -> IO [NamedLicence]
 requestedLicences dbManager args =
-    fmap catMaybes . forM ["database", "database_a", "database_b", "other_database"] $ \key ->
+    fmap catMaybes . forM databaseArguments $ \key ->
         case KM.lookup (fromText key) args of
             Just (String dbName) -> fmap (NamedLicence key dbName) <$> DM.databaseLicence dbManager dbName
             _ -> pure Nothing
