@@ -17,10 +17,10 @@ import API.Auth (parseCookieValue)
 import Data.Aeson (Value (..), encode, object, (.=))
 import qualified Data.Aeson as A
 import Data.ByteString (ByteString)
-import Data.Char (toLower)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Lazy as BL
+import Data.Char (toLower)
 import Data.Foldable (toList)
 import Data.IORef (atomicModifyIORef', newIORef)
 import qualified Data.Set as S
