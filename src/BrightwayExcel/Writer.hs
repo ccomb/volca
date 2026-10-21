@@ -98,7 +98,7 @@ import qualified Data.Text.Encoding as TE
 import Amount (readAmount)
 import Data.Indexing (collisions)
 import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, frozenWarnings, processExport)
-import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, madeAt, makerOf, noDependencies, unnamedWarnings)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, inDependency, madeAt, makerOf, noDependencies, unnamedWarnings)
 import EcoSpold.Common (showFFloatTrim)
 import qualified Expr
 import SubstanceRegistry (nonEmptyCAS)
@@ -156,7 +156,7 @@ renderWorkbook cfg = fmap fst . renderWorkbookWithWarnings cfg
 -- | The workbook, and what it could not write as the database holds it.
 renderWorkbookWithWarnings :: WriterConfig -> SimpleDatabase -> Either Text (BL.ByteString, [Text])
 renderWorkbookWithWarnings cfg db = do
-    checkBrightwayExportable db
+    checkBrightwayExportable (wcDependencies cfg) db
     pure
         ( zipFiles
             [ ("[Content_Types].xml", enc contentTypesXml)
@@ -165,7 +165,7 @@ renderWorkbookWithWarnings cfg db = do
             , ("xl/_rels/workbook.xml.rels", enc relsXml)
             , ("xl/worksheets/sheet1.xml", enc (sheetXml (rowsWith exported cfg db)))
             ]
-        , wasteManifest db
+        , wasteManifest (wcDependencies cfg) db
             <> unnamedWarnings (wcDependencies cfg) db
             <> frozenWarnings exported
             <> [tshow (length spreadless) <> " parameters are written without their spread, a lognormal whose mean is not the amount or a number with no finite value:" <> foldMap ("\n  " <>) (take 10 spreadless) | not (null spreadless)]
@@ -207,13 +207,14 @@ silently losing an amount-bearing exchange. This check rejects such a database a
 the export boundary instead, reporting the first offending activity and whether a
 flow or a unit is missing.
 
-Brightway also has no native waste exchange type. A 'WasteExchange' that links to
-a producer is emitted as @technosphere@ only at the cost of its sign: the matrix
-gives a waste /output/ a negative coefficient ('Database.MatrixBuild.techTriple'),
-but the re-parsed technosphere row is read back as a positive 'Input', inverting
-it. A /linked/ waste exchange is therefore rejected here. An /orphan/ waste
-exchange (no producer link) never enters the matrix, so 'exchangeRow' instead
-best-efforts it as technosphere and 'wasteManifest' reports it.
+Brightway also has no native waste exchange type. A waste sent to a treatment
+of a dependency is written as a @technosphere@ row naming that treatment, its
+amount times the sign of the treatment's reference: -3 kg to a treatment giving
+out -1 kg, as Brightway writes it, and +3 kg to one taking in +1 kg; either reads
+back as 3 kg treated. A waste linked to a treatment of the file itself is
+rejected here: the row would read back as a purchase of the waste, inverting
+it. An /orphan/ waste exchange (no treatment at all) never enters the matrix,
+so 'exchangeRow' best-efforts it as technosphere and 'wasteManifest' reports it.
 
 A biosphere exchange's 'BioDirection' is likewise never written: the parser
 re-derives it from the @categories@ compartment, reading 'Resource' only for
@@ -230,32 +231,44 @@ Two products spelt alike in different units are rejected ('productsSpeltAlike'):
 the file names a product by its name, and the reader would refuse to read them
 back as one.
 
-Databases whose exchanges all resolve, carry no linked waste, keep every resource
+Databases whose exchanges all resolve, send no waste to a treatment of the file, keep every resource
 direction recoverable, name no two products alike in different units, and whose
 amounts all re-parse pass unchanged.
 -}
 
-{- | A waste exchange with no producer link: matrix-invisible, so 'exchangeRow'
-rewrites it as a technosphere flow (best-effort) rather than rejecting it.
--}
-orphanWaste :: Exchange -> Bool
-orphanWaste ex = isWasteExchange ex && not (linkedWaste ex)
+-- | Where a waste exchange is treated, which decides how a workbook can write it.
+data WasteFate = TreatedInDependency | TreatedInFile | Untreated
+    deriving (Eq)
+
+-- | The names of the activities with a waste exchange of this fate.
+activitiesWithWaste :: Dependencies -> SimpleDatabase -> WasteFate -> [Text]
+activitiesWithWaste deps db fate =
+    [ activityName act
+    | (key, act) <- M.toList (sdbActivities db)
+    , any (\iex@(_, ex) -> isWasteExchange ex && fateOf (maker key iex) ex == fate) (zip [0 ..] (exchanges act))
+    ]
+  where
+    maker = makerOf deps db
+    fateOf m ex
+        | inDependency m = TreatedInDependency
+        | linkedWaste ex = TreatedInFile
+        | otherwise = Untreated
 
 {- | Best-effort export note for a database with /orphan/ waste exchanges –
 waste rows that name no producer at all. Brightway has no waste
 type, so 'exchangeRow' writes each as a technosphere flow. Such an exchange never
 participates in the technosphere matrix ('Database.MatrixBuild.findProducer'
 returns 'Nothing'), so the rewrite is inventory-neutral; only the waste
-classification is lost on re-import. (A /linked/ waste exchange would invert its
-sign and is rejected by 'checkBrightwayExportable', so it never reaches here.)
+classification is lost on re-import. (A waste linked to a treatment of the file
+would invert its sign and is rejected by 'checkBrightwayExportable'.)
 Report which activities are affected so the loss is never silent.
 -}
-wasteManifest :: SimpleDatabase -> [Text]
-wasteManifest db = case wasteActs of
+wasteManifest :: Dependencies -> SimpleDatabase -> [Text]
+wasteManifest deps db = case wasteActs of
     [] -> []
     _ -> [summary]
   where
-    wasteActs = [activityName a | a <- M.elems (sdbActivities db), any orphanWaste (exchanges a)]
+    wasteActs = activitiesWithWaste deps db Untreated
     summary =
         tshow (length wasteActs)
             <> " activit"
@@ -267,8 +280,8 @@ wasteManifest db = case wasteActs of
             <> T.intercalate ", " (take 10 wasteActs)
             <> (if length wasteActs > 10 then ", … and " <> tshow (length wasteActs - 10) <> " more" else "")
 
-checkBrightwayExportable :: SimpleDatabase -> Either Text ()
-checkBrightwayExportable db =
+checkBrightwayExportable :: Dependencies -> SimpleDatabase -> Either Text ()
+checkBrightwayExportable deps db =
     case catMaybes
         [ flowMsg <$> listToMaybe flowOffenders
         , unitMsg <$> listToMaybe unitOffenders
@@ -288,7 +301,7 @@ checkBrightwayExportable db =
     unitMsg consumer = cannot consumer <> "an exchange references a unit absent from the registry."
     wasteMsg consumer =
         cannot consumer
-            <> "a waste exchange links to a producer; Brightway has no waste type,"
+            <> "a waste exchange links to a treatment of the file; Brightway has no waste type,"
             <> " and rewriting it as a technosphere flow would invert its sign on re-import."
     refInputMsg consumer =
         cannot consumer
@@ -333,7 +346,7 @@ checkBrightwayExportable db =
         [activityName act | act <- M.elems (sdbActivities db), any p (exchanges act)]
     flowOffenders = activitiesWith (not . flowResolvable db)
     unitOffenders = activitiesWith (\ex -> M.notMember (exchangeUnitId ex) (sdbUnits db))
-    wasteOffenders = activitiesWith linkedWaste
+    wasteOffenders = activitiesWithWaste deps db TreatedInFile
     refInputOffenders = activitiesWith isReferenceInput
     directionOffenders = activitiesWith (resourceDirectionLost db)
     roundTripOffenders =
@@ -642,21 +655,24 @@ exchangeRow cfg db maker = \case
     ex@WasteExchange{waAmount = amt, waLocation = loc} -> do
         name <- flowNameOf db ex
         unit <- unitNameOf (exchangeUnitId ex) db
-        -- Best-effort: Brightway has no waste type. Only orphan waste reaches here
-        -- ('checkBrightwayExportable' rejects linked waste, which would sign-invert),
-        -- and an orphan waste exchange never enters the technosphere matrix, so
-        -- writing it as a technosphere flow is inventory-neutral; only the waste
-        -- classification is lost on re-import. 'wasteManifest' reports the activities.
+        -- Brightway has no waste type. A waste a dependency treats is a row
+        -- naming the treatment, signed as its reference ('checkBrightwayExportable').
+        -- Any other reaching here is an orphan, which never enters the technosphere
+        -- matrix: written as a technosphere flow it is inventory-neutral, and only
+        -- the waste classification is lost on re-import. 'wasteManifest' reports it.
+        let (supplier, amount, location, database) = case maker of
+                InDependency e -> (elActivity e, amt * elReferenceSign e, elLocation e, elDatabase e)
+                _ -> (name, amt, locationCode loc, wcDatabaseName cfg)
         Just
-            [ CText name
-            , CNum amt
+            [ CText supplier
+            , CNum amount
             , CText name
-            , locCell (locationCode loc)
+            , locCell location
             , CText unit
             , CEmpty
             , CText "technosphere"
             , commentCell (waComment ex)
-            , CText (wcDatabaseName cfg)
+            , CText database
             , CEmpty
             ]
   where

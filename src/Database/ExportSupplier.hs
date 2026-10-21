@@ -19,6 +19,7 @@ module Database.ExportSupplier (
     dependenciesOf,
     Maker (..),
     makerOf,
+    inDependency,
     madeAt,
     namedProducts,
     boughtShared,
@@ -106,7 +107,8 @@ data Maker
       NoLink
 
 {- | The supplier of the exchange at this place of this consumer. An avoided
-product names what it stands in for the same way an input names what it buys.
+product names what it stands in for the same way an input names what it buys,
+and a waste sent to a treatment of a dependency names that treatment.
 Applied to a database once, it works out the products named by their maker
 once.
 -}
@@ -121,9 +123,20 @@ makerOf (Dependencies deps) db = \(act, prod) (position, ex) -> case ex of
         | buys role, Just supplier <- link -> Dangling supplier
         | otherwise -> NoLink
     BiosphereExchange{} -> NoLink
+    WasteExchange{waIsInput = False}
+        | Just e <- M.lookup (act, prod, position) deps -> InDependency e
     WasteExchange{} -> NoLink
   where
     named = namedProducts db
+
+-- | Whether a dependency supplies the exchange.
+inDependency :: Maker -> Bool
+inDependency = \case
+    InDependency _ -> True
+    SoleMaker _ -> False
+    OneOfMakers _ -> False
+    Dangling _ -> False
+    NoLink -> False
 
 -- | The roles that stand for a product some supplier makes.
 buys :: TechRole -> Bool

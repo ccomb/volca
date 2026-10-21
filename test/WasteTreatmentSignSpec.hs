@@ -24,7 +24,9 @@ every case: treating waste adds burden, it never subtracts it.
 module WasteTreatmentSignSpec (spec) where
 
 import API.Types (Aggregation (..), ExchangeWithUnit (..), SupplyChainEntry (..), SupplyChainResponse (..))
+import qualified BrightwayExcel.Writer as BE
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 import Data.List (elemIndex)
 import qualified Data.Map as M
 import qualified Data.Map.Strict as MS
@@ -36,13 +38,14 @@ import qualified Data.Vector as V
 import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Cutoffs (gapIndexOf)
-import Database.Loader (defaultLoadOptions, findAllCrossDBLinks, loadSimaProCSV)
+import Database.ExportSupplier (Dependencies (..), Elsewhere (..), noDependencies)
+import Database.Loader (defaultLoadOptions, findAllCrossDBLinks, loadDatabase, loadSimaProCSV)
 import Matrix (computeInventoryMatrix, computeScalingVector)
 import OlcaPackageFixture (throughPackage)
 import Service (ActivityFilterCore (..), Edges (..), SupplyChainFilter (..), buildCrossDBLinkMap, buildSupplyChainFromScalingVector, toExchangeWithUnit)
 import qualified Service.Aggregate as Agg
 import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached)
-import SimaPro.Writer (defaultWriterConfig, serializeSimaProCSV)
+import qualified SimaPro.Writer as SP
 import SynonymDB (emptySynonymDB)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
@@ -56,7 +59,7 @@ mkUUID :: String -> UUID
 mkUUID s = fromMaybe UUID.nil (UUID.fromString s)
 
 -- Shared identifiers.
-kgU, gU, sU, co2, wW, yY, tA, pA :: UUID
+kgU, gU, sU, co2, wW, yY, tA, tB, pA :: UUID
 kgU = mkUUID "66666666-6666-6666-6666-666666666666"
 gU = mkUUID "66666666-6666-6666-6666-666666666667"
 sU = mkUUID "66666666-6666-6666-6666-666666666668"
@@ -64,6 +67,7 @@ co2 = mkUUID "55555555-5555-5555-5555-555555555555"
 wW = mkUUID "22222222-2222-2222-2222-222222222222"
 yY = mkUUID "44444444-4444-4444-4444-444444444444"
 tA = mkUUID "11111111-1111-1111-1111-111111111111"
+tB = mkUUID "11111111-1111-1111-1111-111111111112"
 pA = mkUUID "33333333-3333-3333-3333-333333333333"
 
 emptyActivity :: Activity
@@ -353,20 +357,51 @@ written as a SimaPro file, read back as the engine reads one, linked to the trea
 and scored.
 -}
 scoreThroughSimaPro :: IO Double
-scoreThroughSimaPro = do
-    bytes <- either (fail . T.unpack) pure (serializeSimaProCSV defaultWriterConfig (simpleDB (M.singleton (pA, yY) (producer (wasteEx False (Just tA) 3.0)))))
-    back <- withSystemTempFile "waste-sign.csv" $ \path h -> do
-        BS.hPut h bytes
-        hClose h
-        either (fail . T.unpack) pure =<< loadSimaProCSV (defaultLoadOptions defaultUnitConfig) path
+scoreThroughSimaPro =
+    scoreReadBack (throughSimaPro noDependencies) (producer (wasteEx False (Just tA) 3.0)) (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
+
+{- | The producer sending 3 kg of waste to the second of two treatments of a
+dependency, through a format naming suppliers: it has to come back to that one.
+-}
+scoreSentToSecond :: (Dependencies -> SimpleDatabase -> IO SimpleDatabase) -> TechRole -> Double -> IO Double
+scoreSentToSecond through role refAmount =
+    scoreReadBack
+        (through (Dependencies (M.singleton (pA, yY, 1) (Elsewhere "eco-dep" "incineration of waste W" "GLO" (signum refAmount)))))
+        (producer (wasteEx False Nothing 3.0))
+        ( M.fromList
+            [ ((tA, wW), treatment role refAmount)
+            , ((tB, wW), (treatment role refAmount){activityName = "incineration of waste W", exchanges = [techEx wW refAmount role Nothing, co2Emission 5.0]})
+            ]
+        )
+
+-- | A producer of Y written in a format, read back, linked to a dependency holding these treatments, and scored.
+scoreReadBack :: (SimpleDatabase -> IO SimpleDatabase) -> Activity -> M.Map (UUID, UUID) Activity -> IO Double
+scoreReadBack through root treatments = do
+    back <- through (simpleDB (M.singleton (pA, yY) root))
     rootBase <- buildSimple "root" back
-    depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
+    depDB <- buildDB "eco-dep" treatments
     let ctx = (ctxWithDep "eco-dep" depDB){lcGeographyPolicy = GeoGlobal}
         links = cdlLinks (findAllCrossDBLinks ctx (sdbReferenceConvention back) (sdbTechFlows back) (sdbWasteFlows back) (sdbUnits back) (sdbActivities back))
         rootDB = rootBase{dbCrossDBLinks = links}
     case [fromIntegral i | (i, act) <- zip [0 :: Int ..] (V.toList (dbActivities rootDB)), activityName act == "producer of Y"] of
         [pid] -> scoreAcross rootDB "eco-dep" depDB pid
         found -> fail ("expected one producer read back, got " <> show (length found))
+
+throughSimaPro :: Dependencies -> SimpleDatabase -> IO SimpleDatabase
+throughSimaPro deps sdb = do
+    bytes <- either (fail . T.unpack) pure (SP.serializeSimaProCSV SP.defaultWriterConfig{SP.wcDependencies = deps} sdb)
+    withSystemTempFile "waste-sign.csv" $ \path h -> do
+        BS.hPut h bytes
+        hClose h
+        either (fail . T.unpack) pure =<< loadSimaProCSV (defaultLoadOptions defaultUnitConfig) path
+
+throughBrightway :: Dependencies -> SimpleDatabase -> IO SimpleDatabase
+throughBrightway deps sdb = do
+    bytes <- either (fail . T.unpack) pure (BE.renderWorkbook BE.defaultWriterConfig{BE.wcDependencies = deps} sdb)
+    withSystemTempFile "waste-sign.xlsx" $ \path h -> do
+        BL.hPut h bytes
+        hClose h
+        either (fail . T.unpack) pure =<< loadDatabase defaultUnitConfig path
 
 spec :: Spec
 spec = describe "Waste-treatment scoring sign across reference conventions" $ do
@@ -496,6 +531,19 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
     it "a waste output sent to an ecoinvent treatment and written as a SimaPro file still scores +6" $ do
         score <- scoreThroughSimaPro
         withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    -- By its product alone the waste would come back to the first treatment, at 2 kg CO2 a kg.
+    it "a waste sent to the second of two treatments of a dependency comes back to it through SimaPro" $ do
+        score <- scoreSentToSecond throughSimaPro ReferenceProduct (-1.0)
+        withinTolerance 1.0e-9 15.0 score `shouldBe` True
+
+    it "a waste sent to the second of two treatments of a dependency comes back to it through Brightway" $ do
+        score <- scoreSentToSecond throughBrightway ReferenceProduct (-1.0)
+        withinTolerance 1.0e-9 15.0 score `shouldBe` True
+
+    it "a waste sent to a treatment taking in its waste comes back charged through Brightway" $ do
+        score <- scoreSentToSecond throughBrightway ReferenceInput 1.0
+        withinTolerance 1.0e-9 15.0 score `shouldBe` True
 
     it "a database keeps how it reads a negative reference through the cache" $ do
         db <- buildDB "cached" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))

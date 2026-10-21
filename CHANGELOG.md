@@ -358,6 +358,14 @@
   now says which way it writes its treatments, and an input crossing to the
   other way takes the treatment's sign. A database saved in the cache before
   this is read again from its files once.
+- A SimaPro export names the treatment each waste goes to in a dependency,
+  as it names the supplier of an input: by the waste alone it was read back
+  sent to whichever treatment of that waste came first, a market for
+  wastewater instead of its treatment, or an incineration without energy
+  recovery instead of one with it. A Brightway export, which refused such a
+  waste, now writes it as a row naming the treatment, signed as the
+  treatment's reference: -3 kg to a treatment giving out -1 kg, +3 kg to one
+  taking in +1 kg.
 - Finalizing a database relinked with a mapping, before it was finalized,
   keeps the links the mapping made, and so does adding or removing one of
   its dependencies in between. Both relinked the database without the
