@@ -46,6 +46,7 @@ import Text.Printf (printf)
 import UnitConversion (UnitConfig)
 import qualified Xeno.SAX as X
 
+import Database.Upload (DatabaseFormat (..), referenceConventionOf)
 import EcoSpold.Common (bsToText, decodeNumericRefs, decodeXmlEntities, distributeFiles, isElement)
 import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles, readILCDFile)
 import Method.FlowResolver (ILCDFlowInfo (..), parseFlowDirectory)
@@ -142,7 +143,7 @@ parseILCDDirectory unitConfig key dir = runExceptT $ do
     literature <- ExceptT $ parseSources (dir </> "sources")
 
     -- Step 6: Fix supplier links (name-based, like SimaPro)
-    let simpleDb = SimpleDatabase activityMap techFlowDB bioFlowDB wasteFlowDB unitDB noDocumentation{dbdocLiterature = literature} M.empty [] PositiveReferences
+    let simpleDb = SimpleDatabase activityMap techFlowDB bioFlowDB wasteFlowDB unitDB noDocumentation{dbdocLiterature = literature} M.empty [] (referenceConventionOf ILCDProcess)
     fixedDb <- liftIO $ fixILCDActivityLinks simpleDb
     liftIO $
         reportProgress Info $

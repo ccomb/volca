@@ -285,7 +285,6 @@ import SubstanceRegistry (CASNumber (..), KeyNormalizers (..), NormName (..), Su
 import SynonymDB (BridgeDirection (..), SynEdge (..), SynonymDB (..), buildFromCSV, emptySynonymDB, excludeJunkSynonyms, excludeOverFrequentSynonyms, loadFromCSVFileWithCache, mergeSynonymDBs, normalizeName, oversizedClasses, reopenedBridges, synonymCount, uncoveredUnitSuffixes)
 import Types (
     Activity,
-    ActivityMap,
     AllocationKey (..),
     AttributeFallback (..),
     BioFlowDB,
@@ -3011,25 +3010,11 @@ relinkPlan RelinkInputs{..} =
         , roCacheChanged = linksChanged || depsChanged
         }
   where
-    activityMap :: ActivityMap
-    activityMap =
-        M.fromList
-            [ (dbProcessIdTable riDatabase V.! i, dbActivities riDatabase V.! i)
-            | i <- [0 .. V.length (dbActivities riDatabase) - 1]
-            ]
+    simple :: SimpleDatabase
+    simple = toSimpleDatabase riDatabase
 
     newStats :: CrossDBLinkingStats
-    newStats =
-        ( Loader.findAllCrossDBLinks
-            riContext
-            (dbReferenceConvention riDatabase)
-            (dbTechFlows riDatabase)
-            (dbWasteFlows riDatabase)
-            (dbUnits riDatabase)
-            activityMap
-        )
-            { cdlTotalInputs = Loader.countTotalTechInputs (toSimpleDatabase riDatabase)
-            }
+    newStats = (Loader.findAllCrossDBLinks riContext simple){cdlTotalInputs = Loader.countTotalTechInputs simple}
 
     newLinks :: [CrossDBLink]
     newLinks = cdlLinks newStats

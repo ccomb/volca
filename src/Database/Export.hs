@@ -37,7 +37,7 @@ import qualified BrightwayExcel.Writer as BE
 import Database.ExportFormulas (valuesOnly)
 import Database.ExportSupplier (Dependencies (..), Elsewhere (..))
 import Database.Loader (lineInLinkUnit)
-import Database.Upload (DatabaseFormat (..))
+import Database.Upload (DatabaseFormat (..), referenceConventionOf)
 import qualified EcoSpold.Writer1 as ES1
 import qualified EcoSpold.Writer2 as ES2
 import qualified ILCD.Writer as ILCD
@@ -61,6 +61,7 @@ import Types (
     SimpleDatabase (..),
     TechnosphereFlow (..),
     Unit (..),
+    signFactor,
     toSimpleDatabase,
  )
 import UnitConversion (UnitConfig)
@@ -110,7 +111,7 @@ serializeDatabase units fmt saved dependencies db = fmap (fmap (linkWarnings <>)
         Left "cannot export to an unknown format"
   where
     (sdb, linkWarnings) = case dependencies of
-        Right deps -> namedAfterLinks units (writtenConvention fmt) deps (dbCrossDBLinks db) (toSimpleDatabase db)
+        Right deps -> namedAfterLinks units (referenceConventionOf fmt) deps (dbCrossDBLinks db) (toSimpleDatabase db)
         Left _ -> (toSimpleDatabase db, ["The inputs supplied by other databases are written as their source named them: not all their suppliers could be worked out." | not (null (dbCrossDBLinks db))])
     -- These writers write no parameter: what they write as values is said.
     valuesOnlyWith own = fmap (,own <> valuesOnly sdb)
@@ -146,7 +147,7 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
         (before, line@TechnosphereExchange{techFlowId = flow, techAmount = amount, techUnitId = unit, techFormula = formula} : after) <- Just (splitAt position (exchanges activity))
         consumerFlow <- if flow == cdlConsumerFlowId link then M.lookup flow (sdbTechFlows sdb) else Nothing
         let bridged = isNothing (lineInLinkUnit units (sdbUnits sdb) line (cdlExchangeUnit link))
-            turned = if target == sdbReferenceConvention sdb then 1 else elReferenceSign supplier
+            turned = if target == sdbReferenceConvention sdb then 1 else signFactor (elReferenceSign supplier)
             linkUnit = fromMaybe (newUnit (cdlExchangeUnit link)) (find ((== cdlExchangeUnit link) . unitName) (M.elems (sdbUnits sdb)))
             -- The consumer's own unit: the supplier's lives in another database's table.
             supplied =
@@ -186,17 +187,6 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
 
     newUnit :: Text -> Unit
     newUnit name = Unit{unitId = generateUnitUUID name, unitName = name, unitSymbol = name, unitComment = ""}
-
--- | How a format's reader will read a line sent to a treatment, as the readers set it.
-writtenConvention :: DatabaseFormat -> ReferenceConvention
-writtenConvention SimaProCSV = PositiveReferences
-writtenConvention EcoSpold1 = PositiveReferences
-writtenConvention ILCDProcess = PositiveReferences
-writtenConvention EcoSpold2 = SignedReferences
-writtenConvention OpenLcaPackage = SignedReferences
-writtenConvention OpenLcaImpactCategory = SignedReferences
-writtenConvention BrightwayExcel = SignedReferences
-writtenConvention UnknownFormat = SignedReferences
 
 {- | Export targets for a method collection – a space of its own, not
 'DatabaseFormat': most database formats carry no method writer, and method

@@ -9,6 +9,7 @@ import qualified Data.UUID as UUID
 import Database.CrossLinking
 import SynonymDB (emptySynonymDB)
 import Test.Hspec
+import Types (ReferenceSign (..))
 import qualified UnitConversion as UC
 
 {- | Unit tests for the exact-match cross-DB waste-treatment linkers.
@@ -32,7 +33,7 @@ spec = describe "Cross-DB waste-treatment matching" $ do
                 , seUnit = "kg"
                 , seProductName = nm
                 , seActivityName = "treatment of " <> nm
-                , seRefSign = 1.0
+                , seRefSign = PositiveReference
                 }
 
         idbWith :: Text -> [(UUID.UUID, SupplierEntry)] -> [(Text, SupplierEntry)] -> IndexedDatabase

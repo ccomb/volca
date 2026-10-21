@@ -106,7 +106,7 @@ spec = describe "Database.Export dispatcher" $ do
             said `shouldSatisfy` any (T.isInfixOf "formula")
 
         it "changes sign, and says its formula is dropped, when the format reads a line sent to a treatment the other way" $ do
-            let treatment = grid{elReferenceSign = -1}
+            let treatment = grid{elReferenceSign = NegativeReference}
                 (positive, said) = namedAfterLinks energyUnits PositiveReferences (suppliers [(1, treatment)]) [linkAt 1 gridAct 1 "MJ"] spinning
                 (signed, _) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, treatment)]) [linkAt 1 gridAct 1 "MJ"] spinning
             (\ex -> (techAmount ex, isNothing (techFormula ex))) (lineAt 1 positive) `shouldBe` (-33.336, True)
@@ -257,7 +257,7 @@ spinning =
         ]
 
 grid :: Elsewhere
-grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = 1}
+grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = PositiveReference}
 
 -- | The suppliers of the spinning lines at these positions.
 suppliers :: [(Int, Elsewhere)] -> Dependencies

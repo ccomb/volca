@@ -41,8 +41,7 @@ data Elsewhere = Elsewhere
     { elDatabase :: !Text
     , elActivity :: !Text
     , elLocation :: !Text
-    , elReferenceSign :: !Double
-    -- ^ Sign of its reference amount: -1 for a treatment written as giving out its waste
+    , elReferenceSign :: !ReferenceSign
     }
     deriving (Eq, Show)
 

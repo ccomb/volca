@@ -155,7 +155,7 @@ withGrams = mergeUnitConfigs [defaultUnitConfig, mkUnitConfig defaultDimensionOr
 
 runLinks :: SimpleDatabase -> [IndexedDatabase] -> CrossDBLinkingStats
 runLinks fg idbs =
-    findAllCrossDBLinks (ctxFor idbs) (sdbReferenceConvention fg) (sdbTechFlows fg) (sdbWasteFlows fg) (sdbUnits fg) (sdbActivities fg)
+    findAllCrossDBLinks (ctxFor idbs) fg
 
 indexBg :: SimpleDatabase -> IndexedDatabase
 indexBg = buildIndexedDatabase "bg" emptySynonymDB
