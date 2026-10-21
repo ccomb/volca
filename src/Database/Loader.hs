@@ -78,6 +78,7 @@ module Database.Loader (
 
     -- * Reporting
     reportCrossDBLinkingStats,
+    lineInLinkUnit,
 
     -- * Internal (exposed for testing)
     normalizeText,

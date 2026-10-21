@@ -344,6 +344,16 @@
   one, and a single word reads as a parameter name worth 0: the whole
   treatment, its emissions and its inputs, was scored at 0 %. In that section
   only a plain number is now read as an allocation.
+- A database relinked onto another background exports under the products it
+  is linked to. An input written « market group for electricity, medium
+  voltage » and linked by a relink mapping to « Electricity, medium voltage,
+  at grid » was exported under its first name, and read back beside the new
+  background it linked to nothing. Every format now writes the supplier's
+  product, and EcoSpold 2 and openLCA point at the supplier itself; a line
+  whose mapping converted between two measures is written in the supplier's
+  unit, its amount converted. Eight textile process steps relinked this way,
+  exported as SimaPro or Brightway and uploaded again beside the new
+  background alone, give the same score on every activity.
 - A method read from openLCA impact categories characterizes emissions. openLCA
   files a factor under "Emission to air", in the singular, which the engine did
   not read as air, so every emission factor was dropped and only resources
