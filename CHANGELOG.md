@@ -4,6 +4,13 @@
 
 ### Added
 
+- A unit table downloads as the CSV the engine reads
+  (`GET /units/{name}/download`), the built-in "Default units" included,
+  as a synonym table already could. A script converting kg to g or m3 to l
+  no longer keeps its own copy of the factors. pyvolca reads it with
+  `download_units()`, and `unit_table()` returns each unit's measure and
+  factor. Wire revision 81.
+
 - A change made to a database of one's own can say why, in a note: every
   write (activities written, rewritten or deleted, exchanges edited,
   database parameters changed, changes applied from a comparison) takes an

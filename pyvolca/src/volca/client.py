@@ -39,6 +39,8 @@ endpoints that have POST-with-substitutions variants in the Servant API.
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import urllib.parse
 import uuid
@@ -51,6 +53,7 @@ from typing import Any, Iterable, Literal, Sequence, get_args
 import requests
 
 from .types import (
+    UnitDefinition,
     Activity,
     ActivityComparison,
     ActivityDetail,
@@ -3438,6 +3441,32 @@ class Client:
                 body=resp.text,
             )
         return resp.content
+
+    def download_units(self, name: str) -> bytes:
+        """Download a unit table as its raw CSV bytes.
+
+        Raises VoLCAError on an HTTP error (e.g. the table does not exist).
+        """
+        resp = self._session.get(
+            f"{self.base_url}/api/v1/units/{urllib.parse.quote(name, safe='')}/download"
+        )
+        if resp.status_code >= 400:
+            raise VoLCAError(
+                f"download_units failed (HTTP {resp.status_code}): "
+                f"{resp.text[:500]}",
+                status_code=resp.status_code,
+                body=resp.text,
+            )
+        return resp.content
+
+    def unit_table(self, name: str = "Default units") -> dict[str, UnitDefinition]:
+        """A unit table read into a dict, keyed by each unit as the table writes it.
+
+        The engine also reads a unit written in another case or spacing; this
+        dict holds only the spellings the table lists.
+        """
+        rows = csv.DictReader(io.StringIO(self.download_units(name).decode("utf-8")))
+        return {r["name"]: UnitDefinition(r["dimension"], float(r["factor"])) for r in rows}
 
     # -- Flow, method & instance detail --
 

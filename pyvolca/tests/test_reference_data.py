@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from volca import UnitDefinition
 from volca.client import Client, VoLCAError
 
 
@@ -74,6 +75,18 @@ class TestSynonymExtras:
         out = client.download_flow_synonyms("pubchem")
         assert out == b"source,target\nwater,H2O\n"
         assert session.get.call_args[0][0] == "http://test.local/api/v1/flow-synonyms/pubchem/download"
+
+    def test_unit_table_reads_each_row(self, mocked_client):
+        client, session = mocked_client
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.content = b"name,dimension,factor\nkg,mass,1.0\ng,mass,0.001\nm3,volume,1.0\n"
+        session.get.return_value = resp
+        table = client.unit_table()
+        assert session.get.call_args[0][0] == "http://test.local/api/v1/units/Default%20units/download"
+        assert table["g"] == UnitDefinition("mass", 0.001)
+        assert table["m3"].dimension == "volume"
+        assert len(table) == 3
 
     def test_download_http_error_raises(self, mocked_client):
         client, session = mocked_client
