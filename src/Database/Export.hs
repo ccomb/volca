@@ -61,7 +61,7 @@ import Types (
     SimpleDatabase (..),
     TechnosphereFlow (..),
     Unit (..),
-    signFactor,
+    readingSign,
     toSimpleDatabase,
  )
 import UnitConversion (UnitConfig)
@@ -131,9 +131,12 @@ The amount stays as written when its unit converts to the supplier's, since a
 reader converts it the same way. A link that bridged two measures (a relink
 mapping row with a conversion) is written in the link's unit, its amount
 converted, and its formula, which spoke of the other measure, dropped and said.
-A line reaching a treatment written as giving out its waste changes sign when
-the format reads such a line the other way than the database does: SimaPro's
-+3 kg sent to it is EcoSpold 2's -3 kg. Its formula is dropped and said too.
+The line takes the sign that makes the format, reading it against the
+supplier, ask what the link asks. A line reaching a treatment written as giving
+out its waste changes sign when the format reads such a line the other way than
+the database does: SimaPro's +3 kg sent to it is EcoSpold 2's -3 kg. A line a
+relink mapping turned (its @direction@ column) is written turned. A turned
+line's formula is dropped and said too.
 -}
 namedAfterLinks :: UnitConfig -> ReferenceConvention -> Dependencies -> [CrossDBLink] -> SimpleDatabase -> (SimpleDatabase, [Text])
 namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb0, []) links
@@ -147,7 +150,8 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
         (before, line@TechnosphereExchange{techFlowId = flow, techAmount = amount, techUnitId = unit, techFormula = formula} : after) <- Just (splitAt position (exchanges activity))
         consumerFlow <- if flow == cdlConsumerFlowId link then M.lookup flow (sdbTechFlows sdb) else Nothing
         let bridged = isNothing (lineInLinkUnit units (sdbUnits sdb) line (cdlExchangeUnit link))
-            turned = if target == sdbReferenceConvention sdb then 1 else signFactor (elReferenceSign supplier)
+            -- The link asks factor × amount; the format reads the written line times its own sign.
+            turned = signum factor * readingSign target (elReferenceSign supplier)
             linkUnit = fromMaybe (newUnit (cdlExchangeUnit link)) (find ((== cdlExchangeUnit link) . unitName) (M.elems (sdbUnits sdb)))
             -- The consumer's own unit: the supplier's lives in another database's table.
             supplied =
@@ -171,7 +175,7 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
                 | bridged
                 , Just _ <- [formula]
                 ]
-                    <> [ activityName activity <> ", input " <> tfName consumerFlow <> ": written as a value of the opposite sign, since the format reads a line sent to a treatment the other way"
+                    <> [ activityName activity <> ", input " <> tfName consumerFlow <> ": written as a value of the opposite sign, the sign the format reads against its supplier"
                        | not bridged
                        , turned < 0
                        , Just _ <- [formula]

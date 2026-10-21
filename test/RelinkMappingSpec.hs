@@ -30,6 +30,7 @@ import Database.CrossLinking (
     AliasSupplier (..),
     AliasTarget (..),
     CrossDBLinkResult (..),
+    Direction (..),
     IndexedDatabase,
     LinkingContext (..),
     SupplierQuery (..),
@@ -188,7 +189,7 @@ consumerName :: Text
 consumerName = "wheat, background name"
 
 named :: Text -> Maybe Text -> AliasTarget
-named name loc = AliasTarget (SupplierNamed name loc) Nothing
+named name loc = AliasTarget (SupplierNamed name loc) Nothing Same
 
 singletonAlias :: AliasKey -> AliasTarget -> AliasMap
 singletonAlias key target = AliasMap M.empty (M.singleton key (target :| []))
@@ -240,7 +241,7 @@ spec = do
 
         it "reads a row with a source and no target as a declined link" $
             parseAliasCSV (BLC.pack "source,target\nwheat production,\nbarley,barley production\n")
-                `shouldBe` Right [row "wheat production" Nothing (AliasTarget NoSupplier Nothing), row "barley" Nothing (named "barley production" Nothing)]
+                `shouldBe` Right [row "wheat production" Nothing (AliasTarget NoSupplier Nothing Same), row "barley" Nothing (named "barley production" Nothing)]
 
         it "refuses a target without a source, naming its row" $
             parseAliasCSV (BLC.pack "source,target\n,wheat production\n")
@@ -281,16 +282,27 @@ spec = do
                         { arSource = Just "passenger car, background"
                         , arSourceLocation = Just "GLO"
                         , arSourceProcess = Just sourceRef
-                        , arTarget = AliasTarget (SupplierProcess carRef "passenger car") (Just (UnitBridge "kg" "p" 1200))
+                        , arTarget = AliasTarget (SupplierProcess carRef "passenger car") (Just (UnitBridge "kg" "p" 1200)) Same
                         }
                     , -- A suggestion nobody decided declines the link: its column is a note.
                       AliasRow
                         { arSource = Just "passenger car, other"
                         , arSourceLocation = Just "GLO"
                         , arSourceProcess = Just sourceRef
-                        , arTarget = AliasTarget NoSupplier Nothing
+                        , arTarget = AliasTarget NoSupplier Nothing Same
                         }
                     ]
+
+        it "reads a direction, blank as the same, and refuses one it does not know" $ do
+            let directions = map (atDirection . arTarget) <$> parseAliasCSV (BLC.pack "source,target,direction\nwastewater,treatment,opposite\nwheat,wheat production,\nbarley,barley production,Same\n")
+            directions `shouldBe` Right [Opposite, Same, Same]
+            parseAliasCSV (BLC.pack "source,target,direction\nwastewater,treatment,reverse\n")
+                `shouldSatisfy` either ("row 1" `T.isInfixOf`) (const False)
+
+        it "keeps both targets of rows that differ only in direction" $ do
+            let turned = (named "wheat production" Nothing){atDirection = Opposite}
+            buildAliasMap [row "x" Nothing (named "wheat production" Nothing), row "x" Nothing turned]
+                `shouldBe` AliasMap M.empty (M.singleton (AliasKey "x" Nothing) (named "wheat production" Nothing :| [turned]))
 
         it "refuses a conversion that does not say which way it reads" $
             parseAliasCSV (BLC.pack "source,target,conversion\ncar,passenger car,1200\n") `shouldSatisfy` isLeft'
@@ -328,10 +340,10 @@ spec = do
                 m =
                     buildAliasMap
                         [ AliasRow (Just "x") Nothing (Just market) (named "linked" Nothing)
-                        , AliasRow (Just "x") Nothing (Just producer) (AliasTarget NoSupplier Nothing)
+                        , AliasRow (Just "x") Nothing (Just producer) (AliasTarget NoSupplier Nothing Same)
                         ]
             lookupAlias m Nothing "x" "" `shouldBe` Just (named "linked" Nothing :| [])
-            lookupAlias m (Just producer) "x" "" `shouldBe` Just (AliasTarget NoSupplier Nothing :| [])
+            lookupAlias m (Just producer) "x" "" `shouldBe` Just (AliasTarget NoSupplier Nothing Same :| [])
 
     describe "findSupplierInIndexedDBs with supplier aliases" $ do
         it "does NOT link the aliased consumer name without the alias map" $
@@ -414,14 +426,14 @@ spec = do
                 CrossDBNotLinked reason -> expectationFailure $ "Expected CH link, got: " ++ show reason
 
         it "links the activity a target identity names, where name and location tie" $ do
-            let pinned = singletonAlias (AliasKey consumerName Nothing) (AliasTarget (SupplierProcess (ProcessRef actFROrganic wheatFlow) "organic") Nothing)
+            let pinned = singletonAlias (AliasKey consumerName Nothing) (AliasTarget (SupplierProcess (ProcessRef actFROrganic wheatFlow) "organic") Nothing Same)
                 ctx = (mkCtx pinned){lcIndexedDatabases = [twinIndexed]}
             case findSupplierInIndexedDBs ctx (aliasQuery consumerName "FR" "kg") of
                 CrossDBLinked{cdlrActivityUUID = act} -> act `shouldBe` actFROrganic
                 CrossDBNotLinked reason -> expectationFailure $ "Expected the organic activity, got: " ++ show reason
 
         it "reports a target identity no dependency ships" $ do
-            let pinned = singletonAlias (AliasKey consumerName Nothing) (AliasTarget (SupplierProcess (ProcessRef actCH carFlow) "gone") Nothing)
+            let pinned = singletonAlias (AliasKey consumerName Nothing) (AliasTarget (SupplierProcess (ProcessRef actCH carFlow) "gone") Nothing Same)
             case findSupplierInIndexedDBs (mkCtx pinned) (aliasQuery consumerName "FR" "kg") of
                 CrossDBNotLinked (AliasTargetMissing name Nothing) -> name `shouldBe` "gone"
                 other -> expectationFailure $ "Expected AliasTargetMissing, got: " ++ describe' other
@@ -431,8 +443,8 @@ spec = do
                 plain = ProcessRef actFR wheatFlow
                 m =
                     buildAliasMap
-                        [ row consumerName Nothing (AliasTarget (SupplierProcess organic "wheat production") Nothing)
-                        , row consumerName Nothing (AliasTarget (SupplierProcess plain "wheat production") Nothing)
+                        [ row consumerName Nothing (AliasTarget (SupplierProcess organic "wheat production") Nothing Same)
+                        , row consumerName Nothing (AliasTarget (SupplierProcess plain "wheat production") Nothing Same)
                         ]
             case findSupplierInIndexedDBs (mkCtx m) (aliasQuery consumerName "FR" "kg") of
                 CrossDBNotLinked (AliasConflict targets) ->
@@ -454,7 +466,7 @@ spec = do
                 CrossDBNotLinked reason -> expectationFailure $ "Expected the other row to link, got: " ++ show reason
 
     describe "a conversion between units of different measures" $ do
-        let carRow bridge = singletonAlias (AliasKey "passenger car, background" Nothing) (AliasTarget (SupplierNamed "passenger car" Nothing) bridge)
+        let carRow bridge = singletonAlias (AliasKey "passenger car, background" Nothing) (AliasTarget (SupplierNamed "passenger car" Nothing) bridge Same)
             kgToP = Just (UnitBridge "kg" "p" 1200)
 
         it "lets a kg demand reach a supplier counted in p through the row" $
@@ -468,7 +480,7 @@ spec = do
                 other -> expectationFailure $ "Expected UnitIncompatible, got: " ++ describe' other
 
         it "ignores the conversion where the units meet without it" $ do
-            let wheatRow = singletonAlias (AliasKey consumerName Nothing) (AliasTarget (SupplierNamed "wheat production" Nothing) (Just (UnitBridge "kg" "t" 500)))
+            let wheatRow = singletonAlias (AliasKey consumerName Nothing) (AliasTarget (SupplierNamed "wheat production" Nothing) (Just (UnitBridge "kg" "t" 500)) Same)
             case findSupplierInIndexedDBs (mkCtx wheatRow) (aliasQuery consumerName "FR" "kg") of
                 CrossDBLinked{cdlrBridge = bridge} -> bridge `shouldBe` Nothing
                 CrossDBNotLinked reason -> expectationFailure $ "Expected a link, got: " ++ show reason
@@ -483,14 +495,14 @@ spec = do
             -- identity applies, where a row keyed on name and place could not.
             let byIdentity =
                     buildAliasMap
-                        [AliasRow Nothing Nothing (Just (ProcessRef oldCarAct oldCarFlow)) (AliasTarget (SupplierNamed "passenger car" Nothing) kgToP)]
+                        [AliasRow Nothing Nothing (Just (ProcessRef oldCarAct oldCarFlow)) (AliasTarget (SupplierNamed "passenger car" Nothing) kgToP Same)]
             map (\l -> (cdlCoefficient l, cdlExchangeUnit l)) (cdlLinks (relinkCar byIdentity (ClaimById oldCarAct)))
                 `shouldBe` [(2.0, "p")]
 
         it "reports a row's failure for an input that names its supplier by identity" $ do
             let refused =
                     buildAliasMap
-                        [AliasRow Nothing Nothing (Just (ProcessRef oldCarAct oldCarFlow)) (AliasTarget (SupplierNamed "passenger car" Nothing) Nothing)]
+                        [AliasRow Nothing Nothing (Just (ProcessRef oldCarAct oldCarFlow)) (AliasTarget (SupplierNamed "passenger car" Nothing) Nothing Same)]
             M.elems (M.map (M.keys . upBlockers) (cdlUnresolvedRequests (relinkCar refused (ClaimById oldCarAct))))
                 `shouldSatisfy` any (any isUnitIncompatible)
             -- The gap report gives that refusal, not a dangling identity.
@@ -502,16 +514,25 @@ spec = do
             -- row, the curator's word on that process, wins over it.
             let moved =
                     buildAliasMap
-                        [AliasRow Nothing Nothing (Just (ProcessRef actFR wheatFlow)) (AliasTarget (SupplierProcess (ProcessRef actFROrganic wheatFlow) "organic") Nothing)]
+                        [AliasRow Nothing Nothing (Just (ProcessRef actFR wheatFlow)) (AliasTarget (SupplierProcess (ProcessRef actFROrganic wheatFlow) "organic") Nothing Same)]
             map cdlSupplierActUUID (cdlLinks (relinkInput [twinIndexed] (wheatConsumer actFR) moved))
                 `shouldBe` [actFROrganic]
             map cdlSupplierActUUID (cdlLinks (relinkInput [twinIndexed] (wheatConsumer actFR) emptyAliasMap))
                 `shouldBe` [actFR]
 
+        it "turns a line the row says its supplier counts the other way" $ do
+            -- -0.018 written for a supplier whose reference is -1, linked to
+            -- one whose reference is +1: the row turns it into a demand of +0.018.
+            let wastewater = consumerTaking oldCarFlow consumerName (techInput oldCarFlow (-0.018)){techLocation = "FR"}
+                mapped direction = singletonAlias (AliasKey consumerName Nothing) (named "wheat production" Nothing){atDirection = direction}
+                coefficients direction = map cdlCoefficient (cdlLinks (relinkInput [targetIndexed] wastewater (mapped direction)))
+            coefficients Opposite `shouldBe` [0.018]
+            coefficients Same `shouldBe` [-0.018]
+
         it "keeps unlinked an input whose row names no supplier, and says why" $ do
             -- The dependency ships the very process the input names; the row
             -- declines it all the same.
-            let declined = buildAliasMap [AliasRow Nothing Nothing (Just (ProcessRef actFR wheatFlow)) (AliasTarget NoSupplier Nothing)]
+            let declined = buildAliasMap [AliasRow Nothing Nothing (Just (ProcessRef actFR wheatFlow)) (AliasTarget NoSupplier Nothing Same)]
                 stats = relinkInput [twinIndexed] (wheatConsumer actFR) declined
             cdlLinks stats `shouldBe` []
             map geReason (grGaps (gapReportForStaged "consumer" (wheatConsumer actFR) stats))

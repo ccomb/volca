@@ -33,6 +33,13 @@ columns:
     source units (a car of 1200 kg is 1 p: 1200, kg, p). Used only where the
     demand's unit and the supplier's measure different things; units of one
     measure convert by the unit table, as they do without a mapping.
+  * @direction@: @opposite@ when the target counts the demand the other way
+    than the supplier the line was written for, @same@ (or blank) otherwise.
+    A line of -0.018 m3 to a wastewater market whose reference is -1 m3 asks
+    for 0.018 m3 treated; mapped to a treatment whose reference is +1 m3, the
+    row says @opposite@ and the line becomes +0.018, or the treatment would
+    run backwards and score a credit. Independent of @conversion@: a row may
+    carry both.
 
 A row needs a source (name or identity). With a target (name or identity) it
 is a link; without one it declines the link: its input stays unlinked, reported
@@ -67,7 +74,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 
-import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), UnitBridge (..))
+import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), Direction (..), UnitBridge (..))
 import Types (ProcessRef, parseProcessRef, processRefText)
 
 {- | One row of the alias mapping, validated: the keys it applies under (at
@@ -94,6 +101,7 @@ data WrittenRow = WrittenRow
     , wrTargetId :: !(Maybe Text)
     , wrTargetUnit :: !(Maybe Text)
     , wrConversion :: !(Maybe Text)
+    , wrDirection :: !(Maybe Text)
     }
 
 sourceNames, targetNames :: [Text]
@@ -112,6 +120,7 @@ instance FromNamedRecord WrittenRow where
             <*> optField r ["target_id"]
             <*> optField r ["target_unit"]
             <*> optField r ["conversion"]
+            <*> optField r ["direction"]
 
 {- | Parse the first present column among @names@ as optional. A present but
 blank (whitespace-only) cell normalizes to 'Nothing' so "absent" has a single
@@ -153,9 +162,9 @@ classify n row = do
     case (hasSource, supplier) of
         (False, Nothing) -> Right Nothing
         (False, Just _) -> refuse "has a target but no source"
-        -- A declined link converts nothing: its conversion, if any, is not read.
-        (True, Nothing) -> keyed (AliasTarget NoSupplier Nothing)
-        (True, Just target) -> keyed . AliasTarget target =<< traverse readBridge (wrConversion row)
+        -- A declined link converts nothing: its conversion and direction, if any, are not read.
+        (True, Nothing) -> keyed (AliasTarget NoSupplier Nothing Same)
+        (True, Just target) -> keyed =<< AliasTarget target <$> traverse readBridge (wrConversion row) <*> readDirection (wrDirection row)
   where
     keyed target = do
         sourceProcess <- traverse (readRef "source_id") (wrSourceId row)
@@ -175,6 +184,11 @@ classify n row = do
             | T.null rest && value > 0 -> Right (UnitBridge sourceUnit targetUnit value)
         (_, Just _, Just _) -> refuse ("conversion must be a positive number: " <> txt)
         _ -> refuse "conversion needs source_unit and target_unit, to say which way it reads"
+    readDirection cell = case T.toLower <$> cell of
+        Nothing -> Right Same
+        Just "same" -> Right Same
+        Just "opposite" -> Right Opposite
+        Just other -> refuse ("direction must be same or opposite: " <> other)
 
 {- | Build the alias map, keyed by source identity and by (source name, optional
 source location). The same name with and without a location is two distinct

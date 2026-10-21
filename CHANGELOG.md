@@ -4,6 +4,16 @@
 
 ### Added
 
+- A relink mapping row can say that its target counts the demand the other
+  way than the supplier the line was written for, in a new `direction`
+  column (`opposite`, or `same`, the default). A Brightway workbook written
+  for an EcoSpold 2 background sends 0.018 m3 of wastewater as an input of -0.018 m3 to a
+  wastewater market whose reference is -1 m3. Relinked to a treatment whose
+  reference is +1 m3, the line stayed -0.018: the treatment ran backwards
+  and scored a credit, so ecotoxicity and marine eutrophication came out
+  negative. With `opposite` on the row the line becomes a demand of +0.018.
+  An export writes the line turned, its formula dropped and said.
+
 - A change made to a database of one's own can say why, in a note: every
   write (activities written, rewritten or deleted, exchanges edited,
   database parameters changed, changes applied from a comparison) takes an
