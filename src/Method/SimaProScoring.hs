@@ -43,6 +43,7 @@ import GHC.Generics (Generic)
 import qualified Expr
 import Method.Scoring (counted, linearTerms, shortNames, singleScoreName, writeSum)
 import Method.Types (Compartment (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
+import SynonymDB (normalizeNameKeepUnit)
 
 {- | Damage category: groups impact subcategories into a parent category.
 E.g., "Ecotoxicity, freshwater" groups "...part 1", "...part 2", etc.
@@ -96,20 +97,32 @@ Values a rounding apart are one factor.
 -}
 factorClashes :: Method -> [Text]
 factorClashes m =
-    [ "\"" <> methodName m <> "\" gives \"" <> name <> "\" factors from " <> num low <> " to " <> num high <> at place <> others <> "; a flow matched by its name gets only one"
-    | (name, (place, low, high) : more) <- M.toList (M.fromListWith (flip (<>)) clashes)
+    [ "\"" <> methodName m <> "\" gives " <> spelled names <> " factors from " <> num low <> " to " <> num high <> at place <> others <> "; a flow matched by its name gets only one"
+    | (_, (names, place, low, high) : more) <- M.toList (M.fromListWith (flip (<>)) clashes)
     , let others = if null more then "" else " and at " <> num (length more) <> " other place(s)"
     ]
   where
+    clashes :: [(Text, [([Text], Text, Double, Double)])]
     clashes =
-        [ (name, [(place, low, high)])
-        | ((name, place, _, _), vs) <- M.toList byPlace
-        , let low = minimum vs
-              high = maximum vs
+        [ (key, [(nubOrd (map fst factors), place, low, high)])
+        | ((key, place, _, _), factors) <- M.toList byPlace
+        , let low = minimum (map snd factors)
+              high = maximum (map snd factors)
         , abs (high - low) > 1e-5 * max (abs low) (abs high)
         ]
-    byPlace = M.fromListWith (<>) [((mcfFlowName cf, placeOf (mcfCompartment cf), mcfUnit cf, mcfConsumerLocation cf), [mcfValue cf]) | cf <- methodFactors m]
+    -- Keyed on the name the matcher reads, so two spellings of one flow clash too.
+    byPlace :: M.Map (Text, Text, Text, Maybe Text) [(Text, Double)]
+    byPlace =
+        M.fromListWith
+            (flip (<>))
+            [ ((normalizeNameKeepUnit (mcfFlowName cf), placeOf (mcfCompartment cf), mcfUnit cf, mcfConsumerLocation cf), [(mcfFlowName cf, mcfValue cf)])
+            | cf <- methodFactors m
+            ]
+    placeOf :: Maybe Compartment -> Text
     placeOf = maybe "" (\(Compartment a b c) -> T.intercalate ", " (filter (not . T.null) [a, b, c]))
+    spelled :: [Text] -> Text
+    spelled = T.intercalate " and " . map (\n -> "\"" <> n <> "\"")
+    at :: Text -> Text
     at place = if T.null place then "" else " (" <> place <> ")"
     num :: (Show a) => a -> Text
     num = T.pack . show

@@ -257,6 +257,10 @@ spec = do
             factorClashes <$> parseOlcaImpactCategoryBytes (chromiumDoc [(lowDensity, 333.7), (lowDensity, 4292.1), (ocean, 1.0), (ocean, 2.0)])
                 `shouldBe` Right ["\"D\" gives \"Chromium III\" factors from 333.7 to 4292.1 (Emission to air, low population density) and at 1 other place(s); a flow matched by its name gets only one"]
 
+        it "names two spellings of one flow that the matcher reads as one" $
+            factorClashes <$> parseOlcaImpactCategoryBytes (spelledDoc [("Chromium (III)", 333.7), ("Chromium III", 4292.1)])
+                `shouldBe` Right ["\"D\" gives \"Chromium (III)\" and \"Chromium III\" factors from 333.7 to 4292.1 (Emission to air, low population density); a flow matched by its name gets only one"]
+
         it "takes two factors a rounding apart for one" $
             factorClashes <$> parseOlcaImpactCategoryBytes (chromiumDoc [(lowDensity, 333.4186387763461), (lowDensity, 333.4186388)])
                 `shouldBe` Right []
@@ -396,13 +400,21 @@ categoryDoc name =
 
 -- | An ImpactCategory with one factor on Chromium III per (category path, value).
 chromiumDoc :: [(T.Text, Double)] -> BS.ByteString
-chromiumDoc factors =
+chromiumDoc factors = factorsDoc [("Chromium III", path, v) | (path, v) <- factors]
+
+-- | An ImpactCategory with one factor per (flow name, value), all at one place.
+spelledDoc :: [(T.Text, Double)] -> BS.ByteString
+spelledDoc factors = factorsDoc [(name, lowDensity, v) | (name, v) <- factors]
+
+-- | An ImpactCategory with one factor per (flow name, category path, value).
+factorsDoc :: [(T.Text, T.Text, Double)] -> BS.ByteString
+factorsDoc factors =
     BL.toStrict . encode $
         object
             [ "@type" .= ("ImpactCategory" :: T.Text)
             , "name" .= ("D" :: T.Text)
             , "impactFactors"
-                .= [object ["value" .= v, "flow" .= object ["name" .= ("Chromium III" :: T.Text), "category" .= path]] | (path, v) <- factors]
+                .= [object ["value" .= v, "flow" .= object ["name" .= name, "category" .= path]] | (name, path, v) <- factors]
             ]
 
 lowDensity, ocean :: T.Text
