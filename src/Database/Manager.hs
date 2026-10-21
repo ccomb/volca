@@ -3127,7 +3127,7 @@ relinkStaged manager dbName maybeDepDb aliases = withLogScope dbName $ runExcept
         atomically $
             modifyTVar'
                 (dmStagedDbs manager)
-                (M.insert dbName ((withRelinkedDeps pinnedDeps newStats staged){sdSupplierAliases = aliases}))
+                (M.insert dbName (withRelinkedDeps pinnedDeps aliases newStats staged))
     pure (relinkResult staged pinnedDeps newStats)
   where
     -- A mapping relink pins the dependency it retargets, once.
@@ -4068,14 +4068,15 @@ setupInfoFrom SetupSource{..} =
         , dsiRequiredReleases = requiredReleases ssConfigs ssConfig
         }
 
-{- | The four fields a relink writes back onto a staged database. One place,
+{- | The five fields a relink writes back onto a staged database. One place,
 because the staged relink and the two dependency mutators all write exactly
 these and would otherwise drift apart.
 -}
-withRelinkedDeps :: [Text] -> CrossDBLinkingStats -> StagedDatabase -> StagedDatabase
-withRelinkedDeps newDeps newStats staged =
+withRelinkedDeps :: [Text] -> CrossLinking.AliasMap -> CrossDBLinkingStats -> StagedDatabase -> StagedDatabase
+withRelinkedDeps newDeps aliases newStats staged =
     staged
         { sdSelectedDeps = newDeps
+        , sdSupplierAliases = aliases
         , sdCrossDBLinks = Loader.cdlLinks newStats
         , sdLinkingStats = newStats
         , sdMissingProducts = stagedMissingProducts (sdSimpleDB staged) newStats
@@ -4373,18 +4374,21 @@ applyStagedDeps :: DatabaseManager -> Text -> StagedRelink -> IO (Either Text Da
 applyStagedDeps manager dbName StagedRelink{..} = do
     synonymDB <- getMergedSynonymDB manager
     unitConfig <- getMergedUnitConfig manager
-    (_, newStats) <-
-        Loader.fixActivityLinksWithCrossDB
-            [idx | (name, idx) <- M.toList srIndexedDbs, name `elem` srNewDeps]
-            synonymDB
-            unitConfig
-            (dmLocationHierarchy manager)
-            (dcGeographyPolicy (sdConfig srStaged))
-            (sdSimpleDB srStaged)
+    -- The mapping a relink applied stays in force when the dependencies change.
+    let aliases = sdSupplierAliases srStaged
+        newStats =
+            Loader.relinkSimpleDatabase
+                [idx | (name, idx) <- M.toList srIndexedDbs, name `elem` srNewDeps]
+                synonymDB
+                unitConfig
+                (dmLocationHierarchy manager)
+                (dcGeographyPolicy (sdConfig srStaged))
+                aliases
+                (sdSimpleDB srStaged)
     atomically $
         modifyTVar'
             (dmStagedDbs manager)
-            (M.insert dbName (withRelinkedDeps srNewDeps newStats srStaged))
+            (M.insert dbName (withRelinkedDeps srNewDeps aliases newStats srStaged))
     persistUploadDepends manager dbName srNewDeps
     first setupErrorMessage <$> getDatabaseSetupInfo manager dbName
 
