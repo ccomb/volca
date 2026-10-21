@@ -4,14 +4,17 @@
 
 ### Added
 
-- Each row of a batch score, and each entry of a database's catalogue, now
-  gives the activity's reference amount and unit (`productAmount`,
-  `productUnit`): -1 for a treatment written as giving out its waste, +1
-  for a product. A score is per one of that reference, so comparing a
-  wastewater market of -1 m3 with a treatment of +1 m3, or a process per
-  kg with one per m3, needs both, which a client had to look up one
-  activity at a time. pyvolca reads them as `ScoredActivity.product_amount`
-  and `product_unit`. Wire revision 80.
+- Each row of a batch score through the REST route, and each entry of a
+  database's catalogue, now gives the amount the source declares for the
+  activity's reference product (`productAmount`), and a batch row its unit
+  (`productUnit`). The sign tells a wastewater market written with -1 m3
+  from a treatment written with +1 m3, which answer for opposite
+  quantities; the unit tells a process per kg from one per m3. The score
+  stays per one unit whatever the amount: a coproduct declared at 0.07 kg
+  is still scored per kg. Both are absent for an activity without a
+  reference product. A client had to look these up one activity at a
+  time. pyvolca reads them as `ScoredActivity.product_amount` and
+  `product_unit`. Wire revision 80.
 
 - A change made to a database of one's own can say why, in a note: every
   write (activities written, rewritten or deleted, exchanges edited,

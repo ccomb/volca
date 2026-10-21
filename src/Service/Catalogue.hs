@@ -45,14 +45,15 @@ catalogueEntries cfg db = V.toList (V.imap entry (dbActivities db))
   where
     entry :: Int -> Activity -> CatalogueEntry
     entry i activity =
-        let refProduct = summaryProduct (referenceProductOf (dbTechFlows db) (dbUnits db) activity)
+        let reference = referenceProductOf (dbTechFlows db) (dbUnits db) activity
+            refProduct = summaryProduct reference
          in CatalogueEntry
                 { ceProcessId = processIdToText db (fromIntegral i)
                 , ceActivityName = activityName activity
                 , ceProductName = rpName refProduct
                 , ceLocation = activityLocation activity
                 , ceUnit = rpUnit refProduct
-                , ceProductAmount = rpAmount refProduct
+                , ceProductAmount = rpAmount <$> reference
                 , ceMeasure = measureOf cfg (rpUnit refProduct)
                 , ceClassification = activityClassification activity
                 }

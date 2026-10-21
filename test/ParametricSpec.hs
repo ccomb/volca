@@ -216,7 +216,7 @@ spec = describe "a database at other values of its parameters" $ do
     it "says each process's reference amount and unit, a treatment's -1 included" $ do
         manager <- scoringManager
         batch <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest [processIdText (aBin, pWaste), processIdText (aBread, pBread)] []))
-        [(bieProductAmount e, bieProductUnit e) | e <- birResults batch] `shouldBe` [(-1, "kg"), (1, "kg")]
+        [(bieProductAmount e, bieProductUnit e) | e <- birResults batch] `shouldBe` [(Just (-1), Just "kg"), (Just 1, Just "kg")]
 
     it "refuses a batch one of whose sets it cannot compute, naming the set" $ do
         manager <- scoringManager

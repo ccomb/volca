@@ -3405,9 +3405,12 @@ One process's batch impacts inside a `BatchScores`.
 `Client.get_impacts_batch` returns for a single process.
 ``parameter_set`` is the position of the parameter set it was scored at,
 when `Client.score_activities` was given ``parameter_sets``.
-``product_amount`` and ``product_unit`` are the activity's reference
-product, which the scores are per one of: ``-1`` for a treatment written
-as giving out its waste (wire revision 80, ``None`` from an older engine).
+``product_amount`` is the amount the source declares for the activity's
+reference product, negative for a treatment taking in waste, and
+``product_unit`` its unit. The scores are per one ``product_unit``
+whatever the amount, as for `Activity.product_amount`.
+Both are ``None`` for an activity without a reference product, and from
+an engine older than wire revision 80.
 
 | Field | Type | Default |
 |-------|------|---------|

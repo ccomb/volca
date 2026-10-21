@@ -1116,13 +1116,14 @@ scoreChunk scope chunk = do
         BatchImpactsEntry
             { bieProcessId = btRequestedId target
             , bieActivityName = activityName (btActivity target)
-            , bieProductAmount = Service.rpAmount reference
-            , bieProductUnit = Service.rpUnit reference
+            , bieProductAmount = Service.rpAmount <$> reference
+            , bieProductUnit = Service.rpUnit <$> reference
             , bieParameterSet = bsParameterSet scope
             , bieImpacts = impacts
             }
       where
-        reference = Service.summaryProduct (Service.referenceProductOf (dbTechFlows (bsDb scope)) (dbUnits (bsDb scope)) (btActivity target))
+        reference :: Maybe Service.ReferenceProductInfo
+        reference = Service.referenceProductOf (dbTechFlows (bsDb scope)) (dbUnits (bsDb scope)) (btActivity target)
 
 {- | Run a scoring computation once one of the instance's slots is free.
 
