@@ -343,6 +343,12 @@
   warning, and a CAS stated on only some flows of one name reaches them
   all, with a warning too.
 
+- A SimaPro activity whose name holds a slash keeps its whole name. The
+  reader looks for a place after a slash, as in « Maize grain, at farm
+  (WFLDB)/US U », and took any capitalised word for one: « Spinning to yarn,
+  Elastane (Spandex/Lycra), 120 dtex » was read as « Spinning to yarn,
+  Elastane (Spandex » at « Lycra), », and nine yarns of different counts came
+  back under one name. A place is now one word of letters, digits and dashes.
 - A database exported as SimaPro CSV or as a Brightway workbook comes back
   buying each input from the same supplier. An input bought from a database
   it depends on was written as the bare product, so the re-import bought a

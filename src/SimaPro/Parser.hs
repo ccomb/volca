@@ -1436,7 +1436,9 @@ extractLocation name =
                     | isGeoCode loc ->
                         Just (T.strip (T.dropWhileEnd (== '/') before), loc)
                 _ -> go (T.dropWhileEnd (== '/') before)
-    isGeoCode t = T.length t >= 2 && maybe False (isUpper . fst) (T.uncons t)
+    -- A place code is one word of letters, digits and dashes: « Lycra), » in
+    -- « Elastane (Spandex/Lycra), 120 dtex » is part of the name.
+    isGeoCode t = T.length t >= 2 && maybe False (isUpper . fst) (T.uncons t) && T.all (\c -> isAlphaNum c || c == '-') t
 
 -- | Resolve a parameterized amount: try expression evaluation, fall back to numeric parse
 resolveAmount :: M.Map Text Double -> Text -> Double -> Double
