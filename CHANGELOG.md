@@ -332,6 +332,13 @@
 
 ### Fixed
 
+- A written activity sending waste to a treatment of another database can
+  now be exported. The engine filed the waste among the products, where
+  every reader of a waste line fails to find it: the export refused the
+  database for "a flow absent from the registry", and the activity page
+  showed the line as an unresolved flow. The score was right. A database
+  written before this fix keeps the misfiled flow until it is written again.
+
 - A container started again no longer rebuilds the synonym candidates of its
   methods. They were saved in the working directory of the container, which
   is gone when it stops, while databases and methods go to `VOLCA_DATA_DIR`;

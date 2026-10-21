@@ -202,6 +202,13 @@ spec = do
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> M.member depProdId (dbTechFlows db) `shouldBe` True
 
+        it "files the flow of a replayed waste output as a waste flow" $
+            -- The live edit files it there; a replay that filed it elsewhere
+            -- would give back, after a restart, a database that cannot export.
+            case replayJournal ctx [event (Created [cheese{aaExchanges = [usedOilOut]}] [cheeseKey])] of
+                Left err -> expectationFailure ("replay: " <> show err)
+                Right db -> M.member supplierProdId (dbWasteFlows db) `shouldBe` True
+
         it "edits a line naming no supplier by its flow and location, whatever supplies it" $ do
             -- Such a line is answered by another database at load, so its
             -- supplier depends on what is loaded; its flow and location do not.

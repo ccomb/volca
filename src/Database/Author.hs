@@ -107,6 +107,7 @@ import Types (
     UUID,
     Unit (..),
     UnitDB,
+    WasteFlow (..),
     declaredLocationSource,
     exchangeAmount,
     exchangeFormula,
@@ -282,6 +283,7 @@ data ResolvedInsert = ResolvedInsert
     { riKey :: (UUID, UUID)
     , riActivity :: Activity
     , riNewTechFlows :: [TechnosphereFlow]
+    , riNewWasteFlows :: [WasteFlow]
     , riNewBioFlows :: [BiosphereFlow]
     }
 
@@ -362,6 +364,7 @@ validateOne ctx a =
                         , riNewTechFlows =
                             [productFlow | not (M.member (snd key) (dbTechFlows (acDb ctx)))]
                                 <> mapMaybe reNewTechFlow resolved
+                        , riNewWasteFlows = mapMaybe reNewWasteFlow resolved
                         , riNewBioFlows = mapMaybe reNewBioFlow resolved
                         }
                     , map here (concatMap reWarnings resolved)
@@ -514,6 +517,7 @@ data EditedActivity = EditedActivity
     , eaMatched :: [Int]
     , eaNewBioFlows :: [BiosphereFlow]
     , eaNewTechFlows :: [TechnosphereFlow]
+    , eaNewWasteFlows :: [WasteFlow]
     , eaWarnings :: [Text]
     , eaRestated :: [RestatedLine]
     }
@@ -555,6 +559,7 @@ applyExchangeEdits ctx edits act = case accErrors final of
                     , eaMatched = accMatched final
                     , eaNewBioFlows = accNewFlows final
                     , eaNewTechFlows = accNewTechFlows final
+                    , eaNewWasteFlows = accNewWasteFlows final
                     , eaWarnings = accWarnings final
                     , eaRestated =
                         [ RestatedLine{rlPosition = position, rlFrom = exchangeAmount before, rlTo = exchangeAmount after}
@@ -571,6 +576,7 @@ applyExchangeEdits ctx edits act = case accErrors final of
             , accMatched = []
             , accNewFlows = []
             , accNewTechFlows = []
+            , accNewWasteFlows = []
             , accWarnings = []
             , accErrors = []
             }
@@ -581,6 +587,7 @@ data EditAcc = EditAcc
     , accMatched :: [Int]
     , accNewFlows :: [BiosphereFlow]
     , accNewTechFlows :: [TechnosphereFlow]
+    , accNewWasteFlows :: [WasteFlow]
     , accWarnings :: [Text]
     , accErrors :: [Text]
     }
@@ -598,6 +605,7 @@ applyStep ctx acc edit = case applyOneEdit ctx (accActivity acc) edit of
             , accMatched = accMatched acc <> [esMatched step]
             , accNewFlows = accNewFlows acc <> esNewFlows step
             , accNewTechFlows = accNewTechFlows acc <> esNewTechFlows step
+            , accNewWasteFlows = accNewWasteFlows acc <> esNewWasteFlows step
             , accWarnings = accWarnings acc <> esWarnings step
             }
 
@@ -607,6 +615,7 @@ data EditStep = EditStep
     , esMatched :: Int
     , esNewFlows :: [BiosphereFlow]
     , esNewTechFlows :: [TechnosphereFlow]
+    , esNewWasteFlows :: [WasteFlow]
     , esWarnings :: [Text]
     }
 
@@ -628,6 +637,7 @@ applyOneEdit ctx act edit = case edit of
                     , esMatched = 1
                     , esNewFlows = maybeToList (reNewBioFlow resolved)
                     , esNewTechFlows = maybeToList (reNewTechFlow resolved)
+                    , esNewWasteFlows = maybeToList (reNewWasteFlow resolved)
                     , esWarnings = reWarnings resolved
                     }
     SetText text -> case textCheck text of
@@ -651,6 +661,7 @@ applyOneEdit ctx act edit = case edit of
             , esMatched = matched
             , esNewFlows = []
             , esNewTechFlows = []
+            , esNewWasteFlows = []
             , esWarnings = []
             }
     onSelected :: [Text] -> ExchangeSelector -> (Exchange -> Exchange) -> Either [Text] EditStep
@@ -844,13 +855,14 @@ data ResolvedExchange = ResolvedExchange
     { reExchange :: Exchange
     , reNewBioFlow :: Maybe BiosphereFlow
     , reNewTechFlow :: Maybe TechnosphereFlow
+    , reNewWasteFlow :: Maybe WasteFlow
     , reWarnings :: [Text]
     }
 
 resolveOne :: AuthorContext -> AuthoredExchange -> Either [Text] ResolvedExchange
 resolveOne ctx ex = case ex of
     AuthoredTechInput provider amount mUnit comment ->
-        resolveLinked ctx provider amount mUnit $ \sup unitRef ->
+        resolveLinked ctx provider amount mUnit (fmap (,Nothing) . adoptTechFlow ctx) $ \sup unitRef ->
             TechnosphereExchange
                 { techFlowId = prProduct (supKey sup)
                 , techAmount = amount
@@ -867,7 +879,7 @@ resolveOne ctx ex = case ex of
                 , techProperties = noProperties
                 }
     AuthoredWasteOutput provider amount mUnit comment ->
-        resolveLinked ctx provider amount mUnit $ \sup unitRef ->
+        resolveLinked ctx provider amount mUnit (fmap (Nothing,) . adoptWasteFlow ctx) $ \sup unitRef ->
             WasteExchange
                 { waFlowId = prProduct (supKey sup)
                 , waAmount = amount
@@ -886,15 +898,18 @@ resolveOne ctx ex = case ex of
 {- | A technosphere input and a waste output differ only in the constructor
 they build: both name a provider by process id, both take their flow from that
 provider's process key, and both convert into that provider's reference unit.
+What each must adopt differs: an input reads its flow from the product table, a
+waste output from the waste table.
 -}
 resolveLinked ::
     AuthorContext ->
     Text ->
     Double ->
     Maybe Text ->
+    (Supplier -> Either Text (Maybe TechnosphereFlow, Maybe WasteFlow)) ->
     (Supplier -> UUID -> Exchange) ->
     Either [Text] ResolvedExchange
-resolveLinked ctx provider amount mUnit build =
+resolveLinked ctx provider amount mUnit adopt build =
     case (amountCheck amount, resolveSupplier ctx provider) of
         ([], Right sup) -> mapLeft (: []) (resolved sup)
         (errs, Right _) -> Left errs
@@ -906,13 +921,14 @@ resolveLinked ctx provider amount mUnit build =
         (unitRef, unitLabel) <-
             maybe (Left (unitRefusal ctx stated)) Right (lookupUnit ctx stated)
         maybe (Right ()) Left (unitError ctx sup unitLabel)
-        newTechFlow <- adoptTechFlow ctx sup
+        (newTechFlow, newWasteFlow) <- adopt sup
         maybe (Right ()) Left (dependencyUnitError ctx sup unitLabel)
         pure
             ResolvedExchange
                 { reExchange = build sup unitRef
                 , reNewBioFlow = Nothing
                 , reNewTechFlow = newTechFlow
+                , reNewWasteFlow = newWasteFlow
                 , reWarnings = []
                 }
     defaultUnit :: Supplier -> Text
@@ -1083,6 +1099,7 @@ resolveBio ctx flowRef direction amount mUnit comment
                     }
                 mNew
                 Nothing
+                Nothing
                 warnings
             )
     -- The biosphere matrix carries amounts through unconverted, so a unit the
@@ -1187,27 +1204,63 @@ Cross-database relinking reads the *consumer's* flow table
 and drops in silence what it does not find there, so an exchange must never
 reference a product flow only a dependency declares. The biosphere side already
 copies for exactly this reason; this is the same rule on the technosphere side.
-
-The unit is remapped into the edited database's own table, because the link
-carries the flow's unit name and would otherwise read it out of the wrong one.
 -}
 adoptTechFlow :: AuthorContext -> Supplier -> Either Text (Maybe TechnosphereFlow)
 adoptTechFlow ctx sup = case supHome sup of
     OwnDatabase -> Right Nothing
-    Dependency Nothing ->
-        Left "the database declaring this provider does not declare its product flow"
-    Dependency (Just (flow, flowUnit))
-        | M.member (tfId flow) (dbTechFlows (acDb ctx)) -> Right Nothing
-        | otherwise -> case lookupUnit ctx flowUnit of
-            Nothing ->
-                Left
-                    ( "the product \""
-                        <> tfName flow
-                        <> "\" of this provider is stated in \""
-                        <> flowUnit
-                        <> "\", a unit this database does not have"
-                    )
-            Just (unitRef, _) -> Right (Just flow{tfUnitId = unitRef})
+    Dependency Nothing -> Left "the database declaring this provider does not declare its product flow"
+    Dependency (Just _)
+        | M.member (prProduct (supKey sup)) (dbTechFlows (acDb ctx)) -> Right Nothing
+        | otherwise -> Just <$> declaredHere ctx sup
+
+{- | The waste flow the edited database has to gain before a waste output to
+this provider can be written, if any.
+
+Every reader of a waste line – the exporters, the activity view – looks its
+flow up in the waste table, so the flow has to be there whichever database the
+treatment lives in. A treatment read from EcoSpold 2 declares its flow as a
+product only, its own database included; the waste copy carries the same id,
+as the EcoSpold 2 and openLCA readers already file one flow in both tables.
+-}
+adoptWasteFlow :: AuthorContext -> Supplier -> Either Text (Maybe WasteFlow)
+adoptWasteFlow ctx sup
+    | M.member (prProduct (supKey sup)) (dbWasteFlows (acDb ctx)) = Right Nothing
+    | otherwise = Just . asWaste <$> declaredHere ctx sup
+  where
+    asWaste flow =
+        WasteFlow
+            { wfId = tfId flow
+            , wfName = tfName flow
+            , wfUnitId = tfUnitId flow
+            , wfSynonyms = tfSynonyms flow
+            , wfCAS = tfCAS flow
+            , wfSubstanceId = tfSubstanceId flow
+            }
+
+{- | The provider's product flow, its unit a row of the edited database.
+
+The edited database's own row wins when it has one; a dependency's flow has its
+unit remapped into the edited database's table, because the link carries the
+flow's unit name and would otherwise read it out of the wrong one.
+-}
+declaredHere :: AuthorContext -> Supplier -> Either Text TechnosphereFlow
+declaredHere ctx sup = case (M.lookup flowId (dbTechFlows (acDb ctx)), supHome sup) of
+    (Just local, _) -> Right local
+    (Nothing, OwnDatabase) -> Left undeclared
+    (Nothing, Dependency Nothing) -> Left undeclared
+    (Nothing, Dependency (Just (flow, flowUnit))) -> case lookupUnit ctx flowUnit of
+        Nothing ->
+            Left
+                ( "the product \""
+                    <> tfName flow
+                    <> "\" of this provider is stated in \""
+                    <> flowUnit
+                    <> "\", a unit this database does not have"
+                )
+        Just (unitRef, _) -> Right flow{tfUnitId = unitRef}
+  where
+    flowId = prProduct (supKey sup)
+    undeclared = "the database declaring this provider does not declare its product flow"
 
 {- | Whether two unit names denote the same unit, spelling aside.
 

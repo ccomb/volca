@@ -286,6 +286,7 @@ applyOp ctx = \case
                         { riKey = key
                         , riActivity = eaActivity edited
                         , riNewTechFlows = eaNewTechFlows edited
+                        , riNewWasteFlows = eaNewWasteFlows edited
                         , riNewBioFlows = eaNewBioFlows edited
                         }
                         : siblings
@@ -300,7 +301,7 @@ applyOp ctx = \case
   where
     restatedRow db (pid, act) = do
         key <- processKey db pid
-        pure ResolvedInsert{riKey = key, riActivity = act, riNewTechFlows = [], riNewBioFlows = []}
+        pure ResolvedInsert{riKey = key, riActivity = act, riNewTechFlows = [], riNewWasteFlows = [], riNewBioFlows = []}
     resolve = bimap (T.intercalate "; ") fst . validateAuthored ctx
     -- The texts and parameters belong to the activity, not to one of its
     -- products: a block read with two products is two rows under one activity
@@ -322,7 +323,7 @@ applyOp ctx = \case
         key <- processKey (acDb ctx) other
         act <- maybe (Left ("ProcessId out of range: " <> T.pack (show other))) Right (getActivity (acDb ctx) other)
         edited <- first (T.intercalate "; ") (applyExchangeEdits ctx shared act)
-        pure ResolvedInsert{riKey = key, riActivity = eaActivity edited, riNewTechFlows = [], riNewBioFlows = []}
+        pure ResolvedInsert{riKey = key, riActivity = eaActivity edited, riNewTechFlows = [], riNewWasteFlows = [], riNewBioFlows = []}
 
 {- | The one failure a journal exists to make impossible to miss: the same
 description no longer minting the identity it was recorded under. Everything

@@ -63,6 +63,7 @@ import Types (
     ProcessRef (..),
     TechnosphereFlow (..),
     UUID,
+    WasteFlow (..),
     findProcessId,
     findProcessIdByActivityUUID,
     parseProcessRef,
@@ -285,6 +286,7 @@ applyResolved intent unitConfig inserts db
             db
                 { dbTechFlows = M.union (indexBy tfId (concatMap riNewTechFlows inserts)) (dbTechFlows db)
                 , dbBioFlows = M.union (indexBy bfId (concatMap riNewBioFlows inserts)) (dbBioFlows db)
+                , dbWasteFlows = M.union (indexBy wfId (concatMap riNewWasteFlows inserts)) (dbWasteFlows db)
                 }
             (M.union (M.fromList [(riKey i, riActivity i) | i <- inserts]) existing)
   where
