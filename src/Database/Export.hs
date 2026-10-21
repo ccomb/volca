@@ -24,6 +24,7 @@ module Database.Export (
 ) where
 
 import Control.Exception (SomeException, try)
+import Control.Monad (guard)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.List (find)
@@ -82,10 +83,10 @@ one 'toSimpleDatabase' conversion and keeps them from drifting apart.
 
 The dependencies are the suppliers its inputs buy from the databases it
 depends on ('Database.ExportSupplier.dependenciesOf'). SimaPro and Brightway
-name them on the rows buying from them; ILCD, which cannot, refuses them. Only
-those three read them, so only they fail when the suppliers could not be
-worked out: the formats pointing at a supplier export all the same, under the
-names the source gave. Before any writer, each input a dependency supplies is
+name them on the rows buying from them; ILCD and EcoSpold 1, which cannot,
+refuse them. Only those four read them, so only they fail when the suppliers
+could not be worked out: the formats pointing at a supplier export all the
+same, under the names the source gave. Before any writer, each input a dependency supplies is
 written under that supplier's product and identity ('namedAfterLinks').
 -}
 serializeDatabase :: UnitConfig -> DatabaseFormat -> M.Map Text [ScenarioValue] -> Either Text Dependencies -> Database -> Either Text (BL.ByteString, [Text])
@@ -95,7 +96,10 @@ serializeDatabase units fmt saved dependencies db = fmap (fmap (linkWarnings <>)
     SimaProCSV -> dependencies >>= \deps -> first BL.fromStrict <$> SP.serializeSimaProCSVWithWarnings SP.defaultWriterConfig{SP.wcDependencies = deps} sdb
     -- One lazy chunk per dataset, never one value holding the file: see
     -- 'ES1.writeSimpleDatabaseChunks' for what a single chunk costs at this size.
-    EcoSpold1 -> valuesOnlyWith [] (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
+    EcoSpold1 ->
+        dependencies >>= \(Dependencies found) -> case M.elems found of
+            supplier : _ -> Left ("EcoSpold 1 names a supplier only among the datasets of its own file, and cannot for an input bought from " <> elDatabase supplier <> ". EcoSpold 2 and openLCA point at suppliers instead, and can.")
+            [] -> valuesOnlyWith [] (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
     EcoSpold2 -> first zipText <$> ES2.writeEcoSpold2WithWarnings ES2.noVolatileMeta sdb
     ILCDProcess -> dependencies >>= \deps -> valuesOnlyWith (ILCD.splitWarnings sdb) (ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = deps} sdb)
     BrightwayExcel -> dependencies >>= \deps -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig{BE.wcDependencies = deps} sdb
@@ -134,7 +138,7 @@ namedAfterLinks units (Dependencies deps) links sdb0 = foldl' answer (sdb0, []) 
     answer (sdb, said) link = fromMaybe (sdb, said) $ do
         AnsweredExchange{aePosition = position, aeFactor = factor} <- cdlAnswers link
         let key = (cdlConsumerActUUID link, cdlConsumerProdUUID link)
-        supplier <- M.lookup (fst key, snd key, position) deps
+        guard (M.member (fst key, snd key, position) deps)
         activity <- M.lookup key (sdbActivities sdb)
         (before, line@TechnosphereExchange{techFlowId = flow, techAmount = amount, techUnitId = unit, techFormula = formula} : after) <- Just (splitAt position (exchanges activity))
         consumerFlow <- if flow == cdlConsumerFlowId link then M.lookup flow (sdbTechFlows sdb) else Nothing
@@ -144,7 +148,7 @@ namedAfterLinks units (Dependencies deps) links sdb0 = foldl' answer (sdb0, []) 
             supplied =
                 consumerFlow
                     { tfId = cdlSupplierProdUUID link
-                    , tfName = elProduct supplier
+                    , tfName = cdlFlowName link
                     , tfUnitId = if bridged then unitId linkUnit else tfUnitId consumerFlow
                     , tfSynonyms = M.empty
                     }

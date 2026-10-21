@@ -43,8 +43,8 @@ spec = describe "Database.Export dispatcher" $ do
     it "exports the formats pointing at a supplier when the suppliers could not be named" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
         let unnamed fmt = serializeDatabase defaultUnitConfig fmt M.empty (Left "its supplier is not loaded") db
-        forM_ [EcoSpold1, EcoSpold2, OpenLcaPackage] $ \fmt -> unnamed fmt `shouldSatisfy` isRight
-        forM_ [SimaProCSV, ILCDProcess, BrightwayExcel] $ \fmt -> unnamed fmt `shouldSatisfy` isLeft
+        forM_ [EcoSpold2, OpenLcaPackage] $ \fmt -> unnamed fmt `shouldSatisfy` isRight
+        forM_ [SimaProCSV, EcoSpold1, ILCDProcess, BrightwayExcel] $ \fmt -> unnamed fmt `shouldSatisfy` isLeft
 
     it "fails loudly for formats with no writer (never a silent empty file)" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
@@ -174,7 +174,7 @@ buildFixture comp = do
 
 -- | A UnitConfig that knows kg and two energy units; the shipped default knows no energy.
 energyUnits :: UnitConfig
-energyUnits = fromRight defaultUnitConfig (buildFromCSV (BLC.pack "name,dimension,factor\nkg,mass,1.0\nMJ,energy,1.0\nkWh,energy,3.6\n"))
+energyUnits = either (error . T.unpack) id (buildFromCSV (BLC.pack "name,dimension,factor\nkg,mass,1.0\nMJ,energy,1.0\nkWh,energy,3.6\n"))
 
 kgU, mjU, kwhU, spinAct, spinProd, marketFlow, gridAct, gridProd, otherAct :: UUID
 kgU = read "33333333-0000-4000-8000-000000000001"
@@ -247,7 +247,7 @@ spinning =
         ]
 
 grid :: Elsewhere
-grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elProduct = "Electricity, medium voltage, at grid"}
+grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER"}
 
 -- | The suppliers of the spinning lines at these positions.
 suppliers :: [(Int, Elsewhere)] -> Dependencies
