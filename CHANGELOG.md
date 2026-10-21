@@ -355,7 +355,8 @@
   CAS number and then lent its scarcity factor to every resource sharing
   that number, ocean water and brine among them. The adapted method leaves
   both out, as AWARE does. "water" now reads as fresh water of unspecified
-  origin, and "sea water" as ocean water (data version 12).
+  origin, and "sea water" and "brine" as substances of their own
+  (data version 12).
 
 - A written activity sending waste to a treatment of another database can
   now be exported. The engine filed the waste among the products, where

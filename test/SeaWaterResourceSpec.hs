@@ -107,7 +107,9 @@ spec = describe "EF's generic water resource with the shipped registry" $ do
                 map (factorOf tables) [fresh, ocean, sole] `shouldBe` [Just 42.95, Nothing, Nothing]
                 bridgedWater tables `shouldBe` []
 
-            it "leaves sea water out where no flow carries the fresh-water name" $ do
-                tables <- tablesFor registry [river, ocean]
-                factorOf tables ocean `shouldBe` Nothing
+            -- With no fresh water to name, the line finds no flow at all: a
+            -- line matched on any of these by CAS would lend its factor to all.
+            it "leaves the line unmatched where no flow carries the fresh-water name" $ do
+                tables <- tablesFor registry [river, ocean, sole]
+                map (factorOf tables) [river, ocean, sole] `shouldBe` [Nothing, Nothing, Nothing]
                 bridgedWater tables `shouldBe` []
