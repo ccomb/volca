@@ -58,6 +58,7 @@ import Types (
     Parameter (..),
     ParameterDefinition (..),
     Pedigree (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
@@ -1034,6 +1035,7 @@ buildFixtureAt actId prodId = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . show) pure r
 
@@ -1065,6 +1067,7 @@ buildTwoProductTreatment = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . show) pure r
 
@@ -1087,6 +1090,7 @@ buildBareFixture = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . show) pure r
 

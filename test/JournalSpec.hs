@@ -64,6 +64,7 @@ import Types (
     Medium (..),
     Parameter (..),
     ParameterDefinition (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     TechRole (..),
@@ -538,6 +539,7 @@ buildDepFixture = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . show) pure built
 
@@ -559,6 +561,7 @@ buildFixtureWith extra = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . show) pure built
 

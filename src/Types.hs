@@ -1775,6 +1775,7 @@ data Database = Database
     , dbDocumentation :: !DatabaseDocumentation -- What the database says about itself (serialized to cache)
     , dbParameters :: !(M.Map Text Parameter) -- Parameters every process reads unless it defines its own of the same name
     , dbProductSystems :: ![ProductSystem] -- The product systems the source ships, with their parameter sets
+    , dbReferenceConvention :: !ReferenceConvention -- How its inputs read a supplier whose reference is negative
     , -- Runtime-only fields (not serialized to cache)
       dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
     , dbFlowsByName :: !(M.Map Text [BiosphereFlow]) -- Biosphere flow name index for LCIA matching
@@ -1814,6 +1815,7 @@ instance Store Database where
             + getSize (dbDocumentation db)
             + getSize (dbParameters db)
             + getSize (dbProductSystems db)
+            + getSize (dbReferenceConvention db)
 
     poke db = do
         poke (dbProcessIdTable db)
@@ -1840,6 +1842,7 @@ instance Store Database where
         poke (dbDocumentation db)
         poke (dbParameters db)
         poke (dbProductSystems db)
+        poke (dbReferenceConvention db)
 
     -- Runtime-only fields are NOT serialized
 
@@ -1867,6 +1870,7 @@ instance Store Database where
         documentation <- peek
         parameters <- peek
         productSystems <- peek
+        referenceConvention <- peek
         return
             Database
                 { dbProcessIdTable = processIdTable
@@ -1893,6 +1897,7 @@ instance Store Database where
                 , dbDocumentation = documentation
                 , dbParameters = parameters
                 , dbProductSystems = productSystems
+                , dbReferenceConvention = referenceConvention
                 , -- Runtime-only fields set to defaults
                   dbSynonymDB = Nothing
                 , dbFlowsByName = M.empty
@@ -2228,6 +2233,53 @@ initializeRuntimeFields db synDB =
     let db' = addSynonymDBToDatabase db synDB
      in addFlowNameIndexToDatabase db'
 
+{- | How a database's inputs read a supplier whose reference amount is
+negative: a waste treatment written as taking in -1 kg of waste.
+
+Two conventions meet when a database links its inputs to another one. Take
+an input of +3 kg of used oil linked to a treatment whose reference is -1 kg:
+
+* EcoSpold 2, openLCA (its reader turns a treatment's reference waste input
+  into an output of -1) and Brightway write treatments that way, so in their
+  files +3 kg is waste received back from the treatment, a credit. Sending
+  3 kg of waste is written as a waste output, or as an input of -3 kg.
+* SimaPro, ILCD and EcoSpold 1 write a treatment with a positive reference,
+  so +3 kg is a demand that runs the treatment forward, a burden.
+
+Within one file each reading is consistent; the convention only tells the
+cross-database link how to read a line that reaches a dependency written the
+other way. It leaves alone a -1 treatment inside a SimaPro file, which keeps
+the reading of the file it sits in. A Brightway row of +3 kg written by hand
+to an EcoSpold 2 treatment stays a credit, as Brightway itself computes it.
+EcoSpold 1 has no such link today: its waste-to-treatment rows are read as
+coproducts.
+-}
+data ReferenceConvention
+    = -- | A treatment's reference may be negative; an input reaching it is read as written.
+      SignedReferences
+    | -- | A treatment's reference is positive; an input reaching a negative one is a demand, read with that reference's sign.
+      PositiveReferences
+    deriving (Eq, Show, Generic, Store, NFData)
+
+-- | The sign of a supplier's reference amount, which a line reaching it may have to take.
+data ReferenceSign
+    = -- | A treatment written as giving out its waste, -1 kg
+      NegativeReference
+    | -- | A product, or a treatment written as taking in its waste
+      PositiveReference
+    deriving (Eq, Show)
+
+-- | The sign as the factor a line is multiplied by.
+signFactor :: ReferenceSign -> Double
+signFactor NegativeReference = -1
+signFactor PositiveReference = 1
+
+-- | The sign of a reference amount.
+referenceSignOf :: Double -> ReferenceSign
+referenceSignOf amount
+    | amount < 0 = NegativeReference
+    | otherwise = PositiveReference
+
 {- | Simplified version without indexes (for loading compatibility)
 Used during database loading, before conversion to final Vector structure
 -}
@@ -2240,6 +2292,7 @@ data SimpleDatabase = SimpleDatabase
     , sdbDocumentation :: !DatabaseDocumentation
     , sdbParameters :: !(M.Map Text Parameter)
     , sdbProductSystems :: ![ProductSystem]
+    , sdbReferenceConvention :: !ReferenceConvention
     }
     deriving (Generic, Store)
 
@@ -2261,6 +2314,7 @@ simpleDatabaseOf db pids =
         , sdbDocumentation = dbDocumentation db
         , sdbParameters = dbParameters db
         , sdbProductSystems = dbProductSystems db
+        , sdbReferenceConvention = dbReferenceConvention db
         }
 
 -- | Blocking reason for cross-database linking failure

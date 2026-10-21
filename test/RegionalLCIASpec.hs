@@ -36,6 +36,7 @@ import Types (
     Indexes (..),
     LocationSource (..),
     Medium (..),
+    ReferenceConvention (..),
     SparseTriple (..),
     Unit (..),
     emptyProductIndex,
@@ -142,6 +143,7 @@ mkDB locsAndEmissions =
             , dbProductSearchIndex = M.empty
             , dbBM25Index = Nothing
             , dbProductSystems = []
+            , dbReferenceConvention = SignedReferences
             }
 
 -- Build a method mapping with one regional CF per (location, value), all on

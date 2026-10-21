@@ -52,6 +52,7 @@ import Types (
     Exchange (..),
     LocationSource (..),
     ProcessId,
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     TechRole (..),
@@ -179,6 +180,7 @@ database shift = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . show) pure built
   where

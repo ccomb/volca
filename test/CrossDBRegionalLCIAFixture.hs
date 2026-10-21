@@ -163,6 +163,7 @@ mkDB offset locs bioTriples =
             , dbProductSearchIndex = M.empty
             , dbBM25Index = Nothing
             , dbProductSystems = []
+            , dbReferenceConvention = SignedReferences
             }
 
 {- | Add a 'CrossDBLink' from the first activity of @consumerDb@ to the

@@ -30,6 +30,7 @@ import Types (
     Exchange (..),
     GeographyPolicy (..),
     LocationSource (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     TechRole (..),
@@ -167,6 +168,7 @@ supplierDB offset =
             , sdbDocumentation = noDocumentation
             , sdbParameters = M.empty
             , sdbProductSystems = []
+            , sdbReferenceConvention = SignedReferences
             }
 
 {- | A consumer DB with @n@ activities, each having one unlinked technosphere
@@ -259,4 +261,5 @@ consumerDB offset n =
             , sdbDocumentation = noDocumentation
             , sdbParameters = M.empty
             , sdbProductSystems = []
+            , sdbReferenceConvention = SignedReferences
             }

@@ -14,7 +14,9 @@ cross-database: an ecoinvent-style orphan waste OUTPUT resolved to a
 background treatment in another DB via 'findWasteTreatmentAcrossDatabases'.
 That path scores through the dep-demand solve ('accumulateDepDemandsWith'),
 NOT the static technosphere triples, and the dep-demand path applies no
-input/output sign, only 'cdlCoefficient'.
+input/output sign, only 'cdlCoefficient'. The other way is a technosphere
+input reaching such a treatment, which each database reads in its own
+'ReferenceConvention'.
 
 A correctly treated 3 kg of waste at 2 kg CO2 / kg MUST contribute +6 kg CO2 in
 every case: treating waste adds burden, it never subtracts it.
@@ -22,23 +24,28 @@ every case: treating waste adds burden, it never subtracts it.
 module WasteTreatmentSignSpec (spec) where
 
 import API.Types (Aggregation (..), ExchangeWithUnit (..), SupplyChainEntry (..), SupplyChainResponse (..))
+import qualified Data.ByteString as BS
 import Data.List (elemIndex)
 import qualified Data.Map as M
 import qualified Data.Map.Strict as MS
 import Data.Maybe (fromMaybe)
+import Data.Store (decodeEx, encode)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Cutoffs (gapIndexOf)
-import Database.Loader (findAllCrossDBLinks)
+import Database.Loader (defaultLoadOptions, findAllCrossDBLinks, loadSimaProCSV)
 import Matrix (computeInventoryMatrix, computeScalingVector)
 import OlcaPackageFixture (throughPackage)
 import Service (ActivityFilterCore (..), Edges (..), SupplyChainFilter (..), buildCrossDBLinkMap, buildSupplyChainFromScalingVector, toExchangeWithUnit)
 import qualified Service.Aggregate as Agg
 import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached)
+import SimaPro.Writer (defaultWriterConfig, serializeSimaProCSV)
 import SynonymDB (emptySynonymDB)
+import System.IO (hClose)
+import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
 import TestHelpers (mkDepLookupFromMap, mkSolverFromDb, shippedGeographies, withinTolerance)
 import Types
@@ -187,6 +194,7 @@ simpleDB acts =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 buildDB :: T.Text -> M.Map (UUID, UUID) Activity -> IO Database
@@ -292,7 +300,10 @@ ctxWithDep depName depDB =
 
 -- | The cross-DB links the real linker finds for one root activity map.
 linksFor :: LinkingContext -> M.Map (UUID, UUID) Activity -> [CrossDBLink]
-linksFor ctx = cdlLinks . findAllCrossDBLinks ctx techFlowDB wasteFlowDB (M.singleton kgU (Unit kgU "kg" "kg" ""))
+linksFor = linksReading SignedReferences
+
+linksReading :: ReferenceConvention -> LinkingContext -> M.Map (UUID, UUID) Activity -> [CrossDBLink]
+linksReading convention ctx acts = cdlLinks (findAllCrossDBLinks ctx (simpleDB acts){sdbReferenceConvention = convention})
 
 {- | Cross-DB scoring: a root DB whose waste OUTPUT is resolved by the real
 linker ('findAllCrossDBLinks') to a treatment in a separate dependency DB, then
@@ -309,31 +320,53 @@ the two against each other: a charged line that reports no treatment is the
 same bug read from the other end.
 -}
 scoreCross :: Maybe UUID -> T.Text -> TechRole -> Double -> IO (Double, ExchangeWithUnit)
-scoreCross rootLink depName depRole depRefAmount = do
-    let rootActs = M.singleton (pA, yY) (producer (wasteEx False rootLink 3.0))
+scoreCross rootLink = scoreCrossOf SignedReferences (wasteEx False rootLink 3.0)
+
+{- | The same, for a root database reading its lines in @convention@ and
+sending its waste as @line@.
+-}
+scoreCrossOf :: ReferenceConvention -> Exchange -> T.Text -> TechRole -> Double -> IO (Double, ExchangeWithUnit)
+scoreCrossOf convention line depName depRole depRefAmount = do
+    let rootActs = M.singleton (pA, yY) (producer line)
     rootBase <- buildDB "root" rootActs
     depDB <- buildDB depName (M.singleton (tA, wW) (treatment depRole depRefAmount))
-    let links = linksFor (ctxWithDep depName depDB) rootActs
+    let rootDB = rootBase{dbCrossDBLinks = linksReading convention (ctxWithDep depName depDB) rootActs}
+    case processIdOf rootDB (pA, yY) of
+        Nothing -> fail "producer not interned"
+        Just pid -> do
+            score <- scoreAcross rootDB depName depDB pid
+            pure (score, toExchangeWithUnit rootDB (buildCrossDBLinkMap rootDB pid) 0 line)
+
+-- | The CO2 of one root activity, its links to the dependency solved through the dep-demand path.
+scoreAcross :: Database -> T.Text -> Database -> ProcessId -> IO Double
+scoreAcross rootDB depName depDB pid
+    | null (dbCrossDBLinks rootDB) = fail "linker created no cross-DB waste link (matcher did not fire)"
+    | otherwise = do
+        rootSolver <- mkSolverFromDb rootDB "root"
+        depSolver <- mkSolverFromDb depDB depName
+        let depLookup = mkDepLookupFromMap (MS.singleton depName (depDB, depSolver))
+        either (fail . T.unpack) (pure . co2Of . csInventory)
+            =<< computeInventoryMatrixWithDepsCached defaultUnitConfig depLookup rootDB "root" rootSolver pid
+
+{- | The producer sending 3 kg of waste to the ecoinvent treatment it names,
+written as a SimaPro file, read back as the engine reads one, linked to the treatment
+and scored.
+-}
+scoreThroughSimaPro :: IO Double
+scoreThroughSimaPro = do
+    bytes <- either (fail . T.unpack) pure (serializeSimaProCSV defaultWriterConfig (simpleDB (M.singleton (pA, yY) (producer (wasteEx False (Just tA) 3.0)))))
+    back <- withSystemTempFile "waste-sign.csv" $ \path h -> do
+        BS.hPut h bytes
+        hClose h
+        either (fail . T.unpack) pure =<< loadSimaProCSV (defaultLoadOptions defaultUnitConfig) path
+    rootBase <- buildSimple "root" back
+    depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
+    let ctx = (ctxWithDep "eco-dep" depDB){lcGeographyPolicy = GeoGlobal}
+        links = cdlLinks (findAllCrossDBLinks ctx back)
         rootDB = rootBase{dbCrossDBLinks = links}
-    if null links
-        then fail "linker created no cross-DB waste link (matcher did not fire)"
-        else do
-            rootSolver <- mkSolverFromDb rootDB "root"
-            depSolver <- mkSolverFromDb depDB depName
-            let depLookup = mkDepLookupFromMap (MS.singleton depName (depDB, depSolver))
-            case processIdOf rootDB (pA, yY) of
-                Nothing -> fail "producer not interned"
-                Just pid -> do
-                    res <- computeInventoryMatrixWithDepsCached defaultUnitConfig depLookup rootDB "root" rootSolver pid
-                    let reported =
-                            toExchangeWithUnit
-                                rootDB
-                                (buildCrossDBLinkMap rootDB pid)
-                                0
-                                (wasteEx False rootLink 3.0)
-                    case res of
-                        Left err -> fail (T.unpack err)
-                        Right sol -> pure (co2Of (csInventory sol), reported)
+    case [fromIntegral i | (i, act) <- zip [0 :: Int ..] (V.toList (dbActivities rootDB)), activityName act == "producer of Y"] of
+        [pid] -> scoreAcross rootDB "eco-dep" depDB pid
+        found -> fail ("expected one producer read back, got " <> show (length found))
 
 spec :: Spec
 spec = describe "Waste-treatment scoring sign across reference conventions" $ do
@@ -424,13 +457,13 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
         let grams = mergeUnitConfigs [defaultUnitConfig, mkUnitConfig defaultDimensionOrder (M.singleton "g" (UnitDef [if d == "mass" then 1 else 0 | d <- defaultDimensionOrder] 0.001))]
             units = M.fromList [(kgU, Unit kgU "kg" "kg" ""), (gU, Unit gU "g" "g" "")]
             rootActs = M.singleton (pA, yY) (producer (wasteEx False Nothing 3000){waUnitId = gU})
-            links = cdlLinks (findAllCrossDBLinks (ctxWithDep "eco-dep" depDB){lcUnitConfig = grams} techFlowDB wasteFlowDB units rootActs)
+            links = cdlLinks (findAllCrossDBLinks (ctxWithDep "eco-dep" depDB){lcUnitConfig = grams} (simpleDB rootActs){sdbUnits = units})
         [(withinTolerance 1.0e-12 (-3) (cdlCoefficient l), withinTolerance 1.0e-12 (-0.001) (maybe 0 aeFactor (cdlAnswers l))) | l <- links] `shouldBe` [(True, True)]
 
     it "sends no waste written in seconds to a treatment in kilograms, and says why" $ do
         depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
         let units = M.fromList [(kgU, Unit kgU "kg" "kg" ""), (sU, Unit sU "s" "s" "")]
-            stats = findAllCrossDBLinks (ctxWithDep "eco-dep" depDB) techFlowDB wasteFlowDB units (M.singleton (pA, yY) (producer (wasteEx False Nothing 3){waUnitId = sU}))
+            stats = findAllCrossDBLinks (ctxWithDep "eco-dep" depDB) (simpleDB (M.singleton (pA, yY) (producer (wasteEx False Nothing 3){waUnitId = sU}))){sdbUnits = units}
         cdlLinks stats `shouldBe` []
         cdlCutoffWasteCount stats `shouldBe` 1
         any (\(UnresolvedProduct blockers) -> M.member UnitIncompatible{uiQueryUnit = "s", uiSupplierUnit = "kg"} blockers) (M.elems (cdlUnresolvedRequests stats)) `shouldBe` True
@@ -438,6 +471,39 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
     it "cross-DB to an ecoinvent (negative ReferenceProduct) treatment scores +6" $ do
         (score, _) <- scoreCross Nothing "eco-dep" ReferenceProduct (-1.0)
         withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    -- A SimaPro or ILCD database sends its waste as an input of +3 kg, since
+    -- its own treatments are positive. Reaching an ecoinvent treatment, whose
+    -- reference is -1 kg, that input asks the treatment to run, as it would
+    -- in its own file, and charges the 3 kg treated.
+    it "cross-DB input of +3 from a database of positive treatments to an ecoinvent treatment scores +6" $ do
+        (score, _) <- scoreCrossOf PositiveReferences (techEx wW 3.0 Input Nothing){techLocation = "GLO"} "eco-dep" ReferenceProduct (-1.0)
+        withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    it "cross-DB input of +3 from a database of positive treatments to an ILCD treatment scores +6" $ do
+        (score, _) <- scoreCrossOf PositiveReferences (techEx wW 3.0 Input Nothing){techLocation = "GLO"} "ilcd-dep" ReferenceInput 1.0
+        withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    -- An EcoSpold 2 database writes the waste it sends to a -1 treatment as an
+    -- input of -3 kg, and an input of +3 kg as waste received back: both are
+    -- read as written.
+    it "cross-DB input of -3 from an EcoSpold 2 database to an ecoinvent treatment scores +6" $ do
+        (score, _) <- scoreCrossOf SignedReferences (techEx wW (-3.0) Input Nothing){techLocation = "GLO"} "eco-dep" ReferenceProduct (-1.0)
+        withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    -- What the SimaPro writer makes of a waste output, an input of +3 kg, is
+    -- what the reader charges again.
+    it "a waste output sent to an ecoinvent treatment and written as a SimaPro file still scores +6" $ do
+        score <- scoreThroughSimaPro
+        withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    it "a database keeps how it reads a negative reference through the cache" $ do
+        db <- buildDB "cached" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
+        dbReferenceConvention (decodeEx (encode db{dbReferenceConvention = PositiveReferences})) `shouldBe` PositiveReferences
+
+    it "cross-DB input of +3 from an EcoSpold 2 database to an ecoinvent treatment is a credit of -6" $ do
+        (score, _) <- scoreCrossOf SignedReferences (techEx wW 3.0 Input Nothing){techLocation = "GLO"} "eco-dep" ReferenceProduct (-1.0)
+        withinTolerance 1.0e-9 (-6.0) score `shouldBe` True
 
     -- An authored waste output states the treatment it goes to. When that
     -- treatment lives in a dependency, naming it must reach the dependency

@@ -51,6 +51,7 @@ import Types (
     Exchange (..),
     LocationSource (..),
     NativeActivityType (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     TechRole (..),
@@ -517,6 +518,7 @@ databaseKeyed key rows = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . show) pure built
 

@@ -56,6 +56,7 @@ import Types (
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
@@ -110,6 +111,23 @@ spec = describe "relinkDatabase strict dependency pin" $ do
             linkSources `shouldSatisfy` (`S.isSubsetOf` S.fromList ["alpha"])
             -- p1 resolves against alpha; p2 (beta-only) stays unresolved.
             length (dbCrossDBLinks relinked) `shouldBe` 1
+
+    -- A relink scans the loaded database again, so it must read the input as
+    -- the first load did: a database of positive treatments asking +1 kg of a
+    -- treatment whose reference is -1 kg asks it to run.
+    it "reads an input to a negative treatment in the consumer's own convention" $
+        withSystemTempDirectory "volca-relink-convention" $ \tmp -> do
+            alphaDb <- buildOrFail (asTreatments (supplierDB 100 ["p1"]))
+            consumerDb0 <- buildOrFail (consumerDB 300 ["p1"])
+            let consumerDb = consumerDb0{dbDependsOn = ["alpha"], dbCrossDBLinks = [], dbReferenceConvention = PositiveReferences}
+            manager <- initDatabaseManager defaultConfig NoCache
+            solver <- mkSolver "consumer" consumerDb
+            atomically $ do
+                modifyTVar' (dmLoadedDbs manager) (M.insert "consumer" (loadedFor consumerDb solver (consumerConfig (tmp </> "consumer-data"))))
+                modifyTVar' (dmIndexedDbs manager) (M.insert "alpha" (buildIndexedDatabaseFromDB "alpha" emptySynonymDB alphaDb))
+            relinkDatabase manager "consumer" >>= (`shouldSatisfy` isRight)
+            loaded <- readTVarIO (dmLoadedDbs manager)
+            map cdlCoefficient (dbCrossDBLinks (ldDatabase (loaded M.! "consumer"))) `shouldBe` [-1]
 
     it "a mapping relink against one dependency preserves links to the others" $
         withSystemTempDirectory "volca-relink-multidep" $ \tmp -> do
@@ -229,6 +247,7 @@ buildOrFail (SimpleParts acts flows units) = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     case r of
         Right db -> pure db
@@ -291,6 +310,14 @@ mkTechFlow fid name =
         , tfCAS = Nothing
         , tfSubstanceId = Nothing
         }
+
+-- | The same suppliers written as treatments, whose reference is -1.
+asTreatments :: SimpleParts -> SimpleParts
+asTreatments (SimpleParts acts flows units) = SimpleParts (M.map negatedReference acts) flows units
+  where
+    negatedReference act = act{exchanges = map negated (exchanges act)}
+    negated ex@TechnosphereExchange{techRole = ReferenceProduct, techAmount = amount} = ex{techAmount = negate amount}
+    negated ex = ex
 
 {- | A supplier DB: one activity per product name, each producing that
 product (reference output) at GLO. 'offset' keeps UUIDs disjoint across DBs.

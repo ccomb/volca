@@ -24,7 +24,6 @@ module Database.Export (
 ) where
 
 import Control.Exception (SomeException, try)
-import Control.Monad (guard)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.List (find)
@@ -38,7 +37,7 @@ import qualified BrightwayExcel.Writer as BE
 import Database.ExportFormulas (valuesOnly)
 import Database.ExportSupplier (Dependencies (..), Elsewhere (..))
 import Database.Loader (lineInLinkUnit)
-import Database.Upload (DatabaseFormat (..))
+import Database.Upload (DatabaseFormat (..), referenceConventionOf)
 import qualified EcoSpold.Writer1 as ES1
 import qualified EcoSpold.Writer2 as ES2
 import qualified ILCD.Writer as ILCD
@@ -57,10 +56,12 @@ import Types (
     CrossDBLink (..),
     Database (..),
     Exchange (..),
+    ReferenceConvention (..),
     ScenarioValue,
     SimpleDatabase (..),
     TechnosphereFlow (..),
     Unit (..),
+    signFactor,
     toSimpleDatabase,
  )
 import UnitConversion (UnitConfig)
@@ -110,7 +111,7 @@ serializeDatabase units fmt saved dependencies db = fmap (fmap (linkWarnings <>)
         Left "cannot export to an unknown format"
   where
     (sdb, linkWarnings) = case dependencies of
-        Right deps -> namedAfterLinks units deps (dbCrossDBLinks db) (toSimpleDatabase db)
+        Right deps -> namedAfterLinks units (referenceConventionOf fmt) deps (dbCrossDBLinks db) (toSimpleDatabase db)
         Left _ -> (toSimpleDatabase db, ["The inputs supplied by other databases are written as their source named them: not all their suppliers could be worked out." | not (null (dbCrossDBLinks db))])
     -- These writers write no parameter: what they write as values is said.
     valuesOnlyWith own = fmap (,own <> valuesOnly sdb)
@@ -130,19 +131,23 @@ The amount stays as written when its unit converts to the supplier's, since a
 reader converts it the same way. A link that bridged two measures (a relink
 mapping row with a conversion) is written in the link's unit, its amount
 converted, and its formula, which spoke of the other measure, dropped and said.
+A line reaching a treatment written as giving out its waste changes sign when
+the format reads such a line the other way than the database does: SimaPro's
++3 kg sent to it is EcoSpold 2's -3 kg. Its formula is dropped and said too.
 -}
-namedAfterLinks :: UnitConfig -> Dependencies -> [CrossDBLink] -> SimpleDatabase -> (SimpleDatabase, [Text])
-namedAfterLinks units (Dependencies deps) links sdb0 = foldl' answer (sdb0, []) links
+namedAfterLinks :: UnitConfig -> ReferenceConvention -> Dependencies -> [CrossDBLink] -> SimpleDatabase -> (SimpleDatabase, [Text])
+namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb0, []) links
   where
     answer :: (SimpleDatabase, [Text]) -> CrossDBLink -> (SimpleDatabase, [Text])
     answer (sdb, said) link = fromMaybe (sdb, said) $ do
         AnsweredExchange{aePosition = position, aeFactor = factor} <- cdlAnswers link
         let key = (cdlConsumerActUUID link, cdlConsumerProdUUID link)
-        guard (M.member (fst key, snd key, position) deps)
+        supplier <- M.lookup (fst key, snd key, position) deps
         activity <- M.lookup key (sdbActivities sdb)
         (before, line@TechnosphereExchange{techFlowId = flow, techAmount = amount, techUnitId = unit, techFormula = formula} : after) <- Just (splitAt position (exchanges activity))
         consumerFlow <- if flow == cdlConsumerFlowId link then M.lookup flow (sdbTechFlows sdb) else Nothing
         let bridged = isNothing (lineInLinkUnit units (sdbUnits sdb) line (cdlExchangeUnit link))
+            turned = if target == sdbReferenceConvention sdb then 1 else signFactor (elReferenceSign supplier)
             linkUnit = fromMaybe (newUnit (cdlExchangeUnit link)) (find ((== cdlExchangeUnit link) . unitName) (M.elems (sdbUnits sdb)))
             -- The consumer's own unit: the supplier's lives in another database's table.
             supplied =
@@ -156,15 +161,21 @@ namedAfterLinks units (Dependencies deps) links sdb0 = foldl' answer (sdb0, []) 
                 line
                     { techFlowId = tfId supplied
                     , techActivityLinkId = Just (cdlSupplierActUUID link)
-                    , techAmount = if bridged then amount * factor else amount
+                    , -- The factor's sign is how the database reads the line, not part of the conversion.
+                      techAmount = (if bridged then amount * abs factor else amount) * turned
                     , techUnitId = if bridged then unitId linkUnit else unit
-                    , techFormula = if bridged then Nothing else formula
+                    , techFormula = if bridged || turned < 0 then Nothing else formula
                     }
             formulaDropped =
                 [ activityName activity <> ", input " <> tfName consumerFlow <> ": written as a value in " <> cdlExchangeUnit link <> ", its formula spoke of another measure"
                 | bridged
                 , Just _ <- [formula]
                 ]
+                    <> [ activityName activity <> ", input " <> tfName consumerFlow <> ": written as a value of the opposite sign, since the format reads a line sent to a treatment the other way"
+                       | not bridged
+                       , turned < 0
+                       , Just _ <- [formula]
+                       ]
         pure
             ( sdb
                 { sdbActivities = M.insert key activity{exchanges = before <> (written : after)} (sdbActivities sdb)

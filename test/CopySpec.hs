@@ -64,6 +64,7 @@ import Types (
     ProductSystem (..),
     Redefinition (..),
     RedefinitionContext (..),
+    ReferenceConvention (..),
     Release (..),
     ScenarioValue (..),
     SimpleDatabase (..),
@@ -397,6 +398,7 @@ buildOrFail (SimpleParts acts flows units) = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     case r of
         Right db -> pure db

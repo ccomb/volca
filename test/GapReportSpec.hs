@@ -44,6 +44,7 @@ import Types (
     Exchange (..),
     GeographyPolicy (..),
     LinkBlocker (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     SupplierRequest (..),
@@ -107,6 +108,7 @@ consumerDB =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     breadExchanges =
@@ -140,6 +142,7 @@ supplierDB =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 stats :: CrossDBLinkingStats

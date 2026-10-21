@@ -103,6 +103,7 @@ chainOfFour = do
                     , sdbDocumentation = noDocumentation
                     , sdbParameters = M.empty
                     , sdbProductSystems = []
+                    , sdbReferenceConvention = SignedReferences
                     }
          in buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty Declared []) sdb >>= either (fail . show) pure
 

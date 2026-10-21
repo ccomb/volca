@@ -94,19 +94,27 @@ spec = describe "Database.Export dispatcher" $ do
 
     describe "an input linked to another database" $ do
         it "is written under the supplier's product and pointed at it, in the unit it was written in" $ do
-            let (sdb, said) = namedAfterLinks energyUnits (suppliers [(1, grid)]) [linkAt 1 gridAct 1 "MJ"] spinning
+            let (sdb, said) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, grid)]) [linkAt 1 gridAct 1 "MJ"] spinning
             (\ex -> (techFlowId ex, techActivityLinkId ex, techAmount ex, techUnitId ex)) (lineAt 1 sdb)
                 `shouldBe` (gridProd, Just gridAct, 33.336, mjU)
             fmap (\f -> (tfName f, tfUnitId f)) (M.lookup gridProd (sdbTechFlows sdb)) `shouldBe` Just ("Electricity, medium voltage, at grid", mjU)
             said `shouldBe` []
 
         it "is written in the link's unit when a relink bridged two measures, and says its formula is dropped" $ do
-            let (sdb, said) = namedAfterLinks energyUnits (suppliers [(1, grid)]) [linkAt 1 gridAct 0.5 "kg"] spinning
+            let (sdb, said) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, grid)]) [linkAt 1 gridAct 0.5 "kg"] spinning
             (\ex -> (techAmount ex, techUnitId ex, isNothing (techFormula ex))) (lineAt 1 sdb) `shouldBe` (16.668, kgU, True)
             said `shouldSatisfy` any (T.isInfixOf "formula")
 
+        it "changes sign, and says its formula is dropped, when the format reads a line sent to a treatment the other way" $ do
+            let treatment = grid{elReferenceSign = NegativeReference}
+                (positive, said) = namedAfterLinks energyUnits PositiveReferences (suppliers [(1, treatment)]) [linkAt 1 gridAct 1 "MJ"] spinning
+                (signed, _) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, treatment)]) [linkAt 1 gridAct 1 "MJ"] spinning
+            (\ex -> (techAmount ex, isNothing (techFormula ex))) (lineAt 1 positive) `shouldBe` (-33.336, True)
+            said `shouldSatisfy` any (T.isInfixOf "opposite sign")
+            techAmount (lineAt 1 signed) `shouldBe` 33.336
+
         it "takes the supplier of its own link when two lines of one product have two" $ do
-            let (sdb, _) = namedAfterLinks energyUnits (suppliers [(1, grid), (2, grid)]) [linkAt 1 gridAct 1 "MJ", linkAt 2 otherAct 1 "MJ"] spinning
+            let (sdb, _) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, grid), (2, grid)]) [linkAt 1 gridAct 1 "MJ", linkAt 2 otherAct 1 "MJ"] spinning
             fmap techActivityLinkId (lookupLine 1 sdb) `shouldBe` Just (Just gridAct)
             fmap techActivityLinkId (lookupLine 2 sdb) `shouldBe` Just (Just otherAct)
 
@@ -145,6 +153,7 @@ buildFixture comp = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . T.unpack) pure r
   where
@@ -222,6 +231,7 @@ databaseOf acts flows =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 {- | A spinning step buying electricity under the name its source gave it: 33.336
@@ -247,7 +257,7 @@ spinning =
         ]
 
 grid :: Elsewhere
-grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER"}
+grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = PositiveReference}
 
 -- | The suppliers of the spinning lines at these positions.
 suppliers :: [(Int, Elsewhere)] -> Dependencies
