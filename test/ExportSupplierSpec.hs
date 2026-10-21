@@ -53,7 +53,7 @@ spec = do
 
         it "refuses a supplier of a dependency stating no location" $
             SP.serializeSimaProCSV
-                SP.defaultWriterConfig{SP.wcDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" ""))}
+                SP.defaultWriterConfig{SP.wcDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "" "power"))}
                 (fixture "IN")
                 `shouldSatisfy` isLeft
 
@@ -106,7 +106,7 @@ spec = do
               , Just consumer <- [M.lookup (act, prod) (sdbActivities exported)]
               , ex <- take 1 (drop i (exchanges consumer))
               ]
-                `shouldBe` [(Elsewhere "background" "power market" "TR", "power")]
+                `shouldBe` [(Elsewhere "background" "power market" "TR" "power", "power")]
             out <- simaPro (Dependencies found) exported
             rowsUnder out "Materials/fuels"
                 `shouldSatisfy` any ("power {TR}| power market |;" `T.isPrefixOf`)
@@ -172,7 +172,7 @@ rowsUnder out header = go (map (T.dropWhileEnd (== '\r')) (T.lines (TE.decodeUtf
 
 -- | The mill's power, bought from an activity of a database it depends on.
 dependencies :: Dependencies
-dependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "TR"))
+dependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "TR" "power"))
 
 {- | Two farms making one product, « seed », farm A in IN and farm B at the
 place given; each gin buys its seed from one of them, and the mill buys
