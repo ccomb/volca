@@ -172,6 +172,14 @@ spec = do
                     classOf "Chromium (III)" `shouldBe` classOf "Chromium"
                     classOf "Chromium, ion" `shouldNotBe` classOf "Chromium"
 
+                -- The adapted EF 3.1 gives Mecoprop-P an ecotoxicity line of its
+                -- own and no human toxicity line. A flow's own name wins over a
+                -- bridge, so this lends it the racemic mixture's human toxicity
+                -- alone, as for S-metolachlor.
+                it "reads the human toxicity of mecoprop-P from its racemic mixture" $ do
+                    classOf "Mecoprop" `shouldNotBe` Nothing
+                    classOf "Mecoprop-P" `shouldBe` classOf "Mecoprop"
+
                 it "keeps hard and brown coal in separate classes" $
                     classOf "Energy, from coal" == classOf "Energy, from coal, brown"
                         `shouldBe` False

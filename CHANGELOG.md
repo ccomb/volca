@@ -356,6 +356,11 @@
   showed the line as an unresolved flow. The score was right. A database
   written before this fix keeps the misfiled flow until it is written again.
 
+- Emissions of mecoprop-P count in the EF 3.1 human toxicity categories. The
+  adapted method gives the enantiomer an ecotoxicity factor of its own but no
+  human toxicity factor, so its human toxicity scored zero. It now reads the
+  factor of mecoprop, the racemic mixture, as S-metolachlor already reads
+  metolachlor's, and keeps its own ecotoxicity factor (data version 11).
 - A SimaPro, ILCD or EcoSpold 1 database sending waste to a treatment of an
   EcoSpold 2 or openLCA dependency, such as an ecoinvent treatment, now
   charges that waste. These formats write a treatment as taking in +1 kg of
