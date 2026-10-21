@@ -694,8 +694,8 @@ undone whole with `undo_method_edit`.
 Every change made to the database, oldest first::
 
     {"at": "2026-10-21T09:12:03Z", "note": "Measured on site",
-     "summary": "Edited "wheat production" (FR)",
-     "details": ["Flow "Water": amount from 2.0 set to 1.5"]}
+     "summary": "Edited \"wheat production\" (FR)",
+     "details": ["Flow \"Water\": amount from 2.0 set to 1.5"]}
 
 ``note`` is the reason its author gave, ``None`` when they gave none.
 A database the engine reads from its configuration has no changes.
