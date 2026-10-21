@@ -41,6 +41,8 @@ data Elsewhere = Elsewhere
     { elDatabase :: !Text
     , elActivity :: !Text
     , elLocation :: !Text
+    , elReferenceSign :: !Double
+    -- ^ Sign of its reference amount: -1 for a treatment written as giving out its waste
     }
     deriving (Eq, Show)
 
@@ -76,7 +78,7 @@ dependenciesOf indexed db = do
     elsewhere :: ((UUID, UUID, Int), CrossDBLink) -> Either Text ((UUID, UUID, Int), Elsewhere)
     elsewhere (key@(act, prod, _), l) =
         case findSupplierByActivityProduct (maybe [] pure (M.lookup source indexed)) supplier of
-            ((e, _) : _) -> Right (key, Elsewhere source (seActivityName e) (seLocation e))
+            ((e, _) : _) -> Right (key, Elsewhere source (seActivityName e) (seLocation e) (seRefSign e))
             [] -> Left (refusal act prod ("its supplier in " <> source <> " is not loaded"))
       where
         source = cdlSourceDatabase l
