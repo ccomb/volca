@@ -441,6 +441,12 @@ documentingSpec = describe "documenting the changes made to a database" $ do
                     , (Nothing, ["Flow \"Carbon dioxide\": amount from 3.0 set to 4.0"])
                     ]
 
+    it "reads each edit of a batch against the amounts the edits before it left" $
+        withWritableDb $ \env -> do
+            void (edit env "authored" supplierPid noEdits{eerSetAmounts = [SetAmountAPI{saSelect = bioSelector co2Id, saAmount = 3}, SetAmountAPI{saSelect = bioSelector co2Id, saAmount = 4}]})
+            history env
+                `shouldReturn` Right [(Nothing, ["Flow \"Carbon dioxide\": amount from 1.2 set to 3.0", "Flow \"Carbon dioxide\": amount from 3.0 set to 4.0"])]
+
     it "says a database is modified once it holds a change" $
         withWritableDb $ \env -> do
             modification env `shouldReturn` Modification{modificationEdited = False, modificationReallocated = False}

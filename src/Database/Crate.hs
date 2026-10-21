@@ -122,9 +122,10 @@ licenceText = \case
 
 -- | The files beside the export and its description, each with its content.
 companions :: CrateInput -> [(FilePath, Text)]
-companions input =
-    [(changesFile, chReport changes) | Just changes <- [ciChanges input]]
-        <> [(licenceFile, text) | Just text <- [licenceText (ciLicence input)]]
+companions input = case ciChanges input of
+    -- An unchanged database's package keeps the one file engines already read.
+    Nothing -> []
+    Just changes -> (changesFile, chReport changes) : [(licenceFile, text) | Just text <- [licenceText (ciLicence input)]]
 
 -- | Where the export sits in the package, and what kind of file it is.
 data Payload = Payload

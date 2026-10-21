@@ -1690,6 +1690,7 @@ class Client:
         not hold it, a 403 when the database's ``licence`` refuses downloads.
         """
         self._require_wire(40, "document_file", engine_hint="0.15.0")
+        target = self._db(db_name)
         resp = self._session.get(
             f"{self.base_url}/api/v1/db/{target}/files/{urllib.parse.quote(path)}",
             headers={"Accept": "application/octet-stream"},

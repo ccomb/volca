@@ -131,6 +131,11 @@ spec = do
             fromEntry <$> findEntryByPath "payload/bread.zip" archive `shouldBe` Just payload
             (decode . fromEntry =<< findEntryByPath "ro-crate-metadata.json" archive) `shouldBe` Just (crate LicenceUnstated)
 
+        -- An engine that reads exactly one file in the package must keep reading an unchanged database's.
+        it "adds no file beside an unchanged database's export, whatever its licence" $
+            filesInArchive (toArchive (packageExport "bread" (input (LicenceStandard CCBY)) payload))
+                `shouldMatchList` ["ro-crate-metadata.json", "payload/bread.zip"]
+
     describe "a modified database's package" $ do
         let own = LicenceOwn OwnLicence{ownText = "Members only", ownRefused = S.fromList [Resell], ownAttribution = AttributionRequired, ownAcceptance = AcceptanceAsked}
             original = Release{releaseName = "Bakery data", releaseVersion = "2025", releaseSystemModel = Nothing}

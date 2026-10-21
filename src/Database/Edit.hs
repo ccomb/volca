@@ -77,10 +77,10 @@ import Database.Author (
     ExchangeEdit (..),
     ResolvedInsert (..),
     RestatedLine (..),
+    amountsBeforeEach,
     applyExchangeEdits,
     editingContext,
     retextsAuthoredIdentity,
-    selectorPredicate,
     validateAuthored,
  )
 import Database.CrossLinking (buildIndexedDatabaseFromDB)
@@ -129,14 +129,12 @@ import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
 import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches)
 import Types (
-    Activity (..),
     AllocationKey,
     ClassificationFilter,
     Database (..),
     Parameter,
     ProcessId,
     allocationKeyText,
-    exchangeAmount,
     findProcessIdByActivityUUID,
     getActivity,
     initializeRuntimeFields,
@@ -633,7 +631,7 @@ editExchanges manager dbName note target edits =
                         ctx <- authorContext manager (ldDatabase loaded)
                         case applyExchangeEdits ctx edits activity of
                             Left errs -> pure (Left (Malformed errs))
-                            Right edited -> commit (renderKey key) activity edited
+                            Right edited -> commit (renderKey key) (amountsBeforeEach ctx activity edits) edited
   where
     -- The identity is recorded canonically even when the caller addressed the
     -- activity by its bare UUID, so the journal keeps naming the same process
@@ -643,10 +641,10 @@ editExchanges manager dbName note target edits =
         key <- either (const Nothing) Just (processKey db pid)
         activity <- getActivity db pid
         pure (key, activity)
-    commit key activity edited = do
+    commit key priors edited = do
         let matched = eaMatched edited
-            line edit n = EditLine edit n (Prior (amountsBefore activity edit))
-        outcome <- mutateUploadedDatabase manager dbName (Change note (Edited key (zipWith line edits matched)))
+            line edit n prior = EditLine edit n (Prior prior)
+        outcome <- mutateUploadedDatabase manager dbName (Change note (Edited key (zipWith3 line edits matched priors)))
         pure $ case outcome of
             Left err -> Left (WriteFailed err)
             Right done ->
@@ -688,8 +686,10 @@ editDatabaseParameters manager dbName note edits =
             | otherwise -> case editedParameters (ldDatabase loaded) edits of
                 Left errs -> pure (Left (Malformed errs))
                 Right (_, moved) -> do
-                    let before name = Prior (lookupParameter name (dbParameters (ldDatabase loaded)))
-                        lines' = [ParameterLine name parameter (before name) | (name, parameter) <- edits]
+                    -- Each edit is read against the parameters the ones before it in the batch left.
+                    let applied parameters (name, parameter) = maybe id (M.insert name) parameter (M.filterWithKey (\key _ -> T.toLower key /= T.toLower name) parameters)
+                        priors = zipWith (\parameters (name, _) -> Prior (lookupParameter name parameters)) (scanl applied (dbParameters (ldDatabase loaded)) edits) edits
+                        lines' = zipWith (\(name, parameter) prior -> ParameterLine name parameter prior) edits priors
                     outcome <- mutateUploadedDatabase manager dbName (Change note (ParametersEdited lines'))
                     pure $ case outcome of
                         Left err -> Left (WriteFailed err)
@@ -702,21 +702,6 @@ editDatabaseParameters manager dbName note edits =
                                     , prPersisted = moPersisted done
                                     , prWarnings = moWarnings done
                                     }
-
-{- | The amounts of the lines an edit names, before it: what the history shows
-a reader beside the value that replaced them. An edit naming no line has none.
--}
-amountsBefore :: Activity -> ExchangeEdit -> [Double]
-amountsBefore activity = \case
-    SetAmount selector _ -> named selector
-    RemoveExchange selector -> named selector
-    SetFormula selector _ -> named selector
-    AddExchange _ -> []
-    SetText _ -> []
-    SetParameter _ _ -> []
-    RemoveParameter _ -> []
-  where
-    named selector = either (const []) (\selected -> map exchangeAmount (filter selected (exchanges activity))) (selectorPredicate selector)
 
 -- | A parameter by name, spelt in any case, as an edit names it.
 lookupParameter :: Text -> M.Map Text Parameter -> Maybe Parameter

@@ -387,8 +387,11 @@ databaseHistoryHandler dbName = do
     refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     liftIO (databaseHistory dbManager dbName) >>= \case
-        Left err -> throwError err404{errBody = BSL.fromStrict (T.encodeUtf8 err)}
         Right lines' -> pure (map historyLineToAPI lines')
+        Left err -> do
+            -- A database that is there with a journal the engine cannot read is the engine's failure, not the caller's.
+            known <- M.member dbName <$> liftIO (readTVarIO (dmAvailableDbs dbManager))
+            throwError (if known then err500 else err404){errBody = BSL.fromStrict (T.encodeUtf8 err)}
 
 historyLineToAPI :: HistoryLine -> DatabaseHistoryEntry
 historyLineToAPI line = DatabaseHistoryEntry (hlAt line) (noteText <$> hlNote line) (hlSummary line) (hlDetails line)

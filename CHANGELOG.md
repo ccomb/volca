@@ -17,8 +17,9 @@
   report of every change and its reason, cites the original it was made
   from, and says that its publisher did not make these changes. A plain
   export of it is refused with a 400 saying so; pyvolca asks for the
-  package itself. Every package of a database under a licence also carries
-  that licence in plain text, in `LICENCE.txt`. Wire revision 79.
+  package itself. Beside the report, that package carries the database's
+  licence in plain text, in `LICENCE.txt`; an unchanged database's package
+  holds its export alone, as before. Wire revision 79.
 
 - Loading a method now warns when one of its impact categories gives a
   flow two different factors at the same place. A database flow matched by

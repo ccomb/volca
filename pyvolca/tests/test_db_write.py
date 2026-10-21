@@ -258,6 +258,14 @@ def _raw(session, body: bytes, warnings_header: str | None = None) -> None:
     session.post.return_value = r
 
 
+def _bytes_response(body: bytes):
+    from tests.conftest import _make_response
+
+    r = _make_response({})
+    r.content = body
+    return r
+
+
 class TestExport:
     def test_returns_raw_bytes(self, mocked_client):
         client, session = mocked_client
@@ -282,6 +290,14 @@ class TestExport:
         with pytest.warns(UserWarning, match="ro-crate"):
             client.export_database("ecospold2")
         assert session.post.call_args[1]["json"]["package"] == "ro-crate"
+
+    def test_document_file_reads_the_database_it_names(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=40)
+        r = session.get.return_value
+        session.get.side_effect = [r, _bytes_response(b"pdf bytes")]
+        assert client.document_file("external_docs/report.pdf") == b"pdf bytes"
+        assert session.get.call_args[0][0] == "http://test.local/api/v1/db/testdb/files/external_docs/report.pdf"
 
     def test_format_normalized_before_send(self, mocked_client):
         client, session = mocked_client
