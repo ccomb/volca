@@ -47,6 +47,7 @@ import SimaPro.Writer (
     escapeField,
     formatAmount,
     serializeSimaProCSV,
+    serializeSimaProCSVWithWarnings,
  )
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
@@ -715,6 +716,39 @@ spec = describe "SimaPro.Writer round-trip" $ do
             -- A missing unit would be written blank and re-parsed as UNKNOWN.
             checkSimaProExportable (guardDb Nothing Nothing [refProd, matMissingUnit])
                 `shouldSatisfy` isLeft
+
+    describe "the CAS number of a substance" $ do
+        let air = Just (Compartment Air (Just "unspecified"))
+            water = Just (Compartment Water (Just "unspecified"))
+            ground = Just (Compartment NaturalResource (Just "in ground"))
+            casBack flows = do
+                (_, _, bio, _, _) <- parseBytes =<< serBytes (casDb flows)
+                pure (sort [(bfName f, bfCAS f) | f <- M.elems bio])
+            warned flows = either (const []) snd (serializeSimaProCSVWithWarnings defaultWriterConfig (casDb flows))
+
+        it "comes back with each substance a re-import reads" $
+            casBack [("Acetamiprid", air, Just "135410-20-7"), ("Water, well", ground, Just "007732-18-5")]
+                `shouldReturn` [("Acetamiprid", Just "135410-20-7"), ("Water, well", Just "7732-18-5")]
+
+        it "is written in the registry block of the substance's medium" $ do
+            out <- serBytes (casDb [("Acetamiprid", air, Just "135410-20-7"), ("Water, well", ground, Just "007732-18-5")])
+            rowsUnder out "Airborne emissions" `shouldBe` ["Acetamiprid;kg;135410-20-7;"]
+            rowsUnder out "Raw materials" `shouldBe` ["Water, well;kg;7732-18-5;"]
+
+        -- The format binds a CAS to a name, and these two names read as one.
+        it "is left out, with a warning, when one name carries two" $ do
+            let flows = [("Chromium VI", air, Just "18540-29-9"), ("Chromium (VI)", water, Just "1333-82-0")]
+            casBack flows `shouldReturn` [("Chromium (VI)", Nothing), ("Chromium VI", Nothing)]
+            length (warned flows) `shouldBe` 1
+
+        it "reaches, with a warning, a flow of the same name that stated none" $ do
+            let flows = [("Methane", air, Just "74-82-8"), ("Methane", water, Nothing)]
+            casBack flows `shouldReturn` [("Methane", Just "74-82-8"), ("Methane", Just "74-82-8")]
+            length (warned flows) `shouldBe` 1
+
+        it "writes no registry for a database stating none" $ do
+            out <- serBytes (casDb [("Some emission", air, Nothing)])
+            T.lines (TE.decodeUtf8 out) `shouldSatisfy` notElem "Airborne emissions\r"
   where
     activitiesOf (acts, _, _, _, _) = acts
 
@@ -768,6 +802,22 @@ emissionDb comp =
             Nothing
             Nothing
             noDates
+
+{- | One activity emitting, or taking from nature, each flow given by its name,
+compartment and CAS.
+-}
+casDb :: [(Text, Maybe Compartment, Maybe Text)] -> SimpleDatabase
+casDb flows =
+    (emissionDb Nothing)
+        { sdbActivities = M.map (\a -> a{exchanges = take 1 (exchanges a) ++ map exchange bio}) (sdbActivities (emissionDb Nothing))
+        , sdbBioFlows = M.fromList [(bfId f, f) | f <- bio]
+        }
+  where
+    bio = [BiosphereFlow (testUUID (0xd0 + i)) name (testUUID 0x01) M.empty cas Nothing comp | (i, (name, comp, cas)) <- zip [0 ..] flows]
+    exchange f = BiosphereExchange (bfId f) 0.5 (testUUID 0x01) (direction f) "" Nothing Nothing Nothing
+    direction f
+        | fmap compartmentName (bfCompartment f) == Just NaturalResource = Resource
+        | otherwise = Emission
 
 {- | One activity carrying a waste exchange of the kind only another format
 produces, optionally naming the activity that treats it. Which section the

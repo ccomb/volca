@@ -101,6 +101,7 @@ import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), 
 import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, madeAt, makerOf, noDependencies, unnamedWarnings)
 import EcoSpold.Common (showFFloatTrim)
 import qualified Expr
+import SubstanceRegistry (nonEmptyCAS)
 import Types
 import Zip (zipFiles)
 
@@ -477,7 +478,7 @@ exchangeHeader :: [Cell]
 exchangeHeader =
     map
         CText
-        ["name", "amount", "reference product", "location", "unit", "categories", "type", "comment", "database", "formula"]
+        ["name", "amount", "reference product", "location", "unit", "categories", "type", "comment", "database", "CAS number", "formula"]
 
 {- | One activity block: the @Activity@ row, metadata key/value rows, the
 @Exchanges@ header, then one row per exchange in canonical order. The metadata
@@ -621,6 +622,7 @@ exchangeRow cfg db maker = \case
             , CText (techTypeLabel role)
             , commentCell (techComment ex)
             , CText database
+            , CEmpty
             ]
     ex@BiosphereExchange{bioAmount = amt, bioLocation = loc} -> do
         flow <- M.lookup (exchangeFlowId ex) (sdbBioFlows db)
@@ -635,6 +637,7 @@ exchangeRow cfg db maker = \case
             , CText "biosphere"
             , commentCell (bioComment ex)
             , CText (wcDatabaseName cfg)
+            , maybe CEmpty CText (bfCAS flow >>= nonEmptyCAS)
             ]
     ex@WasteExchange{waAmount = amt, waLocation = loc} -> do
         name <- flowNameOf db ex
@@ -654,6 +657,7 @@ exchangeRow cfg db maker = \case
             , CText "technosphere"
             , commentCell (waComment ex)
             , CText (wcDatabaseName cfg)
+            , CEmpty
             ]
   where
     locCell l = if T.null l then CEmpty else CText l

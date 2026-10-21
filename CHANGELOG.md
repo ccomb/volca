@@ -325,6 +325,17 @@
 
 ### Fixed
 
+- A database exported as SimaPro CSV or as a Brightway workbook keeps the
+  CAS number of each substance. Both writers dropped it, so a method that
+  recognizes a substance by its CAS no longer scored it after re-import: a
+  cotton farm's pesticide, acetamiprid, vanished from its freshwater
+  ecotoxicity, which came back 77 % off. SimaPro now writes the substance
+  list it writes itself at the end of a file, one name and CAS per line;
+  Brightway gets a "CAS number" column. Since SimaPro binds a CAS to a
+  name, a name carrying two different CAS numbers gets none, with a
+  warning, and a CAS stated on only some flows of one name reaches them
+  all, with a warning too.
+
 - A database exported as SimaPro CSV or as a Brightway workbook comes back
   buying each input from the same supplier. An input bought from a database
   it depends on was written as the bare product, so the re-import bought a
