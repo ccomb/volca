@@ -1431,12 +1431,18 @@ extractLocation name =
       where
         go t = case T.breakOnEnd "/" t of
             ("", _) -> Nothing
-            (before, suffix) -> case T.words (T.strip suffix) of
-                (loc : _)
-                    | isGeoCode loc ->
-                        Just (T.strip (T.dropWhileEnd (== '/') before), loc)
-                _ -> go (T.dropWhileEnd (== '/') before)
-    isGeoCode t = T.length t >= 2 && maybe False (isUpper . fst) (T.uncons t)
+            (before, suffix) -> case placeIn (T.words suffix) of
+                Just loc -> Just (T.strip (T.dropWhileEnd (== '/') before), loc)
+                Nothing -> go (T.dropWhileEnd (== '/') before)
+        -- The place ends the name, alone or before a one-letter flag (« /US U »):
+        -- « Polyester/Cotton blend » names a fabric, not a place called Cotton.
+        placeIn = \case
+            [loc] -> mfilter isGeoCode (Just loc)
+            [loc, flag] | T.length flag == 1 -> mfilter isGeoCode (Just loc)
+            _ -> Nothing
+    -- A place code is one word of letters, digits and dashes: « Lycra), » in
+    -- « Elastane (Spandex/Lycra), 120 dtex » is part of the name.
+    isGeoCode t = T.length t >= 2 && maybe False (isUpper . fst) (T.uncons t) && T.all (\c -> isAlphaNum c || c == '-') t
 
 -- | Resolve a parameterized amount: try expression evaluation, fall back to numeric parse
 resolveAmount :: M.Map Text Double -> Text -> Double -> Double

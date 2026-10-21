@@ -87,7 +87,7 @@ import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import Data.Either (lefts)
 import qualified Data.IntMap.Strict as IM
-import Data.List (find, partition, sortOn)
+import Data.List (find, partition, sort, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Numeric (showEFloat)
@@ -103,6 +103,8 @@ import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), 
 import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, madeAt, makerOf, namedProducts, noDependencies, unnamedWarnings)
 import qualified Expr
 import SimaPro.Parser (extractLocation, isMetadataKey, parsePedigreePrefix)
+import SubstanceRegistry (nonEmptyCAS)
+import SynonymDB (normalizeName)
 import Text.Read (readMaybe)
 import Types
 import qualified Version
@@ -1027,8 +1029,9 @@ serializeSimaProCSVWithWarnings cfg db@SimpleDatabase{..} = do
         exported = simaProFormulas db
         acts = sortOn (\(_, a) -> (activityName a, activityLocation a)) (M.toList sdbActivities)
         blocks = concatMap (\(key, act) -> serializeActivity cats key (processExport exported key) act) acts
-        allLines = headerLines cfg ++ blocks ++ databaseParameterLines (exDatabase exported) ++ libraryLines sdbDocumentation
-    pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf), simaProWarnings db exported <> unnamedWarnings (wcDependencies cfg) db)
+        registry = substanceRegistry db
+        allLines = headerLines cfg ++ blocks ++ databaseParameterLines (exDatabase exported) ++ srLines registry ++ libraryLines sdbDocumentation
+    pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf), simaProWarnings db exported <> unnamedWarnings (wcDependencies cfg) db <> srWarnings registry)
 
 {- | Guard an export against a supplier in a dependency stating no location: a
 row names such a supplier by its location and its activity, and a designation
@@ -1133,6 +1136,70 @@ databaseParameterLines parameters =
 -- | The names of the system descriptions a database writes in its trailer.
 systemNamesOf :: SimpleDatabase -> S.Set Text
 systemNamesOf = S.fromList . map documentName . dbdocSystems . sdbDocumentation
+
+-- | The substance registry a file ends with, and what it could not say.
+data SubstanceRegistry = SubstanceRegistry
+    { srLines :: ![Text]
+    , srWarnings :: ![Text]
+    }
+
+{- | The substance registry: the trailing blocks binding each substance's name
+to its CAS number, the one place this format carries a CAS. The reader binds by
+normalized name, so flows are grouped by that same key. A key whose flows state
+two CAS gets no row, since a wrong CAS is worse than none; a key some of whose
+flows state none gives its CAS to all of them on re-import. Both are warned.
+-}
+substanceRegistry :: SimpleDatabase -> SubstanceRegistry
+substanceRegistry SimpleDatabase{..} =
+    SubstanceRegistry
+        { srLines = concat [header : sort rows ++ ["", "End", ""] | header <- mediumBlocks, let rows = [r | (h, r) <- registryRows, h == header], not (null rows)]
+        , srWarnings =
+            [ T.pack (show (length clashes)) <> " substances state two CAS numbers under one name, which SimaPro binds to one, so none is written:" <> foldMap ("\n  " <>) (take 10 clashes)
+            | not (null clashes)
+            ]
+                <> [ T.pack (show (length partial)) <> " substances state a CAS number on some of their flows only, and a re-import gives it to all of them:" <> foldMap ("\n  " <>) (take 10 partial)
+                   | not (null partial)
+                   ]
+        }
+  where
+    mediumBlocks :: [Text]
+    mediumBlocks = ["Raw materials", "Airborne emissions", "Waterborne emissions", "Emissions to soil"]
+    byName :: [[BiosphereFlow]]
+    byName = M.elems (M.fromListWith (flip (<>)) [(normalizeName (bfName f), [f]) | f <- M.elems sdbBioFlows])
+    casOf :: BiosphereFlow -> Maybe Text
+    casOf f = bfCAS f >>= nonEmptyCAS
+    stating :: [([BiosphereFlow], [(BiosphereFlow, Text)])]
+    stating = [(fs, [(f, c) | f <- fs, Just c <- [casOf f]]) | fs <- byName]
+    registryRows :: [(Text, Text)]
+    registryRows =
+        [ (blockOf f, row [bfName f, unitNameOf sdbUnits (bfUnitId f), cas, ""])
+        | (_, stated@((f, cas) : _)) <- stating
+        , all ((== cas) . snd) stated
+        ]
+    -- Each spelling with its CAS: the clash is between them.
+    clashes :: [Text]
+    clashes =
+        [ T.intercalate ", " [bfName f <> " " <> cas | (f, cas) <- stated]
+        | (_, stated@((_, first) : _)) <- stating
+        , any ((/= first) . snd) stated
+        ]
+    partial :: [Text]
+    partial = [bfName f | (fs, stated@((f, cas) : _)) <- stating, all ((== cas) . snd) stated, length stated < length fs]
+    -- The reader binds a CAS by name whichever of these blocks holds it.
+    blockOf :: BiosphereFlow -> Text
+    blockOf f = case compartmentName <$> bfCompartment f of
+        Just NaturalResource -> "Raw materials"
+        Just Water -> "Waterborne emissions"
+        Just Soil -> "Emissions to soil"
+        Just Air -> "Airborne emissions"
+        -- No block of the registry is theirs, and the trailing "Final waste
+        -- flows" block is read as a process section, so they go with air.
+        Just Waste -> "Airborne emissions"
+        Just InventoryIndicator -> "Airborne emissions"
+        Just Economic -> "Airborne emissions"
+        Just Social -> "Airborne emissions"
+        -- Where 'bioSection' files an emission of a flow stating no compartment.
+        Nothing -> "Airborne emissions"
 
 -- | The trailing blocks a database documents its processes with.
 libraryLines :: DatabaseDocumentation -> [Text]

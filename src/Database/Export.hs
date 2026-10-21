@@ -15,6 +15,7 @@ emit a silent empty file.
 -}
 module Database.Export (
     serializeDatabase,
+    namedAfterLinks,
     MethodExportFormat (..),
     parseMethodExportFormat,
     serializeMethodCollection,
@@ -23,16 +24,20 @@ module Database.Export (
 ) where
 
 import Control.Exception (SomeException, try)
+import Control.Monad (guard)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
+import Data.List (find)
 import qualified Data.Map.Strict as M
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 import qualified BrightwayExcel.Writer as BE
 import Database.ExportFormulas (valuesOnly)
-import Database.ExportSupplier (Dependencies)
+import Database.ExportSupplier (Dependencies (..), Elsewhere (..))
+import Database.Loader (lineInLinkUnit)
 import Database.Upload (DatabaseFormat (..))
 import qualified EcoSpold.Writer1 as ES1
 import qualified EcoSpold.Writer2 as ES2
@@ -44,8 +49,20 @@ import qualified Method.WriterILCD as MWI
 import qualified Method.WriterOlcaSchema as MWO
 import qualified Method.WriterSimaPro as MW
 import qualified OlcaSchema.Writer as OLCA
+import SimaPro.Parser (generateUnitUUID)
 import qualified SimaPro.Writer as SP
-import Types (Database, ScenarioValue, toSimpleDatabase)
+import Types (
+    Activity (..),
+    AnsweredExchange (..),
+    CrossDBLink (..),
+    Database (..),
+    Exchange (..),
+    ScenarioValue,
+    SimpleDatabase (..),
+    TechnosphereFlow (..),
+    Unit (..),
+    toSimpleDatabase,
+ )
 import UnitConversion (UnitConfig)
 import Zip (zipFiles)
 
@@ -66,18 +83,23 @@ one 'toSimpleDatabase' conversion and keeps them from drifting apart.
 
 The dependencies are the suppliers its inputs buy from the databases it
 depends on ('Database.ExportSupplier.dependenciesOf'). SimaPro and Brightway
-name them on the rows buying from them; ILCD, which cannot, refuses them. Only
-those three read them, so only they fail when the suppliers could not be
-worked out: the formats pointing at a supplier export all the same.
+name them on the rows buying from them; ILCD and EcoSpold 1, which cannot,
+refuse them. Only those four read them, so only they fail when the suppliers
+could not be worked out: the formats pointing at a supplier export all the
+same, under the names the source gave. Before any writer, each input a dependency supplies is
+written under that supplier's product and identity ('namedAfterLinks').
 -}
 serializeDatabase :: UnitConfig -> DatabaseFormat -> M.Map Text [ScenarioValue] -> Either Text Dependencies -> Database -> Either Text (BL.ByteString, [Text])
-serializeDatabase units fmt saved dependencies db = case fmt of
+serializeDatabase units fmt saved dependencies db = fmap (fmap (linkWarnings <>)) $ case fmt of
     -- Each writer runs its own check*Exportable and returns 'Left' on a database
     -- the format cannot represent faithfully, so the guard is unskippable.
     SimaProCSV -> dependencies >>= \deps -> first BL.fromStrict <$> SP.serializeSimaProCSVWithWarnings SP.defaultWriterConfig{SP.wcDependencies = deps} sdb
     -- One lazy chunk per dataset, never one value holding the file: see
     -- 'ES1.writeSimpleDatabaseChunks' for what a single chunk costs at this size.
-    EcoSpold1 -> valuesOnlyWith [] (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
+    EcoSpold1 ->
+        dependencies >>= \(Dependencies found) -> case M.elems found of
+            supplier : _ -> Left ("EcoSpold 1 names a supplier only among the datasets of its own file, and cannot for an input bought from " <> elDatabase supplier <> ". EcoSpold 2 and openLCA point at suppliers instead, and can.")
+            [] -> valuesOnlyWith [] (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
     EcoSpold2 -> first zipText <$> ES2.writeEcoSpold2WithWarnings ES2.noVolatileMeta sdb
     ILCDProcess -> dependencies >>= \deps -> valuesOnlyWith (ILCD.splitWarnings sdb) (ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = deps} sdb)
     BrightwayExcel -> dependencies >>= \deps -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig{BE.wcDependencies = deps} sdb
@@ -87,9 +109,73 @@ serializeDatabase units fmt saved dependencies db = case fmt of
     UnknownFormat ->
         Left "cannot export to an unknown format"
   where
-    sdb = toSimpleDatabase db
+    (sdb, linkWarnings) = case dependencies of
+        Right deps -> namedAfterLinks units deps (dbCrossDBLinks db) (toSimpleDatabase db)
+        Left _ -> (toSimpleDatabase db, ["The inputs supplied by other databases are written as their source named them: not all their suppliers could be worked out." | not (null (dbCrossDBLinks db))])
     -- These writers write no parameter: what they write as values is said.
     valuesOnlyWith own = fmap (,own <> valuesOnly sdb)
+
+{- | Each input a dependency supplies, written under that supplier's product
+and identity rather than under the name its source gave it.
+
+A relink can answer « market group for electricity, medium voltage » {GLO} with
+« Electricity, medium voltage, at grid » {RER} in another database. Written as
+the source said it, the line reads back beside that database asking for a
+product it does not ship, and links to nothing. So the line takes the
+supplier's product, and points at the supplier, for the formats that write an
+identifier; the formats that name a supplier read its activity and location
+from the dependencies themselves.
+
+The amount stays as written when its unit converts to the supplier's, since a
+reader converts it the same way. A link that bridged two measures (a relink
+mapping row with a conversion) is written in the link's unit, its amount
+converted, and its formula, which spoke of the other measure, dropped and said.
+-}
+namedAfterLinks :: UnitConfig -> Dependencies -> [CrossDBLink] -> SimpleDatabase -> (SimpleDatabase, [Text])
+namedAfterLinks units (Dependencies deps) links sdb0 = foldl' answer (sdb0, []) links
+  where
+    answer :: (SimpleDatabase, [Text]) -> CrossDBLink -> (SimpleDatabase, [Text])
+    answer (sdb, said) link = fromMaybe (sdb, said) $ do
+        AnsweredExchange{aePosition = position, aeFactor = factor} <- cdlAnswers link
+        let key = (cdlConsumerActUUID link, cdlConsumerProdUUID link)
+        guard (M.member (fst key, snd key, position) deps)
+        activity <- M.lookup key (sdbActivities sdb)
+        (before, line@TechnosphereExchange{techFlowId = flow, techAmount = amount, techUnitId = unit, techFormula = formula} : after) <- Just (splitAt position (exchanges activity))
+        consumerFlow <- if flow == cdlConsumerFlowId link then M.lookup flow (sdbTechFlows sdb) else Nothing
+        let bridged = isNothing (lineInLinkUnit units (sdbUnits sdb) line (cdlExchangeUnit link))
+            linkUnit = fromMaybe (newUnit (cdlExchangeUnit link)) (find ((== cdlExchangeUnit link) . unitName) (M.elems (sdbUnits sdb)))
+            -- The consumer's own unit: the supplier's lives in another database's table.
+            supplied =
+                consumerFlow
+                    { tfId = cdlSupplierProdUUID link
+                    , tfName = cdlFlowName link
+                    , tfUnitId = if bridged then unitId linkUnit else tfUnitId consumerFlow
+                    , tfSynonyms = M.empty
+                    }
+            written =
+                line
+                    { techFlowId = tfId supplied
+                    , techActivityLinkId = Just (cdlSupplierActUUID link)
+                    , techAmount = if bridged then amount * factor else amount
+                    , techUnitId = if bridged then unitId linkUnit else unit
+                    , techFormula = if bridged then Nothing else formula
+                    }
+            formulaDropped =
+                [ activityName activity <> ", input " <> tfName consumerFlow <> ": written as a value in " <> cdlExchangeUnit link <> ", its formula spoke of another measure"
+                | bridged
+                , Just _ <- [formula]
+                ]
+        pure
+            ( sdb
+                { sdbActivities = M.insert key activity{exchanges = before <> (written : after)} (sdbActivities sdb)
+                , sdbTechFlows = M.insertWith (\_ kept -> kept) (tfId supplied) supplied (sdbTechFlows sdb)
+                , sdbUnits = if bridged then M.insertWith (\_ kept -> kept) (unitId linkUnit) linkUnit (sdbUnits sdb) else sdbUnits sdb
+                }
+            , said <> formulaDropped
+            )
+
+    newUnit :: Text -> Unit
+    newUnit name = Unit{unitId = generateUnitUUID name, unitName = name, unitSymbol = name, unitComment = ""}
 
 {- | Export targets for a method collection – a space of its own, not
 'DatabaseFormat': most database formats carry no method writer, and method

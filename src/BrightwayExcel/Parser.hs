@@ -93,6 +93,7 @@ import SimaPro.Parser (
     normalizeSimaProCompartment,
     techFlowInUnit,
  )
+import SubstanceRegistry (nonEmptyCAS)
 import Types
 import qualified UnitConversion as UC
 import Xeno.DOM (Content (..), Node)
@@ -912,7 +913,7 @@ biosphereRowOut ctx@RowContext{rcUnits = cfg, rcActivity = actName} f
             , bfName = name
             , bfUnitId = unitUUID
             , bfSynonyms = M.empty
-            , bfCAS = Nothing
+            , bfCAS = fieldText f "cas number" >>= nonEmptyCAS
             , bfSubstanceId = Nothing
             , bfCompartment = case parseMedium comp of
                 Right medium -> Just (Compartment medium (if T.null sub then Nothing else Just sub))

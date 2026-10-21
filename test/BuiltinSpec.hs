@@ -7,6 +7,9 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Test.Hspec
 
+import Method.ParserCSV (parseMethodCSVBytes)
+import Method.SimaProScoring (factorClashes)
+
 spec :: Spec
 spec = describe "Builtin" $ do
     -- The generator runs before every build; this is what notices a data/
@@ -24,6 +27,12 @@ spec = describe "Builtin" $ do
         mapM_
             (\(m, path) -> BL.readFile path >>= \onDisk -> builtinMethodContent m `shouldBe` onDisk)
             [(BuiltinPlainIndicators, "data/methods/plain-indicators.csv")]
+
+    -- Built-in methods skip the load that names such clashes.
+    it "gives no flow two factors at one place in any method" $
+        mapM_
+            (\m -> fmap (concatMap factorClashes) (parseMethodCSVBytes (BL.toStrict (builtinMethodContent m))) `shouldBe` Right [])
+            builtinMethods
 
     it "carries the geographies byte for byte" $
         BL.readFile "data/geographies.csv" >>= (builtinGeographies `shouldBe`)

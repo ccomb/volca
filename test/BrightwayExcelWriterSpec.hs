@@ -110,6 +110,13 @@ spec = describe "BrightwayExcel.Writer" $ do
                         let db' = rebuild parsed
                         logicalCells db' `shouldBe` logicalCells fixtureDb
 
+        it "brings each substance back with its CAS number" $ do
+            let withCAS = fixtureDb{sdbBioFlows = M.map (\f -> f{bfCAS = Just "000124-38-9"}) (sdbBioFlows fixtureDb)}
+            withWritten withCAS $ \path -> do
+                parseBrightwayExcel defaultUnitConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right parsed -> map bfCAS (M.elems (sdbBioFlows (rebuild parsed))) `shouldBe` [Just "124-38-9"]
+
         it "(c) preserves a biosphere inventory amount across the round-trip" $
             withWritten fixtureDb $ \path -> do
                 parseBrightwayExcel defaultUnitConfig path >>= \case

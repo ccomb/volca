@@ -4,6 +4,13 @@
 
 ### Added
 
+- Loading a method now warns when one of its impact categories gives a
+  flow two different factors at the same place. A database flow matched by
+  its name can get only one of them, and the engine used to keep the larger
+  without a word. An openLCA package of EF 3.1 holds two "Chromium III"
+  lines for air, low population density, one of them carrying the
+  Chromium VI factor, almost thirteen times the other.
+
 - A method collection can be read from an openLCA method package, the
   archive that holds many methods side by side. `package-method` names the
   one to read; its impact categories become the collection and its
@@ -334,6 +341,24 @@
   candidate also no longer extracts its synonym pairs before noticing it need
   not. A start that finds its caches on disk, with the EF 3.1 method loaded,
   went from 22 to 13 seconds on a desktop machine.
+- A database exported as SimaPro CSV or as a Brightway workbook keeps the
+  CAS number of each substance. Both writers dropped it, so a method that
+  recognizes a substance by its CAS no longer scored it after re-import: a
+  cotton farm's pesticide, acetamiprid, vanished from its freshwater
+  ecotoxicity, which came back 77 % off. SimaPro now writes the substance
+  list it writes itself at the end of a file, one name and CAS per line;
+  Brightway gets a "CAS number" column. Since SimaPro binds a CAS to a
+  name, a name carrying two different CAS numbers gets none, with a
+  warning, and a CAS stated on only some flows of one name reaches them
+  all, with a warning too.
+
+- A SimaPro activity whose name holds a slash keeps its whole name. The
+  reader looks for a place after a slash, as in « Maize grain, at farm/US U »,
+  and took any capitalised word for one: « Spinning to yarn, Elastane
+  (Spandex/Lycra), 120 dtex » was read as « Spinning to yarn, Elastane
+  (Spandex » at « Lycra), », and nine yarns of different counts came back
+  under one name. A place is now one word of letters, digits and dashes that
+  ends the name, alone or before a one-letter flag.
 - A database exported as SimaPro CSV or as a Brightway workbook comes back
   buying each input from the same supplier. An input bought from a database
   it depends on was written as the bare product, so the re-import bought a
@@ -353,6 +378,16 @@
   one, and a single word reads as a parameter name worth 0: the whole
   treatment, its emissions and its inputs, was scored at 0 %. In that section
   only a plain number is now read as an allocation.
+- A database relinked onto another background exports under the products it
+  is linked to. An input written « market group for electricity, medium
+  voltage » and linked by a relink mapping to « Electricity, medium voltage,
+  at grid » was exported under its first name, and read back beside the new
+  background it linked to nothing. Every format now writes the supplier's
+  product, and EcoSpold 2 and openLCA point at the supplier itself; a line
+  whose mapping converted between two measures is written in the supplier's
+  unit, its amount converted. Eight textile process steps relinked this way,
+  exported as SimaPro or Brightway and uploaded again beside the new
+  background alone, give the same score on every activity.
 - A method read from openLCA impact categories characterizes emissions. openLCA
   files a factor under "Emission to air", in the singular, which the engine did
   not read as air, so every emission factor was dropped and only resources
