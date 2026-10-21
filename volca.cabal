@@ -263,6 +263,7 @@ test-suite lca-tests
                      , IndexingSpec
                      , AutoRelinkSpec
                      , AutoSynonymsSpec
+                     , RefDataUploadSpec
                      , RelinkMappingSpec
                      , MatrixConstructionSpec
                      , WasteTreatmentSignSpec

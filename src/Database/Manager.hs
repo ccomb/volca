@@ -84,16 +84,19 @@ module Database.Manager (
     unloadFlowSynonyms,
     addFlowSynonyms,
     removeFlowSynonyms,
+    flowSynonymsUploadsDir,
     listCompartmentMappings,
     loadCompartmentMappings,
     unloadCompartmentMappings,
     addCompartmentMappings,
     removeCompartmentMappings,
+    compartmentMappingsUploadsDir,
     listUnitDefs,
     loadUnitDefs,
     unloadUnitDefs,
     addUnitDefs,
     removeUnitDefs,
+    unitDefsUploadsDir,
     getFlowSynonymGroups,
     getMergedSynonymDB,
     getMergedCompartmentMap,
@@ -1488,14 +1491,14 @@ discoverMethods config = do
 discoverRefDataSources :: Config -> IO RefDataSources
 discoverRefDataSources config =
     RefDataSources
-        <$> withUploads "flow synonym" (cfgFlowSynonyms config) (rdoUploadSubdir flowSynOps)
-        <*> withUploads "compartment mapping" (cfgCompartmentMappings config) (rdoUploadSubdir compMapOps)
-        <*> withUploads "unit" (cfgUnits config) (rdoUploadSubdir unitDefOps)
-        <*> withUploads "energy density" (cfgEnergyDensities config) (rdoUploadSubdir energyDensityOps)
+        <$> withUploads "flow synonym" (cfgFlowSynonyms config) (refDataUploadsDir flowSynOps)
+        <*> withUploads "compartment mapping" (cfgCompartmentMappings config) (refDataUploadsDir compMapOps)
+        <*> withUploads "unit" (cfgUnits config) (refDataUploadsDir unitDefOps)
+        <*> withUploads "energy density" (cfgEnergyDensities config) (refDataUploadsDir energyDensityOps)
   where
-    withUploads :: String -> [RefDataConfig] -> FilePath -> IO [RefDataConfig]
-    withUploads kind configured subdir = do
-        dir <- UploadedDB.getRefDataUploadsDir subdir
+    withUploads :: String -> [RefDataConfig] -> IO FilePath -> IO [RefDataConfig]
+    withUploads kind configured uploadsDir = do
+        dir <- uploadsDir
         combined <- (configured ++) <$> discoverUploadedRefData dir
         mapM_ (reportProgress Warning) (shadowedNames (kind <> " source") rdName (describeSource . rdSource) combined)
         pure combined
@@ -5247,12 +5250,12 @@ removeRefDataG ops manager name = do
     case M.lookup name available of
         Nothing -> return $ Left $ T.pack (rdoLabel ops) <> " not found: " <> name
         Just rd | not (rdoCanDelete ops rd) -> return $ Left $ "Cannot delete preinstalled " <> T.pack (rdoLabel ops)
-        Just _ -> do
+        Just rd -> do
             loaded <- readTVarIO (rdoLoadedVar ops manager)
             if M.member name loaded
                 then return $ Left "Unload before deleting"
                 else do
-                    UploadedDB.getRefDataUploadsDir (rdoUploadSubdir ops) >>= \dir -> removeUploadedRefData dir name
+                    removeUploadedRefData rd
                     atomically $ modifyTVar' (rdoAvailableVar ops manager) (M.delete name)
                     return $ Right ()
 
@@ -5315,6 +5318,9 @@ addFlowSynonyms = addRefDataG flowSynOps
 removeFlowSynonyms :: DatabaseManager -> Text -> IO (Either Text ())
 removeFlowSynonyms = removeRefDataG flowSynOps
 
+flowSynonymsUploadsDir :: IO FilePath
+flowSynonymsUploadsDir = refDataUploadsDir flowSynOps
+
 -- | Get synonym groups for a specific loaded flow synonyms resource.
 getFlowSynonymGroups :: DatabaseManager -> Text -> IO (Either Text [[Text]])
 getFlowSynonymGroups manager name = do
@@ -5338,6 +5344,9 @@ addCompartmentMappings = addRefDataG compMapOps
 removeCompartmentMappings :: DatabaseManager -> Text -> IO (Either Text ())
 removeCompartmentMappings = removeRefDataG compMapOps
 
+compartmentMappingsUploadsDir :: IO FilePath
+compartmentMappingsUploadsDir = refDataUploadsDir compMapOps
+
 listUnitDefs :: DatabaseManager -> IO [RefDataStatus]
 listUnitDefs = listRefDataG unitDefOps
 
@@ -5352,6 +5361,13 @@ addUnitDefs = addRefDataG unitDefOps
 
 removeUnitDefs :: DatabaseManager -> Text -> IO (Either Text ())
 removeUnitDefs = removeRefDataG unitDefOps
+
+unitDefsUploadsDir :: IO FilePath
+unitDefsUploadsDir = refDataUploadsDir unitDefOps
+
+-- | Where uploads of a kind are written and found again at the next start.
+refDataUploadsDir :: RefDataOps a -> IO FilePath
+refDataUploadsDir = UploadedDB.getRefDataUploadsDir . rdoUploadSubdir
 
 --------------------------------------------------------------------------------
 -- Reference data helpers
@@ -5453,10 +5469,17 @@ discoverUploadedRefData baseDir = do
                                     }
                     else return Nothing
 
--- | Remove uploaded reference data directory.
-removeUploadedRefData :: FilePath -> Text -> IO ()
-removeUploadedRefData baseDir name = do
-    let uploadDir = baseDir </> T.unpack name
+{- | Remove the directory an uploaded table was read from. Its name can differ
+from the table's: an upload is registered under the name the user typed and
+written under a slug of it.
+-}
+removeUploadedRefData :: RefDataConfig -> IO ()
+removeUploadedRefData rd = case rdSource rd of
+    BuiltIn _ -> pure ()
+    FromFile csvPath -> removeUploadDir (takeDirectory csvPath)
+
+removeUploadDir :: FilePath -> IO ()
+removeUploadDir uploadDir = do
     exists <- doesDirectoryExist uploadDir
     when exists $ do
         result <- try $ removeDirectoryRecursive uploadDir
@@ -5518,7 +5541,7 @@ autoCreateFlowSynonyms manager sourceName (SynonymOrigin description) pairs = do
                             ( T.intercalate ", " $
                                 map (\(tok, n) -> tok <> "(" <> T.pack (show n) <> ")") (take 8 excludedSyns)
                             )
-            uploadsDir <- UploadedDB.getRefDataUploadsDir (rdoUploadSubdir flowSynOps)
+            uploadsDir <- flowSynonymsUploadsDir
             let dir = uploadsDir </> T.unpack slug
                 path = dir </> "data.csv"
             createDirectoryIfMissing True dir
