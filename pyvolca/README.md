@@ -1745,8 +1745,11 @@ the factor, when a later line changed one of them.
 
 A unit table read into a dict, keyed by each unit as the table writes it.
 
-The engine also reads a unit written in another case or spacing; this
-dict holds only the spellings the table lists.
+The columns are read by position (unit, measure, factor) after the
+header, as the engine reads them. The engine also reads a unit written
+in another case or spacing; this dict holds only the spellings the
+table lists. "Default units" is the built-in table, absent from an
+engine whose configuration names its own.
 
 ##### `Client.unload_database(db_name: str) -> dict`
 
@@ -2590,10 +2593,11 @@ when grouping flows by compartment, and accidental mutation is rejected.
 
 ### `UnitDefinition`
 
-A row of a unit table: the measure a unit belongs to (``"mass"``,
-``"volume"``) and how many of that measure's base unit it holds (``g`` is
-``0.001`` of mass). Two units convert by the ratio of their factors when
-their measures agree.
+A row of a unit table: the measure a unit belongs to, as the table
+spells it (``"mass"``, ``"volume"``), and how many of that measure's base
+unit it holds (``g`` is ``0.001`` of mass). The engine also reads a
+measure written as a product of base measures (``volume`` is
+``length^3``), so two spellings can name one measure.
 
 | Field | Type | Default |
 |-------|------|---------|

@@ -17,14 +17,14 @@ import TestHelpers (withScratchDataDir)
 import API.DatabaseHandlers (RefDataKind (..), deleteRefData, downloadRefDataHandler, uploadRefData)
 import API.Types (BinaryContent (..), UploadChunk (..))
 import App.Env (AppEnv (..), runApp)
-import Config (defaultConfig, withBuiltins)
+import Config (defaultConfig)
 import Database.Manager (CachePolicy (..), initDatabaseManager)
 import Servant (getResponse, runHandler)
 import Servant.Types.SourceT (source)
 
 envFor :: IO AppEnv
 envFor = do
-    manager <- initDatabaseManager (withBuiltins defaultConfig) NoCache
+    manager <- initDatabaseManager defaultConfig NoCache
     pure
         AppEnv
             { aeDbManager = manager

@@ -3447,6 +3447,7 @@ class Client:
 
         Raises VoLCAError on an HTTP error (e.g. the table does not exist).
         """
+        self._require_wire(81, "download_units", engine_hint="0.16.0")
         resp = self._session.get(
             f"{self.base_url}/api/v1/units/{urllib.parse.quote(name, safe='')}/download"
         )
@@ -3462,11 +3463,18 @@ class Client:
     def unit_table(self, name: str = "Default units") -> dict[str, UnitDefinition]:
         """A unit table read into a dict, keyed by each unit as the table writes it.
 
-        The engine also reads a unit written in another case or spacing; this
-        dict holds only the spellings the table lists.
+        The columns are read by position (unit, measure, factor) after the
+        header, as the engine reads them. The engine also reads a unit written
+        in another case or spacing; this dict holds only the spellings the
+        table lists. "Default units" is the built-in table, absent from an
+        engine whose configuration names its own.
         """
-        rows = csv.DictReader(io.StringIO(self.download_units(name).decode("utf-8")))
-        return {r["name"]: UnitDefinition(r["dimension"], float(r["factor"])) for r in rows}
+        rows = csv.reader(io.StringIO(self.download_units(name).decode("utf-8")))
+        next(rows, None)
+        return {
+            unit.strip(): UnitDefinition(dimension.strip(), float(factor))
+            for unit, dimension, factor in (row[:3] for row in rows if row)
+        }
 
     # -- Flow, method & instance detail --
 
