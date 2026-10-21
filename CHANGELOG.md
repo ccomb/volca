@@ -4,6 +4,15 @@
 
 ### Added
 
+- Each row of a batch score, and each entry of a database's catalogue, now
+  gives the activity's reference amount and unit (`productAmount`,
+  `productUnit`): -1 for a treatment written as giving out its waste, +1
+  for a product. A score is per one of that reference, so comparing a
+  wastewater market of -1 m3 with a treatment of +1 m3, or a process per
+  kg with one per m3, needs both, which a client had to look up one
+  activity at a time. pyvolca reads them as `ScoredActivity.product_amount`
+  and `product_unit`. Wire revision 80.
+
 - A change made to a database of one's own can say why, in a note: every
   write (activities written, rewritten or deleted, exchanges edited,
   database parameters changed, changes applied from a comparison) takes an

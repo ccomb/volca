@@ -50,6 +50,7 @@ data CatalogueEntry = CatalogueEntry
     , ceProductName :: Text -- empty when the reference exchange names a flow the database does not hold, as in a search result
     , ceLocation :: Text
     , ceUnit :: Text -- the reference product's unit as the database writes it
+    , ceProductAmount :: Double -- the reference product's amount: -1 for a treatment written as giving out its waste
     , ceMeasure :: Maybe CatalogueMeasure -- Nothing when the unit table cannot settle 'ceUnit': unknown, or matching several spellings
     , ceClassification :: M.Map Text Text
     }

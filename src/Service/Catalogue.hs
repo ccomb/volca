@@ -52,6 +52,7 @@ catalogueEntries cfg db = V.toList (V.imap entry (dbActivities db))
                 , ceProductName = rpName refProduct
                 , ceLocation = activityLocation activity
                 , ceUnit = rpUnit refProduct
+                , ceProductAmount = rpAmount refProduct
                 , ceMeasure = measureOf cfg (rpUnit refProduct)
                 , ceClassification = activityClassification activity
                 }

@@ -213,6 +213,11 @@ spec = describe "a database at other values of its parameters" $ do
         atDefaults <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest processes []))
         [(bieParameterSet e, scoresOf (bieImpacts e)) | e <- birResults atDefaults] `shouldBe` [(Nothing, scoresOf (bieImpacts e)) | e <- drop 4 (birResults batch)]
 
+    it "says each process's reference amount and unit, a treatment's -1 included" $ do
+        manager <- scoringManager
+        batch <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest [processIdText (aBin, pWaste), processIdText (aBread, pBread)] []))
+        [(bieProductAmount e, bieProductUnit e) | e <- birResults batch] `shouldBe` [(-1, "kg"), (1, "kg")]
+
     it "refuses a batch one of whose sets it cannot compute, naming the set" $ do
         manager <- scoringManager
         refused <- runHandler . runApp (envOf manager) $ batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest [processIdText (aBread, pBread)] [[ParameterValue Nothing "yield" 2], [ParameterValue Nothing "nope" 1]])

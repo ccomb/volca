@@ -1116,9 +1116,13 @@ scoreChunk scope chunk = do
         BatchImpactsEntry
             { bieProcessId = btRequestedId target
             , bieActivityName = activityName (btActivity target)
+            , bieProductAmount = Service.rpAmount reference
+            , bieProductUnit = Service.rpUnit reference
             , bieParameterSet = bsParameterSet scope
             , bieImpacts = impacts
             }
+      where
+        reference = Service.summaryProduct (Service.referenceProductOf (dbTechFlows (bsDb scope)) (dbUnits (bsDb scope)) (btActivity target))
 
 {- | Run a scoring computation once one of the instance's slots is free.
 
@@ -1783,7 +1787,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 79
+currentWireVersion = 80
 
 getVersion :: AppM Value
 getVersion = do

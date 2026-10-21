@@ -622,12 +622,17 @@ class ScoredActivity:
     :meth:`Client.get_impacts_batch` returns for a single process.
     ``parameter_set`` is the position of the parameter set it was scored at,
     when :meth:`Client.score_activities` was given ``parameter_sets``.
+    ``product_amount`` and ``product_unit`` are the activity's reference
+    product, which the scores are per one of: ``-1`` for a treatment written
+    as giving out its waste (wire revision 80, ``None`` from an older engine).
     """
 
     process_id: str
     activity_name: str
     impacts: LCIABatchResult
     parameter_set: int | None = None
+    product_amount: float | None = None
+    product_unit: str | None = None
 
 
 @dataclass
@@ -656,6 +661,8 @@ class BatchScores:
                     activity_name=r["activityName"],
                     impacts=LCIABatchResult.from_json(r["impacts"]),
                     parameter_set=r.get("parameterSet"),
+                    product_amount=r.get("productAmount"),
+                    product_unit=r.get("productUnit"),
                 )
                 for r in d["results"]
             ],
