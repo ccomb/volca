@@ -53,6 +53,8 @@ module Database.Manager (
     addDatabase,
     removeDatabase,
     editHome,
+    databaseModification,
+    filesOwner,
     scenariosHome,
 
     -- * Method Operations
@@ -302,6 +304,7 @@ import Types (
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
+    Modification (..),
     Permission (..),
     ProcessId,
     Release (..),
@@ -337,6 +340,7 @@ import Types (
     systemModelsRead,
     termsAsked,
     toSimpleDatabase,
+    unmodified,
     unresolvedCount,
     upDemands,
  )
@@ -386,6 +390,10 @@ data StagedDatabase = StagedDatabase
     -- ^ Selected dependency database names
     , sdCrossDBLinks :: ![CrossDBLink]
     -- ^ Cross-DB links found so far
+    , sdSupplierAliases :: !CrossLinking.AliasMap
+    {- ^ The mapping the last relink applied. Finalizing relinks once more,
+    and without it would drop the links the mapping made.
+    -}
     , sdLinkingStats :: !CrossDBLinkingStats
     -- ^ Linking statistics
     , sdBuiltWith :: !BuildInputs
@@ -577,6 +585,7 @@ data DatabaseStatus = DatabaseStatus
     , dsSource :: !(Maybe Text) -- The database whose files it reads, when it owns none
     , dsLicence :: !Licence -- What it is served under, its source's for a copy
     , dsRelease :: !(Maybe Release) -- Which published database it is, as its owner declared
+    , dsModification :: !Modification -- How its data differs from the files it reads
     }
     deriving (Show, Eq, Generic)
 
@@ -597,6 +606,7 @@ instance ToJSON DatabaseStatus where
             , "dsSource" .= dsSource
             , "dsLicence" .= dsLicence
             , "dsRelease" .= dsRelease
+            , "dsModification" .= dsModification
             ]
 
 instance FromJSON DatabaseStatus where
@@ -623,6 +633,8 @@ instance FromJSON DatabaseStatus where
             <*> v .:? "dsLicence" A..!= LicenceUnstated
             -- Before releases were on the wire no database declared one.
             <*> v .:? "dsRelease"
+            -- Before modifications were on the wire none was reported.
+            <*> v .:? "dsModification" A..!= unmodified
 
 -- | Status of a method collection (e.g., EF-3.1) for API responses
 data MethodCollectionStatus = MethodCollectionStatus
@@ -2305,6 +2317,7 @@ listDatabases manager = do
                     | unresolvedCount (dbLinkingStats (ldDatabase ld)) > 0 -> PartiallyLinked
                     | otherwise -> Loaded
             !actCount = maybe 0 (V.length . dbActivities . ldDatabase) mLoaded
+        modification <- databaseModification availableDbs config
         return
             DatabaseStatus
                 { dsName = name
@@ -2321,6 +2334,7 @@ listDatabases manager = do
                 , dsSource = dcSource config
                 , dsLicence = licenceOf availableDbs config
                 , dsRelease = dcRelease config
+                , dsModification = modification
                 }
 
 -- | File extensions 'resolveDataPath' knows how to extract as archives.
@@ -2842,6 +2856,28 @@ editHome dbConfig
         uploadsDir <- UploadedDB.getDatabaseUploadsDir
         pure (Just (uploadsDir </> T.unpack (dcName dbConfig)))
 
+{- | How a database's data differs from the files it reads: its journal, and a
+division other than that of the database owning the files, found at the end of
+its chain of sources. A copy of a re-divided database reads its files under its
+source's key, which is still not the files' own.
+-}
+databaseModification :: M.Map Text DatabaseConfig -> DatabaseConfig -> IO Modification
+databaseModification configs config = do
+    edited <- maybe (pure False) Journal.journalHasEntries =<< editHome config
+    pure Modification{modificationEdited = edited, modificationReallocated = dcAllocation (filesOwner configs config) /= dcAllocation config}
+
+{- | The database whose files this one reads, at the end of its chain of
+sources: itself, for one that owns its files.
+-}
+filesOwner :: M.Map Text DatabaseConfig -> DatabaseConfig -> DatabaseConfig
+filesOwner configs = go (M.size configs)
+  where
+    -- Bounded by the number of databases, so a cycle written by hand ends.
+    go :: Int -> DatabaseConfig -> DatabaseConfig
+    go fuel current
+        | fuel > 0 = maybe current (go (fuel - 1)) (dcSource current >>= (`M.lookup` configs))
+        | otherwise = current
+
 {- | Where a database's saved scenarios are kept, given its home: a journal of
 their own ("Database.Scenarios"), apart from the database's.
 -}
@@ -3123,7 +3159,7 @@ relinkStaged manager dbName maybeDepDb aliases = withLogScope dbName $ runExcept
         atomically $
             modifyTVar'
                 (dmStagedDbs manager)
-                (M.insert dbName (withRelinkedDeps pinnedDeps newStats staged))
+                (M.insert dbName (withRelinkedDeps pinnedDeps aliases newStats staged))
     pure (relinkResult staged pinnedDeps newStats)
   where
     -- A mapping relink pins the dependency it retargets, once.
@@ -3326,6 +3362,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                 , sdLinkingStats = dbLinkingStats cachedDb
                 , sdBuiltWith = dbBuiltWith cachedDb
                 , sdCachedDB = Just cachedDb
+                , sdSupplierAliases = CrossLinking.emptyAliasMap
                 }
 
     -- Linked within the databases its requirements admit, every one when it has none.
@@ -3371,6 +3408,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                     , sdLinkingStats = finalStats
                     , sdBuiltWith = inputs
                     , sdCachedDB = Nothing
+                    , sdSupplierAliases = CrossLinking.emptyAliasMap
                     }
 
     {- Drop the dependencies whose links are all substitutable by another at
@@ -4062,14 +4100,15 @@ setupInfoFrom SetupSource{..} =
         , dsiRequiredReleases = requiredReleases ssConfigs ssConfig
         }
 
-{- | The four fields a relink writes back onto a staged database. One place,
+{- | The five fields a relink writes back onto a staged database. One place,
 because the staged relink and the two dependency mutators all write exactly
 these and would otherwise drift apart.
 -}
-withRelinkedDeps :: [Text] -> CrossDBLinkingStats -> StagedDatabase -> StagedDatabase
-withRelinkedDeps newDeps newStats staged =
+withRelinkedDeps :: [Text] -> CrossLinking.AliasMap -> CrossDBLinkingStats -> StagedDatabase -> StagedDatabase
+withRelinkedDeps newDeps aliases newStats staged =
     staged
         { sdSelectedDeps = newDeps
+        , sdSupplierAliases = aliases
         , sdCrossDBLinks = Loader.cdlLinks newStats
         , sdLinkingStats = newStats
         , sdMissingProducts = stagedMissingProducts (sdSimpleDB staged) newStats
@@ -4271,6 +4310,7 @@ restageLoadedDatabase manager dbName ld = do
                 , sdLinkingStats = stats
                 , sdBuiltWith = dbBuiltWith db
                 , sdCachedDB = Nothing
+                , sdSupplierAliases = CrossLinking.emptyAliasMap
                 }
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.delete dbName)
@@ -4366,18 +4406,21 @@ applyStagedDeps :: DatabaseManager -> Text -> StagedRelink -> IO (Either Text Da
 applyStagedDeps manager dbName StagedRelink{..} = do
     synonymDB <- getMergedSynonymDB manager
     unitConfig <- getMergedUnitConfig manager
-    (_, newStats) <-
-        Loader.fixActivityLinksWithCrossDB
-            [idx | (name, idx) <- M.toList srIndexedDbs, name `elem` srNewDeps]
-            synonymDB
-            unitConfig
-            (dmLocationHierarchy manager)
-            (dcGeographyPolicy (sdConfig srStaged))
-            (sdSimpleDB srStaged)
+    -- The mapping a relink applied stays in force when the dependencies change.
+    let aliases = sdSupplierAliases srStaged
+        newStats =
+            Loader.relinkSimpleDatabase
+                [idx | (name, idx) <- M.toList srIndexedDbs, name `elem` srNewDeps]
+                synonymDB
+                unitConfig
+                (dmLocationHierarchy manager)
+                (dcGeographyPolicy (sdConfig srStaged))
+                aliases
+                (sdSimpleDB srStaged)
     atomically $
         modifyTVar'
             (dmStagedDbs manager)
-            (M.insert dbName (withRelinkedDeps srNewDeps newStats srStaged))
+            (M.insert dbName (withRelinkedDeps srNewDeps aliases newStats srStaged))
     persistUploadDepends manager dbName srNewDeps
     first setupErrorMessage <$> getDatabaseSetupInfo manager dbName
 
@@ -4479,10 +4522,12 @@ finalizeDatabase manager dbName = withLogScope dbName $ do
 
         {- Self-relink first against the current dep set: a cached or staged
         build can carry cross-DB links that do not match the deps now in
-        'dmIndexedDbs'. 'relinkDatabase' rewrites both the in-memory state and
-        (when the links changed) the matrix cache. -}
+        'dmIndexedDbs'. The mapping the staged relink applied is applied again,
+        or the links it made would be dropped. The relink rewrites both the
+        in-memory state and (when the links changed) the matrix cache. -}
         linksChangedAfter <-
-            relinkDatabase manager dbName >>= either relinkFailed (pure . rresLinksChanged)
+            relinkDatabaseWith manager dbName (sdSupplierAliases staged) Nothing
+                >>= either relinkFailed (pure . rresLinksChanged)
 
         {- Persist when this finalize introduced a change (fresh build, or an
         edited pin on a cache hit) that the relink did not already write: relink

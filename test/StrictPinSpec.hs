@@ -29,11 +29,15 @@ import Test.Hspec
 import Config (DatabaseConfig (..), defaultConfig)
 import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
-import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), buildIndexedDatabaseFromDB)
+import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), buildIndexedDatabaseFromDB, emptyAliasMap)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
+    DependencyEdit (..),
     LoadedDatabase (..),
+    StagedDatabase (..),
+    addDependencyToStaged,
+    finalizeDatabase,
     initDatabaseManager,
     relinkDatabase,
     relinkDatabaseWithMapping,
@@ -62,6 +66,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    toSimpleDatabase,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -148,6 +153,50 @@ spec = describe "relinkDatabase strict dependency pin" $ do
             -- Both dependency links survive; the alpha link is not silently dropped.
             linkSources `shouldBe` S.fromList ["alpha", "beta"]
             length (dbCrossDBLinks relinked) `shouldBe` 2
+
+    it "finalizing a staged database keeps the links its mapping relink made, across a dependency added after" $
+        withSystemTempDirectory "volca-finalize-mapping" $ \tmp -> do
+            -- alpha supplies p1 only; the consumer asks for q1, which only the
+            -- mapping turns into p1. beta, added after the relink, supplies p2.
+            alphaDb <- buildOrFail (supplierDB 100 ["p1"])
+            betaDb <- buildOrFail (supplierDB 200 ["p2"])
+            betaSolver <- mkSolver "beta" betaDb
+            consumerDb <- buildOrFail (consumerDB 300 ["q1"])
+            manager <- initDatabaseManager defaultConfig NoCache
+            alphaSolver <- mkSolver "alpha" alphaDb
+            let staged =
+                    StagedDatabase
+                        { sdSimpleDB = toSimpleDatabase consumerDb
+                        , sdConfig = consumerConfig (tmp </> "consumer-data")
+                        , sdMissingProducts = []
+                        , sdSelectedDeps = []
+                        , sdCrossDBLinks = []
+                        , sdLinkingStats = dbLinkingStats consumerDb
+                        , sdBuiltWith = dbBuiltWith consumerDb
+                        , sdCachedDB = Nothing
+                        , sdSupplierAliases = emptyAliasMap
+                        }
+            atomically $ do
+                modifyTVar' (dmStagedDbs manager) (M.insert "consumer" staged)
+                modifyTVar' (dmLoadedDbs manager) $
+                    M.insert "alpha" (loadedFor alphaDb alphaSolver (supplierLoadedConfig "alpha"))
+                        . M.insert "beta" (loadedFor betaDb betaSolver (supplierLoadedConfig "beta"))
+                modifyTVar' (dmIndexedDbs manager) $
+                    M.insert "alpha" (buildIndexedDatabaseFromDB "alpha" emptySynonymDB alphaDb)
+                        . M.insert "beta" (buildIndexedDatabaseFromDB "beta" emptySynonymDB betaDb)
+
+            relinked <-
+                relinkDatabaseWithMapping
+                    manager
+                    "consumer"
+                    "alpha"
+                    (AliasMap M.empty (M.singleton (AliasKey "q1" Nothing) (pure (AliasTarget (SupplierNamed "p1" Nothing) Nothing))))
+            relinked `shouldSatisfy` isRight
+            added <- addDependencyToStaged manager (DependencyEdit "consumer" "beta")
+            either (expectationFailure . show) (const (pure ())) added
+            finalizeDatabase manager "consumer" >>= either (expectationFailure . show) (const (pure ()))
+            loaded <- readTVarIO (dmLoadedDbs manager)
+            map cdlSourceDatabase (dbCrossDBLinks (ldDatabase (loaded M.! "consumer"))) `shouldBe` ["alpha"]
 
 -- ---------------------------------------------------------------------------
 -- Helpers

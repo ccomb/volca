@@ -179,7 +179,7 @@ spec = describe "Service.Compare" $ do
             presence name lines' = do
                 db <- database [row 1 wheat name lines']
                 p <- either (fail . show) pure (resolveProcess db (pid 1 wheat))
-                let answer = changesPresent p (ChangesQuery [renamed] [raised])
+                let answer = changesPresent p (changesQuery [renamed] [raised])
                 pure (cpSummary answer, cpExchanges answer)
         it "finds a change a later version made" $
             presence "wheat production, corrected" [emits co2 kg 2] `shouldReturn` ([ChangePresent], [ChangePresent])
@@ -201,7 +201,7 @@ spec = describe "Service.Compare" $ do
             barleySuppliers = [row 2 barley "barley production" [], row 3 barley "barley production, organic" []]
         it "applies what the activity does not say yet, and finds it present on a second pass" $ do
             (p, ctx) <- wheatIn [emits co2 kg 1] []
-            let query = ChangesQuery [renamed, relocated] [lowered]
+            let query = changesQuery [renamed, relocated] [lowered]
                 (answer, edits) = applicableChanges ctx p query
             (capSummary answer, capExchanges answer) `shouldBe` ([OutcomeApplied, OutcomeApplied], [OutcomeApplied])
             after <- applied ctx p edits
@@ -212,7 +212,7 @@ spec = describe "Service.Compare" $ do
         it "leaves a value the database changed otherwise, and a line that is gone" $ do
             (p, ctx) <- wheatIn [emits co2 kg 3] []
             let gone = ExchangeChange (bfId water) "Water" Nothing (BioLine Resource) (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))
-                (answer, edits) = applicableChanges ctx p (ChangesQuery [] [lowered, gone])
+                (answer, edits) = applicableChanges ctx p (changesQuery [] [lowered, gone])
             (capExchanges answer, length edits) `shouldBe` ([OutcomeDifferent, OutcomeLineGone], 0)
         it "does not write an amount stated in another unit" $ do
             (p, ctx) <- wheatIn [emits co2 kg 1] []
@@ -224,13 +224,13 @@ spec = describe "Service.Compare" $ do
         it "sets the amount of a line supplied from another database" $ do
             (p, ctx) <- wheatIn [buysUnlinked oat 1] []
             let fromGrains = p{inLinks = M.singleton (tfId oat) (oatFrom "grains-db")}
-                (answer, edits) = applicableChanges ctx fromGrains (ChangesQuery [] [ExchangeChange (tfId oat) "oat grain" Nothing (TechLine Input) (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))])
+                (answer, edits) = applicableChanges ctx fromGrains (changesQuery [] [ExchangeChange (tfId oat) "oat grain" Nothing (TechLine Input) (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))])
             capExchanges answer `shouldBe` [OutcomeApplied]
             after <- applied ctx fromGrains edits
             [a | TechnosphereExchange{techRole = Input, techAmount = a} <- exchanges after] `shouldBe` [2]
         it "moves a line to another supplier at its new amount" $ do
             (p, ctx) <- wheatIn [buys 2 barley 1] barleySuppliers
-            let (answer, edits) = applicableChanges ctx p (ChangesQuery [] [barleyLine organic, barleyLine (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))])
+            let (answer, edits) = applicableChanges ctx p (changesQuery [] [barleyLine organic, barleyLine (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))])
             capExchanges answer `shouldBe` [OutcomeApplied, OutcomeApplied]
             after <- applied ctx p edits
             [(l, a) | TechnosphereExchange{techRole = Input, techActivityLinkId = l, techAmount = a} <- exchanges after] `shouldBe` [(Just (uuid 3), 2)]
@@ -238,7 +238,7 @@ spec = describe "Service.Compare" $ do
             (p, ctx) <- wheatIn [] barleySuppliers
             let addedBarley = barleyLine (LineAdded (Quantity 1 "kg"))
                 addedWater = ExchangeChange (bfId water) "Water" Nothing (BioLine Resource) (LineAdded (Quantity 3 "kg"))
-                (answer, edits) = applicableChanges ctx p (ChangesQuery [ProductNameChanged "wheat grain" "soft wheat grain", renamed] [addedBarley, addedWater])
+                (answer, edits) = applicableChanges ctx p (changesQuery [ProductNameChanged "wheat grain" "soft wheat grain", renamed] [addedBarley, addedWater])
             capSummary answer `shouldBe` [OutcomeNotApplicable "An edit does not rename a product.", OutcomeApplied]
             capExchanges answer
                 `shouldBe` [OutcomeNotApplicable "Several activities of this database make this product: the change does not say which one supplies the added line.", OutcomeApplied]
@@ -246,7 +246,7 @@ spec = describe "Service.Compare" $ do
             (activityName after, [a | BiosphereExchange{bioAmount = a} <- exchanges after]) `shouldBe` ("wheat production, corrected", [3])
         it "sets the amount of a line supplied by its product rather than linked to its supplier" $ do
             (p, ctx) <- wheatIn [buysUnlinked barley 1] [row 2 barley "barley production" []]
-            let (answer, edits) = applicableChanges ctx p (ChangesQuery [] [barleyLine (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))])
+            let (answer, edits) = applicableChanges ctx p (changesQuery [] [barleyLine (LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg"))])
             capExchanges answer `shouldBe` [OutcomeApplied]
             after <- applied ctx p edits
             [(l, a) | TechnosphereExchange{techRole = Input, techActivityLinkId = l, techAmount = a} <- exchanges after] `shouldBe` [(Nothing, 2)]
@@ -255,7 +255,7 @@ spec = describe "Service.Compare" $ do
             db <- databaseKeyed (const written) [row 1 wheat "wheat production" [emits co2 kg 1]]
             p <- either (fail . show) pure (resolveProcess db (UUID.toText written <> "_" <> UUID.toText (tfId wheat)))
             let ctx = AuthorContext{acDb = db, acDeps = [], acUnitConfig = defaultUnitConfig}
-                (answer, edits) = applicableChanges ctx p (ChangesQuery [renamed] [lowered])
+                (answer, edits) = applicableChanges ctx p (changesQuery [renamed] [lowered])
             (capSummary answer, capExchanges answer)
                 `shouldBe` ([OutcomeNotApplicable "This activity was written here and its name and location make its identity: rewrite it to rename or relocate it."], [OutcomeApplied])
             after <- applied ctx p edits
@@ -263,14 +263,14 @@ spec = describe "Service.Compare" $ do
         it "makes a change asked twice once" $ do
             (p, ctx) <- wheatIn [] []
             let addedWater = ExchangeChange (bfId water) "Water" Nothing (BioLine Resource) (LineAdded (Quantity 3 "kg"))
-                (answer, edits) = applicableChanges ctx p (ChangesQuery [renamed, renamed] [addedWater, addedWater])
+                (answer, edits) = applicableChanges ctx p (changesQuery [renamed, renamed] [addedWater, addedWater])
             (capSummary answer, capExchanges answer) `shouldBe` ([OutcomeApplied, OutcomeApplied], [OutcomeApplied, OutcomeApplied])
             after <- applied ctx p edits
             (activityName after, [a | BiosphereExchange{bioAmount = a} <- exchanges after]) `shouldBe` ("wheat production, corrected", [3])
         it "refuses a change that would undo one applied before it" $ do
             (p, ctx) <- wheatIn [emits co2 kg 1] []
             let raised = lowered{ecChange = LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg")}
-                (answer, edits) = applicableChanges ctx p (ChangesQuery [] [lowered, raised])
+                (answer, edits) = applicableChanges ctx p (changesQuery [] [lowered, raised])
             capExchanges answer `shouldBe` [OutcomeApplied, OutcomeNotApplicable "Another change of this request says otherwise."]
             after <- applied ctx p edits
             [a | BiosphereExchange{bioAmount = a} <- exchanges after] `shouldBe` [0.5]
@@ -468,7 +468,7 @@ applied ctx p edits = either (fail . show) (pure . eaActivity) (applyExchangeEdi
 -- | A change left as it is, for this reason, with nothing to edit.
 notApplied :: AuthorContext -> ProcessIn -> ExchangeChange -> Text -> Expectation
 notApplied ctx p change reason = do
-    let (answer, edits) = applicableChanges ctx p (ChangesQuery [] [change])
+    let (answer, edits) = applicableChanges ctx p (changesQuery [] [change])
     (capExchanges answer, edits) `shouldBe` ([OutcomeNotApplicable reason], [])
 
 bioLine :: BioDirection -> BiosphereFlow -> Unit -> Double -> Exchange
@@ -558,3 +558,7 @@ entry key r =
             , techClassification = M.empty
             , techProperties = noProperties
             }
+
+-- | Changes asked about or applied with no reason given.
+changesQuery :: [SummaryChange] -> [ExchangeChange] -> ChangesQuery
+changesQuery summary exchanges' = ChangesQuery summary exchanges' Nothing

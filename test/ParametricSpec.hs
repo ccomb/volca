@@ -45,7 +45,7 @@ import Database.Allocation (Allocating (..), allocate)
 import Database.Author (AuthorContext (..), EditedActivity (..), ExchangeEdit (..), ExchangeSelector (..), RestatedLine (..), applyExchangeEdits)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Cutoffs (gapIndexOf)
-import Database.Journal (JournalOp (..), applyOp)
+import Database.Journal (EditLine (..), JournalOp (..), ParameterLine (..), Prior (..), applyOp)
 import Database.Loader (findAllCrossDBLinks)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getGapIndex, initDatabaseManager, withSettings)
 import Database.MatrixBuild (technosphereChange, withActivities)
@@ -379,7 +379,7 @@ spec = describe "a database at other values of its parameters" $ do
         it "sets a parameter on every product of a block" $ do
             (bakery, grid) <- databases
             let ctx = AuthorContext{acDb = bakery, acDeps = [grid], acUnitConfig = bakeryUnits}
-            after <- either (fail . T.unpack) pure (applyOp ctx (Edited (processIdText (aMill, pMeal)) [(SetParameter "grind" (input 2), 1)]))
+            after <- either (fail . T.unpack) pure (applyOp ctx (Edited (processIdText (aMill, pMeal)) [EditLine (SetParameter "grind" (input 2)) 1 PriorUnknown]))
             forM_ [pMeal, pBran] $ \product' ->
                 (map exchangeAmount . exchanges <$> (getActivity after =<< findProcessId after aMill product')) `shouldBe` Just [1, 2]
 
@@ -415,7 +415,7 @@ spec = describe "a database at other values of its parameters" $ do
 
         it "is replayed from the journal to the same database" $ do
             db <- pantryDb
-            after <- either (fail . T.unpack) pure (applyOp AuthorContext{acDb = db, acDeps = [], acUnitConfig = bakeryUnits} (ParametersEdited [("salt_kg", Just (input 0.02)), ("unread", Nothing)]))
+            after <- either (fail . T.unpack) pure (applyOp AuthorContext{acDb = db, acDeps = [], acUnitConfig = bakeryUnits} (ParametersEdited [ParameterLine "salt_kg" (Just (input 0.02)) PriorUnknown, ParameterLine "unread" Nothing PriorUnknown]))
             M.keys (dbParameters after) `shouldBe` ["salt_g", "salt_kg", "share_pct"]
             (map exchangeAmount . exchanges <$> (getActivity after =<< findProcessId after aBread pBread)) `shouldBe` Just [1, 0.04]
 

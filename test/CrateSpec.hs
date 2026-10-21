@@ -33,6 +33,7 @@ input licence =
         , ciLicence = licence
         , ciRequires = [ecoinvent]
         , ciFormat = EcoSpold2
+        , ciChanges = Nothing
         }
 
 payload :: BL.ByteString
@@ -49,6 +50,10 @@ entity target (Object o) = case KM.lookup "@graph" o of
         _ -> Nothing
     _ -> Nothing
 entity _ _ = Nothing
+
+text :: Value -> Maybe Text
+text (String t) = Just t
+text _ = Nothing
 
 field :: Text -> Value -> Maybe Value
 field key (Object o) = KM.lookup (K.fromText key) o
@@ -125,6 +130,32 @@ spec = do
             filesInArchive archive `shouldMatchList` ["ro-crate-metadata.json", "payload/bread.zip"]
             fromEntry <$> findEntryByPath "payload/bread.zip" archive `shouldBe` Just payload
             (decode . fromEntry =<< findEntryByPath "ro-crate-metadata.json" archive) `shouldBe` Just (crate LicenceUnstated)
+
+        -- An engine that reads exactly one file in the package must keep reading an unchanged database's.
+        it "adds no file beside an unchanged database's export, whatever its licence" $
+            filesInArchive (toArchive (packageExport "bread" (input (LicenceStandard CCBY)) payload))
+                `shouldMatchList` ["ro-crate-metadata.json", "payload/bread.zip"]
+
+    describe "a modified database's package" $ do
+        let own = LicenceOwn OwnLicence{ownText = "Members only", ownRefused = S.fromList [Resell], ownAttribution = AttributionRequired, ownAcceptance = AcceptanceAsked}
+            original = Release{releaseName = "Bakery data", releaseVersion = "2025", releaseSystemModel = Nothing}
+            modified = (input own){ciChanges = Just Changes{chReport = "# Changes to Bread\n", chOriginal = "bakery", chOriginalRelease = Just original}}
+            packaged = packageExport "bread" modified payload
+            metadata = crateMetadata "bread" modified payload
+        it "carries the changes report and the licence in plain words beside the export" $ do
+            let archive = toArchive packaged
+            filesInArchive archive `shouldMatchList` ["ro-crate-metadata.json", "payload/bread.zip", "CHANGES.md", "LICENCE.txt"]
+            fromEntry <$> findEntryByPath "CHANGES.md" archive `shouldBe` Just "# Changes to Bread\n"
+            fromEntry <$> findEntryByPath "LICENCE.txt" archive `shouldBe` Just "Members only"
+
+        it "cites the original it was made from, and says it is not the original" $ do
+            (entity "./" metadata >>= field "citation") `shouldBe` Just (toJSON (KM.singleton "@id" (String "#original")))
+            (entity "#original" metadata >>= field "version") `shouldBe` Just (String "2025")
+            fmap (T.isInfixOf "not endorsed by the publisher of the original") (entity "./" metadata >>= field "description" >>= text)
+                `shouldBe` Just True
+
+        it "reads back as its export alone, requiring no more than it did" $
+            fmap (\p -> (pkPayload p, pkLicence p, pkRequires p)) <$> openPackage packaged `shouldBe` Right (Just (payload, own, [ecoinvent]))
 
     describe "openPackage" $ do
         let packaged licence = packageExport "bread" (input licence) payload

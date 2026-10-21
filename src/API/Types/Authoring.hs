@@ -126,9 +126,10 @@ data ActivityInput = ActivityInput
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ActivityInput)
 
--- | A batch of activities to write.
-newtype ActivityWriteRequest = ActivityWriteRequest
+-- | A batch of activities to write, and why, if the author says.
+data ActivityWriteRequest = ActivityWriteRequest
     { awrActivities :: [ActivityInput]
+    , awrNote :: Maybe Text
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ActivityWriteRequest)
@@ -235,6 +236,8 @@ data ExchangeEditRequest = ExchangeEditRequest
     , eerSetParameters :: [SetParameterAPI]
     , eerSetFormulas :: [SetFormulaAPI]
     , eerRemoveParameters :: [Text]
+    , eerNote :: Maybe Text
+    -- ^ Why the change was made, kept in the database's history
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ExchangeEditRequest)
@@ -257,6 +260,7 @@ instance FromJSON ExchangeEditRequest where
             <*> o .:? "setParameters" .!= []
             <*> o .:? "setFormulas" .!= []
             <*> o .:? "removeParameters" .!= []
+            <*> o .:? "note"
 
 {- | What an inventory edit produced: one count per selector, in the order the
 selectors were stated. A caller that meant to drop one line and reads three
@@ -421,13 +425,15 @@ after. A list left unstated is a list of nothing.
 data ParametersEditRequest = ParametersEditRequest
     { pqSetParameters :: [SetParameterAPI]
     , pqRemoveParameters :: [Text]
+    , pqNote :: Maybe Text
+    -- ^ Why the change was made, kept in the database's history
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ParametersEditRequest)
 
 instance FromJSON ParametersEditRequest where
     parseJSON = withObject "ParametersEditRequest" $ \o ->
-        ParametersEditRequest <$> o .:? "setParameters" .!= [] <*> o .:? "removeParameters" .!= []
+        ParametersEditRequest <$> o .:? "setParameters" .!= [] <*> o .:? "removeParameters" .!= [] <*> o .:? "note"
 
 -- | What an edit of a database's parameters produced.
 data ParametersEditResponse = ParametersEditResponse

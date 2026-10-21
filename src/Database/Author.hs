@@ -53,6 +53,7 @@ module Database.Author (
     -- * What the database can take
     ResolvedInsert (..),
     validateAuthored,
+    resolveProcess,
 
     -- * Editing an inventory in place
     ExchangeSelector (..),
@@ -61,9 +62,11 @@ module Database.Author (
     EditedActivity (..),
     RestatedLine (..),
     applyExchangeEdits,
+    amountsBeforeEach,
     retextsAuthoredIdentity,
     describeSelector,
     lineSelector,
+    selectorPredicate,
 
     -- * Deterministic identity
     authoredNamespace,
@@ -569,17 +572,39 @@ applyExchangeEdits ctx edits act = case accErrors final of
                     }
     errs -> Left errs
   where
-    final = foldl' (applyStep ctx) initial edits
-    initial =
-        EditAcc
-            { accActivity = act
-            , accMatched = []
-            , accNewFlows = []
-            , accNewTechFlows = []
-            , accNewWasteFlows = []
-            , accWarnings = []
-            , accErrors = []
-            }
+    final = foldl' (applyStep ctx) (startingFrom act) edits
+
+startingFrom :: Activity -> EditAcc
+startingFrom act =
+    EditAcc
+        { accActivity = act
+        , accMatched = []
+        , accNewFlows = []
+        , accNewTechFlows = []
+        , accNewWasteFlows = []
+        , accWarnings = []
+        , accErrors = []
+        }
+
+{- | The amounts of the lines each edit names, just before it: what the history
+shows a reader beside the value that replaced them. Each edit is read against
+the lines the edits before it in the batch left, as 'applyExchangeEdits' applies
+it. An edit naming no line has none.
+-}
+amountsBeforeEach :: AuthorContext -> Activity -> [ExchangeEdit] -> [[Double]]
+amountsBeforeEach ctx act edits = zipWith (amountsBefore . accActivity) (scanl (applyStep ctx) (startingFrom act) edits) edits
+
+amountsBefore :: Activity -> ExchangeEdit -> [Double]
+amountsBefore activity = \case
+    SetAmount selector _ -> named selector
+    RemoveExchange selector -> named selector
+    SetFormula selector _ -> named selector
+    AddExchange _ -> []
+    SetText _ -> []
+    SetParameter _ _ -> []
+    RemoveParameter _ -> []
+  where
+    named selector = either (const []) (\selected -> map exchangeAmount (filter selected (exchanges activity))) (selectorPredicate selector)
 
 -- | The activity as edited so far, and what there is to report about it.
 data EditAcc = EditAcc

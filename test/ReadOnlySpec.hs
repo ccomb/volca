@@ -128,10 +128,10 @@ mutatingHandlers =
     , ("remove-dependency", run (removeDependencyHandler "nope" "dep"))
     , ("finalize", run (finalizeDatabaseHandler "nope"))
     , ("upload", run (uploadDatabaseHandler (Just "nope") Nothing (source [])))
-    , ("create-activities", run (createActivitiesHandler "nope" (ActivityWriteRequest [])))
-    , ("replace-activity", run (replaceActivityHandler "nope" "id" nothingInParticular))
+    , ("create-activities", run (createActivitiesHandler "nope" (ActivityWriteRequest [] Nothing)))
+    , ("replace-activity", run (replaceActivityHandler "nope" "id" Nothing nothingInParticular))
     , ("edit-exchanges", run (editExchangesHandler "nope" "id" noEdits))
-    , ("edit-database-parameters", run (editDatabaseParametersHandler "nope" (ParametersEditRequest [] [])))
+    , ("edit-database-parameters", run (editDatabaseParametersHandler "nope" (ParametersEditRequest [] [] Nothing)))
     , ("save-scenario", run (saveScenarioHandler "nope" "high salt" (ScenarioSaveRequest [])))
     , ("drop-scenario", run (dropScenarioHandler "nope" "high salt"))
     , ("set-data-path", run (setDataPathHandler "nope" Null))
@@ -164,6 +164,7 @@ mutatingHandlers =
             , eerSetParameters = []
             , eerSetFormulas = []
             , eerRemoveParameters = []
+            , eerNote = Nothing
             }
     nothingInParticular =
         ActivityInput
@@ -187,6 +188,7 @@ mutatingHandlers =
             , dsqKeep = []
             , dsqExtra = []
             , dsqIds = Just []
+            , dsqNote = Nothing
             }
 
 -- | Whether an MCP reply is flagged as an error.

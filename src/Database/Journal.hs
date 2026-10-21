@@ -47,10 +47,18 @@ module Database.Journal (
     -- * What a journal records
     Entry (..),
     JournalEvent,
+    Change (..),
     JournalOp (..),
+    EditLine (..),
+    ParameterLine (..),
+    Prior (..),
+    Note,
+    noteFrom,
+    noteText,
 
     -- * The file
     journalPath,
+    journalHasEntries,
     appendEvent,
     readJournal,
 
@@ -68,13 +76,14 @@ import Control.Exception (SomeException, try)
 import Control.Monad (foldM)
 import Data.Aeson (
     Object,
-    Value,
+    Value (Null),
     object,
     withObject,
     (.:),
     (.:?),
     (.=),
  )
+import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Pair, Parser)
 import Data.Bifunctor (bimap, first)
 import Data.Bits (xor)
@@ -86,7 +95,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.UUID as UUID
 import Data.Word (Word64)
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, getFileSize)
 import System.FilePath ((</>))
 
 import Data.JournalFile (Entry (..), JournalVocabulary (..), appendEntry, journalPath, readEntries)
@@ -121,7 +130,55 @@ import Types (BioDirection (..), Compartment (..), Database (..), ExchangeLocati
 -- ---------------------------------------------------------------------------
 
 -- | One line of a database's journal.
-type JournalEvent = Entry JournalOp
+type JournalEvent = Entry Change
+
+{- | A change as its author made it: what it did, and why, when they said. The
+reason is for whoever reads the database's history; a replay never looks at
+it.
+-}
+data Change = Change
+    { changeNote :: Maybe Note
+    , changeOp :: JournalOp
+    }
+    deriving (Eq, Show)
+
+{- | Why a change was made, in its author's words. Never empty: a reason made
+of blanks says nothing, and is no reason at all.
+-}
+newtype Note = Note Text
+    deriving (Eq, Show)
+
+noteFrom :: Text -> Maybe Note
+noteFrom raw = case T.strip raw of
+    "" -> Nothing
+    note -> Just (Note note)
+
+noteText :: Note -> Text
+noteText (Note note) = note
+
+{- | What a line held before a change, for the history: unknown on a line an
+older engine wrote, which did not keep it.
+-}
+data Prior a = PriorUnknown | Prior a
+    deriving (Eq, Show)
+
+{- | One edit of an inventory, with the number of exchanges it matched at the
+time, and their amounts before it.
+-}
+data EditLine = EditLine
+    { elEdit :: ExchangeEdit
+    , elMatched :: Int
+    , elBefore :: Prior [Double]
+    }
+    deriving (Eq, Show)
+
+-- | A database parameter set ('Just') or removed, and what it was before.
+data ParameterLine = ParameterLine
+    { plName :: Text
+    , plParameter :: Maybe Parameter
+    , plBefore :: Prior (Maybe Parameter)
+    }
+    deriving (Eq, Show)
 
 {- | The ways a database changes. Each carries what the edit produced, so a
 replay can check that it still produces it: an identity for the operations
@@ -137,12 +194,10 @@ data JournalOp
       Replaced Text AuthoredActivity
     | -- | The process ids removed.
       Deleted [Text]
-    | {- | The process whose inventory was edited, and the edits made to it,
-      each with the number of exchanges it matched at the time.
-      -}
-      Edited Text [(ExchangeEdit, Int)]
-    | -- | The database's parameters set, or removed when given none.
-      ParametersEdited [(Text, Maybe Parameter)]
+    | -- | The process whose inventory was edited, and the edits made to it.
+      Edited Text [EditLine]
+    | -- | The database's parameters set or removed.
+      ParametersEdited [ParameterLine]
     deriving (Eq, Show)
 
 -- ---------------------------------------------------------------------------
@@ -152,7 +207,7 @@ data JournalOp
 {- | Record an edit. Appends one line and closes the file before returning, so
 an edit is on disk by the time its caller answers.
 -}
-appendEvent :: FilePath -> JournalOp -> IO (Either Text ())
+appendEvent :: FilePath -> Change -> IO (Either Text ())
 appendEvent = appendEntry
 
 -- | Read a database's journal. A database with no journal has made no edits.
@@ -182,6 +237,15 @@ journalStamp home = do
         else do
             bytes <- BS.readFile path
             pure $ T.pack (show (BS.length bytes)) <> ":" <> T.pack (show (fnv1a bytes))
+
+{- | Whether a database's journal records any change. An empty file is none:
+it is what dropping a torn last line leaves of a journal that had one line.
+-}
+journalHasEntries :: FilePath -> IO Bool
+journalHasEntries home = do
+    let path = journalPath home
+    exists <- doesFileExist path
+    if exists then (> 0) <$> getFileSize path else pure False
 
 -- | The stamp the cache was last saved with, empty when there is none.
 readAppliedStamp :: FilePath -> IO Text
@@ -247,7 +311,9 @@ replayJournal :: AuthorContext -> [JournalEvent] -> Either Text Database
 replayJournal ctx = foldM step (acDb ctx) . zip [1 :: Int ..]
   where
     step db (i, event) =
-        first (situate i (jeOp event)) (applyOp ctx{acDb = db} (jeOp event))
+        first (situate i op) (applyOp ctx{acDb = db} op)
+      where
+        op = changeOp (jeOp event)
     situate i op msg =
         "journal event " <> T.pack (show i) <> " (" <> opName op <> "): " <> msg
 
@@ -271,7 +337,8 @@ applyOp ctx = \case
     -- An edit is replayed through the very function that made it, so there is
     -- one implementation of what an edit means, not a live one and a
     -- reconstructed one that could disagree.
-    Edited target edits -> do
+    Edited target editLines -> do
+        let edits = [(elEdit line, elMatched line) | line <- editLines]
         pid <- resolveProcess (acDb ctx) target
         key <- processKey (acDb ctx) pid
         act <- maybe (Left ("Unknown process id: " <> target)) Right (getActivity (acDb ctx) pid)
@@ -293,8 +360,8 @@ applyOp ctx = \case
                     )
                     (acDb ctx)
             else Left (matchDrift (map snd edits) (eaMatched edited))
-    ParametersEdited edits -> do
-        (parameters, moved) <- first (T.intercalate "; ") (editedParameters (acDb ctx) edits)
+    ParametersEdited parameterLines -> do
+        (parameters, moved) <- first (T.intercalate "; ") (editedParameters (acDb ctx) [(plName line, plParameter line) | line <- parameterLines])
         let withParameters = (acDb ctx){dbParameters = parameters}
         restatedRows <- traverse (restatedRow withParameters) (M.toList moved)
         replaceActivities (acUnitConfig ctx) restatedRows withParameters
@@ -375,11 +442,14 @@ opName = \case
 -- that separation enforceable.
 -- ---------------------------------------------------------------------------
 
--- | The version this engine writes for a database's journal, and the only one it reads.
-instance JournalVocabulary JournalOp where
+{- | The version this engine writes for a database's journal, and the only one
+it reads. The reason and the earlier values came later as keys a line may lack,
+so a line written before them still reads, as one that kept neither.
+-}
+instance JournalVocabulary Change where
     vocabularyVersion _ = 1
-    opFields = databaseOpFields
-    parseOp = databaseParseOp
+    opFields (Change note op) = maybe [] (\stated -> ["note" .= noteText stated]) note <> databaseOpFields op
+    parseOp o = Change <$> ((>>= noteFrom) <$> o .:? "note") <*> databaseParseOp o
 
 databaseOpFields :: JournalOp -> [Pair]
 databaseOpFields = \case
@@ -392,10 +462,10 @@ databaseOpFields = \case
         ["op" .= ("replace" :: Text), "target" .= target, "activity" .= activityJSON activity]
     Deleted targets ->
         ["op" .= ("delete" :: Text), "targets" .= targets]
-    Edited target edits ->
-        ["op" .= ("edit" :: Text), "target" .= target, "edits" .= map editJSON edits]
-    ParametersEdited edits ->
-        ["op" .= ("parameters" :: Text), "edits" .= [object ["name" .= name, "parameter" .= fmap parameterJSON parameter] | (name, parameter) <- edits]]
+    Edited target editLines ->
+        ["op" .= ("edit" :: Text), "target" .= target, "edits" .= map editJSON editLines]
+    ParametersEdited parameterLines ->
+        ["op" .= ("parameters" :: Text), "edits" .= map parameterLineJSON parameterLines]
 
 databaseParseOp :: Object -> Parser JournalOp
 databaseParseOp o =
@@ -409,7 +479,7 @@ databaseParseOp o =
         "edit" ->
             Edited <$> o .: "target" <*> (o .: "edits" >>= traverse parseEdit)
         "parameters" ->
-            ParametersEdited <$> (o .: "edits" >>= traverse (withObject "parameter edit" (\e -> (,) <$> e .: "name" <*> (e .:? "parameter" >>= traverse parseParameter))))
+            ParametersEdited <$> (o .: "edits" >>= traverse parseParameterLine)
         other -> fail ("unknown journal operation: " <> T.unpack other)
 
 {- | One edit, with the number of exchanges it matched when it was made. That
@@ -417,9 +487,12 @@ count is what makes the edit checkable on replay: without it, a selector that
 has come to name three lines instead of one would apply to all three in
 silence.
 -}
-editJSON :: (ExchangeEdit, Int) -> Value
-editJSON (edit, matched) = object (("matched" .= matched) : fields edit)
+editJSON :: EditLine -> Value
+editJSON (EditLine edit matched before) = object (("matched" .= matched) : priorPair before <> fields edit)
   where
+    priorPair = \case
+        PriorUnknown -> []
+        Prior amounts -> ["before" .= amounts]
     fields = \case
         RemoveExchange selector ->
             ["edit" .= ("remove" :: Text), "select" .= selectorJSON selector]
@@ -440,9 +513,10 @@ editJSON (edit, matched) = object (("matched" .= matched) : fields edit)
         RemoveParameter name ->
             ["edit" .= ("unparameter" :: Text), "name" .= name]
 
-parseEdit :: Value -> Parser (ExchangeEdit, Int)
+parseEdit :: Value -> Parser EditLine
 parseEdit = withObject "exchange edit" $ \o -> do
     matched <- o .: "matched"
+    before <- maybe PriorUnknown Prior <$> o .:? "before"
     edit <-
         o .: "edit" >>= \case
             ("remove" :: Text) -> RemoveExchange <$> (o .: "select" >>= parseSelector)
@@ -455,7 +529,27 @@ parseEdit = withObject "exchange edit" $ \o -> do
             "parameter" -> SetParameter <$> o .: "name" <*> (o .: "parameter" >>= parseParameter)
             "unparameter" -> RemoveParameter <$> o .: "name"
             other -> fail ("unknown exchange edit: " <> T.unpack other)
-    pure (edit, matched)
+    pure (EditLine edit matched before)
+
+{- | A parameter line keeps what the parameter was before under @before@: null
+when it did not exist, absent on a line written before it was kept.
+-}
+parameterLineJSON :: ParameterLine -> Value
+parameterLineJSON (ParameterLine name parameter before) =
+    object $
+        ["name" .= name, "parameter" .= fmap parameterJSON parameter] <> case before of
+            PriorUnknown -> []
+            Prior earlier -> ["before" .= fmap parameterJSON earlier]
+
+parseParameterLine :: Value -> Parser ParameterLine
+parseParameterLine = withObject "parameter edit" $ \e ->
+    ParameterLine
+        <$> e .: "name"
+        <*> (e .:? "parameter" >>= traverse parseParameter)
+        <*> case KM.lookup "before" e of
+            Nothing -> pure PriorUnknown
+            Just Null -> pure (Prior Nothing)
+            Just earlier -> Prior . Just <$> parseParameter earlier
 
 {- | A parameter as the journal keeps it: a value or a formula, never both. A
 formula's value is not kept: it is computed again from the formula on replay.

@@ -672,6 +672,7 @@ Available tools – auto-derived at runtime from the single resource registry (`
 | `edit_exchanges` | Change an activity's lines, parameters, formulas, name, location and description |
 | `get_database_parameters` | The parameters a database's processes read unless they define their own |
 | `edit_database_parameters` | Set or remove database parameters, restating every process that reads them |
+| `get_database_history` | A database's journal of changes, each in words with the reason given for it |
 | `list_scenarios` | A database's scenarios, saved and shipped, each with the parameter values it sets |
 | `save_scenario` | Save parameter values under a name |
 | `drop_scenario` | Drop a saved scenario |

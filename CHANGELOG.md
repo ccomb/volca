@@ -4,6 +4,23 @@
 
 ### Added
 
+- A change made to a database of one's own can say why, in a note: every
+  write (activities written, rewritten or deleted, exchanges edited,
+  database parameters changed, changes applied from a comparison) takes an
+  optional `note`. The engine keeps it in the database's journal, with the
+  amounts and parameter values each change replaced. `GET
+  /db/{db}/history`, the `get_database_history` tool and pyvolca's
+  `database_history()` read that history back in words, oldest first.
+  A database's status now says whether its data differ from its original
+  files (`modification`: edited, or divided otherwise). Such a database is
+  exported only as an RO-Crate package, which carries `CHANGES.md`, the
+  report of every change and its reason, cites the original it was made
+  from, and says that its publisher did not make these changes. A plain
+  export of it is refused with a 400 saying so; pyvolca asks for the
+  package itself. Beside the report, that package carries the database's
+  licence in plain text, in `LICENCE.txt`; an unchanged database's package
+  holds its export alone, as before. Wire revision 79.
+
 - Loading a method now warns when one of its impact categories gives a
   flow two different factors at the same place. A database flow matched by
   its name can get only one of them, and the engine used to keep the larger
@@ -339,6 +356,13 @@
   showed the line as an unresolved flow. The score was right. A database
   written before this fix keeps the misfiled flow until it is written again.
 
+- Finalizing a database relinked with a mapping, before it was finalized,
+  keeps the links the mapping made, and so does adding or removing one of
+  its dependencies in between. Both relinked the database without the
+  mapping: every input only the mapping could link came back unlinked, and
+  a script had to relink a second time. The mapping is still held in memory
+  only: once the engine restarts, or the dependency is loaded again, the
+  links it made are gone.
 - A container started again no longer rebuilds the synonym candidates of its
   methods. They were saved in the working directory of the container, which
   is gone when it stops, while databases and methods go to `VOLCA_DATA_DIR`;

@@ -66,6 +66,7 @@ library
                      , Database.Rebuild
                      , Database.Scenarios
                      , Database.Journal
+                     , Database.History
                      , Database.Edit
                      , Database.Loader
                      , Database.Cutoffs
@@ -259,6 +260,7 @@ test-suite lca-tests
   main-is:             Spec.hs
   other-modules:       TestHelpers
                      , UsageSpec
+                     , HistorySpec
                      , GoldenData
                      , DetectFormatSpec
                      , AmountSpec

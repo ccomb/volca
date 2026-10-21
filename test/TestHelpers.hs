@@ -2,6 +2,7 @@
 
 module TestHelpers (
     unitDef,
+    dbConfigFor,
     withScratchDataDir,
     loadSampleDatabase,
     loadSampleDatabaseWithPath,
