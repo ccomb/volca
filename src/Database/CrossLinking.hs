@@ -956,6 +956,7 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
                     Nothing -> CrossDBNotLinked (AliasTargetMissing targetName (Just targetLoc))
                     Just atLoc -> linkDesignated bridge atLoc
       where
+        directed :: CrossDBLinkResult -> CrossDBLinkResult
         directed result = case result of
             CrossDBLinked{} -> result{cdlrDirection = direction}
             CrossDBNotLinked _ -> result

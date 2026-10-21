@@ -353,6 +353,7 @@ import Database.Author (editingContext)
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
 import qualified Database.Journal as Journal
+import Database.RelinkMapping (directionRefusal)
 import Database.Requirements (ReleaseSubstitution (..), RequiredRelease, acceptSubstitute, admission, admits, requiredDatabases, requiredReleases)
 import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirectory, listDirectoryRecursive)
 import qualified Database.Upload as Upload
@@ -3091,6 +3092,7 @@ relinkDatabaseWithMapping manager dbName depDb aliases = withLogScope dbName $ d
             | not (M.member depDb loadedDbs) ->
                 return $ Left $ "Dependency database not loaded: " <> depDb <> " (load it first)"
             | Left refusal <- admission configs (ldConfig loaded) depDb -> return (Left refusal)
+            | Just refusal <- directionRefusal (dbReferenceConvention (ldDatabase loaded)) aliases -> return (Left refusal)
             | otherwise -> do
                 -- Declare the dependency in-memory if it isn't already pinned, so an
                 -- in-memory pipeline (copy → delete → relink) composes in one pass
@@ -3129,6 +3131,7 @@ relinkStaged manager dbName maybeDepDb aliases = withLogScope dbName $ runExcept
         unless (M.member dep indexedDbs) $
             throwE ("Dependency database not loaded: " <> dep <> " (load it first)")
         except (admission configs (sdConfig staged) dep)
+    forM_ (directionRefusal (sdbReferenceConvention (sdSimpleDB staged)) aliases) throwE
     synonymDB <- liftIO $ getMergedSynonymDB manager
     unitConfig <- liftIO $ getMergedUnitConfig manager
     let pinnedDeps = withChosenDep (sdSelectedDeps staged)

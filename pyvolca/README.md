@@ -1406,7 +1406,9 @@ target unit holds, for units that measure different things (a car of
 ``opposite`` when the target counts the demand the other way than the
 supplier the line was written for (a wastewater market of reference
 -1 m3 mapped to a treatment of reference +1 m3), ``same`` or blank
-otherwise. Returns the
+otherwise; the engine refuses ``opposite`` for a SimaPro, ILCD or
+EcoSpold 1 database, whose lines already take their supplier's sign.
+Returns the
 ``RelinkResponse`` dict (``{"dbName", "unresolvedBefore",
 "unresolvedAfter", "crossDBLinks", "dependsOn"}``).
 

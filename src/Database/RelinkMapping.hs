@@ -39,7 +39,10 @@ columns:
     for 0.018 m3 treated; mapped to a treatment whose reference is +1 m3, the
     row says @opposite@ and the line becomes +0.018, or the treatment would
     run backwards and score a credit. Independent of @conversion@: a row may
-    carry both.
+    carry both. Only a database whose lines are read as written (EcoSpold 2,
+    openLCA, Brightway) needs it: a SimaPro, ILCD or EcoSpold 1 line already
+    takes its supplier's sign, so a mapping turning one is refused
+    ('directionRefusal').
 
 A row needs a source (name or identity). With a target (name or identity) it
 is a link; without one it declines the link: its input stays unlinked, reported
@@ -59,6 +62,7 @@ module Database.RelinkMapping (
     parseAliasCSV,
     buildAliasMap,
     parseAliasMap,
+    directionRefusal,
 ) where
 
 import Control.Applicative ((<|>))
@@ -75,7 +79,7 @@ import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 
 import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), Direction (..), UnitBridge (..))
-import Types (ProcessRef, parseProcessRef, processRefText)
+import Types (ProcessRef, ReferenceConvention (..), parseProcessRef, processRefText)
 
 {- | One row of the alias mapping, validated: the keys it applies under (at
 least one of a source name and a source identity) and the supplier it
@@ -220,3 +224,17 @@ parseAliasMap bytes = do
     if M.null (amByProcess m) && M.null (amByName m)
         then Left "mapping file contains no row with a source"
         else Right m
+
+{- | Why a mapping cannot relink a database of this convention, if it cannot.
+A database whose treatments are positive reads each line against its
+supplier's sign already: a row saying @opposite@ would turn a line twice and
+run the treatment backwards.
+-}
+directionRefusal :: ReferenceConvention -> AliasMap -> Maybe Text
+directionRefusal convention aliases
+    | convention == PositiveReferences && any turns (M.elems (amByProcess aliases) <> M.elems (amByName aliases)) =
+        Just "a mapping row says direction opposite, but this database's lines already take their supplier's sign (SimaPro, ILCD, EcoSpold 1): leave the direction blank"
+    | otherwise = Nothing
+  where
+    turns :: NE.NonEmpty AliasTarget -> Bool
+    turns = any ((== Opposite) . atDirection)
