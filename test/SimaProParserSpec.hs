@@ -1853,6 +1853,7 @@ spec = do
         it "takes no word after a slash inside the name for a place" $ do
             extractLocation "Spinning to yarn, Elastane (Spandex/Lycra), 120 dtex, Ring Spinning" `shouldBe` Nothing
             extractLocation "Spinning to filament, Polyester, Melt Spinning (FDY/DTY)" `shouldBe` Nothing
+            extractLocation "Fabric, Polyester/Cotton blend" `shouldBe` Nothing
 
         it "says nothing when the name states nothing, rather than a blank" $
             extractLocation "Diesel, burned in machinery" `shouldBe` Nothing
