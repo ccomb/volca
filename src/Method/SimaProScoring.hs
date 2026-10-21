@@ -14,6 +14,7 @@ module Method.SimaProScoring (
     NormWeightSet (..),
     SimaProMethodFile (..),
     simaProCollection,
+    factorClashes,
     singleScoreName,
     damageOnlySetName,
     translateScoring,
@@ -41,7 +42,8 @@ import GHC.Generics (Generic)
 
 import qualified Expr
 import Method.Scoring (counted, linearTerms, shortNames, singleScoreName, writeSum)
-import Method.Types (Method (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
+import Method.Types (Compartment (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
+import SynonymDB (normalizeNameKeepUnit)
 
 {- | Damage category: groups impact subcategories into a parent category.
 E.g., "Ecotoxicity, freshwater" groups "...part 1", "...part 2", etc.
@@ -78,14 +80,50 @@ data SimaProMethodFile = SimaProMethodFile
     }
     deriving (Eq, Show)
 
-{- | A file read as a collection, with what its translation could not read.
+{- | A file read as a collection, with what its translation could not read and
+the factors its categories hold twice.
 Several files of one collection are merged into one before, since a damage
 may group the impact categories of another file.
 -}
 simaProCollection :: SimaProMethodFile -> (MethodCollection, [Text])
 simaProCollection f =
     let (sets, warnings) = translateScoring (smfMethods f) (smfDamages f) (smfNWSets f)
-     in (MethodCollection (smfMethods f) sets [], warnings)
+     in (MethodCollection (smfMethods f) sets [], concatMap factorClashes (smfMethods f) <> warnings)
+
+{- | The flows a category gives two different factors at one place, in words,
+one line a flow. A database flow matched by its name can get only one of
+them, so the load names the clash rather than settling it in silence.
+Values a rounding apart are one factor.
+-}
+factorClashes :: Method -> [Text]
+factorClashes m =
+    [ "\"" <> methodName m <> "\" gives " <> spelled names <> " factors from " <> num low <> " to " <> num high <> at place <> others <> "; a flow matched by its name gets only one"
+    | (_, (names, place, low, high) : more) <- M.toList (M.fromListWith (flip (<>)) clashes)
+    , let others = if null more then "" else " and at " <> num (length more) <> " other place(s)"
+    ]
+  where
+    clashes :: [(Text, [([Text], Text, Double, Double)])]
+    clashes =
+        [ (key, [(nubOrd names, place, low, high)])
+        | ((key, place, _, _), (names, low, high)) <- M.toList byPlace
+        , abs (high - low) > 1e-5 * max (abs low) (abs high)
+        ]
+    -- Keyed on the name the matcher reads, so two spellings of one flow clash too.
+    byPlace :: M.Map (Text, Text, Text, Maybe Text) ([Text], Double, Double)
+    byPlace =
+        M.fromListWith
+            (\(n2, l2, h2) (n1, l1, h1) -> (n1 <> n2, min l1 l2, max h1 h2))
+            [ ((normalizeNameKeepUnit (mcfFlowName cf), placeOf (mcfCompartment cf), mcfUnit cf, mcfConsumerLocation cf), ([mcfFlowName cf], mcfValue cf, mcfValue cf))
+            | cf <- methodFactors m
+            ]
+    placeOf :: Maybe Compartment -> Text
+    placeOf = maybe "" (\(Compartment a b c) -> T.intercalate ", " (filter (not . T.null) [a, b, c]))
+    spelled :: [Text] -> Text
+    spelled = T.intercalate " and " . map (\n -> "\"" <> n <> "\"")
+    at :: Text -> Text
+    at place = if T.null place then "" else " (" <> place <> ")"
+    num :: (Show a) => a -> Text
+    num = T.pack . show
 
 -- | The set a file with damage categories and no normalization-weighting set gives.
 damageOnlySetName :: Text

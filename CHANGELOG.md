@@ -4,6 +4,30 @@
 
 ### Added
 
+- A change made to a database of one's own can say why, in a note: every
+  write (activities written, rewritten or deleted, exchanges edited,
+  database parameters changed, changes applied from a comparison) takes an
+  optional `note`. The engine keeps it in the database's journal, with the
+  amounts and parameter values each change replaced. `GET
+  /db/{db}/history`, the `get_database_history` tool and pyvolca's
+  `database_history()` read that history back in words, oldest first.
+  A database's status now says whether its data differ from its original
+  files (`modification`: edited, or divided otherwise). Such a database is
+  exported only as an RO-Crate package, which carries `CHANGES.md`, the
+  report of every change and its reason, cites the original it was made
+  from, and says that its publisher did not make these changes. A plain
+  export of it is refused with a 400 saying so; pyvolca asks for the
+  package itself. Beside the report, that package carries the database's
+  licence in plain text, in `LICENCE.txt`; an unchanged database's package
+  holds its export alone, as before. Wire revision 79.
+
+- Loading a method now warns when one of its impact categories gives a
+  flow two different factors at the same place. A database flow matched by
+  its name can get only one of them, and the engine used to keep the larger
+  without a word. An openLCA package of EF 3.1 holds two "Chromium III"
+  lines for air, low population density, one of them carrying the
+  Chromium VI factor, almost thirteen times the other.
+
 - A method collection can be read from an openLCA method package, the
   archive that holds many methods side by side. `package-method` names the
   one to read; its impact categories become the collection and its
@@ -13,6 +37,17 @@
   file, since openLCA writes it there and not on the factor: without it, a
   database that names a refrigerant otherwise than the package scored its
   ozone depletion nearly two thousand times too low.
+
+- A publisher can ask the readers of a database to accept its terms of use
+  before reading it: `accept = true` beside `licence_text`, in the engine's
+  configuration and in an upload's metadata. Until a reader accepts them,
+  every request reading that database, or a database built on it, is
+  refused with the terms and how to accept them. A browser or a script
+  accepts by sending the fingerprint of the text in the `volca_terms`
+  cookie; an assistant, by calling the `accept_terms` tool once the user
+  has agreed. New terms have a new fingerprint, so they are asked again.
+  Standard licences never ask it. pyvolca has `terms_to_accept()` and
+  `accept_terms()`. Wire revision 78.
 
 - The database quality report now checks the water balance of each
   activity: water released to rivers and soil should not exceed, by far, the
@@ -319,12 +354,82 @@
   human toxicity factor, so its human toxicity scored zero. It now reads the
   factor of mecoprop, the racemic mixture, as S-metolachlor already reads
   metolachlor's, and keeps its own ecotoxicity factor (data version 11).
+- A SimaPro, ILCD or EcoSpold 1 database sending waste to a treatment of an
+  EcoSpold 2 or openLCA dependency, such as an ecoinvent treatment, now
+  charges that waste. These formats write a treatment as taking in +1 kg of
+  waste, so they send 3 kg to it as an input of +3 kg; an ecoinvent
+  treatment is written as giving out -1 kg, and the input of +3 kg was read
+  as 3 kg taken back from it, a credit instead of a burden. Each database
+  now says which way it writes its treatments, and an input crossing to the
+  other way takes the treatment's sign. A database saved in the cache before
+  this is read again from its files once. An export writes such a line the
+  way its format reads it, so that it charges the same waste once read back:
+  the -3 kg an EcoSpold 2 database sends to an ecoinvent treatment is
+  written +3 kg in SimaPro, and the other way round. Its formula, which no
+  longer gives the written value, is dropped, and the export says so.
+- Finalizing a database relinked with a mapping, before it was finalized,
+  keeps the links the mapping made, and so does adding or removing one of
+  its dependencies in between. Both relinked the database without the
+  mapping: every input only the mapping could link came back unlinked, and
+  a script had to relink a second time. The mapping is still held in memory
+  only: once the engine restarts, or the dependency is loaded again, the
+  links it made are gone.
+- A container started again no longer rebuilds the synonym candidates of its
+  methods. They were saved in the working directory of the container, which
+  is gone when it stops, while databases and methods go to `VOLCA_DATA_DIR`;
+  they now go there too, as do the reference tables sent through the API
+  (flow synonyms, compartment mappings, units, energy densities), which the
+  next start looked for in the wrong place. A start that already holds a
+  candidate also no longer extracts its synonym pairs before noticing it need
+  not. A start that finds its caches on disk, with the EF 3.1 method loaded,
+  went from 22 to 13 seconds on a desktop machine.
+- A database exported as SimaPro CSV or as a Brightway workbook keeps the
+  CAS number of each substance. Both writers dropped it, so a method that
+  recognizes a substance by its CAS no longer scored it after re-import: a
+  cotton farm's pesticide, acetamiprid, vanished from its freshwater
+  ecotoxicity, which came back 77 % off. SimaPro now writes the substance
+  list it writes itself at the end of a file, one name and CAS per line;
+  Brightway gets a "CAS number" column. Since SimaPro binds a CAS to a
+  name, a name carrying two different CAS numbers gets none, with a
+  warning, and a CAS stated on only some flows of one name reaches them
+  all, with a warning too.
+
+- A SimaPro activity whose name holds a slash keeps its whole name. The
+  reader looks for a place after a slash, as in « Maize grain, at farm/US U »,
+  and took any capitalised word for one: « Spinning to yarn, Elastane
+  (Spandex/Lycra), 120 dtex » was read as « Spinning to yarn, Elastane
+  (Spandex » at « Lycra), », and nine yarns of different counts came back
+  under one name. A place is now one word of letters, digits and dashes that
+  ends the name, alone or before a one-letter flag.
+- A database exported as SimaPro CSV or as a Brightway workbook comes back
+  buying each input from the same supplier. An input bought from a database
+  it depends on was written as the bare product, so the re-import bought a
+  global or a production process in place of the market at the place the
+  engine had linked; and when several activities of the file make one
+  product (fourteen cotton farms all making seed cotton), every buyer came
+  back on the first of them. Uploaded again on the same background, a
+  cotton database scored up to 700 times off on toxicity. Both formats now
+  name the supplier's activity and location on the row, as their own
+  readers expect. An ILCD export, which can name a product and a location
+  but never the process making it, refuses an input bought from a
+  dependency and two makers of one product at one place; EcoSpold 2 and
+  openLCA, which point at the supplier itself, export it exactly.
 - A SimaPro waste treatment whose waste type is one word (`Wood`, `Water`,
   `PE`) keeps its exchanges. The row of a `Waste treatment` section has no
   allocation field, but the reader took any field that reads as a formula for
   one, and a single word reads as a parameter name worth 0: the whole
   treatment, its emissions and its inputs, was scored at 0 %. In that section
   only a plain number is now read as an allocation.
+- A database relinked onto another background exports under the products it
+  is linked to. An input written « market group for electricity, medium
+  voltage » and linked by a relink mapping to « Electricity, medium voltage,
+  at grid » was exported under its first name, and read back beside the new
+  background it linked to nothing. Every format now writes the supplier's
+  product, and EcoSpold 2 and openLCA point at the supplier itself; a line
+  whose mapping converted between two measures is written in the supplier's
+  unit, its amount converted. Eight textile process steps relinked this way,
+  exported as SimaPro or Brightway and uploaded again beside the new
+  background alone, give the same score on every activity.
 - A method read from openLCA impact categories characterizes emissions. openLCA
   files a factor under "Emission to air", in the singular, which the engine did
   not read as air, so every emission factor was dropped and only resources

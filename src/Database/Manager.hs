@@ -53,6 +53,8 @@ module Database.Manager (
     addDatabase,
     removeDatabase,
     editHome,
+    databaseModification,
+    filesOwner,
     scenariosHome,
 
     -- * Method Operations
@@ -84,16 +86,19 @@ module Database.Manager (
     unloadFlowSynonyms,
     addFlowSynonyms,
     removeFlowSynonyms,
+    flowSynonymsUploadsDir,
     listCompartmentMappings,
     loadCompartmentMappings,
     unloadCompartmentMappings,
     addCompartmentMappings,
     removeCompartmentMappings,
+    compartmentMappingsUploadsDir,
     listUnitDefs,
     loadUnitDefs,
     unloadUnitDefs,
     addUnitDefs,
     removeUnitDefs,
+    unitDefsUploadsDir,
     getFlowSynonymGroups,
     getMergedSynonymDB,
     getMergedCompartmentMap,
@@ -108,6 +113,9 @@ module Database.Manager (
     readDocumentFile,
     databaseLicence,
     releasesRead,
+    termsToAccept,
+    acceptedTerms,
+    acceptTerms,
     refusingDatabases,
     setUploadLicence,
     SettingRefusal (..),
@@ -277,7 +285,6 @@ import SubstanceRegistry (CASNumber (..), KeyNormalizers (..), NormName (..), Su
 import SynonymDB (BridgeDirection (..), SynEdge (..), SynonymDB (..), buildFromCSV, emptySynonymDB, excludeJunkSynonyms, excludeOverFrequentSynonyms, loadFromCSVFileWithCache, mergeSynonymDBs, normalizeName, oversizedClasses, reopenedBridges, synonymCount, uncoveredUnitSuffixes)
 import Types (
     Activity,
-    ActivityMap,
     AllocationKey (..),
     AttributeFallback (..),
     BioFlowDB,
@@ -296,6 +303,7 @@ import Types (
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
+    Modification (..),
     Permission (..),
     ProcessId,
     Release (..),
@@ -303,6 +311,7 @@ import Types (
     SparseTriple (..),
     SupplierAmbiguity (..),
     SupplierRequest (..),
+    Terms (..),
     UUID,
     Unit (..),
     UnitDB,
@@ -328,7 +337,9 @@ import Types (
     sharedFlowSynonyms,
     statedCode,
     systemModelsRead,
+    termsAsked,
     toSimpleDatabase,
+    unmodified,
     unresolvedCount,
     upDemands,
  )
@@ -378,6 +389,10 @@ data StagedDatabase = StagedDatabase
     -- ^ Selected dependency database names
     , sdCrossDBLinks :: ![CrossDBLink]
     -- ^ Cross-DB links found so far
+    , sdSupplierAliases :: !CrossLinking.AliasMap
+    {- ^ The mapping the last relink applied. Finalizing relinks once more,
+    and without it would drop the links the mapping made.
+    -}
     , sdLinkingStats :: !CrossDBLinkingStats
     -- ^ Linking statistics
     , sdBuiltWith :: !BuildInputs
@@ -569,6 +584,7 @@ data DatabaseStatus = DatabaseStatus
     , dsSource :: !(Maybe Text) -- The database whose files it reads, when it owns none
     , dsLicence :: !Licence -- What it is served under, its source's for a copy
     , dsRelease :: !(Maybe Release) -- Which published database it is, as its owner declared
+    , dsModification :: !Modification -- How its data differs from the files it reads
     }
     deriving (Show, Eq, Generic)
 
@@ -589,6 +605,7 @@ instance ToJSON DatabaseStatus where
             , "dsSource" .= dsSource
             , "dsLicence" .= dsLicence
             , "dsRelease" .= dsRelease
+            , "dsModification" .= dsModification
             ]
 
 instance FromJSON DatabaseStatus where
@@ -615,6 +632,8 @@ instance FromJSON DatabaseStatus where
             <*> v .:? "dsLicence" A..!= LicenceUnstated
             -- Before releases were on the wire no database declared one.
             <*> v .:? "dsRelease"
+            -- Before modifications were on the wire none was reported.
+            <*> v .:? "dsModification" A..!= unmodified
 
 -- | Status of a method collection (e.g., EF-3.1) for API responses
 data MethodCollectionStatus = MethodCollectionStatus
@@ -786,6 +805,13 @@ data DatabaseManager = DatabaseManager
     , dmScenarioLock :: !(MVar ())
     {- ^ Held by every save and drop of a scenario, for the same reason: each
     reads the scenarios file before appending to it.
+    -}
+    , dmAcceptedTerms :: !(TVar (Map (Maybe Text) (S.Set Text)))
+    {- ^ The fingerprints of the terms each reader accepted through the MCP
+    tool, which sends no cookie. Kept in memory only: after a restart, a
+    reader is asked again. Callers reaching the engine without a proxy that
+    names them all share the 'Nothing' reader: such an engine serves one
+    person, or a team that accepts the terms together.
     -}
     }
 
@@ -1488,13 +1514,14 @@ discoverMethods config = do
 discoverRefDataSources :: Config -> IO RefDataSources
 discoverRefDataSources config =
     RefDataSources
-        <$> withUploads "flow synonym" (cfgFlowSynonyms config) "uploads/flow-synonyms"
-        <*> withUploads "compartment mapping" (cfgCompartmentMappings config) "uploads/compartment-mappings"
-        <*> withUploads "unit" (cfgUnits config) "uploads/units"
-        <*> withUploads "energy density" (cfgEnergyDensities config) "uploads/energy-densities"
+        <$> withUploads "flow synonym" (cfgFlowSynonyms config) (refDataUploadsDir flowSynOps)
+        <*> withUploads "compartment mapping" (cfgCompartmentMappings config) (refDataUploadsDir compMapOps)
+        <*> withUploads "unit" (cfgUnits config) (refDataUploadsDir unitDefOps)
+        <*> withUploads "energy density" (cfgEnergyDensities config) (refDataUploadsDir energyDensityOps)
   where
-    withUploads :: String -> [RefDataConfig] -> FilePath -> IO [RefDataConfig]
-    withUploads kind configured dir = do
+    withUploads :: String -> [RefDataConfig] -> IO FilePath -> IO [RefDataConfig]
+    withUploads kind configured uploadsDir = do
+        dir <- uploadsDir
         combined <- (configured ++) <$> discoverUploadedRefData dir
         mapM_ (reportProgress Warning) (shadowedNames (kind <> " source") rdName (describeSource . rdSource) combined)
         pure combined
@@ -1649,6 +1676,7 @@ newManager ManagerSeed{..} = do
     methodEditLock <- newMVar ()
     scenarioLock <- newMVar ()
     factorisationLock <- newMVar ()
+    acceptedTermsVar <- newTVarIO M.empty
     return
         DatabaseManager
             { dmLoadedDbs = loadedDbsVar
@@ -1687,6 +1715,7 @@ newManager ManagerSeed{..} = do
             , dmFactorisationLock = factorisationLock
             , dmMethodEditLock = methodEditLock
             , dmScenarioLock = scenarioLock
+            , dmAcceptedTerms = acceptedTermsVar
             }
   where
     byName :: [RefDataConfig] -> IO (TVar (Map Text RefDataConfig))
@@ -1769,8 +1798,7 @@ loadConfiguredMethods manager config =
                         <> " impact categories)"
                 warnZeroTouchPatches (mcName mc) patchStats
                 warnUnknownGlobalMethods (mcName mc) collection
-                let !pairs = extractFromILCDFlows flowInfo
-                autoCreateFlowSynonyms manager (mcName mc) (SynonymOrigin ("Auto-extracted from " <> mcName mc)) pairs
+                autoCreateFlowSynonyms manager (mcName mc) (SynonymOrigin ("Auto-extracted from " <> mcName mc)) (extractFromILCDFlows flowInfo)
 
 {- | Surface a 'global-methods' entry that matches no loaded method: the
 de-regionalization is keyed by method name, so a typo or a renamed method
@@ -1995,6 +2023,31 @@ databaseLicence :: DatabaseManager -> Text -> IO (Maybe Licence)
 databaseLicence manager dbName = do
     configs <- readTVarIO (dmAvailableDbs manager)
     pure (licenceOf configs <$> M.lookup dbName configs)
+
+{- | The terms a reader accepts before reading these databases: theirs, and
+those of every database they depend on, since a computation on one reads the
+others' data. A copy is held to its source's terms through 'licenceOf'.
+-}
+termsToAccept :: DatabaseManager -> [Text] -> IO [Terms]
+termsToAccept manager names = do
+    loaded <- readTVarIO (dmLoadedDbs manager)
+    configs <- readTVarIO (dmAvailableDbs manager)
+    pure
+        ( termsAsked
+            [ (name, licenceOf configs config)
+            | name <- concatMap (\n -> n : dependencyNames loaded n) names
+            , Just config <- [M.lookup name configs]
+            ]
+        )
+
+-- | The fingerprints of the terms a reader accepted through the MCP tool.
+acceptedTerms :: DatabaseManager -> Maybe Text -> IO (S.Set Text)
+acceptedTerms manager reader = M.findWithDefault S.empty reader <$> readTVarIO (dmAcceptedTerms manager)
+
+-- | Record that a reader accepted these terms.
+acceptTerms :: DatabaseManager -> Maybe Text -> [Terms] -> IO ()
+acceptTerms manager reader terms =
+    atomically (modifyTVar' (dmAcceptedTerms manager) (M.insertWith S.union reader (S.fromList (map termsFingerprint terms))))
 
 {- | The databases whose licence refuses a permission. One reached as a
 dependency of another is answered in one line, or not at all, rather than
@@ -2263,6 +2316,7 @@ listDatabases manager = do
                     | unresolvedCount (dbLinkingStats (ldDatabase ld)) > 0 -> PartiallyLinked
                     | otherwise -> Loaded
             !actCount = maybe 0 (V.length . dbActivities . ldDatabase) mLoaded
+        modification <- databaseModification availableDbs config
         return
             DatabaseStatus
                 { dsName = name
@@ -2279,6 +2333,7 @@ listDatabases manager = do
                 , dsSource = dcSource config
                 , dsLicence = licenceOf availableDbs config
                 , dsRelease = dcRelease config
+                , dsModification = modification
                 }
 
 -- | File extensions 'resolveDataPath' knows how to extract as archives.
@@ -2800,6 +2855,28 @@ editHome dbConfig
         uploadsDir <- UploadedDB.getDatabaseUploadsDir
         pure (Just (uploadsDir </> T.unpack (dcName dbConfig)))
 
+{- | How a database's data differs from the files it reads: its journal, and a
+division other than that of the database owning the files, found at the end of
+its chain of sources. A copy of a re-divided database reads its files under its
+source's key, which is still not the files' own.
+-}
+databaseModification :: M.Map Text DatabaseConfig -> DatabaseConfig -> IO Modification
+databaseModification configs config = do
+    edited <- maybe (pure False) Journal.journalHasEntries =<< editHome config
+    pure Modification{modificationEdited = edited, modificationReallocated = dcAllocation (filesOwner configs config) /= dcAllocation config}
+
+{- | The database whose files this one reads, at the end of its chain of
+sources: itself, for one that owns its files.
+-}
+filesOwner :: M.Map Text DatabaseConfig -> DatabaseConfig -> DatabaseConfig
+filesOwner configs = go (M.size configs)
+  where
+    -- Bounded by the number of databases, so a cycle written by hand ends.
+    go :: Int -> DatabaseConfig -> DatabaseConfig
+    go fuel current
+        | fuel > 0 = maybe current (go (fuel - 1)) (dcSource current >>= (`M.lookup` configs))
+        | otherwise = current
+
 {- | Where a database's saved scenarios are kept, given its home: a journal of
 their own ("Database.Scenarios"), apart from the database's.
 -}
@@ -2933,24 +3010,11 @@ relinkPlan RelinkInputs{..} =
         , roCacheChanged = linksChanged || depsChanged
         }
   where
-    activityMap :: ActivityMap
-    activityMap =
-        M.fromList
-            [ (dbProcessIdTable riDatabase V.! i, dbActivities riDatabase V.! i)
-            | i <- [0 .. V.length (dbActivities riDatabase) - 1]
-            ]
+    simple :: SimpleDatabase
+    simple = toSimpleDatabase riDatabase
 
     newStats :: CrossDBLinkingStats
-    newStats =
-        ( Loader.findAllCrossDBLinks
-            riContext
-            (dbTechFlows riDatabase)
-            (dbWasteFlows riDatabase)
-            (dbUnits riDatabase)
-            activityMap
-        )
-            { cdlTotalInputs = Loader.countTotalTechInputs (toSimpleDatabase riDatabase)
-            }
+    newStats = (Loader.findAllCrossDBLinks riContext simple){cdlTotalInputs = Loader.countTotalTechInputs simple}
 
     newLinks :: [CrossDBLink]
     newLinks = cdlLinks newStats
@@ -3081,7 +3145,7 @@ relinkStaged manager dbName maybeDepDb aliases = withLogScope dbName $ runExcept
         atomically $
             modifyTVar'
                 (dmStagedDbs manager)
-                (M.insert dbName (withRelinkedDeps pinnedDeps newStats staged))
+                (M.insert dbName (withRelinkedDeps pinnedDeps aliases newStats staged))
     pure (relinkResult staged pinnedDeps newStats)
   where
     -- A mapping relink pins the dependency it retargets, once.
@@ -3284,6 +3348,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                 , sdLinkingStats = dbLinkingStats cachedDb
                 , sdBuiltWith = dbBuiltWith cachedDb
                 , sdCachedDB = Just cachedDb
+                , sdSupplierAliases = CrossLinking.emptyAliasMap
                 }
 
     -- Linked within the databases its requirements admit, every one when it has none.
@@ -3329,6 +3394,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                     , sdLinkingStats = finalStats
                     , sdBuiltWith = inputs
                     , sdCachedDB = Nothing
+                    , sdSupplierAliases = CrossLinking.emptyAliasMap
                     }
 
     {- Drop the dependencies whose links are all substitutable by another at
@@ -4020,14 +4086,15 @@ setupInfoFrom SetupSource{..} =
         , dsiRequiredReleases = requiredReleases ssConfigs ssConfig
         }
 
-{- | The four fields a relink writes back onto a staged database. One place,
+{- | The five fields a relink writes back onto a staged database. One place,
 because the staged relink and the two dependency mutators all write exactly
 these and would otherwise drift apart.
 -}
-withRelinkedDeps :: [Text] -> CrossDBLinkingStats -> StagedDatabase -> StagedDatabase
-withRelinkedDeps newDeps newStats staged =
+withRelinkedDeps :: [Text] -> CrossLinking.AliasMap -> CrossDBLinkingStats -> StagedDatabase -> StagedDatabase
+withRelinkedDeps newDeps aliases newStats staged =
     staged
         { sdSelectedDeps = newDeps
+        , sdSupplierAliases = aliases
         , sdCrossDBLinks = Loader.cdlLinks newStats
         , sdLinkingStats = newStats
         , sdMissingProducts = stagedMissingProducts (sdSimpleDB staged) newStats
@@ -4229,6 +4296,7 @@ restageLoadedDatabase manager dbName ld = do
                 , sdLinkingStats = stats
                 , sdBuiltWith = dbBuiltWith db
                 , sdCachedDB = Nothing
+                , sdSupplierAliases = CrossLinking.emptyAliasMap
                 }
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.delete dbName)
@@ -4324,18 +4392,21 @@ applyStagedDeps :: DatabaseManager -> Text -> StagedRelink -> IO (Either Text Da
 applyStagedDeps manager dbName StagedRelink{..} = do
     synonymDB <- getMergedSynonymDB manager
     unitConfig <- getMergedUnitConfig manager
-    (_, newStats) <-
-        Loader.fixActivityLinksWithCrossDB
-            [idx | (name, idx) <- M.toList srIndexedDbs, name `elem` srNewDeps]
-            synonymDB
-            unitConfig
-            (dmLocationHierarchy manager)
-            (dcGeographyPolicy (sdConfig srStaged))
-            (sdSimpleDB srStaged)
+    -- The mapping a relink applied stays in force when the dependencies change.
+    let aliases = sdSupplierAliases srStaged
+        newStats =
+            Loader.relinkSimpleDatabase
+                [idx | (name, idx) <- M.toList srIndexedDbs, name `elem` srNewDeps]
+                synonymDB
+                unitConfig
+                (dmLocationHierarchy manager)
+                (dcGeographyPolicy (sdConfig srStaged))
+                aliases
+                (sdSimpleDB srStaged)
     atomically $
         modifyTVar'
             (dmStagedDbs manager)
-            (M.insert dbName (withRelinkedDeps srNewDeps newStats srStaged))
+            (M.insert dbName (withRelinkedDeps srNewDeps aliases newStats srStaged))
     persistUploadDepends manager dbName srNewDeps
     first setupErrorMessage <$> getDatabaseSetupInfo manager dbName
 
@@ -4437,10 +4508,12 @@ finalizeDatabase manager dbName = withLogScope dbName $ do
 
         {- Self-relink first against the current dep set: a cached or staged
         build can carry cross-DB links that do not match the deps now in
-        'dmIndexedDbs'. 'relinkDatabase' rewrites both the in-memory state and
-        (when the links changed) the matrix cache. -}
+        'dmIndexedDbs'. The mapping the staged relink applied is applied again,
+        or the links it made would be dropped. The relink rewrites both the
+        in-memory state and (when the links changed) the matrix cache. -}
         linksChangedAfter <-
-            relinkDatabase manager dbName >>= either relinkFailed (pure . rresLinksChanged)
+            relinkDatabaseWith manager dbName (sdSupplierAliases staged) Nothing
+                >>= either relinkFailed (pure . rresLinksChanged)
 
         {- Persist when this finalize introduced a change (fresh build, or an
         edited pin on a cache hit) that the relink did not already write: relink
@@ -5119,7 +5192,7 @@ data RefDataOps a = RefDataOps
     , rdoParse :: !(BL.ByteString -> Either Text a)
     , rdoCount :: !(a -> Int)
     , rdoLabel :: !String
-    , rdoUploadDir :: !FilePath
+    , rdoUploadSubdir :: !FilePath -- under the data directory's uploads/
     , rdoCanDelete :: !(RefDataConfig -> Bool)
     }
 
@@ -5131,7 +5204,7 @@ flowSynOps =
         , rdoParse = first T.pack . buildFromCSV
         , rdoCount = synonymCount
         , rdoLabel = "flow synonyms"
-        , rdoUploadDir = "uploads/flow-synonyms"
+        , rdoUploadSubdir = "flow-synonyms"
         , rdoCanDelete = \rd -> rdIsUploaded rd || rdIsAuto rd
         }
 
@@ -5143,7 +5216,7 @@ compMapOps =
         , rdoParse = first T.pack . buildCompartmentMapFromCSV
         , rdoCount = compartmentMapSize
         , rdoLabel = "compartment mapping"
-        , rdoUploadDir = "uploads/compartment-mappings"
+        , rdoUploadSubdir = "compartment-mappings"
         , rdoCanDelete = rdIsUploaded
         }
 
@@ -5155,7 +5228,7 @@ unitDefOps =
         , rdoParse = UnitConversion.buildFromCSV
         , rdoCount = UnitConversion.unitCount
         , rdoLabel = "units"
-        , rdoUploadDir = "uploads/units"
+        , rdoUploadSubdir = "units"
         , rdoCanDelete = rdIsUploaded
         }
 
@@ -5167,7 +5240,7 @@ energyDensityOps =
         , rdoParse = first T.pack . buildEnergyDensityMapFromCSV
         , rdoCount = energyDensityMapSize
         , rdoLabel = "energy densities"
-        , rdoUploadDir = "uploads/energy-densities"
+        , rdoUploadSubdir = "energy-densities"
         , rdoCanDelete = rdIsUploaded
         }
 
@@ -5242,12 +5315,12 @@ removeRefDataG ops manager name = do
     case M.lookup name available of
         Nothing -> return $ Left $ T.pack (rdoLabel ops) <> " not found: " <> name
         Just rd | not (rdoCanDelete ops rd) -> return $ Left $ "Cannot delete preinstalled " <> T.pack (rdoLabel ops)
-        Just _ -> do
+        Just rd -> do
             loaded <- readTVarIO (rdoLoadedVar ops manager)
             if M.member name loaded
                 then return $ Left "Unload before deleting"
                 else do
-                    removeUploadedRefData (rdoUploadDir ops) name
+                    removeUploadedRefData rd
                     atomically $ modifyTVar' (rdoAvailableVar ops manager) (M.delete name)
                     return $ Right ()
 
@@ -5310,6 +5383,9 @@ addFlowSynonyms = addRefDataG flowSynOps
 removeFlowSynonyms :: DatabaseManager -> Text -> IO (Either Text ())
 removeFlowSynonyms = removeRefDataG flowSynOps
 
+flowSynonymsUploadsDir :: IO FilePath
+flowSynonymsUploadsDir = refDataUploadsDir flowSynOps
+
 -- | Get synonym groups for a specific loaded flow synonyms resource.
 getFlowSynonymGroups :: DatabaseManager -> Text -> IO (Either Text [[Text]])
 getFlowSynonymGroups manager name = do
@@ -5333,6 +5409,9 @@ addCompartmentMappings = addRefDataG compMapOps
 removeCompartmentMappings :: DatabaseManager -> Text -> IO (Either Text ())
 removeCompartmentMappings = removeRefDataG compMapOps
 
+compartmentMappingsUploadsDir :: IO FilePath
+compartmentMappingsUploadsDir = refDataUploadsDir compMapOps
+
 listUnitDefs :: DatabaseManager -> IO [RefDataStatus]
 listUnitDefs = listRefDataG unitDefOps
 
@@ -5347,6 +5426,13 @@ addUnitDefs = addRefDataG unitDefOps
 
 removeUnitDefs :: DatabaseManager -> Text -> IO (Either Text ())
 removeUnitDefs = removeRefDataG unitDefOps
+
+unitDefsUploadsDir :: IO FilePath
+unitDefsUploadsDir = refDataUploadsDir unitDefOps
+
+-- | Where uploads of a kind are written and found again at the next start.
+refDataUploadsDir :: RefDataOps a -> IO FilePath
+refDataUploadsDir = UploadedDB.getRefDataUploadsDir . rdoUploadSubdir
 
 --------------------------------------------------------------------------------
 -- Reference data helpers
@@ -5448,10 +5534,17 @@ discoverUploadedRefData baseDir = do
                                     }
                     else return Nothing
 
--- | Remove uploaded reference data directory.
-removeUploadedRefData :: FilePath -> Text -> IO ()
-removeUploadedRefData baseDir name = do
-    let uploadDir = baseDir </> T.unpack name
+{- | Remove the directory an uploaded table was read from. Its name can differ
+from the table's: an upload is registered under the name the user typed and
+written under a slug of it.
+-}
+removeUploadedRefData :: RefDataConfig -> IO ()
+removeUploadedRefData rd = case rdSource rd of
+    BuiltIn _ -> pure ()
+    FromFile csvPath -> removeUploadDir (takeDirectory csvPath)
+
+removeUploadDir :: FilePath -> IO ()
+removeUploadDir uploadDir = do
     exists <- doesDirectoryExist uploadDir
     when exists $ do
         result <- try $ removeDirectoryRecursive uploadDir
@@ -5473,7 +5566,7 @@ maxSynonymFlowFrequency :: Int
 maxSynonymFlowFrequency = 25
 
 {- | Persist auto-extracted synonym pairs as an opt-in candidate set.
-Writes CSV to uploads/flow-synonyms/auto-{source}/data.csv and registers it
+Writes CSV to <data dir>/uploads/flow-synonyms/auto-{source}/data.csv and registers it
 inactive. The pairs never enter the matching: flow matching trusts only the
 curated registry (data/flows.csv) plus sources the user explicitly activates
 (activation lasts for the session and only reaches databases loaded after it);
@@ -5481,15 +5574,16 @@ DB-embedded synonyms are a bootstrap input for offline curation, not a runtime
 one. To regenerate a stale candidate, remove the source and reload.
 -}
 autoCreateFlowSynonyms :: DatabaseManager -> Text -> SynonymOrigin -> [(Text, Text)] -> IO ()
-autoCreateFlowSynonyms _ _ _ [] = return ()
 autoCreateFlowSynonyms manager sourceName (SynonymOrigin description) pairs = do
     let slug = "auto-" <> sourceName
     -- Skip if already registered (persisted candidate from a previous run,
-    -- discovered at startup, or extracted earlier this session)
+    -- discovered at startup, or extracted earlier this session). Asked before
+    -- anything looks at 'pairs': they take seconds to extract from a large
+    -- method, which a start that already holds the candidate must not pay.
     alreadyExtracted <- atomically $ M.member slug <$> readTVar (dmAvailableFlowSyns manager)
     if alreadyExtracted
         then reportProgress Info $ "  [AUTO] " <> T.unpack slug <> ": candidate already extracted"
-        else do
+        else unless (null pairs) $ do
             let (nonJunkPairs, junkTokens) = excludeJunkSynonyms pairs
                 (keptPairs, excludedSyns) =
                     excludeOverFrequentSynonyms maxSynonymFlowFrequency nonJunkPairs
@@ -5512,7 +5606,8 @@ autoCreateFlowSynonyms manager sourceName (SynonymOrigin description) pairs = do
                             ( T.intercalate ", " $
                                 map (\(tok, n) -> tok <> "(" <> T.pack (show n) <> ")") (take 8 excludedSyns)
                             )
-            let dir = "uploads/flow-synonyms" </> T.unpack slug
+            uploadsDir <- flowSynonymsUploadsDir
+            let dir = uploadsDir </> T.unpack slug
                 path = dir </> "data.csv"
             createDirectoryIfMissing True dir
             BL.writeFile path (synonymPairsToCSV keptPairs)

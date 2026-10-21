@@ -66,6 +66,7 @@ library
                      , Database.Rebuild
                      , Database.Scenarios
                      , Database.Journal
+                     , Database.History
                      , Database.Edit
                      , Database.Loader
                      , Database.Cutoffs
@@ -120,6 +121,7 @@ library
                      , API.JsonOptions
                      , API.DatabaseHandlers
                      , API.Auth
+                     , API.Terms
                      , API.MethodEditHandlers
                      , API.MCP
                      , API.MCP.Enrich
@@ -156,6 +158,7 @@ library
                      , Database.Requirements
                      , Database.Export
                      , Database.ExportFormulas
+                     , Database.ExportSupplier
                      , Search.Normalize
                      , Search.BM25
                      , Search.BM25.Types
@@ -257,12 +260,14 @@ test-suite lca-tests
   main-is:             Spec.hs
   other-modules:       TestHelpers
                      , UsageSpec
+                     , HistorySpec
                      , GoldenData
                      , DetectFormatSpec
                      , AmountSpec
                      , IndexingSpec
                      , AutoRelinkSpec
                      , AutoSynonymsSpec
+                     , RefDataUploadSpec
                      , RelinkMappingSpec
                      , MatrixConstructionSpec
                      , WasteTreatmentSignSpec
@@ -353,6 +358,7 @@ test-suite lca-tests
                      , ExprSpec
                      , SimaProWriterSpec
                      , ExportFormulasSpec
+                     , ExportSupplierSpec
                      , ILCDWriterSpec
                      , MCPSchemaSpec
                      , MCPDispatchSpec
@@ -438,6 +444,7 @@ test-suite lca-tests
                      , DocumentFileSpec
                      , LicenceEnforcementSpec
                      , LicenceSpec
+                     , TermsSpec
                      , ExportSpec
                      , ExportHandlerSpec
                      , CrateSpec

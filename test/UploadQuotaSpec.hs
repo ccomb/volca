@@ -127,7 +127,7 @@ spec = describe "hosting database quotas" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             atomically $ modifyTVar' (dmAvailableDbs manager) (M.insert "mine" (uploadedEntry "mine"))
             resp <-
-                callTool manager [] (Just (plan 1 0)) Nothing noRequestId "load_database" $
+                callTool Nothing manager [] (Just (plan 1 0)) Nothing noRequestId "load_database" $
                     KM.singleton "database" (String "mine")
             isToolError resp `shouldBe` True
 

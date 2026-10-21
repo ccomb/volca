@@ -242,6 +242,7 @@ simpleDBOf acts flows =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 -- ---------------------------------------------------------------------------

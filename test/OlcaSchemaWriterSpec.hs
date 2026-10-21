@@ -84,6 +84,7 @@ oneProcess lines' =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     activity =

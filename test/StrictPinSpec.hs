@@ -29,11 +29,15 @@ import Test.Hspec
 import Config (DatabaseConfig (..), defaultConfig)
 import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
-import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), buildIndexedDatabaseFromDB)
+import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), buildIndexedDatabaseFromDB, emptyAliasMap)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
+    DependencyEdit (..),
     LoadedDatabase (..),
+    StagedDatabase (..),
+    addDependencyToStaged,
+    finalizeDatabase,
     initDatabaseManager,
     relinkDatabase,
     relinkDatabaseWithMapping,
@@ -52,6 +56,7 @@ import Types (
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
@@ -62,6 +67,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    toSimpleDatabase,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -106,6 +112,23 @@ spec = describe "relinkDatabase strict dependency pin" $ do
             -- p1 resolves against alpha; p2 (beta-only) stays unresolved.
             length (dbCrossDBLinks relinked) `shouldBe` 1
 
+    -- A relink scans the loaded database again, so it must read the input as
+    -- the first load did: a database of positive treatments asking +1 kg of a
+    -- treatment whose reference is -1 kg asks it to run.
+    it "reads an input to a negative treatment in the consumer's own convention" $
+        withSystemTempDirectory "volca-relink-convention" $ \tmp -> do
+            alphaDb <- buildOrFail (asTreatments (supplierDB 100 ["p1"]))
+            consumerDb0 <- buildOrFail (consumerDB 300 ["p1"])
+            let consumerDb = consumerDb0{dbDependsOn = ["alpha"], dbCrossDBLinks = [], dbReferenceConvention = PositiveReferences}
+            manager <- initDatabaseManager defaultConfig NoCache
+            solver <- mkSolver "consumer" consumerDb
+            atomically $ do
+                modifyTVar' (dmLoadedDbs manager) (M.insert "consumer" (loadedFor consumerDb solver (consumerConfig (tmp </> "consumer-data"))))
+                modifyTVar' (dmIndexedDbs manager) (M.insert "alpha" (buildIndexedDatabaseFromDB "alpha" emptySynonymDB alphaDb))
+            relinkDatabase manager "consumer" >>= (`shouldSatisfy` isRight)
+            loaded <- readTVarIO (dmLoadedDbs manager)
+            map cdlCoefficient (dbCrossDBLinks (ldDatabase (loaded M.! "consumer"))) `shouldBe` [-1]
+
     it "a mapping relink against one dependency preserves links to the others" $
         withSystemTempDirectory "volca-relink-multidep" $ \tmp -> do
             -- alpha supplies p1, beta supplies p2; consumer is pinned to both.
@@ -149,6 +172,50 @@ spec = describe "relinkDatabase strict dependency pin" $ do
             linkSources `shouldBe` S.fromList ["alpha", "beta"]
             length (dbCrossDBLinks relinked) `shouldBe` 2
 
+    it "finalizing a staged database keeps the links its mapping relink made, across a dependency added after" $
+        withSystemTempDirectory "volca-finalize-mapping" $ \tmp -> do
+            -- alpha supplies p1 only; the consumer asks for q1, which only the
+            -- mapping turns into p1. beta, added after the relink, supplies p2.
+            alphaDb <- buildOrFail (supplierDB 100 ["p1"])
+            betaDb <- buildOrFail (supplierDB 200 ["p2"])
+            betaSolver <- mkSolver "beta" betaDb
+            consumerDb <- buildOrFail (consumerDB 300 ["q1"])
+            manager <- initDatabaseManager defaultConfig NoCache
+            alphaSolver <- mkSolver "alpha" alphaDb
+            let staged =
+                    StagedDatabase
+                        { sdSimpleDB = toSimpleDatabase consumerDb
+                        , sdConfig = consumerConfig (tmp </> "consumer-data")
+                        , sdMissingProducts = []
+                        , sdSelectedDeps = []
+                        , sdCrossDBLinks = []
+                        , sdLinkingStats = dbLinkingStats consumerDb
+                        , sdBuiltWith = dbBuiltWith consumerDb
+                        , sdCachedDB = Nothing
+                        , sdSupplierAliases = emptyAliasMap
+                        }
+            atomically $ do
+                modifyTVar' (dmStagedDbs manager) (M.insert "consumer" staged)
+                modifyTVar' (dmLoadedDbs manager) $
+                    M.insert "alpha" (loadedFor alphaDb alphaSolver (supplierLoadedConfig "alpha"))
+                        . M.insert "beta" (loadedFor betaDb betaSolver (supplierLoadedConfig "beta"))
+                modifyTVar' (dmIndexedDbs manager) $
+                    M.insert "alpha" (buildIndexedDatabaseFromDB "alpha" emptySynonymDB alphaDb)
+                        . M.insert "beta" (buildIndexedDatabaseFromDB "beta" emptySynonymDB betaDb)
+
+            relinked <-
+                relinkDatabaseWithMapping
+                    manager
+                    "consumer"
+                    "alpha"
+                    (AliasMap M.empty (M.singleton (AliasKey "q1" Nothing) (pure (AliasTarget (SupplierNamed "p1" Nothing) Nothing))))
+            relinked `shouldSatisfy` isRight
+            added <- addDependencyToStaged manager (DependencyEdit "consumer" "beta")
+            either (expectationFailure . show) (const (pure ())) added
+            finalizeDatabase manager "consumer" >>= either (expectationFailure . show) (const (pure ()))
+            loaded <- readTVarIO (dmLoadedDbs manager)
+            map cdlSourceDatabase (dbCrossDBLinks (ldDatabase (loaded M.! "consumer"))) `shouldBe` ["alpha"]
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
@@ -180,6 +247,7 @@ buildOrFail (SimpleParts acts flows units) = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     case r of
         Right db -> pure db
@@ -242,6 +310,14 @@ mkTechFlow fid name =
         , tfCAS = Nothing
         , tfSubstanceId = Nothing
         }
+
+-- | The same suppliers written as treatments, whose reference is -1.
+asTreatments :: SimpleParts -> SimpleParts
+asTreatments (SimpleParts acts flows units) = SimpleParts (M.map negatedReference acts) flows units
+  where
+    negatedReference act = act{exchanges = map negated (exchanges act)}
+    negated ex@TechnosphereExchange{techRole = ReferenceProduct, techAmount = amount} = ex{techAmount = negate amount}
+    negated ex = ex
 
 {- | A supplier DB: one activity per product name, each producing that
 product (reference output) at GLO. 'offset' keeps UUIDs disjoint across DBs.

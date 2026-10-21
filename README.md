@@ -182,6 +182,11 @@ licence = "CC-BY-4.0"          # the licence it is published under, by SPDX iden
                                #   inventory is refused and the supply chain
                                #   counts its processes in one line
 # attribution = true           #   results must name the publisher (the default)
+# accept = true                #   readers accept its text before reading it, or
+                               #   anything built on it: refused until they send
+                               #   the text's fingerprint in the volca_terms
+                               #   cookie, or call the MCP tool accept_terms.
+                               #   New text, asked again. Off by default
                                # A copy is served under its source's licence; an
                                # upload's owner sets its own with PUT /db/{name}/licence
 # release = { name = "ecoinvent", version = "3.12", system_model = "Allocation, cut-off by classification" }
@@ -667,6 +672,7 @@ Available tools – auto-derived at runtime from the single resource registry (`
 | `edit_exchanges` | Change an activity's lines, parameters, formulas, name, location and description |
 | `get_database_parameters` | The parameters a database's processes read unless they define their own |
 | `edit_database_parameters` | Set or remove database parameters, restating every process that reads them |
+| `get_database_history` | A database's journal of changes, each in words with the reason given for it |
 | `list_scenarios` | A database's scenarios, saved and shipped, each with the parameter values it sets |
 | `save_scenario` | Save parameter values under a name |
 | `drop_scenario` | Drop a saved scenario |

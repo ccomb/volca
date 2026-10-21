@@ -35,6 +35,7 @@ module Database.Upload (
     detectMethodFormat,
     detectedFormatLabel,
     formatDisplayText,
+    referenceConventionOf,
     slugify,
 ) where
 
@@ -62,6 +63,7 @@ import System.Process (readProcessWithExitCode)
 
 import qualified Method.Parser.OlcaSchema as OlcaSchema
 import qualified OlcaSchema.Package as OlcaPackage
+import Types (ReferenceConvention (..))
 
 -- | Detected database format
 data DatabaseFormat
@@ -84,6 +86,20 @@ instance ToJSON DatabaseFormat where
     toJSON OpenLcaPackage = A.String "openLCA package"
     toJSON BrightwayExcel = A.String "Brightway Excel"
     toJSON UnknownFormat = A.String ""
+
+{- | How a format writes a treatment, which is how its reader reads a line
+sent to one, and how an export into it has to write that line.
+-}
+referenceConventionOf :: DatabaseFormat -> ReferenceConvention
+referenceConventionOf = \case
+    SimaProCSV -> PositiveReferences
+    EcoSpold1 -> PositiveReferences
+    ILCDProcess -> PositiveReferences
+    EcoSpold2 -> SignedReferences
+    OpenLcaPackage -> SignedReferences
+    OpenLcaImpactCategory -> SignedReferences
+    BrightwayExcel -> SignedReferences
+    UnknownFormat -> SignedReferences
 
 -- | Human-readable label for a format, straight from the 'ToJSON' instance above.
 formatDisplayText :: DatabaseFormat -> Text

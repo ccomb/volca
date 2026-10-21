@@ -35,6 +35,8 @@ module API.DatabaseHandlers (
     replaceActivityHandler,
     editExchangesHandler,
     editDatabaseParametersHandler,
+    databaseHistoryHandler,
+    historyLineToAPI,
     parametersReportToAPI,
     listScenariosHandler,
     saveScenarioHandler,
@@ -129,6 +131,7 @@ import API.Types (
     ComputedQualityReportAPI (..),
     CoverageReportAPI (..),
     DatabaseExportRequest (..),
+    DatabaseHistoryEntry (..),
     DatabaseListResponse (..),
     DatabaseStatusAPI (..),
     DeleteClassFilter (..),
@@ -145,7 +148,7 @@ import API.Types (
     GapEntryAPI (..),
     GapReportAPI (..),
     LoadDatabaseResponse (..),
-    ParametersEditRequest,
+    ParametersEditRequest (..),
     ParametersEditResponse (..),
     QualityCheckAPI (..),
     QualityOffenderAPI (..),
@@ -177,7 +180,7 @@ import Data.Time.Clock (getCurrentTime, utctDay)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Database.Author (RestatedLine (..))
-import Database.Crate (CrateInput (..), Package (..), Packaging (..), openPackage, packageExport, parsePackaging, requiredReleases)
+import Database.Crate (Changes (..), CrateInput (..), Package (..), Packaging (..), openPackage, packageExport, parsePackaging, requiredReleases)
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
@@ -187,6 +190,8 @@ import Database.Edit (
     WriteReport (..),
     WriteVerb (..),
     copyDatabase,
+    databaseHistory,
+    databaseProvenance,
     deleteActivitiesInDB,
     deriveDatabase,
     editDatabaseParameters,
@@ -195,6 +200,9 @@ import Database.Edit (
     writeActivities,
  )
 import Database.Export (parseExportFormat, parseMethodExportFormat, serializeDatabase, serializeMethodCollection)
+import Database.ExportSupplier (dependenciesOf)
+import Database.History (HistoryLine (..), Provenance (..), changesReport)
+import Database.Journal (Note, noteFrom, noteText)
 import qualified Database.Loader as Loader
 import Database.Manager (
     DatabaseLoadStatus (..),
@@ -215,11 +223,14 @@ import Database.Manager (
     addFlowSynonyms,
     addMethodCollection,
     addUnitDefs,
+    compartmentMappingsUploadsDir,
     databaseCoverageReport,
     databaseGapReport,
     databaseLicence,
+    databaseModification,
     databaseQualityReport,
     finalizeDatabase,
+    flowSynonymsUploadsDir,
     getDatabase,
     getDatabaseSetupInfo,
     getFlowSynonymGroups,
@@ -248,6 +259,7 @@ import Database.Manager (
     setUploadLicence,
     setUploadRelease,
     setupErrorMessage,
+    unitDefsUploadsDir,
     unloadCompartmentMappings,
     unloadDatabase,
     unloadFlowSynonyms,
@@ -282,6 +294,7 @@ import Types (
     Database (..),
     GeographyPolicy (..),
     Licence (..),
+    Modification,
     Permission (..),
     ProcessRef (..),
     Release (..),
@@ -291,6 +304,7 @@ import Types (
     bfCompartmentSub,
     getUnitNameForBioFlow,
     granted,
+    isModified,
     parseAllocationKey,
     processRefText,
     unresolvedCount,
@@ -366,6 +380,21 @@ relinkDatabaseHandler dbName req = do
                         , rrCrossDBLinks = rresCrossDBLinks r
                         , rrDependsOn = rresDepsLoaded r
                         }
+
+-- | Every change made to a database, oldest first, with its reason.
+databaseHistoryHandler :: Text -> AppM [DatabaseHistoryEntry]
+databaseHistoryHandler dbName = do
+    refuseUnlessGranted ReadInventory dbName
+    dbManager <- asks aeDbManager
+    liftIO (databaseHistory dbManager dbName) >>= \case
+        Right lines' -> pure (map historyLineToAPI lines')
+        Left err -> do
+            -- A database that is there with a journal the engine cannot read is the engine's failure, not the caller's.
+            known <- M.member dbName <$> liftIO (readTVarIO (dmAvailableDbs dbManager))
+            throwError (if known then err500 else err404){errBody = BSL.fromStrict (T.encodeUtf8 err)}
+
+historyLineToAPI :: HistoryLine -> DatabaseHistoryEntry
+historyLineToAPI line = DatabaseHistoryEntry (hlAt line) (noteText <$> hlNote line) (hlSummary line) (hlDetails line)
 
 {- | Supplier-gap report for a loaded or staged database: everything still
 unsupplied after internal resolution and cross-DB linking. The natural
@@ -631,6 +660,7 @@ deleteActivitiesHandler dbName req = do
                     , drKeep = dsqKeep req
                     , drExtra = dsqExtra req
                     , drIds = dsqIds req
+                    , drNote = dsqNote req >>= noteFrom
                     }
     case result of
         -- A failed delete is a client error (bad filter, unknown DB, loaded
@@ -655,21 +685,21 @@ wants the PUT) and a batch a caller can fix is a 400 carrying every complaint
 at once, so a ten-line inventory is fixed in one round trip.
 -}
 createActivitiesHandler :: Text -> ActivityWriteRequest -> AppM ActivityWriteResponse
-createActivitiesHandler dbName req = runWrite dbName CreateActivities (awrActivities req)
+createActivitiesHandler dbName req = runWrite dbName (awrNote req >>= noteFrom) CreateActivities (awrActivities req)
 
 {- | Rewrite one activity the database already holds, keeping its identity. A
 @process_id@ the database does not hold is a 404.
 -}
-replaceActivityHandler :: Text -> Text -> ActivityInput -> AppM ActivityWriteResponse
-replaceActivityHandler dbName processId body =
-    runWrite dbName (ReplaceActivity processId) [body]
+replaceActivityHandler :: Text -> Text -> Maybe Text -> ActivityInput -> AppM ActivityWriteResponse
+replaceActivityHandler dbName processId note body =
+    runWrite dbName (note >>= noteFrom) (ReplaceActivity processId) [body]
 
-runWrite :: Text -> WriteVerb -> [ActivityInput] -> AppM ActivityWriteResponse
-runWrite dbName verb inputs = do
+runWrite :: Text -> Maybe Note -> WriteVerb -> [ActivityInput] -> AppM ActivityWriteResponse
+runWrite dbName note verb inputs = do
     guardMutation
     dbManager <- asks aeDbManager
     authored <- either (writeErr err400 . T.intercalate "\n") pure (toAuthoredActivities inputs)
-    outcome <- liftIO (writeActivities dbManager dbName verb authored)
+    outcome <- liftIO (writeActivities dbManager dbName note verb authored)
     case outcome of
         Left refusal -> writeErr (statusFor refusal) (refusalMessage refusal)
         Right report ->
@@ -692,7 +722,7 @@ editExchangesHandler dbName processId req = do
     guardMutation
     dbManager <- asks aeDbManager
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toExchangeEdits req)
-    outcome <- liftIO (editExchanges dbManager dbName processId edits)
+    outcome <- liftIO (editExchanges dbManager dbName (eerNote req >>= noteFrom) processId edits)
     either refuseWrite (pure . editReportToAPI) outcome
 
 {- | What an edit answers, on every surface that offers one, so an assistant
@@ -719,7 +749,7 @@ editDatabaseParametersHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toParameterEdits req)
-    outcome <- liftIO (editDatabaseParameters dbManager dbName edits)
+    outcome <- liftIO (editDatabaseParameters dbManager dbName (pqNote req >>= noteFrom) edits)
     either refuseWrite (pure . parametersReportToAPI) outcome
 
 parametersReportToAPI :: ParametersReport -> ParametersEditResponse
@@ -792,13 +822,18 @@ exportDatabaseHandler dbName req = do
     packaging <- either (failWith err400) pure (parsePackaging (derPackage req))
     mLoaded <- liftIO (getDatabase dbManager dbName)
     ld <- maybe (failWith err404 ("Database not loaded: " <> dbName)) pure mLoaded
+    configs <- liftIO (readTVarIO (dmAvailableDbs dbManager))
+    modification <- liftIO (databaseModification configs (ldConfig ld))
     package <- case packaging of
-        Plain -> pure id
-        RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt) >>= either (failWith err400) pure)
+        Plain
+            | isModified modification -> failWith err400 "This database was modified: export it with package ro-crate, which carries its changes report."
+            | otherwise -> pure id
+        RoCrate -> packageExport dbName <$> (liftIO (crateInput dbManager ld fmt modification) >>= either (failWith err400) pure)
     units <- liftIO (getMergedUnitConfig dbManager)
     scenarios <- liftIO (listScenarios dbManager dbName)
     let (saved, problems) = either (const (M.empty, [])) (savedForExport (ldDatabase ld)) scenarios
-    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase units fmt saved (ldDatabase ld))
+    indexed <- liftIO (readTVarIO (dmIndexedDbs dbManager))
+    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase units fmt saved (dependenciesOf indexed (ldDatabase ld)) (ldDatabase ld))
     pure (addHeader (encodeExportWarnings (warnings <> either unread (scenariosLeftOut fmt problems) scenarios)) (BinaryContent (package bytes)))
   where
     unread :: WriteRefusal -> [Text]
@@ -826,13 +861,15 @@ exportDatabaseHandler dbName req = do
 {- | What the package of a loaded database says of it: the licence it is served
 under, and the releases of the databases it links to.
 -}
-crateInput :: DatabaseManager -> LoadedDatabase -> DatabaseFormat -> IO (Either Text CrateInput)
-crateInput manager ld fmt = do
+crateInput :: DatabaseManager -> LoadedDatabase -> DatabaseFormat -> Modification -> IO (Either Text CrateInput)
+crateInput manager ld fmt modification = do
     configs <- readTVarIO (dmAvailableDbs manager)
     licence <- fromMaybe LicenceUnstated <$> databaseLicence manager name
     today <- utctDay <$> getCurrentTime
+    history <- if isModified modification then fmap Just <$> databaseHistory manager name else pure (Right Nothing)
     pure $ do
         requires <- requiredReleases name configs (dbDependsOn (ldDatabase ld))
+        changes <- fmap (changesOf (databaseProvenance configs config)) <$> history
         Right
             CrateInput
                 { ciName = dcDisplayName config
@@ -841,10 +878,14 @@ crateInput manager ld fmt = do
                 , ciLicence = licence
                 , ciRequires = requires
                 , ciFormat = fmt
+                , ciChanges = changes
                 }
   where
     config :: DatabaseConfig
     config = ldConfig ld
+
+    changesOf :: Provenance -> [HistoryLine] -> Changes
+    changesOf provenance lines' = Changes (changesReport provenance lines') (pvOriginal provenance) (pvRelease provenance)
 
     name :: Text
     name = dcName config
@@ -1313,6 +1354,7 @@ convertDbStatus ds =
         , dsaSource = dsSource ds
         , dsaLicence = dsLicence ds
         , dsaRelease = dsRelease ds
+        , dsaModification = dsModification ds
         }
   where
     statusToText Unloaded = "unloaded"
@@ -1321,14 +1363,17 @@ convertDbStatus ds =
 
 -- | The status of a database just loaded, under the terms in force now.
 loadedStatus :: DatabaseManager -> LoadedDatabase -> IO DatabaseStatusAPI
-loadedStatus manager loaded = (`makeStatusFromLoadedDb` loaded) <$> readTVarIO (dmAvailableDbs manager)
+loadedStatus manager loaded = do
+    configs <- readTVarIO (dmAvailableDbs manager)
+    modification <- databaseModification configs (ldConfig loaded)
+    pure (makeStatusFromLoadedDb configs modification loaded)
 
 {- | Create DatabaseStatusAPI from a loaded database (derives status from linking
 stats). The configurations are there for its terms, which a copy takes from its
 source.
 -}
-makeStatusFromLoadedDb :: M.Map Text DatabaseConfig -> LoadedDatabase -> DatabaseStatusAPI
-makeStatusFromLoadedDb configs loaded =
+makeStatusFromLoadedDb :: M.Map Text DatabaseConfig -> Modification -> LoadedDatabase -> DatabaseStatusAPI
+makeStatusFromLoadedDb configs modification loaded =
     let config = ldConfig loaded
         db = ldDatabase loaded
         status =
@@ -1350,6 +1395,7 @@ makeStatusFromLoadedDb configs loaded =
             , dsaSource = dcSource config
             , dsaLicence = licenceOf configs config
             , dsaRelease = dcRelease config
+            , dsaModification = modification
             }
 
 -- uploadFormatToMeta removed - types are now unified (UploadedDB re-exports from Upload)
@@ -1575,14 +1621,14 @@ rdOps ::
     , DatabaseManager -> Text -> IO (Either Text ())
     , DatabaseManager -> RefDataConfig -> IO ()
     , DatabaseManager -> Text -> IO (Either Text ())
-    , Text -- upload subdir
+    , IO FilePath -- where uploads go
     )
 rdOps FlowSynonyms =
-    (listFlowSynonyms, loadFlowSynonyms, unloadFlowSynonyms, addFlowSynonyms, removeFlowSynonyms, "flow-synonyms")
+    (listFlowSynonyms, loadFlowSynonyms, unloadFlowSynonyms, addFlowSynonyms, removeFlowSynonyms, flowSynonymsUploadsDir)
 rdOps CompartmentMappings =
-    (listCompartmentMappings, loadCompartmentMappings, unloadCompartmentMappings, addCompartmentMappings, removeCompartmentMappings, "compartment-mappings")
+    (listCompartmentMappings, loadCompartmentMappings, unloadCompartmentMappings, addCompartmentMappings, removeCompartmentMappings, compartmentMappingsUploadsDir)
 rdOps UnitDefs =
-    (listUnitDefs, loadUnitDefs, unloadUnitDefs, addUnitDefs, removeUnitDefs, "units")
+    (listUnitDefs, loadUnitDefs, unloadUnitDefs, addUnitDefs, removeUnitDefs, unitDefsUploadsDir)
 
 convertRefDataStatus :: RefDataStatus -> RefDataStatusAPI
 convertRefDataStatus s =
@@ -1625,10 +1671,10 @@ uploadRefData :: RefDataKind -> Maybe Text -> Maybe Text -> SourceIO UploadChunk
 uploadRefData kind mName mDesc src =
     withStreamedUpload mName mDesc src $ \name mDescription csvBytes -> do
         dbManager <- asks aeDbManager
-        let (_, _, _, addFn, _, subdir) = rdOps kind
-        baseDir <- liftIO UploadedDB.getDataDir
+        let (_, _, _, addFn, _, uploadsDirOf) = rdOps kind
+        uploadsDir <- liftIO uploadsDirOf
         let slug = T.toLower $ T.intercalate "-" $ T.words name
-            uploadDir = baseDir </> "uploads" </> T.unpack subdir </> T.unpack slug
+            uploadDir = uploadsDir </> T.unpack slug
             csvPath = uploadDir </> "data.csv"
         liftIO $ do
             System.Directory.createDirectoryIfMissing True uploadDir

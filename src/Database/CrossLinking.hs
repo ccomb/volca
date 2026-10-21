@@ -109,6 +109,7 @@ import Types (
     LinkBlocker (..),
     LocationKind (..),
     ProcessRef (..),
+    ReferenceSign,
     SimpleDatabase (..),
     TechnosphereFlow (..),
     WasteFlow (..),
@@ -119,6 +120,7 @@ import Types (
     exchanges,
     getActivity,
     processRefText,
+    referenceSignOf,
  )
 import qualified UnitConversion as UC
 
@@ -169,13 +171,14 @@ data SupplierEntry = SupplierEntry
     for the one import format that names the supplier activity apart from its
     product.
     -}
-    , seRefSign :: !Double
-    {- ^ Sign of the supplier's reference production: @+1@ for a normal product
-    output, @-1@ for a negative-output waste treatment (the EcoSpold2
-    convention; ILCD treatments keep @+1@ via their positive 'ReferenceInput').
+    , seRefSign :: !ReferenceSign
+    {- ^ Sign of the supplier's reference production: negative for a
+    negative-output waste treatment (the EcoSpold2 convention; ILCD treatments
+    stay positive via their positive 'ReferenceInput').
     A cross-DB waste link multiplies its coefficient by this so the dependency
     solve drives the treatment in its waste-removing direction regardless of
-    which reference convention the supplier database uses.
+    which reference convention the supplier database uses; so does an input
+    from a database whose treatments are positive ('PositiveReferences').
     -}
     }
 
@@ -384,6 +387,8 @@ data CrossDBCandidate = CrossDBCandidate
     -- ^ Name of the activity that produces it, for display and for ambiguity reports
     , cdbUnit :: !Text
     -- ^ Unit of its reference product
+    , cdbRefSign :: !ReferenceSign
+    -- ^ Sign of its reference amount, as 'seRefSign'
     }
 
 -- | Result of cross-database linking attempt
@@ -404,6 +409,8 @@ data CrossDBLinkResult
         {- ^ The mapping row's conversion, when the demand's unit and the
         supplier's meet only through it.
         -}
+        , cdlrRefSign :: !ReferenceSign
+        -- ^ Sign of the supplier's reference amount, as 'seRefSign'
         }
     | CrossDBNotLinked !LinkBlocker
 
@@ -568,7 +575,7 @@ productEntry act actUUID prodUUID loc prodName =
         , seUnit = activityUnit act
         , seProductName = prodName
         , seActivityName = activityName act
-        , seRefSign = 1.0
+        , seRefSign = referenceSignOf (activityNormFactor act (actUUID, prodUUID))
         }
 
 {- | A supplier entry for a waste-treatment activity, whose reference product is
@@ -583,7 +590,7 @@ treatmentEntry act actUUID prodUUID wasteName =
         , seUnit = activityUnit act
         , seProductName = wasteName
         , seActivityName = activityName act
-        , seRefSign = signum (activityNormFactor act (actUUID, prodUUID))
+        , seRefSign = referenceSignOf (activityNormFactor act (actUUID, prodUUID))
         }
 
 {- | Treatment-activity entries from a SimpleDatabase: an activity is a waste
@@ -1039,6 +1046,7 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
             , cdlrWarnings = warnings
             , cdlrTiedDatabases = tied
             , cdlrBridge = bridge >>= throughBridge (cdbUnit best)
+            , cdlrRefSign = cdbRefSign best
             }
     lookupExact :: Text -> IndexedDatabase -> [(Text, SupplierEntry)]
     lookupExact name idb =
@@ -1107,6 +1115,7 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
                 , cdbProductName = seProductName
                 , cdbActivityName = seActivityName
                 , cdbUnit = seUnit
+                , cdbRefSign = seRefSign
                 }
 
 {- | Resolve a supplier by exact @(activityUUID, productUUID)@ identity across

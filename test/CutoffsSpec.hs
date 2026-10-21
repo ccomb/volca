@@ -65,6 +65,7 @@ simple acts =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 build :: SimpleDatabase -> IO Database

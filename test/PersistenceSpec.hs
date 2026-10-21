@@ -45,7 +45,7 @@ import Database.Edit (
     deleteActivitiesInDB,
     mutateUploadedDatabase,
  )
-import Database.Journal (JournalOp (..), journalPath, readJournal)
+import Database.Journal (Change (..), JournalOp (..), journalPath, readJournal)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
@@ -73,6 +73,7 @@ import Types (
     Licence (..),
     LocationSource (..),
     Medium (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
@@ -304,8 +305,8 @@ head' [] = "the fixture has no processes"
 here, and a deletion is the one every database supports, so these examples pin
 the mutation path itself rather than what happened to be edited.
 -}
-dropSecond :: JournalOp
-dropSecond = Deleted [renderKey (otherActId, supplierProdId)]
+dropSecond :: Change
+dropSecond = Change Nothing (Deleted [renderKey (otherActId, supplierProdId)])
 
 deleteIds :: [Text] -> DeleteRequest
 deleteIds ids =
@@ -318,6 +319,7 @@ deleteIds ids =
         , drKeep = []
         , drExtra = []
         , drIds = Just ids
+        , drNote = Nothing
         }
 
 install :: DatabaseManager -> Text -> Database -> DatabaseConfig -> IO ()
@@ -389,6 +391,7 @@ buildFrom activities = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . show) pure r
 

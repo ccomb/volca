@@ -87,7 +87,8 @@ import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import Data.Either (lefts)
 import qualified Data.IntMap.Strict as IM
-import Data.List (find, partition, sortOn)
+import Data.List (find, partition, sort, sortOn)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Numeric (showEFloat)
 
@@ -99,8 +100,11 @@ import qualified Data.Text.Encoding as TE
 import Data.Time (Day, defaultTimeLocale, formatTime)
 import Database.Allocation (AllocationRefusal (..), asAllocated, describeRefusal)
 import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, formulaWarnings, processExport)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, madeAt, makerOf, namedProducts, noDependencies, unnamedWarnings)
 import qualified Expr
 import SimaPro.Parser (extractLocation, isMetadataKey, parsePedigreePrefix)
+import SubstanceRegistry (nonEmptyCAS)
+import SynonymDB (normalizeName)
 import Text.Read (readMaybe)
 import Types
 import qualified Version
@@ -114,9 +118,11 @@ the version banner; pinning it here keeps a round-trip byte-stable. We
 deliberately omit the export date and time lines entirely, so there is no
 timestamp to normalise away.
 -}
-newtype WriterConfig = WriterConfig
+data WriterConfig = WriterConfig
     { wcVersion :: Text
     -- ^ Value of the banner line, the tool that wrote the file.
+    , wcDependencies :: Dependencies
+    -- ^ What the inputs buy from the databases this one depends on, which their rows name.
     }
     deriving (Eq, Show)
 
@@ -124,7 +130,7 @@ newtype WriterConfig = WriterConfig
 off as a SimaPro export, which SimaPro imports all the same.
 -}
 defaultWriterConfig :: WriterConfig
-defaultWriterConfig = WriterConfig{wcVersion = "VoLCA " <> T.pack Version.version}
+defaultWriterConfig = WriterConfig{wcVersion = "VoLCA " <> T.pack Version.version, wcDependencies = noDependencies}
 
 -- ============================================================================
 -- Export guard
@@ -185,6 +191,7 @@ checkSimaProExportable db =
         , checkNewlines
         , checkComments
         , checkMetaKeys
+        , checkShared
         ] of
         [] -> Right ()
         violations -> Left (T.intercalate "\n\n" violations)
@@ -290,6 +297,30 @@ checkSimaProExportable db =
                         <> val
                         <> "\" collides with a SimaPro metadata key, so the parser would"
                         <> " mistake it for a new field and drop it on import."
+    -- A product two activities of the file make is named, on its product rows
+    -- and on every row buying it, by its maker's location and name. A maker
+    -- with no location, two makers of one name at one place, or a product name
+    -- already stating a location leave a re-import nothing to tell them by.
+    checkShared =
+        case sharedOffenders of
+            [] -> Right ()
+            ((product', why) : _) ->
+                Left $
+                    "SimaPro export cannot tell apart the activities making \""
+                        <> product'
+                        <> "\": "
+                        <> why
+                        <> ", so a re-import would link every input of it to one of them."
+    sharedOffenders =
+        [ (name, why)
+        | (flow, makers) <- boughtShared db
+        , let name = maybe "?" tfName (M.lookup flow (sdbTechFlows db))
+        , why <-
+            take 1 $
+                ["its name already states a location" | isJust (extractLocation name)]
+                    ++ ["\"" <> activityName a <> "\" states no location" | a <- NE.toList makers, T.null (T.strip (madeAt a))]
+                    ++ ["two of them are named \"" <> activityName a <> "\" at " <> madeAt a | a <- map NE.head (clashing (\a -> (activityName a, madeAt a)) makers)]
+        ]
     -- Each activity must have exactly one reference product. The writer emits
     -- one Process block per activity with one Products row per reference; zero
     -- references → an empty Products section → the parser drops the block, and
@@ -460,6 +491,10 @@ data Catalogs = Catalogs
     -- ^ Products the file makes, which its own rows name each other by.
     , catSystems :: !(S.Set Text)
     -- ^ The system descriptions the file writes, which a process may name.
+    , catShared :: !(S.Set UUID)
+    -- ^ Products two or more activities of the file make, which rows name by their maker.
+    , catMaker :: (UUID, UUID) -> (Int, Exchange) -> Maker
+    -- ^ Who supplies the exchange at a place of a consumer.
     }
 
 {- | Where a row's product comes from: the geography, and the activity making it
@@ -494,6 +529,10 @@ designation product' boughtFrom
 
     named :: Text -> Text
     named activity = "| " <> activity <> " |"
+
+-- | How a row names a product made in the file, on the maker and on every row buying from it.
+madeBy :: Activity -> BoughtFrom
+madeBy act = BoughtFrom (madeAt act) (Just (activityName act))
 
 -- | A field a source left blank states nothing, and is not written as if it did.
 nonEmpty :: Text -> Maybe Text
@@ -634,20 +673,28 @@ exchanges where the source had one. On a substitution that is not a duplicate
 but a cancellation: the credit meets an equal input, and the activity loses the
 benefit it existed to record, along with every chain standing on it.
 -}
-techInputLine :: Catalogs -> Exchange -> Maybe Line
-techInputLine cats TechnosphereExchange{..} = case techRole of
+techInputLine :: Catalogs -> Maker -> Exchange -> Maybe Line
+techInputLine cats maker TechnosphereExchange{..} = case techRole of
     Input -> inputLine
     ReferenceProduct -> Nothing
     ReferenceInput -> Nothing
     Coproduct -> Nothing
     AvoidedProduct -> Nothing
   where
-    {- Where the row bought, for a row that has to say it: one whose product no
-    activity of this file makes. Where the maker travels in the same file, the
-    two rows name each other by the product and always have, and designating one
-    side alone would part them. -}
+    {- Where the row bought, for a row that has to say it. A supplier in a
+    dependency is named by its location and its activity ('checkLocatedSuppliers'
+    has made sure it has a location), and so is the maker of a product several
+    activities of the file make, which its own product row names alike. Another
+    maker in the file names its product alone, as its product row does:
+    designating one side alone would part them. -}
     boughtFrom :: Maybe BoughtFrom
-    boughtFrom
+    boughtFrom = case maker of
+        InDependency e -> Just (BoughtFrom (elLocation e) (Just (elActivity e)))
+        OneOfMakers supplier -> Just (madeBy supplier)
+        SoleMaker _ -> stated
+        Dangling _ -> stated
+        NoLink -> stated
+    stated
         | S.member techFlowId (catProducedHere cats) = Nothing
         | otherwise = do
             geography <- statedCode techLocation >>= nonEmpty
@@ -665,8 +712,8 @@ techInputLine cats TechnosphereExchange{..} = case techRole of
                 , lFormula = Nothing
                 , lComment = renderComment techPedigree techComment
                 }
-techInputLine _ BiosphereExchange{} = Nothing
-techInputLine _ WasteExchange{} = Nothing
+techInputLine _ _ BiosphereExchange{} = Nothing
+techInputLine _ _ WasteExchange{} = Nothing
 
 -- | Build a 'Line' for a biosphere exchange (resource or emission).
 bioLine :: Catalogs -> Exchange -> Maybe Line
@@ -750,13 +797,14 @@ data BioSec = SecRes | SecAir | SecWater | SecSoil | SecWaste
     deriving (Eq)
 
 {- | Output rows (@name;unit;amount;allocation;waste_type;category;comment@) for
-the technosphere outputs matching @keep@. Used for both the @Products@ section
+the technosphere outputs given, each with its place in the activity and named
+by @nameOf@. Used for both the @Products@ section
 (references) and the @Avoided products@ section (coproducts) – the two are
 rendered identically but the parser routes them to different exchange roles, so
 they must be emitted under their own headers, never merged.
 -}
-productLines :: (Exchange -> Bool) -> Catalogs -> Text -> [(Maybe Text, Exchange)] -> [Text]
-productLines keep cats category exchs =
+productLines :: ((Int, Exchange) -> TechnosphereFlow -> Text) -> Catalogs -> Text -> [(Int, (Maybe Text, Exchange))] -> [Text]
+productLines nameOf cats category exchs =
     let
         -- Extract the row fields in the comprehension, where the exchange is
         -- known to be a TechnosphereExchange – so mkRow is total (no unreachable
@@ -764,15 +812,14 @@ productLines keep cats category exchs =
         -- row carries the share and the category its source row declared;
         -- a row that declared none takes the whole and the activity's category.
         entries =
-            [ ( tfName flow
+            [ ( nameOf (i, ex) flow
               , unitNameOf (catUnits cats) (exchangeUnitId ex)
               , amountCell (exchangeAmount ex) formula
               , maybe "100" shareCell (exchangeDeclaredShare ex)
               , M.findWithDefault category "Category" (exchangeClassification ex)
               , renderComment (exchangePedigree ex) (exchangeComment ex)
               )
-            | (formula, ex@TechnosphereExchange{}) <- exchs
-            , keep ex
+            | (i, (formula, ex@TechnosphereExchange{})) <- exchs
             , Just flow <- [M.lookup (exchangeFlowId ex) (catTech cats)]
             ]
         shareCell share = maybe (formatAmount (dsPercent share)) simaProCell (dsFormula share)
@@ -849,8 +896,8 @@ without trailing terminator). Flow/unit names are resolved through the
 respective DBs; exchanges whose flow is missing are dropped (the matrix
 builder is the authority on unknown flows, not the serializer).
 -}
-serializeActivity :: Catalogs -> ProcessExport -> Activity -> [Text]
-serializeActivity cats ProcessExport{peParameters = parameters, peLines = formulas, peShares = shares} act@Activity{..} =
+serializeActivity :: Catalogs -> (UUID, UUID) -> ProcessExport -> Activity -> [Text]
+serializeActivity cats consumer ProcessExport{peParameters = parameters, peLines = formulas, peShares = shares} act@Activity{..} =
     let category = M.findWithDefault "" "Category" activityClassification
 
         -- The parser scales every shared exchange (everything but the reference
@@ -877,7 +924,20 @@ serializeActivity cats ProcessExport{peParameters = parameters, peLines = formul
             WasteExchange{} -> ex
         linesOf build exs = [l{lFormula = formula} | (formula, ex) <- exs, Just l <- [build cats ex]]
 
-        techLines = linesOf techInputLine unscaledExchanges
+        numbered = zip [0 ..] unscaledExchanges
+        rowsOf keep = filter (keep . snd . snd) numbered
+        techLines = [l{lFormula = formula} | (i, (formula, ex)) <- numbered, Just l <- [techInputLine cats (catMaker cats consumer (i, ex)) ex]]
+        -- A product another activity of the file makes too is named by who makes it here.
+        referenceName _ flow
+            | S.member (tfId flow) (catShared cats) = designation (tfName flow) (Just (madeBy act))
+            | otherwise = tfName flow
+        -- And a substitution standing in for it, by the maker it stands in for.
+        avoidedName iex flow = case catMaker cats consumer iex of
+            OneOfMakers maker -> designation (tfName flow) (Just (madeBy maker))
+            SoleMaker _ -> tfName flow
+            InDependency _ -> tfName flow
+            Dangling _ -> tfName flow
+            NoLink -> tfName flow
         bioByName name = [l | (sec, l) <- bioPaired, sec == name]
         bioPaired =
             [ (sec, l{lFormula = formula})
@@ -900,10 +960,10 @@ serializeActivity cats ProcessExport{peParameters = parameters, peLines = formul
               -- coproducts of a block the gate left unsplit follow, each with its
               -- declared share. Avoided products go under their own header.
               "Products"
-                : productLines exchangeIsReference cats category unscaledExchanges
-                ++ productLines isCoproduct cats category unscaledExchanges
+                : productLines referenceName cats category (rowsOf exchangeIsReference)
+                ++ productLines (const tfName) cats category (rowsOf isCoproduct)
             , [""]
-            , withBlank (avoidedHeader (productLines isAvoidedProduct cats category unscaledExchanges))
+            , withBlank (avoidedHeader (productLines avoidedName cats category (rowsOf isAvoidedProduct)))
             , -- Inputs.
               withBlank (section "Materials/fuels" techRowText techLines)
             , withBlank (section "Waste to treatment" techRowText treatmentLines)
@@ -963,12 +1023,39 @@ serializeSimaProCSV cfg db = fst <$> serializeSimaProCSVWithWarnings cfg db
 serializeSimaProCSVWithWarnings :: WriterConfig -> SimpleDatabase -> Either Text (BS.ByteString, [Text])
 serializeSimaProCSVWithWarnings cfg db@SimpleDatabase{..} = do
     checkSimaProExportable db
-    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities) (systemNamesOf db)
+    let maker = makerOf (wcDependencies cfg) db
+    checkLocatedSuppliers maker db
+    let cats = Catalogs sdbTechFlows sdbBioFlows sdbWasteFlows sdbUnits (productsOf sdbActivities) (systemNamesOf db) (namedProducts db) maker
         exported = simaProFormulas db
         acts = sortOn (\(_, a) -> (activityName a, activityLocation a)) (M.toList sdbActivities)
-        blocks = concatMap (\(key, act) -> serializeActivity cats (processExport exported key) act) acts
-        allLines = headerLines cfg ++ blocks ++ databaseParameterLines (exDatabase exported) ++ libraryLines sdbDocumentation
-    pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf), simaProWarnings db exported)
+        blocks = concatMap (\(key, act) -> serializeActivity cats key (processExport exported key) act) acts
+        registry = substanceRegistry db
+        allLines = headerLines cfg ++ blocks ++ databaseParameterLines (exDatabase exported) ++ srLines registry ++ libraryLines sdbDocumentation
+    pure (TE.encodeUtf8 (T.intercalate crlf allLines <> crlf), simaProWarnings db exported <> unnamedWarnings (wcDependencies cfg) db <> srWarnings registry)
+
+{- | Guard an export against a supplier in a dependency stating no location: a
+row names such a supplier by its location and its activity, and a designation
+with no location is read back as part of the product's name.
+-}
+checkLocatedSuppliers :: ((UUID, UUID) -> (Int, Exchange) -> Maker) -> SimpleDatabase -> Either Text ()
+checkLocatedSuppliers maker db =
+    case [ (activityName act, e)
+         | (key, act) <- M.toList (sdbActivities db)
+         , iex <- zip [0 ..] (exchanges act)
+         , InDependency e <- [maker key iex]
+         , T.null (T.strip (elLocation e))
+         ] of
+        [] -> Right ()
+        ((consumer, e) : _) ->
+            Left $
+                "SimaPro export cannot name the supplier \""
+                    <> elActivity e
+                    <> "\" in "
+                    <> elDatabase e
+                    <> " of an input of \""
+                    <> consumer
+                    <> "\": it states no location, and SimaPro names a supplier by its location and activity. "
+                    <> "EcoSpold 2 and openLCA point at the supplier itself."
 
 -- | The parameters and formulas a SimaPro export writes, each line's formula brought back from its share as its amount is.
 simaProFormulas :: SimpleDatabase -> Exported
@@ -1049,6 +1136,70 @@ databaseParameterLines parameters =
 -- | The names of the system descriptions a database writes in its trailer.
 systemNamesOf :: SimpleDatabase -> S.Set Text
 systemNamesOf = S.fromList . map documentName . dbdocSystems . sdbDocumentation
+
+-- | The substance registry a file ends with, and what it could not say.
+data SubstanceRegistry = SubstanceRegistry
+    { srLines :: ![Text]
+    , srWarnings :: ![Text]
+    }
+
+{- | The substance registry: the trailing blocks binding each substance's name
+to its CAS number, the one place this format carries a CAS. The reader binds by
+normalized name, so flows are grouped by that same key. A key whose flows state
+two CAS gets no row, since a wrong CAS is worse than none; a key some of whose
+flows state none gives its CAS to all of them on re-import. Both are warned.
+-}
+substanceRegistry :: SimpleDatabase -> SubstanceRegistry
+substanceRegistry SimpleDatabase{..} =
+    SubstanceRegistry
+        { srLines = concat [header : sort rows ++ ["", "End", ""] | header <- mediumBlocks, let rows = [r | (h, r) <- registryRows, h == header], not (null rows)]
+        , srWarnings =
+            [ T.pack (show (length clashes)) <> " substances state two CAS numbers under one name, which SimaPro binds to one, so none is written:" <> foldMap ("\n  " <>) (take 10 clashes)
+            | not (null clashes)
+            ]
+                <> [ T.pack (show (length partial)) <> " substances state a CAS number on some of their flows only, and a re-import gives it to all of them:" <> foldMap ("\n  " <>) (take 10 partial)
+                   | not (null partial)
+                   ]
+        }
+  where
+    mediumBlocks :: [Text]
+    mediumBlocks = ["Raw materials", "Airborne emissions", "Waterborne emissions", "Emissions to soil"]
+    byName :: [[BiosphereFlow]]
+    byName = M.elems (M.fromListWith (flip (<>)) [(normalizeName (bfName f), [f]) | f <- M.elems sdbBioFlows])
+    casOf :: BiosphereFlow -> Maybe Text
+    casOf f = bfCAS f >>= nonEmptyCAS
+    stating :: [([BiosphereFlow], [(BiosphereFlow, Text)])]
+    stating = [(fs, [(f, c) | f <- fs, Just c <- [casOf f]]) | fs <- byName]
+    registryRows :: [(Text, Text)]
+    registryRows =
+        [ (blockOf f, row [bfName f, unitNameOf sdbUnits (bfUnitId f), cas, ""])
+        | (_, stated@((f, cas) : _)) <- stating
+        , all ((== cas) . snd) stated
+        ]
+    -- Each spelling with its CAS: the clash is between them.
+    clashes :: [Text]
+    clashes =
+        [ T.intercalate ", " [bfName f <> " " <> cas | (f, cas) <- stated]
+        | (_, stated@((_, first) : _)) <- stating
+        , any ((/= first) . snd) stated
+        ]
+    partial :: [Text]
+    partial = [bfName f | (fs, stated@((f, cas) : _)) <- stating, all ((== cas) . snd) stated, length stated < length fs]
+    -- The reader binds a CAS by name whichever of these blocks holds it.
+    blockOf :: BiosphereFlow -> Text
+    blockOf f = case compartmentName <$> bfCompartment f of
+        Just NaturalResource -> "Raw materials"
+        Just Water -> "Waterborne emissions"
+        Just Soil -> "Emissions to soil"
+        Just Air -> "Airborne emissions"
+        -- No block of the registry is theirs, and the trailing "Final waste
+        -- flows" block is read as a process section, so they go with air.
+        Just Waste -> "Airborne emissions"
+        Just InventoryIndicator -> "Airborne emissions"
+        Just Economic -> "Airborne emissions"
+        Just Social -> "Airborne emissions"
+        -- Where 'bioSection' files an emission of a flow stating no compartment.
+        Nothing -> "Airborne emissions"
 
 -- | The trailing blocks a database documents its processes with.
 libraryLines :: DatabaseDocumentation -> [Text]

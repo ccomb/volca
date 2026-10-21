@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 77** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 79** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -431,6 +431,19 @@ lists, as it lists it. Returns the setup as it now links (see
 unknown database or a release it does not require, a 409 for a
 database already loaded with the links it has. Needs wire revision 50.
 
+##### `Client.accept_terms(db_name: str | None = None) -> list[dict]`
+
+Accept, for this client, the terms `terms_to_accept` returns.
+
+Call it only once the person running the code has read those terms
+and agreed to them: accepting binds them, not the client. The
+acceptance lasts as long as the client. Returns the terms accepted::
+
+    for t in c.terms_to_accept():
+        print(t["text"])
+    if input("Do you accept these terms? [y/N] ") == "y":
+        c.accept_terms()
+
 ##### `Client.add_dependency(dep_name: str, db_name: str | None = None) -> dict`
 
 Declare ``dep_name`` as a dependency of the target database.
@@ -497,7 +510,7 @@ Args:
     aggregate: `AggregateOp` member or wire string
         (``"sum_quantity"`` by default, ``"count"``, or ``"share"``).
 
-##### `Client.apply_changes(process_id: str, *, summary: list[dict] | None = None, exchanges: list[dict] | None = None, db_name: str | None = None) -> dict`
+##### `Client.apply_changes(process_id: str, *, summary: list[dict] | None = None, exchanges: list[dict] | None = None, note: str | None = None, db_name: str | None = None) -> dict`
 
 Make an activity say each change it is given that it does not say yet.
 
@@ -509,6 +522,10 @@ the order given, each ``{"outcome": ...}``: ``"applied"``,
 ``"present"``, ``"different"``, ``"line-gone"``, or
 ``"not-applicable"`` with the ``"reason"`` no edit can make it. Needs
 wire revision 60.
+
+``note`` says why, in a sentence: it is kept in the database's history
+(`database_history`) and in the changes report its export
+carries. Needs wire revision 79.
 
 ##### `Client.call(operation_id: str, **kwargs) -> Any`
 
@@ -633,7 +650,7 @@ Args:
         answering three zeros, which would read as "this database has
         nothing".
 
-##### `Client.create_activities(activities: list[ActivityInput] | ActivityInput, db_name: str | None = None) -> dict`
+##### `Client.create_activities(activities: list[ActivityInput] | ActivityInput, db_name: str | None = None, *, note: str | None = None) -> dict`
 
 Write new activities into a database that can hold them.
 
@@ -660,6 +677,10 @@ Needs an engine speaking wire revision 5 (the routes do not exist
 before it, and an absent route is a 404 that reads exactly like a
 misspelled database name).
 
+``note`` says why, in a sentence: it is kept in the database's history
+(`database_history`) and in the changes report its export
+carries. Needs wire revision 79.
+
 ##### `Client.create_scoring_set(collection: str, name: str, rows: list[ScoringRow], *, unit: str | None = None) -> dict`
 
 Create a scoring set in a collection of your own, from its rows.
@@ -667,6 +688,18 @@ Create a scoring set in a collection of your own, from its rows.
 Its ``Single score`` adds up the rows that have a weight. ``unit`` is
 ``Pt`` when not given. Every change to a set is one journal line,
 undone whole with `undo_method_edit`.
+
+##### `Client.database_history(*, db_name: str | None = None) -> list[dict]`
+
+Every change made to the database, oldest first::
+
+    {"at": "2026-10-21T09:12:03Z", "note": "Measured on site",
+     "summary": "Edited \"wheat production\" (FR)",
+     "details": ["Flow \"Water\": amount from 2.0 set to 1.5"]}
+
+``note`` is the reason its author gave, ``None`` when they gave none.
+A database the engine reads from its configuration has no changes.
+Needs wire revision 79.
 
 ##### `Client.database_parameters(*, db_name: str | None = None) -> list[Parameter]`
 
@@ -680,7 +713,7 @@ The method collection the configuration offers a reader first, by
 name; ``None`` when it names none, and against an engine older than
 wire revision 52.
 
-##### `Client.delete_activities(*, name: str = '', location: str = '', product: str = '', classifications: list[dict | tuple] | None = None, exact: bool = False, keep: list[str] | None = None, extra: list[str] | None = None, ids: list[str] | None = None, db_name: str | None = None) -> dict`
+##### `Client.delete_activities(*, name: str = '', location: str = '', product: str = '', classifications: list[dict | tuple] | None = None, exact: bool = False, keep: list[str] | None = None, extra: list[str] | None = None, ids: list[str] | None = None, note: str | None = None, db_name: str | None = None) -> dict`
 
 Delete activities selected by filter, or exactly the ``ids`` list.
 
@@ -700,6 +733,10 @@ so pyvolca refuses to send it rather than let the engine guess.
 Returns the ``DeleteSelectionResponse`` dict
 (``{"success", "message", "deleted"}``); raises VoLCAError on
 ``success=false``.
+
+``note`` says why, in a sentence: it is kept in the database's history
+(`database_history`) and in the changes report its export
+carries. Needs wire revision 79.
 
 ##### `Client.delete_database(db_name: str | None = None) -> dict`
 
@@ -753,7 +790,7 @@ Raises VoLCAError on an HTTP error (e.g. the set does not exist).
 Drop a saved scenario, and return the scenarios left. Refused for
 a scenario the database ships, which comes back at every load.
 
-##### `Client.edit_database_parameters(*, set_parameters: Sequence[SetParameter] = (), remove_parameters: Sequence[str] = (), db_name: str | None = None) -> dict`
+##### `Client.edit_database_parameters(*, set_parameters: Sequence[SetParameter] = (), remove_parameters: Sequence[str] = (), note: str | None = None, db_name: str | None = None) -> dict`
 
 Set or remove the database's own parameters, then restate every
 process that reads them: each line whose formula no longer gives its
@@ -767,7 +804,11 @@ Removals come after the parameters set, and are refused while a
 formula still reads the name. Only a database of your own accepts
 edits: copy a configured one first.
 
-##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, set_parameters: Sequence[SetParameter] = (), set_formulas: Sequence[SetFormula] = (), remove_parameters: Sequence[str] = (), db_name: str | None = None) -> dict`
+``note`` says why, in a sentence: it is kept in the database's history
+(`database_history`) and in the changes report its export
+carries. Needs wire revision 79.
+
+##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, set_parameters: Sequence[SetParameter] = (), set_formulas: Sequence[SetFormula] = (), remove_parameters: Sequence[str] = (), note: str | None = None, db_name: str | None = None) -> dict`
 
 Change what one activity consumes and emits, its texts or its parameters, keeping the activity.
 
@@ -812,6 +853,10 @@ Only a database of your own accepts edits: copy a configured one first.
 Needs an engine speaking wire revision 7, 56 for the texts, 73
 for the parameters and formulas, and 76 for a selector by flow of an
 input or a waste output.
+
+``note`` says why, in a sentence: it is kept in the database's history
+(`database_history`) and in the changes report its export
+carries. Needs wire revision 79.
 
 ##### `Client.ensure_database(source: str | Path | bytes, name: str | None = None) -> str`
 
@@ -858,6 +903,11 @@ the release of every database it links to, so a reader's engine can
 tell whether it holds the same data. A dependency with no release
 declared (see `set_release`) refuses it with a 400 naming it.
 Needs wire revision 49.
+
+A modified database (see `DatabaseInfo.modified`) is exported
+only as a package, which carries ``CHANGES.md``, the report of every
+change and its reason, and ``LICENCE.txt``: with ``package`` unset,
+pyvolca asks for ``ro-crate`` itself and warns that it did.
 
 The engine streams the payload as raw bytes. Best-effort approximation
 warnings arrive in the ``X-Volca-Export-Warnings`` response header
@@ -1402,7 +1452,7 @@ so they keep scoring it. A name already in use is refused.
 
 Rename a scoring set of a collection of your own.
 
-##### `Client.replace_activity(process_id: str, activity: ActivityInput, db_name: str | None = None) -> dict`
+##### `Client.replace_activity(process_id: str, activity: ActivityInput, db_name: str | None = None, *, note: str | None = None) -> dict`
 
 Rewrite one activity the database already holds, keeping its identity.
 
@@ -1413,6 +1463,10 @@ activity, which the engine refuses rather than writing to a second row;
 create that one and delete the old one instead.
 
 Returns the same shape as `create_activities`.
+
+``note`` says why, in a sentence: it is kept in the database's history
+(`database_history`) and in the changes report its export
+carries. Needs wire revision 79.
 
 ##### `Client.resolve_activities(names: Iterable[str], *, by: Literal['name', 'product'] = 'name', geo: str | None = None, exact: bool = True, limit: int = 5, workers: int = 8) -> dict[str, list[Activity]]`
 
@@ -1659,6 +1713,16 @@ Set the multiplier a scoring set's values are shown with, or drop it with ``None
 ##### `Client.set_scoring_set_unit(collection: str, name: str, unit: str) -> dict`
 
 Change the unit a scoring set's scores are expressed in.
+
+##### `Client.terms_to_accept(db_name: str | None = None) -> list[dict]`
+
+The terms of use to accept before reading a database.
+
+Its own, and those of every database it depends on, when their
+publisher asks its readers to accept them: until then, the engine
+answers 403 to every request reading it. Each entry is
+``{"database", "text", "fingerprint"}``, once per text. Empty when
+nothing is asked, and against an engine older than wire revision 78.
 
 ##### `Client.undo_method_edit(collection: str, *, line: int | None = None) -> dict`
 
@@ -2637,6 +2701,12 @@ than wire revision 41, which refused no download.
 `Client.set_release` takes. ``None`` when none is declared, and
 against an engine older than wire revision 48.
 
+``modification`` says how its data differ from the files it reads:
+``{"edited": bool, "reallocated": bool}``, edited when its history
+(`Client.database_history`) holds a change, reallocated when its
+multi-output processes are divided otherwise than the original's.
+``None`` against an engine older than wire revision 79.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `name` | `str` | _required_ |
@@ -2653,6 +2723,13 @@ against an engine older than wire revision 48.
 | `source` | `str \| None` | None |
 | `licence` | `dict \| None` | None |
 | `release` | `dict \| None` | None |
+| `modification` | `dict \| None` | None |
+
+#### Properties
+
+##### `modified`
+
+Whether its data differ from the files it reads.
 
 ### `ExchangeChange`
 

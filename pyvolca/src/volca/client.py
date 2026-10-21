@@ -884,6 +884,50 @@ class Client:
             self._call("unload_database", db_name=db_name), "unload_database"
         )
 
+    def terms_to_accept(self, db_name: str | None = None) -> list[dict]:
+        """The terms of use to accept before reading a database.
+
+        Its own, and those of every database it depends on, when their
+        publisher asks its readers to accept them: until then, the engine
+        answers 403 to every request reading it. Each entry is
+        ``{"database", "text", "fingerprint"}``, once per text. Empty when
+        nothing is asked, and against an engine older than wire revision 78.
+        """
+        root = self._db(db_name)
+        databases = {d.name: d for d in self.list_databases()}
+        if root not in databases:
+            raise VoLCAError(f"Database not found: {root}")
+        pending, seen, terms = [root], set(), {}
+        while pending:
+            name = pending.pop(0)
+            if name in seen or name not in databases:
+                continue
+            seen.add(name)
+            licence = databases[name].licence or {}
+            fingerprint = licence.get("acceptance")
+            if fingerprint and fingerprint not in terms:
+                terms[fingerprint] = {"database": name, "text": licence["text"], "fingerprint": fingerprint}
+            pending.extend(databases[name].depends_on)
+        return list(terms.values())
+
+    def accept_terms(self, db_name: str | None = None) -> list[dict]:
+        """Accept, for this client, the terms :meth:`terms_to_accept` returns.
+
+        Call it only once the person running the code has read those terms
+        and agreed to them: accepting binds them, not the client. The
+        acceptance lasts as long as the client. Returns the terms accepted::
+
+            for t in c.terms_to_accept():
+                print(t["text"])
+            if input("Do you accept these terms? [y/N] ") == "y":
+                c.accept_terms()
+        """
+        terms = self.terms_to_accept(db_name)
+        accepted = set(filter(None, (self._session.cookies.get("volca_terms") or "").split(".")))
+        accepted |= {t["fingerprint"] for t in terms}
+        self._session.cookies.set("volca_terms", ".".join(sorted(accepted)))
+        return terms
+
     def derive_database(
         self,
         new_name: str,
@@ -1019,6 +1063,7 @@ class Client:
         keep: list[str] | None = None,
         extra: list[str] | None = None,
         ids: list[str] | None = None,
+        note: str | None = None,
         db_name: str | None = None,
     ) -> dict:
         """Delete activities selected by filter, or exactly the ``ids`` list.
@@ -1039,6 +1084,10 @@ class Client:
         Returns the ``DeleteSelectionResponse`` dict
         (``{"success", "message", "deleted"}``); raises VoLCAError on
         ``success=false``.
+
+        ``note`` says why, in a sentence: it is kept in the database's history
+        (:meth:`database_history`) and in the changes report its export
+        carries. Needs wire revision 79.
         """
         if ids is not None and (name or location or product or classifications or exact):
             raise VoLCAError(
@@ -1062,6 +1111,7 @@ class Client:
         if ids is not None:
             self._require_wire(3, "delete_activities(ids=...)", engine_hint="0.9.3")
             body["ids"] = list(ids)
+        body.update(self._note(note, "delete_activities"))
         target = self._db(db_name)
         payload = self._json(
             self._session.post(
@@ -1074,6 +1124,8 @@ class Client:
         self,
         activities: "list[ActivityInput] | ActivityInput",
         db_name: str | None = None,
+        *,
+        note: str | None = None,
     ) -> dict:
         """Write new activities into a database that can hold them.
 
@@ -1099,6 +1151,10 @@ class Client:
         Needs an engine speaking wire revision 5 (the routes do not exist
         before it, and an absent route is a 404 that reads exactly like a
         misspelled database name).
+
+        ``note`` says why, in a sentence: it is kept in the database's history
+        (:meth:`database_history`) and in the changes report its export
+        carries. Needs wire revision 79.
         """
         batch = [activities] if isinstance(activities, ActivityInput) else list(activities)
         self._require_wire(5, "create_activities", engine_hint="0.9.5")
@@ -1106,7 +1162,7 @@ class Client:
         return self._json(
             self._session.post(
                 f"{self.base_url}/api/v1/db/{target}/activities",
-                json={"activities": [a.to_wire() for a in batch]},
+                json={"activities": [a.to_wire() for a in batch], **self._note(note, "create_activities")},
             )
         )
 
@@ -1115,6 +1171,8 @@ class Client:
         process_id: str,
         activity: "ActivityInput",
         db_name: str | None = None,
+        *,
+        note: str | None = None,
     ) -> dict:
         """Rewrite one activity the database already holds, keeping its identity.
 
@@ -1125,12 +1183,17 @@ class Client:
         create that one and delete the old one instead.
 
         Returns the same shape as :meth:`create_activities`.
+
+        ``note`` says why, in a sentence: it is kept in the database's history
+        (:meth:`database_history`) and in the changes report its export
+        carries. Needs wire revision 79.
         """
         self._require_wire(5, "replace_activity", engine_hint="0.9.5")
         target = self._db(db_name)
         return self._json(
             self._session.put(
                 f"{self.base_url}/api/v1/db/{target}/activity/{process_id}",
+                params=self._note(note, "replace_activity"),
                 json=activity.to_wire(),
             )
         )
@@ -1150,6 +1213,7 @@ class Client:
         set_parameters: Sequence[SetParameter] = (),
         set_formulas: Sequence[SetFormula] = (),
         remove_parameters: Sequence[str] = (),
+        note: str | None = None,
         db_name: str | None = None,
     ) -> dict:
         """Change what one activity consumes and emits, its texts or its parameters, keeping the activity.
@@ -1195,6 +1259,10 @@ class Client:
         Needs an engine speaking wire revision 7, 56 for the texts, 73
         for the parameters and formulas, and 76 for a selector by flow of an
         input or a waste output.
+
+        ``note`` says why, in a sentence: it is kept in the database's history
+        (:meth:`database_history`) and in the changes report its export
+        carries. Needs wire revision 79.
         """
         self._require_wire(7, "edit_exchanges", engine_hint="0.9.5")
         texts = {
@@ -1231,6 +1299,7 @@ class Client:
                     "addWasteOutputs": [w.to_wire() for w in add_waste_outputs],
                     **texts,
                     **parametric,
+                    **self._note(note, "edit_exchanges"),
                 },
             )
         )
@@ -1565,6 +1634,11 @@ class Client:
         declared (see :meth:`set_release`) refuses it with a 400 naming it.
         Needs wire revision 49.
 
+        A modified database (see :attr:`DatabaseInfo.modified`) is exported
+        only as a package, which carries ``CHANGES.md``, the report of every
+        change and its reason, and ``LICENCE.txt``: with ``package`` unset,
+        pyvolca asks for ``ro-crate`` itself and warns that it did.
+
         The engine streams the payload as raw bytes. Best-effort approximation
         warnings arrive in the ``X-Volca-Export-Warnings`` response header
         (percent-encoded, newline-joined) and are surfaced through
@@ -1580,10 +1654,16 @@ class Client:
         if fmt_norm == "openlca":
             self._require_wire(61, "export_database('openlca')", engine_hint="0.15.0")
         body: dict = {"format": fmt_norm}
+        target = self._db(db_name)
+        if package is None and any(db.name == target and db.modified for db in self.list_databases()):
+            warnings.warn(
+                f"{target} was modified: it is exported as an ro-crate package, which carries its changes report",
+                stacklevel=2,
+            )
+            package = "ro-crate"
         if package is not None:
             self._require_wire(49, "export_database(package=...)", engine_hint="0.15.0")
             body["package"] = package
-        target = self._db(db_name)
         resp = self._session.post(
             f"{self.base_url}/api/v1/db/{target}/export",
             json=body,
@@ -2509,6 +2589,7 @@ class Client:
         *,
         summary: list[dict] | None = None,
         exchanges: list[dict] | None = None,
+        note: str | None = None,
         db_name: str | None = None,
     ) -> dict:
         """Make an activity say each change it is given that it does not say yet.
@@ -2521,13 +2602,17 @@ class Client:
         ``"present"``, ``"different"``, ``"line-gone"``, or
         ``"not-applicable"`` with the ``"reason"`` no edit can make it. Needs
         wire revision 60.
+
+        ``note`` says why, in a sentence: it is kept in the database's history
+        (:meth:`database_history`) and in the changes report its export
+        carries. Needs wire revision 79.
         """
         self._require_wire(60, "apply_changes", engine_hint="0.15.0")
         target = self._db(db_name)
         return self._json(
             self._session.post(
                 f"{self.base_url}/api/v1/db/{target}/activity/{process_id}/apply-changes",
-                json={"summary": summary or [], "exchanges": exchanges or []},
+                json={"summary": summary or [], "exchanges": exchanges or [], **self._note(note, "apply_changes")},
             )
         )
 
@@ -2891,6 +2976,7 @@ class Client:
         *,
         set_parameters: Sequence[SetParameter] = (),
         remove_parameters: Sequence[str] = (),
+        note: str | None = None,
         db_name: str | None = None,
     ) -> dict:
         """Set or remove the database's own parameters, then restate every
@@ -2904,13 +2990,39 @@ class Client:
         Removals come after the parameters set, and are refused while a
         formula still reads the name. Only a database of your own accepts
         edits: copy a configured one first.
+
+        ``note`` says why, in a sentence: it is kept in the database's history
+        (:meth:`database_history`) and in the changes report its export
+        carries. Needs wire revision 79.
         """
         self._require_wire(74, "edit_database_parameters", engine_hint="0.16.0")
         body = {
             "setParameters": [p.to_wire() for p in set_parameters],
             "removeParameters": list(remove_parameters),
+            **self._note(note, "edit_database_parameters"),
         }
         return self._call("edit_database_parameters", body=body, db_name=self._db(db_name))
+
+    def database_history(self, *, db_name: str | None = None) -> list[dict]:
+        """Every change made to the database, oldest first::
+
+            {"at": "2026-10-21T09:12:03Z", "note": "Measured on site",
+             "summary": "Edited \\"wheat production\\" (FR)",
+             "details": ["Flow \\"Water\\": amount from 2.0 set to 1.5"]}
+
+        ``note`` is the reason its author gave, ``None`` when they gave none.
+        A database the engine reads from its configuration has no changes.
+        Needs wire revision 79.
+        """
+        self._require_wire(79, "database_history", engine_hint="0.16.0")
+        return self._call("get_database_history", db_name=self._db(db_name))
+
+    def _note(self, note: str | None, feature: str) -> dict:
+        """The ``note`` key of a write, when one is given."""
+        if note is None:
+            return {}
+        self._require_wire(79, f"{feature}(note=...)", engine_hint="0.16.0")
+        return {"note": note}
 
     def scenarios(self, *, db_name: str | None = None) -> list[Scenario]:
         """The scenarios of the database: those it ships, then those saved

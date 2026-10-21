@@ -13,7 +13,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery, CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import qualified Config
 import Control.Concurrent.Async (mapConcurrently)
@@ -51,6 +51,7 @@ import Database
 import qualified Database.ComputedQuality as CQ
 import Database.Cutoffs (Cutoffs (..))
 import Database.Edit (authorContext, editExchanges)
+import Database.Journal (noteFrom)
 import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), getDatabase, getMergedUnitConfig)
 import qualified Database.Manager as DM
 import Database.Requirements (ReleaseSubstitution)
@@ -188,7 +189,7 @@ type LCAAPI =
                 -- addressed – never both, so a mistyped identity fails instead of
                 -- quietly becoming a duplicate of the row it meant to correct.
                 :<|> "db" :> Capture "dbName" Text :> "activities" :> ReqBody '[JSON] ActivityWriteRequest :> Post '[JSON] ActivityWriteResponse
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> ReqBody '[JSON] ActivityInput :> Put '[JSON] ActivityWriteResponse
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> QueryParam "note" Text :> ReqBody '[JSON] ActivityInput :> Put '[JSON] ActivityWriteResponse
                 -- Change the inventory of one activity, keeping everything else it
                 -- carries – the operation a PUT cannot do for a row that came in
                 -- from a database file rather than from a description
@@ -273,6 +274,8 @@ type LCAAPI =
                 -- The formula language, from the table the engine reads formulas with
                 :<|> "formula-language" :> Get '[JSON] FormulaLanguage
                 :<|> "db" :> Capture "dbName" Text :> "formula-check" :> ReqBody '[JSON] FormulaCheckRequest :> Post '[JSON] FormulaCheckResponse
+                -- Every change made to the database, and why
+                :<|> "db" :> Capture "dbName" Text :> "history" :> Get '[JSON] [DatabaseHistoryEntry]
                 -- The database's own parameters, and their edit
                 :<|> "db" :> Capture "dbName" Text :> "parameters" :> Get '[JSON] [ParameterAPI]
                 :<|> "db" :> Capture "dbName" Text :> "parameters" :> ReqBody '[JSON] ParametersEditRequest :> Post '[JSON] ParametersEditResponse
@@ -1607,7 +1610,13 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 77: the scenarios a database ships, marked @shipped@ in its scenario listing;
+(revision 79: the reason a write may give in @note@, the history of a
+database's changes, the @modification@ of a database's status, and the refusal
+of a modified database's export without its changes report;
+revision 78: the terms of use a licence asks its readers to accept, the @accept@ and
+@acceptance@ fields of a licence, and the refusal of a database whose terms
+are missing;
+revision 77: the scenarios a database ships, marked @shipped@ in its scenario listing;
 revision 76: the @selector@ of each exchange of an activity, and the selectors
 naming an input or a waste output by its flow and location;
 revision 75: the scenarios of a database, listed, saved and dropped;
@@ -1774,7 +1783,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 77
+currentWireVersion = 79
 
 getVersion :: AppM Value
 getVersion = do
@@ -2675,7 +2684,7 @@ postApplyChanges dbName processIdText query = do
     case Compare.applicableChanges ctx process query of
         (applied, []) -> pure applied
         (applied, edits) ->
-            liftIO (editExchanges dbManager dbName processIdText edits)
+            liftIO (editExchanges dbManager dbName (cqNote query >>= noteFrom) processIdText edits)
                 >>= either DBHandlers.refuseWrite (const (pure applied))
 
 getDatabaseComparison :: Text -> Maybe Text -> Maybe Int -> AppM DatabaseComparison
@@ -3400,6 +3409,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> pure standardLicences
             :<|> pure formulaLanguage
             :<|> postFormulaCheck
+            :<|> DBHandlers.databaseHistoryHandler
             :<|> getDatabaseParameters
             :<|> DBHandlers.editDatabaseParametersHandler
             :<|> DBHandlers.listScenariosHandler

@@ -346,6 +346,7 @@ treatmentDatabaseNaming producerName =
             , sdbDocumentation = noDocumentation
             , sdbParameters = M.empty
             , sdbProductSystems = []
+            , sdbReferenceConvention = SignedReferences
             }
         >>= either (fail . T.unpack) pure
 

@@ -128,10 +128,10 @@ mutatingHandlers =
     , ("remove-dependency", run (removeDependencyHandler "nope" "dep"))
     , ("finalize", run (finalizeDatabaseHandler "nope"))
     , ("upload", run (uploadDatabaseHandler (Just "nope") Nothing (source [])))
-    , ("create-activities", run (createActivitiesHandler "nope" (ActivityWriteRequest [])))
-    , ("replace-activity", run (replaceActivityHandler "nope" "id" nothingInParticular))
+    , ("create-activities", run (createActivitiesHandler "nope" (ActivityWriteRequest [] Nothing)))
+    , ("replace-activity", run (replaceActivityHandler "nope" "id" Nothing nothingInParticular))
     , ("edit-exchanges", run (editExchangesHandler "nope" "id" noEdits))
-    , ("edit-database-parameters", run (editDatabaseParametersHandler "nope" (ParametersEditRequest [] [])))
+    , ("edit-database-parameters", run (editDatabaseParametersHandler "nope" (ParametersEditRequest [] [] Nothing)))
     , ("save-scenario", run (saveScenarioHandler "nope" "high salt" (ScenarioSaveRequest [])))
     , ("drop-scenario", run (dropScenarioHandler "nope" "high salt"))
     , ("set-data-path", run (setDataPathHandler "nope" Null))
@@ -164,6 +164,7 @@ mutatingHandlers =
             , eerSetParameters = []
             , eerSetFormulas = []
             , eerRemoveParameters = []
+            , eerNote = Nothing
             }
     nothingInParticular =
         ActivityInput
@@ -187,6 +188,7 @@ mutatingHandlers =
             , dsqKeep = []
             , dsqExtra = []
             , dsqIds = Just []
+            , dsqNote = Nothing
             }
 
 -- | Whether an MCP reply is flagged as an error.
@@ -261,7 +263,7 @@ spec = do
         it "refuse the state-changing tools" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             let call name =
-                    callTool manager [] (Just (hosting True)) Nothing noRequestId name $
+                    callTool Nothing manager [] (Just (hosting True)) Nothing noRequestId name $
                         KM.singleton "database" (String "nope")
             loadResp <- call "load_database"
             unloadResp <- call "unload_database"
@@ -271,14 +273,14 @@ spec = do
         it "refuse with the operator's words when configured" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             resp <-
-                callTool manager [] (Just ((hosting True){hcReadOnlyMessage = "Ask the operator."})) Nothing noRequestId "load_database" $
+                callTool Nothing manager [] (Just ((hosting True){hcReadOnlyMessage = "Ask the operator."})) Nothing noRequestId "load_database" $
                     KM.singleton "database" (String "nope")
             isToolError resp `shouldBe` True
             toolText resp `shouldBe` Just "Ask the operator."
 
         it "still answer a read-only tool" $ do
             manager <- initDatabaseManager defaultConfig NoCache
-            listed <- callTool manager [] (Just (hosting True)) Nothing noRequestId "list_databases" KM.empty
+            listed <- callTool Nothing manager [] (Just (hosting True)) Nothing noRequestId "list_databases" KM.empty
             isToolError listed `shouldBe` False
 
         it "hide the state-changing tools from tools/list" $ do

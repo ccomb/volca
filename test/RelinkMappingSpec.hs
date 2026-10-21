@@ -59,6 +59,7 @@ import Types (
     LinkBlocker (..),
     LocationSource (..),
     ProcessRef (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     TechRole (..),
@@ -144,6 +145,7 @@ targetDB =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     techFlow fid name =
@@ -579,4 +581,5 @@ consumerTaking flow name input =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }

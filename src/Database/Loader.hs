@@ -78,6 +78,7 @@ module Database.Loader (
 
     -- * Reporting
     reportCrossDBLinkingStats,
+    lineInLinkUnit,
 
     -- * Internal (exposed for testing)
     normalizeText,
@@ -172,7 +173,7 @@ import Database.CrossLinking (
  )
 import Database.MatrixBuild (findProducer)
 import Database.Patch (applyExchangePatches, describeExchangePatch)
-import Database.Upload (listDirectoryRecursive)
+import Database.Upload (DatabaseFormat (..), listDirectoryRecursive, referenceConventionOf)
 import EcoSpold.Common (ParsedDataset (..), distributeFiles)
 import EcoSpold.Parser1 (streamParseActivityAndFlowsFromFile1, streamParseAllDatasetsFromFile1)
 import EcoSpold.Parser2 (parseUnitConversions, streamParseActivityAndFlowsFromFile)
@@ -348,9 +349,9 @@ unitNamesDisagreeing h =
     ]
 
 -- | The tables of a harvest that make a database, and the literature its datasets cite; the rest describes the reading.
-harvestDatabase :: Harvest -> SimpleDatabase
-harvestDatabase h =
-    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h) noDocumentation{dbdocLiterature = S.toList (hvLiterature h)} M.empty []
+harvestDatabase :: ReferenceConvention -> Harvest -> SimpleDatabase
+harvestDatabase convention h =
+    SimpleDatabase (hvActivities h) (hvTechFlows h) (hvBioFlows h) (hvWasteFlows h) (hvUnits h) noDocumentation{dbdocLiterature = S.toList (hvLiterature h)} M.empty [] convention
 
 {- |
 Schema signature of the cache payload.
@@ -615,6 +616,10 @@ History of manual bumps:
 - 76: a SimaPro waste treatment row is read in the layout of its section, so
      one whose waste type is one word keeps its inventory instead of a 0 %
      share.
+- 77: Database gained dbReferenceConvention (how its inputs read a supplier
+     whose reference is negative), and a SimaPro, ILCD or EcoSpold 1 input
+     reaching such a treatment in another database is a demand on it. Old
+     caches miss the field.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -622,7 +627,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 76
+     in hi `xor` lo `xor` 77
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1390,7 +1395,7 @@ loadSimaProCSV opts csvPath = do
                     forM_ collisions $ reportProgress Warning . T.unpack
 
                     -- Build initial database
-                    let simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB documentation parameters []
+                    let simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB wasteFlowDB unitDB documentation parameters [] (referenceConventionOf SimaProCSV)
 
                     -- Fix activity links using supplier lookup (same as EcoSpold1)
                     Right <$> linkWithinDatabaseByName unitConfig simpleDb
@@ -1414,7 +1419,7 @@ loadBrightwayExcel opts xlsxPath = do
             | null activities -> return $ Left "No activities found in Brightway Excel file."
             | otherwise -> do
                 let (procMap, collisions) = indexActivities (allocateAll (allocating opts unitDB) activities)
-                    simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB M.empty unitDB noDocumentation parameters []
+                    simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB M.empty unitDB noDocumentation parameters [] (referenceConventionOf BrightwayExcel)
                 forM_ collisions $ reportProgress Warning . T.unpack
                 Right <$> linkWithinDatabaseByName unitConfig simpleDb
 
@@ -1723,7 +1728,7 @@ loadEcoSpoldDirectory opts dir = do
                 reportMemoryUsage "Final parsing memory usage"
 
                 -- For EcoSpold1: fix activity links using supplier lookup table
-                let simpleDb = harvestDatabase harvested
+                let simpleDb = harvestDatabase (referenceConventionOf (if isEcoSpold1 then EcoSpold1 else EcoSpold2)) harvested
                 case unitNamesDisagreeing harvested of
                     (conflict : more) -> return (Left (T.intercalate "; " (conflict : more)))
                     []
@@ -1842,7 +1847,7 @@ loadSingleEcoSpold1File opts filepath = do
                     [_] -> datasetUUIDFromPath filepath
                     _ -> Nothing
                 !harvested = harvestOf [(datasetKey fileUUID r, r) | r <- results]
-                simpleDb = harvestDatabase harvested
+                simpleDb = harvestDatabase (referenceConventionOf EcoSpold1) harvested
 
             reportProgress Info $ printf "  Activities: %d processes" (M.size (hvActivities harvested))
             reportProgress Info $ printf "  Flows: %d tech + %d bio + %d waste (from %d raw)" (M.size (hvTechFlows harvested)) (M.size (hvBioFlows harvested)) (M.size (hvWasteFlows harvested)) (hvRawFlows harvested)
@@ -2190,12 +2195,7 @@ fixActivityLinksWithCrossDB indexedDbs synonymDB unitConfig locationHier policy 
             -- Process all activities to find cross-DB links
             reportProgress Info "Finding cross-database suppliers..."
             let stats =
-                    findAllCrossDBLinks
-                        linkingCtx
-                        (sdbTechFlows db)
-                        (sdbWasteFlows db)
-                        (sdbUnits db)
-                        (sdbActivities db)
+                    findAllCrossDBLinks linkingCtx db
 
             -- Report statistics
             let !stats' = stats{cdlTotalInputs = totalInputs}
@@ -2284,7 +2284,7 @@ relinkSimpleDatabase indexedDbs synonymDB unitConfig locationHier policy aliases
                 , lcGeographyPolicy = policy
                 , lcSupplierAliases = aliases
                 }
-        stats = findAllCrossDBLinks ctx (sdbTechFlows db) (sdbWasteFlows db) (sdbUnits db) (sdbActivities db)
+        stats = findAllCrossDBLinks ctx db
      in stats{cdlTotalInputs = countTotalTechInputs db}
 
 {- | Product names of technosphere demands with no resolved internal producer –
@@ -2704,6 +2704,7 @@ already satisfied in place.
 -}
 data LinkScan = LinkScan
     { lsCtx :: !LinkingContext
+    , lsConvention :: !ReferenceConvention
     , lsOwnKeys :: !(S.Set (UUID.UUID, UUID.UUID))
     , lsTechFlows :: !TechFlowDB
     , lsWasteFlows :: !WasteFlowDB
@@ -2713,15 +2714,10 @@ data LinkScan = LinkScan
 {- | Find all cross-database links without modifying activities
 Returns statistics including the CrossDBLinks for chained solving
 -}
-findAllCrossDBLinks ::
-    LinkingContext ->
-    TechFlowDB ->
-    WasteFlowDB ->
-    UnitDB ->
-    ActivityMap ->
-    CrossDBLinkingStats
-findAllCrossDBLinks ctx techFlowDb wasteFlowDb unitDb activities =
-    let !scan = LinkScan ctx (M.keysSet activities) techFlowDb wasteFlowDb unitDb
+findAllCrossDBLinks :: LinkingContext -> SimpleDatabase -> CrossDBLinkingStats
+findAllCrossDBLinks ctx db =
+    let activities = sdbActivities db
+        !scan = LinkScan ctx (sdbReferenceConvention db) (M.keysSet activities) (sdbTechFlows db) (sdbWasteFlows db) (sdbUnits db)
         results = M.mapWithKey (findActivityCrossDBLinks scan) activities
      in mconcat (M.elems results)
 
@@ -2770,7 +2766,7 @@ findExchangeCrossDBLink ::
     Int ->
     Exchange ->
     CrossDBLinkingStats
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@TechnosphereExchange{techFlowId = fid, techAmount = written, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = statedLoc}
+findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnKeys = ownKeys, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@TechnosphereExchange{techFlowId = fid, techAmount = written, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = statedLoc}
     | namesASupplier ex && not resolvesInternally =
         maybe mempty resolveTechInput (M.lookup fid techFlowDb)
     | otherwise = mempty
@@ -2798,6 +2794,16 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
     -- that measures something else: refused once a supplier answers the line.
     perLineIn :: T.Text -> Maybe Double
     perLineIn = lineInLinkUnit (lcUnitConfig ctx) unitDb ex
+    {- The same, read in the supplier's direction. A database whose treatments
+    are positive writes the waste it sends one as a demand of +x; reaching a
+    treatment whose reference is -1, that demand carries the treatment's sign,
+    as a waste output does, or it would run the treatment backwards. -}
+    signedPerLine :: ReferenceSign -> T.Text -> Maybe Double
+    signedPerLine refSign = fmap (* sign) . perLineIn
+      where
+        sign = case convention of
+            PositiveReferences -> signFactor refSign
+            SignedReferences -> 1
     unitRefused :: TechnosphereFlow -> T.Text -> CrossDBLinkingStats
     unitRefused flow flowUnitName = unresolvedStats flow UnitIncompatible{uiQueryUnit = writtenUnitName unitDb ex, uiSupplierUnit = flowUnitName}
     resolveTechInput :: TechnosphereFlow -> CrossDBLinkingStats
@@ -2816,7 +2822,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
                 ClaimByDatasetNumber _ -> []
          in case identityMatches of
                 ((entry, srcDb) : rest)
-                    | Just perLine <- perLineIn flowUnitName ->
+                    | Just perLine <- signedPerLine (seRefSign entry) flowUnitName ->
                         let !crossLink =
                                 mkTechLink
                                     (seActivityUUID entry)
@@ -2863,7 +2869,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsTechFlows =
     attributeMatch flow flowUnitName =
         let query = supplierQuery flow flowUnitName
          in case findSupplierInIndexedDBs ctx query of
-                result@CrossDBLinked{} -> case perLineIn flowUnitName of
+                result@CrossDBLinked{} -> case signedPerLine (cdlrRefSign result) flowUnitName of
                     Nothing -> unitRefused flow flowUnitName
                     Just perLine -> case bridgedAmount flowUnitName (cdlrBridge result) (written * perLine) of
                         -- The row's units passed the matcher, so this is a unit the
@@ -2985,13 +2991,13 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows 
                                 , cdlConsumerFlowId = fid
                                 , cdlSupplierActUUID = seActivityUUID entry
                                 , cdlSupplierProdUUID = seProductUUID entry
-                                , cdlCoefficient = amt * perLine * seRefSign entry
+                                , cdlCoefficient = amt * perLine * signFactor (seRefSign entry)
                                 , cdlExchangeUnit = seUnit entry
                                 , cdlFlowName = seProductName entry
                                 , cdlLocation = seLocation entry
                                 , cdlSourceDatabase = dbN
                                 , cdlTiedAlternatives = []
-                                , cdlAnswers = Just AnsweredExchange{aePosition = position, aeFactor = perLine * seRefSign entry}
+                                , cdlAnswers = Just AnsweredExchange{aePosition = position, aeFactor = perLine * signFactor (seRefSign entry)}
                                 }
                      in
                         mempty{cdlLinks = [crossLink], cdlWasteExactLinks = 1}

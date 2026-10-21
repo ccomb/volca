@@ -36,11 +36,16 @@ import Database.Author (
     validateAuthored,
  )
 import Database.Journal (
+    Change (..),
+    EditLine (..),
     Entry (..),
     JournalEvent,
     JournalOp (..),
+    ParameterLine (..),
+    Prior (..),
     appendEvent,
     journalPath,
+    noteFrom,
     readJournal,
     replayJournal,
  )
@@ -59,6 +64,7 @@ import Types (
     Medium (..),
     Parameter (..),
     ParameterDefinition (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     TechRole (..),
@@ -89,6 +95,15 @@ spec = do
         it "writes the shape an inventory edit documents" $
             Just (toJSON (event editedInventory))
                 `shouldBe` (decodeStrict expectedEditJSON :: Maybe Value)
+
+        it "reads a line written before reasons and earlier values were kept" $
+            decodeStrict expectedEditJSON `shouldBe` Just (event editedInventory)
+
+        it "writes a reason only when one is given" $ do
+            noteFrom "   " `shouldBe` Nothing
+            noteFrom "" `shouldBe` Nothing
+            Just (toJSON (Entry "now" (Change (noteFrom " Measured on site ") (Deleted []))))
+                `shouldBe` decodeStrict "{\"v\":1,\"at\":\"now\",\"op\":\"delete\",\"targets\":[],\"note\":\"Measured on site\"}"
 
         it "reads back every event it writes" $
             -- One event per operation, and one exchange per kind, so a field
@@ -130,11 +145,11 @@ spec = do
             -- append truncates the tail first: what is dropped is exactly the
             -- unacknowledged debris, never the edit being recorded.
             withSystemTempDirectory "journal" $ \home -> do
-                appendOrFail home (Deleted ["a_b"])
+                appendOrFail home (Change Nothing (Deleted ["a_b"]))
                 appendFile (journalPath home) "{\"v\":1,\"at\":\"now\",\"op\":\"del"
-                appendOrFail home (Deleted ["c_d"])
+                appendOrFail home (Change Nothing (Deleted ["c_d"]))
                 read' <- readJournal home
-                fmap (map jeOp) read' `shouldBe` Right [Deleted ["a_b"], Deleted ["c_d"]]
+                fmap (map (changeOp . jeOp)) read' `shouldBe` Right [Deleted ["a_b"], Deleted ["c_d"]]
 
     describe "Database.Journal (replay)" $ do
         it "applies a create" $
@@ -171,7 +186,7 @@ spec = do
                 `shouldSatisfy` failsWith "now mints"
 
         it "edits an inventory in place, leaving the activity's identity alone" $
-            case replayJournal ctx [event (Edited supplierPid [(SetAmount (SelectBiosphere co2Id) 3, 1)])] of
+            case replayJournal ctx [event (edited supplierPid [(SetAmount (SelectBiosphere co2Id) 3, 1)])] of
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> do
                     processKeys db `shouldBe` processKeys fixture
@@ -187,7 +202,7 @@ spec = do
                         `shouldSatisfy` elem ("milk production, corrected", "CH", ["From the 2024 farm survey.", "Second paragraph."])
 
         it "brings along the flow an added line introduces" $
-            case replayJournal ctx [event (Edited supplierPid [(AddExchange methane, 1)])] of
+            case replayJournal ctx [event (edited supplierPid [(AddExchange methane, 1)])] of
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> map bfName (M.elems (dbBioFlows db)) `shouldSatisfy` elem "Methane"
 
@@ -198,7 +213,7 @@ spec = do
             depDb <- buildDepFixture
             let depCtx = ctx{acDeps = [depDb]}
                 added = AuthoredTechInput depPid 2.0 (Just "kg") Nothing
-            case replayJournal depCtx [event (Edited supplierPid [(AddExchange added, 1)])] of
+            case replayJournal depCtx [event (edited supplierPid [(AddExchange added, 1)])] of
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> M.member depProdId (dbTechFlows db) `shouldBe` True
 
@@ -208,18 +223,18 @@ spec = do
             withWheat <- buildFixtureWith [wheatIn "FR" 2, wheatIn "DE" 5]
             let wheatCtx = ctx{acDb = withWheat}
                 wheatAmounts db = [techAmount ex | act <- V.toList (dbActivities db), ex@TechnosphereExchange{techRole = Input} <- exchanges act]
-            case replayJournal wheatCtx [event (Edited supplierPid [(SetAmount (SelectUnlinkedInput depProdId (Just (LocationCode "FR"))) 3, 1)])] of
+            case replayJournal wheatCtx [event (edited supplierPid [(SetAmount (SelectUnlinkedInput depProdId (Just (LocationCode "FR"))) 3, 1)])] of
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> wheatAmounts db `shouldBe` [3, 5]
 
         it "refuses an edit whose selectors no longer match what they matched" $
             -- The guard that makes a recorded edit safe to replay: the
             -- inventory it was made against must still be the one it named.
-            replayOutcome ctx [event (Edited supplierPid [(RemoveExchange (SelectBiosphere co2Id), 2)])]
+            replayOutcome ctx [event (edited supplierPid [(RemoveExchange (SelectBiosphere co2Id), 2)])]
                 `shouldSatisfy` failsWith "now match"
 
         it "refuses an edit of an activity the database does not have" $
-            replayOutcome ctx [event (Edited cheeseKey [(RemoveExchange (SelectBiosphere co2Id), 1)])]
+            replayOutcome ctx [event (edited cheeseKey [(RemoveExchange (SelectBiosphere co2Id), 1)])]
                 `shouldSatisfy` failsWith "Unknown process id"
 
 -- ---------------------------------------------------------------------------
@@ -227,7 +242,15 @@ spec = do
 -- ---------------------------------------------------------------------------
 
 event :: JournalOp -> JournalEvent
-event = Entry "2026-08-03T09:12:41Z"
+event = Entry "2026-08-03T09:12:41Z" . Change Nothing
+
+-- | An inventory edit written before the amounts it replaced were kept.
+edited :: Text -> [(ExchangeEdit, Int)] -> JournalOp
+edited target = Edited target . map (\(edit, matched) -> EditLine edit matched PriorUnknown)
+
+-- | Database parameters edited before their earlier values were kept.
+parametersEdited :: [(Text, Maybe Parameter)] -> JournalOp
+parametersEdited = ParametersEdited . map (\(name, parameter) -> ParameterLine name parameter PriorUnknown)
 
 -- | Replay, keeping only what a failed assertion can print.
 replayOutcome :: AuthorContext -> [JournalEvent] -> Either Text ()
@@ -236,7 +259,7 @@ replayOutcome ctx = void . replayJournal ctx
 failsWith :: Text -> Either Text a -> Bool
 failsWith needle = either (isInfixOf needle) (const False)
 
-appendOrFail :: FilePath -> JournalOp -> IO ()
+appendOrFail :: FilePath -> Change -> IO ()
 appendOrFail home op = appendEvent home op >>= either (fail . show) pure
 
 {- | Run a check against a journal file written verbatim, so a line this
@@ -344,7 +367,7 @@ exchanges it matched, including a selector that named more than one line.
 -}
 editedInventory :: JournalOp
 editedInventory =
-    Edited
+    edited
         supplierPid
         [ (RemoveExchange (SelectBiosphere co2Id), 2)
         , (RemoveExchange (SelectWaste supplierPid), 1)
@@ -355,7 +378,7 @@ editedInventory =
 -- | Lines naming no provider, by flow, with a location, with none stated, and at any location.
 unlinkedEdits :: JournalOp
 unlinkedEdits =
-    Edited
+    edited
         supplierPid
         [ (SetAmount (SelectUnlinkedInput depProdId (Just (LocationCode "FR"))) 3, 1)
         , (SetAmount (SelectUnlinkedInput depProdId (Just LocationNone)) 3, 1)
@@ -392,12 +415,31 @@ richEvents =
     , event retexted
     , event parametrised
     , event databaseParameters
+    , Entry "2026-10-21T10:00:00Z" (Change (noteFrom "Measured on site") rememberedEdit)
+    , Entry "2026-10-21T10:05:00Z" (Change Nothing rememberedParameters)
     ]
+
+-- | An inventory edit keeping the amounts it replaced, one per line matched.
+rememberedEdit :: JournalOp
+rememberedEdit =
+    Edited
+        supplierPid
+        [ EditLine (SetAmount (SelectBiosphere co2Id) 3) 2 (Prior [1.5, 2])
+        , EditLine (AddExchange usedOilOut) 1 (Prior [])
+        ]
+
+-- | Parameters keeping what they were: one that did not exist, one replaced.
+rememberedParameters :: JournalOp
+rememberedParameters =
+    ParametersEdited
+        [ ParameterLine "distance" (Just Parameter{parameterDefinition = InputParameter 90 Nothing, parameterUnit = Just "km", parameterDescription = ""}) (Prior Nothing)
+        , ParameterLine "old" Nothing (Prior (Just Parameter{parameterDefinition = InputParameter 1 Nothing, parameterUnit = Nothing, parameterDescription = ""}))
+        ]
 
 -- | A database's parameters set, of both kinds, and one removed.
 databaseParameters :: JournalOp
 databaseParameters =
-    ParametersEdited
+    parametersEdited
         [ ("distance", Just Parameter{parameterDefinition = InputParameter 120 (Just (Triangular 80 120 200)), parameterUnit = Just "km", parameterDescription = "Truck route"})
         , ("tonne_km", Just Parameter{parameterDefinition = CalculatedParameter "distance / 1000" Nothing, parameterUnit = Nothing, parameterDescription = ""})
         , ("old", Nothing)
@@ -406,7 +448,7 @@ databaseParameters =
 -- | Formulas set and dropped, parameters of both kinds set and one removed, so none is lost in the codec.
 parametrised :: JournalOp
 parametrised =
-    Edited
+    edited
         supplierPid
         [ (SetFormula (SelectInput supplierPid) (Just "1 / yield"), 1)
         , (SetFormula (SelectBiosphere co2Id) Nothing, 2)
@@ -418,7 +460,7 @@ parametrised =
 -- | One edit of each text, so none of the three can be lost in the codec.
 retexted :: JournalOp
 retexted =
-    Edited
+    edited
         supplierPid
         [ (SetText (ActivityName "milk production, corrected"), 1)
         , (SetText (ActivityLocation "CH"), 1)
@@ -490,6 +532,7 @@ buildDepFixture = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . show) pure built
 
@@ -511,6 +554,7 @@ buildFixtureWith extra = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . show) pure built
 

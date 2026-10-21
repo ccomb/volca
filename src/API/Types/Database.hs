@@ -13,9 +13,22 @@ import GHC.Generics
 import Types (
     BlockerReason (..),
     Licence,
+    Modification,
     Release (..),
     Severity,
  )
+
+-- | One change made to a database, oldest first, in the words its reader uses.
+data DatabaseHistoryEntry = DatabaseHistoryEntry
+    { dheAt :: Text
+    , dheNote :: Maybe Text
+    -- ^ Why, in its author's words; absent when they gave no reason
+    , dheSummary :: Text
+    , dheDetails :: [Text]
+    -- ^ Each line the change touched, with its value before when it was kept
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatabaseHistoryEntry)
 
 -- | Reference data list response (flow synonyms, compartment mappings, units)
 newtype RefDataListResponse = RefDataListResponse
@@ -73,6 +86,7 @@ data DatabaseStatusAPI = DatabaseStatusAPI
     , dsaSource :: Maybe Text -- The database whose files it reads, when it owns none (a copy, or a re-keyed load)
     , dsaLicence :: Licence -- What it is served under, its source's for a copy
     , dsaRelease :: Maybe Release -- Which published database it is, as its owner declared
+    , dsaModification :: Modification -- How its data differs from the files it reads
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatabaseStatusAPI)
@@ -378,6 +392,7 @@ data DeleteSelectionRequest = DeleteSelectionRequest
     , dsqKeep :: [Text] -- Process-id strings to spare from deletion
     , dsqExtra :: [Text] -- Process-id strings to add to deletion
     , dsqIds :: Maybe [Text] -- Delete exactly these process ids (no filter fields allowed)
+    , dsqNote :: Maybe Text -- Why, kept in the database's history
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeleteSelectionRequest)

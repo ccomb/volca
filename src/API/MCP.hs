@@ -40,7 +40,8 @@ import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
 import Database (Geographies, filterByName, flowSearchFields)
 import Database.Cutoffs (Cutoffs (..))
-import Database.Edit (deriveDatabase, editDatabaseParameters, editExchanges, refusalMessage)
+import Database.Edit (databaseHistory, deriveDatabase, editDatabaseParameters, editExchanges, refusalMessage)
+import Database.Journal (noteFrom)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
 import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario)
@@ -49,11 +50,12 @@ import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
 
 import qualified API.BatchImpacts as BI
-import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
+import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, historyLineToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
+import API.Terms (referencedDatabases)
 import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.List (find)
@@ -74,7 +76,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, Terms (..), UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, missingTerms, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, withheldSentence)
 import Usage (ProcessKey (..), UsageKind (..), UsageLog, Use (..), readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -228,7 +230,7 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
                         respond $ jsonResponse (mcpSessionId st) $ rpcError noRequestId (-32700) (T.pack $ "Parse error: " ++ err)
                     Right rpcReq -> do
                         let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
-                        resp <- runCall (handleRpc dbManager presets mHosting mBaseUrl mName st rpcReq)
+                        resp <- runCall (handleRpc (readerOf hdrs) dbManager presets mHosting mBaseUrl mName st rpcReq)
                         forM_ mUsage $ \lg ->
                             noteToolCall dbManager (recordUse lg (usageLookup dbManager) (readerOf hdrs)) rpcReq resp
                         case resp of
@@ -280,12 +282,12 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
 -- RPC dispatch
 -- ---------------------------------------------------------------------------
 
-handleRpc :: DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpState -> RpcRequest -> IO (Maybe Value)
-handleRpc dbManager presets mHosting mBaseUrl mName _st req = case rpcMethod req of
+handleRpc :: Maybe Text -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpState -> RpcRequest -> IO (Maybe Value)
+handleRpc reader dbManager presets mHosting mBaseUrl mName _st req = case rpcMethod req of
     "initialize" -> Just <$> handleInitialize mName req
     "notifications/initialized" -> return Nothing -- notification, no response
     "tools/list" -> return $ Just $ handleToolsList (hostingReadOnly mHosting) req
-    "tools/call" -> Just <$> handleToolsCall dbManager presets mHosting mBaseUrl req
+    "tools/call" -> Just <$> handleToolsCall reader dbManager presets mHosting mBaseUrl req
     "ping" -> return $ Just $ rpcResult (answerId req) (object [])
     other ->
         return $
@@ -529,12 +531,12 @@ paramsToSchema ps =
 -- tools/call dispatch
 -- ---------------------------------------------------------------------------
 
-handleToolsCall :: DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RpcRequest -> IO Value
-handleToolsCall dbManager presets mHosting mBaseUrl req = do
+handleToolsCall :: Maybe Text -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RpcRequest -> IO Value
+handleToolsCall reader dbManager presets mHosting mBaseUrl req = do
     let rid = answerId req
     case rpcParams req >>= parseCallParams of
         Nothing -> return $ rpcError rid (-32602) "Invalid params: expected {name, arguments}"
-        Just (toolName, args) -> callTool dbManager presets mHosting mBaseUrl rid toolName args
+        Just (toolName, args) -> callTool reader dbManager presets mHosting mBaseUrl rid toolName args
 
 {- | Note in the usage log a tool call that answered, once for each process it
 was asked about in a database that holds it. Read from the call rather than
@@ -596,25 +598,56 @@ parseCallParams (Object o) = do
     return (name, args)
 parseCallParams _ = Nothing
 
-{- | Route a tool call to its handler.
+{- | Route a tool call of a reader to its handler.
 
 A read-only instance refuses the state-changing tools before dispatch. Which
 tools those are comes from the resource registry ('resourceMutates'), so a
 newly added mutating tool is covered here without touching this function.
 -}
-callTool :: DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> IO Value
-callTool _ _ mHosting _ rid name _
+callTool :: Maybe Text -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> IO Value
+callTool _ _ _ mHosting _ rid name _
     | isReadOnly (hostingReadOnly mHosting) && mutatingTool name =
         return $ toolError rid (readOnlyRefusalFor mHosting)
 -- A preset the instance does not carry is refused here rather than in each
 -- handler, so no tool can answer as if the caller had asked for no filter.
-callTool _ presets _ _ rid _ args
+callTool _ _ presets _ _ rid _ args
     | Left err <- presetFilters presets args = return $ toolError rid err
-callTool dbManager presets mHosting mBaseUrl rid name args = do
+callTool reader dbManager presets mHosting mBaseUrl rid name args = do
+    terms <- DM.termsToAccept dbManager (databasesOfCall name args)
+    accepted <- DM.acceptedTerms dbManager reader
     licences <- requestedLicences dbManager args
-    case licenceRefusalFor name licences of
-        Just refusal -> pure (toolError rid refusal)
-        Nothing -> dispatchTool dbManager presets mHosting mBaseUrl rid name args (licenceOfDatabase licences)
+    case (missingTerms accepted terms, licenceRefusalFor name licences) of
+        (missing@(_ : _), _) -> pure (toolError rid (termsRefusalText missing))
+        (_, Just refusal) -> pure (toolError rid refusal)
+        ([], Nothing) -> dispatchTool reader dbManager presets mHosting mBaseUrl rid name args (licenceOfDatabase licences)
+
+{- | The databases a call reads: those it names, and those its substitutions
+reach into. Loading or unloading one reads none of its data, and accepting its
+terms is how its reader gets to read it.
+-}
+databasesOfCall :: Text -> KeyMap Value -> [Text]
+databasesOfCall name args
+    | name `elem` ["load_database", "unload_database", "accept_terms"] = []
+    | otherwise = [db | key <- databaseArguments, Just (String db) <- [KM.lookup (fromText key) args]] ++ referencedDatabases (Object args)
+
+-- | What an assistant is told when terms are missing: the texts, and what to do with them.
+termsRefusalText :: [Terms] -> Text
+termsRefusalText missing =
+    T.unlines $
+        [ "The publisher of " <> T.intercalate ", " (map termsDatabase missing) <> " asks its users to accept its terms of use before reading it."
+        , "Show the user these terms in full. Only if they explicitly accept them, call accept_terms with the database named below; never accept them on their behalf."
+        ]
+            ++ concat [["", "--- Terms of use of " <> termsDatabase t <> " ---", termsText t] | t <- missing]
+
+-- | Record that the reader accepted the terms of a database and of those it depends on.
+callAcceptTerms :: Maybe Text -> DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callAcceptTerms reader dbManager rid args = runTool rid $ do
+    dbName <- except (requireText "database" args)
+    known <- liftIO (DM.databaseLicence dbManager dbName)
+    when (isNothing known) (throwE ("Database not found: " <> dbName))
+    terms <- liftIO (DM.termsToAccept dbManager [dbName])
+    liftIO (DM.acceptTerms dbManager reader terms)
+    pure (toolSuccessJson rid (object ["database" .= dbName, "accepted" .= map termsDatabase terms]))
 
 -- | A database a call names, under the argument naming it, and its licence.
 data NamedLicence = NamedLicence
@@ -623,6 +656,10 @@ data NamedLicence = NamedLicence
     , nlLicence :: !Licence
     }
 
+-- | The arguments through which a tool names a database it reads.
+databaseArguments :: [Text]
+databaseArguments = ["database", "database_a", "database_b", "other_database"]
+
 {- | The licence of each database a call names, read once for the call. A name
 the engine does not know is left out, so its tool answers its own "not
 loaded". A tool reading two databases names the second as @other_database@,
@@ -630,7 +667,7 @@ or both sides as @database_a@ and @database_b@.
 -}
 requestedLicences :: DatabaseManager -> KeyMap Value -> IO [NamedLicence]
 requestedLicences dbManager args =
-    fmap catMaybes . forM ["database", "database_a", "database_b", "other_database"] $ \key ->
+    fmap catMaybes . forM databaseArguments $ \key ->
         case KM.lookup (fromText key) args of
             Just (String dbName) -> fmap (NamedLicence key dbName) <$> DM.databaseLicence dbManager dbName
             _ -> pure Nothing
@@ -650,9 +687,10 @@ answer to it. A call naming none reads none, so there is nothing to trim.
 licenceOfDatabase :: [NamedLicence] -> Licence
 licenceOfDatabase = maybe LicenceUnstated nlLicence . find ((== "database") . nlArgument)
 
-dispatchTool :: DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> Licence -> IO Value
-dispatchTool dbManager presets mHosting mBaseUrl rid name args licence = case name of
+dispatchTool :: Maybe Text -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> Licence -> IO Value
+dispatchTool reader dbManager presets mHosting mBaseUrl rid name args licence = case name of
     "list_databases" -> callListDatabases dbManager rid
+    "accept_terms" -> callAcceptTerms reader dbManager rid args
     "load_database" -> callLoadDatabase dbManager mHosting rid args
     "unload_database" -> callUnloadDatabase dbManager rid args
     "derive_database" -> callDeriveDatabase dbManager mHosting rid args
@@ -695,6 +733,7 @@ dispatchTool dbManager presets mHosting mBaseUrl rid name args licence = case na
     "get_computed_quality_report" -> callGetComputedQualityReport dbManager mHosting rid args
     "get_characterization_coverage" -> callGetCoverageReport dbManager rid args
     "edit_exchanges" -> callEditExchanges dbManager rid args
+    "get_database_history" -> callDatabaseHistory dbManager rid args
     "get_database_parameters" -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
     "edit_database_parameters" -> callEditDatabaseParameters dbManager rid args
     "list_scenarios" -> callScenarios dbManager rid args (\_ -> pure ())
@@ -1945,8 +1984,9 @@ callEditExchanges dbManager rid args = runTool rid $ do
                 <*> parseArrayArg "set_parameters" Nothing args
                 <*> parseArrayArg "set_formulas" Nothing args
                 <*> parseArrayArg "remove_parameters" Nothing args
+                <*> optionalText "note" args
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))
-    report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName processId edits)
+    report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName (eerNote request >>= noteFrom) processId edits)
     return $ toolSuccessJson rid (toJSON (editReportToAPI report))
   where
     -- Absent leaves the description as it is; an empty list clears it.
@@ -1959,10 +1999,16 @@ callEditExchanges dbManager rid args = runTool rid $ do
 callEditDatabaseParameters :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callEditDatabaseParameters dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
-    request <- except (ParametersEditRequest <$> parseArrayArg "set_parameters" Nothing args <*> parseArrayArg "remove_parameters" Nothing args)
+    request <- except (ParametersEditRequest <$> parseArrayArg "set_parameters" Nothing args <*> parseArrayArg "remove_parameters" Nothing args <*> optionalText "note" args)
     edits <- except (first (T.intercalate "\n") (toParameterEdits request))
-    report <- ExceptT (first refusalMessage <$> editDatabaseParameters dbManager dbName edits)
+    report <- ExceptT (first refusalMessage <$> editDatabaseParameters dbManager dbName (pqNote request >>= noteFrom) edits)
     return $ toolSuccessJson rid (toJSON (parametersReportToAPI report))
+
+callDatabaseHistory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callDatabaseHistory dbManager rid args = runTool rid $ do
+    dbName <- except (requireText "database" args)
+    history <- ExceptT (databaseHistory dbManager dbName)
+    return $ toolSuccessJson rid (toJSON (map historyLineToAPI history))
 
 -- | Change the scenarios of a database, then answer the ones it holds.
 callScenarios :: DatabaseManager -> RequestId -> KeyMap Value -> (Text -> ExceptT Text IO ()) -> IO Value

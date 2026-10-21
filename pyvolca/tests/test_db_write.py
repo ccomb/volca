@@ -258,6 +258,14 @@ def _raw(session, body: bytes, warnings_header: str | None = None) -> None:
     session.post.return_value = r
 
 
+def _bytes_response(body: bytes):
+    from tests.conftest import _make_response
+
+    r = _make_response({})
+    r.content = body
+    return r
+
+
 class TestExport:
     def test_returns_raw_bytes(self, mocked_client):
         client, session = mocked_client
@@ -271,6 +279,25 @@ class TestExport:
         assert session.post.call_args[1]["headers"] == {
             "Accept": "application/octet-stream"
         }
+
+    def test_modified_database_exported_with_its_changes_report(self, mocked_client, monkeypatch):
+        from types import SimpleNamespace
+
+        client, session = mocked_client
+        monkeypatch.setattr(client, "list_databases", lambda: [SimpleNamespace(name="testdb", modified=True)])
+        _version_ok(session, wire=79)
+        _raw(session, b"x")
+        with pytest.warns(UserWarning, match="ro-crate"):
+            client.export_database("ecospold2")
+        assert session.post.call_args[1]["json"]["package"] == "ro-crate"
+
+    def test_document_file_reads_the_database_it_names(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=40)
+        r = session.get.return_value
+        session.get.side_effect = [r, _bytes_response(b"pdf bytes")]
+        assert client.document_file("external_docs/report.pdf") == b"pdf bytes"
+        assert session.get.call_args[0][0] == "http://test.local/api/v1/db/testdb/files/external_docs/report.pdf"
 
     def test_format_normalized_before_send(self, mocked_client):
         client, session = mocked_client
@@ -565,6 +592,20 @@ class TestEditExchanges:
         _version_ok(session, wire=72)
         with pytest.raises(VoLCAError, match="wire revision >= 73"):
             client.edit_exchanges("a_b", remove_parameters=["old"])
+        session.post.assert_not_called()
+
+    def test_note_travels_with_the_edit(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=79)
+        _ok(session, {"removed": [], "amountsSet": [], "added": 0, "transient": False, "warnings": []})
+        client.edit_exchanges("a_b", name="milk", note="Measured on site")
+        assert session.post.call_args[1]["json"]["note"] == "Measured on site"
+
+    def test_note_never_sent_to_an_engine_that_cannot_keep_it(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=78)
+        with pytest.raises(VoLCAError, match="wire revision >= 79"):
+            client.edit_exchanges("a_b", name="milk", note="Measured on site")
         session.post.assert_not_called()
 
     def test_texts_never_sent_to_an_engine_that_cannot_restate_them(self, mocked_client):

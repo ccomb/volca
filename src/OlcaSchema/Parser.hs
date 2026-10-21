@@ -41,6 +41,7 @@ import Text.Printf (printf)
 
 import Data.Indexing (uniqueIndex)
 import Database.Allocation (Allocating (..), SharedExchange (..), allocateWith, exchangeShares)
+import Database.Upload (DatabaseFormat (..), referenceConventionOf)
 import qualified Expr
 import qualified OlcaSchema.Package as P
 import Progress (ProgressLevel (..), reportProgress)
@@ -137,6 +138,7 @@ buildDatabase cfg key pkg =
                             , sdbDocumentation = noDocumentation
                             , sdbParameters = M.fromList [(P.paName q, parameter globalValues q) | q <- globals]
                             , sdbProductSystems = systems
+                            , sdbReferenceConvention = referenceConventionOf OpenLcaPackage
                             }
                     , builtNotices = ftNotices tables <> concatMap rpNotices processes <> concat systemNotices <> scenarioNotices
                     }

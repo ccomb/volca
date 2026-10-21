@@ -42,7 +42,7 @@ import Config (
 import Data.Either (isRight)
 import Data.List (sort)
 import qualified Data.Map.Strict as M
-import Data.Maybe (listToMaybe)
+import Data.Maybe (isJust, listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -51,7 +51,7 @@ import TOML (getArrayOf, getFieldWith)
 import qualified TOML
 import Test.Hspec
 import TestHelpers (membersOnly)
-import Types (ClassificationFilter (..), ClassificationMatch (..), Licence (..), PatchOp (..), Permission (Download), Release (..), StandardLicence (..), granted)
+import Types (ClassificationFilter (..), ClassificationMatch (..), Licence (..), PatchOp (..), Permission (Download), Release (..), StandardLicence (..), granted, licenceFingerprint)
 
 serverOn :: Text -> ServerConfig
 serverOn host =
@@ -429,6 +429,9 @@ spec = do
         it "reads an own licence and what it refuses" $
             fmap dcLicence (decodeDatabase (entry ["licence_text = \"Members only\"", "refuses = [\"download\"]", "attribution = true"]))
                 `shouldBe` Right refused
+
+        it "reads whether its readers accept it first" $
+            fmap (isJust . licenceFingerprint . dcLicence) (decodeDatabase (entry ["licence_text = \"Ours\"", "accept = true"])) `shouldBe` Right True
 
         -- Ignored, the switch these keys replaced would read a refusal as no licence at all.
         it "stops on the downloads key it no longer reads" $

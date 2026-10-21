@@ -23,6 +23,7 @@ import Types (
     ExchangePatchMatch (..),
     LocationSource (..),
     PatchOp (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     TechRole (..),
@@ -173,6 +174,7 @@ fixture =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 emptyMatch :: ExchangePatchMatch

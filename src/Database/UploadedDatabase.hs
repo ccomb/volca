@@ -21,6 +21,7 @@ module Database.UploadedDatabase (
     discoverUploadedMethods,
     getDatabaseUploadsDir,
     getMethodUploadsDir,
+    getRefDataUploadsDir,
 
     -- * Data directory
     getDataDir,
@@ -146,6 +147,16 @@ getMethodUploadsDir = do
     createDirectoryIfMissing True dir
     return dir
 
+{- | Where one kind of uploaded reference data lives (@flow-synonyms@, @units@, ...).
+Under the data directory like databases and methods, so that a container whose
+working directory is not its data volume still finds, and keeps, what it wrote.
+Not created: the callers that write do it.
+-}
+getRefDataUploadsDir :: FilePath -> IO FilePath
+getRefDataUploadsDir subdir = do
+    base <- getDataDir
+    return (base </> "uploads" </> subdir)
+
 -- | Check if a path belongs to the uploads directory
 isUploadedPath :: FilePath -> Bool
 isUploadedPath path =
@@ -184,6 +195,7 @@ parseMetaToml content = do
             LicenceKeys (unquote <$> getValue "licence") (unquote <$> getValue "licence_text")
                 <$> traverse parseStrictStringList (getValue "refuses")
                 <*> traverse parseBool (getValue "attribution")
+                <*> traverse parseBool (getValue "accept")
 
     version <- getValue "version" >>= readMaybe . T.unpack
     displayName <- unquote <$> getValue "displayName"
@@ -377,6 +389,7 @@ formatMetaToml UploadMeta{..} =
             ++ maybe [] (\t -> ["licence_text = " <> quote t]) lkText
             ++ maybe [] (\ps -> ["refuses = [" <> T.intercalate ", " (map quote ps) <> "]"]) lkRefuses
             ++ maybe [] (\a -> ["attribution = " <> if a then "true" else "false"]) lkAttribution
+            ++ maybe [] (\a -> ["accept = " <> if a then "true" else "false"]) lkAccept
 
     escapeToml = T.concatMap escape
       where

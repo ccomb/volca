@@ -60,6 +60,7 @@ import Types (
     Licence (..),
     LocationSource (..),
     ProcessId,
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
@@ -103,6 +104,7 @@ emptyDelete =
         , drKeep = []
         , drExtra = []
         , drIds = Nothing
+        , drNote = Nothing
         }
 
 spec :: Spec
@@ -458,6 +460,7 @@ buildOrFail (SimpleParts acts flows units) = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     case r of
         Right db -> pure db

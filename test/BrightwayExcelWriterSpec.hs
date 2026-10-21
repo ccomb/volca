@@ -110,6 +110,13 @@ spec = describe "BrightwayExcel.Writer" $ do
                         let db' = rebuild parsed
                         logicalCells db' `shouldBe` logicalCells fixtureDb
 
+        it "brings each substance back with its CAS number" $ do
+            let withCAS = fixtureDb{sdbBioFlows = M.map (\f -> f{bfCAS = Just "000124-38-9"}) (sdbBioFlows fixtureDb)}
+            withWritten withCAS $ \path -> do
+                parseBrightwayExcel defaultUnitConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right parsed -> map bfCAS (M.elems (sdbBioFlows (rebuild parsed))) `shouldBe` [Just "124-38-9"]
+
         it "(c) preserves a biosphere inventory amount across the round-trip" $
             withWritten fixtureDb $ \path -> do
                 parseBrightwayExcel defaultUnitConfig path >>= \case
@@ -280,7 +287,7 @@ spec = describe "BrightwayExcel.Writer" $ do
 -- ---------------------------------------------------------------------------
 
 cfg :: WriterConfig
-cfg = WriterConfig{wcDatabaseName = "Test_Inventory_DB"}
+cfg = defaultWriterConfig{wcDatabaseName = "Test_Inventory_DB"}
 
 -- One activity producing electricity, consuming gas, emitting CO2.
 fixtureDb :: SimpleDatabase
@@ -294,6 +301,7 @@ fixtureDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 elec :: Activity
@@ -404,6 +412,7 @@ specialDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 specialProductName, specialInputName, specialBioName :: Text
@@ -643,6 +652,7 @@ coproductDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 {- | The (role, amount) pairs of an activity's technosphere production rows,
@@ -653,7 +663,7 @@ roleAmounts a = [(role, techAmount ex) | ex@TechnosphereExchange{techRole = role
 
 -- | A database with no activities, flows, or units.
 emptyDb :: SimpleDatabase
-emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation M.empty []
+emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation M.empty [] SignedReferences
 
 {- | A single input exchange whose amount sits at the 1e15 integer/scientific
 boundary of 'formatAmount'.
@@ -704,6 +714,7 @@ gramRefDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     act =
@@ -917,6 +928,7 @@ rebuild Workbook{wbActivities = acts, wbTechFlows = techDB, wbBioFlows = bioDB, 
         , sdbDocumentation = noDocumentation
         , sdbParameters = parameters
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 {- | The deterministic logical cells the writer would emit for a database: its

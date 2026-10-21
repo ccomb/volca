@@ -135,6 +135,7 @@ mkDB acts flows =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 ctxFor :: [IndexedDatabase] -> LinkingContext
@@ -154,7 +155,7 @@ withGrams = mergeUnitConfigs [defaultUnitConfig, mkUnitConfig defaultDimensionOr
 
 runLinks :: SimpleDatabase -> [IndexedDatabase] -> CrossDBLinkingStats
 runLinks fg idbs =
-    findAllCrossDBLinks (ctxFor idbs) (sdbTechFlows fg) (sdbWasteFlows fg) (sdbUnits fg) (sdbActivities fg)
+    findAllCrossDBLinks (ctxFor idbs) fg
 
 indexBg :: SimpleDatabase -> IndexedDatabase
 indexBg = buildIndexedDatabase "bg" emptySynonymDB

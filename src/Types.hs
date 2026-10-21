@@ -17,6 +17,7 @@ module Types (
 import API.JsonOptions (Stripped (..))
 import Control.DeepSeq (NFData)
 import Control.Monad ((<=<), (>=>))
+import Crypto.Hash (SHA256 (..), hashWith)
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, withText, (.!=), (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
 import Data.Int (Int32)
@@ -30,6 +31,7 @@ import Data.Store (Size (..), Store (..))
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Time.Calendar (Day)
 import Data.Time.Format.ISO8601 (iso8601ParseM, iso8601Show)
 import Data.Time.LocalTime (TimeOfDay)
@@ -1773,6 +1775,7 @@ data Database = Database
     , dbDocumentation :: !DatabaseDocumentation -- What the database says about itself (serialized to cache)
     , dbParameters :: !(M.Map Text Parameter) -- Parameters every process reads unless it defines its own of the same name
     , dbProductSystems :: ![ProductSystem] -- The product systems the source ships, with their parameter sets
+    , dbReferenceConvention :: !ReferenceConvention -- How its inputs read a supplier whose reference is negative
     , -- Runtime-only fields (not serialized to cache)
       dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
     , dbFlowsByName :: !(M.Map Text [BiosphereFlow]) -- Biosphere flow name index for LCIA matching
@@ -1812,6 +1815,7 @@ instance Store Database where
             + getSize (dbDocumentation db)
             + getSize (dbParameters db)
             + getSize (dbProductSystems db)
+            + getSize (dbReferenceConvention db)
 
     poke db = do
         poke (dbProcessIdTable db)
@@ -1838,6 +1842,7 @@ instance Store Database where
         poke (dbDocumentation db)
         poke (dbParameters db)
         poke (dbProductSystems db)
+        poke (dbReferenceConvention db)
 
     -- Runtime-only fields are NOT serialized
 
@@ -1865,6 +1870,7 @@ instance Store Database where
         documentation <- peek
         parameters <- peek
         productSystems <- peek
+        referenceConvention <- peek
         return
             Database
                 { dbProcessIdTable = processIdTable
@@ -1891,6 +1897,7 @@ instance Store Database where
                 , dbDocumentation = documentation
                 , dbParameters = parameters
                 , dbProductSystems = productSystems
+                , dbReferenceConvention = referenceConvention
                 , -- Runtime-only fields set to defaults
                   dbSynonymDB = Nothing
                 , dbFlowsByName = M.empty
@@ -2226,6 +2233,53 @@ initializeRuntimeFields db synDB =
     let db' = addSynonymDBToDatabase db synDB
      in addFlowNameIndexToDatabase db'
 
+{- | How a database's inputs read a supplier whose reference amount is
+negative: a waste treatment written as taking in -1 kg of waste.
+
+Two conventions meet when a database links its inputs to another one. Take
+an input of +3 kg of used oil linked to a treatment whose reference is -1 kg:
+
+* EcoSpold 2, openLCA (its reader turns a treatment's reference waste input
+  into an output of -1) and Brightway write treatments that way, so in their
+  files +3 kg is waste received back from the treatment, a credit. Sending
+  3 kg of waste is written as a waste output, or as an input of -3 kg.
+* SimaPro, ILCD and EcoSpold 1 write a treatment with a positive reference,
+  so +3 kg is a demand that runs the treatment forward, a burden.
+
+Within one file each reading is consistent; the convention only tells the
+cross-database link how to read a line that reaches a dependency written the
+other way. It leaves alone a -1 treatment inside a SimaPro file, which keeps
+the reading of the file it sits in. A Brightway row of +3 kg written by hand
+to an EcoSpold 2 treatment stays a credit, as Brightway itself computes it.
+EcoSpold 1 has no such link today: its waste-to-treatment rows are read as
+coproducts.
+-}
+data ReferenceConvention
+    = -- | A treatment's reference may be negative; an input reaching it is read as written.
+      SignedReferences
+    | -- | A treatment's reference is positive; an input reaching a negative one is a demand, read with that reference's sign.
+      PositiveReferences
+    deriving (Eq, Show, Generic, Store, NFData)
+
+-- | The sign of a supplier's reference amount, which a line reaching it may have to take.
+data ReferenceSign
+    = -- | A treatment written as giving out its waste, -1 kg
+      NegativeReference
+    | -- | A product, or a treatment written as taking in its waste
+      PositiveReference
+    deriving (Eq, Show)
+
+-- | The sign as the factor a line is multiplied by.
+signFactor :: ReferenceSign -> Double
+signFactor NegativeReference = -1
+signFactor PositiveReference = 1
+
+-- | The sign of a reference amount.
+referenceSignOf :: Double -> ReferenceSign
+referenceSignOf amount
+    | amount < 0 = NegativeReference
+    | otherwise = PositiveReference
+
 {- | Simplified version without indexes (for loading compatibility)
 Used during database loading, before conversion to final Vector structure
 -}
@@ -2238,6 +2292,7 @@ data SimpleDatabase = SimpleDatabase
     , sdbDocumentation :: !DatabaseDocumentation
     , sdbParameters :: !(M.Map Text Parameter)
     , sdbProductSystems :: ![ProductSystem]
+    , sdbReferenceConvention :: !ReferenceConvention
     }
     deriving (Generic, Store)
 
@@ -2259,6 +2314,7 @@ simpleDatabaseOf db pids =
         , sdbDocumentation = dbDocumentation db
         , sdbParameters = dbParameters db
         , sdbProductSystems = dbProductSystems db
+        , sdbReferenceConvention = dbReferenceConvention db
         }
 
 -- | Blocking reason for cross-database linking failure
@@ -2483,11 +2539,29 @@ standardTerms Etalab =
 shareAlike :: Text
 shareAlike = "A copy or an adaptation is shared under this same licence."
 
--- | A licence its publisher writes: their text, what it refuses, and whether it requires attribution.
+{- | Whether a reader accepts a licence's text before the engine opens its
+database to them. Only an own licence asks it: a standard licence binds by its
+text alone, and its publisher has nothing to add to it.
+-}
+data Acceptance = AcceptanceAsked | NoAcceptance
+    deriving (Show, Eq, Generic)
+
+acceptanceAsked :: Acceptance -> Bool
+acceptanceAsked AcceptanceAsked = True
+acceptanceAsked NoAcceptance = False
+
+acceptanceFrom :: Bool -> Acceptance
+acceptanceFrom True = AcceptanceAsked
+acceptanceFrom False = NoAcceptance
+
+{- | A licence its publisher writes: their text, what it refuses, whether it
+requires attribution, and whether its readers accept it first.
+-}
 data OwnLicence = OwnLicence
     { ownText :: !Text
     , ownRefused :: !(S.Set Permission)
     , ownAttribution :: !Attribution
+    , ownAcceptance :: !Acceptance
     }
     deriving (Show, Eq, Generic)
 
@@ -2498,11 +2572,11 @@ the inventory, and the inventory recomputes the contributions. Refusing one
 while granting what rebuilds it refuses nothing, so it is not a licence anyone
 can be held to, and it is refused with what it is missing.
 -}
-ownLicence :: Text -> S.Set Permission -> Attribution -> Either Text OwnLicence
-ownLicence text refused attribution
+ownLicence :: Text -> S.Set Permission -> Attribution -> Acceptance -> Either Text OwnLicence
+ownLicence text refused attribution acceptance
     | T.null (T.strip text) = Left "an own licence needs its text, and this one is empty"
     | (p, missing) : _ <- unnested refused = Left (nestingRefusal p missing)
-    | otherwise = Right (OwnLicence text refused attribution)
+    | otherwise = Right (OwnLicence text refused attribution acceptance)
 
 {- | Each refused permission whose refusal is undone by another one granted,
 with what has to be refused beside it.
@@ -2542,6 +2616,40 @@ refusedBy (LicenceOwn own) = ownRefused own
 granted :: Licence -> Permission -> Bool
 granted licence = (`S.notMember` refusedBy licence)
 
+{- | What a reader presents to show they accepted a licence, when it asks it:
+a fingerprint of its text. A new text has a new one, so a reader who accepted
+the old terms is asked again.
+-}
+licenceFingerprint :: Licence -> Maybe Text
+licenceFingerprint (LicenceOwn own)
+    | ownAcceptance own == AcceptanceAsked = Just (T.take 16 (T.pack (show (hashWith SHA256 (TE.encodeUtf8 (ownText own))))))
+licenceFingerprint _ = Nothing
+
+-- | The terms a reader of a database accepts before it is opened to them.
+data Terms = Terms
+    { termsDatabase :: !Text
+    , termsText :: !Text
+    , termsFingerprint :: !Text
+    }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped Terms)
+
+{- | The terms the licences of these databases ask a reader to accept, once per
+text: a copy is served under its source's licence, and is accepted with it.
+-}
+termsAsked :: [(Text, Licence)] -> [Terms]
+termsAsked licences =
+    nubOrdOn
+        termsFingerprint
+        [ Terms name (ownText own) fingerprint
+        | (name, licence@(LicenceOwn own)) <- licences
+        , Just fingerprint <- [licenceFingerprint licence]
+        ]
+
+-- | The terms among these that the reader has not accepted.
+missingTerms :: S.Set Text -> [Terms] -> [Terms]
+missingTerms accepted = filter ((`S.notMember` accepted) . termsFingerprint)
+
 {- | Which published database a database is: the name its publisher gives it,
 the version, and the system model when the publisher ships several. Two
 engines that each hold a database of the same release hold the same data, so
@@ -2558,6 +2666,25 @@ data Release = Release
     }
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Release)
+
+{- | How a database's data came to differ from the files it was read from: its
+own edits, kept in its journal, and a division of its multi-output blocks other
+than its source's. The two are independent, and a database with neither is
+unmodified. A copy inherits its source's edits, so it differs from the files
+as much as its source does.
+-}
+data Modification = Modification
+    { modificationEdited :: !Bool
+    , modificationReallocated :: !Bool
+    }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped Modification)
+
+unmodified :: Modification
+unmodified = Modification False False
+
+isModified :: Modification -> Bool
+isModified (Modification edited reallocated) = edited || reallocated
 
 {- | Whether two releases are the same, read the way people write them: case
 and the run of spaces between words aside, but "3.12" is not "3.12.1".
@@ -2633,36 +2760,43 @@ includedSentence dbName dependency =
 
 {- | The keys a database states its licence with, in the engine's config and in
 an upload's metadata alike: @licence@ names a standard one, @licence_text@,
-@refuses@ and @attribution@ write an own one.
+@refuses@, @attribution@ and @accept@ write an own one.
 -}
 data LicenceKeys = LicenceKeys
     { lkId :: !(Maybe Text)
     , lkText :: !(Maybe Text)
     , lkRefuses :: !(Maybe [Text])
     , lkAttribution :: !(Maybe Bool)
+    , lkAccept :: !(Maybe Bool)
     }
 
 {- | Read the keys as exactly one licence, or refuse: a permission nobody can
 read, or both forms at once, has more than one reading, and reading it as
 granted would hand out what its publisher refused. An own licence that says
-nothing of attribution requires it, the cautious reading.
+nothing of attribution requires it, the cautious reading; one that says
+nothing of acceptance does not ask it, since only its publisher can.
 -}
 licenceFromKeys :: LicenceKeys -> Either Text Licence
-licenceFromKeys (LicenceKeys Nothing Nothing Nothing Nothing) = Right LicenceUnstated
-licenceFromKeys (LicenceKeys (Just spdx) Nothing Nothing Nothing) = LicenceStandard <$> parseSpdx spdx
-licenceFromKeys (LicenceKeys Nothing (Just text) refuses attribution) = do
+licenceFromKeys (LicenceKeys Nothing Nothing Nothing Nothing Nothing) = Right LicenceUnstated
+licenceFromKeys (LicenceKeys (Just spdx) Nothing Nothing Nothing Nothing) = LicenceStandard <$> parseSpdx spdx
+licenceFromKeys (LicenceKeys Nothing (Just text) refuses attribution accept) = do
     refused <- traverse parsePermission (concat refuses)
-    LicenceOwn <$> ownLicence text (S.fromList refused) (maybe AttributionRequired attributionFrom attribution)
-licenceFromKeys (LicenceKeys (Just _) _ _ _) =
-    Left "licence names a standard licence, which is not adjusted: drop licence_text, refuses and attribution, or drop licence to write an own one"
-licenceFromKeys (LicenceKeys Nothing Nothing _ _) = Left "refuses and attribution belong to an own licence: write its licence_text too"
+    LicenceOwn <$> ownLicence text (S.fromList refused) (maybe AttributionRequired attributionFrom attribution) (maybe NoAcceptance acceptanceFrom accept)
+licenceFromKeys (LicenceKeys (Just _) _ _ _ _) =
+    Left "licence names a standard licence, which is not adjusted: drop licence_text, refuses, attribution and accept, or drop licence to write an own one"
+licenceFromKeys (LicenceKeys Nothing Nothing _ _ _) = Left "refuses, attribution and accept belong to an own licence: write its licence_text too"
 
 -- | The keys a licence is written back with, the inverse of 'licenceFromKeys'.
 licenceKeys :: Licence -> LicenceKeys
-licenceKeys LicenceUnstated = LicenceKeys Nothing Nothing Nothing Nothing
-licenceKeys (LicenceStandard l) = LicenceKeys (Just (spdxId l)) Nothing Nothing Nothing
+licenceKeys LicenceUnstated = LicenceKeys Nothing Nothing Nothing Nothing Nothing
+licenceKeys (LicenceStandard l) = LicenceKeys (Just (spdxId l)) Nothing Nothing Nothing Nothing
 licenceKeys (LicenceOwn own) =
-    LicenceKeys Nothing (Just (ownText own)) (Just (map permissionCode (S.toList (ownRefused own)))) (Just (attributionRequired (ownAttribution own)))
+    LicenceKeys
+        Nothing
+        (Just (ownText own))
+        (Just (map permissionCode (S.toList (ownRefused own))))
+        (Just (attributionRequired (ownAttribution own)))
+        (Just (acceptanceAsked (ownAcceptance own)))
 
 data LicenceKind = KindUnstated | KindStandard | KindOwn
     deriving (Show, Eq, Enum, Bounded)
@@ -2688,7 +2822,7 @@ data PermissionState = PermissionState
     deriving (ToJSON, ToSchema) via (Stripped PermissionState)
 
 {- | A licence on the wire. A request names one with @kind@ and the fields
-that kind takes (@id@; or @text@, @refused@ and @attribution@); the answer is
+that kind takes (@id@; or @text@, @refused@, @attribution@ and @accept@); the answer is
 the same object completed with what the engine derives from it, so a client
 has one shape to read and write.
 -}
@@ -2702,6 +2836,9 @@ data LicenceView = LicenceView
     , lvAttribution :: !Bool
     , lvConditions :: ![Text]
     , lvPermissions :: ![PermissionState]
+    , lvAccept :: !Bool
+    , lvAcceptance :: !(Maybe Text)
+    -- ^ The fingerprint a reader presents to show they accepted the text, when the licence asks it
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped LicenceView)
@@ -2718,7 +2855,12 @@ licenceView licence = case licence of
                 , lvAttribution = attributionRequired (stAttribution terms)
                 , lvConditions = stConditions terms
                 }
-    LicenceOwn own -> (base KindOwn){lvText = Just (ownText own), lvAttribution = attributionRequired (ownAttribution own)}
+    LicenceOwn own ->
+        (base KindOwn)
+            { lvText = Just (ownText own)
+            , lvAttribution = attributionRequired (ownAttribution own)
+            , lvAccept = acceptanceAsked (ownAcceptance own)
+            }
   where
     base :: LicenceKind -> LicenceView
     base kind =
@@ -2732,6 +2874,8 @@ licenceView licence = case licence of
             , lvAttribution = False
             , lvConditions = []
             , lvPermissions = [PermissionState p (granted licence p) (enforcement p == Enforced) | p <- [minBound .. maxBound]]
+            , lvAccept = False
+            , lvAcceptance = licenceFingerprint licence
             }
 
 instance ToJSON Licence where
@@ -2748,11 +2892,13 @@ instance FromJSON Licence where
                 refused <- o .:? "refused"
                 attribution <- o .:? "attribution"
                 text <- o .:? "text" :: Parser (Maybe Text)
+                accept <- o .:? "accept"
                 let view = licenceView licence
                     adjusted =
                         maybe False ((/= S.fromList (lvRefused view)) . S.fromList) refused
                             || maybe False (/= lvAttribution view) attribution
                             || isJust text
+                            || accept == Just True
                 if adjusted
                     then fail "a standard licence is not adjusted: send an own licence to say more than its text does"
                     else pure licence
@@ -2760,7 +2906,8 @@ instance FromJSON Licence where
                 text <- o .: "text"
                 refused <- o .:? "refused" .!= []
                 attribution <- o .: "attribution"
-                either (fail . T.unpack) (pure . LicenceOwn) (ownLicence text (S.fromList refused) (attributionFrom attribution))
+                accept <- o .:? "accept" .!= False
+                either (fail . T.unpack) (pure . LicenceOwn) (ownLicence text (S.fromList refused) (attributionFrom attribution) (acceptanceFrom accept))
             other -> fail ("kind: expected unstated, standard or own, got " <> T.unpack other)
 
 instance ToSchema Licence where

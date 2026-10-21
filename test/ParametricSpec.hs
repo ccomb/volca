@@ -45,7 +45,7 @@ import Database.Allocation (Allocating (..), allocate)
 import Database.Author (AuthorContext (..), EditedActivity (..), ExchangeEdit (..), ExchangeSelector (..), RestatedLine (..), applyExchangeEdits)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Cutoffs (gapIndexOf)
-import Database.Journal (JournalOp (..), applyOp)
+import Database.Journal (EditLine (..), JournalOp (..), ParameterLine (..), Prior (..), applyOp)
 import Database.Loader (findAllCrossDBLinks)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getGapIndex, initDatabaseManager, withSettings)
 import Database.MatrixBuild (technosphereChange, withActivities)
@@ -285,12 +285,12 @@ spec = describe "a database at other values of its parameters" $ do
         substituted <- scored (Just (SubstitutionRequest [Substitution (processIdText (aBread, pBread)) (processIdText (aCake, pCake)) AllConsumers] [])) WithLines
         either errHTTPCode (const 200) substituted `shouldBe` 400
         split <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") Nothing IncludeLongTerm WithLines)
-        let kept refused = map (null . lrExchangeContributions) (lbrResults (withholdBatch "bakery" (LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired}) split))
+        let kept refused = map (null . lrExchangeContributions) (lbrResults (withholdBatch "bakery" (LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired, ownAcceptance = NoAcceptance}) split))
         kept [] `shouldBe` [False, False]
         kept [ReadInventory] `shouldBe` [True, True]
         kept [SeeDetailedScores] `shouldBe` [True, True]
         reply <-
-            callTool manager [] Nothing Nothing noRequestId "score_activity" . KM.fromList $
+            callTool Nothing manager [] Nothing Nothing noRequestId "score_activity" . KM.fromList $
                 [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("exchange_contributions", Bool True)]
         let split' = \case
                 Object r | Just (Array a) <- KM.lookup "exchangeContributions" r -> not (null a)
@@ -305,7 +305,7 @@ spec = describe "a database at other values of its parameters" $ do
             names = [ParameterName (Just (processIdText (aBread, pBread))) "mix_de", ParameterName Nothing "hydration"]
         model <- answer manager (postReducedModel "bakery" loaf (CollectionName "model") Nothing (ReducedModelRequest names))
         reply <-
-            callTool manager [] Nothing Nothing noRequestId "get_reduced_model" . KM.fromList $
+            callTool Nothing manager [] Nothing Nothing noRequestId "get_reduced_model" . KM.fromList $
                 [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("parameters", toJSON names)]
         (Object <$> payloadOf reply) `shouldBe` Just (toJSON model)
 
@@ -379,7 +379,7 @@ spec = describe "a database at other values of its parameters" $ do
         it "sets a parameter on every product of a block" $ do
             (bakery, grid) <- databases
             let ctx = AuthorContext{acDb = bakery, acDeps = [grid], acUnitConfig = bakeryUnits}
-            after <- either (fail . T.unpack) pure (applyOp ctx (Edited (processIdText (aMill, pMeal)) [(SetParameter "grind" (input 2), 1)]))
+            after <- either (fail . T.unpack) pure (applyOp ctx (Edited (processIdText (aMill, pMeal)) [EditLine (SetParameter "grind" (input 2)) 1 PriorUnknown]))
             forM_ [pMeal, pBran] $ \product' ->
                 (map exchangeAmount . exchanges <$> (getActivity after =<< findProcessId after aMill product')) `shouldBe` Just [1, 2]
 
@@ -415,7 +415,7 @@ spec = describe "a database at other values of its parameters" $ do
 
         it "is replayed from the journal to the same database" $ do
             db <- pantryDb
-            after <- either (fail . T.unpack) pure (applyOp AuthorContext{acDb = db, acDeps = [], acUnitConfig = bakeryUnits} (ParametersEdited [("salt_kg", Just (input 0.02)), ("unread", Nothing)]))
+            after <- either (fail . T.unpack) pure (applyOp AuthorContext{acDb = db, acDeps = [], acUnitConfig = bakeryUnits} (ParametersEdited [ParameterLine "salt_kg" (Just (input 0.02)) PriorUnknown, ParameterLine "unread" Nothing PriorUnknown]))
             M.keys (dbParameters after) `shouldBe` ["salt_g", "salt_kg", "share_pct"]
             (map exchangeAmount . exchanges <$> (getActivity after =<< findProcessId after aBread pBread)) `shouldBe` Just [1, 0.04]
 
@@ -732,7 +732,7 @@ databases = do
                 , lcGeographyPolicy = GeoExact
                 , lcSupplierAliases = emptyAliasMap
                 }
-        links = cdlLinks (findAllCrossDBLinks context techFlows M.empty units bakeryActivities)
+        links = cdlLinks (findAllCrossDBLinks context (toSimpleDatabase bakery))
     pure (bakery{dbCrossDBLinks = links}, grid)
 
 build :: Text -> M.Map UUID TechnosphereFlow -> M.Map (UUID, UUID) Activity -> M.Map Text Parameter -> IO Database
@@ -749,6 +749,7 @@ build name flows acts parameters =
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = parameters
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
 
 -- | The activity and product of the chain's link @i@.
