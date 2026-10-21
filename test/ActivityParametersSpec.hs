@@ -74,5 +74,6 @@ butter = do
                             , ("unused", parameter (InputParameter 9 Nothing))
                             ]
                     , sdbProductSystems = []
+                    , sdbReferenceConvention = SignedReferences
                     }
     either (fail . show) (pure . uncurry (convertActivityForAPI db)) (resolveActivityAndProcessId db (UUID.toText process <> "_" <> UUID.toText product'))

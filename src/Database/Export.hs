@@ -156,7 +156,8 @@ namedAfterLinks units (Dependencies deps) links sdb0 = foldl' answer (sdb0, []) 
                 line
                     { techFlowId = tfId supplied
                     , techActivityLinkId = Just (cdlSupplierActUUID link)
-                    , techAmount = if bridged then amount * factor else amount
+                    , -- The factor's sign is how the database reads the line, not part of the conversion.
+                      techAmount = if bridged then amount * abs factor else amount
                     , techUnitId = if bridged then unitId linkUnit else unit
                     , techFormula = if bridged then Nothing else formula
                     }

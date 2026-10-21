@@ -55,6 +55,7 @@ import Types (
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
@@ -281,6 +282,7 @@ fixture =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     classified :: Text -> UUID -> Activity

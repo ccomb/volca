@@ -349,6 +349,15 @@
 
 ### Fixed
 
+- A SimaPro, ILCD or EcoSpold 1 database sending waste to a treatment of an
+  EcoSpold 2 or openLCA dependency, such as an ecoinvent treatment, now
+  charges that waste. These formats write a treatment as taking in +1 kg of
+  waste, so they send 3 kg to it as an input of +3 kg; an ecoinvent
+  treatment is written as giving out -1 kg, and the input of +3 kg was read
+  as 3 kg taken back from it, a credit instead of a burden. Each database
+  now says which way it writes its treatments, and an input crossing to the
+  other way takes the treatment's sign. A database saved in the cache before
+  this is read again from its files once.
 - Finalizing a database relinked with a mapping, before it was finalized,
   keeps the links the mapping made, and so does adding or removing one of
   its dependencies in between. Both relinked the database without the

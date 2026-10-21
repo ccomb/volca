@@ -145,6 +145,7 @@ buildFixture comp = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . ("buildDatabaseWithMatrices: " <>) . T.unpack) pure r
   where
@@ -222,6 +223,7 @@ databaseOf acts flows =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 {- | A spinning step buying electricity under the name its source gave it: 33.336

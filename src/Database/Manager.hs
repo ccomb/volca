@@ -3022,6 +3022,7 @@ relinkPlan RelinkInputs{..} =
     newStats =
         ( Loader.findAllCrossDBLinks
             riContext
+            (dbReferenceConvention riDatabase)
             (dbTechFlows riDatabase)
             (dbWasteFlows riDatabase)
             (dbUnits riDatabase)

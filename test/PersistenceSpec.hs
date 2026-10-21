@@ -73,6 +73,7 @@ import Types (
     Licence (..),
     LocationSource (..),
     Medium (..),
+    ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
@@ -390,6 +391,7 @@ buildFrom activities = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     either (fail . show) pure r
 

@@ -251,6 +251,7 @@ toSimple (acts, tech, bio, waste, units) =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 {- | Stable key for an activity: its reference product flow UUID paired with a
@@ -360,6 +361,7 @@ inventoryByName (acts, tech, bio, waste, units) target = do
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
                 }
     case built of
         Left err -> expectationFailure (T.unpack err) >> pure M.empty
@@ -779,6 +781,7 @@ emissionDb comp =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     actU, prodU, bioU, unitU :: UUID
@@ -836,6 +839,7 @@ wasteDb mTreatment =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     actU, prodU, wasteU, unitU :: UUID
@@ -897,6 +901,7 @@ designationDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     actU, prodU, marketU, elecU, ureaU, unitU :: UUID
@@ -966,6 +971,7 @@ allocationDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     actU, prodU, matU, unitU :: UUID
@@ -1011,6 +1017,7 @@ zeroAllocationDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     actU, prodU, matU, unitU :: UUID
@@ -1059,6 +1066,7 @@ commentDb ped cmt =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     actU, prodU, matU, unitU :: UUID
@@ -1099,6 +1107,7 @@ namedDb name =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     actU, prodU, unitU :: UUID
@@ -1174,6 +1183,7 @@ guardDb alloc ntype exs =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     act =

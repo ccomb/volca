@@ -301,6 +301,7 @@ fixtureDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 elec :: Activity
@@ -411,6 +412,7 @@ specialDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 specialProductName, specialInputName, specialBioName :: Text
@@ -650,6 +652,7 @@ coproductDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 {- | The (role, amount) pairs of an activity's technosphere production rows,
@@ -660,7 +663,7 @@ roleAmounts a = [(role, techAmount ex) | ex@TechnosphereExchange{techRole = role
 
 -- | A database with no activities, flows, or units.
 emptyDb :: SimpleDatabase
-emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation M.empty []
+emptyDb = SimpleDatabase M.empty M.empty M.empty M.empty M.empty noDocumentation M.empty [] SignedReferences
 
 {- | A single input exchange whose amount sits at the 1e15 integer/scientific
 boundary of 'formatAmount'.
@@ -711,6 +714,7 @@ gramRefDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     act =
@@ -924,6 +928,7 @@ rebuild Workbook{wbActivities = acts, wbTechFlows = techDB, wbBioFlows = bioDB, 
         , sdbDocumentation = noDocumentation
         , sdbParameters = parameters
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 {- | The deterministic logical cells the writer would emit for a database: its

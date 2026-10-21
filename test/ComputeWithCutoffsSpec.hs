@@ -113,6 +113,7 @@ simple acts =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 {- | The database as the loader leaves it: its linking statistics name what

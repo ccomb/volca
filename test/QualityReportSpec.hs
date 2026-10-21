@@ -36,6 +36,7 @@ import Types (
     LocationSource (..),
     Medium (..),
     NativeProcessId (..),
+    ReferenceConvention (..),
     Severity (..),
     SimpleDatabase (..),
     SupplierClaim (..),
@@ -233,6 +234,7 @@ dbOf acts =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 -- | The report of a one-activity database, for the many single-defect cases.

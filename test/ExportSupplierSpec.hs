@@ -220,6 +220,7 @@ simple acts flows =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
 
 activity :: Text -> Text -> [Exchange] -> Activity

@@ -543,6 +543,7 @@ multiOutputDb =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     techFlow :: UUID -> Text -> TechnosphereFlow
@@ -620,6 +621,7 @@ oneActivityDb bios exs =
         , sdbDocumentation = noDocumentation
         , sdbParameters = M.empty
         , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
         }
   where
     act =

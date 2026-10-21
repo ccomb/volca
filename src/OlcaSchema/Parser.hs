@@ -137,6 +137,7 @@ buildDatabase cfg key pkg =
                             , sdbDocumentation = noDocumentation
                             , sdbParameters = M.fromList [(P.paName q, parameter globalValues q) | q <- globals]
                             , sdbProductSystems = systems
+                            , sdbReferenceConvention = SignedReferences
                             }
                     , builtNotices = ftNotices tables <> concatMap rpNotices processes <> concat systemNotices <> scenarioNotices
                     }
