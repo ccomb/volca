@@ -44,7 +44,7 @@ import Data.Time.Format.ISO8601 (iso8601Show)
 
 import Config (DatabaseConfig (..))
 import Database.Upload (DatabaseFormat (..), formatDisplayText)
-import Types (Attribution (..), Licence (..), LicenceKeys (..), OwnLicence (..), Release (..), StandardLicence, StandardTerms (..), licenceFromKeys, permissionCode, spdxId, standardTerms)
+import Types (Acceptance (..), Attribution (..), Licence (..), LicenceKeys (..), OwnLicence (..), Release (..), StandardLicence, StandardTerms (..), licenceFromKeys, permissionCode, spdxId, standardTerms)
 import Zip (zipFiles)
 
 -- | How an export is handed over: the bytes alone, or packaged with their description.
@@ -236,15 +236,17 @@ licenceEntities name (LicenceOwn own) =
         , "@type" .= ("CreativeWork" :: Text)
         , "name" .= ("Licence of " <> name)
         , "description" .= ownText own
-        , "additionalProperty" .= refs [refusesId, attributionId]
+        , "additionalProperty" .= refs [refusesId, attributionId, acceptId]
         ]
     , property refusesId "refuses" (A.toJSON (map permissionCode (S.toList (ownRefused own))))
     , property attributionId "attribution" (A.Bool (ownAttribution own == AttributionRequired))
+    , property acceptId "accept" (A.Bool (ownAcceptance own == AcceptanceAsked))
     ]
   where
-    refusesId, attributionId :: Text
+    refusesId, attributionId, acceptId :: Text
     refusesId = ownLicenceId <> "-refuses"
     attributionId = ownLicenceId <> "-attribution"
+    acceptId = ownLicenceId <> "-accept"
 
 digestOf :: BL.ByteString -> Text
 digestOf payload = T.pack (show (hashlazy payload :: Digest SHA256))
@@ -297,11 +299,11 @@ described = A.withObject "RO-Crate description" $ \o -> do
         properties e = traverse entity =<< maybe (pure []) refsOf =<< e .:? "additionalProperty"
         licenceOf :: Text -> Parser LicenceKeys
         licenceOf target = case T.stripPrefix spdxPrefix target of
-            Just spdx -> pure (LicenceKeys (Just spdx) Nothing Nothing Nothing)
+            Just spdx -> pure (LicenceKeys (Just spdx) Nothing Nothing Nothing Nothing)
             Nothing -> do
                 own <- entity target
                 props <- properties own
-                LicenceKeys Nothing <$> (Just <$> own .: "description") <*> propertyValue "refuses" props <*> propertyValue "attribution" props
+                LicenceKeys Nothing <$> (Just <$> own .: "description") <*> propertyValue "refuses" props <*> propertyValue "attribution" props <*> propertyValue "accept" props
         releaseOf :: Text -> Parser Release
         releaseOf target = do
             dataset <- entity target
@@ -314,7 +316,7 @@ described = A.withObject "RO-Crate description" $ \o -> do
     file <- entity path
     Described (T.unpack path)
         <$> file .: "sha256"
-        <*> (maybe (pure (LicenceKeys Nothing Nothing Nothing Nothing)) (licenceOf <=< refOf) =<< root .:? "license")
+        <*> (maybe (pure (LicenceKeys Nothing Nothing Nothing Nothing Nothing)) (licenceOf <=< refOf) =<< root .:? "license")
         <*> (maybe (pure []) (traverse releaseOf <=< refsOf) =<< root .:? "isBasedOn")
 
 -- | The value of the property of that name, when there is one.

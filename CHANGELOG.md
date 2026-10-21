@@ -14,6 +14,17 @@
   database that names a refrigerant otherwise than the package scored its
   ozone depletion nearly two thousand times too low.
 
+- A publisher can ask the readers of a database to accept its terms of use
+  before reading it: `accept = true` beside `licence_text`, in the engine's
+  configuration and in an upload's metadata. Until a reader accepts them,
+  every request reading that database, or a database built on it, is
+  refused with the terms and how to accept them. A browser or a script
+  accepts by sending the fingerprint of the text in the `volca_terms`
+  cookie; an assistant, by calling the `accept_terms` tool once the user
+  has agreed. New terms have a new fingerprint, so they are asked again.
+  Standard licences never ask it. pyvolca has `terms_to_accept()` and
+  `accept_terms()`. Wire revision 78.
+
 - The database quality report now checks the water balance of each
   activity: water released to rivers and soil should not exceed, by far, the
   water the activity withdraws or buys. A published greenhouse tomato
@@ -323,6 +334,25 @@
   candidate also no longer extracts its synonym pairs before noticing it need
   not. A start that finds its caches on disk, with the EF 3.1 method loaded,
   went from 22 to 13 seconds on a desktop machine.
+- A database exported as SimaPro CSV or as a Brightway workbook comes back
+  buying each input from the same supplier. An input bought from a database
+  it depends on was written as the bare product, so the re-import bought a
+  global or a production process in place of the market at the place the
+  engine had linked; and when several activities of the file make one
+  product (fourteen cotton farms all making seed cotton), every buyer came
+  back on the first of them. Uploaded again on the same background, a
+  cotton database scored up to 700 times off on toxicity. Both formats now
+  name the supplier's activity and location on the row, as their own
+  readers expect. An ILCD export, which can name a product and a location
+  but never the process making it, refuses an input bought from a
+  dependency and two makers of one product at one place; EcoSpold 2 and
+  openLCA, which point at the supplier itself, export it exactly.
+- A SimaPro waste treatment whose waste type is one word (`Wood`, `Water`,
+  `PE`) keeps its exchanges. The row of a `Waste treatment` section has no
+  allocation field, but the reader took any field that reads as a formula for
+  one, and a single word reads as a parameter name worth 0: the whole
+  treatment, its emissions and its inputs, was scored at 0 %. In that section
+  only a plain number is now read as an allocation.
 - A method read from openLCA impact categories characterizes emissions. openLCA
   files a factor under "Emission to air", in the singular, which the engine did
   not read as air, so every emission factor was dropped and only resources
@@ -340,6 +370,13 @@
 - Emissions of aluminium, cobalt, lithium, selenium and vanadium count in the
   EF 3.1 toxicity categories, which characterize only their ions, as cadmium,
   lead and zinc already did (data version 11).
+- An activity written into an uploaded SimaPro database can buy from the
+  database it depends on in that supplier's unit. A SimaPro import records
+  only the base unit of each dimension, so a line of 0.28 kWh of electricity
+  from ecoinvent was refused, the database knowing no kWh. The database now
+  takes a unit it does not know from the database it depends on, and keeps
+  its own wherever it has one. The same holds when its edits are replayed
+  after a restart.
 - A process split from a block of several products keeps every formula
   true. A line named in the block, read by other formulas, was scaled by the
   product's share, and the formulas reading it were scaled again: with a

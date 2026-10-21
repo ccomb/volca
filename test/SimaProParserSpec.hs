@@ -25,6 +25,7 @@ import SimaPro.Parser (
     ParamRow (..),
     ProcessBlock (..),
     ProductRow (..),
+    ProductSection (..),
     SimaProFile (..),
     TechExchangeRow (..),
     buildParamEnv,
@@ -274,6 +275,43 @@ wasteNoAllocCSV =
         , ""
         , "End"
         ]
+
+{- | A waste treatment whose waste type is one word. Read as a formula, @Wood@
+names a parameter nobody defines and declares a 0 % share, which allocation
+then applies to every exchange of the treatment.
+-}
+oneWordWasteTypeCSV :: BS.ByteString
+oneWordWasteTypeCSV =
+    BS.intercalate
+        "\r\n"
+        [ "{SimaPro 9.6.0.1}"
+        , "{CSV separator: semicolon}"
+        , "{Decimal separator: .}"
+        , ""
+        , "Process"
+        , ""
+        , "Category type"
+        , "waste treatment"
+        , ""
+        , "Process name"
+        , "Waste wood incineration"
+        , ""
+        , "Type"
+        , "Unit process"
+        , ""
+        , "Waste treatment"
+        , "Waste wood;kg;1;Wood;Others;"
+        , ""
+        , "End"
+        ]
+
+-- | The share each activity of 'oneWordWasteTypeCSV' declares for its reference product.
+parseOneWordWasteTypeCSV :: IO [Maybe Double]
+parseOneWordWasteTypeCSV = withSystemTempFile "waste-one-word-test.csv" $ \path handle -> do
+    BS.hPut handle oneWordWasteTypeCSV
+    hClose handle
+    (activities, _, _, _, _) <- parseOrFail defaultUnitConfig path
+    pure (map (fmap dsPercent . activityReferenceShare) activities)
 
 -- | Parse the 6-field waste treatment CSV via a temp file
 parseWasteNoAllocCSV :: IO ([Activity], M.Map UUID TechnosphereFlow, M.Map UUID BiosphereFlow, M.Map UUID WasteFlow, M.Map UUID Unit)
@@ -1021,6 +1059,9 @@ spec = do
             let cls = activityClassification a
             M.lookup "Category" cls `shouldBe` Just "Others\\Copied from Ecoinvent cut-off S"
 
+        it "gives a waste treatment whose waste type is one word its whole inventory" $
+            parseOneWordWasteTypeCSV `shouldReturn` [Just 100]
+
         it "marks Waste to treatment exchanges as inputs" $ do
             (activities, _, _, _, _) <- parseWasteCSV
             let producer = head [a | a <- activities, activityName a == "Widget production"]
@@ -1344,7 +1385,7 @@ spec = do
 
     describe "parseProductRow" $ do
         it "parses 7-field product row" $
-            parseProductRow defaultConfig "Steel;kg;1.0;100;not defined;material;comment"
+            parseProductRow defaultConfig ProductsSection "Steel;kg;1.0;100;not defined;material;comment"
                 `shouldBe` Just
                     ProductRow
                         { prName = "Steel"
@@ -1359,7 +1400,7 @@ spec = do
                         }
 
         it "parses 6-field row (no allocation – waste treatment)" $
-            parseProductRow defaultConfig "Waste flow;kg;1.0;All waste types;waste treatment;comment"
+            parseProductRow defaultConfig WasteTreatmentSection "Waste flow;kg;1.0;All waste types;waste treatment;comment"
                 `shouldBe` Just
                     ProductRow
                         { prName = "Waste flow"
@@ -1376,19 +1417,27 @@ spec = do
         -- SimaPro joins conditions with and/or, so these words read as a
         -- formula; a waste type must not be taken for an allocation.
         it "keeps a waste type made of words joined by and as the waste type" $
-            fmap (\r -> (prAllocRaw r, prWasteType r, prCategory r)) (parseProductRow defaultConfig "Paper sack;kg;1.0;Paper and board;Others;comment")
+            fmap (\r -> (prAllocRaw r, prWasteType r, prCategory r)) (parseProductRow defaultConfig ProductsSection "Paper sack;kg;1.0;Paper and board;Others;comment")
                 `shouldBe` Just ("100", "Paper and board", "Others")
 
         it "keeps a waste type with a slash and an and as the waste type" $
-            fmap (\r -> (prAllocRaw r, prWasteType r, prCategory r)) (parseProductRow defaultConfig "Pallet;p;1;Wood/paper and board;Others;comment")
+            fmap (\r -> (prAllocRaw r, prWasteType r, prCategory r)) (parseProductRow defaultConfig ProductsSection "Pallet;p;1;Wood/paper and board;Others;comment")
                 `shouldBe` Just ("100", "Wood/paper and board", "Others")
 
         it "reads an allocation formula joining conditions with and" $
-            fmap prAllocRaw (parseProductRow defaultConfig "Steel;kg;1.0;\"iff(a>1 and b<2;60;40)\";not defined;material;comment")
+            fmap prAllocRaw (parseProductRow defaultConfig ProductsSection "Steel;kg;1.0;\"iff(a>1 and b<2;60;40)\";not defined;material;comment")
                 `shouldBe` Just "iff(a>1 and b<2;60;40)"
 
+        it "keeps a one-word waste type as the waste type in the Waste treatment section" $
+            fmap (\r -> (prAllocRaw r, prWasteType r, prCategory r)) (parseProductRow defaultConfig WasteTreatmentSection "Waste wood;kg;1;Wood;Others;comment")
+                `shouldBe` Just ("100", "Wood", "Others")
+
+        it "reads a plain number as the allocation in the Waste treatment section" $
+            fmap (\r -> (prAllocRaw r, prWasteType r, prCategory r)) (parseProductRow defaultConfig WasteTreatmentSection "Incineration;kg;1.0;100;All waste types;waste treatment;")
+                `shouldBe` Just ("100", "All waste types", "waste treatment")
+
         it "returns Nothing for too-short row" $
-            parseProductRow defaultConfig "name;kg" `shouldBe` Nothing
+            parseProductRow defaultConfig ProductsSection "name;kg" `shouldBe` Nothing
 
     describe "parseTechRow" $ do
         it "parses full tech exchange row" $

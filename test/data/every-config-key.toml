@@ -63,6 +63,7 @@ path = "own.zip"
 licence_text = "Members only"
 refuses = ["download"]
 attribution = false
+accept = true
 
 [[methods]]
 name = "EF"

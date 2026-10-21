@@ -24,6 +24,7 @@ import Text.Read (readMaybe)
 
 -- VoLCA imports
 import API.Auth (authMiddleware)
+import API.Terms (termsMiddleware)
 import App.Idle (IdleState (..), idleTrackingMiddleware, idleWatchdog, newIdleState, stampIdle, whileWorking)
 import CLI.Client (executeRemoteCommand, resolveRemoteConfig)
 import CLI.Command (localCommand, requireDatabase)
@@ -301,7 +302,7 @@ runServerWithConfig cliConfig serverOpts mCfgFile = do
     let finalApp =
             compressMiddleware $
                 uploadSizeLimitMiddleware (cfgHosting config) $
-                    wrapWithMiddleware password (cfgHosting config) idle baseApp
+                    wrapWithMiddleware password (cfgHosting config) idle (termsMiddleware (DM.termsToAccept dbManager) baseApp)
         settings = setTimeout 600 defaultSettings
     case listenOn (serverPort serverOpts) (cfgServer config) of
         ListenOnFreeLoopbackPort -> do

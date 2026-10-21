@@ -29,10 +29,10 @@ import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..))
 import Database.Manager (DatabaseManager, addDatabase)
 import FlowContributionSpec (collectionName, managerUnder, methodIdText, payloadOf, productD, sampleConfig)
-import Types (Attribution (..), Licence (..), OwnLicence (..), Permission (..))
+import Types (Acceptance (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..))
 
 own :: [Permission] -> Licence
-own refused = LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired}
+own refused = LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired, ownAcceptance = NoAcceptance}
 
 -- | Keeps what weighs in its scores, and the two levels that would rebuild it.
 detailKept :: Licence
@@ -45,7 +45,7 @@ inventoryKept = own [ReadInventory, Download]
 -- | Call an MCP tool on product D of the sample database.
 callOn :: DatabaseManager -> Text -> [(Key, Value)] -> IO Value
 callOn manager tool extraArgs =
-    callTool manager [] Nothing Nothing noRequestId tool $
+    callTool Nothing manager [] Nothing Nothing noRequestId tool $
         KM.fromList $
             [ ("database", String "sample")
             , ("process_id", String productD)

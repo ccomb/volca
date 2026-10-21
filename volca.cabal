@@ -120,6 +120,7 @@ library
                      , API.JsonOptions
                      , API.DatabaseHandlers
                      , API.Auth
+                     , API.Terms
                      , API.MethodEditHandlers
                      , API.MCP
                      , API.MCP.Enrich
@@ -156,6 +157,7 @@ library
                      , Database.Requirements
                      , Database.Export
                      , Database.ExportFormulas
+                     , Database.ExportSupplier
                      , Search.Normalize
                      , Search.BM25
                      , Search.BM25.Types
@@ -354,6 +356,7 @@ test-suite lca-tests
                      , ExprSpec
                      , SimaProWriterSpec
                      , ExportFormulasSpec
+                     , ExportSupplierSpec
                      , ILCDWriterSpec
                      , MCPSchemaSpec
                      , MCPDispatchSpec
@@ -439,6 +442,7 @@ test-suite lca-tests
                      , DocumentFileSpec
                      , LicenceEnforcementSpec
                      , LicenceSpec
+                     , TermsSpec
                      , ExportSpec
                      , ExportHandlerSpec
                      , CrateSpec

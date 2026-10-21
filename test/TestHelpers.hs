@@ -184,7 +184,7 @@ shippedGeographies =
 
 -- | An own licence that refuses downloads, the case the engine holds back.
 membersOnly :: Licence
-membersOnly = LicenceOwn OwnLicence{ownText = "Members only", ownRefused = S.singleton Download, ownAttribution = AttributionRequired}
+membersOnly = LicenceOwn OwnLicence{ownText = "Members only", ownRefused = S.singleton Download, ownAttribution = AttributionRequired, ownAcceptance = NoAcceptance}
 
 -- ---------------------------------------------------------------------------
 -- Hand-built databases: activities of a kilogram product, exchanges in kg.

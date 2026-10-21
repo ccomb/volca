@@ -68,6 +68,7 @@ data Resource
     = ListDatabases
     | LoadDatabase
     | UnloadDatabase
+    | AcceptTerms
     | DeriveDatabase
     | ListPresets
     | SearchActivities
@@ -171,6 +172,7 @@ resourceMutates :: Resource -> Bool
 resourceMutates r = case r of
     LoadDatabase -> True
     UnloadDatabase -> True
+    AcceptTerms -> False
     DeriveDatabase -> True
     ListDatabases -> False
     ListPresets -> False
@@ -273,6 +275,7 @@ resourceNeeds r = case r of
     ListDatabases -> Nothing
     LoadDatabase -> Nothing
     UnloadDatabase -> Nothing
+    AcceptTerms -> Nothing
     DeriveDatabase -> Nothing
     ListPresets -> Nothing
     SearchActivities -> Nothing
@@ -340,6 +343,7 @@ resourceUsage r = case r of
     ListDatabases -> Nothing
     LoadDatabase -> Nothing
     UnloadDatabase -> Nothing
+    AcceptTerms -> Nothing
     DeriveDatabase -> Nothing
     ListPresets -> Nothing
     SearchActivities -> Nothing
@@ -396,6 +400,7 @@ apiPath r = case r of
     ListDatabases -> Just (GET, ["db"])
     LoadDatabase -> Just (POST, ["db", "{dbName}", "load"])
     UnloadDatabase -> Just (POST, ["db", "{dbName}", "unload"])
+    AcceptTerms -> Nothing -- MCP-only: an HTTP reader accepts with the volca_terms cookie
     DeriveDatabase -> Just (POST, ["db", "{dbName}", "derive", "{newName}"])
     ListPresets -> Just (GET, ["classification-presets"])
     SearchActivities -> Just (GET, ["db", "{dbName}", "activities"])
@@ -468,6 +473,7 @@ mcpName r = case r of
     ListDatabases -> "list_databases"
     LoadDatabase -> "load_database"
     UnloadDatabase -> "unload_database"
+    AcceptTerms -> "accept_terms"
     DeriveDatabase -> "derive_database"
     ListPresets -> "list_presets"
     SearchActivities -> "search_activities"
@@ -557,6 +563,12 @@ description r = case r of
         "LCA / ACV: unload a database from memory to free RAM. The on-disk data is \
         \kept and the database can be reloaded later with load_database. Refuses if \
         \another loaded database still depends on it: unload the dependents first."
+    AcceptTerms ->
+        "LCA / ACV: record that the user accepts the terms of use of a database \
+        \whose publisher asks them to be accepted before it is read. A tool reading \
+        \such a database is refused with the terms until then. Call this only after \
+        \showing the user those terms in full and receiving their explicit agreement: \
+        \never on your own initiative, and never to get past the refusal for them."
     DeriveDatabase ->
         "LCA / ACV: read a database's source files again under another allocation \
         \key, and register the result under a new name. Use it to ask what a study \
@@ -1352,6 +1364,7 @@ params r = case r of
     ListDatabases -> []
     LoadDatabase -> [pDatabase]
     UnloadDatabase -> [pDatabase]
+    AcceptTerms -> [pDatabase]
     DeriveDatabase ->
         [ pDatabase
         , Param "new_name" "string" Required "Name to register the re-keyed database under. Must not already exist."

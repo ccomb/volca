@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 77** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 78** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -430,6 +430,19 @@ lists, as it lists it. Returns the setup as it now links (see
 `get_setup`). Raises VoLCAError on an HTTP error: a 404 for an
 unknown database or a release it does not require, a 409 for a
 database already loaded with the links it has. Needs wire revision 50.
+
+##### `Client.accept_terms(db_name: str | None = None) -> list[dict]`
+
+Accept, for this client, the terms `terms_to_accept` returns.
+
+Call it only once the person running the code has read those terms
+and agreed to them: accepting binds them, not the client. The
+acceptance lasts as long as the client. Returns the terms accepted::
+
+    for t in c.terms_to_accept():
+        print(t["text"])
+    if input("Do you accept these terms? [y/N] ") == "y":
+        c.accept_terms()
 
 ##### `Client.add_dependency(dep_name: str, db_name: str | None = None) -> dict`
 
@@ -1659,6 +1672,16 @@ Set the multiplier a scoring set's values are shown with, or drop it with ``None
 ##### `Client.set_scoring_set_unit(collection: str, name: str, unit: str) -> dict`
 
 Change the unit a scoring set's scores are expressed in.
+
+##### `Client.terms_to_accept(db_name: str | None = None) -> list[dict]`
+
+The terms of use to accept before reading a database.
+
+Its own, and those of every database it depends on, when their
+publisher asks its readers to accept them: until then, the engine
+answers 403 to every request reading it. Each entry is
+``{"database", "text", "fingerprint"}``, once per text. Empty when
+nothing is asked, and against an engine older than wire revision 78.
 
 ##### `Client.undo_method_edit(collection: str, *, line: int | None = None) -> dict`
 

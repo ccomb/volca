@@ -151,7 +151,7 @@ configFor name licence =
         }
 
 own :: [Permission] -> Licence
-own refused = LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired}
+own refused = LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired, ownAcceptance = NoAcceptance}
 
 detailKept, inventoryKept :: Licence
 detailKept = own [SeeDetailedScores, ReadInventory, Download]
@@ -174,7 +174,7 @@ managerOn rootDb depDb licence = do
 
 callOn :: DM.DatabaseManager -> Text -> [(Key, Value)] -> IO Value
 callOn manager tool extraArgs =
-    callTool manager [] Nothing Nothing noRequestId tool $
+    callTool Nothing manager [] Nothing Nothing noRequestId tool $
         KM.fromList $
             [ ("database", String "root")
             , ("process_id", String rootPid)

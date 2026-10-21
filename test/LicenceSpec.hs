@@ -18,6 +18,7 @@ import Database.Manager (CachePolicy (..), DatabaseManager, DatabaseStatus (..),
 import qualified Database.UploadedDatabase as UploadedDB
 import TestHelpers (membersOnly, withScratchDataDir)
 import Types (
+    Acceptance (..),
     AllocationKey (..),
     Attribution (..),
     GeographyPolicy (..),
@@ -65,7 +66,7 @@ refused :: Licence
 refused = membersOnly
 
 keys :: LicenceKeys
-keys = LicenceKeys Nothing Nothing Nothing Nothing
+keys = LicenceKeys Nothing Nothing Nothing Nothing Nothing
 
 -- | A manager holding one upload with its meta.toml, and a copy of it.
 withUpload :: (DatabaseManager -> FilePath -> IO ()) -> IO ()
@@ -243,7 +244,7 @@ spec = do
 
         it "reads an own licence silent on attribution as requiring it" $
             licenceFromKeys keys{lkText = Just "Ours", lkRefuses = Just ["download", "resell"]}
-                `shouldBe` Right (LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList [Download, Resell], ownAttribution = AttributionRequired})
+                `shouldBe` Right (LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList [Download, Resell], ownAttribution = AttributionRequired, ownAcceptance = NoAcceptance})
   where
     isLeft :: Either a b -> Bool
     isLeft = either (const True) (const False)

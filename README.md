@@ -182,6 +182,11 @@ licence = "CC-BY-4.0"          # the licence it is published under, by SPDX iden
                                #   inventory is refused and the supply chain
                                #   counts its processes in one line
 # attribution = true           #   results must name the publisher (the default)
+# accept = true                #   readers accept its text before reading it, or
+                               #   anything built on it: refused until they send
+                               #   the text's fingerprint in the volca_terms
+                               #   cookie, or call the MCP tool accept_terms.
+                               #   New text, asked again. Off by default
                                # A copy is served under its source's licence; an
                                # upload's owner sets its own with PUT /db/{name}/licence
 # release = { name = "ecoinvent", version = "3.12", system_model = "Allocation, cut-off by classification" }
