@@ -17,7 +17,7 @@ import UnitConversion (defaultUnitConfig)
 import Database.Manager (loadMethodCollectionFromPath)
 import Method.Mapping (MethodTables (..), buildMethodTables)
 import Method.Parser.OlcaSchema (OlcaImpactMethod (..), choosePackageMethod, isOlcaImpactCategoryJson, parseOlcaImpactCategoryBytes, parseOlcaImpactMethodBytes)
-import Method.SimaProScoring (NormWeightSet (..))
+import Method.SimaProScoring (NormWeightSet (..), factorClashes)
 import Method.Types
 
 spec :: Spec
@@ -248,6 +248,19 @@ spec = do
                 `shouldBe` Right [1.0]
 
     describe "a method package" $ do
+        -- A package once held a Chromium III line carrying the Chromium VI factor.
+        it "names a flow its category gives two factors at one place" $
+            factorClashes <$> parseOlcaImpactCategoryBytes (chromiumDoc [(lowDensity, 333.7), (lowDensity, 4292.1)])
+                `shouldBe` Right ["\"D\" gives \"Chromium III\" factors from 333.7 to 4292.1 (Emission to air, low population density); a flow matched by its name gets only one"]
+
+        it "names a flow once however many places hold its two factors" $
+            factorClashes <$> parseOlcaImpactCategoryBytes (chromiumDoc [(lowDensity, 333.7), (lowDensity, 4292.1), (ocean, 1.0), (ocean, 2.0)])
+                `shouldBe` Right ["\"D\" gives \"Chromium III\" factors from 333.7 to 4292.1 (Emission to air, low population density) and at 1 other place(s); a flow matched by its name gets only one"]
+
+        it "takes two factors a rounding apart for one" $
+            factorClashes <$> parseOlcaImpactCategoryBytes (chromiumDoc [(lowDensity, 333.4186387763461), (lowDensity, 333.4186388)])
+                `shouldBe` Right []
+
         -- openLCA divides a result by the normalisation factor and multiplies it
         -- by the weight; a zero factor is one openLCA ships for a category it
         -- does not normalise, and must not become a division by zero.
@@ -380,6 +393,21 @@ categoryDoc name =
             , "impactFactors"
                 .= [object ["value" .= (1 :: Double), "flow" .= object ["name" .= ("Carbon dioxide" :: T.Text), "category" .= ("Elementary flows/Emission to air/unspecified" :: T.Text)]]]
             ]
+
+-- | An ImpactCategory with one factor on Chromium III per (category path, value).
+chromiumDoc :: [(T.Text, Double)] -> BS.ByteString
+chromiumDoc factors =
+    BL.toStrict . encode $
+        object
+            [ "@type" .= ("ImpactCategory" :: T.Text)
+            , "name" .= ("D" :: T.Text)
+            , "impactFactors"
+                .= [object ["value" .= v, "flow" .= object ["name" .= ("Chromium III" :: T.Text), "category" .= path]] | (path, v) <- factors]
+            ]
+
+lowDensity, ocean :: T.Text
+lowDensity = "Elementary flows/Emission to air/low population density"
+ocean = "Elementary flows/Emission to water/ocean"
 
 refusedWith :: T.Text -> Either T.Text a -> Bool
 refusedWith needle = either (needle `T.isInfixOf`) (const False)

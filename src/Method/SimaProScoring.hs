@@ -14,6 +14,7 @@ module Method.SimaProScoring (
     NormWeightSet (..),
     SimaProMethodFile (..),
     simaProCollection,
+    factorClashes,
     singleScoreName,
     damageOnlySetName,
     translateScoring,
@@ -41,7 +42,7 @@ import GHC.Generics (Generic)
 
 import qualified Expr
 import Method.Scoring (counted, linearTerms, shortNames, singleScoreName, writeSum)
-import Method.Types (Method (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
+import Method.Types (Compartment (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 
 {- | Damage category: groups impact subcategories into a parent category.
 E.g., "Ecotoxicity, freshwater" groups "...part 1", "...part 2", etc.
@@ -78,14 +79,40 @@ data SimaProMethodFile = SimaProMethodFile
     }
     deriving (Eq, Show)
 
-{- | A file read as a collection, with what its translation could not read.
+{- | A file read as a collection, with what its translation could not read and
+the factors its categories hold twice.
 Several files of one collection are merged into one before, since a damage
 may group the impact categories of another file.
 -}
 simaProCollection :: SimaProMethodFile -> (MethodCollection, [Text])
 simaProCollection f =
     let (sets, warnings) = translateScoring (smfMethods f) (smfDamages f) (smfNWSets f)
-     in (MethodCollection (smfMethods f) sets [], warnings)
+     in (MethodCollection (smfMethods f) sets [], concatMap factorClashes (smfMethods f) <> warnings)
+
+{- | The flows a category gives two different factors at one place, in words,
+one line a flow. A database flow matched by its name can get only one of
+them, so the load names the clash rather than settling it in silence.
+Values a rounding apart are one factor.
+-}
+factorClashes :: Method -> [Text]
+factorClashes m =
+    [ "\"" <> methodName m <> "\" gives \"" <> name <> "\" factors from " <> num low <> " to " <> num high <> at place <> others <> "; a flow matched by its name gets only one"
+    | (name, (place, low, high) : more) <- M.toList (M.fromListWith (flip (<>)) clashes)
+    , let others = if null more then "" else " and at " <> num (length more) <> " other place(s)"
+    ]
+  where
+    clashes =
+        [ (name, [(place, low, high)])
+        | ((name, place, _, _), vs) <- M.toList byPlace
+        , let low = minimum vs
+              high = maximum vs
+        , abs (high - low) > 1e-5 * max (abs low) (abs high)
+        ]
+    byPlace = M.fromListWith (<>) [((mcfFlowName cf, placeOf (mcfCompartment cf), mcfUnit cf, mcfConsumerLocation cf), [mcfValue cf]) | cf <- methodFactors m]
+    placeOf = maybe "" (\(Compartment a b c) -> T.intercalate ", " (filter (not . T.null) [a, b, c]))
+    at place = if T.null place then "" else " (" <> place <> ")"
+    num :: (Show a) => a -> Text
+    num = T.pack . show
 
 -- | The set a file with damage categories and no normalization-weighting set gives.
 damageOnlySetName :: Text

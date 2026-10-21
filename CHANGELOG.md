@@ -4,6 +4,13 @@
 
 ### Added
 
+- Loading a method now warns when one of its impact categories gives a
+  flow two different factors at the same place. A database flow matched by
+  its name can get only one of them, and the engine used to keep the larger
+  without a word. An openLCA package of EF 3.1 holds two "Chromium III"
+  lines for air, low population density, one of them carrying the
+  Chromium VI factor, almost thirteen times the other.
+
 - A method collection can be read from an openLCA method package, the
   archive that holds many methods side by side. `package-method` names the
   one to read; its impact categories become the collection and its
