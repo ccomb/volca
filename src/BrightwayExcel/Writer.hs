@@ -661,7 +661,7 @@ exchangeRow cfg db maker = \case
         -- matrix: written as a technosphere flow it is inventory-neutral, and only
         -- the waste classification is lost on re-import. 'wasteManifest' reports it.
         let (supplier, amount, location, database) = case maker of
-                InDependency e -> (elActivity e, amt * elReferenceSign e, elLocation e, elDatabase e)
+                InDependency e -> (elActivity e, amt * signFactor (elReferenceSign e), elLocation e, elDatabase e)
                 _ -> (name, amt, locationCode loc, wcDatabaseName cfg)
         Just
             [ CText supplier

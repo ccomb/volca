@@ -366,7 +366,7 @@ dependency, through a format naming suppliers: it has to come back to that one.
 scoreSentToSecond :: (Dependencies -> SimpleDatabase -> IO SimpleDatabase) -> TechRole -> Double -> IO Double
 scoreSentToSecond through role refAmount =
     scoreReadBack
-        (through (Dependencies (M.singleton (pA, yY, 1) (Elsewhere "eco-dep" "incineration of waste W" "GLO" (signum refAmount)))))
+        (through (Dependencies (M.singleton (pA, yY, 1) (Elsewhere "eco-dep" "incineration of waste W" "GLO" (referenceSignOf refAmount)))))
         (producer (wasteEx False Nothing 3.0))
         ( M.fromList
             [ ((tA, wW), treatment role refAmount)
