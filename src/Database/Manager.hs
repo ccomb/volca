@@ -386,6 +386,10 @@ data StagedDatabase = StagedDatabase
     -- ^ Selected dependency database names
     , sdCrossDBLinks :: ![CrossDBLink]
     -- ^ Cross-DB links found so far
+    , sdSupplierAliases :: !CrossLinking.AliasMap
+    {- ^ The mapping the last relink applied. Finalizing relinks once more,
+    and without it would drop the links the mapping made.
+    -}
     , sdLinkingStats :: !CrossDBLinkingStats
     -- ^ Linking statistics
     , sdBuiltWith :: !BuildInputs
@@ -3123,7 +3127,7 @@ relinkStaged manager dbName maybeDepDb aliases = withLogScope dbName $ runExcept
         atomically $
             modifyTVar'
                 (dmStagedDbs manager)
-                (M.insert dbName (withRelinkedDeps pinnedDeps newStats staged))
+                (M.insert dbName ((withRelinkedDeps pinnedDeps newStats staged){sdSupplierAliases = aliases}))
     pure (relinkResult staged pinnedDeps newStats)
   where
     -- A mapping relink pins the dependency it retargets, once.
@@ -3326,6 +3330,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                 , sdLinkingStats = dbLinkingStats cachedDb
                 , sdBuiltWith = dbBuiltWith cachedDb
                 , sdCachedDB = Just cachedDb
+                , sdSupplierAliases = CrossLinking.emptyAliasMap
                 }
 
     -- Linked within the databases its requirements admit, every one when it has none.
@@ -3371,6 +3376,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                     , sdLinkingStats = finalStats
                     , sdBuiltWith = inputs
                     , sdCachedDB = Nothing
+                    , sdSupplierAliases = CrossLinking.emptyAliasMap
                     }
 
     {- Drop the dependencies whose links are all substitutable by another at
@@ -4271,6 +4277,7 @@ restageLoadedDatabase manager dbName ld = do
                 , sdLinkingStats = stats
                 , sdBuiltWith = dbBuiltWith db
                 , sdCachedDB = Nothing
+                , sdSupplierAliases = CrossLinking.emptyAliasMap
                 }
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.delete dbName)
@@ -4479,10 +4486,12 @@ finalizeDatabase manager dbName = withLogScope dbName $ do
 
         {- Self-relink first against the current dep set: a cached or staged
         build can carry cross-DB links that do not match the deps now in
-        'dmIndexedDbs'. 'relinkDatabase' rewrites both the in-memory state and
-        (when the links changed) the matrix cache. -}
+        'dmIndexedDbs'. The mapping the staged relink applied is applied again,
+        or the links it made would be dropped. The relink rewrites both the
+        in-memory state and (when the links changed) the matrix cache. -}
         linksChangedAfter <-
-            relinkDatabase manager dbName >>= either relinkFailed (pure . rresLinksChanged)
+            relinkDatabaseWith manager dbName (sdSupplierAliases staged) Nothing
+                >>= either relinkFailed (pure . rresLinksChanged)
 
         {- Persist when this finalize introduced a change (fresh build, or an
         edited pin on a cache hit) that the relink did not already write: relink

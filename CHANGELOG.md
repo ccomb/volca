@@ -332,6 +332,10 @@
 
 ### Fixed
 
+- Finalizing a database relinked with a mapping, before it was finalized,
+  keeps the links the mapping made. Finalizing relinks the database once
+  more, and did it without the mapping: every input only the mapping could
+  link came back unlinked, and a script had to relink a second time.
 - A container started again no longer rebuilds the synonym candidates of its
   methods. They were saved in the working directory of the container, which
   is gone when it stops, while databases and methods go to `VOLCA_DATA_DIR`;
