@@ -349,6 +349,14 @@
 
 ### Fixed
 
+- Sea water and brine withdrawals no longer count in EF 3.1 water use read
+  from the JRC distribution. That method names its fresh water resource
+  plain "water", a name no flow carries, so the engine matched it by its
+  CAS number and then lent its scarcity factor to every resource sharing
+  that number, ocean water and brine among them. The adapted method leaves
+  both out, as AWARE does. "water" now reads as fresh water of unspecified
+  origin, and "sea water" as ocean water (data version 12).
+
 - A written activity sending waste to a treatment of another database can
   now be exported. The engine filed the waste among the products, where
   every reader of a waste line fails to find it: the export refused the
