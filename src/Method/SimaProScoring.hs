@@ -104,18 +104,16 @@ factorClashes m =
   where
     clashes :: [(Text, [([Text], Text, Double, Double)])]
     clashes =
-        [ (key, [(nubOrd (map fst factors), place, low, high)])
-        | ((key, place, _, _), factors) <- M.toList byPlace
-        , let low = minimum (map snd factors)
-              high = maximum (map snd factors)
+        [ (key, [(nubOrd names, place, low, high)])
+        | ((key, place, _, _), (names, low, high)) <- M.toList byPlace
         , abs (high - low) > 1e-5 * max (abs low) (abs high)
         ]
     -- Keyed on the name the matcher reads, so two spellings of one flow clash too.
-    byPlace :: M.Map (Text, Text, Text, Maybe Text) [(Text, Double)]
+    byPlace :: M.Map (Text, Text, Text, Maybe Text) ([Text], Double, Double)
     byPlace =
         M.fromListWith
-            (flip (<>))
-            [ ((normalizeNameKeepUnit (mcfFlowName cf), placeOf (mcfCompartment cf), mcfUnit cf, mcfConsumerLocation cf), [(mcfFlowName cf, mcfValue cf)])
+            (\(n2, l2, h2) (n1, l1, h1) -> (n1 <> n2, min l1 l2, max h1 h2))
+            [ ((normalizeNameKeepUnit (mcfFlowName cf), placeOf (mcfCompartment cf), mcfUnit cf, mcfConsumerLocation cf), ([mcfFlowName cf], mcfValue cf, mcfValue cf))
             | cf <- methodFactors m
             ]
     placeOf :: Maybe Compartment -> Text
