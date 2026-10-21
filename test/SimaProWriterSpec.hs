@@ -739,7 +739,9 @@ spec = describe "SimaPro.Writer round-trip" $ do
         it "is left out, with a warning, when one name carries two" $ do
             let flows = [("Chromium VI", air, Just "18540-29-9"), ("Chromium (VI)", water, Just "1333-82-0")]
             casBack flows `shouldReturn` [("Chromium (VI)", Nothing), ("Chromium VI", Nothing)]
-            length (warned flows) `shouldBe` 1
+            case warned flows of
+                [warning] -> warning `shouldSatisfy` \w -> all (`T.isInfixOf` w) ["Chromium VI 18540-29-9", "Chromium (VI) 1333-82-0"]
+                other -> expectationFailure ("one warning expected, got " <> show other)
 
         it "reaches, with a warning, a flow of the same name that stated none" $ do
             let flows = [("Methane", air, Just "74-82-8"), ("Methane", water, Nothing)]
