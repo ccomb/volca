@@ -53,6 +53,7 @@ module Database.Author (
     -- * What the database can take
     ResolvedInsert (..),
     validateAuthored,
+    resolveProcess,
 
     -- * Editing an inventory in place
     ExchangeSelector (..),
@@ -64,6 +65,7 @@ module Database.Author (
     retextsAuthoredIdentity,
     describeSelector,
     lineSelector,
+    selectorPredicate,
 
     -- * Deterministic identity
     authoredNamespace,

@@ -261,6 +261,12 @@ class DatabaseInfo(FromJson):
     ``{"name", "version", "systemModel"}``, the shape
     :meth:`Client.set_release` takes. ``None`` when none is declared, and
     against an engine older than wire revision 48.
+
+    ``modification`` says how its data differ from the files it reads:
+    ``{"edited": bool, "reallocated": bool}``, edited when its history
+    (:meth:`Client.database_history`) holds a change, reallocated when its
+    multi-output processes are divided otherwise than the original's.
+    ``None`` against an engine older than wire revision 79.
     """
 
     name: str
@@ -277,6 +283,12 @@ class DatabaseInfo(FromJson):
     source: str | None = None
     licence: dict | None = None
     release: dict | None = None
+    modification: dict | None = None
+
+    @property
+    def modified(self) -> bool:
+        """Whether its data differ from the files it reads."""
+        return bool(self.modification and any(self.modification.values()))
 
     @classmethod
     def from_json(cls, d: dict) -> "DatabaseInfo":

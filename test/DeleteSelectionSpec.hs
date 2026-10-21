@@ -103,6 +103,7 @@ emptyDelete =
         , drKeep = []
         , drExtra = []
         , drIds = Nothing
+        , drNote = Nothing
         }
 
 spec :: Spec

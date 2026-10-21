@@ -219,6 +219,7 @@ deleteRequest exact =
         , dsqKeep = []
         , dsqExtra = []
         , dsqIds = Nothing
+        , dsqNote = Nothing
         }
 
 deleteArgs :: Bool -> DbDeleteArgs

@@ -2613,6 +2613,25 @@ data Release = Release
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Release)
 
+{- | How a database's data came to differ from the files it was read from: its
+own edits, kept in its journal, and a division of its multi-output blocks other
+than its source's. The two are independent, and a database with neither is
+unmodified. A copy inherits its source's edits, so it differs from the files
+as much as its source does.
+-}
+data Modification = Modification
+    { modificationEdited :: !Bool
+    , modificationReallocated :: !Bool
+    }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped Modification)
+
+unmodified :: Modification
+unmodified = Modification False False
+
+isModified :: Modification -> Bool
+isModified (Modification edited reallocated) = edited || reallocated
+
 {- | Whether two releases are the same, read the way people write them: case
 and the run of spaces between words aside, but "3.12" is not "3.12.1".
 -}

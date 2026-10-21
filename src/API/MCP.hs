@@ -40,7 +40,8 @@ import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
 import Database (Geographies, filterByName, flowSearchFields)
 import Database.Cutoffs (Cutoffs (..))
-import Database.Edit (deriveDatabase, editDatabaseParameters, editExchanges, refusalMessage)
+import Database.Edit (databaseHistory, deriveDatabase, editDatabaseParameters, editExchanges, refusalMessage)
+import Database.Journal (noteFrom)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
 import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario)
@@ -49,7 +50,7 @@ import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
 
 import qualified API.BatchImpacts as BI
-import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
+import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, historyLineToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
@@ -732,6 +733,7 @@ dispatchTool reader dbManager presets mHosting mBaseUrl rid name args licence = 
     "get_computed_quality_report" -> callGetComputedQualityReport dbManager mHosting rid args
     "get_characterization_coverage" -> callGetCoverageReport dbManager rid args
     "edit_exchanges" -> callEditExchanges dbManager rid args
+    "get_database_history" -> callDatabaseHistory dbManager rid args
     "get_database_parameters" -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
     "edit_database_parameters" -> callEditDatabaseParameters dbManager rid args
     "list_scenarios" -> callScenarios dbManager rid args (\_ -> pure ())
@@ -1982,8 +1984,9 @@ callEditExchanges dbManager rid args = runTool rid $ do
                 <*> parseArrayArg "set_parameters" Nothing args
                 <*> parseArrayArg "set_formulas" Nothing args
                 <*> parseArrayArg "remove_parameters" Nothing args
+                <*> optionalText "note" args
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))
-    report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName processId edits)
+    report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName (eerNote request >>= noteFrom) processId edits)
     return $ toolSuccessJson rid (toJSON (editReportToAPI report))
   where
     -- Absent leaves the description as it is; an empty list clears it.
@@ -1996,10 +1999,16 @@ callEditExchanges dbManager rid args = runTool rid $ do
 callEditDatabaseParameters :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callEditDatabaseParameters dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
-    request <- except (ParametersEditRequest <$> parseArrayArg "set_parameters" Nothing args <*> parseArrayArg "remove_parameters" Nothing args)
+    request <- except (ParametersEditRequest <$> parseArrayArg "set_parameters" Nothing args <*> parseArrayArg "remove_parameters" Nothing args <*> optionalText "note" args)
     edits <- except (first (T.intercalate "\n") (toParameterEdits request))
-    report <- ExceptT (first refusalMessage <$> editDatabaseParameters dbManager dbName edits)
+    report <- ExceptT (first refusalMessage <$> editDatabaseParameters dbManager dbName (pqNote request >>= noteFrom) edits)
     return $ toolSuccessJson rid (toJSON (parametersReportToAPI report))
+
+callDatabaseHistory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callDatabaseHistory dbManager rid args = runTool rid $ do
+    dbName <- except (requireText "database" args)
+    history <- ExceptT (databaseHistory dbManager dbName)
+    return $ toolSuccessJson rid (toJSON (map historyLineToAPI history))
 
 -- | Change the scenarios of a database, then answer the ones it holds.
 callScenarios :: DatabaseManager -> RequestId -> KeyMap Value -> (Text -> ExceptT Text IO ()) -> IO Value

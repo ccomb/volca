@@ -131,6 +131,8 @@ a reader proposed against one version, asked of a later one.
 data ChangesQuery = ChangesQuery
     { cqSummary :: ![SummaryChange]
     , cqExchanges :: ![ExchangeChange]
+    , cqNote :: !(Maybe Text)
+    -- ^ Why the changes are applied, kept in the database's history; a question about them ignores it
     }
     deriving (Generic)
     deriving (FromJSON, ToSchema) via (Stripped ChangesQuery)

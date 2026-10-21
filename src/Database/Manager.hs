@@ -53,6 +53,8 @@ module Database.Manager (
     addDatabase,
     removeDatabase,
     editHome,
+    databaseModification,
+    filesOwner,
     scenariosHome,
 
     -- * Method Operations
@@ -302,6 +304,7 @@ import Types (
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
+    Modification (..),
     Permission (..),
     ProcessId,
     Release (..),
@@ -337,6 +340,7 @@ import Types (
     systemModelsRead,
     termsAsked,
     toSimpleDatabase,
+    unmodified,
     unresolvedCount,
     upDemands,
  )
@@ -577,6 +581,7 @@ data DatabaseStatus = DatabaseStatus
     , dsSource :: !(Maybe Text) -- The database whose files it reads, when it owns none
     , dsLicence :: !Licence -- What it is served under, its source's for a copy
     , dsRelease :: !(Maybe Release) -- Which published database it is, as its owner declared
+    , dsModification :: !Modification -- How its data differs from the files it reads
     }
     deriving (Show, Eq, Generic)
 
@@ -597,6 +602,7 @@ instance ToJSON DatabaseStatus where
             , "dsSource" .= dsSource
             , "dsLicence" .= dsLicence
             , "dsRelease" .= dsRelease
+            , "dsModification" .= dsModification
             ]
 
 instance FromJSON DatabaseStatus where
@@ -623,6 +629,8 @@ instance FromJSON DatabaseStatus where
             <*> v .:? "dsLicence" A..!= LicenceUnstated
             -- Before releases were on the wire no database declared one.
             <*> v .:? "dsRelease"
+            -- Before modifications were on the wire none was reported.
+            <*> v .:? "dsModification" A..!= unmodified
 
 -- | Status of a method collection (e.g., EF-3.1) for API responses
 data MethodCollectionStatus = MethodCollectionStatus
@@ -2305,6 +2313,7 @@ listDatabases manager = do
                     | unresolvedCount (dbLinkingStats (ldDatabase ld)) > 0 -> PartiallyLinked
                     | otherwise -> Loaded
             !actCount = maybe 0 (V.length . dbActivities . ldDatabase) mLoaded
+        modification <- databaseModification availableDbs config
         return
             DatabaseStatus
                 { dsName = name
@@ -2321,6 +2330,7 @@ listDatabases manager = do
                 , dsSource = dcSource config
                 , dsLicence = licenceOf availableDbs config
                 , dsRelease = dcRelease config
+                , dsModification = modification
                 }
 
 -- | File extensions 'resolveDataPath' knows how to extract as archives.
@@ -2841,6 +2851,28 @@ editHome dbConfig
     | otherwise = do
         uploadsDir <- UploadedDB.getDatabaseUploadsDir
         pure (Just (uploadsDir </> T.unpack (dcName dbConfig)))
+
+{- | How a database's data differs from the files it reads: its journal, and a
+division other than that of the database owning the files, found at the end of
+its chain of sources. A copy of a re-divided database reads its files under its
+source's key, which is still not the files' own.
+-}
+databaseModification :: M.Map Text DatabaseConfig -> DatabaseConfig -> IO Modification
+databaseModification configs config = do
+    edited <- maybe (pure False) Journal.journalHasEntries =<< editHome config
+    pure Modification{modificationEdited = edited, modificationReallocated = dcAllocation (filesOwner configs config) /= dcAllocation config}
+
+{- | The database whose files this one reads, at the end of its chain of
+sources: itself, for one that owns its files.
+-}
+filesOwner :: M.Map Text DatabaseConfig -> DatabaseConfig -> DatabaseConfig
+filesOwner configs = go (M.size configs)
+  where
+    -- Bounded by the number of databases, so a cycle written by hand ends.
+    go :: Int -> DatabaseConfig -> DatabaseConfig
+    go fuel current
+        | fuel > 0 = maybe current (go (fuel - 1)) (dcSource current >>= (`M.lookup` configs))
+        | otherwise = current
 
 {- | Where a database's saved scenarios are kept, given its home: a journal of
 their own ("Database.Scenarios"), apart from the database's.

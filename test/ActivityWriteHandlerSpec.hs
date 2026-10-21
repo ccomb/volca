@@ -14,7 +14,7 @@ outright. The validation itself is "AuthorSpec"'s subject, not this file's.
 -}
 module ActivityWriteHandlerSpec (spec) where
 
-import Control.Concurrent.STM (atomically, modifyTVar')
+import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Monad (void)
 import Data.Aeson (decode)
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -24,21 +24,25 @@ import Data.Text (Text)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Servant (ServerError, errBody, errHTTPCode, runHandler)
+import Servant (ServerError, errBody, errHTTPCode, getResponse, runHandler)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
-import API.DatabaseHandlers (createActivitiesHandler, editExchangesHandler, replaceActivityHandler)
+import API.DatabaseHandlers (createActivitiesHandler, databaseHistoryHandler, editExchangesHandler, exportDatabaseHandler, replaceActivityHandler)
+import Codec.Archive.Zip (findEntryByPath, fromEntry, toArchive)
 import Database.Author (authoredActivityUUID, authoredProductUUID)
 
 import API.Types (
     ActivityInput (..),
     ActivityWriteRequest (..),
     ActivityWriteResponse (..),
+    BinaryContent (..),
     BioExchangeAPI (..),
+    DatabaseExportRequest (..),
+    DatabaseHistoryEntry (..),
     ExchangeEditRequest (..),
     ExchangeEditResponse (..),
     ExchangeSelectorAPI (..),
@@ -49,7 +53,7 @@ import App.Env (AppEnv (..), runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Control.Exception (bracket_)
 import Database (buildDatabaseWithMatrices)
-import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), getDatabase, initDatabaseManager)
+import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), databaseModification, getDatabase, initDatabaseManager)
 import Database.Upload (DatabaseFormat (..))
 import SharedSolver (createSharedSolver)
 import Types (
@@ -65,6 +69,7 @@ import Types (
     Licence (..),
     LocationSource (..),
     Medium (..),
+    Modification (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierClaim (..),
@@ -82,6 +87,7 @@ spec :: Spec
 spec = do
     writingSpec
     editingSpec
+    documentingSpec
 
 writingSpec :: Spec
 writingSpec = describe "writing activities over HTTP" $ do
@@ -381,11 +387,11 @@ textsOf a = (activityLocation a, activityLocationSource a, activityDescription a
 
 create :: AppEnv -> Text -> [ActivityInput] -> IO (Either ServerError ActivityWriteResponse)
 create env dbName activities =
-    runHandler (runApp env (createActivitiesHandler dbName (ActivityWriteRequest activities)))
+    runHandler (runApp env (createActivitiesHandler dbName (ActivityWriteRequest activities Nothing)))
 
 replace :: AppEnv -> Text -> Text -> ActivityInput -> IO (Either ServerError ActivityWriteResponse)
 replace env dbName processId body =
-    runHandler (runApp env (replaceActivityHandler dbName processId body))
+    runHandler (runApp env (replaceActivityHandler dbName processId Nothing body))
 
 edit :: AppEnv -> Text -> Text -> ExchangeEditRequest -> IO (Either ServerError ExchangeEditResponse)
 edit env dbName processId body =
@@ -406,6 +412,7 @@ noEdits =
         , eerSetParameters = []
         , eerSetFormulas = []
         , eerRemoveParameters = []
+        , eerNote = Nothing
         }
 
 bioSelector :: UUID -> ExchangeSelectorAPI
@@ -414,6 +421,49 @@ bioSelector flowId =
 
 refusedWith :: String -> Either ServerError () -> Bool
 refusedWith needle = either ((needle `isInfixOf`) . bodyOf) (const False)
+
+documentingSpec :: Spec
+documentingSpec = describe "documenting the changes made to a database" $ do
+    let setCo2 amount note = noEdits{eerSetAmounts = [SetAmountAPI{saSelect = bioSelector co2Id, saAmount = amount}], eerNote = note}
+        history env = fmap (map (\h -> (dheNote h, dheDetails h))) <$> runHandler (runApp env (databaseHistoryHandler "authored"))
+        modification env = do
+            configs <- readTVarIO (dmAvailableDbs (aeDbManager env))
+            maybe (fail "no authored database") (databaseModification configs) (M.lookup "authored" configs)
+        export env package = runHandler (runApp env (exportDatabaseHandler "authored" (DatabaseExportRequest "ecospold2" package)))
+
+    it "keeps each change's reason and the amounts it replaced" $
+        withWritableDb $ \env -> do
+            void (edit env "authored" supplierPid (setCo2 3 (Just "Measured on site")))
+            void (edit env "authored" supplierPid (setCo2 4 (Just "   ")))
+            history env
+                `shouldReturn` Right
+                    [ (Just "Measured on site", ["Flow \"Carbon dioxide\": amount from 1.2 set to 3.0"])
+                    , (Nothing, ["Flow \"Carbon dioxide\": amount from 3.0 set to 4.0"])
+                    ]
+
+    it "says a database is modified once it holds a change" $
+        withWritableDb $ \env -> do
+            modification env `shouldReturn` Modification{modificationEdited = False, modificationReallocated = False}
+            void (edit env "authored" supplierPid (setCo2 3 Nothing))
+            modification env `shouldReturn` Modification{modificationEdited = True, modificationReallocated = False}
+
+    it "exports a modified database only with its changes report" $
+        withWritableDb $ \env -> do
+            void (edit env "authored" supplierPid (setCo2 3 (Just "Measured on site")))
+            plain <- export env Nothing
+            either (Just . errHTTPCode) (const Nothing) plain `shouldBe` Just 400
+            packaged <- export env (Just "ro-crate")
+            case getResponse <$> packaged of
+                Left err -> expectationFailure ("expected a package: " <> showErr err)
+                Right (BinaryContent bytes) -> do
+                    let report = maybe "" (BSL.unpack . fromEntry) (findEntryByPath "CHANGES.md" (toArchive bytes))
+                    report `shouldSatisfy` isInfixOf "not endorsed by the publisher of the original"
+                    report `shouldSatisfy` isInfixOf "Reason: Measured on site"
+
+    it "exports a database nobody changed as it always did" $
+        withWritableDb $ \env -> do
+            plain <- export env Nothing
+            either (Just . errHTTPCode) (const Nothing) plain `shouldBe` Nothing
 
 bodyOf :: ServerError -> String
 bodyOf = BSL.unpack . errBody

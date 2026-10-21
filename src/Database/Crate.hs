@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -11,6 +12,7 @@ context itself so a reader does not depend on the published context carrying it.
 -}
 module Database.Crate (
     CrateInput (..),
+    Changes (..),
     Packaging (..),
     parsePackaging,
     requiredReleases,
@@ -31,6 +33,7 @@ import Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Parser, parseEither)
 import Data.Bifunctor (first)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (partitionEithers)
 import Data.List (find)
@@ -39,6 +42,7 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Time.Calendar (Day)
 import Data.Time.Format.ISO8601 (iso8601Show)
 
@@ -87,10 +91,40 @@ data CrateInput = CrateInput
     , ciRequires :: ![Release]
     -- ^ The releases of the databases its exchanges link to
     , ciFormat :: !DatabaseFormat
+    , ciChanges :: !(Maybe Changes)
+    -- ^ What was changed, for a database whose data differ from its original
+    }
+
+{- | What a modified database's package says of its changes: the report listing
+each with its reason, and the original it was made from, which the package
+cites. The original is not a release the package requires: the export holds
+every activity it needs.
+-}
+data Changes = Changes
+    { chReport :: !Text
+    , chOriginal :: !Text
+    , chOriginalRelease :: !(Maybe Release)
     }
 
 metadataFile :: FilePath
 metadataFile = "ro-crate-metadata.json"
+
+changesFile, licenceFile :: FilePath
+changesFile = "CHANGES.md"
+licenceFile = "LICENCE.txt"
+
+-- | The licence in plain words, for a reader who opens no JSON.
+licenceText :: Licence -> Maybe Text
+licenceText = \case
+    LicenceUnstated -> Nothing
+    LicenceStandard l -> Just (stName (standardTerms l) <> "\n" <> spdxUrl l <> "\n")
+    LicenceOwn own -> Just (ownText own)
+
+-- | The files beside the export and its description, each with its content.
+companions :: CrateInput -> [(FilePath, Text)]
+companions input =
+    [(changesFile, chReport changes) | Just changes <- [ciChanges input]]
+        <> [(licenceFile, text) | Just text <- [licenceText (ciLicence input)]]
 
 -- | Where the export sits in the package, and what kind of file it is.
 data Payload = Payload
@@ -119,10 +153,11 @@ payloadOf name format = Payload{payloadFile = "payload/" <> T.unpack name <> ext
 -- | The package: the export at its 'payloadPath', and the description of it.
 packageExport :: Text -> CrateInput -> BL.ByteString -> BL.ByteString
 packageExport name input payload =
-    zipFiles
+    zipFiles $
         [ (metadataFile, BL.toStrict (encodePretty (crateMetadata name input payload)))
         , (path, BL.toStrict payload)
         ]
+            <> [(file, T.encodeUtf8 text) | (file, text) <- companions input]
   where
     path :: FilePath
     path = payloadFile (payloadOf name (ciFormat input))
@@ -135,7 +170,7 @@ crateMetadata :: Text -> CrateInput -> BL.ByteString -> Value
 crateMetadata name input payload =
     object
         [ "@context" .= [A.String "https://w3id.org/ro/crate/1.2/context", object ["sha256" .= ("https://w3id.org/ro/terms#sha256" :: Text)]]
-        , "@graph" .= (descriptor : root : file : licenceEntities (ciName input) (ciLicence input) <> concat (zipWith releaseEntities [0 ..] (ciRequires input)))
+        , "@graph" .= (descriptor : root : file : map companion (companions input) <> licenceEntities (ciName input) (ciLicence input) <> concat (zipWith releaseEntities [0 ..] (ciRequires input)) <> foldMap originalEntities (ciChanges input))
         ]
   where
     Payload{payloadFile = path, payloadMediaType = mediaType} = payloadOf name (ciFormat input)
@@ -155,11 +190,12 @@ crateMetadata name input payload =
             [ "@id" .= ("./" :: Text)
             , "@type" .= ("Dataset" :: Text)
             , "name" .= ciName input
-            , "description" .= fromMaybe (ciName input <> ", packaged with the licence it is published under and the releases it was built on.") (ciDescription input)
+            , "description" .= maybe plainDescription (\changes -> modified changes <> foldMap (" " <>) (ciDescription input)) (ciChanges input)
             , "datePublished" .= iso8601Show (ciPublished input)
-            , "hasPart" .= refs [T.pack path]
+            , "hasPart" .= refs (T.pack path : map (T.pack . fst) (companions input))
             ]
                 <> ["isBasedOn" .= refs (map releaseId [0 .. length (ciRequires input) - 1]) | not (null (ciRequires input))]
+                <> ["citation" .= ref originalId | Just _ <- [ciChanges input]]
                 <> maybe [] (\l -> ["license" .= ref l]) (licenceId (ciLicence input))
 
     file :: Value
@@ -168,11 +204,44 @@ crateMetadata name input payload =
             [ "@id" .= path
             , "@type" .= ("File" :: Text)
             , "name" .= (ciName input <> ", " <> formatDisplayText (ciFormat input))
-            , "description" .= ("The " <> formatDisplayText (ciFormat input) <> " export of " <> ciName input <> ", unchanged." :: Text)
+            , "description" .= ("The " <> formatDisplayText (ciFormat input) <> " export of " <> ciName input <> "." :: Text)
             , "encodingFormat" .= mediaType
             , "contentSize" .= show (BL.length payload)
             , "sha256" .= digestOf payload
             ]
+
+    plainDescription :: Text
+    plainDescription = fromMaybe (ciName input <> ", packaged with the licence it is published under and the releases it was built on.") (ciDescription input)
+
+    modified :: Changes -> Text
+    modified changes =
+        ciName input
+            <> ", modified from "
+            <> chOriginal changes
+            <> foldMap ((" " <>) . releaseVersion) (chOriginalRelease changes)
+            <> ". Modified data; not endorsed by the publisher of the original. "
+            <> T.pack changesFile
+            <> " lists every change and its reason."
+
+    companion :: (FilePath, Text) -> Value
+    companion (companionPath, text) =
+        object
+            [ "@id" .= companionPath
+            , "@type" .= ("File" :: Text)
+            , "encodingFormat" .= (if companionPath == changesFile then "text/markdown" else "text/plain" :: Text)
+            , "contentSize" .= show (BS.length (T.encodeUtf8 text))
+            ]
+
+originalId :: Text
+originalId = "#original"
+
+-- | The original a modified database was made from, as its package cites it.
+originalEntities :: Changes -> [Value]
+originalEntities changes =
+    [ object $
+        ["@id" .= originalId, "@type" .= ("Dataset" :: Text), "name" .= maybe (chOriginal changes) releaseName (chOriginalRelease changes)]
+            <> ["version" .= releaseVersion release | Just release <- [chOriginalRelease changes]]
+    ]
 
 ref :: Text -> Value
 ref target = object ["@id" .= target]
@@ -309,10 +378,11 @@ described = A.withObject "RO-Crate description" $ \o -> do
             dataset <- entity target
             Release <$> dataset .: "name" <*> dataset .: "version" <*> (propertyValue "system model" =<< properties dataset)
     root <- entity "./"
-    parts <- refsOf =<< root .: "hasPart"
+    -- The export is the one part under payload/; a modified database's report and licence sit beside it.
+    parts <- filter (T.isPrefixOf "payload/") <$> (refsOf =<< root .: "hasPart")
     path <- case parts of
         [one] -> pure one
-        several -> fail ("expected one file in hasPart, found " <> show (length several))
+        several -> fail ("expected one file under payload/ in hasPart, found " <> show (length several))
     file <- entity path
     Described (T.unpack path)
         <$> file .: "sha256"

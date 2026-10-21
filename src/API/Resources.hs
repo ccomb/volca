@@ -110,6 +110,7 @@ data Resource
     | GetCoverageReport
     | EditExchanges
     | DatabaseParameters
+    | DatabaseHistory
     | EditDatabaseParameters
     | ListScenarios
     | SaveScenario
@@ -215,6 +216,7 @@ resourceMutates r = case r of
     GetCoverageReport -> False
     EditExchanges -> True
     DatabaseParameters -> False
+    DatabaseHistory -> False
     EditDatabaseParameters -> True
     ListScenarios -> False
     SaveScenario -> True
@@ -258,6 +260,8 @@ resourceNeeds r = case r of
     CheckFormula -> Just ReadInventory
     -- Their values give the amounts of the lines whose formulas read them.
     DatabaseParameters -> Just ReadInventory
+    -- Each change names the amounts it replaced.
+    DatabaseHistory -> Just ReadInventory
     -- What weighs in a score.
     ComputeSensitivity -> Just SeeDetailedScores
     CompareImpacts -> Just SeeDetailedScores
@@ -359,6 +363,7 @@ resourceUsage r = case r of
     ExplainCF -> Nothing
     EditExchanges -> Nothing
     DatabaseParameters -> Nothing
+    DatabaseHistory -> Nothing
     EditDatabaseParameters -> Nothing
     ListScenarios -> Nothing
     SaveScenario -> Nothing
@@ -442,6 +447,7 @@ apiPath r = case r of
     GetCoverageReport -> Just (GET, ["db", "{dbName}", "characterization-coverage"])
     EditExchanges -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "exchanges"])
     DatabaseParameters -> Just (GET, ["db", "{dbName}", "parameters"])
+    DatabaseHistory -> Just (GET, ["db", "{dbName}", "history"])
     EditDatabaseParameters -> Just (POST, ["db", "{dbName}", "parameters"])
     ListScenarios -> Just (GET, ["db", "{dbName}", "scenarios"])
     SaveScenario -> Just (PUT, ["db", "{dbName}", "scenarios", "{name}"])
@@ -515,6 +521,7 @@ mcpName r = case r of
     GetCoverageReport -> "get_characterization_coverage"
     EditExchanges -> "edit_exchanges"
     DatabaseParameters -> "get_database_parameters"
+    DatabaseHistory -> "get_database_history"
     EditDatabaseParameters -> "edit_database_parameters"
     ListScenarios -> "list_scenarios"
     SaveScenario -> "save_scenario"
@@ -1094,6 +1101,12 @@ description r = case r of
         \configuration: copy it first (that background data is shared with \
         \everyone). If the answer says transient, the edit is in memory only \
         \and an unload undoes it."
+    DatabaseHistory ->
+        "Every change made to a database of one's own, oldest first: when, \
+        \what it changed in words (the activities added, rewritten or \
+        \deleted, each exchange edited with its amount before and after, \
+        \the parameters changed), and the reason its author gave, or none. \
+        \A database the engine reads from its configuration has no changes."
     DatabaseParameters ->
         "The parameters of a database that every process's formulas read \
         \unless the process defines its own of the same name: each with its \
@@ -1664,12 +1677,15 @@ params r = case r of
         , Param "set_parameters" "array" Optional "Parameters of the activity to add, or to replace whole under the same spelling (a unit, description or uncertainty left out is dropped). Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
         , Param "set_formulas" "array" Optional "Lines to give a formula. Each is {select: {kind, provider|flow, location?}, formula}; a null formula drops it and keeps the amount."
         , Param "remove_parameters" "array" Optional "Names of the activity's parameters to remove, once the formulas set here no longer read them. Refused while a formula still reads one the database does not define."
+        , Param "note" "string" Optional "Why the change is made, in a sentence. Kept in the database's history (get_database_history) and in the changes report its export carries."
         ]
     DatabaseParameters -> [pDatabase]
+    DatabaseHistory -> [pDatabase]
     EditDatabaseParameters ->
         [ pDatabase
         , Param "set_parameters" "array" Optional "Parameters of the database to add, or to replace under the same spelling. Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
         , Param "remove_parameters" "array" Optional "Names of the database's parameters to remove, after the ones set here. Refused while a formula still reads one."
+        , Param "note" "string" Optional "Why the change is made, in a sentence. Kept in the database's history (get_database_history) and in the changes report its export carries."
         ]
     ListScenarios -> [pDatabase]
     SaveScenario ->
