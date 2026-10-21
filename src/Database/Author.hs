@@ -859,10 +859,13 @@ data ResolvedExchange = ResolvedExchange
     , reWarnings :: [Text]
     }
 
+-- | The flow a linked exchange brings into the edited database: one of a kind, or none.
+data Adoption = NothingToAdopt | AdoptProduct TechnosphereFlow | AdoptWaste WasteFlow
+
 resolveOne :: AuthorContext -> AuthoredExchange -> Either [Text] ResolvedExchange
 resolveOne ctx ex = case ex of
     AuthoredTechInput provider amount mUnit comment ->
-        resolveLinked ctx provider amount mUnit (fmap (,Nothing) . adoptTechFlow ctx) $ \sup unitRef ->
+        resolveLinked ctx provider amount mUnit (fmap (maybe NothingToAdopt AdoptProduct) . adoptTechFlow ctx) $ \sup unitRef ->
             TechnosphereExchange
                 { techFlowId = prProduct (supKey sup)
                 , techAmount = amount
@@ -879,7 +882,7 @@ resolveOne ctx ex = case ex of
                 , techProperties = noProperties
                 }
     AuthoredWasteOutput provider amount mUnit comment ->
-        resolveLinked ctx provider amount mUnit (fmap (Nothing,) . adoptWasteFlow ctx) $ \sup unitRef ->
+        resolveLinked ctx provider amount mUnit (fmap (maybe NothingToAdopt AdoptWaste) . adoptWasteFlow ctx) $ \sup unitRef ->
             WasteExchange
                 { waFlowId = prProduct (supKey sup)
                 , waAmount = amount
@@ -906,7 +909,7 @@ resolveLinked ::
     Text ->
     Double ->
     Maybe Text ->
-    (Supplier -> Either Text (Maybe TechnosphereFlow, Maybe WasteFlow)) ->
+    (Supplier -> Either Text Adoption) ->
     (Supplier -> UUID -> Exchange) ->
     Either [Text] ResolvedExchange
 resolveLinked ctx provider amount mUnit adopt build =
@@ -921,14 +924,14 @@ resolveLinked ctx provider amount mUnit adopt build =
         (unitRef, unitLabel) <-
             maybe (Left (unitRefusal ctx stated)) Right (lookupUnit ctx stated)
         maybe (Right ()) Left (unitError ctx sup unitLabel)
-        (newTechFlow, newWasteFlow) <- adopt sup
+        adoption <- adopt sup
         maybe (Right ()) Left (dependencyUnitError ctx sup unitLabel)
         pure
             ResolvedExchange
                 { reExchange = build sup unitRef
                 , reNewBioFlow = Nothing
-                , reNewTechFlow = newTechFlow
-                , reNewWasteFlow = newWasteFlow
+                , reNewTechFlow = case adoption of AdoptProduct flow -> Just flow; _ -> Nothing
+                , reNewWasteFlow = case adoption of AdoptWaste flow -> Just flow; _ -> Nothing
                 , reWarnings = []
                 }
     defaultUnit :: Supplier -> Text
@@ -1208,7 +1211,7 @@ copies for exactly this reason; this is the same rule on the technosphere side.
 adoptTechFlow :: AuthorContext -> Supplier -> Either Text (Maybe TechnosphereFlow)
 adoptTechFlow ctx sup = case supHome sup of
     OwnDatabase -> Right Nothing
-    Dependency Nothing -> Left "the database declaring this provider does not declare its product flow"
+    Dependency Nothing -> Left undeclaredProduct
     Dependency (Just _)
         | M.member (prProduct (supKey sup)) (dbTechFlows (acDb ctx)) -> Right Nothing
         | otherwise -> Just <$> declaredHere ctx sup
@@ -1246,8 +1249,8 @@ flow's unit name and would otherwise read it out of the wrong one.
 declaredHere :: AuthorContext -> Supplier -> Either Text TechnosphereFlow
 declaredHere ctx sup = case (M.lookup flowId (dbTechFlows (acDb ctx)), supHome sup) of
     (Just local, _) -> Right local
-    (Nothing, OwnDatabase) -> Left undeclared
-    (Nothing, Dependency Nothing) -> Left undeclared
+    (Nothing, OwnDatabase) -> Left undeclaredProduct
+    (Nothing, Dependency Nothing) -> Left undeclaredProduct
     (Nothing, Dependency (Just (flow, flowUnit))) -> case lookupUnit ctx flowUnit of
         Nothing ->
             Left
@@ -1260,7 +1263,9 @@ declaredHere ctx sup = case (M.lookup flowId (dbTechFlows (acDb ctx)), supHome s
         Just (unitRef, _) -> Right flow{tfUnitId = unitRef}
   where
     flowId = prProduct (supKey sup)
-    undeclared = "the database declaring this provider does not declare its product flow"
+
+undeclaredProduct :: Text
+undeclaredProduct = "the database declaring this provider does not declare its product flow"
 
 {- | Whether two unit names denote the same unit, spelling aside.
 
