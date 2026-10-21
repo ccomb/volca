@@ -51,6 +51,7 @@ module SimaPro.Parser (
     splitCSV,
     parseAmount,
     parseProductRow,
+    ProductSection (..),
     parseTechRow,
     parseBioRow,
     parsePedigreePrefix,
@@ -253,6 +254,7 @@ emptyProcessBlock =
 -}
 data BlockSection
     = SecProducts
+    | SecWasteTreatment
     | SecAvoidedProducts
     | SecMaterials
     | SecElectricity
@@ -504,7 +506,7 @@ updateConfigFromHeader cfg key value = case BS8.map toLower key of
 detectSection :: BS.ByteString -> Maybe SectionType
 detectSection line = case BS8.strip line of
     "Products" -> Just (InBlock SecProducts)
-    "Waste treatment" -> Just (InBlock SecProducts)
+    "Waste treatment" -> Just (InBlock SecWasteTreatment)
     "Avoided products" -> Just (InBlock SecAvoidedProducts)
     "Materials/fuels" -> Just (InBlock SecMaterials)
     "Electricity/heat" -> Just (InBlock SecElectricity)
@@ -679,21 +681,25 @@ SimaPro CSV format:
   4. waste type
   5. category (separated by \)
   6. comment
-However, some waste treatment product rows omit the allocation field (field 3),
-producing only 6 fields. We detect this by checking whether field 3 looks numeric
-(allocation is a percentage like "100" or "33.5"). If it doesn't, we treat it as
-waste_type and shift the remaining fields accordingly.
+A waste treatment's own row, in the @Waste treatment@ section, has no allocation
+field: a waste treatment has one product and nothing to share. There field 3 is
+the waste type, and only a plain number is still read as an allocation, since no
+waste type is a number. A one-word waste type (@Wood@, @Water@, @PE@) reads as a
+formula naming a parameter, and taken for an allocation it scored the whole
+treatment at 0 %.
+In the @Products@ section an allocation may be a formula (@allocMain@), so there
+field 3 is an allocation whenever it reads as one ('isAllocationField').
 Without this detection, the comment (which often contains \x7f-separated EcoSpold
 property metadata) ends up being parsed as the category.
 -}
-parseProductRow :: SimaProConfig -> BS.ByteString -> Maybe ProductRow
-parseProductRow cfg line =
+parseProductRow :: SimaProConfig -> ProductSection -> BS.ByteString -> Maybe ProductRow
+parseProductRow cfg section line =
     let fields = splitCSV (spDelimiter cfg) line
         norm = Expr.normalizeExpr (spDecimal cfg) . decodeBS . BS8.strip
      in case fields of
             -- 7+ fields with allocation (number or formula): name;unit;amount;alloc;waste;cat;comment
             (name : unit : amount : alloc : waste : cat : rest)
-                | isAllocationField cfg alloc ->
+                | hasAllocation alloc ->
                     Just
                         ProductRow
                             { prName = decodeBS (BS8.strip name)
@@ -721,6 +727,14 @@ parseProductRow cfg line =
                         , prComment = joinComment rest
                         }
             _ -> Nothing
+  where
+    hasAllocation :: BS.ByteString -> Bool
+    hasAllocation = case section of
+        ProductsSection -> isAllocationField cfg
+        WasteTreatmentSection -> isNumericFormula . Expr.normalizeExpr (spDecimal cfg) . decodeBS . BS8.strip
+
+-- | The section a reference product row is read in, which decides how its columns are laid out.
+data ProductSection = ProductsSection | WasteTreatmentSection
 
 {- | Check if a ByteString field is a valid expression (number, variable, or formula).
 Uses the Megaparsec expression parser syntactically – accepts any identifier without
@@ -1067,8 +1081,9 @@ ends and the accumulator is forced.
 -}
 addRowToBlock :: SimaProConfig -> BlockSection -> BS.ByteString -> ProcessBlock -> ProcessBlock
 addRowToBlock cfg sec line block = case sec of
-    SecProducts -> withProduct $ \r -> block{pbProducts = r : pbProducts block}
-    SecAvoidedProducts -> withProduct $ \r -> block{pbAvoidedProducts = r : pbAvoidedProducts block}
+    SecProducts -> withProduct ProductsSection $ \r -> block{pbProducts = r : pbProducts block}
+    SecWasteTreatment -> withProduct WasteTreatmentSection $ \r -> block{pbProducts = r : pbProducts block}
+    SecAvoidedProducts -> withProduct ProductsSection $ \r -> block{pbAvoidedProducts = r : pbAvoidedProducts block}
     SecMaterials -> withTech $ \r -> block{pbMaterials = r : pbMaterials block}
     SecElectricity -> withTech $ \r -> block{pbElectricity = r : pbElectricity block}
     SecWasteToTreatment -> withTech $ \r -> block{pbWasteToTreatment = r : pbWasteToTreatment block}
@@ -1080,8 +1095,8 @@ addRowToBlock cfg sec line block = case sec of
     SecInputParams -> withParam InputParam $ \p -> block{pbInputParams = p : pbInputParams block}
     SecCalcParams -> withParam CalculatedParam $ \p -> block{pbCalcParams = p : pbCalcParams block}
   where
-    withProduct :: (ProductRow -> ProcessBlock) -> ProcessBlock
-    withProduct = placed (parseProductRow cfg line)
+    withProduct :: ProductSection -> (ProductRow -> ProcessBlock) -> ProcessBlock
+    withProduct section = placed (parseProductRow cfg section line)
 
     withTech :: (TechExchangeRow -> ProcessBlock) -> ProcessBlock
     withTech = placed (parseTechRow cfg line)

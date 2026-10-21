@@ -327,6 +327,12 @@
   but never the process making it, refuses an input bought from a
   dependency and two makers of one product at one place; EcoSpold 2 and
   openLCA, which point at the supplier itself, export it exactly.
+- A SimaPro waste treatment whose waste type is one word (`Wood`, `Water`,
+  `PE`) keeps its exchanges. The row of a `Waste treatment` section has no
+  allocation field, but the reader took any field that reads as a formula for
+  one, and a single word reads as a parameter name worth 0: the whole
+  treatment, its emissions and its inputs, was scored at 0 %. In that section
+  only a plain number is now read as an allocation.
 - A method read from openLCA impact categories characterizes emissions. openLCA
   files a factor under "Emission to air", in the singular, which the engine did
   not read as air, so every emission factor was dropped and only resources

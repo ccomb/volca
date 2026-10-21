@@ -612,6 +612,9 @@ History of manual bumps:
      as scenarios of the database.
 - 75: it keeps the product systems themselves, their reference and target,
      and their parameter sets as the file states them.
+- 76: a SimaPro waste treatment row is read in the layout of its section, so
+     one whose waste type is one word keeps its inventory instead of a 0 %
+     share.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -619,7 +622,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 75
+     in hi `xor` lo `xor` 76
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
