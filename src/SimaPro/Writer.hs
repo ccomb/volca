@@ -1062,7 +1062,7 @@ checkLocatedSuppliers maker db =
                     <> elActivity e
                     <> "\" in "
                     <> elDatabase e
-                    <> " of an input of \""
+                    <> " of a line of \""
                     <> consumer
                     <> "\": it states no location, and SimaPro names a supplier by its location and activity. "
                     <> "EcoSpold 2 and openLCA point at the supplier itself."

@@ -527,7 +527,7 @@ activityRows cfg db makerAt pe act =
     ordered :: [Exchange]
     ordered = map snd numbered
     exchangeDataRows :: [[Cell]]
-    exchangeDataRows = mapMaybe (\(i, ex) -> (++ [maybe CEmpty CText (IM.lookup i (peLines pe))]) <$> exchangeRow cfg db (makerAt (i, ex)) ex) numbered
+    exchangeDataRows = mapMaybe (\(i, ex) -> exchangeRow cfg db (makerAt (i, ex)) (IM.lookup i (peLines pe)) ex) numbered
     refExchange = lookup' exchangeIsReference ordered
     refProduct = refExchange >>= flowNameOf db
     refUnit = (`unitNameOf` db) . exchangeUnitId =<< refExchange
@@ -609,10 +609,11 @@ workbook make names its maker and the maker's location. Any other row names the
 workbook ('productsSpeltAlike' refuses the case where that would merge two
 products), with @name@ carrying the supplier activity where the source named
 one and repeating the flow name where it did not; a supplier named with no
-product leaves @reference product@ empty.
+product leaves @reference product@ empty. The last column is the line's
+formula, if it has one.
 -}
-exchangeRow :: WriterConfig -> SimpleDatabase -> Maker -> Exchange -> Maybe [Cell]
-exchangeRow cfg db maker = \case
+exchangeRow :: WriterConfig -> SimpleDatabase -> Maker -> Maybe Text -> Exchange -> Maybe [Cell]
+exchangeRow cfg db maker formula = \case
     ex@TechnosphereExchange{techAmount = amt, techRole = role, techLocation = loc, techSupplierClaim = claim} -> do
         name <- flowNameOf db ex
         unit <- unitNameOf (exchangeUnitId ex) db
@@ -636,6 +637,7 @@ exchangeRow cfg db maker = \case
             , commentCell (techComment ex)
             , CText database
             , CEmpty
+            , formulaCell formula
             ]
     ex@BiosphereExchange{bioAmount = amt, bioLocation = loc} -> do
         flow <- M.lookup (exchangeFlowId ex) (sdbBioFlows db)
@@ -651,6 +653,7 @@ exchangeRow cfg db maker = \case
             , commentCell (bioComment ex)
             , CText (wcDatabaseName cfg)
             , maybe CEmpty CText (bfCAS flow >>= nonEmptyCAS)
+            , formulaCell formula
             ]
     ex@WasteExchange{waAmount = amt, waLocation = loc} -> do
         name <- flowNameOf db ex
@@ -660,9 +663,13 @@ exchangeRow cfg db maker = \case
         -- Any other reaching here is an orphan, which never enters the technosphere
         -- matrix: written as a technosphere flow it is inventory-neutral, and only
         -- the waste classification is lost on re-import. 'wasteManifest' reports it.
-        let (supplier, amount, location, database) = case maker of
-                InDependency e -> (elActivity e, amt * signFactor (elReferenceSign e), elLocation e, elDatabase e)
-                _ -> (name, amt, locationCode loc, wcDatabaseName cfg)
+        -- A formula turns with its amount, or Brightway would recompute the waste
+        -- the other way round.
+        let (supplier, turned, location, database) = case maker of
+                InDependency e -> (elActivity e, signFactor (elReferenceSign e), elLocation e, elDatabase e)
+                _ -> (name, 1, locationCode loc, wcDatabaseName cfg)
+            amount = amt * turned
+            formula' = if turned < 0 then (\f -> "-(" <> f <> ")") <$> formula else formula
         Just
             [ CText supplier
             , CNum amount
@@ -674,10 +681,12 @@ exchangeRow cfg db maker = \case
             , commentCell (waComment ex)
             , CText database
             , CEmpty
+            , formulaCell formula'
             ]
   where
     locCell l = if T.null l then CEmpty else CText l
     commentCell = maybe CEmpty CText
+    formulaCell = maybe CEmpty CText
 
 {- | The @name@ column: the supplier activity where the source named one, and
 the flow name where it designated by the product row instead.

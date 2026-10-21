@@ -364,10 +364,13 @@ scoreThroughSimaPro =
 dependency, through a format naming suppliers: it has to come back to that one.
 -}
 scoreSentToSecond :: (Dependencies -> SimpleDatabase -> IO SimpleDatabase) -> TechRole -> Double -> IO Double
-scoreSentToSecond through role refAmount =
+scoreSentToSecond = scoreWasteSentToSecond (wasteEx False Nothing 3.0)
+
+scoreWasteSentToSecond :: Exchange -> (Dependencies -> SimpleDatabase -> IO SimpleDatabase) -> TechRole -> Double -> IO Double
+scoreWasteSentToSecond waste through role refAmount =
     scoreReadBack
         (through (Dependencies (M.singleton (pA, yY, 1) (Elsewhere "eco-dep" "incineration of waste W" "GLO" (referenceSignOf refAmount)))))
-        (producer (wasteEx False Nothing 3.0))
+        (producer waste)
         ( M.fromList
             [ ((tA, wW), treatment role refAmount)
             , ((tB, wW), (treatment role refAmount){activityName = "incineration of waste W", exchanges = [techEx wW refAmount role Nothing, co2Emission 5.0]})
@@ -539,6 +542,11 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
 
     it "a waste sent to the second of two treatments of a dependency comes back to it through Brightway" $ do
         score <- scoreSentToSecond throughBrightway ReferenceProduct (-1.0)
+        withinTolerance 1.0e-9 15.0 score `shouldBe` True
+
+    -- Brightway reads a line's formula over its amount: the formula turns with it.
+    it "a waste whose amount is a formula comes back charged through Brightway" $ do
+        score <- scoreWasteSentToSecond (wasteEx False Nothing 3.0){waFormula = Just (ExchangeFormula Nothing "3")} throughBrightway ReferenceProduct (-1.0)
         withinTolerance 1.0e-9 15.0 score `shouldBe` True
 
     it "a waste sent to a treatment taking in its waste comes back charged through Brightway" $ do
