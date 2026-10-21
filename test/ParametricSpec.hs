@@ -732,7 +732,7 @@ databases = do
                 , lcGeographyPolicy = GeoExact
                 , lcSupplierAliases = emptyAliasMap
                 }
-        links = cdlLinks (findAllCrossDBLinks context SignedReferences techFlows M.empty units bakeryActivities)
+        links = cdlLinks (findAllCrossDBLinks context (toSimpleDatabase bakery))
     pure (bakery{dbCrossDBLinks = links}, grid)
 
 build :: Text -> M.Map UUID TechnosphereFlow -> M.Map (UUID, UUID) Activity -> M.Map Text Parameter -> IO Database

@@ -366,6 +366,11 @@
   waste, now writes it as a row naming the treatment, signed as the
   treatment's reference: -3 kg to a treatment giving out -1 kg, +3 kg to one
   taking in +1 kg.
+  this is read again from its files once. An export writes such a line the
+  way its format reads it, so that it charges the same waste once read back:
+  the -3 kg an EcoSpold 2 database sends to an ecoinvent treatment is
+  written +3 kg in SimaPro, and the other way round. Its formula, which no
+  longer gives the written value, is dropped, and the export says so.
 - Finalizing a database relinked with a mapping, before it was finalized,
   keeps the links the mapping made, and so does adding or removing one of
   its dependencies in between. Both relinked the database without the

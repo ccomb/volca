@@ -307,7 +307,7 @@ linksFor :: LinkingContext -> M.Map (UUID, UUID) Activity -> [CrossDBLink]
 linksFor = linksReading SignedReferences
 
 linksReading :: ReferenceConvention -> LinkingContext -> M.Map (UUID, UUID) Activity -> [CrossDBLink]
-linksReading convention ctx = cdlLinks . findAllCrossDBLinks ctx convention techFlowDB wasteFlowDB (M.singleton kgU (Unit kgU "kg" "kg" ""))
+linksReading convention ctx acts = cdlLinks (findAllCrossDBLinks ctx (simpleDB acts){sdbReferenceConvention = convention})
 
 {- | Cross-DB scoring: a root DB whose waste OUTPUT is resolved by the real
 linker ('findAllCrossDBLinks') to a treatment in a separate dependency DB, then
@@ -381,7 +381,7 @@ scoreReadBack through root treatments = do
     rootBase <- buildSimple "root" back
     depDB <- buildDB "eco-dep" treatments
     let ctx = (ctxWithDep "eco-dep" depDB){lcGeographyPolicy = GeoGlobal}
-        links = cdlLinks (findAllCrossDBLinks ctx (sdbReferenceConvention back) (sdbTechFlows back) (sdbWasteFlows back) (sdbUnits back) (sdbActivities back))
+        links = cdlLinks (findAllCrossDBLinks ctx back)
         rootDB = rootBase{dbCrossDBLinks = links}
     case [fromIntegral i | (i, act) <- zip [0 :: Int ..] (V.toList (dbActivities rootDB)), activityName act == "producer of Y"] of
         [pid] -> scoreAcross rootDB "eco-dep" depDB pid
@@ -492,13 +492,13 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
         let grams = mergeUnitConfigs [defaultUnitConfig, mkUnitConfig defaultDimensionOrder (M.singleton "g" (UnitDef [if d == "mass" then 1 else 0 | d <- defaultDimensionOrder] 0.001))]
             units = M.fromList [(kgU, Unit kgU "kg" "kg" ""), (gU, Unit gU "g" "g" "")]
             rootActs = M.singleton (pA, yY) (producer (wasteEx False Nothing 3000){waUnitId = gU})
-            links = cdlLinks (findAllCrossDBLinks (ctxWithDep "eco-dep" depDB){lcUnitConfig = grams} SignedReferences techFlowDB wasteFlowDB units rootActs)
+            links = cdlLinks (findAllCrossDBLinks (ctxWithDep "eco-dep" depDB){lcUnitConfig = grams} (simpleDB rootActs){sdbUnits = units})
         [(withinTolerance 1.0e-12 (-3) (cdlCoefficient l), withinTolerance 1.0e-12 (-0.001) (maybe 0 aeFactor (cdlAnswers l))) | l <- links] `shouldBe` [(True, True)]
 
     it "sends no waste written in seconds to a treatment in kilograms, and says why" $ do
         depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
         let units = M.fromList [(kgU, Unit kgU "kg" "kg" ""), (sU, Unit sU "s" "s" "")]
-            stats = findAllCrossDBLinks (ctxWithDep "eco-dep" depDB) SignedReferences techFlowDB wasteFlowDB units (M.singleton (pA, yY) (producer (wasteEx False Nothing 3){waUnitId = sU}))
+            stats = findAllCrossDBLinks (ctxWithDep "eco-dep" depDB) (simpleDB (M.singleton (pA, yY) (producer (wasteEx False Nothing 3){waUnitId = sU}))){sdbUnits = units}
         cdlLinks stats `shouldBe` []
         cdlCutoffWasteCount stats `shouldBe` 1
         any (\(UnresolvedProduct blockers) -> M.member UnitIncompatible{uiQueryUnit = "s", uiSupplierUnit = "kg"} blockers) (M.elems (cdlUnresolvedRequests stats)) `shouldBe` True

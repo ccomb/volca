@@ -2261,6 +2261,25 @@ data ReferenceConvention
       PositiveReferences
     deriving (Eq, Show, Generic, Store, NFData)
 
+-- | The sign of a supplier's reference amount, which a line reaching it may have to take.
+data ReferenceSign
+    = -- | A treatment written as giving out its waste, -1 kg
+      NegativeReference
+    | -- | A product, or a treatment written as taking in its waste
+      PositiveReference
+    deriving (Eq, Show)
+
+-- | The sign as the factor a line is multiplied by.
+signFactor :: ReferenceSign -> Double
+signFactor NegativeReference = -1
+signFactor PositiveReference = 1
+
+-- | The sign of a reference amount.
+referenceSignOf :: Double -> ReferenceSign
+referenceSignOf amount
+    | amount < 0 = NegativeReference
+    | otherwise = PositiveReference
+
 {- | Simplified version without indexes (for loading compatibility)
 Used during database loading, before conversion to final Vector structure
 -}
