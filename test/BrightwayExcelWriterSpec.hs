@@ -47,6 +47,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Read as TR
 import Database (buildDatabaseWithMatrices)
+import Database.ExportSupplier (noDependencies)
 import Database.Loader (getReferenceProductUUID)
 import Matrix (computeInventoryMatrix)
 import SimaPro.Parser (generateActivityUUID, generateFlowUUID, generateUnitUUID)
@@ -250,25 +251,25 @@ spec = describe "BrightwayExcel.Writer" $ do
             -- Brightway has no waste type. An orphan waste exchange (no producer link)
             -- never enters the matrix, so the writer rewrites it as a technosphere flow
             -- (inventory-neutral) and records it in the manifest, rather than refusing.
-            checkBrightwayExportable wasteDb `shouldBe` Right ()
-            wasteManifest wasteDb `shouldSatisfy` (not . null)
+            checkBrightwayExportable noDependencies wasteDb `shouldBe` Right ()
+            wasteManifest noDependencies wasteDb `shouldSatisfy` (not . null)
             renderWorkbook defaultWriterConfig wasteDb `shouldSatisfy` isRight
-        it "rejects a linked waste exchange, which would invert its sign on re-import" $ do
+        it "rejects a waste exchange linked to a treatment of the file, which would invert its sign on re-import" $ do
             -- A waste exchange that resolves to a producer contributes a negative
             -- coefficient to the matrix; written as technosphere it re-imports as a
             -- positive Input, inverting the inventory. The guard must reject it, and
             -- it is not best-efforted (so it never appears in the manifest).
-            checkBrightwayExportable linkedWasteDb `shouldSatisfy` isLeft
-            wasteManifest linkedWasteDb `shouldBe` []
+            checkBrightwayExportable noDependencies linkedWasteDb `shouldSatisfy` isLeft
+            wasteManifest noDependencies linkedWasteDb `shouldBe` []
         it "rejects a non-finite amount" $
             -- A non-finite amount has no numeric-cell form that re-parses; the
             -- guard rejects the database instead of emitting a misleading value.
-            checkBrightwayExportable nonFiniteDb `shouldSatisfy` isLeft
+            checkBrightwayExportable noDependencies nonFiniteDb `shouldSatisfy` isLeft
         it "accepts a subnormal amount, which round-trips through the correctly-rounded reader" $
             -- 5e-324 (smallest positive subnormal) re-parses exactly through
             -- Amount.readAmount (Data.Text.Read.double used to lose it to 0), so it
             -- is faithfully representable; the guard must not reject it.
-            checkBrightwayExportable subnormalDb `shouldSatisfy` isRight
+            checkBrightwayExportable noDependencies subnormalDb `shouldSatisfy` isRight
 
     describe "ReferenceInput regression" $
         it "rejects a reference input rather than round-tripping it to a duplicated row" $ do
@@ -280,7 +281,7 @@ spec = describe "BrightwayExcel.Writer" $ do
                     refInputDb
                         { sdbActivities = M.singleton (generateActivityUUID refInputAct, tfId solventFlow) refInputAct
                         }
-            checkBrightwayExportable db `shouldSatisfy` isLeft
+            checkBrightwayExportable noDependencies db `shouldSatisfy` isLeft
 
 -- ---------------------------------------------------------------------------
 -- Fixture database, built with the parser's UUID conventions
