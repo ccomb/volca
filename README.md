@@ -599,6 +599,7 @@ POST   /api/v1/{flow-synonyms|compartment-mappings|units}/upload         Upload
 DELETE /api/v1/{flow-synonyms|compartment-mappings|units}/{name}         Delete
 GET    /api/v1/flow-synonyms/{name}/groups                               Browse synonym groups
 GET    /api/v1/flow-synonyms/{name}/download                             Download synonym CSV
+GET    /api/v1/units/{name}/download                                     Download unit table CSV
 
 # Server
 GET    /api/v1/classification-presets                                    Named classification filter bundles (from TOML)
@@ -911,7 +912,7 @@ volca method delete ef-31                        # delete
 | **Reference Data** | | |
 | Flow synonyms | `GET /flow-synonyms` (+ load/unload/upload/delete/groups/download) | `synonyms` |
 | Compartment mappings | `GET /compartment-mappings` (+ load/unload/upload/delete) | `compartment-mappings` |
-| Units | `GET /units` (+ load/unload/upload/delete) | `units` |
+| Units | `GET /units` (+ load/unload/upload/delete/download) | `units` |
 | **Matrix Export** | | |
 | Universal format | – | `export-matrices DIR` (local only) |
 | Debug matrices | – | `debug-matrices ID --output FILE` (local only) |

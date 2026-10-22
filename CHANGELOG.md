@@ -4,6 +4,13 @@
 
 ### Added
 
+- A unit table downloads as the CSV the engine reads
+  (`GET /units/{name}/download`), the built-in "Default units" included,
+  as a synonym table already could. A script converting kg to g or m3 to l
+  no longer keeps its own copy of the factors. pyvolca reads it with
+  `download_units()`, and `unit_table()` returns each unit's measure and
+  factor. Wire revision 81.
+
 - Each row of a batch score through the REST route, and each entry of a
   database's catalogue, now gives the amount the source declares for the
   activity's reference product (`productAmount`), and a batch row its unit

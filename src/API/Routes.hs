@@ -254,6 +254,7 @@ type LCAAPI =
                 :<|> "units" :> Capture "name" Text :> "unload" :> Post '[JSON] ActivateResponse
                 :<|> "units" :> Capture "name" Text :> Delete '[JSON] ActivateResponse
                 :<|> "units" :> "upload" :> QueryParam "name" Text :> QueryParam "description" Text :> StreamBody NoFraming OctetStream (SourceIO UploadChunk) :> Post '[JSON] UploadResponse
+                :<|> "units" :> Capture "name" Text :> "download" :> Get '[OctetStream] (Headers '[Header "Content-Disposition" Text] BinaryContent)
                 -- Log endpoint
                 :<|> "logs" :> QueryParam "since" Int :> Get '[JSON] Value
                 -- Usage log: what was computed, for the operator to collect
@@ -1788,7 +1789,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 80
+currentWireVersion = 81
 
 getVersion :: AppM Value
 getVersion = do
@@ -3403,6 +3404,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.unloadRefData DBHandlers.UnitDefs
             :<|> DBHandlers.deleteRefData DBHandlers.UnitDefs
             :<|> DBHandlers.uploadRefData DBHandlers.UnitDefs
+            :<|> DBHandlers.downloadRefDataHandler DBHandlers.UnitDefs
             :<|> getLogsHandler
             :<|> getUsageHandler
             :<|> forgetUsageHandler

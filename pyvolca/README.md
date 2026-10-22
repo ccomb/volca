@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 80** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 81** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -792,6 +792,12 @@ not hold it, a 403 when the database's ``licence`` refuses downloads.
 Download a flow-synonyms set as its raw CSV bytes.
 
 Raises VoLCAError on an HTTP error (e.g. the set does not exist).
+
+##### `Client.download_units(name: str) -> bytes`
+
+Download a unit table as its raw CSV bytes.
+
+Raises VoLCAError on an HTTP error (e.g. the table does not exist).
 
 ##### `Client.drop_scenario(name: str, *, db_name: str | None = None) -> list[Scenario]`
 
@@ -1770,6 +1776,16 @@ it is: naming an undo line redoes the change it undid. A selector is
 undone by restoring the values it replaced, which is refused, naming
 the factor, when a later line changed one of them.
 
+##### `Client.unit_table(name: str = 'Default units') -> dict[str, UnitDefinition]`
+
+A unit table read into a dict, keyed by each unit as the table writes it.
+
+The columns are read by position (unit, measure, factor) after the
+header, as the engine reads them. The engine also reads a unit written
+in another case or spacing; this dict holds only the spellings the
+table lists. "Default units" is the built-in table, absent from an
+engine whose configuration names its own.
+
 ##### `Client.unload_database(db_name: str) -> dict`
 
 Unload a database from memory to free RAM. The disk copy is kept.
@@ -2617,6 +2633,19 @@ when grouping flows by compartment, and accidental mutation is rejected.
 |-------|------|---------|
 | `name` | `str` | _required_ |
 | `sub` | `str \| None` | None |
+
+### `UnitDefinition`
+
+A row of a unit table: the measure a unit belongs to, as the table
+spells it (``"mass"``, ``"volume"``), and how many of that measure's base
+unit it holds (``g`` is ``0.001`` of mass). The engine also reads a
+measure written as a product of base measures (``volume`` is
+``length^3``), so two spellings can name one measure.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `dimension` | `str` | _required_ |
+| `factor` | `float` | _required_ |
 
 ### `ConsumerResult`
 

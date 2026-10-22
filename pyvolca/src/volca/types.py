@@ -1095,6 +1095,19 @@ def _exchange_comment(ewu: dict | None, inner: dict) -> str | None:
 
 
 @dataclass(frozen=True)
+class UnitDefinition:
+    """A row of a unit table: the measure a unit belongs to, as the table
+    spells it (``"mass"``, ``"volume"``), and how many of that measure's base
+    unit it holds (``g`` is ``0.001`` of mass). The engine also reads a
+    measure written as a product of base measures (``volume`` is
+    ``length^3``), so two spellings can name one measure.
+    """
+
+    dimension: str
+    factor: float
+
+
+@dataclass(frozen=True)
 class Compartment:
     """Biosphere compartment (medium + optional subcompartment).
 
