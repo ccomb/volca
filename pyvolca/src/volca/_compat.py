@@ -35,7 +35,10 @@ before sending anything."""
 KNOWN_WIRE = 81
 """The newest wire revision this pyvolca understands (revision 81 added
 the download of a unit table, which ``download_units()`` and
-``unit_table()`` read; revision 79 added
+``unit_table()`` read; revision 80 added
+the reference amount and unit of each batch score, which
+``ScoredActivity.product_amount`` and ``product_unit`` read, and of each
+catalogue entry; revision 79 added
 the reason a write gives in ``note=``, the history ``database_history()``
 reads, and ``DatabaseInfo.modification``; revision 78 added
 the terms of use a database asks its readers to accept, which

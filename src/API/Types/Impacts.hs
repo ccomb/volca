@@ -217,6 +217,9 @@ instance ToSchema BatchImpactsRequest where
 data BatchImpactsEntry = BatchImpactsEntry
     { bieProcessId :: Text
     , bieActivityName :: Text
+    , bieProductAmount :: Maybe Double
+    -- ^ The amount the source declares for the reference product, negative for a treatment taking in waste; the scores are per one 'bieProductUnit' whatever it is. Nothing without a reference
+    , bieProductUnit :: Maybe Text
     , bieParameterSet :: Maybe Int
     -- ^ The position of the parameter set this entry was scored at, when the request gave sets
     , bieImpacts :: LCIABatchResult

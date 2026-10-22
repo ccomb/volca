@@ -2274,6 +2274,14 @@ signFactor :: ReferenceSign -> Double
 signFactor NegativeReference = -1
 signFactor PositiveReference = 1
 
+{- | What a line of a database in this convention asks of a supplier of this
+sign, per unit written: a positive-reference database's +3 kg sent to a -1
+treatment is a demand of -3 on it, a signed database's line is read as written.
+-}
+readingSign :: ReferenceConvention -> ReferenceSign -> Double
+readingSign PositiveReferences refSign = signFactor refSign
+readingSign SignedReferences _ = 1
+
 -- | The sign of a reference amount.
 referenceSignOf :: Double -> ReferenceSign
 referenceSignOf amount

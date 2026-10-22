@@ -11,6 +11,32 @@
   `download_units()`, and `unit_table()` returns each unit's measure and
   factor. Wire revision 81.
 
+- Each row of a batch score through the REST route, and each entry of a
+  database's catalogue, now gives the amount the source declares for the
+  activity's reference product (`productAmount`), and a batch row its unit
+  (`productUnit`). The sign tells a wastewater market written with -1 m3
+  from a treatment written with +1 m3, whose lines a relink mapping from
+  one to the other must turn; the unit tells a process per kg from one per
+  m3. The score stays per one unit of what the activity does whatever the
+  amount: both of those score the treatment of one m3, and a coproduct
+  declared at 0.07 kg is still scored per kg. Both are absent for an activity without a
+  reference product. A client had to look these up one activity at a
+  time. pyvolca reads them as `ScoredActivity.product_amount` and
+  `product_unit`. Wire revision 80.
+
+- A relink mapping row can say that its target counts the demand the other
+  way than the supplier the line was written for, in a new `direction`
+  column (`opposite`, or `same`, the default). A Brightway workbook written
+  for an EcoSpold 2 background sends 0.018 m3 of wastewater as an input of -0.018 m3 to a
+  wastewater market whose reference is -1 m3. Relinked to a treatment whose
+  reference is +1 m3, the line stayed -0.018: the treatment ran backwards
+  and scored a credit, so ecotoxicity and marine eutrophication came out
+  negative. With `opposite` on the row the line becomes a demand of +0.018.
+  An export writes the line turned, its formula dropped and said. Only a
+  database whose lines are read as written (EcoSpold 2, openLCA, Brightway)
+  needs the column: a SimaPro, ILCD or EcoSpold 1 line already takes its
+  supplier's sign, so a mapping turning one is refused, saying why.
+
 - A change made to a database of one's own can say why, in a note: every
   write (activities written, rewritten or deleted, exchanges edited,
   database parameters changed, changes applied from a comparison) takes an

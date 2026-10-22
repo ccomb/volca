@@ -113,6 +113,14 @@ spec = describe "Database.Export dispatcher" $ do
             said `shouldSatisfy` any (T.isInfixOf "opposite sign")
             techAmount (lineAt 1 signed) `shouldBe` 33.336
 
+        it "is written turned, and says its formula is dropped, when a relink mapping turned it" $ do
+            -- A mapping row's direction: the link asks the supplier for -1 per unit written.
+            let (signed, said) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, grid)]) [linkAt 1 gridAct (-1) "MJ"] spinning
+                (positive, _) = namedAfterLinks energyUnits PositiveReferences (suppliers [(1, grid)]) [linkAt 1 gridAct (-1) "MJ"] spinning
+            (\ex -> (techAmount ex, isNothing (techFormula ex))) (lineAt 1 signed) `shouldBe` (-33.336, True)
+            said `shouldSatisfy` any (T.isInfixOf "opposite sign")
+            techAmount (lineAt 1 positive) `shouldBe` (-33.336)
+
         it "takes the supplier of its own link when two lines of one product have two" $ do
             let (sdb, _) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, grid), (2, grid)]) [linkAt 1 gridAct 1 "MJ", linkAt 2 otherAct 1 "MJ"] spinning
             fmap techActivityLinkId (lookupLine 1 sdb) `shouldBe` Just (Just gridAct)

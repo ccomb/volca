@@ -97,6 +97,21 @@ class TestScoreActivities:
         assert result.not_found == ["p3"]
         assert result.invalid == ["bogus"]
 
+    def test_reads_each_reference_amount_and_unit(self, mocked_client, make_response):
+        client, session = mocked_client
+        session.post.return_value = make_response(
+            {
+                "results": [
+                    {"processId": "p1", "activityName": "Treatment", "productAmount": -1.0, "productUnit": "m3", "impacts": _batch(1.0)},
+                    {"processId": "p2", "activityName": "Wheat", "impacts": _batch(2.0)},
+                ],
+                "notFound": [],
+                "invalid": [],
+            }
+        )
+        result = client.score_activities(["p1", "p2"], collection="methods")
+        assert [(s.product_amount, s.product_unit) for s in result.results] == [(-1.0, "m3"), (None, None)]
+
     def test_scores_each_process_at_each_parameter_set(self, mocked_client, make_response):
         client, session = mocked_client
         client._checked = True

@@ -29,7 +29,7 @@ import Test.Hspec
 import Config (DatabaseConfig (..), defaultConfig)
 import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
-import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), buildIndexedDatabaseFromDB, emptyAliasMap)
+import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), Direction (..), buildIndexedDatabaseFromDB, emptyAliasMap)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
@@ -162,7 +162,7 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                     manager
                     "consumer"
                     "beta"
-                    (AliasMap M.empty (M.singleton (AliasKey "no-such-input" Nothing) (pure (AliasTarget (SupplierNamed "no-such-supplier" Nothing) Nothing))))
+                    (AliasMap M.empty (M.singleton (AliasKey "no-such-input" Nothing) (pure (AliasTarget (SupplierNamed "no-such-supplier" Nothing) Nothing Same))))
             result `shouldSatisfy` isRight
 
             loaded <- readTVarIO (dmLoadedDbs manager)
@@ -208,7 +208,7 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                     manager
                     "consumer"
                     "alpha"
-                    (AliasMap M.empty (M.singleton (AliasKey "q1" Nothing) (pure (AliasTarget (SupplierNamed "p1" Nothing) Nothing))))
+                    (AliasMap M.empty (M.singleton (AliasKey "q1" Nothing) (pure (AliasTarget (SupplierNamed "p1" Nothing) Nothing Same))))
             relinked `shouldSatisfy` isRight
             added <- addDependencyToStaged manager (DependencyEdit "consumer" "beta")
             either (expectationFailure . show) (const (pure ())) added
