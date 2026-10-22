@@ -2901,6 +2901,83 @@ class Client:
             )
         )
 
+    def score_table(
+        self,
+        process_ids: list[str],
+        *,
+        collection: str | None = None,
+        chunk: int = 100,
+        workers: int = 8,
+    ) -> list[dict]:
+        """Score many processes into one flat row each, in the order given.
+
+        A row holds ``process_id``, ``activity_name``, each category's score
+        under the category's name, and each scoring set's total under the
+        set's name. The ids go in batches of ``chunk`` (a hosted engine caps a
+        batch), ``workers`` at a time. Raises VoLCAError naming every id the
+        engine did not score.
+        """
+        collection = self._resolve_collection(collection)
+        batches = [process_ids[i : i + chunk] for i in range(0, len(process_ids), chunk)]
+        with ThreadPoolExecutor(workers) as pool:
+            scored = list(pool.map(lambda ids: self.score_activities(ids, collection=collection, top_flows=0), batches))
+        unscored = [pid for b in scored for pid in b.not_found + b.invalid + b.unscorable]
+        if unscored:
+            raise VoLCAError(f"the engine did not score {unscored}")
+        return [
+            {"process_id": s.process_id, "activity_name": s.activity_name}
+            | {r.category: r.score for r in s.impacts.results}
+            | {name: values["total"] for name, values in s.impacts.scoring_results.items()}
+            for b in scored
+            for s in b.results
+        ]
+
+    def quality_report(self, db_name: str | None = None, *, limit: int | None = None) -> dict:
+        """The database's structural quality report, as the engine sends it.
+
+        ``limit`` caps the findings listed per check, worst first.
+        """
+        return self._call("get_quality_report", db_name=self._db(db_name), limit=limit)
+
+    def quality_report_csv(self, db_name: str | None = None, *, limit: int | None = None) -> bytes:
+        """The structural quality report as the CSV file the web page offers."""
+        return self._csv(f"db/{self._db(db_name)}/quality-report.csv", {"limit": limit}, "quality_report_csv")
+
+    def computed_quality_report(
+        self, db_name: str | None = None, *, collection: str | None = None, limit: int | None = None
+    ) -> dict:
+        """The quality checks read from every activity's scores under ``collection``."""
+        return self._call(
+            "get_computed_quality_report",
+            db_name=self._db(db_name),
+            collection=self._resolve_collection(collection),
+            limit=limit,
+        )
+
+    def computed_quality_report_csv(
+        self, db_name: str | None = None, *, collection: str | None = None, limit: int | None = None
+    ) -> bytes:
+        """The computed quality report as the CSV file the web page offers."""
+        return self._csv(
+            f"db/{self._db(db_name)}/computed-quality-report.csv",
+            {"collection": self._resolve_collection(collection), "limit": limit},
+            "computed_quality_report_csv",
+        )
+
+    def _csv(self, path: str, params: dict, what: str) -> bytes:
+        resp = self._session.get(
+            f"{self.base_url}/api/v1/{path}",
+            params={k: v for k, v in params.items() if v is not None},
+            headers={"Accept": "text/csv"},
+        )
+        if resp.status_code >= 400:
+            raise VoLCAError(
+                f"{what} failed (HTTP {resp.status_code}): {resp.text[:500]}",
+                status_code=resp.status_code,
+                body=resp.text,
+            )
+        return resp.content
+
     def reduced_model(
         self,
         process_id: str,

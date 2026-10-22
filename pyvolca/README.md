@@ -612,6 +612,14 @@ that perturbation could not be resolved. ``method_id`` takes a method
 name as well as a UUID, and ``collection`` is read off the resolved
 method unless you pin it.
 
+##### `Client.computed_quality_report(db_name: str | None = None, *, collection: str | None = None, limit: int | None = None) -> dict`
+
+The quality checks read from every activity's scores under ``collection``.
+
+##### `Client.computed_quality_report_csv(db_name: str | None = None, *, collection: str | None = None, limit: int | None = None) -> bytes`
+
+The computed quality report as the CSV file the web page offers.
+
 ##### `Client.copy_database(new_name: str, db_name: str | None = None) -> dict`
 
 Copy a loaded database in memory under a new name.
@@ -1364,6 +1372,16 @@ and the duplicates, the factors one key answers to at one place.
 Compartments and locations are read as ``compare_method_collections``
 reads them.
 
+##### `Client.quality_report(db_name: str | None = None, *, limit: int | None = None) -> dict`
+
+The database's structural quality report, as the engine sends it.
+
+``limit`` caps the findings listed per check, worst first.
+
+##### `Client.quality_report_csv(db_name: str | None = None, *, limit: int | None = None) -> bytes`
+
+The structural quality report as the CSV file the web page offers.
+
 ##### `Client.reduced_model(process_id: str, parameters: list[ParameterName], *, collection: str | None = None, exclude_long_term: bool | None = None) -> ReducedModel`
 
 The activity's scores as a function of some of its input parameters.
@@ -1536,6 +1554,16 @@ than picking one. ``parameter_sets`` scores every process once at each
 set of `ParameterValue`, set after set; each
 `ScoredActivity` then carries the position of its set in
 ``parameter_set``.
+
+##### `Client.score_table(process_ids: list[str], *, collection: str | None = None, chunk: int = 100, workers: int = 8) -> list[dict]`
+
+Score many processes into one flat row each, in the order given.
+
+A row holds ``process_id``, ``activity_name``, each category's score
+under the category's name, and each scoring set's total under the
+set's name. The ids go in batches of ``chunk`` (a hosted engine caps a
+batch), ``workers`` at a time. Raises VoLCAError naming every id the
+engine did not score.
 
 ##### `Client.scoring_sets(collection: str) -> list[dict]`
 
@@ -1839,7 +1867,13 @@ Usage::
         client = Client(base_url=srv.base_url, db="agribalyse-3.2", password=srv.password)
         activities = client.search_activities(name="at plant")
 
-**Constructor**: `Server(config: str | None = 'volca.toml', port: Union[int, Literal['auto']] = 0, binary: str = 'volca')`
+Or with no TOML of one's own, the databases and methods named by path::
+
+    with Server(databases={"agb": "agribalyse.zip"}, methods={"EF 3.1": "ef31.zip"}) as srv:
+        client = Client(base_url=srv.base_url, db="agb")
+        client.load_database("agb")
+
+**Constructor**: `Server(config: str | None = 'volca.toml', port: Union[int, Literal['auto']] = 0, binary: str = 'volca', databases: collections.abc.Mapping[str, str | pathlib.Path] | None = None, methods: collections.abc.Mapping[str, str | pathlib.Path] | None = None)`
 
 #### Properties
 
@@ -1855,13 +1889,13 @@ Always loopback: the managed server only listens locally.
 
 Health check: GET /api/v1/db, return True if 200.
 
-##### `Server.start(idle_timeout: int = 300, wait_timeout: int = 120) -> None`
+##### `Server.start(idle_timeout: int = 1200, wait_timeout: int = 120) -> None`
 
 Spawn the engine process if it is not already serving, and wait until ready.
 
 Args:
     idle_timeout: Seconds without use before the engine shuts itself
-        down. Default 5 min. An API request or a matrix solve counts
+        down. Default 20 min, which a large database's load fits in. An API request or a matrix solve counts
         as use; an MCP client merely staying connected does not.
     wait_timeout: How long to poll for the server to become healthy
         before raising `TimeoutError`.

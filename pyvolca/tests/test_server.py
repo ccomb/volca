@@ -202,3 +202,42 @@ def test_stop_reports_an_engine_it_did_not_start_still_running():
     with mock.patch("volca.server.requests.post", side_effect=requests.ReadTimeout), \
          pytest.raises(requests.ReadTimeout):
         srv.stop()
+
+
+def test_declared_config_names_each_database_and_method_by_its_resolved_path(tmp_path: Path):
+    """The TOML a ``databases=`` server writes reads back as what was declared."""
+    from volca.server import declared_config, tomllib
+
+    db = tmp_path / "my db.zip"
+    text = declared_config({"agb": db}, {"EF 3.1": "ef31.zip"})
+    assert tomllib.loads(text) == {
+        "databases": [{"name": "agb", "path": str(db.resolve())}],
+        "methods": [{"name": "EF 3.1", "path": str(Path("ef31.zip").resolve())}],
+    }
+
+
+def test_declared_databases_write_their_own_config_on_a_free_port(tmp_path: Path):
+    srv = Server(databases={"agb": tmp_path / "agb.zip"})
+    assert Path(srv.config).is_file()
+    assert srv.port == 0  # "auto": the engine picks a free port
+
+
+def test_declared_databases_refuse_a_config_beside_them():
+    with pytest.raises(ValueError, match="not both"):
+        Server(config="mine.toml", databases={"agb": "agb.zip"})
+
+
+def test_volca_binary_names_a_local_build(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("VOLCA_BINARY", "/build/volca")
+    monkeypatch.setenv("VOLCA_DATA_DIR", str(tmp_path))
+    assert Server(config=None)._find_binary() == "/build/volca"
+    mine = tmp_path / "mine"
+    mine.write_bytes(b"")
+    assert Server(config=None, binary=str(mine))._find_binary() == str(mine)
+
+
+def test_volca_binary_without_its_data_is_refused(monkeypatch):
+    monkeypatch.setenv("VOLCA_BINARY", "/build/volca")
+    monkeypatch.delenv("VOLCA_DATA_DIR", raising=False)
+    with pytest.raises(RuntimeError, match="VOLCA_DATA_DIR"):
+        Server(config=None)._find_binary()

@@ -1,10 +1,13 @@
 """Server lifecycle management for VoLCA."""
 
+import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
@@ -18,6 +21,23 @@ except ModuleNotFoundError:
 from . import _compat, _download
 
 
+def declared_config(databases: Mapping[str, str | Path], methods: Mapping[str, str | Path]) -> str:
+    """The engine TOML declaring each database and method collection by name and path.
+
+    Paths are resolved and written as JSON strings, which TOML reads as its own
+    (Windows backslashes included). A database is declared unloaded, the
+    engine's default, so a start does not wait on it.
+    """
+
+    def entry(table: str, name: str, path: str | Path) -> str:
+        return f"[[{table}]]\nname = {json.dumps(name)}\npath = {json.dumps(str(Path(path).resolve()))}\n"
+
+    return "\n".join(
+        [entry("databases", n, p) for n, p in databases.items()]
+        + [entry("methods", n, p) for n, p in methods.items()]
+    )
+
+
 class Server:
     """Manages the VoLCA server process.
 
@@ -26,6 +46,12 @@ class Server:
         with Server(config="volca.toml") as srv:
             client = Client(base_url=srv.base_url, db="agribalyse-3.2", password=srv.password)
             activities = client.search_activities(name="at plant")
+
+    Or with no TOML of one's own, the databases and methods named by path::
+
+        with Server(databases={"agb": "agribalyse.zip"}, methods={"EF 3.1": "ef31.zip"}) as srv:
+            client = Client(base_url=srv.base_url, db="agb")
+            client.load_database("agb")
     """
 
     def __init__(
@@ -33,6 +59,8 @@ class Server:
         config: str | None = "volca.toml",
         port: int | Literal["auto"] = 0,
         binary: str = "volca",
+        databases: Mapping[str, str | Path] | None = None,
+        methods: Mapping[str, str | Path] | None = None,
     ):
         """Configure (but don't start) a managed VoLCA server.
 
@@ -47,8 +75,23 @@ class Server:
                 bind an OS-assigned free port atomically. ``0`` reads the
                 config (or uses 8080), preserving the original API.
             binary: Name or path of the volca binary. Looked up on PATH if
-                not absolute.
+                not absolute. Left at ``"volca"``, ``VOLCA_BINARY`` names a
+                local build, which then needs ``VOLCA_DATA_DIR``, the data
+                directory of the same build.
+            databases: Databases to declare, name to path, in place of a
+                ``config``. They start unloaded: load each with
+                :meth:`Client.load_database`. The engine then takes a free
+                port, and its TOML lives in a temporary directory.
+            methods: Method collections to declare, name to path, as
+                ``databases``.
         """
+        if databases is not None or methods is not None:
+            if config not in ("volca.toml", None):
+                raise ValueError("pass either config or databases/methods, not both")
+            self._declared = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+            config = str(Path(self._declared.name) / "volca.toml")
+            Path(config).write_text(declared_config(databases or {}, methods or {}), encoding="utf-8")
+            port = "auto"
         self.config = config
         self.binary = binary
         self._process: subprocess.Popen | None = None
@@ -91,6 +134,9 @@ class Server:
         """Find the volca binary.
 
         Resolution order:
+          0. ``VOLCA_BINARY`` when ``self.binary`` is left at ``"volca"``,
+             refused without ``VOLCA_DATA_DIR`` (the released data would not
+             match a local build).
           1. ``self.binary`` if it is an existing file.
           2. The shared install root (``platformdirs.user_data_dir``),
              populated by :func:`volca.download`, ``install.sh``, or
@@ -103,6 +149,10 @@ class Server:
         in the working tree (e.g. a source checkout) must not shadow the real
         binary and get handed to ``Popen`` as an unexecutable path.
         """
+        if self.binary == "volca" and "VOLCA_BINARY" in os.environ:
+            if "VOLCA_DATA_DIR" not in os.environ:
+                raise RuntimeError("VOLCA_BINARY needs VOLCA_DATA_DIR, the data directory of the same build")
+            return os.environ["VOLCA_BINARY"]
         if Path(self.binary).is_file():
             return self.binary
         installed = _download.installed_binary()
@@ -200,12 +250,12 @@ class Server:
             raise RuntimeError(f"VoLCA reported an invalid port: {raw}")
         self.port = port
 
-    def start(self, idle_timeout: int = 300, wait_timeout: int = 120) -> None:
+    def start(self, idle_timeout: int = 1200, wait_timeout: int = 120) -> None:
         """Spawn the engine process if it is not already serving, and wait until ready.
 
         Args:
             idle_timeout: Seconds without use before the engine shuts itself
-                down. Default 5 min. An API request or a matrix solve counts
+                down. Default 20 min, which a large database's load fits in. An API request or a matrix solve counts
                 as use; an MCP client merely staying connected does not.
             wait_timeout: How long to poll for the server to become healthy
                 before raising :class:`TimeoutError`.

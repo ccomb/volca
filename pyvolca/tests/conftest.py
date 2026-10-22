@@ -191,6 +191,15 @@ def fixture_spec() -> dict[str, Any]:
                     ],
                 },
             },
+            "/api/v1/db/{dbName}/quality-report": {
+                "get": {
+                    "operationId": "get_quality_report",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "limit", "in": "query", "required": False, "schema": {"type": "integer"}},
+                    ],
+                },
+            },
             "/api/v1/db/{dbName}/impacts/{collection}": {
                 "post": {
                     "operationId": "score_activities",
