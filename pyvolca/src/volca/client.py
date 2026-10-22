@@ -2922,7 +2922,8 @@ class Client:
 
         A row holds ``process_id``, ``activity_name``, ``product_amount`` and
         ``product_unit`` (the reference each score is per one unit of), each
-        category's score under the category's name, and each scoring set's
+        method's score under the method's name (not its category, which
+        several methods share: four climate change methods in EF 3.1), and each scoring set's
         ``total`` under the set's name (a set without one has no column). The ids go in batches of ``chunk`` (a hosted engine caps a
         batch), ``workers`` at a time. Raises VoLCAError naming every id the
         engine did not score.
@@ -2941,7 +2942,7 @@ class Client:
                 "product_amount": s.product_amount,
                 "product_unit": s.product_unit,
             }
-            | {r.category: r.score for r in s.impacts.results}
+            | {r.method_name: r.score for r in s.impacts.results}
             | {name: values["total"] for name, values in s.impacts.scoring_results.items() if "total" in values}
             for b in scored
             for s in b.results

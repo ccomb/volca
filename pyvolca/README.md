@@ -1601,7 +1601,8 @@ Score many processes into one flat row each, in the order given.
 
 A row holds ``process_id``, ``activity_name``, ``product_amount`` and
 ``product_unit`` (the reference each score is per one unit of), each
-category's score under the category's name, and each scoring set's
+method's score under the method's name (not its category, which
+several methods share: four climate change methods in EF 3.1), and each scoring set's
 ``total`` under the set's name (a set without one has no column). The ids go in batches of ``chunk`` (a hosted engine caps a
 batch), ``workers`` at a time. Raises VoLCAError naming every id the
 engine did not score.
