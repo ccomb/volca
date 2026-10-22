@@ -3521,7 +3521,8 @@ class Client:
         Raises VoLCAError on an HTTP error (e.g. the set does not exist).
         """
         resp = self._session.get(
-            f"{self.base_url}/api/v1/flow-synonyms/{name}/download"
+            f"{self.base_url}/api/v1/flow-synonyms/{name}/download",
+            headers={"Accept": "application/octet-stream"},
         )
         if resp.status_code >= 400:
             raise VoLCAError(
@@ -3539,7 +3540,8 @@ class Client:
         """
         self._require_wire(81, "download_units", engine_hint="0.16.0")
         resp = self._session.get(
-            f"{self.base_url}/api/v1/units/{urllib.parse.quote(name, safe='')}/download"
+            f"{self.base_url}/api/v1/units/{urllib.parse.quote(name, safe='')}/download",
+            headers={"Accept": "application/octet-stream"},
         )
         if resp.status_code >= 400:
             raise VoLCAError(
