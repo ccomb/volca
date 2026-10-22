@@ -32,8 +32,11 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 79
-"""The newest wire revision this pyvolca understands (revision 79 added
+KNOWN_WIRE = 80
+"""The newest wire revision this pyvolca understands (revision 80 added
+the reference amount and unit of each batch score, which
+``ScoredActivity.product_amount`` and ``product_unit`` read, and of each
+catalogue entry; revision 79 added
 the reason a write gives in ``note=``, the history ``database_history()``
 reads, and ``DatabaseInfo.modification``; revision 78 added
 the terms of use a database asks its readers to accept, which

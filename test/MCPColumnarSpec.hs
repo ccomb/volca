@@ -80,6 +80,8 @@ mkEntry pid name fu setName total inds =
     BatchImpactsEntry
         { bieProcessId = pid
         , bieActivityName = name
+        , bieProductAmount = Just 1
+        , bieProductUnit = Just fu
         , bieParameterSet = Nothing
         , bieImpacts =
             LCIABatchResult

@@ -43,6 +43,8 @@ module Database.CrossLinking (
     AliasKey (..),
     AliasSupplier (..),
     AliasTarget (..),
+    Direction (..),
+    directionFactor,
     UnitBridge (..),
     AliasMap (..),
     emptyAliasMap,
@@ -284,10 +286,24 @@ data UnitBridge = UnitBridge
     }
     deriving (Show, Eq)
 
--- | Designated supplier of an alias row, and the conversion its units need, if any.
+{- | Whether the designated supplier counts the demand the way the demand was
+written. A line of -0.018 m3 written for a wastewater market whose reference
+is -1 m3 asks for 0.018 m3 treated; linked to a treatment whose reference is
++1 m3, the same request is +0.018. 'Opposite' turns the line, 'Same' keeps it.
+-}
+data Direction = Same | Opposite
+    deriving (Show, Eq)
+
+-- | The factor a line is multiplied by to reach its supplier in that direction.
+directionFactor :: Direction -> Double
+directionFactor Same = 1
+directionFactor Opposite = -1
+
+-- | Designated supplier of an alias row, the conversion its units need, if any, and which way it counts the demand.
 data AliasTarget = AliasTarget
     { atSupplier :: !AliasSupplier
     , atBridge :: !(Maybe UnitBridge)
+    , atDirection :: !Direction
     }
     deriving (Show, Eq)
 
@@ -340,10 +356,15 @@ designatesProcess LinkingContext{lcSupplierAliases = aliases} ref = M.member ref
 
 -- | How a report names an alias target.
 describeTarget :: AliasTarget -> Text
-describeTarget t = case atSupplier t of
-    SupplierNamed name mLoc -> name <> maybe "" (" @ " <>) mLoc
-    SupplierProcess _ label -> label
-    NoSupplier -> "no supplier"
+describeTarget t = supplier <> direction
+  where
+    supplier = case atSupplier t of
+        SupplierNamed name mLoc -> name <> maybe "" (" @ " <>) mLoc
+        SupplierProcess _ label -> label
+        NoSupplier -> "no supplier"
+    direction = case atDirection t of
+        Same -> ""
+        Opposite -> " (opposite direction)"
 
 {- | How a report names rows that disagree. Two processes of one product read
 alike ("passenger car | passenger car"), so each one sharing its name with
@@ -411,6 +432,8 @@ data CrossDBLinkResult
         -}
         , cdlrRefSign :: !ReferenceSign
         -- ^ Sign of the supplier's reference amount, as 'seRefSign'
+        , cdlrDirection :: !Direction
+        -- ^ The mapping row's direction; 'Same' for a link no row designated
         }
     | CrossDBNotLinked !LinkBlocker
 
@@ -919,7 +942,7 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
     -- location) or the literal designated link; none, no link. A target that
     -- matches nowhere is a loud curated-mapping error ('AliasTargetMissing'),
     -- never a silent 'NoNameMatch'.
-    resolveDesignated (AliasTarget supplier bridge) = case supplier of
+    resolveDesignated (AliasTarget supplier bridge direction) = directed $ case supplier of
         NoSupplier -> CrossDBNotLinked AliasDeclined
         SupplierProcess ref label ->
             case NE.nonEmpty [(db, entry) | (entry, db) <- findSupplierByActivityProduct lcIndexedDatabases ref] of
@@ -932,6 +955,11 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
                 Just targetLoc -> case NE.nonEmpty (filter ((== targetLoc) . seLocation . snd) candidates) of
                     Nothing -> CrossDBNotLinked (AliasTargetMissing targetName (Just targetLoc))
                     Just atLoc -> linkDesignated bridge atLoc
+      where
+        directed :: CrossDBLinkResult -> CrossDBLinkResult
+        directed result = case result of
+            CrossDBLinked{} -> result{cdlrDirection = direction}
+            CrossDBNotLinked _ -> result
 
     -- The curator designated the supplier: link there directly. Unit
     -- compatibility still applies; the geography policy and score threshold
@@ -1047,6 +1075,7 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
             , cdlrTiedDatabases = tied
             , cdlrBridge = bridge >>= throughBridge (cdbUnit best)
             , cdlrRefSign = cdbRefSign best
+            , cdlrDirection = Same
             }
     lookupExact :: Text -> IndexedDatabase -> [(Text, SupplierEntry)]
     lookupExact name idb =

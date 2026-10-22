@@ -162,6 +162,7 @@ import Database.CrossLinking (
     aliasApplies,
     defaultLinkingThreshold,
     designatesProcess,
+    directionFactor,
     emptyAliasMap,
     extractBracketedLocation,
     findSupplierByActivityProduct,
@@ -2799,11 +2800,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnKe
     treatment whose reference is -1, that demand carries the treatment's sign,
     as a waste output does, or it would run the treatment backwards. -}
     signedPerLine :: ReferenceSign -> T.Text -> Maybe Double
-    signedPerLine refSign = fmap (* sign) . perLineIn
-      where
-        sign = case convention of
-            PositiveReferences -> signFactor refSign
-            SignedReferences -> 1
+    signedPerLine refSign = fmap (* readingSign convention refSign) . perLineIn
     unitRefused :: TechnosphereFlow -> T.Text -> CrossDBLinkingStats
     unitRefused flow flowUnitName = unresolvedStats flow UnitIncompatible{uiQueryUnit = writtenUnitName unitDb ex, uiSupplierUnit = flowUnitName}
     resolveTechInput :: TechnosphereFlow -> CrossDBLinkingStats
@@ -2869,7 +2866,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnKe
     attributeMatch flow flowUnitName =
         let query = supplierQuery flow flowUnitName
          in case findSupplierInIndexedDBs ctx query of
-                result@CrossDBLinked{} -> case signedPerLine (cdlrRefSign result) flowUnitName of
+                result@CrossDBLinked{} -> case (* directionFactor (cdlrDirection result)) <$> signedPerLine (cdlrRefSign result) flowUnitName of
                     Nothing -> unitRefused flow flowUnitName
                     Just perLine -> case bridgedAmount flowUnitName (cdlrBridge result) (written * perLine) of
                         -- The row's units passed the matcher, so this is a unit the
