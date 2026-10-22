@@ -2917,9 +2917,10 @@ class Client:
     ) -> list[dict]:
         """Score many processes into one flat row each, in the order given.
 
-        A row holds ``process_id``, ``activity_name``, each category's score
-        under the category's name, and each scoring set's total under the
-        set's name. The ids go in batches of ``chunk`` (a hosted engine caps a
+        A row holds ``process_id``, ``activity_name``, ``product_amount`` and
+        ``product_unit`` (the reference each score is per one unit of), each
+        category's score under the category's name, and each scoring set's
+        ``total`` under the set's name (a set without one has no column). The ids go in batches of ``chunk`` (a hosted engine caps a
         batch), ``workers`` at a time. Raises VoLCAError naming every id the
         engine did not score.
         """
@@ -2931,9 +2932,14 @@ class Client:
         if unscored:
             raise VoLCAError(f"the engine did not score {unscored}")
         return [
-            {"process_id": s.process_id, "activity_name": s.activity_name}
+            {
+                "process_id": s.process_id,
+                "activity_name": s.activity_name,
+                "product_amount": s.product_amount,
+                "product_unit": s.product_unit,
+            }
             | {r.category: r.score for r in s.impacts.results}
-            | {name: values["total"] for name, values in s.impacts.scoring_results.items()}
+            | {name: values["total"] for name, values in s.impacts.scoring_results.items() if "total" in values}
             for b in scored
             for s in b.results
         ]
@@ -2971,6 +2977,7 @@ class Client:
         )
 
     def _csv(self, path: str, params: dict, what: str) -> bytes:
+        self._ensure_compatible()
         resp = self._session.get(
             f"{self.base_url}/api/v1/{path}",
             params={k: v for k, v in params.items() if v is not None},

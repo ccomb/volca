@@ -102,16 +102,30 @@ class TestScoreActivities:
 
         def answer(url, **kwargs):
             ids = kwargs["json"]["processIds"]
-            impacts = lambda i: _batch(float(i[1:])) | {"scoringResults": {"ECS": {"total": 10 * float(i[1:])}}}
+            impacts = lambda i: _batch(float(i[1:])) | {"scoringResults": {"ECS": {"total": 10 * float(i[1:])}, "Edited": {"other": 1.0}}}
             return make_response(
-                {"results": [{"processId": i, "activityName": i.upper(), "impacts": impacts(i)} for i in ids], "notFound": [], "invalid": []}
+                {
+                    "results": [
+                        {"processId": i, "activityName": i.upper(), "productAmount": 1.0, "productUnit": "kg", "impacts": impacts(i)}
+                        for i in ids
+                    ],
+                    "notFound": [],
+                    "invalid": [],
+                }
             )
 
         session.post.side_effect = answer
         rows = client.score_table(["p1", "p2", "p3"], collection="methods", chunk=2, workers=2)
         assert session.post.call_count == 2
         assert rows == [
-            {"process_id": f"p{n}", "activity_name": f"P{n}", "Climate change": float(n), "ECS": 10.0 * n}
+            {
+                "process_id": f"p{n}",
+                "activity_name": f"P{n}",
+                "product_amount": 1.0,
+                "product_unit": "kg",
+                "Climate change": float(n),
+                "ECS": 10.0 * n,
+            }
             for n in (1, 2, 3)
         ]
 

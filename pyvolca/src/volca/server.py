@@ -30,7 +30,11 @@ def declared_config(databases: Mapping[str, str | Path], methods: Mapping[str, s
     """
 
     def entry(table: str, name: str, path: str | Path) -> str:
-        return f"[[{table}]]\nname = {json.dumps(name)}\npath = {json.dumps(str(Path(path).resolve()))}\n"
+        return f"[[{table}]]\nname = {quoted(name)}\npath = {quoted(str(Path(path).resolve()))}\n"
+
+    def quoted(text: str) -> str:
+        # Unescaped beyond ASCII: an escaped emoji is a surrogate pair, which TOML refuses.
+        return json.dumps(text, ensure_ascii=False)
 
     return "\n".join(
         [entry("databases", n, p) for n, p in databases.items()]
@@ -88,6 +92,8 @@ class Server:
         if databases is not None or methods is not None:
             if config not in ("volca.toml", None):
                 raise ValueError("pass either config or databases/methods, not both")
+            if port not in (0, "auto"):
+                raise ValueError("an engine started on databases/methods takes a free port: leave port out")
             self._declared = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
             config = str(Path(self._declared.name) / "volca.toml")
             Path(config).write_text(declared_config(databases or {}, methods or {}), encoding="utf-8")
@@ -255,7 +261,9 @@ class Server:
 
         Args:
             idle_timeout: Seconds without use before the engine shuts itself
-                down. Default 20 min, which a large database's load fits in. An API request or a matrix solve counts
+                down. Default 20 min: a script's own work between two
+                requests (reading a workbook, drawing its results) counts as
+                idleness, and outlasted 5. An API request or a matrix solve counts
                 as use; an MCP client merely staying connected does not.
             wait_timeout: How long to poll for the server to become healthy
                 before raising :class:`TimeoutError`.

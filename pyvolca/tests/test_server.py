@@ -241,3 +241,15 @@ def test_volca_binary_without_its_data_is_refused(monkeypatch):
     monkeypatch.delenv("VOLCA_DATA_DIR", raising=False)
     with pytest.raises(RuntimeError, match="VOLCA_DATA_DIR"):
         Server(config=None)._find_binary()
+
+
+def test_declared_databases_refuse_a_port_of_their_own():
+    with pytest.raises(ValueError, match="free port"):
+        Server(databases={"agb": "agb.zip"}, port=8080)
+
+
+def test_declared_config_keeps_a_path_beyond_ascii_valid_toml(tmp_path: Path):
+    from volca.server import declared_config, tomllib
+
+    db = tmp_path / "📁 ACV" / "agb.zip"
+    assert tomllib.loads(declared_config({"agb": db}, {}))["databases"][0]["path"] == str(db.resolve())

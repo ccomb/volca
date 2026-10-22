@@ -1565,9 +1565,10 @@ set of `ParameterValue`, set after set; each
 
 Score many processes into one flat row each, in the order given.
 
-A row holds ``process_id``, ``activity_name``, each category's score
-under the category's name, and each scoring set's total under the
-set's name. The ids go in batches of ``chunk`` (a hosted engine caps a
+A row holds ``process_id``, ``activity_name``, ``product_amount`` and
+``product_unit`` (the reference each score is per one unit of), each
+category's score under the category's name, and each scoring set's
+``total`` under the set's name (a set without one has no column). The ids go in batches of ``chunk`` (a hosted engine caps a
 batch), ``workers`` at a time. Raises VoLCAError naming every id the
 engine did not score.
 
@@ -1901,7 +1902,9 @@ Spawn the engine process if it is not already serving, and wait until ready.
 
 Args:
     idle_timeout: Seconds without use before the engine shuts itself
-        down. Default 20 min, which a large database's load fits in. An API request or a matrix solve counts
+        down. Default 20 min: a script's own work between two
+        requests (reading a workbook, drawing its results) counts as
+        idleness, and outlasted 5. An API request or a matrix solve counts
         as use; an MCP client merely staying connected does not.
     wait_timeout: How long to poll for the server to become healthy
         before raising `TimeoutError`.

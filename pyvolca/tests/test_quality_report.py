@@ -26,24 +26,31 @@ def test_quality_report_reads_the_database_asked(mocked_client, make_response):
     assert dict(session.get.call_args[1]["params"]) == {"limit": "5"}
 
 
-def test_quality_report_csv_fetches_the_file(mocked_client):
-    client, session = mocked_client
+@pytest.fixture
+def checked_client(mocked_client):
+    # The CSV helpers ask the engine its version first; these tests start past that check.
+    mocked_client[0]._checked = True
+    return mocked_client
+
+
+def test_quality_report_csv_fetches_the_file(checked_client):
+    client, session = checked_client
     session.get.return_value = _file(200, b"check,activity\n")
     assert client.quality_report_csv() == b"check,activity\n"
     assert session.get.call_args[0][0] == "http://test.local/api/v1/db/testdb/quality-report.csv"
     assert session.get.call_args[1]["params"] == {}
 
 
-def test_computed_quality_report_csv_names_its_collection(mocked_client):
-    client, session = mocked_client
+def test_computed_quality_report_csv_names_its_collection(checked_client):
+    client, session = checked_client
     session.get.return_value = _file(200, b"check\n")
     client.computed_quality_report_csv(collection="EF 3.1", limit=10)
     assert session.get.call_args[0][0] == "http://test.local/api/v1/db/testdb/computed-quality-report.csv"
     assert session.get.call_args[1]["params"] == {"collection": "EF 3.1", "limit": 10}
 
 
-def test_quality_report_csv_raises_on_an_http_error(mocked_client):
-    client, session = mocked_client
+def test_quality_report_csv_raises_on_an_http_error(checked_client):
+    client, session = checked_client
     session.get.return_value = _file(404, b"no such database")
     with pytest.raises(VoLCAError, match="HTTP 404"):
         client.quality_report_csv("missing")
