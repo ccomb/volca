@@ -27,8 +27,9 @@
   negative. With `opposite` on the row the line becomes a demand of +0.018.
   An export writes the line turned, its formula dropped and said. Only a
   database whose lines are read as written (EcoSpold 2, openLCA, Brightway)
-  needs the column: a SimaPro, ILCD or EcoSpold 1 line already takes its
-  supplier's sign, so a mapping turning one is refused, saying why.
+  is turned by it: a SimaPro, ILCD or EcoSpold 1 line already takes its
+  supplier's sign, so there the column changes nothing, and one mapping
+  serves a source of either kind.
 
 - A change made to a database of one's own can say why, in a note: every
   write (activities written, rewritten or deleted, exchanges edited,

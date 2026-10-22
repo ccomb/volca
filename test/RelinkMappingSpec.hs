@@ -37,6 +37,7 @@ import Database.CrossLinking (
     UnitBridge (..),
     buildIndexedDatabase,
     defaultLinkingThreshold,
+    directionFactor,
     emptyAliasMap,
     findSupplierInIndexedDBs,
     locationHierarchy,
@@ -46,7 +47,6 @@ import Database.Loader (CrossDBLinkingStats (..), GapEntry (..), GapReason (..),
 import Database.RelinkMapping (
     AliasRow (..),
     buildAliasMap,
-    directionRefusal,
     parseAliasCSV,
     parseAliasMap,
  )
@@ -530,12 +530,11 @@ spec = do
             coefficients Opposite `shouldBe` [0.018]
             coefficients Same `shouldBe` [-0.018]
 
-        it "refuses to turn a line of a database whose lines already take their supplier's sign" $ do
+        it "leaves a line of a database whose lines already take their supplier's sign as it reads it" $ do
             -- A SimaPro line of +3 kg to a -1 treatment is read as -3 already: turning it again would credit the waste.
-            let mapped direction = singletonAlias (AliasKey consumerName Nothing) (named "wheat production" Nothing){atDirection = direction}
-            directionRefusal PositiveReferences (mapped Opposite) `shouldSatisfy` maybe False ("leave the direction blank" `T.isInfixOf`)
-            directionRefusal PositiveReferences (mapped Same) `shouldBe` Nothing
-            directionRefusal SignedReferences (mapped Opposite) `shouldBe` Nothing
+            directionFactor PositiveReferences Opposite `shouldBe` 1
+            directionFactor SignedReferences Opposite `shouldBe` -1
+            directionFactor SignedReferences Same `shouldBe` 1
 
         it "keeps unlinked an input whose row names no supplier, and says why" $ do
             -- The dependency ships the very process the input names; the row

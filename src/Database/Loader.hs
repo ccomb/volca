@@ -2866,7 +2866,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnKe
     attributeMatch flow flowUnitName =
         let query = supplierQuery flow flowUnitName
          in case findSupplierInIndexedDBs ctx query of
-                result@CrossDBLinked{} -> case (* directionFactor (cdlrDirection result)) <$> signedPerLine (cdlrRefSign result) flowUnitName of
+                result@CrossDBLinked{} -> case (* directionFactor convention (cdlrDirection result)) <$> signedPerLine (cdlrRefSign result) flowUnitName of
                     Nothing -> unitRefused flow flowUnitName
                     Just perLine -> case bridgedAmount flowUnitName (cdlrBridge result) (written * perLine) of
                         -- The row's units passed the matcher, so this is a unit the
