@@ -2918,6 +2918,7 @@ class Client:
         collection: str | None = None,
         chunk: int = 100,
         workers: int = 8,
+        exclude_long_term: bool | None = None,
     ) -> list[dict]:
         """Score many processes into one flat row each, in the order given.
 
@@ -2928,13 +2929,14 @@ class Client:
         scores under the set's then the score's name: ``"ECS total"`` for a
         set declared with a ``total`` formula, ``"ECS Single score"`` for one
         built with :meth:`create_scoring_set`. The ids go in batches of ``chunk`` (a hosted engine caps a
-        batch), ``workers`` at a time. Raises VoLCAError naming every id the
+        batch), ``workers`` at a time. ``exclude_long_term`` is as in
+        :meth:`score_activities`. Raises VoLCAError naming every id the
         engine did not score.
         """
         collection = self._resolve_collection(collection)
         batches = [process_ids[i : i + chunk] for i in range(0, len(process_ids), chunk)]
         with ThreadPoolExecutor(workers) as pool:
-            scored = list(pool.map(lambda ids: self.score_activities(ids, collection=collection, top_flows=0), batches))
+            scored = list(pool.map(lambda ids: self.score_activities(ids, collection=collection, top_flows=0, exclude_long_term=exclude_long_term), batches))
         unscored = [pid for b in scored for pid in b.not_found + b.invalid + b.unscorable]
         if unscored:
             raise VoLCAError(f"the engine did not score {unscored}")

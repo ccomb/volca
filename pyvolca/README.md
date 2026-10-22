@@ -1595,7 +1595,7 @@ set of `ParameterValue`, set after set; each
 `ScoredActivity` then carries the position of its set in
 ``parameter_set``.
 
-##### `Client.score_table(process_ids: list[str], *, collection: str | None = None, chunk: int = 100, workers: int = 8) -> list[dict]`
+##### `Client.score_table(process_ids: list[str], *, collection: str | None = None, chunk: int = 100, workers: int = 8, exclude_long_term: bool | None = None) -> list[dict]`
 
 Score many processes into one flat row each, in the order given.
 
@@ -1606,7 +1606,8 @@ several methods share: four climate change methods in EF 3.1), and each scoring 
 scores under the set's then the score's name: ``"ECS total"`` for a
 set declared with a ``total`` formula, ``"ECS Single score"`` for one
 built with `create_scoring_set`. The ids go in batches of ``chunk`` (a hosted engine caps a
-batch), ``workers`` at a time. Raises VoLCAError naming every id the
+batch), ``workers`` at a time. ``exclude_long_term`` is as in
+`score_activities`. Raises VoLCAError naming every id the
 engine did not score.
 
 ##### `Client.scoring_sets(collection: str) -> list[dict]`

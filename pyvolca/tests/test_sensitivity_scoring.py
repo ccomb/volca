@@ -136,6 +136,12 @@ class TestScoreActivities:
             for n in (1, 2, 3)
         ]
 
+    def test_score_table_passes_the_long_term_choice_on(self, mocked_client, make_response):
+        client, session = mocked_client
+        session.post.return_value = make_response({"results": [], "notFound": [], "invalid": []})
+        client.score_table(["p1"], collection="methods", exclude_long_term=True)
+        assert dict(session.post.call_args[1]["params"])["exclude-long-term"] == "true"
+
     def test_score_table_names_every_process_left_unscored(self, mocked_client, make_response):
         client, session = mocked_client
         session.post.return_value = make_response({"results": [], "notFound": ["p1"], "invalid": ["bogus"]})
