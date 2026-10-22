@@ -40,6 +40,7 @@ import Database.Author (
     validateAuthored,
  )
 import Database.Rebuild (deleteActivities, insertActivities, replaceActivities)
+import EcoSpold.Writer2 (checkEcoSpold2Exportable)
 import Service (convertActivityForAPI)
 import Types (
     Activity (..),
@@ -76,6 +77,7 @@ import Types (
     noDocumentation,
     noProperties,
     processIdToText,
+    toSimpleDatabase,
  )
 import UnitConversion (UnitConfig, buildFromCSV, defaultUnitConfig)
 
@@ -248,6 +250,31 @@ spec = do
                     Right ([r], _) -> do
                         map tfName (riNewTechFlows r) `shouldSatisfy` elem "milk"
                         [tfUnitId f | f <- riNewTechFlows r, tfName f == "milk"] `shouldBe` [kgUnitId]
+                    Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
+
+            it "files the flow of a waste output to a dependency's treatment as a waste flow" $ do
+                -- Every reader of a waste line looks its flow up among waste
+                -- flows; filed as a product, the line exports as "a flow absent
+                -- from the registry" and shows as an unresolved flow.
+                depDb <- buildFixture
+                let writing = (emptyOf fixtureDb){dbTechFlows = M.empty, dbWasteFlows = M.empty}
+                    ctx = (contextOf writing){acDeps = [depDb]}
+                case validateAuthored ctx [baseActivity{aaExchanges = [wasteOut treatPid 2 Nothing]}] of
+                    Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
+                    Right ([r], _) -> do
+                        [(wfName f, wfUnitId f) | f <- riNewWasteFlows r] `shouldBe` [("used oil", kgUnitId)]
+                        map tfName (riNewTechFlows r) `shouldNotSatisfy` elem "used oil"
+                        case insertActivities defaultUnitConfig [r] writing of
+                            Left err -> expectationFailure (T.unpack err)
+                            Right db -> checkEcoSpold2Exportable (toSimpleDatabase db) `shouldBe` Right ()
+                    Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
+
+            it "files the flow of a waste output to its own treatment as a waste flow" $ do
+                -- The treatment's flow is a product of the edited database, so
+                -- it may be absent from its waste flows all the same.
+                case validateAuthored (contextOf fixtureDb{dbWasteFlows = M.empty}) [baseActivity{aaExchanges = [wasteOut treatPid 2 Nothing]}] of
+                    Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
+                    Right ([r], _) -> map wfName (riNewWasteFlows r) `shouldBe` ["used oil"]
                     Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
 
             it "refuses an amount to a dependency stated in another unit than its product's" $ do

@@ -16,6 +16,19 @@
   time. pyvolca reads them as `ScoredActivity.product_amount` and
   `product_unit`. Wire revision 80.
 
+- A relink mapping row can say that its target counts the demand the other
+  way than the supplier the line was written for, in a new `direction`
+  column (`opposite`, or `same`, the default). A Brightway workbook written
+  for an EcoSpold 2 background sends 0.018 m3 of wastewater as an input of -0.018 m3 to a
+  wastewater market whose reference is -1 m3. Relinked to a treatment whose
+  reference is +1 m3, the line stayed -0.018: the treatment ran backwards
+  and scored a credit, so ecotoxicity and marine eutrophication came out
+  negative. With `opposite` on the row the line becomes a demand of +0.018.
+  An export writes the line turned, its formula dropped and said. Only a
+  database whose lines are read as written (EcoSpold 2, openLCA, Brightway)
+  needs the column: a SimaPro, ILCD or EcoSpold 1 line already takes its
+  supplier's sign, so a mapping turning one is refused, saying why.
+
 - A change made to a database of one's own can say why, in a note: every
   write (activities written, rewritten or deleted, exchanges edited,
   database parameters changed, changes applied from a comparison) takes an
@@ -361,6 +374,27 @@
 
 ### Fixed
 
+- Sea water and brine withdrawals no longer count in EF 3.1 water use read
+  from the JRC distribution. That method names its fresh water resource
+  plain "water", a name no flow carries, so the engine matched it by its
+  CAS number and then lent its scarcity factor to every resource sharing
+  that number, ocean water and brine among them. The adapted method leaves
+  both out, as AWARE does. "water" now reads as fresh water of unspecified
+  origin, and "sea water" and "brine" as substances of their own
+  (data version 12).
+
+- A written activity sending waste to a treatment of another database can
+  now be exported. The engine filed the waste among the products, where
+  every reader of a waste line fails to find it: the export refused the
+  database for "a flow absent from the registry", and the activity page
+  showed the line as an unresolved flow. The score was right. A database
+  written before this fix keeps the misfiled flow until it is written again.
+
+- Emissions of mecoprop-P count in the EF 3.1 human toxicity categories. The
+  adapted method gives the enantiomer an ecotoxicity factor of its own but no
+  human toxicity factor, so its human toxicity scored zero. It now reads the
+  factor of mecoprop, the racemic mixture, as S-metolachlor already reads
+  metolachlor's, and keeps its own ecotoxicity factor (data version 11).
 - A SimaPro, ILCD or EcoSpold 1 database sending waste to a treatment of an
   EcoSpold 2 or openLCA dependency, such as an ecoinvent treatment, now
   charges that waste. These formats write a treatment as taking in +1 kg of
@@ -374,6 +408,14 @@
   the -3 kg an EcoSpold 2 database sends to an ecoinvent treatment is
   written +3 kg in SimaPro, and the other way round. Its formula, which no
   longer gives the written value, is dropped, and the export says so.
+- A SimaPro export names the treatment each waste goes to in a dependency,
+  as it names the supplier of an input: by the waste alone it was read back
+  sent to whichever treatment of that waste came first, a market for
+  wastewater instead of its treatment, or an incineration without energy
+  recovery instead of one with it. A Brightway export, which refused such a
+  waste, now writes it as a row naming the treatment, signed as the
+  treatment's reference: -3 kg to a treatment giving out -1 kg, +3 kg to one
+  taking in +1 kg. A formula on that row turns with its amount.
 - Finalizing a database relinked with a mapping, before it was finalized,
   keeps the links the mapping made, and so does adding or removing one of
   its dependencies in between. Both relinked the database without the

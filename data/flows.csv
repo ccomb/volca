@@ -494,6 +494,7 @@ Maneb,manganese ethylenebis(ditiocarbamate) (polymeric)
 Manganese,"Manganese, in ground"
 Manganese,"Manganese (II)",,016397-91-4,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Maposol,Metam-sodium
+Mecoprop,Mecoprop-P,,,"the method gives the enantiomer an ecotoxicity line of its own but no human toxicity line, which it reads from the racemic mixture"
 Mercury,"Mercury, in ground"
 Mercury,"Mercury (II)",,014302-87-5,EF 3.1 toxicity characterizes only the ionic species; the elemental metal emission maps to it
 Metalaxil,"methyl N-(methoxyacetyl)-N-(2,6-xylyl)-DL-alaninate"
@@ -963,6 +964,9 @@ ground water,"Water, well",input
 Water to turbine,"Water, turbine use, unspecified natural origin",input
 Water to Cooling,"Water, cooling, unspecified natural origin",input
 freshwater,"Water, unspecified natural origin",input
+water,"Water, unspecified natural origin",input,7732-18-5,"EF's generic water resource is fresh water; sea water and brine stay outside AWARE"
+sea water,"Water, salt, ocean",input,7732-18-5,"EF's sea water is ecoinvent's ocean water; AWARE leaves both out"
+brine,"Water, salt, sole",input,7732-18-5,"Brine is not fresh water: a substance of its own, so EF's fresh water line can never land on it by CAS"
 "Water, fresh","Water, unspecified natural origin",input,,"SimaPro name of fresh water of unstated origin; a method may write it only without a region, while it writes every region under the second name"
 "Water, unspecified natural origin, RER","Water, unspecified, Europe",,,ecoinvent 2 regional water name still written by EcoSpold 1 sources; SimaPro imports it under the first name
 CFC-10,"Methane, tetrachloro-, CFC-10",,56-23-5

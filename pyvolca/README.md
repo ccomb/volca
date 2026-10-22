@@ -1402,7 +1402,13 @@ filesystem access. Each row maps a source (``source_product`` or
 and columns the engine does not know are ignored. ``conversion``, with
 ``source_unit`` and ``target_unit``, says how many source units one
 target unit holds, for units that measure different things (a car of
-1200 kg is 1 p: ``1200``, ``kg``, ``p``). Returns the
+1200 kg is 1 p: ``1200``, ``kg``, ``p``). ``direction`` is
+``opposite`` when the target counts the demand the other way than the
+supplier the line was written for (a wastewater market of reference
+-1 m3 mapped to a treatment of reference +1 m3), ``same`` or blank
+otherwise; the engine refuses ``opposite`` for a SimaPro, ILCD or
+EcoSpold 1 database, whose lines already take their supplier's sign.
+Returns the
 ``RelinkResponse`` dict (``{"dbName", "unresolvedBefore",
 "unresolvedAfter", "crossDBLinks", "dependsOn"}``).
 

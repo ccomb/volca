@@ -87,7 +87,7 @@ import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import Data.Either (lefts)
 import qualified Data.IntMap.Strict as IM
-import Data.List (find, partition, sort, sortOn)
+import Data.List (find, sort, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Numeric (showEFloat)
@@ -100,7 +100,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time (Day, defaultTimeLocale, formatTime)
 import Database.Allocation (AllocationRefusal (..), asAllocated, describeRefusal)
 import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, formulaWarnings, processExport)
-import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, madeAt, makerOf, namedProducts, noDependencies, unnamedWarnings)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, inDependency, madeAt, makerOf, namedProducts, noDependencies, unnamedWarnings)
 import qualified Expr
 import SimaPro.Parser (extractLocation, isMetadataKey, parsePedigreePrefix)
 import SubstanceRegistry (nonEmptyCAS)
@@ -733,23 +733,29 @@ bioLine cats BiosphereExchange{..} =
 bioLine _ TechnosphereExchange{} = Nothing
 bioLine _ WasteExchange{} = Nothing
 
--- | Build a 'Line' for a waste exchange (Final waste flows section).
-wasteLine :: Catalogs -> Exchange -> Maybe Line
-wasteLine cats WasteExchange{..} =
+{- | Build a 'Line' for a waste exchange. One sent to a treatment of a
+dependency names that treatment by its location and activity, as an input
+names its supplier: by its product alone it reads back sent to whichever
+treatment of that waste comes first.
+-}
+wasteLine :: Catalogs -> Maker -> Exchange -> Maybe Line
+wasteLine cats maker WasteExchange{..} =
     case M.lookup waFlowId (catWaste cats) of
         Nothing -> Nothing
         Just flow ->
             Just
                 Line
-                    { lName = wfName flow
+                    { lName = case maker of
+                        InDependency e -> designation (wfName flow) (Just (BoughtFrom (elLocation e) (Just (elActivity e))))
+                        _ -> wfName flow
                     , lCompartment = ""
                     , lUnit = unitNameOf (catUnits cats) waUnitId
                     , lAmount = waAmount
                     , lFormula = Nothing
                     , lComment = renderComment waPedigree waComment
                     }
-wasteLine _ TechnosphereExchange{} = Nothing
-wasteLine _ BiosphereExchange{} = Nothing
+wasteLine _ _ TechnosphereExchange{} = Nothing
+wasteLine _ _ BiosphereExchange{} = Nothing
 
 {- | The medium a biosphere exchange belongs to, derived from the flow's
 compartment name. SimaPro splits biosphere rows into five sections keyed on
@@ -922,8 +928,6 @@ serializeActivity cats consumer ProcessExport{peParameters = parameters, peLines
             TechnosphereExchange{} -> ex
             BiosphereExchange{} -> ex
             WasteExchange{} -> ex
-        linesOf build exs = [l{lFormula = formula} | (formula, ex) <- exs, Just l <- [build cats ex]]
-
         numbered = zip [0 ..] unscaledExchanges
         rowsOf keep = filter (keep . snd . snd) numbered
         techLines = [l{lFormula = formula} | (i, (formula, ex)) <- numbered, Just l <- [techInputLine cats (catMaker cats consumer (i, ex)) ex]]
@@ -948,9 +952,15 @@ serializeActivity cats consumer ProcessExport{peParameters = parameters, peLines
         -- A waste row goes to the section that says what the format will
         -- read back: a named treatment makes it an input from that treatment,
         -- and with none nothing treats it, which is a final waste flow.
-        (treatedWaste, finalWaste) = partition (linkedWaste . snd) unscaledExchanges
-        treatmentLines = linesOf wasteLine treatedWaste
-        wasteLines = linesOf wasteLine finalWaste
+        wasteRows treated =
+            [ l{lFormula = formula}
+            | (i, (formula, ex)) <- numbered
+            , let maker = catMaker cats consumer (i, ex)
+            , treated == (linkedWaste ex || inDependency maker)
+            , Just l <- [wasteLine cats maker ex]
+            ]
+        treatmentLines = wasteRows True
+        wasteLines = wasteRows False
         (inputParameters, calculatedParameters) = parameterRows parameters
      in concat
             [ ["Process", ""]
@@ -1052,7 +1062,7 @@ checkLocatedSuppliers maker db =
                     <> elActivity e
                     <> "\" in "
                     <> elDatabase e
-                    <> " of an input of \""
+                    <> " of a line of \""
                     <> consumer
                     <> "\": it states no location, and SimaPro names a supplier by its location and activity. "
                     <> "EcoSpold 2 and openLCA point at the supplier itself."
