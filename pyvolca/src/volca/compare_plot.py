@@ -67,7 +67,8 @@ def per_left_unit(
     units differ: a right score per g is multiplied by 1000 to be per kg.
     ``factor`` is how many right units one left unit holds when the two
     measure different things (a density, for kg against m3), and is used only
-    then.
+    then. Measures compare as the table spells them: a table naming one
+    measure two ways (``volume`` and ``length^3``) gets ``DifferentMeasures``.
     """
     for unit in (left_unit, right_unit):
         if unit not in units:
@@ -139,7 +140,10 @@ def scatter_grid(
     columns = 5
     rows = -(-len(points_by_axis) // columns)
     groups = sorted(set(colour.values())) if colour else []
-    palette = dict(zip(groups, colormaps["tab10"].colors))
+    tints = colormaps["tab20"].colors
+    if len(groups) > len(tints):
+        raise ValueError(f"{len(groups)} groups to colour, but only {len(tints)} colours tell them apart")
+    palette = dict(zip(groups, tints))
     fig = Figure(figsize=(5 * columns, 5 * rows))
     axes = fig.subplots(rows, columns, squeeze=False)
     for ax in axes.flat[len(points_by_axis) :]:

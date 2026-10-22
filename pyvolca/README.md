@@ -280,18 +280,24 @@ The summary also lists the dates the two datasets state when they differ: its `f
 > *Relinked onto another background, how far does each activity move?*
 
 ```python
-from volca.compare_plot import Point, band_shares, per_left_unit, ratio, scatter_grid
+from collections import Counter
 
+from volca.compare_plot import DifferentMeasures, Point, UnknownUnit, band_shares, per_left_unit, ratio, scatter_grid
+
+ids = [a.process_id for a in c.search_activities(name="wheat flour")]
 units = c.unit_table()
 before = {r["process_id"]: r for r in c.score_table(ids)}
 after = {r["process_id"]: r for r in c.use("relinked").score_table(ids)}
-points = []
+points, left_out = [], Counter()
 for pid, b in before.items():
     a = after[pid]
     scale = per_left_unit(b["product_unit"], a["product_unit"], units)
-    if isinstance(scale, float) and isinstance(ratio(b["Climate change"], a["Climate change"] * scale), float):
+    r = scale if isinstance(scale, (UnknownUnit, DifferentMeasures)) else ratio(b["Climate change"], a["Climate change"] * scale)
+    if isinstance(r, float):
         points.append(Point(b["activity_name"], b["Climate change"], a["Climate change"] * scale))
-print(band_shares([p.right / p.left for p in points]))
+    else:
+        left_out[type(r).__name__] += 1
+print(band_shares([p.right / p.left for p in points]), "left out:", dict(left_out))
 scatter_grid({"Climate change": points}, "clouds.png", labels=("before", "after"))
 ```
 

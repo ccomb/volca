@@ -85,3 +85,10 @@ def test_scatter_grid_writes_a_picture(tmp_path):
     points = {"Climate": [Point("a", 1, 2), Point("b", 3, 3)], "Water": []}
     scatter_grid(points, path, colour={"a": "step 1", "b": "step 2"}, labels=("before", "after"))
     assert path.stat().st_size > 0
+
+
+def test_scatter_grid_refuses_more_groups_than_it_can_tell_apart(tmp_path):
+    pytest.importorskip("matplotlib")
+    points = {"Climate": [Point(f"a{i}", 1, 2) for i in range(21)]}
+    with pytest.raises(ValueError, match="21 groups"):
+        scatter_grid(points, tmp_path / "clouds.png", colour={f"a{i}": f"step {i}" for i in range(21)})

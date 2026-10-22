@@ -40,12 +40,14 @@ def test_readme_has_runnable_examples() -> None:
     )
 
 
-def test_all_runnable_blocks_execute(readme_namespace: dict) -> None:
+def test_all_runnable_blocks_execute(readme_namespace: dict, tmp_path: Path, monkeypatch) -> None:
     """Run every non-skipped python block in README order, in one shared namespace.
 
     Earlier blocks (e.g. ``plants = c.search_activities(...)``) define names
     that later blocks reference. A failure in any block fails the test.
+    A block writing a file writes it in a temporary directory.
     """
+    monkeypatch.chdir(tmp_path)
     blocks = _runnable_blocks(README.read_text(encoding="utf-8"))
     for i, block in enumerate(blocks, start=1):
         try:

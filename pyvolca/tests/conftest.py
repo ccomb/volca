@@ -612,6 +612,17 @@ def readme_namespace() -> dict[str, Any]:
     c.load_database.return_value = {"status": "loaded"}
     c.unload_database.return_value = {"status": "unloaded"}
     c.use.return_value = c
+    c.unit_table.return_value = {"kg": volca.UnitDefinition("mass", 1.0), "g": volca.UnitDefinition("mass", 0.001)}
+    c.score_table.return_value = [
+        {
+            "process_id": a.process_id,
+            "activity_name": a.activity_name,
+            "product_amount": a.product_amount,
+            "product_unit": a.product_unit,
+            "Climate change": 0.42,
+        }
+        for a in (activity_a, activity_b)
+    ]
     c.refresh_stubs.return_value = None
 
     return {

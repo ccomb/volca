@@ -38,7 +38,7 @@ classifiers = [
 model = ["numpy>=1.22"]
 # compare_plot.scatter_grid draws with matplotlib.
 plot = ["matplotlib>=3.6"]
-dev = ["pytest", "pyright==1.1.411", "numpy>=1.22"]
+dev = ["pytest", "pyright==1.1.411", "numpy>=1.22", "matplotlib>=3.6"]
 
 [project.urls]
 Documentation = "https://www.volca.run/docs/python/"
