@@ -140,7 +140,8 @@ def scatter_grid(
     columns = 5
     rows = -(-len(points_by_axis) // columns)
     groups = sorted(set(colour.values())) if colour else []
-    tints = colormaps["tab20"].colors
+    tab20 = colormaps["tab20"]
+    tints = [tab20(i) for i in range(tab20.N)]
     if len(groups) > len(tints):
         raise ValueError(f"{len(groups)} groups to colour, but only {len(tints)} colours tell them apart")
     palette = dict(zip(groups, tints))
