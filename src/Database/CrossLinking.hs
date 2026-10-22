@@ -301,8 +301,10 @@ EcoSpold 1) reads a line against the supplier it is linked to whichever way
 the row says: turning it there would turn it twice.
 -}
 directionFactor :: ReferenceConvention -> Direction -> Double
+directionFactor SignedReferences Same = 1
 directionFactor SignedReferences Opposite = -1
-directionFactor _ _ = 1
+directionFactor PositiveReferences Same = 1
+directionFactor PositiveReferences Opposite = 1
 
 -- | Designated supplier of an alias row, the conversion its units need, if any, and which way it counts the demand.
 data AliasTarget = AliasTarget
