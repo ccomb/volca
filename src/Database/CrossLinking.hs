@@ -111,6 +111,7 @@ import Types (
     LinkBlocker (..),
     LocationKind (..),
     ProcessRef (..),
+    ReferenceConvention (..),
     ReferenceSign,
     SimpleDatabase (..),
     TechnosphereFlow (..),
@@ -294,10 +295,16 @@ is -1 m3 asks for 0.018 m3 treated; linked to a treatment whose reference is
 data Direction = Same | Opposite
     deriving (Show, Eq)
 
--- | The factor a line is multiplied by to reach its supplier in that direction.
-directionFactor :: Direction -> Double
-directionFactor Same = 1
-directionFactor Opposite = -1
+{- | The factor a line is multiplied by to reach its supplier in that direction.
+A database whose lines already take their supplier's sign (SimaPro, ILCD,
+EcoSpold 1) reads a line against the supplier it is linked to whichever way
+the row says: turning it there would turn it twice.
+-}
+directionFactor :: ReferenceConvention -> Direction -> Double
+directionFactor SignedReferences Same = 1
+directionFactor SignedReferences Opposite = -1
+directionFactor PositiveReferences Same = 1
+directionFactor PositiveReferences Opposite = 1
 
 -- | Designated supplier of an alias row, the conversion its units need, if any, and which way it counts the demand.
 data AliasTarget = AliasTarget
