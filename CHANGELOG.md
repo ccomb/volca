@@ -8,10 +8,11 @@
   database's catalogue, now gives the amount the source declares for the
   activity's reference product (`productAmount`), and a batch row its unit
   (`productUnit`). The sign tells a wastewater market written with -1 m3
-  from a treatment written with +1 m3, which answer for opposite
-  quantities; the unit tells a process per kg from one per m3. The score
-  stays per one unit whatever the amount: a coproduct declared at 0.07 kg
-  is still scored per kg. Both are absent for an activity without a
+  from a treatment written with +1 m3, whose lines a relink mapping from
+  one to the other must turn; the unit tells a process per kg from one per
+  m3. The score stays per one unit of what the activity does whatever the
+  amount: both of those score the treatment of one m3, and a coproduct
+  declared at 0.07 kg is still scored per kg. Both are absent for an activity without a
   reference product. A client had to look these up one activity at a
   time. pyvolca reads them as `ScoredActivity.product_amount` and
   `product_unit`. Wire revision 80.
