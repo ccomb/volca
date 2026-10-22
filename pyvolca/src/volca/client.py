@@ -459,7 +459,8 @@ class Client:
         self.base_url = base_url.rstrip("/")
         self.db = db
         self._session = requests.Session()
-        self._session.headers["Accept"] = "application/json"
+        # JSON where a route offers it; a route serving only a file still answers.
+        self._session.headers["Accept"] = "application/json, */*;q=0.5"
         if password:
             self._session.headers["Authorization"] = f"Bearer {password}"
         # Lazily fetched on first _call() invocation.
@@ -3521,8 +3522,7 @@ class Client:
         Raises VoLCAError on an HTTP error (e.g. the set does not exist).
         """
         resp = self._session.get(
-            f"{self.base_url}/api/v1/flow-synonyms/{name}/download",
-            headers={"Accept": "application/octet-stream"},
+            f"{self.base_url}/api/v1/flow-synonyms/{name}/download"
         )
         if resp.status_code >= 400:
             raise VoLCAError(
@@ -3540,8 +3540,7 @@ class Client:
         """
         self._require_wire(81, "download_units", engine_hint="0.16.0")
         resp = self._session.get(
-            f"{self.base_url}/api/v1/units/{urllib.parse.quote(name, safe='')}/download",
-            headers={"Accept": "application/octet-stream"},
+            f"{self.base_url}/api/v1/units/{urllib.parse.quote(name, safe='')}/download"
         )
         if resp.status_code >= 400:
             raise VoLCAError(

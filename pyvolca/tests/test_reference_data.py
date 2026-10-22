@@ -75,7 +75,6 @@ class TestSynonymExtras:
         out = client.download_flow_synonyms("pubchem")
         assert out == b"source,target\nwater,H2O\n"
         assert session.get.call_args[0][0] == "http://test.local/api/v1/flow-synonyms/pubchem/download"
-        assert session.get.call_args[1]["headers"] == {"Accept": "application/octet-stream"}
 
     def test_unit_table_reads_each_row(self, mocked_client):
         client, session = mocked_client
@@ -87,7 +86,6 @@ class TestSynonymExtras:
         session.get.return_value = resp
         table = client.unit_table()
         assert session.get.call_args[0][0] == "http://test.local/api/v1/units/Default%20units/download"
-        assert session.get.call_args[1]["headers"] == {"Accept": "application/octet-stream"}
         assert table["g"] == UnitDefinition("mass", 0.001)
         assert table["m3"].dimension == "volume"
         assert len(table) == 3
