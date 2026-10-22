@@ -275,6 +275,28 @@ The engine compares every exchange. A line pairs on its flow id and role, then o
 
 The summary also lists the dates the two datasets state when they differ: its `field` is then `"dates"`, and `before` and `after` are each a `DatasetDates`. That is the quickest way to tell whether an activity is a later version of the one you hold.
 
+## Compare scores across two databases
+
+> *Relinked onto another background, how far does each activity move?*
+
+```python
+from volca.compare_plot import Point, band_shares, per_left_unit, ratio, scatter_grid
+
+units = c.unit_table()
+before = {r["process_id"]: r for r in c.score_table(ids)}
+after = {r["process_id"]: r for r in c.use("relinked").score_table(ids)}
+points = []
+for pid, b in before.items():
+    a = after[pid]
+    scale = per_left_unit(b["product_unit"], a["product_unit"], units)
+    if isinstance(scale, float) and isinstance(ratio(b["Climate change"], a["Climate change"] * scale), float):
+        points.append(Point(b["activity_name"], b["Climate change"], a["Climate change"] * scale))
+print(band_shares([p.right / p.left for p in points]))
+scatter_grid({"Climate change": points}, "clouds.png", labels=("before", "after"))
+```
+
+A score is per one unit of its activity's reference product, whatever the sign that reference is written with, so only the units need putting on one basis: `per_left_unit` gives the scale, or says why there is none (an unknown unit, or two measures without a `factor`). `ratio` refuses a zero and a burden against a credit, rather than drawing them. Only `scatter_grid` needs matplotlib (``pip install 'pyvolca[plot]'``).
+
 ## Run counterfactuals (substitutions)
 
 > *What if I used organic wheat instead of conventional? Recycled aluminium instead of virgin? All without reloading the database.*

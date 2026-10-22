@@ -36,6 +36,8 @@ classifiers = [
 [project.optional-dependencies]
 # ReducedModel.evaluate computes with numpy.
 model = ["numpy>=1.22"]
+# compare_plot.scatter_grid draws with matplotlib.
+plot = ["matplotlib>=3.6"]
 dev = ["pytest", "pyright==1.1.411", "numpy>=1.22"]
 
 [project.urls]
