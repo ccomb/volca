@@ -102,7 +102,7 @@ class TestScoreActivities:
 
         def answer(url, **kwargs):
             ids = kwargs["json"]["processIds"]
-            fossil = lambda n: _lcia(n / 2) | {"methodName": "Climate change-Fossil"}
+            fossil = lambda n: _lcia(n / 2) | {"methodId": "00000000-0000-0000-0000-000000000002", "methodName": "Climate change-Fossil"}
             impacts = lambda i: {"results": [_lcia(float(i[1:])), fossil(float(i[1:]))], "scoringResults": {"ECS": {"total": 10 * float(i[1:])}, "Edited": {"other": 1.0}}}
             return make_response(
                 {
