@@ -2923,8 +2923,9 @@ class Client:
         A row holds ``process_id``, ``activity_name``, ``product_amount`` and
         ``product_unit`` (the reference each score is per one unit of), each
         category's score under the category's name, and each scoring set's
-        score under the set's name, or under the set's then the score's name
-        (``"ECS total"``) for a set giving several. The ids go in batches of ``chunk`` (a hosted engine caps a
+        scores under the set's then the score's name: ``"ECS total"`` for a
+        set declared with a ``total`` formula, ``"ECS Single score"`` for one
+        built with :meth:`create_scoring_set`. The ids go in batches of ``chunk`` (a hosted engine caps a
         batch), ``workers`` at a time. Raises VoLCAError naming every id the
         engine did not score.
         """
@@ -2944,7 +2945,7 @@ class Client:
             }
             | {r.category: r.score for r in s.impacts.results}
             | {
-                name if len(scores) == 1 else f"{name} {score}": value
+                f"{name} {score}": value
                 for name, scores in s.impacts.scoring_results.items()
                 for score, value in scores.items()
             }

@@ -126,8 +126,8 @@ class TestScoreActivities:
                 "product_amount": 1.0,
                 "product_unit": "kg",
                 "Climate change": float(n),
-                "ECS": 10.0 * n,
-                "Edited": 1.0,
+                "ECS total": 10.0 * n,
+                "Edited Single score": 1.0,
                 "PEF total": 2.0,
                 "PEF climate": 0.5,
             }
