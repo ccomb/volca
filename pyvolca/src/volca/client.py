@@ -459,7 +459,8 @@ class Client:
         self.base_url = base_url.rstrip("/")
         self.db = db
         self._session = requests.Session()
-        self._session.headers["Accept"] = "application/json"
+        # JSON where a route offers it; a route serving only a file still answers.
+        self._session.headers["Accept"] = "application/json, */*;q=0.5"
         if password:
             self._session.headers["Authorization"] = f"Bearer {password}"
         # Lazily fetched on first _call() invocation.
@@ -2922,7 +2923,8 @@ class Client:
 
         A row holds ``process_id``, ``activity_name``, ``product_amount`` and
         ``product_unit`` (the reference each score is per one unit of), each
-        category's score under the category's name, and each scoring set's
+        method's score under the method's name (not its category, which
+        several methods share: four climate change methods in EF 3.1), and each scoring set's
         scores under the set's then the score's name: ``"ECS total"`` for a
         set declared with a ``total`` formula, ``"ECS Single score"`` for one
         built with :meth:`create_scoring_set`. The ids go in batches of ``chunk`` (a hosted engine caps a
@@ -2943,7 +2945,7 @@ class Client:
                 "product_amount": s.product_amount,
                 "product_unit": s.product_unit,
             }
-            | {r.category: r.score for r in s.impacts.results}
+            | {r.method_name: r.score for r in s.impacts.results}
             | {
                 f"{name} {score}": value
                 for name, scores in s.impacts.scoring_results.items()
