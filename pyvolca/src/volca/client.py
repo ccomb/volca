@@ -2923,7 +2923,8 @@ class Client:
         A row holds ``process_id``, ``activity_name``, ``product_amount`` and
         ``product_unit`` (the reference each score is per one unit of), each
         category's score under the category's name, and each scoring set's
-        ``total`` under the set's name (a set without one has no column). The ids go in batches of ``chunk`` (a hosted engine caps a
+        score under the set's name, or under the set's then the score's name
+        (``"ECS total"``) for a set giving several. The ids go in batches of ``chunk`` (a hosted engine caps a
         batch), ``workers`` at a time. Raises VoLCAError naming every id the
         engine did not score.
         """
@@ -2942,7 +2943,11 @@ class Client:
                 "product_unit": s.product_unit,
             }
             | {r.category: r.score for r in s.impacts.results}
-            | {name: values["total"] for name, values in s.impacts.scoring_results.items() if "total" in values}
+            | {
+                name if len(scores) == 1 else f"{name} {score}": value
+                for name, scores in s.impacts.scoring_results.items()
+                for score, value in scores.items()
+            }
             for b in scored
             for s in b.results
         ]
