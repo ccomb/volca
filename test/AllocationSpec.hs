@@ -102,6 +102,11 @@ declaring prop unit perUnit amount = (tech cheeseId amount Coproduct){techProper
     stated = case prop of
         DryMass -> noProperties{epDryMass = Just (StatedAmount unit perUnit)}
         WetMass -> noProperties{epWetMass = Just (StatedAmount unit perUnit)}
+        Price -> noProperties{epPrice = Just (StatedPrice (StatedAmount unit perUnit))}
+
+-- | A product row carrying a price deduced from a declared share, per unit of the row.
+deducedPriceRow :: Double -> Double -> Exchange
+deducedPriceRow perUnit amount = (tech cheeseId amount Coproduct){techProperties = noProperties{epPrice = Just (DeducedFromShare perUnit)}}
 
 -- | What the products table shows in the mass column for a block.
 column :: [(ActivitySummary, Maybe Exchange)] -> [Maybe Double]
@@ -373,6 +378,45 @@ spec = do
         it "refuses a declared mass stated in something that is not a mass" $
             propertyShares WetMass units massUnits (NE.fromList [declaring WetMass "dimensionless" 1.0 2.0])
                 `shouldBe` Left (NotAMass "dimensionless")
+
+    describe "propertyShares under price" $ do
+        it "divides a block by what each product brings in, quantity times price" $
+            -- 1 kg of cheese at 10 EUR beside 3 kg of whey at 2 EUR: 10 against 6.
+            fmap
+                (map round1 . NE.toList)
+                (propertyShares Price units massUnits (NE.fromList [declaring Price "EUR2005" 10.0 1.0, declaring Price "EUR2005" 2.0 3.0]))
+                `shouldBe` Right [62.5, 37.5]
+
+        it "gives back the declared shares a deduced price was read from" $
+            -- 51 % on 1 kg and 49 % on 3 kg deduce 51 and 49 / 3 per kilo.
+            fmap
+                (map round1 . NE.toList)
+                (propertyShares Price units massUnits (NE.fromList [deducedPriceRow 51.0 1.0, deducedPriceRow (49.0 / 3.0) 3.0]))
+                `shouldBe` Right [51.0, 49.0]
+
+        it "keeps a product sold for nothing at zero beside one that sells" $
+            fmap
+                (map round1 . NE.toList)
+                (propertyShares Price units massUnits (NE.fromList [declaring Price "EUR2005" 10.0 1.0, declaring Price "EUR2005" 0.0 3.0]))
+                `shouldBe` Right [100.0, 0.0]
+
+        it "refuses a product with no price" $
+            propertyShares Price units massUnits (NE.fromList [declaring Price "EUR2005" 10.0 1.0, plainRow 3.0])
+                `shouldBe` Left NotStated
+
+        it "refuses prices in two currencies, and a deduced price beside a stated one" $ do
+            propertyShares Price units massUnits (NE.fromList [declaring Price "EUR2005" 10.0 1.0, declaring Price "CHF" 2.0 3.0])
+                `shouldBe` Left (PricesNotComparable ["EUR2005", "CHF"])
+            propertyShares Price units massUnits (NE.fromList [declaring Price "EUR2005" 10.0 1.0, deducedPriceRow 2.0 3.0])
+                `shouldBe` Left (PricesNotComparable ["EUR2005", "deduced from a declared share"])
+
+        it "refuses a product that brings in less than nothing" $
+            propertyShares Price units massUnits (NE.fromList [declaring Price "EUR2005" 10.0 1.0, declaring Price "EUR2005" (-2.0) 3.0])
+                `shouldBe` Left (NegativeRevenue (-6.0))
+
+        it "refuses a block where every product sells for nothing" $
+            propertyShares Price units massUnits (NE.fromList [declaring Price "EUR2005" 0.0 1.0, declaring Price "EUR2005" 0.0 3.0])
+                `shouldBe` Left NothingSold
 
     describe "withMassAllocationPercent" $ do
         it "fills a block whose source states a share on every product" $

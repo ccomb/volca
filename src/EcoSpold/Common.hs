@@ -15,6 +15,7 @@ module EcoSpold.Common (
     docSection,
     joinParts,
     showFFloatTrim,
+    deducedPriceProperty,
 
     -- * What one dataset yields
     ParsedDataset (..),
@@ -221,3 +222,13 @@ showFFloatTrim d =
             let trimmed = reverse (dropWhile (== '0') (reverse fracPart))
              in intPart <> "." <> (if null trimmed then "0" else trimmed)
         (intPart, _) -> intPart <> ".0"
+
+{- | The name an EcoSpold 2 @\<property\>@ carries for a price deduced from a
+declared share, beside the @price@ ecoinvent writes for one stated in money.
+
+A name of its own rather than @price@ in some unit: another reader takes a
+@price@ for money, and a deduced price is not one. Under this name such a
+reader sees a property it does not know, and leaves it.
+-}
+deducedPriceProperty :: Text
+deducedPriceProperty = "price deduced from a declared share"

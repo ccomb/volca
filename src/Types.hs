@@ -293,13 +293,58 @@ to whether the mass can serve as a key.
 data ExchangeProperties = ExchangeProperties
     { epDryMass :: !(Maybe StatedAmount)
     , epWetMass :: !(Maybe StatedAmount)
+    , epPrice :: !(Maybe Price)
     }
     deriving (Eq, Show, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ExchangeProperties)
 
 -- | An exchange whose source states no property.
 noProperties :: ExchangeProperties
-noProperties = ExchangeProperties{epDryMass = Nothing, epWetMass = Nothing}
+noProperties = ExchangeProperties{epDryMass = Nothing, epWetMass = Nothing, epPrice = Nothing}
+
+{- | What one unit of a product line sells for, the material a @price@ key
+divides a block on.
+
+A price the source states keeps its unit as written, currency and year
+together (@EUR2005@): nothing here converts one currency into another, so two
+prices compare only when their units are the same text. A price deduced from
+a declared share has no currency at all. It is the share divided by the
+line's amount, which says how the products of one block compare and nothing
+about what any of them costs, so it is a constructor of its own rather than a
+stated price in a made-up unit a reader could take for money.
+-}
+data Price
+    = StatedPrice !StatedAmount
+    | DeducedFromShare !Double
+    deriving (Eq, Show, Generic, NFData, Store)
+
+{- | On the wire, @{"origin":"stated","amount":0.151,"unit":"EUR2005"}@ or
+@{"origin":"deduced from share","amount":51}@.
+-}
+instance ToJSON Price where
+    toJSON price = object $ case price of
+        StatedPrice stated -> ["origin" .= ("stated" :: Text), "amount" .= saAmount stated, "unit" .= saUnit stated]
+        DeducedFromShare amount -> ["origin" .= ("deduced from share" :: Text), "amount" .= amount]
+
+instance FromJSON Price where
+    parseJSON = withObject "Price" $ \o -> do
+        origin <- o .: "origin"
+        case origin :: Text of
+            "stated" -> (\amount unit -> StatedPrice StatedAmount{saUnit = unit, saAmount = amount}) <$> o .: "amount" <*> o .: "unit"
+            "deduced from share" -> DeducedFromShare <$> o .: "amount"
+            _ -> fail ("no price origin is called " <> T.unpack origin)
+
+instance ToSchema Price where
+    declareNamedSchema _ = do
+        number <- declareSchemaRef (Proxy :: Proxy Double)
+        text <- declareSchemaRef (Proxy :: Proxy Text)
+        let origins = mempty & type_ ?~ OpenApiString & enum_ ?~ ["stated", "deduced from share"]
+        pure $
+            NamedSchema (Just "Price") $
+                mempty
+                    & type_ ?~ OpenApiObject
+                    & properties .~ InsOrdHashMap.fromList [("origin", Inline origins), ("amount", number), ("unit", text)]
+                    & required .~ ["origin", "amount"]
 
 -- | Unit representation (kg, MJ, m³, etc.)
 data Unit = Unit
@@ -2356,23 +2401,27 @@ data LinkBlocker
       AliasDeclined
     deriving (Show, Eq, Ord, Generic, NFData, Store)
 
-{- | A physical property of a product, which shares can be divided on.
+{- | A property of a product, which shares can be divided on.
 
-Each names one measurable quantity and nothing else. There is no plain @Mass@:
-EcoSpold 2 states dry and wet mass separately, and the Abondance cheese block
-divides 51 % on dry matter where its wet mass would give 12 %, so a key that
-did not say which one it meant would be a key nobody could check.
+Each names one quantity and nothing else. There is no plain @Mass@: EcoSpold 2
+states dry and wet mass separately, and the Abondance cheese block divides
+51 % on dry matter where its wet mass would give 12 %, so a key that did not
+say which one it meant would be a key nobody could check. 'Price' divides on
+what each product brings in, its amount times its price.
+
+A new property goes last: the matrix cache stores the key by position.
 -}
 data AllocationProperty
     = DryMass
     | WetMass
+    | Price
     deriving (Show, Eq, Generic, NFData, Store)
 
 {- | How the shares of a multi-output activity are decided. Maps to TOML field
 @allocation@ on a database entry.
 
 * 'Declared'   – the shares the source states, a number or an evaluated formula.
-* 'ByProperty' – recomputed from a physical property of the products.
+* 'ByProperty' – recomputed from a property of the products.
 
 A database is loaded under one key, and the same source loaded twice under two
 keys is two databases: the choice belongs to the load, because it decides the
@@ -2390,6 +2439,7 @@ propertyName :: AllocationProperty -> Text
 propertyName prop = case prop of
     DryMass -> "dry mass"
     WetMass -> "wet mass"
+    Price -> "price"
 
 -- | The word a key is written as. Inverse of 'parseAllocationKey'.
 allocationKeyText :: AllocationKey -> Text
@@ -2411,7 +2461,7 @@ parseAllocationKey raw =
     maybe (Left refusal) Right (lookup (T.toLower (T.strip raw)) table)
   where
     table :: [(Text, AllocationKey)]
-    table = [(allocationKeyText k, k) | k <- [Declared, ByProperty DryMass, ByProperty WetMass]]
+    table = [(allocationKeyText k, k) | k <- [Declared, ByProperty DryMass, ByProperty WetMass, ByProperty Price]]
 
     refusal :: Text
     refusal = "expected one of " <> T.intercalate " | " (map fst table) <> ", got: " <> raw

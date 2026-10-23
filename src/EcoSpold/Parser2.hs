@@ -22,7 +22,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time.Calendar (Day)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
-import EcoSpold.Common (ParsedDataset (..), bsToIntMaybe, bsToText, docSection, isElement, joinParts, nonEmptyText)
+import EcoSpold.Common (ParsedDataset (..), bsToIntMaybe, bsToText, deducedPriceProperty, docSection, isElement, joinParts, nonEmptyText)
 import qualified Expr
 import Progress (ProgressLevel (..), reportProgress)
 import SubstanceRegistry (nonEmptyCAS)
@@ -224,12 +224,15 @@ or writes as something no number can be read from. The schema requires that
 attribute, so a file missing it is malformed, and recording the zero the
 absence would otherwise leave says the line weighs nothing.
 
-The amount stays as the file states it, per unit of the exchange.
+The amount stays as the file states it, per unit of the exchange. A price
+keeps its unit as written (@EUR2005@), currency and year together.
 -}
 recordProperty :: PendingProperty -> ExchangeProperties -> ExchangeProperties
 recordProperty pending props = case (T.toLower (T.strip (ppyName pending)), ppAmount (ppyVariable pending)) of
     ("dry mass", Just amount) -> props{epDryMass = Just (stated amount)}
     ("wet mass", Just amount) -> props{epWetMass = Just (stated amount)}
+    ("price", Just amount) -> props{epPrice = Just (StatedPrice (stated amount))}
+    (name, Just amount) | name == deducedPriceProperty -> props{epPrice = Just (DeducedFromShare amount)}
     _ -> props
   where
     stated :: Double -> StatedAmount

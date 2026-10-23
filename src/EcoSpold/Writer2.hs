@@ -23,7 +23,8 @@ Design goals (all pure, effect-free):
 
 The only thing the writer cannot recover losslessly is information the parser
 discards (per-exchange @id@/@unitId@ attribute *strings*, production volumes,
-properties). Those are either omitted or synthesised from the stable UUIDs, so
+the properties it has no field for). Those are either omitted or synthesised
+from the stable UUIDs, so
 a parse→write→parse cycle is a fixed point.
 
 A dataset carries its model: its parameters as @\<parameter\>@ elements, a
@@ -65,7 +66,7 @@ import Data.Time.Calendar (Day)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
 import Database.ExportFormulas (Exported, ProcessExport (..), Scaled (..), Written (..), databaseCopies, exportFormulas, frozenWarnings, processExport)
-import EcoSpold.Common (showFFloatTrim)
+import EcoSpold.Common (deducedPriceProperty, showFFloatTrim)
 import qualified Expr
 import Types
 
@@ -581,6 +582,7 @@ renderTechnosphere env lf ex =
             , ilClassification = Nothing
             , ilComment = techComment ex
             , ilFormula = lf
+            , ilProperties = techProperties ex
             }
   where
     flowId = techFlowId ex
@@ -615,6 +617,7 @@ renderWaste env lf ex =
             , ilClassification = Just ("By-product classification", "Waste")
             , ilComment = waComment ex
             , ilFormula = lf
+            , ilProperties = noProperties
             }
   where
     flowId = waFlowId ex
@@ -681,6 +684,7 @@ data IntermediateLine = IntermediateLine
     -- ^ The classification system and value tagging a waste line.
     , ilComment :: !(Maybe Text)
     , ilFormula :: !LineFormula
+    , ilProperties :: !ExchangeProperties
     }
 
 {- | Shared @intermediateExchange@ emitter for technosphere and waste flows.
@@ -696,6 +700,7 @@ intermediateExchange line =
         ++ [ilGroup line]
         ++ classificationBlock (ilClassification line)
         ++ synonymLines 8 (ilSynonyms line)
+        ++ propertyLines (ilProperties line)
         ++ commentLines 8 (ilComment line)
         ++ ["      </intermediateExchange>"]
   where
@@ -737,6 +742,53 @@ comment text, so we emit it verbatim under @xml:lang="en"@.
 -}
 commentLines :: Int -> Maybe Text -> [Text]
 commentLines ind = maybe [] (\c -> [indent ind <> "<comment xml:lang=\"en\">" <> escapeText c <> "</comment>"])
+
+{- | The @\<property\>@ elements of an exchange, each per unit of its amount, as
+the parser reads them.
+
+A property ecoinvent defines is written under ecoinvent's identifier for it,
+so another reader of the file recognises it; a price deduced from a share,
+which ecoinvent has no property for, under one minted from its name. The
+parser reads neither identifier, only the name.
+-}
+propertyLines :: ExchangeProperties -> [Text]
+propertyLines props =
+    concat
+        [ maybe [] (propertyLine "3a0af1d6-04c3-41c6-a3da-92c4f61e0eaa" "dry mass") (epDryMass props)
+        , maybe [] (propertyLine "67f102e2-9cb6-4d20-aa16-bf74d8a03326" "wet mass") (epWetMass props)
+        , maybe [] priceLine (epPrice props)
+        ]
+  where
+    priceLine :: Price -> [Text]
+    priceLine price = case price of
+        StatedPrice stated -> propertyLine "38f94dd1-d5aa-41b8-b182-c0c42985d9dc" "price" stated
+        DeducedFromShare amount ->
+            propertyLine (mintedId deducedPriceProperty) deducedPriceProperty StatedAmount{saUnit = "dimensionless", saAmount = amount}
+
+    propertyLine :: Text -> Text -> StatedAmount -> [Text]
+    propertyLine propertyId name stated =
+        [ "        <property propertyId=\""
+            <> propertyId
+            <> "\" amount=\""
+            <> doubleAttr (saAmount stated)
+            <> "\" unitId=\""
+            <> unitIdOf (saUnit stated)
+            <> "\">"
+        , "          <name xml:lang=\"en\">" <> escapeText name <> "</name>"
+        , "          <unitName xml:lang=\"en\">" <> escapeText (saUnit stated) <> "</unitName>"
+        , "        </property>"
+        ]
+
+    -- ecoinvent's identifiers for the units its own properties are in.
+    unitIdOf :: Text -> Text
+    unitIdOf unit = case unit of
+        "kg" -> "487df68b-4994-4027-8fdc-a4dc298257b7"
+        "EUR2005" -> "7b75baf0-cbee-45e6-bf66-af119da06553"
+        "dimensionless" -> "577e242a-461f-44a7-922c-d8e1c3d2bf45"
+        other -> mintedId other
+
+    mintedId :: Text -> Text
+    mintedId name = UUID.toText (UUID5.generateNamed UUID5.namespaceOID (BS.unpack (TE.encodeUtf8 name)))
 
 {- | @\<synonym\>@ lines, one per synonym, sorted. The parser collapses all
 languages into the @"en"@ bucket and ignores the language, so we flatten and

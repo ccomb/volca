@@ -579,9 +579,10 @@ description r = case r of
     DeriveDatabase ->
         "LCA / ACV: read a database's source files again under another allocation \
         \key, and register the result under a new name. Use it to ask what a study \
-        \would look like with the multi-output blocks divided by a physical property \
+        \would look like with the multi-output blocks divided by a property of the products \
         \instead of the shares the source declares: 'wet mass' divides a block by the \
-        \mass of each product, 'dry mass' by its dry matter, 'declared' keeps the \
+        \mass of each product, 'dry mass' by its dry matter, 'price' by what each \
+        \product brings in, 'declared' keeps the \
         \source's own shares. The source is untouched and both stay usable side by \
         \side. This is a full load, not a copy: seconds to minutes on a large \
         \database. Refused when the key divides no block, when it is the key the \
@@ -1381,7 +1382,7 @@ params r = case r of
     DeriveDatabase ->
         [ pDatabase
         , Param "new_name" "string" Required "Name to register the re-keyed database under. Must not already exist."
-        , Param "allocation" "string" Optional "The key its multi-output blocks are divided by: declared (the source's own shares, the default) | dry mass | wet mass."
+        , Param "allocation" "string" Optional "The key its multi-output blocks are divided by: declared (the source's own shares, the default) | dry mass | wet mass | price."
         ]
     ListPresets -> []
     SearchActivities ->

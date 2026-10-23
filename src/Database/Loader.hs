@@ -621,6 +621,8 @@ History of manual bumps:
      whose reference is negative), and a SimaPro, ILCD or EcoSpold 1 input
      reaching such a treatment in another database is a demand on it. Old
      caches miss the field.
+- 78: an exchange's properties carry a price, read from an EcoSpold 2
+     @price@ property.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -628,7 +630,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 77
+     in hi `xor` lo `xor` 78
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

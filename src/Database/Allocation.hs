@@ -44,10 +44,12 @@ module Database.Allocation (
     productProperty,
     propertyShares,
     massShares,
+    revenueShares,
 ) where
 
 import Control.Applicative ((<|>))
-import Data.List (partition)
+import Data.Containers.ListUtils (nubOrd)
+import Data.List (find, partition)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
@@ -252,6 +254,9 @@ describePropertyRefusal prop refusal = propertyName prop <> ": " <> because
         NotStated -> "no product of the block states one, and no amount stands in for it"
         NotAMass unit -> unit <> " is not a mass"
         NonPositiveMass amount -> "a product weighs " <> T.pack (show amount)
+        PricesNotComparable units -> "prices in " <> T.intercalate " and " units <> " cannot be compared"
+        NegativeRevenue amount -> "a product brings in " <> T.pack (show amount)
+        NothingSold -> "every product sells for nothing"
 
 {- | The blocks a property key could not divide, named, with the reason.
 
@@ -303,7 +308,7 @@ describeRefusal refusal = case refusal of
     NoSingleReference 0 -> "no reference exchange: one product output must be the reference"
     NoSingleReference k -> T.pack (show k) <> " reference exchanges where exactly one is needed"
 
--- | Why a physical property cannot serve as the key of a block.
+-- | Why a property cannot serve as the key of a block.
 data PropertyRefusal
     = -- | A product of the block states nothing of the property, and nothing stands in for it.
       NotStated
@@ -311,9 +316,29 @@ data PropertyRefusal
       NotAMass !Text
     | -- | The amount a product states, which no share can be read from.
       NonPositiveMass !Double
+    | {- | The units the products' prices are in, when they are not all one:
+      two currencies, two years of one, or a price deduced from a share beside
+      one in money.
+      -}
+      PricesNotComparable ![Text]
+    | -- | What a product brings in, below zero.
+      NegativeRevenue !Double
+    | -- | Every product of the block brings in nothing.
+      NothingSold
     deriving (Eq, Show)
 
-{- | The quantity one product line carries of a physical property.
+{- | The unit a price deduced from a share is counted in, where a stated price
+names its currency. It is a sentence rather than a code so that a refusal
+naming it beside @EUR2005@ says what the two are, and so that no currency a
+source writes can be mistaken for it.
+-}
+deducedUnit :: Text
+deducedUnit = "deduced from a declared share"
+
+{- | The quantity one product line carries of a property.
+
+For a price, that quantity is what the line brings in: its amount times its
+price, in the unit of the price.
 
 The source's own statement wins, in the unit the source writes it in. Where
 the source states none, a line already written in a mass unit is its own wet
@@ -329,7 +354,14 @@ productProperty :: AllocationProperty -> UnitDB -> Exchange -> Maybe StatedAmoun
 productProperty prop unitDB ex = case prop of
     DryMass -> perUnit (epDryMass (exchangeProperties ex))
     WetMass -> perUnit (epWetMass (exchangeProperties ex)) <|> ownAmount
+    Price -> revenue <$> epPrice (exchangeProperties ex)
   where
+    -- What the line brings in, in the unit its price is in.
+    revenue :: Price -> StatedAmount
+    revenue price = case price of
+        StatedPrice stated -> stated{saAmount = saAmount stated * exchangeAmount ex}
+        DeducedFromShare amount -> StatedAmount{saUnit = deducedUnit, saAmount = amount * exchangeAmount ex}
+
     -- A property is stated per unit of the line, so the line's own amount is
     -- what turns it into a quantity.
     perUnit :: Maybe StatedAmount -> Maybe StatedAmount
@@ -341,10 +373,11 @@ productProperty prop unitDB ex = case prop of
 {- | The share each product of one block carries under a property key, as
 percentages in the order given.
 
-Every quantity is converted to kilograms first, for the reason 'massShares'
-gives, and the same refusals apply on top of the property not being stated at
-all. Nothing here knows about the shares the source declares: this is what the
-property says, and combining the two is the caller's business.
+A mass is converted to kilograms first, for the reason 'massShares' gives, and
+the same refusals apply on top of the property not being stated at all. A
+price is divided as 'revenueShares' says. Nothing here knows about the shares
+the source declares: this is what the property says, and combining the two is
+the caller's business.
 -}
 propertyShares ::
     AllocationProperty ->
@@ -353,7 +386,38 @@ propertyShares ::
     NonEmpty Exchange ->
     Either PropertyRefusal (NonEmpty Double)
 propertyShares prop unitDB cfg products =
-    massShares cfg =<< maybe (Left NotStated) Right (traverse (productProperty prop unitDB) products)
+    divide =<< maybe (Left NotStated) Right (traverse (productProperty prop unitDB) products)
+  where
+    divide :: NonEmpty StatedAmount -> Either PropertyRefusal (NonEmpty Double)
+    divide = case prop of
+        DryMass -> massShares cfg
+        WetMass -> massShares cfg
+        Price -> revenueShares
+
+{- | The share each product of one block carries of what the block brings in,
+as percentages in the order given.
+
+No currency is converted into another, so every line has to be in the same
+unit, and a price deduced from a share is a unit of its own. A product that
+brings in nothing carries nothing, which is how a block whose author put a
+residue at 0 % keeps it there once its prices are deduced; but at least one
+product has to bring in something, or there is nothing to divide.
+-}
+revenueShares :: NonEmpty StatedAmount -> Either PropertyRefusal (NonEmpty Double)
+revenueShares revenues
+    | length units > 1 = Left (PricesNotComparable units)
+    | Just negative <- find (< 0) amounts = Left (NegativeRevenue negative)
+    | total <= 0 = Left NothingSold
+    | otherwise = Right ((* (100 / total)) <$> amounts)
+  where
+    units :: [Text]
+    units = nubOrd (map saUnit (NE.toList revenues))
+
+    amounts :: NonEmpty Double
+    amounts = saAmount <$> revenues
+
+    total :: Double
+    total = sum amounts
 
 {- | The share each product of one source block would carry if the key were
 its mass, as percentages in the order given.

@@ -517,6 +517,25 @@ spec = describe "EcoSpold2 writer round-trip" $ do
                 [techSupplierClaim ex | ex@TechnosphereExchange{techRole = Input} <- exchanges act]
                     `shouldBe` [ClaimById actB]
 
+    -- A price written as ecoinvent writes one, and a deduced one under a name
+    -- of its own, must both read back as what they were: the price key divides
+    -- by them, and a deduced price taken for money would be compared with one.
+    it "round-trips a line's dry mass, wet mass and price, stated or deduced" $
+        forM_ [StatedPrice (StatedAmount "EUR2005" 2.5), DeducedFromShare 0.49] $ \price -> do
+            let properties =
+                    ExchangeProperties
+                        { epDryMass = Just (StatedAmount "kg" 0.3)
+                        , epWetMass = Just (StatedAmount "kg" 1.0)
+                        , epPrice = Just price
+                        }
+                priced = TechnosphereExchange prodA 2.0 unitKg Input Nothing (ClaimById actB) "" Nothing Nothing Nothing M.empty properties Nothing
+            sdb' <- roundTrip (fixtureWithExchange priced)
+            case M.lookup (actA, prodA) (sdbActivities sdb') of
+                Nothing -> expectationFailure "activity missing after round-trip"
+                Just act ->
+                    [techProperties ex | ex@TechnosphereExchange{techRole = Input} <- exchanges act]
+                        `shouldBe` [properties]
+
     -- Export-boundary guards: data EcoSpold2 cannot faithfully re-encode must be
     -- rejected loudly by 'checkEcoSpold2Exportable' rather than silently
     -- corrupted (a non-finite amount clamps to 0.0; a ReferenceInput re-parses

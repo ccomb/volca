@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 81
-"""The newest wire revision this pyvolca understands (revision 81 added
+KNOWN_WIRE = 82
+"""The newest wire revision this pyvolca understands (revision 82 added
+the ``price`` among the ``properties`` of a technosphere exchange, and the
+``"price"`` allocation key ``derive_database()`` accepts; revision 81 added
 the download of a unit table, which ``download_units()`` and
 ``unit_table()`` read; revision 80 added
 the reference amount and unit of each batch score, which

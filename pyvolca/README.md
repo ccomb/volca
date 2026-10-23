@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 81** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 82** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -793,9 +793,10 @@ Delete a reference-data set of ``kind`` and remove its staged file.
 
 Read a database's sources again under another allocation key.
 
-Divides every multi-output block by a physical property of the
+Divides every multi-output block by a property of the
 products instead of by the shares the source declares: ``"wet mass"``
 weighs each product as it is, ``"dry mass"`` weighs its dry matter,
+``"price"`` weighs what each product brings in,
 ``"declared"`` keeps the source's own shares. The source is untouched
 and both stay loadable side by side, so two allocations of one study
 can be compared.
@@ -2790,7 +2791,7 @@ endpoint. Derived from the engine's declared topology, not runtime state.
 
 ``allocation`` is the key its multi-output blocks were divided by:
 ``"declared"`` for the shares the source itself states, otherwise the name
-of the property recomputed them (``"dry mass"``, ``"wet mass"``). Without
+of the property recomputed them (``"dry mass"``, ``"wet mass"``, ``"price"``). Without
 it a column of shares cannot say which of the two it is showing.
 ``source`` names the database this one was derived from, and is ``None``
 for one read straight from its files. Both are ``None`` against an engine

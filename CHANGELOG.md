@@ -4,6 +4,19 @@
 
 ### Added
 
+- A product line can carry a price, and a database can be divided by what
+  each product brings in: the `price` allocation key gives each product of
+  a multi-output process the share of its quantity times its price. The
+  EcoSpold 2 reader keeps the `price` property it used to drop, and the
+  EcoSpold 2 writer now writes the dry mass, wet mass and price of each
+  line, which an export used to lose without a word. A price can also be
+  deduced from a declared share, for a source that states shares but no
+  money; it is written under a property name of its own so no other tool
+  takes it for a currency, and the key refuses to compare it with a stated
+  one. The key also refuses a product with no price, prices in two
+  currencies, a product that brings in less than nothing, and a process
+  whose products all sell for nothing. Wire revision 82.
+
 - A unit table downloads as the CSV the engine reads
   (`GET /units/{name}/download`), the built-in "Default units" included,
   as a synonym table already could. A script converting kg to g or m3 to l
