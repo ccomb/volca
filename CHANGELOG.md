@@ -4,6 +4,19 @@
 
 ### Added
 
+- A database can be read as a parent: under the `none` allocation key, a
+  process of several products is kept whole, with its inventory as the
+  source states it, and each product's declared share becomes a price
+  deduced from it. A database derived from the parent under `price` then
+  divides it back into the declared shares. A process kept whole has no
+  column of its own, and the warning says why instead of asking for a
+  missing share. Deriving `none` from a source with no process of several
+  products is refused, the result being the same database. Wire revision 83.
+
+- The openLCA export refuses a process kept whole with a declared share on
+  each product, which openLCA would read with the whole inventory on every
+  product, and asks for a database derived under a key instead.
+
 - A product line can carry a price, and a database can be divided by what
   each product brings in: the `price` allocation key gives each product of
   a multi-output process the share of its quantity times its price. The
@@ -395,6 +408,11 @@
   parameter spells it: Brightway tells `Yield` from `yield`.
 
 ### Fixed
+
+- An EcoSpold 2 file holding a process with several products now comes
+  back with every product when it is read under a key that divides it. Each
+  product's process used to claim the one name the file carries, and only
+  the last was kept.
 
 - Sea water and brine withdrawals no longer count in EF 3.1 water use read
   from the JRC distribution. That method names its fresh water resource

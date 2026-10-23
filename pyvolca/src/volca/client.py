@@ -944,7 +944,9 @@ class Client:
         products instead of by the shares the source declares: ``"wet mass"``
         weighs each product as it is, ``"dry mass"`` weighs its dry matter,
         ``"price"`` weighs what each product brings in,
-        ``"declared"`` keeps the source's own shares. The source is untouched
+        ``"declared"`` keeps the source's own shares, and ``"none"`` keeps a
+        block of several products whole, each declared share turned into a
+        price, for databases derived from it. The source is untouched
         and both stay loadable side by side, so two allocations of one study
         can be compared.
 

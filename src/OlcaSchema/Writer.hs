@@ -66,6 +66,7 @@ import qualified Data.UUID.V5 as UUID5
 import Numeric (readHex)
 
 import qualified Data.IntMap.Strict as IM
+import Database.Allocation (isCoproduct)
 import qualified Database.ExportFormulas as EF
 import qualified Expr
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
@@ -192,6 +193,7 @@ data Refusal
     | TreatmentAbsent !Text
     | PositiveWasteReference !Text
     | NotFinite !Text
+    | KeptWhole !Text
 
 -- | Every line the package would carry wrong, named and grouped by why.
 describeRefusals :: [Refusal] -> Text
@@ -211,6 +213,7 @@ describeRefusals refusals =
         , ("waste inputs go to a treatment the database does not have, so their sign cannot be decided:", [n | TreatmentAbsent n <- refusals])
         , ("references are a positive output of a waste flow, which openLCA cannot make:", [n | PositiveWasteReference n <- refusals])
         , ("amounts are not finite:", [n | NotFinite n <- refusals])
+        , ("coproducts are of a process kept whole with a declared share on each product, which openLCA would read with the whole inventory; export a database derived from it under an allocation key:", [n | KeptWhole n <- refusals])
         ]
 
 -- | Every location code a process or a line states, with how often.
@@ -251,6 +254,9 @@ lineOf :: Context -> Activity -> Exchange -> Either Refusal Line
 lineOf cx act ex = do
     flow <- maybe (Left (NoFlow named)) Right (M.lookup (exchangeFlowId ex) (cxFlows cx))
     whenLeft (isNaN (exchangeAmount ex) || isInfinite (exchangeAmount ex)) (NotFinite named)
+    -- A coproduct left whole for want of a share is a warning; one whose block
+    -- states every share was kept whole on purpose, and is written as nothing true.
+    whenLeft (isCoproduct ex && all (isJust . exchangeDeclaredShare) (filter exchangeIsProductOutput (exchanges act))) (KeptWhole named)
     conversion <- maybe (Left (OtherUnit named)) Right (inUnitOf flow)
     let amount = conversion * exchangeAmount ex
         -- The line written with the stored amount in the flow's unit, times a sign.
@@ -365,9 +371,6 @@ warnings cx = splitWarnings (cxDb cx) <> EF.formulaWarnings (cxFormulas cx) <> m
         , ("processes state an elementary flow against its compartment, written on its side with the same inventory:", S.toList (S.fromList against))
         , ("location codes differ from another only by case, one location to openLCA, and are written as it:", [code <> " as " <> written | (code, written) <- M.toList (cxPlaces cx), code /= written])
         ]
-    isCoproduct ex = case ex of
-        TechnosphereExchange{techRole = Coproduct} -> True
-        _ -> False
     produced = S.fromList [exchangeFlowId ex | a <- acts, ex <- exchanges a, exchangeIsReference ex]
     unlinkedProduced =
         [ activityName a <> " · " <> maybe "" ofName (M.lookup (exchangeFlowId ex) (cxFlows cx))

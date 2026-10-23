@@ -167,6 +167,38 @@ spec = do
             let substituting = activity [productRow cheeseId 1.0 ReferenceProduct (Just 50) M.empty, avoided 2.0]
             concatMap avoidedAmounts (allocate declaredOn substituting) `shouldBe` [1.0]
 
+    describe "allocate under none, the key of a parent database" $ do
+        let parentOf = NE.toList . allocate declaredOn{alKey = Unallocated}
+            prices act = [epPrice (exchangeProperties ex) | ex <- exchanges act, exchangeIsProductOutput ex]
+            -- 51 % on 1 kg of cheese, 49 % on 3 kg of cream.
+            dairy = activity [productRow cheeseId 1.0 ReferenceProduct (Just 51) M.empty, productRow creamId 3.0 Coproduct (Just 49) M.empty, input 10.0]
+
+        it "keeps a block of several products whole, its inventory as the source states it" $ do
+            map inputAmounts (parentOf dairy) `shouldBe` [[10.0]]
+            map (length . filter exchangeIsProductOutput . exchanges) (parentOf dairy) `shouldBe` [2]
+
+        it "prices each product from its declared share, so the price key gives the shares back" $ do
+            map prices (parentOf dairy) `shouldBe` [[Just (DeducedFromShare 51.0), Just (DeducedFromShare (49.0 / 3.0))]]
+            map inputAmounts (concatMap (NE.toList . allocate (byPropertyOn Price)) (parentOf dairy))
+                `shouldBe` [[5.1], [4.9]]
+
+        it "prices a product declared at 0 % at nothing, and keeps a price the source states" $ do
+            let stated = (productRow cheeseId 1.0 ReferenceProduct (Just 100) M.empty){techProperties = noProperties{epPrice = Just (StatedPrice (StatedAmount "EUR" 4.0))}}
+            map prices (parentOf (activity [stated, productRow creamId 3.0 Coproduct (Just 0) M.empty, input 10.0]))
+                `shouldBe` [[Just (StatedPrice (StatedAmount "EUR" 4.0)), Just (DeducedFromShare 0.0)]]
+
+        it "prices nothing in a block one of whose products declares no share" $ do
+            let incomplete = activity [productRow cheeseId 1.0 ReferenceProduct (Just 51) M.empty, productRow creamId 3.0 Coproduct Nothing M.empty, input 10.0]
+            map prices (parentOf incomplete) `shouldBe` [[Nothing, Nothing]]
+
+        it "applies a lone product's declared share, as every other key does" $
+            map inputAmounts (parentOf (activity [productRow cheeseId 1.0 ReferenceProduct (Just 51) M.empty, input 10.0]))
+                `shouldBe` [[5.1]]
+
+        it "has the gate say the block was kept whole, not that a share is missing" $
+            [T.unpack (describeRefusal refusal) | Left refusal <- map asAllocated (parentOf dairy)]
+                `shouldSatisfy` (\said -> not (null said) && all (isInfixOfS "kept whole by the allocation key") said)
+
     describe "allocateWith, a share per product and exchange" $ do
         it "overrides the product's share for the one exchange a pair names" $ do
             let processes = NE.toList (allocateWith declaredOn (exchangeShares (M.singleton SharedExchange{seProduct = 0, seExchange = 4} 90)) block)

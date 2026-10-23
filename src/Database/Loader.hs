@@ -1297,6 +1297,7 @@ it or why. The first ten are named, and a count says how many there were.
 reportKeyRefusals :: LoadOptions -> SimpleDatabase -> IO ()
 reportKeyRefusals opts db = case loAllocation opts of
     Declared -> pure ()
+    Unallocated -> pure ()
     ByProperty prop -> unless (null refusals) $ do
         reportProgress Warning $
             show (length refusals) <> " blocks were not divided: the key names a property they do not carry"
@@ -1329,17 +1330,6 @@ defaultLoadOptions unitConfig =
         , loPatches = []
         }
 
-{- | Say that an EcoSpold 2 dataset divided into several processes will come
-back as one.
-
-'buildProcEntry' reads a process's identity off the file name, which carries
-one @activityUUID_productUUID@ pair whatever the file holds, so the coproducts
-a key just separated all claim it and the registry keeps the last. Loud rather
-than silent: the alternative is a database quietly missing the very products
-the key was named to produce. Keying an EcoSpold 2 process on its own product
-rather than on its file name is what would fix it.
--}
-
 {- | Everything a directory load was offered and could not turn into a dataset.
 
 Named together rather than one at a time: a publisher writes its file names by
@@ -1360,13 +1350,6 @@ refusedFiles offered refusals =
 
     rest :: [T.Text]
     rest = ["  ... and " <> T.pack (show (refused - 10)) <> " more" | refused > 10]
-
-warnSplitKeyedOnFileName :: FilePath -> IO ()
-warnSplitKeyedOnFileName file =
-    reportProgress Warning $
-        "only one product will be kept of "
-            <> file
-            <> ": an EcoSpold 2 process is identified by its file name, which names a single product"
 
 {- | Allocate a parsed dataset before it is keyed: one entry per process
 'allocate' splits it into, each carrying the file's flows and units, so the
@@ -1755,8 +1738,6 @@ loadEcoSpoldDirectory opts dir = do
         let paired = zipWith (\f -> either (Left . T.pack) (Right . (f,))) workerFiles workerResults
         let (unread, oks) = partitionEithers paired
         let split = [(f, allocateParsed opts r) | (f, r) <- oks]
-        unless isEcoSpold1 $
-            mapM_ (warnSplitKeyedOnFileName . fst) (filter ((> 1) . length . snd) split)
         let (unreadableNames, keyed) = partitionEithers [keyDatasetsOf isEcoSpold1 f rs | (f, rs) <- split]
 
         -- A file whose content has no reading and a file whose name has none
@@ -1792,9 +1773,19 @@ loadEcoSpoldDirectory opts dir = do
     --    file into, so reading it per process would name a refused file once per
     --    process and count more refusals than the directory offered files.
     --
+    --    An EcoSpold 2 file the allocation divided into several processes names
+    --    one product, and each process is filed under its own product beside the
+    --    activity the name gives: a process kept whole with its coproducts, once
+    --    written and read back under a key, keeps every product it had.
+    --
     keyDatasetsOf :: Bool -> FilePath -> [ParsedDataset] -> Either T.Text [((UUID, UUID), ParsedDataset)]
-    keyDatasetsOf isEcoSpold1 filepath =
-        traverse (\parsed -> (,parsed) <$> processKeyOf isEcoSpold1 filepath (pdActivity parsed))
+    keyDatasetsOf isEcoSpold1 filepath parsed =
+        traverse (\p -> (,p) . ownProduct p <$> processKeyOf isEcoSpold1 filepath (pdActivity p)) parsed
+      where
+        ownProduct :: ParsedDataset -> (UUID, UUID) -> (UUID, UUID)
+        ownProduct p (actUUID, prodUUID)
+            | not isEcoSpold1 && length parsed > 1 = (actUUID, getReferenceProductUUID (pdActivity p))
+            | otherwise = (actUUID, prodUUID)
 
     -- The (activity, product) pair one process is filed under
     processKeyOf :: Bool -> FilePath -> Activity -> Either T.Text (UUID, UUID)

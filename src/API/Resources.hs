@@ -583,7 +583,8 @@ description r = case r of
         \instead of the shares the source declares: 'wet mass' divides a block by the \
         \mass of each product, 'dry mass' by its dry matter, 'price' by what each \
         \product brings in, 'declared' keeps the \
-        \source's own shares. The source is untouched and both stay usable side by \
+        \source's own shares, and 'none' keeps a block of several products whole, \
+        \each declared share turned into a price, for databases derived from it. The source is untouched and both stay usable side by \
         \side. This is a full load, not a copy: seconds to minutes on a large \
         \database. Refused when the key divides no block, when it is the key the \
         \source already reads under, when the products carry no such property, and \
@@ -1382,7 +1383,7 @@ params r = case r of
     DeriveDatabase ->
         [ pDatabase
         , Param "new_name" "string" Required "Name to register the re-keyed database under. Must not already exist."
-        , Param "allocation" "string" Optional "The key its multi-output blocks are divided by: declared (the source's own shares, the default) | dry mass | wet mass | price."
+        , Param "allocation" "string" Optional "The key its multi-output blocks are divided by: declared (the source's own shares, the default) | dry mass | wet mass | price | none."
         ]
     ListPresets -> []
     SearchActivities ->

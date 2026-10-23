@@ -321,3 +321,9 @@ spec = describe "an openLCA package written from a database" $ do
                 "maker · slag"
         it "an amount that is not finite" $
             refused (oneProcess [bio co2 (1 / 0) Emission]) "not finite"
+        it "a coproduct of a process kept whole with a share on each product, as a parent database holds it" $ do
+            let shared ex = case ex of
+                    TechnosphereExchange{} -> ex{techShare = Just (DeclaredShare 50 Nothing)}
+                    _ -> ex
+                parent = oneProcess [TechnosphereExchange made 2 kg Coproduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
+            refused parent{sdbActivities = M.map (\a -> a{exchanges = map shared (exchanges a)}) (sdbActivities parent)} "kept whole"

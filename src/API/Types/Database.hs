@@ -78,7 +78,7 @@ data DatabaseStatusAPI = DatabaseStatusAPI
     , dsaDependsOn :: [Text] -- Names of databases this one depends on (for cross-DB linking)
     , dsaAllocation :: Text
     {- ^ The key its multi-output blocks were divided under: @declared@, @dry
-    mass@, @wet mass@ or @price@. On the wire because a reader looking at a column of
+    mass@, @wet mass@, @price@, or @none@ for a block kept whole. On the wire because a reader looking at a column of
     shares has no other way to tell whether the source stated them or a
     property recomputed them, and a column headed @declared@ over recomputed
     shares says something untrue.

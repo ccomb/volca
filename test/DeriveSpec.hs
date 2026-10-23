@@ -21,6 +21,7 @@ module DeriveSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Data.ByteString.Char8 as BS
+import Data.Either (fromLeft)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Text (Text, isInfixOf)
@@ -75,6 +76,18 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                     loaded <- readTVarIO (dmLoadedDbs manager)
                     M.member "steel-wet" available `shouldBe` False
                     M.member "steel-wet" loaded `shouldBe` False
+
+    it "reads a block whole under none, the cheese and the whey in one process" $
+        withSource coproductCSV $ \manager -> do
+            derived <- deriveDatabase manager source "dairy-parent" Unallocated
+            db <- either (fail . show) (pure . ldDatabase . fst) derived
+            V.length (dbActivities db) `shouldBe` 1
+            [length (filter exchangeIsProductOutput (exchanges a)) | a <- V.toList (dbActivities db)] `shouldBe` [2]
+
+    it "refuses none over a source with no block of several products" $
+        withSource singleProductCSV $ \manager -> do
+            derived <- deriveDatabase manager source "steel-parent" Unallocated
+            fromLeft "" derived `shouldSatisfy` isInfixOf "kept no process of several products whole"
 
     it "refuses the key its source already reads under" $
         withSource coproductCSV $ \manager -> do

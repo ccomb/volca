@@ -2422,6 +2422,10 @@ data AllocationProperty
 
 * 'Declared'   – the shares the source states, a number or an evaluated formula.
 * 'ByProperty' – recomputed from a property of the products.
+* 'Unallocated' – none: a block of several products is kept whole, the
+  process of a parent database that a database derived from it under one of
+  the other keys divides. Its declared shares become prices deduced from
+  them, so that the @price@ key gives them back.
 
 A database is loaded under one key, and the same source loaded twice under two
 keys is two databases: the choice belongs to the load, because it decides the
@@ -2430,6 +2434,7 @@ inventory of every process the load produces.
 data AllocationKey
     = Declared
     | ByProperty !AllocationProperty
+    | Unallocated
     deriving (Show, Eq, Generic, NFData, Store)
 
 {- | The word a property is written as, wherever one is written: a warning, a
@@ -2446,6 +2451,7 @@ allocationKeyText :: AllocationKey -> Text
 allocationKeyText key = case key of
     Declared -> "declared"
     ByProperty prop -> propertyName prop
+    Unallocated -> "none"
 
 {- | The key a word names, case-blind, with the words it could have been when
 it names none.
@@ -2461,7 +2467,7 @@ parseAllocationKey raw =
     maybe (Left refusal) Right (lookup (T.toLower (T.strip raw)) table)
   where
     table :: [(Text, AllocationKey)]
-    table = [(allocationKeyText k, k) | k <- [Declared, ByProperty DryMass, ByProperty WetMass, ByProperty Price]]
+    table = [(allocationKeyText k, k) | k <- [Declared, ByProperty DryMass, ByProperty WetMass, ByProperty Price, Unallocated]]
 
     refusal :: Text
     refusal = "expected one of " <> T.intercalate " | " (map fst table) <> ", got: " <> raw
