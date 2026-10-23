@@ -8,7 +8,9 @@
   and given an amount in a currency, or its price is removed. The change is
   kept in the database's history with its reason, and replayed when the
   database is loaded again. It is the one edit that reaches the reference
-  product or a coproduct, and only for its price. Wire revision 84.
+  product or a coproduct, and only for its price. A negative price is
+  refused, and pricing a product beside others whose prices were deduced
+  from their shares warns that each of them needs a price. Wire revision 84.
 
 - A database can be read as a parent: under the `none` allocation key, a
   process of several products is kept whole, with its inventory as the

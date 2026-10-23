@@ -608,6 +608,10 @@ class TestEditExchanges:
         client.edit_exchanges("a_b", name="milk")
         assert "setPrices" not in session.post.call_args[1]["json"]
 
+    def test_a_price_names_its_currency(self):
+        with pytest.raises(ValueError, match="names its currency"):
+            SetPrice("p-1", 0.42)
+
     def test_prices_never_sent_to_an_engine_that_cannot_keep_them(self, mocked_client):
         client, session = mocked_client
         _version_ok(session, wire=83)

@@ -3231,6 +3231,10 @@ class SetPrice:
     amount: float | None
     currency: str = ""
 
+    def __post_init__(self) -> None:
+        if self.amount is not None and not self.currency.strip():
+            raise ValueError(f"SetPrice({self.product!r}): a price names its currency")
+
     def to_wire(self) -> dict:
         price = None if self.amount is None else {"amount": self.amount, "unit": self.currency}
         return {"product": self.product, "price": price}

@@ -218,6 +218,8 @@ spec = do
                 `shouldSatisfy` failsWith "is no product output of this activity"
             replayOutcome ctx [event (edited supplierPid [(SetPrice supplierProdId (Just (StatedAmount " " 0.42)), 1)])]
                 `shouldSatisfy` failsWith "a price names its currency"
+            replayOutcome ctx [event (edited supplierPid [(SetPrice supplierProdId (Just (StatedAmount "EUR2005" (-0.42))), 1)])]
+                `shouldSatisfy` failsWith "zero or more"
 
         it "brings along the flow an added line introduces" $
             case replayJournal ctx [event (edited supplierPid [(AddExchange methane, 1)])] of

@@ -53,14 +53,17 @@ import Types (
     DeclaredShare (..),
     Exchange (..),
     ExchangeLocation (..),
+    ExchangeProperties (..),
     LocationSource (..),
     Medium (..),
     Parameter (..),
     ParameterDefinition (..),
     Pedigree (..),
+    Price (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
+    StatedAmount (..),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
@@ -564,6 +567,16 @@ spec = do
                         Right _ -> expectationFailure ("expected a refusal mentioning " <> show needle)
                         Left errs -> errs `shouldSatisfy` any (isInfixOf needle)
                 inputsOf act = [ex | ex@TechnosphereExchange{techRole = Input} <- exchanges act]
+
+            it "warns when a price is set beside one a share was turned into, never otherwise" $ do
+                let cheesePrice = SetPrice importedProdId (Just (StatedAmount "EUR2005" 12))
+                    deducedWhey ex = case ex of
+                        TechnosphereExchange{techRole = Coproduct} -> ex{techProperties = noProperties{epPrice = Just (DeducedFromShare 30)}}
+                        _ -> ex
+                    parentRow = importedActivity{exchanges = map deducedWhey (exchanges importedActivity)}
+                    warningsOn act = either (const ["refused"]) eaWarnings (applyExchangeEdits (contextOf fixtureDb) [cheesePrice] act)
+                warningsOn parentRow `shouldSatisfy` any (isInfixOf "price each of them")
+                warningsOn importedActivity `shouldBe` []
 
             it "keeps every field an edit does not name" $ do
                 -- The reason this operation exists: classification, synonyms,
