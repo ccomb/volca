@@ -381,6 +381,7 @@ applyOp ctx = \case
         SetAmount _ _ -> False
         AddExchange _ -> False
         SetFormula _ _ -> False
+        SetPrice _ _ -> False
     siblingsOf pid activityUUID =
         [ other
         | other <- maybe [] NE.toList (M.lookup activityUUID (dbActivityUUIDIndex (acDb ctx)))
@@ -508,6 +509,8 @@ editJSON (EditLine edit matched before) = object (("matched" .= matched) : prior
             ["edit" .= ("description" :: Text), "value" .= paragraphs]
         SetFormula selector formula ->
             ["edit" .= ("formula" :: Text), "select" .= selectorJSON selector, "formula" .= formula]
+        SetPrice flow price ->
+            ["edit" .= ("price" :: Text), "product" .= UUID.toText flow, "price" .= price]
         SetParameter name parameter ->
             ["edit" .= ("parameter" :: Text), "name" .= name, "parameter" .= parameterJSON parameter]
         RemoveParameter name ->
@@ -526,6 +529,7 @@ parseEdit = withObject "exchange edit" $ \o -> do
             "location" -> SetText . ActivityLocation <$> o .: "value"
             "description" -> SetText . ActivityDescription <$> o .: "value"
             "formula" -> SetFormula <$> (o .: "select" >>= parseSelector) <*> o .: "formula"
+            "price" -> SetPrice <$> (o .: "product" >>= flowIn) <*> o .: "price"
             "parameter" -> SetParameter <$> o .: "name" <*> (o .: "parameter" >>= parseParameter)
             "unparameter" -> RemoveParameter <$> o .: "name"
             other -> fail ("unknown exchange edit: " <> T.unpack other)
@@ -591,6 +595,9 @@ selectorJSON = \case
     locationPair :: Maybe ExchangeLocation -> [Pair]
     locationPair = maybe [] (\stated -> ["location" .= locationCode stated])
 
+flowIn :: Text -> Parser UUID.UUID
+flowIn raw = maybe (fail ("not a flow identifier: " <> T.unpack raw)) pure (UUID.fromText raw)
+
 parseSelector :: Value -> Parser ExchangeSelector
 parseSelector = withObject "exchange selector" $ \o ->
     o .: "kind" >>= \case
@@ -604,8 +611,6 @@ parseSelector = withObject "exchange selector" $ \o ->
         o .:? "provider" >>= \case
             Just provider -> pure (linked provider)
             Nothing -> unlinked <$> (flowIn =<< o .: "flow") <*> (fmap readExchangeLocation <$> o .:? "location")
-    flowIn :: Text -> Parser UUID.UUID
-    flowIn raw = maybe (fail ("not a flow identifier: " <> T.unpack raw)) pure (UUID.fromText raw)
 
 activityJSON :: AuthoredActivity -> Value
 activityJSON a =

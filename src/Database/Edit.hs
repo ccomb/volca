@@ -599,6 +599,7 @@ data EditReport = EditReport
     , erTextsSet :: [Text]
     -- ^ The texts rewritten, spelt as a request names them: @name@, @location@, @description@.
     , erFormulasSet :: [Int]
+    , erPricesSet :: [Int]
     , erParametersSet :: [Text]
     , erParametersRemoved :: [Text]
     , erRestated :: [RestatedLine]
@@ -666,6 +667,7 @@ editExchanges manager dbName note target edits =
                         , erAdded = length [() | AddExchange _ <- edits]
                         , erTextsSet = [textField text | SetText text <- edits]
                         , erFormulasSet = [n | (SetFormula _ _, n) <- zip edits matched]
+                        , erPricesSet = [n | (SetPrice _ _, n) <- zip edits matched]
                         , erParametersSet = [name | SetParameter name _ <- edits]
                         , erParametersRemoved = [name | RemoveParameter name <- edits]
                         , erRestated = eaRestated edited

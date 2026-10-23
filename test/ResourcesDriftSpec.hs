@@ -111,6 +111,7 @@ knownDivergences =
     , ("edit_exchanges", "set_location")
     , ("edit_exchanges", "set_name")
     , ("edit_exchanges", "set_parameters")
+    , ("edit_exchanges", "set_prices")
     , ("edit_method_categories", "impact_category")
     , ("edit_method_categories", "method_id")
     , ("edit_method_categories", "methodology")

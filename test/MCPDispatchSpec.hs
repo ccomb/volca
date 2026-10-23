@@ -296,6 +296,7 @@ spec = describe "MCP database load/unload tools" $ do
                            , ("set_description", "string")
                            , ("set_formulas", "object")
                            , ("set_parameters", "object")
+                           , ("set_prices", "object")
                            ]
 
     describe "quality-report tool" $ do

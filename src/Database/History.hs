@@ -51,6 +51,7 @@ import Types (
     Parameter (..),
     ParameterDefinition (..),
     Release (..),
+    StatedAmount (..),
     TechnosphereFlow (..),
     WasteFlow (..),
     allocationKeyText,
@@ -117,6 +118,8 @@ describeEdit namer (EditLine edit _ before) = case edit of
     RemoveExchange selector -> selected selector <> ": removed" <> wasPrior before
     SetFormula selector (Just formula) -> selected selector <> ": formula set to " <> formula
     SetFormula selector Nothing -> selected selector <> ": formula removed"
+    SetPrice flow (Just price) -> "Product " <> flowNamed namer flow <> ": price set to " <> number (saAmount price) <> " " <> saUnit price
+    SetPrice flow Nothing -> "Product " <> flowNamed namer flow <> ": price removed"
     AddExchange exchange -> "Added " <> authoredExchange exchange
     SetText (ActivityName name) -> "Name set to " <> quoted name
     SetText (ActivityLocation location) -> "Location set to " <> location

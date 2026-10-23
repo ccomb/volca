@@ -47,6 +47,7 @@ import API.Types (
     ExchangeEditResponse (..),
     ExchangeSelectorAPI (..),
     SetAmountAPI (..),
+    SetPriceAPI (..),
     TechInputAPI (..),
  )
 import App.Env (AppEnv (..), runApp)
@@ -65,14 +66,17 @@ import Types (
     Compartment (..),
     Database (..),
     Exchange (..),
+    ExchangeProperties (..),
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
     Medium (..),
     Modification (..),
+    Price (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
+    StatedAmount (StatedAmount),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
@@ -412,6 +416,7 @@ noEdits =
         , eerSetDescription = Nothing
         , eerSetParameters = []
         , eerSetFormulas = []
+        , eerSetPrices = []
         , eerRemoveParameters = []
         , eerNote = Nothing
         }
@@ -441,6 +446,21 @@ documentingSpec = describe "documenting the changes made to a database" $ do
                     [ (Just "Measured on site", ["Flow \"Carbon dioxide\": amount from 1.2 set to 3.0"])
                     , (Nothing, ["Flow \"Carbon dioxide\": amount from 3.0 set to 4.0"])
                     ]
+
+    it "prices a product, keeping the price on the activity and the change in the history" $
+        withWritableDb $ \env -> do
+            let milkPrice = StatedAmount "EUR2005" 0.42
+                setPrice = SetPriceAPI{sprProduct = UUID.toText supplierProdId, sprPrice = Just milkPrice}
+            res <- edit env "authored" supplierPid noEdits{eerSetPrices = [setPrice], eerNote = Just "Farm-gate price"}
+            fmap eepPricesSet res `shouldSatisfy` either (const False) (== [1])
+            activities <- activitiesOf env "authored"
+            [epPrice (techProperties ex) | act <- activities, ex@TechnosphereExchange{techRole = ReferenceProduct} <- exchanges act]
+                `shouldBe` [Just (StatedPrice milkPrice)]
+            history env `shouldReturn` Right [(Just "Farm-gate price", ["Product \"milk\": price set to 0.42 EUR2005"])]
+
+    it "reads a price as the document states it" $
+        fmap (map (\sp -> (sprProduct sp, sprPrice sp)) . eerSetPrices) (decode "{\"setPrices\":[{\"product\":\"p-1\",\"price\":{\"amount\":0.42,\"unit\":\"EUR2005\"}},{\"product\":\"p-2\",\"price\":null}]}")
+            `shouldBe` Just [("p-1", Just (StatedAmount "EUR2005" 0.42)), ("p-2", Nothing)]
 
     it "reads each edit of a batch against the amounts the edits before it left" $
         withWritableDb $ \env -> do

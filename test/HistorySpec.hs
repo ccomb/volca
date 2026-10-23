@@ -10,7 +10,7 @@ import Data.JournalFile (Entry (..))
 import Database.Author (AuthoredActivity (..), ExchangeEdit (..), ExchangeSelector (..))
 import Database.History
 import Database.Journal (Change (..), EditLine (..), JournalOp (..), ParameterLine (..), Prior (..), noteFrom)
-import Types (AllocationKey (..), AllocationProperty (..), Parameter (..), ParameterDefinition (..), Release (..))
+import Types (AllocationKey (..), AllocationProperty (..), Parameter (..), ParameterDefinition (..), Release (..), StatedAmount (..))
 
 bread :: AuthoredActivity
 bread =
@@ -35,7 +35,7 @@ history =
     describeJournal
         (namerFor Nothing)
         [ Entry "2026-10-01" (Change Nothing (Created [bread] ["a_b"]))
-        , Entry "2026-10-02" (Change (noteFrom "Measured on site") (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3) 1 (Prior [1.2]), EditLine (RemoveExchange (SelectInput "c_d")) 1 PriorUnknown]))
+        , Entry "2026-10-02" (Change (noteFrom "Measured on site") (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3) 1 (Prior [1.2]), EditLine (RemoveExchange (SelectInput "c_d")) 1 PriorUnknown, EditLine (SetPrice flowId (Just (StatedAmount "EUR2005" 0.42))) 1 (Prior []), EditLine (SetPrice flowId Nothing) 1 (Prior [])]))
         , Entry "2026-10-03" (Change Nothing (ParametersEdited [ParameterLine "distance" (Just (value 90)) (Prior (Just (value 120))), ParameterLine "new" (Just (value 1)) (Prior Nothing)]))
         , Entry "2026-10-04" (Change Nothing (Deleted ["a_b"]))
         ]
@@ -45,7 +45,7 @@ spec = describe "Database.History" $ do
     it "says each change in words, with the value it replaced when it was kept" $
         map (\line -> (hlSummary line, hlDetails line)) history
             `shouldBe` [ ("Added 1 activity", ["\"bread\" (FR), a_b"])
-                       , ("Edited \"a_b\"", ["Flow 00000000-0000-0000-0000-000000000000: amount from 1.2 set to 3.0", "Input from \"c_d\": removed"])
+                       , ("Edited \"a_b\"", ["Flow 00000000-0000-0000-0000-000000000000: amount from 1.2 set to 3.0", "Input from \"c_d\": removed", "Product 00000000-0000-0000-0000-000000000000: price set to 0.42 EUR2005", "Product 00000000-0000-0000-0000-000000000000: price removed"])
                        , ("Changed 2 database parameters", ["distance changed from 120.0 km to 90.0 km", "new added: 1.0 km"])
                        , ("Deleted 1 activity", ["\"a_b\""])
                        ]

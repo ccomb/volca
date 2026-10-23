@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 83
-"""The newest wire revision this pyvolca understands (revision 83 added
+KNOWN_WIRE = 84
+"""The newest wire revision this pyvolca understands (revision 84 added
+the ``set_prices`` of ``edit_exchanges()``, which prices a product output;
+revision 83 added
 the ``"none"`` allocation key ``derive_database()`` accepts, which keeps a
 block of several products whole; revision 82 added
 the ``price`` among the ``properties`` of a technosphere exchange, and the

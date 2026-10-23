@@ -1678,6 +1678,7 @@ params r = case r of
         , Param "set_description" "array" Optional "The activity's new description, one string per paragraph; an empty array clears it."
         , Param "set_parameters" "array" Optional "Parameters of the activity to add, or to replace whole under the same spelling (a unit, description or uncertainty left out is dropped). Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
         , Param "set_formulas" "array" Optional "Lines to give a formula. Each is {select: {kind, provider|flow, location?}, formula}; a null formula drops it and keeps the amount."
+        , Param "set_prices" "array" Optional "Prices of product outputs, which the price allocation key divides a process of several products by. Each is {product, price}: product is the flow id of the reference product or a coproduct, price is {amount, unit} with the currency as unit, or null to remove it."
         , Param "remove_parameters" "array" Optional "Names of the activity's parameters to remove, once the formulas set here no longer read them. Refused while a formula still reads one the database does not define."
         , Param "note" "string" Optional "Why the change is made, in a sentence. Kept in the database's history (get_database_history) and in the changes report its export carries."
         ]

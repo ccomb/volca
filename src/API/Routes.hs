@@ -1616,7 +1616,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 83: the @none@ allocation key, which keeps a block of several
+(revision 84: the @setPrices@ an edit of an activity's exchanges takes,
+which prices a product output, and the @pricesSet@ its answer gives;
+revision 83: the @none@ allocation key, which keeps a block of several
 products whole;
 revision 82: the @price@ among the @properties@ of a technosphere exchange,
 stated or deduced from a declared share, and the @price@ allocation key;
@@ -1793,7 +1795,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 83
+currentWireVersion = 84
 
 getVersion :: AppM Value
 getVersion = do

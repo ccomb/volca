@@ -23,6 +23,7 @@ from volca.types import (
     SetAmount,
     SetFormula,
     SetParameter,
+    SetPrice,
     TechInput,
     Uncertainty,
 )
@@ -592,6 +593,26 @@ class TestEditExchanges:
         _version_ok(session, wire=72)
         with pytest.raises(VoLCAError, match="wire revision >= 73"):
             client.edit_exchanges("a_b", remove_parameters=["old"])
+        session.post.assert_not_called()
+
+    def test_prices_travel_only_when_stated(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=84)
+        _ok(session, {"removed": [], "amountsSet": [], "added": 0, "pricesSet": [1, 1], "transient": False, "warnings": []})
+        client.edit_exchanges("a_b", set_prices=[SetPrice("p-1", 0.42, "EUR2005"), SetPrice("p-2", None)])
+        # A null price removes it, so it is sent, not dropped.
+        assert session.post.call_args[1]["json"]["setPrices"] == [
+            {"product": "p-1", "price": {"amount": 0.42, "unit": "EUR2005"}},
+            {"product": "p-2", "price": None},
+        ]
+        client.edit_exchanges("a_b", name="milk")
+        assert "setPrices" not in session.post.call_args[1]["json"]
+
+    def test_prices_never_sent_to_an_engine_that_cannot_keep_them(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=83)
+        with pytest.raises(VoLCAError, match="wire revision >= 84"):
+            client.edit_exchanges("a_b", set_prices=[SetPrice("p-1", 0.42, "EUR2005")])
         session.post.assert_not_called()
 
     def test_note_travels_with_the_edit(self, mocked_client):

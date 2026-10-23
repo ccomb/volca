@@ -60,12 +60,15 @@ import Types (
     Database (..),
     Exchange (..),
     ExchangeLocation (..),
+    ExchangeProperties (..),
     LocationSource (..),
     Medium (..),
     Parameter (..),
     ParameterDefinition (..),
+    Price (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
+    StatedAmount (..),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
@@ -200,6 +203,21 @@ spec = do
                     let texts a = (activityName a, activityLocation a, activityDescription a)
                     map texts (V.toList (dbActivities db))
                         `shouldSatisfy` elem ("milk production, corrected", "CH", ["From the 2024 farm survey.", "Second paragraph."])
+
+        it "prices a product in place, and takes the price off again" $ do
+            let priced = event (edited supplierPid [(SetPrice supplierProdId (Just milkPrice), 1)])
+            case replayJournal ctx [priced] of
+                Left err -> expectationFailure ("replay: " <> show err)
+                Right db -> pricesOf db `shouldSatisfy` elem (Just (StatedPrice milkPrice))
+            case replayJournal ctx [priced, event (edited supplierPid [(SetPrice supplierProdId Nothing, 1)])] of
+                Left err -> expectationFailure ("replay: " <> show err)
+                Right db -> pricesOf db `shouldBe` pricesOf fixture
+
+        it "prices only a product output of the activity, in a currency it names" $ do
+            replayOutcome ctx [event (edited supplierPid [(SetPrice co2Id (Just milkPrice), 1)])]
+                `shouldSatisfy` failsWith "is no product output of this activity"
+            replayOutcome ctx [event (edited supplierPid [(SetPrice supplierProdId (Just (StatedAmount " " 0.42)), 1)])]
+                `shouldSatisfy` failsWith "a price names its currency"
 
         it "brings along the flow an added line introduces" $
             case replayJournal ctx [event (edited supplierPid [(AddExchange methane, 1)])] of
@@ -422,6 +440,7 @@ richEvents =
     , event retexted
     , event parametrised
     , event databaseParameters
+    , event repriced
     , Entry "2026-10-21T10:00:00Z" (Change (noteFrom "Measured on site") rememberedEdit)
     , Entry "2026-10-21T10:05:00Z" (Change Nothing rememberedParameters)
     ]
@@ -463,6 +482,26 @@ parametrised =
         , (SetParameter "ratio" Parameter{parameterDefinition = CalculatedParameter "2 * yield" Nothing, parameterUnit = Nothing, parameterDescription = ""}, 1)
         , (RemoveParameter "old", 1)
         ]
+
+-- | A product priced, then its price taken off.
+repriced :: JournalOp
+repriced =
+    edited
+        supplierPid
+        [ (SetPrice supplierProdId (Just milkPrice), 1)
+        , (SetPrice supplierProdId Nothing, 1)
+        ]
+
+milkPrice :: StatedAmount
+milkPrice = StatedAmount "EUR2005" 0.42
+
+-- | The price of each product output of the database, in activity order.
+pricesOf :: Database -> [Maybe Price]
+pricesOf db =
+    [ epPrice (techProperties ex)
+    | act <- V.toList (dbActivities db)
+    , ex@TechnosphereExchange{techRole = ReferenceProduct} <- exchanges act
+    ]
 
 -- | One edit of each text, so none of the three can be lost in the codec.
 retexted :: JournalOp

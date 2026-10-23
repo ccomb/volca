@@ -163,6 +163,7 @@ mutatingHandlers =
             , eerSetDescription = Nothing
             , eerSetParameters = []
             , eerSetFormulas = []
+            , eerSetPrices = []
             , eerRemoveParameters = []
             , eerNote = Nothing
             }

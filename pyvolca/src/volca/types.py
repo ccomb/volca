@@ -3222,6 +3222,21 @@ class SetFormula:
 
 
 @dataclass(frozen=True)
+class SetPrice:
+    """The price of a product output, named by its flow id: ``amount`` for one
+    unit of the product, in ``currency`` as written (``"EUR2005"``). An
+    ``amount`` of ``None`` removes the price."""
+
+    product: str
+    amount: float | None
+    currency: str = ""
+
+    def to_wire(self) -> dict:
+        price = None if self.amount is None else {"amount": self.amount, "unit": self.currency}
+        return {"product": self.product, "price": price}
+
+
+@dataclass(frozen=True)
 class SetParameter:
     """A parameter to add, of an activity or of a database, or to replace whole
     under the same spelling: a ``value`` (with an ``uncertainty`` if it varies), or a

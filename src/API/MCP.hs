@@ -410,6 +410,7 @@ paramsToSchema ps =
         "remove" -> selectorItemSchema
         "set_amounts" -> setAmountItemSchema
         "set_formulas" -> setFormulaItemSchema
+        "set_prices" -> setPriceItemSchema
         "set_parameters" -> setParameterItemSchema
         "add_inputs" -> providerLineSchema "Producer of what is consumed"
         "add_waste_outputs" -> providerLineSchema "Treatment the waste is handed to"
@@ -473,6 +474,21 @@ paramsToSchema ps =
                     , "formula" .= object ["type" .= (["string", "null"] :: [Text]), "description" .= ("Formula in the engine's formula language for every line the selector names; null drops it and keeps the amount" :: Text)]
                     ]
             , "required" .= (["select", "formula"] :: [Text])
+            ]
+
+    setPriceItemSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "product" .= stringField "Flow id of a product output of the activity, its reference product or a coproduct"
+                    , "price"
+                        .= object
+                            [ "type" .= (["object", "null"] :: [Text])
+                            , "description" .= ("{amount, unit}: the price of one unit of the product, and its currency as written (e.g. EUR2005); null removes the price" :: Text)
+                            ]
+                    ]
+            , "required" .= (["product", "price"] :: [Text])
             ]
 
     setParameterItemSchema =
@@ -1983,6 +1999,7 @@ callEditExchanges dbManager rid args = runTool rid $ do
                 <*> optionalDescription
                 <*> parseArrayArg "set_parameters" Nothing args
                 <*> parseArrayArg "set_formulas" Nothing args
+                <*> parseArrayArg "set_prices" Nothing args
                 <*> parseArrayArg "remove_parameters" Nothing args
                 <*> optionalText "note" args
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))
