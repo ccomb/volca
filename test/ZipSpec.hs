@@ -7,8 +7,11 @@ The size guard is the point of the module. @zip-archive@'s 'addEntryToArchive'
 rescans the whole entry list on each insert, so the fold it invites costs
 O(n²) – on a real ILCD package (53 508 files) that turned an export into a
 ten-minute timeout. The guard counts what packing allocates rather than how
-long it takes: doubling the entries doubles the allocation when linear and
-quadruples it when not, on any machine and under any load.
+long it takes: doubling the entries doubles the allocation of the linear
+packing and quadruples that of the fold, which rebuilds the entry list on each
+insert, on any machine and under any load. A quadratic that compares without
+allocating, such as a uniqueness check scanning the entries already packed,
+would slip past it.
 
 The companion test is that the fast path did not get fast by dropping entries.
 -}
