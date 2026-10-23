@@ -64,6 +64,7 @@ library
                      , Database.Allocation
                      , Database.Author
                      , Database.Rebuild
+                     , Database.Child
                      , Database.Scenarios
                      , Database.Journal
                      , Database.History

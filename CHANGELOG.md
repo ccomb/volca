@@ -4,6 +4,13 @@
 
 ### Added
 
+- A database derived from a parent is divided from the parent as it stands,
+  its edits included, rather than from the files: a price changed on the
+  parent changes the shares of the derived database, at once for a new
+  derivation and at the next load for an existing one. An input that
+  consumed a coproduct, which found no supplier in the parent, is linked to
+  the process that now produces it.
+
 - An edit of an activity can price its products: each is named by its flow
   and given an amount in a currency, or its price is removed. The change is
   kept in the database's history with its reason, and replayed when the

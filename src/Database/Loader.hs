@@ -1487,6 +1487,9 @@ them offers, stays unlinked, and the cross-database linker gets its turn on it.
 Returns (fixed exchange, UnlinkedSummary).
 -}
 fixExchangeLinkByName :: UC.UnitConfig -> UnitDB -> NameOnlyIndex -> TechFlowDB -> T.Text -> Exchange -> (Exchange, UnlinkedSummary)
+-- An input already answered keeps its supplier: a file read by name links none,
+-- and a database built from another keeps the links that one made.
+fixExchangeLinkByName _ _ _ _ _ ex@TechnosphereExchange{techActivityLinkId = Just _} = (ex, mempty)
 fixExchangeLinkByName unitConfig unitDB idx techFlowDb consumerName ex@TechnosphereExchange{techFlowId = fid, techRole = role, techSupplierClaim = claim, techLocation = loc}
     | role == Input || role == ReferenceInput || role == AvoidedProduct =
         case M.lookup fid techFlowDb of

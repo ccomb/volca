@@ -216,6 +216,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import Data.UUID.V4 (nextRandom)
 import Database (Geographies, buildDatabaseWithMatrices, readGeographies)
+import qualified Database.Child as Child
 import Database.Cutoffs (GapIndex, gapIndexMoved, gapIndexOf)
 import qualified Database.Loader as Loader
 import Database.MatrixBuild (technosphereChange)
@@ -2730,8 +2731,8 @@ loadDatabaseSingle manager dbName = do
                 loadDatabaseSingleFromConfig manager dbName
         Nothing -> loadDatabaseSingleFromConfig manager dbName
 
-{- | How a database that has just been loaded got here. The three are what the
-work after the load turns on, and the fourth combination a cache-hit flag and a
+{- | How a database that has just been loaded got here. These are what the
+work after the load turns on, and the combination a cache-hit flag and a
 replayed flag could spell together - read from a cache and replayed over - does
 not exist: a cache hit already holds its edits.
 -}
@@ -2739,6 +2740,8 @@ data LoadOrigin
     = CacheHit
     | Parsed
     | Replayed
+    | -- | Divided from its parent in memory, its own edits replayed over it
+      FromParent
     deriving (Eq)
 
 {- | Where the raw loader got the database. 'FromCache' means it came out of
@@ -2766,6 +2769,7 @@ needsSelfRelink origin = case origin of
     CacheHit -> True
     Parsed -> False
     Replayed -> True
+    FromParent -> True
 
 -- | Load a database from config (not staged)
 loadDatabaseSingleFromConfig ::
@@ -2793,8 +2797,26 @@ loadDatabaseSingleFromConfig manager dbName = do
     so); a fresh parse holds only what the author uploaded. -}
     parseOrReplay :: DatabaseConfig -> SynonymDB -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
     parseOrReplay dbConfig synonymDB = do
-        currentIndexedDbs <- liftIO $ readTVarIO (dmIndexedDbs manager)
         configs <- liftIO $ readTVarIO (dmAvailableDbs manager)
+        maybe (fromFiles configs dbConfig synonymDB) (fromParent dbConfig synonymDB) (parentOf configs dbConfig)
+
+    {- The parent is loaded as it stands, its journal replayed, so what was
+    edited on it reaches the child.
+    shortcut: a child is never cached and is divided again at every load;
+    cache it under its parent's journal stamp when that shows in load times. -}
+    fromParent :: DatabaseConfig -> SynonymDB -> Text -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
+    fromParent dbConfig synonymDB parentName = do
+        (parent, _) <- ExceptT (loadDatabase manager parentName)
+        unitConfig <- liftIO $ getMergedUnitConfig manager
+        liftIO $ reportProgress Info $ "Dividing " <> T.unpack dbName <> " from its parent " <> T.unpack parentName
+        child <- ExceptT (Child.childOf unitConfig (dcAllocation dbConfig) (ldDatabase parent))
+        (db, solver) <- liftIO $ withRuntime dbName synonymDB child
+        (edited, _) <- ExceptT (replayEdits manager dbConfig LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = dbConfig})
+        pure (edited, FromParent)
+
+    fromFiles :: M.Map Text DatabaseConfig -> DatabaseConfig -> SynonymDB -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
+    fromFiles configs dbConfig synonymDB = do
+        currentIndexedDbs <- liftIO $ readTVarIO (dmIndexedDbs manager)
         unitConfig <- liftIO $ getMergedUnitConfig manager
         journalAhead <- liftIO $ journalAheadOfCache dbConfig
         eitherResult <-
@@ -2927,12 +2949,29 @@ replayEdits manager dbConfig loaded =
                     case Journal.replayJournal ctx events of
                         Left err -> pure (Left (dcName dbConfig <> ": " <> err))
                         Right edited -> do
-                            -- The rebuild resets the runtime indexes and moves
-                            -- every matrix row, so both are made again here.
-                            let withRuntime = BM25.addBM25Index (initializeRuntimeFields edited synonymDB)
-                            clearCachedSolver (dcName dbConfig)
-                            solver <- solverFor (dcName dbConfig) withRuntime
-                            pure (Right (loaded{ldDatabase = withRuntime, ldSharedSolver = solver}, Replayed))
+                            (db, solver) <- withRuntime (dcName dbConfig) synonymDB edited
+                            pure (Right (loaded{ldDatabase = db, ldSharedSolver = solver}, Replayed))
+
+{- | A database a rebuild handed back, with what the rebuild resets made again:
+the runtime indexes, and the solver, since every matrix row moved.
+-}
+withRuntime :: Text -> SynonymDB -> Database -> IO (Database, SharedSolver)
+withRuntime dbName synonymDB rebuilt = do
+    let db = BM25.addBM25Index (initializeRuntimeFields rebuilt synonymDB)
+    clearCachedSolver dbName
+    solver <- solverFor dbName db
+    pure (db, solver)
+
+{- | The parent a database is divided from: the nearest one up its chain of
+sources read under @none@, when the database itself is read under another key.
+-}
+parentOf :: M.Map Text DatabaseConfig -> DatabaseConfig -> Maybe Text
+parentOf configs config
+    | dcAllocation config == Unallocated = Nothing
+    | otherwise = find readWhole (drop 1 (sourceChain configs (dcName config)))
+  where
+    readWhole :: Text -> Bool
+    readWhole name = (dcAllocation <$> M.lookup name configs) == Just Unallocated
 
 {- | Save the replayed database to its matrix cache and stamp the cache with
 the journal it now holds, so the next load reads it instead of replaying.

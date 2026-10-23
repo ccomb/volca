@@ -15,28 +15,36 @@ the source's files again. What that has to get right is checked here:
   count of divided blocks can see;
 * the key survives a restart, which is the one thing a derived database
   cannot work out for itself -- it owns no files, so nothing else on disk
-  says its shares are not the ones its source declares.
+  says its shares are not the ones its source declares;
+* a child of a parent read under @none@ is divided from the parent as it
+  stands in memory: a price edited on the parent reaches the child, before
+  and after a restart, an input consuming a coproduct finds the piece that
+  now produces it, and a block of one product is not cut to its share twice.
 -}
 module DeriveSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Data.ByteString.Char8 as BS
-import Data.Either (fromLeft)
+import Data.Either (fromLeft, isRight)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
+import Data.Maybe (isJust)
 import Data.Text (Text, isInfixOf)
+import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
-import Database.Edit (deriveDatabase)
+import Database.Author (ExchangeEdit (..))
+import Database.Edit (deriveDatabase, editExchanges)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
     LoadedDatabase (..),
     initDatabaseManager,
+    loadDatabase,
  )
 import Database.Upload (DatabaseFormat (..))
 import TestHelpers (withScratchDataDir, withinTolerance)
@@ -48,8 +56,12 @@ import Types (
     Exchange,
     GeographyPolicy (..),
     Licence (..),
+    StatedAmount (..),
+    TechnosphereFlow (..),
     exchangeAmount,
+    exchangeFlowId,
     exchangeIsProductOutput,
+    techActivityLinkId,
  )
 
 spec :: Spec
@@ -114,6 +126,41 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
             fmap dcAllocation (M.lookup "cheese-wet" available) `shouldBe` Just (ByProperty WetMass)
             fmap dcSource (M.lookup "cheese-wet" available) `shouldBe` Just (Just source)
 
+    describe "a child of a parent" $ do
+        it "divides the parent's blocks by the prices their declared shares became" $
+            withParent $ \manager -> do
+                child <- deriveChild manager
+                -- Deduced from 51 / 49, the prices give the declared shares back.
+                inputOf "Cow milk" child `shouldSatisfy` near [5.1, 4.9]
+
+        it "cuts a block of one product to its declared share once, not twice" $
+            withParent $ \manager -> do
+                child <- deriveChild manager
+                -- The parent already holds 2 kg of the 4 the butter's 50 % names.
+                inputOf "Cream" child `shouldSatisfy` near [2]
+
+        it "links an input consuming a coproduct to the piece producing it" $
+            withParent $ \manager -> do
+                parent <- loadedDb manager parentName
+                child <- deriveChild manager
+                -- The parent knows its products by the reference alone, so the
+                -- whey finds no supplier there; in the child it is a reference.
+                wheyLinks parent `shouldBe` [False]
+                wheyLinks child `shouldBe` [True]
+
+        it "follows a price edited on the parent, and still does after a restart" $
+            withParent $ \manager -> do
+                parent <- loadedDb manager parentName
+                let (cheese, whey) = dairyProducts parent
+                    priced flow amount = SetPrice flow (Just (StatedAmount "EUR" amount))
+                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [priced cheese 4, priced whey 1]
+                isRight edited `shouldBe` True
+                -- 1 kg at 4 beside 3 kg at 1: 4 / 7 and 3 / 7 of the milk.
+                let repriced = near [40 / 7, 30 / 7]
+                deriveChild manager >>= (`shouldSatisfy` repriced) . inputOf "Cow milk"
+                rebooted <- initDatabaseManager defaultConfig NoCache
+                loadedDb rebooted childName >>= (`shouldSatisfy` repriced) . inputOf "Cow milk"
+
 {- | The milk behind each product of the block, ordered by the product's own
 amount, which is what tells the 1 kg of cheese from the 3 kg of whey.
 -}
@@ -126,6 +173,68 @@ milkAmounts db = map snd (sortOn fst [(amountOf products a, amountOf inputs a) |
     products, inputs :: Activity -> [Exchange]
     products = filter exchangeIsProductOutput . exchanges
     inputs = filter (not . exchangeIsProductOutput) . exchanges
+
+{- | The amounts of one input, a line per process consuming it, ordered by the
+amount of the process's products, which tells the cheese from the whey.
+-}
+inputOf :: Text -> Database -> [Double]
+inputOf flowName db =
+    map snd $
+        sortOn
+            fst
+            [ (sum (map exchangeAmount products), sum (map exchangeAmount consumed))
+            | a <- V.toList (dbActivities db)
+            , let (products, inputs) = partitionProducts a
+                  consumed = filter (named db flowName) inputs
+            , not (null consumed)
+            ]
+
+-- | Whether each whey input of the database has a supplier.
+wheyLinks :: Database -> [Bool]
+wheyLinks db =
+    [ isJust (techActivityLinkId ex)
+    | a <- V.toList (dbActivities db)
+    , ex <- snd (partitionProducts a)
+    , named db "Whey" ex
+    ]
+
+partitionProducts :: Activity -> ([Exchange], [Exchange])
+partitionProducts a = (filter exchangeIsProductOutput (exchanges a), filter (not . exchangeIsProductOutput) (exchanges a))
+
+named :: Database -> Text -> Exchange -> Bool
+named db flowName ex = (tfName <$> M.lookup (exchangeFlowId ex) (dbTechFlows db)) == Just flowName
+
+-- | The cheese and the whey of the dairy block, told apart by their amounts.
+dairyProducts :: Database -> (UUID.UUID, UUID.UUID)
+dairyProducts db = case sortOn exchangeAmount (filter exchangeIsProductOutput (exchanges (dairyBlock db))) of
+    [cheese, whey] -> (exchangeFlowId cheese, exchangeFlowId whey)
+    other -> error ("the dairy block has " <> show (length other) <> " products")
+
+-- | The dairy block, the parent's one process of several products.
+dairyBlock :: Database -> Activity
+dairyBlock db = head [a | a <- V.toList (dbActivities db), length (filter exchangeIsProductOutput (exchanges a)) > 1]
+
+-- | The dairy block addressed by its activity, as an edit names it.
+dairyActivity :: Database -> Text
+dairyActivity db = head [UUID.toText activityId | (i, a) <- zip [0 ..] (V.toList (dbActivities db)), activityName a == activityName (dairyBlock db), let (activityId, _) = dbProcessIdTable db V.! i]
+
+parentName, childName :: Text
+parentName = "dairy-parent"
+childName = "dairy-price"
+
+{- | 'source' with three blocks, and its parent derived under @none@: a
+derivation has a home, so the parent can be edited.
+-}
+withParent :: (DatabaseManager -> IO ()) -> IO ()
+withParent k = withSource farmCSV $ \manager -> do
+    _ <- either (fail . show) pure =<< deriveDatabase manager source parentName Unallocated
+    k manager
+
+deriveChild :: DatabaseManager -> IO Database
+deriveChild manager = either (fail . show) (pure . ldDatabase . fst) =<< deriveDatabase manager parentName childName (ByProperty Price)
+
+loadedDb :: DatabaseManager -> Text -> IO Database
+loadedDb manager name = either (fail . show) (pure . ldDatabase . fst) =<< loadDatabase manager name
 
 -- | Whether every amount lands on the one expected of it.
 near :: [Double] -> [Double] -> Bool
@@ -195,30 +304,27 @@ singleProductCSV =
         , "Iron ore;kg;2;Undefined;0;0;0;"
         ]
 
+{- | The dairy block of 'coproductCSV', a pig farm feeding on its whey, and a
+butter block that declares 50 % of its one product.
+-}
+farmCSV :: BS.ByteString
+farmCSV =
+    simaProBlocks
+        [ ("Dairy", ["Products", "Cheese;kg;1;51;not defined;material;", "Whey;kg;3;49;not defined;material;", "", "Materials/fuels", "Cow milk;kg;10;Undefined;0;0;0;"])
+        , ("Pig farm", ["Products", "Pig;kg;1;100;not defined;material;", "", "Materials/fuels", "Whey;kg;2;Undefined;0;0;0;"])
+        , ("Creamery", ["Products", "Butter;kg;1;50;not defined;material;", "", "Materials/fuels", "Cream;kg;4;Undefined;0;0;0;"])
+        ]
+
 -- | One SimaPro process block, wrapped in the header its parser expects.
 simaProFile :: [BS.ByteString] -> BS.ByteString
-simaProFile body =
-    BS.intercalate
-        "\r\n"
-        ( [ "{SimaPro 9.6.0.1}"
-          , "{CSV separator: semicolon}"
-          , "{Decimal separator: .}"
-          , ""
-          , "Process"
-          , ""
-          , "Category type"
-          , "material"
-          , ""
-          , "Process name"
-          , "Dairy"
-          , ""
-          , "Type"
-          , "Unit process"
-          , ""
-          , "Geography"
-          , "GLO"
-          , ""
-          ]
+simaProFile body = simaProBlocks [("Dairy", body)]
+
+-- | Named SimaPro process blocks, after the header its parser expects.
+simaProBlocks :: [(BS.ByteString, [BS.ByteString])] -> BS.ByteString
+simaProBlocks blocks =
+    BS.intercalate "\r\n" (["{SimaPro 9.6.0.1}", "{CSV separator: semicolon}", "{Decimal separator: .}", ""] ++ concatMap block blocks)
+  where
+    block (name, body) =
+        ["Process", "", "Category type", "material", "", "Process name", name, "", "Type", "Unit process", "", "Geography", "GLO", ""]
             ++ body
-            ++ ["", "End"]
-        )
+            ++ ["", "End", ""]

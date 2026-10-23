@@ -203,7 +203,9 @@ at the source's files and 'umSource' naming whose they are, plus the key,
 without which a restart would rebuild the database as @declared@ under a name
 promising otherwise. The source's journal is deliberately left behind: an edit
 is recorded against a process the source's key produced, and under another key
-that process need not exist. The load says so when there is one.
+that process need not exist. The load says so when there is one. A parent's
+journal is the exception: the load divides the parent as it stands in memory,
+edits and all, rather than its files.
 
 Asking for the key the source already reads under is refused before the load:
 that result is the source, and it is the one duplicate no load can detect,
@@ -337,7 +339,9 @@ recordDerived slug srcConfig key = do
         createDirectoryIfMissing True home
         sourcePath <- makeAbsolute (dcPath srcConfig)
         hasJournal <- doesFileExist (journalPath (uploadsDir </> T.unpack (dcName srcConfig)))
-        when hasJournal . reportProgress Warning . T.unpack $
+        -- A parent's edits are not left behind: its child is divided from it
+        -- as it stands in memory.
+        when (hasJournal && dcAllocation srcConfig /= Unallocated) . reportProgress Warning . T.unpack $
             "the edits recorded on "
                 <> dcName srcConfig
                 <> " stay behind: each names a process its key produced, and "
