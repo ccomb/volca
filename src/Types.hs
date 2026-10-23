@@ -274,7 +274,7 @@ data StatedAmount = StatedAmount
     deriving (Eq, Show, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped StatedAmount)
 
-{- | The physical properties of one exchange, as the source states them.
+{- | The properties of one exchange (masses, price), as the source states them.
 
 Each is stated /per unit of the exchange amount/, which is how EcoSpold 2
 writes them: 614.4 kg of dry matter per m3 of board is recorded as 614.4 kg,
@@ -605,7 +605,7 @@ data Exchange
         , techPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
         , techShare :: !(Maybe DeclaredShare) -- The share a product output was declared with; Nothing on inputs and where the source states none
         , techClassification :: !(M.Map Text Text) -- What the source says of this product row (SimaPro "Category"); carried onto the process split for it
-        , techProperties :: !ExchangeProperties -- Physical properties the source states of this line, the material an allocation key other than the declared one is computed from
+        , techProperties :: !ExchangeProperties -- Properties the source states of this line, the material an allocation key other than the declared one is computed from
         , techFormula :: !(Maybe ExchangeFormula) -- What makes the amount follow the dataset's parameters; Nothing where nothing does
         }
     | BiosphereExchange

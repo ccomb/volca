@@ -9,11 +9,11 @@
   a multi-output process the share of its quantity times its price. The
   EcoSpold 2 reader keeps the `price` property it used to drop, and the
   EcoSpold 2 writer now writes the dry mass, wet mass and price of each
-  line, which an export used to lose without a word. A price can also be
-  deduced from a declared share, for a source that states shares but no
+  line, which an export used to lose without a word. A line can also carry
+  a price marked as deduced from a declared share rather than stated in
   money; it is written under a property name of its own so no other tool
   takes it for a currency, and the key refuses to compare it with a stated
-  one. The key also refuses a product with no price, prices in two
+  one. Nothing deduces such a price yet. The key also refuses a product with no price, prices in two
   currencies, a product that brings in less than nothing, and a process
   whose products all sell for nothing. Wire revision 82.
 

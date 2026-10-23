@@ -150,8 +150,8 @@ default = false                # preselected database in the UI
 deletable = false              # allow deletion via the API
 geography_policy = "global"    # CF regionalization: exact | parent | global
 allocation = "declared"        # how a multi-output block is divided:
-                               # declared | dry mass | wet mass. Naming a mass
-                               # recomputes the shares from it instead of
+                               # declared | dry mass | wet mass | price. Naming
+                               # a property recomputes the shares from it instead of
                                # reading the ones the source states; to have
                                # both, configure the same path twice, or ask
                                # for the second one at runtime with
