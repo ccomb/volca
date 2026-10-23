@@ -190,6 +190,9 @@ spec = do
         it "prices nothing in a block one of whose products declares no share" $ do
             let incomplete = activity [productRow cheeseId 1.0 ReferenceProduct (Just 51) M.empty, productRow creamId 3.0 Coproduct Nothing M.empty, input 10.0]
             map prices (parentOf incomplete) `shouldBe` [[Nothing, Nothing]]
+            -- Whole under declared as well, so none changed nothing there.
+            map keptWhole (parentOf incomplete) `shouldBe` [False]
+            map keptWhole (parentOf dairy) `shouldBe` [True]
 
         it "applies a lone product's declared share, as every other key does" $
             map inputAmounts (parentOf (activity [productRow cheeseId 1.0 ReferenceProduct (Just 51) M.empty, input 10.0]))

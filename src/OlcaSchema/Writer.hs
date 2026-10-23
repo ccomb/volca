@@ -213,7 +213,7 @@ describeRefusals refusals =
         , ("waste inputs go to a treatment the database does not have, so their sign cannot be decided:", [n | TreatmentAbsent n <- refusals])
         , ("references are a positive output of a waste flow, which openLCA cannot make:", [n | PositiveWasteReference n <- refusals])
         , ("amounts are not finite:", [n | NotFinite n <- refusals])
-        , ("coproducts are of a process kept whole with a declared share on each product, which openLCA would read with the whole inventory; export a database derived from it under an allocation key:", [n | KeptWhole n <- refusals])
+        , ("coproducts are of a process a parent database keeps whole, which openLCA would read with the whole inventory; export a database derived from it under an allocation key:", [n | KeptWhole n <- refusals])
         ]
 
 -- | Every location code a process or a line states, with how often.
@@ -254,9 +254,11 @@ lineOf :: Context -> Activity -> Exchange -> Either Refusal Line
 lineOf cx act ex = do
     flow <- maybe (Left (NoFlow named)) Right (M.lookup (exchangeFlowId ex) (cxFlows cx))
     whenLeft (isNaN (exchangeAmount ex) || isInfinite (exchangeAmount ex)) (NotFinite named)
-    -- A coproduct left whole for want of a share is a warning; one whose block
-    -- states every share was kept whole on purpose, and is written as nothing true.
-    whenLeft (isCoproduct ex && all (isJust . exchangeDeclaredShare) (filter exchangeIsProductOutput (exchanges act))) (KeptWhole named)
+    -- A coproduct left whole for want of a share, or by a key that could not
+    -- weigh its block, is a warning. One of a parent's process, whose shares
+    -- became deduced prices, was kept whole on purpose, and is written as
+    -- nothing true.
+    whenLeft (isCoproduct ex && any deducedPrice (exchanges act)) (KeptWhole named)
     conversion <- maybe (Left (OtherUnit named)) Right (inUnitOf flow)
     let amount = conversion * exchangeAmount ex
         -- The line written with the stored amount in the flow's unit, times a sign.
@@ -332,6 +334,10 @@ lineOf cx act ex = do
         Nothing -> -1
 
     whenLeft c r = if c then Left r else Right ()
+
+    deducedPrice line = case epPrice (exchangeProperties line) of
+        Just DeducedFromShare{} -> True
+        _ -> False
 
 {- | The category path the reader turns back into this compartment. The three
 media openLCA names get its own spelling; the others go under an emission

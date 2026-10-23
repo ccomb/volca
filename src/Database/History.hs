@@ -44,7 +44,7 @@ import Database.Journal (
  )
 import Types (
     Activity (..),
-    AllocationKey,
+    AllocationKey (..),
     BiosphereFlow (..),
     Database (..),
     ExchangeLocation (..),
@@ -197,9 +197,12 @@ changesReport provenance lines' =
         , ""
         , "Modified data; not endorsed by the publisher of the original."
         ]
-            <> maybe [] (\key -> ["", "Multi-output processes are divided by " <> allocationKeyText key <> ", not as the original divides them."]) (pvReallocated provenance)
+            <> maybe [] (\key -> ["", reallocated key]) (pvReallocated provenance)
             <> concatMap section lines'
   where
+    reallocated key = case key of
+        Unallocated -> "Multi-output processes are kept whole, not divided as the original divides them."
+        _ -> "Multi-output processes are divided by " <> allocationKeyText key <> ", not as the original divides them."
     section line =
         ["", "## " <> hlAt line <> ": " <> hlSummary line, "", "Reason: " <> maybe "No reason given" noteText (hlNote line)]
             <> (if null (hlDetails line) then [] else "" : map ("- " <>) (hlDetails line))

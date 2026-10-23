@@ -13,9 +13,9 @@
   missing share. Deriving `none` from a source with no process of several
   products is refused, the result being the same database. Wire revision 83.
 
-- The openLCA export refuses a process kept whole with a declared share on
-  each product, which openLCA would read with the whole inventory on every
-  product, and asks for a database derived under a key instead.
+- The openLCA export refuses a process a parent database keeps whole,
+  which openLCA would read with the whole inventory on every product, and
+  asks for a database derived under a key instead.
 
 - A product line can carry a price, and a database can be divided by what
   each product brings in: the `price` allocation key gives each product of

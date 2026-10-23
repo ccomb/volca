@@ -36,6 +36,7 @@ module Database.Allocation (
     allocateAll,
     asAllocated,
     isCoproduct,
+    keptWhole,
     describeRefusal,
     describePropertyRefusal,
     propertyKeyRefusals,
@@ -530,6 +531,16 @@ normalise act = promote (filter (keep . snd) (zip [0 ..] (exchanges act)))
     promoteTo single ex
         | exchangeFlowId ex == exchangeFlowId single && exchangeIsProductOutput ex = asReference ex
         | otherwise = ex
+
+{- | Whether a block was kept whole although every product declares a share:
+the key it was read under kept it so, since a missing share is the only thing
+that leaves a block whole under @declared@.
+-}
+keptWhole :: Activity -> Bool
+keptWhole act = any isCoproduct products && all (isJust . exchangeDeclaredShare) products
+  where
+    products :: [Exchange]
+    products = filter exchangeIsProductOutput (exchanges act)
 
 isCoproduct :: Exchange -> Bool
 isCoproduct ex = case ex of

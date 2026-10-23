@@ -69,7 +69,7 @@ import System.FilePath ((</>))
 
 import Config (DatabaseConfig (..), licenceOf)
 import Database (Geographies)
-import Database.Allocation (isCoproduct)
+import Database.Allocation (keptWhole)
 import Database.Author (
     ActivityText (..),
     AuthorContext (..),
@@ -130,7 +130,6 @@ import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
 import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches)
 import Types (
-    Activity (..),
     AllocationKey (..),
     ClassificationFilter,
     Database (..),
@@ -276,9 +275,10 @@ none at all.
 dividedRefusal :: AllocationKey -> Text -> Database -> Maybe Text
 dividedRefusal key srcName db = case key of
     -- Kept whole rather than divided: a parent worth keeping holds at least
-    -- one process of several products, else its source's files held none.
+    -- one block every product of which declares a share, the blocks the
+    -- source's own shares divide. One missing a share is whole under both.
     Unallocated
-        | any (any isCoproduct . exchanges) (dbActivities db) -> Nothing
+        | any keptWhole (dbActivities db) -> Nothing
         | otherwise -> Just ("none kept no process of several products whole in " <> srcName <> sameDatabase)
     _
         | divided > 0 -> Nothing
