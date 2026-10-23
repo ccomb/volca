@@ -113,6 +113,7 @@ import Database.Manager (
     getMergedUnitConfig,
     loadDatabase,
     managerGeographies,
+    parentOf,
     publishLoaded,
     relinkDatabase,
     removeDatabase,
@@ -204,8 +205,8 @@ without which a restart would rebuild the database as @declared@ under a name
 promising otherwise. The source's journal is deliberately left behind: an edit
 is recorded against a process the source's key produced, and under another key
 that process need not exist. The load says so when there is one. A parent's
-journal is the exception: the load divides the parent as it stands in memory,
-edits and all, rather than its files.
+journal is the exception under a property key: the load divides the parent as
+it stands in memory, edits and all, rather than its files.
 
 Asking for the key the source already reads under is refused before the load:
 that result is the source, and it is the one duplicate no load can detect,
@@ -333,15 +334,18 @@ directory would mean somewhere else.
 -}
 recordDerived :: Text -> DatabaseConfig -> AllocationKey -> IO (Either Text DatabaseConfig)
 recordDerived slug srcConfig key = do
+    let dividedFromParent = case key of
+            ByProperty _ -> dcAllocation srcConfig == Unallocated
+            _ -> False
     written <- try $ do
         uploadsDir <- UploadedDB.getDatabaseUploadsDir
         let home = uploadsDir </> T.unpack slug
         createDirectoryIfMissing True home
         sourcePath <- makeAbsolute (dcPath srcConfig)
         hasJournal <- doesFileExist (journalPath (uploadsDir </> T.unpack (dcName srcConfig)))
-        -- A parent's edits are not left behind: its child is divided from it
-        -- as it stands in memory.
-        when (hasJournal && dcAllocation srcConfig /= Unallocated) . reportProgress Warning . T.unpack $
+        -- A parent's edits are not left behind by a child read under a
+        -- property: it is divided from the parent as it stands in memory.
+        when (hasJournal && not dividedFromParent) . reportProgress Warning . T.unpack $
             "the edits recorded on "
                 <> dcName srcConfig
                 <> " stay behind: each names a process its key produced, and "
@@ -868,8 +872,9 @@ mutateReserved manager dbName change =
         Nothing -> pure $ Left $ "Database not loaded: " <> dbName
         Just loaded -> do
             loadedDbs <- readTVarIO (dmLoadedDbs manager)
+            configs <- readTVarIO (dmAvailableDbs manager)
             ctx <- authorContext manager (ldDatabase loaded)
-            case guardDependents dbName loadedDbs *> applyOp ctx (changeOp change) of
+            case guardDependents configs dbName loadedDbs *> applyOp ctx (changeOp change) of
                 Left err -> pure (Left err)
                 Right edited -> do
                     home <- editHome (ldConfig loaded)
@@ -892,10 +897,11 @@ authorContext manager db = do
 {- | Refuse an edit while another loaded database depends on this one. Shared
 with the delete path, which has the same reason: rebuilding renumbers every
 process, and a dependent's cross-database links would then resolve elsewhere
-or drop silently at solve time.
+or drop silently at solve time. A child divided from this database depends on
+it too: it would keep the shares the edit changed until it is loaded again.
 -}
-guardDependents :: Text -> M.Map Text LoadedDatabase -> Either Text ()
-guardDependents dbName loadedDbs = case dependents of
+guardDependents :: M.Map Text DatabaseConfig -> Text -> M.Map Text LoadedDatabase -> Either Text ()
+guardDependents configs dbName loadedDbs = case dependents of
     [] -> Right ()
     names ->
         Left $
@@ -909,7 +915,7 @@ guardDependents dbName loadedDbs = case dependents of
         [ name
         | (name, ld) <- M.toList loadedDbs
         , name /= dbName
-        , dbName `elem` dbDependsOn (ldDatabase ld)
+        , dbName `elem` dbDependsOn (ldDatabase ld) || parentOf configs (ldConfig ld) == Just dbName
         ]
 
 {- | Install the edited database: rebuilt runtime indexes, a fresh solver, the

@@ -18,7 +18,7 @@ import Data.Text (Text)
 import Data.UUID (UUID)
 
 import Database.Allocation (Allocating (..), allocate)
-import Database.Loader (getReferenceProductUUID, linkWithinDatabaseByName)
+import Database.Loader (LoadOptions (..), defaultLoadOptions, getReferenceProductUUID, linkWithinDatabaseByName, reportKeyRefusals)
 import Database.Rebuild (rebuildFromActivities)
 import Types (
     Activity (..),
@@ -37,6 +37,9 @@ Only those processes are divided again. A process of one product was already
 cut to its declared share when the parent was read, and dividing it a second
 time would apply that share twice.
 
+A block the key cannot divide stays whole and loses its column, and is named
+as a load under the same key names it.
+
 The pieces are then linked by name among themselves: an input that consumed a
 coproduct found no supplier in the parent, whose name index holds reference
 products only, and finds the piece that now produces it. An input the parent
@@ -46,6 +49,7 @@ childOf :: UnitConfig -> AllocationKey -> Database -> IO (Either Text Database)
 childOf unitConfig key parent = case keyed of
     Left clash -> pure (Left clash)
     Right pieces -> do
+        reportKeyRefusals (defaultLoadOptions unitConfig){loAllocation = key} simple
         linked <- linkWithinDatabaseByName unitConfig simple{sdbActivities = pieces}
         pure (rebuildFromActivities unitConfig parent (sdbActivities linked))
   where
@@ -57,9 +61,12 @@ childOf unitConfig key parent = case keyed of
 
     divided :: [((UUID, UUID), Activity)]
     divided =
-        [ ((activityId, getReferenceProductUUID piece), piece)
-        | ((activityId, _), act) <- M.toList (sdbActivities simple)
-        , piece <- if severalProducts act then NE.toList (allocate alloc act) else [act]
+        [ keyedPiece
+        | (k@(activityId, _), act) <- M.toList (sdbActivities simple)
+        , keyedPiece <-
+            if severalProducts act
+                then [((activityId, getReferenceProductUUID piece), piece) | piece <- NE.toList (allocate alloc act)]
+                else [(k, act)]
         ]
 
     severalProducts :: Activity -> Bool

@@ -113,6 +113,7 @@ module Database.Manager (
     readDocumentFile,
     databaseLicence,
     releasesRead,
+    parentOf,
     termsToAccept,
     acceptedTerms,
     acceptTerms,
@@ -2963,12 +2964,16 @@ withRuntime dbName synonymDB rebuilt = do
     pure (db, solver)
 
 {- | The parent a database is divided from: the nearest one up its chain of
-sources read under @none@, when the database itself is read under another key.
+sources read under @none@, when the database itself is read under a property.
+
+A database read under @declared@ reads its files instead. The shares it applies
+are the files' own, per exchange where a source states them, and the parent
+keeps only one share per product.
 -}
 parentOf :: M.Map Text DatabaseConfig -> DatabaseConfig -> Maybe Text
-parentOf configs config
-    | dcAllocation config == Unallocated = Nothing
-    | otherwise = find readWhole (drop 1 (sourceChain configs (dcName config)))
+parentOf configs config = case dcAllocation config of
+    ByProperty _ -> find readWhole (drop 1 (sourceChain configs (dcName config)))
+    _ -> Nothing
   where
     readWhole :: Text -> Bool
     readWhole name = (dcAllocation <$> M.lookup name configs) == Just Unallocated

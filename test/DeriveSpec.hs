@@ -148,6 +148,15 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 wheyLinks parent `shouldBe` [False]
                 wheyLinks child `shouldBe` [True]
 
+        it "refuses an edit of the parent while a child divided from it is loaded" $
+            withParent $ \manager -> do
+                _ <- deriveChild manager
+                parent <- loadedDb manager parentName
+                let (cheese, _) = dairyProducts parent
+                -- The child would keep the old shares until loaded again.
+                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [SetPrice cheese (Just (StatedAmount "EUR" 4))]
+                isRight edited `shouldBe` False
+
         it "follows a price edited on the parent, and still does after a restart" $
             withParent $ \manager -> do
                 parent <- loadedDb manager parentName
