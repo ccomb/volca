@@ -725,32 +725,35 @@ priceCheck (StatedAmount currency amount) =
         <> ["a price names its currency" | T.null (T.strip currency)]
 
 {- | A stated price left beside a price another product of the block deduced
-from its share: the price key cannot compare the two, so it would refuse the
-block until every product is priced by hand. Judged once the whole batch is
-applied, so pricing every product in one edit does not warn.
+from its share, by an edit that touched a price: the price key cannot compare
+the two, so it would refuse the block until every product is priced by hand.
+Judged once the whole batch is applied, so pricing every product in one edit
+does not warn.
 -}
 besideDeduced :: [ExchangeEdit] -> [Exchange] -> [Text]
 besideDeduced edits final =
-    [ "the other products of this activity carry prices deduced from their declared shares, which the price key cannot compare with this one: price each of them"
+    [ "some products of this activity carry prices deduced from their declared shares and others stated prices, which the price key cannot compare: price each of them"
     | any pricing edits
     , any isStated prices
-    , any isDeduced prices
+    , not (all isStated prices)
     ]
   where
-    prices :: [Maybe Price]
-    prices = map (epPrice . exchangeProperties) (filter exchangeIsProductOutput final)
+    prices :: [Price]
+    prices = mapMaybe (epPrice . exchangeProperties) (filter exchangeIsProductOutput final)
     pricing :: ExchangeEdit -> Bool
     pricing = \case
         SetPrice _ _ -> True
-        _ -> False
-    isStated :: Maybe Price -> Bool
+        RemoveExchange _ -> False
+        SetAmount _ _ -> False
+        AddExchange _ -> False
+        SetText _ -> False
+        SetFormula _ _ -> False
+        SetParameter _ _ -> False
+        RemoveParameter _ -> False
+    isStated :: Price -> Bool
     isStated = \case
-        Just StatedPrice{} -> True
-        _ -> False
-    isDeduced :: Maybe Price -> Bool
-    isDeduced = \case
-        Just DeducedFromShare{} -> True
-        _ -> False
+        StatedPrice{} -> True
+        DeducedFromShare{} -> False
 
 priced :: Maybe StatedAmount -> Exchange -> Exchange
 priced price ex = case ex of
