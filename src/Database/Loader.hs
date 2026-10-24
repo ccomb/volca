@@ -1445,14 +1445,14 @@ processes make names none of them, and stays for a dependency to supply.
 -}
 linkSoleProducers :: SimpleDatabase -> IO SimpleDatabase
 linkSoleProducers db = do
-    let producers = M.fromListWith (<>) [(product, activity NE.:| []) | (activity, product) <- M.keys (sdbActivities db)]
-        link ex = case ex of
+    let producers = M.fromListWith (<>) [(productId, activityId NE.:| []) | (activityId, productId) <- M.keys (sdbActivities db)]
+        linkToSole ex = case ex of
             TechnosphereExchange{techActivityLinkId = Nothing, techRole = role, techFlowId = flow}
                 | role == Input || role == ReferenceInput || role == AvoidedProduct
-                , Just activity <- M.lookup flow producers >>= sole ->
-                    ex{techActivityLinkId = Just activity}
+                , Just producer <- M.lookup flow producers >>= sole ->
+                    ex{techActivityLinkId = Just producer}
             _ -> ex
-        linked = M.map (\act -> act{exchanges = map link (exchanges act)}) (sdbActivities db)
+        linked = M.map (\act -> act{exchanges = map linkToSole (exchanges act)}) (sdbActivities db)
         count = length . concatMap (filter (isJust . exchangeActivityLinkId) . exchanges) . M.elems
     reportProgress Info $ printf "Linking within the database: %d input(s) without an activityLinkId bought the product of a single process here" (count linked - count (sdbActivities db))
     pure db{sdbActivities = linked}
