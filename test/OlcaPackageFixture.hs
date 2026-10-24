@@ -73,7 +73,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import OlcaSchema.Package (readPackage)
 import OlcaSchema.Parser (Built (..), buildDatabase)
 import OlcaSchema.Writer (serializeOlcaPackage)
-import Types (AllocationKey (..), ScenarioValue, SimpleDatabase)
+import Types (FileReading (..), ScenarioValue, SimpleDatabase)
 import UnitConversion (defaultUnitConfig)
 
 -- | Identifiers that read as what they are when a test prints one.
@@ -142,7 +142,7 @@ throughPackageSaving saved sdb = withSystemTempDirectory "olca-written" $ \dir -
         createDirectoryIfMissing True (takeDirectory (dir </> path))
         BS.writeFile (dir </> path) bytes
     pkg <- readPackage dir >>= either (fail . T.unpack) pure
-    builtDatabase <$> either (fail . T.unpack) pure (buildDatabase defaultUnitConfig Declared pkg)
+    builtDatabase <$> either (fail . T.unpack) pure (buildDatabase defaultUnitConfig ReadDeclared pkg)
 
 -- | Write the package into an existing directory.
 writePackage :: FilePath -> IO ()

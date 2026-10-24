@@ -40,7 +40,7 @@ import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
 import Database (Geographies, filterByName, flowSearchFields)
 import Database.Cutoffs (Cutoffs (..))
-import Database.Edit (databaseHistory, deriveDatabase, editDatabaseParameters, editExchanges, refusalMessage)
+import Database.Edit (databaseHistory, derivationOf, deriveDatabase, editDatabaseParameters, editExchanges, refusalMessage)
 import Database.Journal (noteFrom)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
@@ -76,7 +76,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, Terms (..), UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, missingTerms, parseAllocationKey, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, Terms (..), UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, readingKey, withheldSentence)
 import Usage (ProcessKey (..), UsageKind (..), UsageLog, Use (..), readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -967,27 +967,29 @@ callUnloadDatabase dbManager rid args = runTool rid $ do
                 , "database" .= dbName
                 ]
 
-{- | Read a database's sources again under another allocation key. Wraps
-'Edit.deriveDatabase', which refuses a key that divides no block rather than
-registering the source a second time under a name promising otherwise. The
-hosting quota applies as it does to a copy: what comes out is another loaded
-database of the user's own.
+{- | Make a parent of a database read from its files (@parent@), or a child of
+a parent divided by a system model (@system_model@, the text of its TOML
+file). Wraps 'Edit.deriveDatabase', which refuses a derivation that divides
+nothing rather than registering the source a second time under a name
+promising otherwise. The hosting quota applies as it does to a copy: what
+comes out is another loaded database of the user's own.
 -}
 callDeriveDatabase :: DatabaseManager -> Maybe HostingConfig -> RequestId -> KeyMap Value -> IO Value
 callDeriveDatabase dbManager mHosting rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     newName <- except (requireText "new_name" args)
-    key <- except (parseAllocationKey (fromMaybe "declared" (textArg "allocation" args)))
+    derivation <- except (derivationOf (boolArg "parent" args == Just True) (textArg "system_model" args))
     liftIO (quotaCounts dbManager) >>= \(uploaded, loadedUploads) ->
         maybe (pure ()) throwE (copyRefusal uploaded loadedUploads mHosting)
-    (loaded, deps) <- ExceptT (deriveDatabase dbManager dbName newName key)
+    (loaded, deps) <- ExceptT (deriveDatabase dbManager dbName newName derivation)
     pure $
         toolSuccessJson rid $
             object
                 [ "status" .= ("loaded" :: Text)
                 , "database" .= newName
                 , "source" .= dbName
-                , "allocation" .= allocationKeyText key
+                , "allocation" .= allocationKeyText (readingKey (dcReading (ldConfig loaded)))
+                , "system_model" .= (modelTitle <$> modelOf (dcReading (ldConfig loaded)))
                 , "activities" .= V.length (dbActivities (ldDatabase loaded))
                 , "dependencies" .= deps
                 ]

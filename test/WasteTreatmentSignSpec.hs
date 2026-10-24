@@ -206,7 +206,7 @@ buildDB name = buildSimple name . simpleDB
 
 buildSimple :: T.Text -> SimpleDatabase -> IO Database
 buildSimple name sdb =
-    buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) sdb
+    buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) sdb
         >>= either (\e -> fail (T.unpack name <> ": " <> T.unpack e)) pure
 
 co2Of :: M.Map UUID Double -> Double

@@ -149,14 +149,12 @@ load = true
 default = false                # preselected database in the UI
 deletable = false              # allow deletion via the API
 geography_policy = "global"    # CF regionalization: exact | parent | global
-allocation = "declared"        # how a multi-output block is divided:
-                               # declared | dry mass | wet mass | price | none.
-                               # none keeps a block of several products whole.
-                               # Naming a property recomputes the shares from it instead of
-                               # reading the ones the source states; to have
-                               # both, configure the same path twice, or ask
-                               # for the second one at runtime with
-                               # POST /db/{name}/derive/{newName}?allocation=
+allocation = "declared"        # how a multi-output block is read:
+                               # declared | none. none keeps a block of several
+                               # products whole, as the parent of databases
+                               # divided by a system model (by price, dry mass
+                               # or wet mass), which are derived at runtime with
+                               # POST /db/{name}/derive/{newName}
 licence = "CC-BY-4.0"          # the licence it is published under, by SPDX identifier:
                                # CC0-1.0 | CC-BY-4.0 | CC-BY-SA-4.0 | CC-BY-NC-4.0 |
                                # ODbL-1.0 | etalab-2.0. Its permissions follow from
@@ -549,7 +547,8 @@ GET    /api/v1/db                                                        List da
 POST   /api/v1/db/upload                                                 Upload a database archive
 POST   /api/v1/db/{dbName}/load                                          Load a configured database
 POST   /api/v1/db/{dbName}/unload                                        Unload (keep config, free memory)
-POST   /api/v1/db/{dbName}/derive/{newName}?allocation=                  Read the same sources under another allocation key
+POST   /api/v1/db/{dbName}/derive/{newName}                              Make a parent ({"parent": true}) or a child ({"systemModel": "<TOML>"})
+GET    /api/v1/db/{dbName}/system-model                                  A child's system model, and the processes each exception takes
 POST   /api/v1/db/{dbName}/relink                                        Re-resolve cross-DB links (optional JSON body: depDb + mappingCsv for an alias relink)
 GET    /api/v1/db/{dbName}/gap-report                                    Supplier-gap report (what is still unsupplied after linking)
 GET    /api/v1/db/{dbName}/quality-report                                Dataset-soundness report (what is malformed in the database)
@@ -897,7 +896,7 @@ volca method delete ef-31                        # delete
 | Relink / finalize | `POST /db/{name}/(relink\|finalize)` | `database relink DB --to DEP --mapping CSV` |
 | Setup / dependencies | `GET /db/{name}/setup`, `POST .../{add,remove}-dependency/{dep}`, `POST .../set-data-path`, `POST .../accept-substitution` | – |
 | Copy database | `POST /db/{name}/copy/{newName}` | `database copy SRC NEW_NAME` |
-| Re-key database | `POST /db/{name}/derive/{newName}?allocation=` | – |
+| Derive a parent or a child | `POST /db/{name}/derive/{newName}`, `GET /db/{name}/system-model` | – |
 | Delete activities (by filter or ids) | `POST /db/{name}/delete` | `database delete-activities DB [filters\|--id …]` |
 | Export database | `POST /db/{name}/export` (`{"format": FMT, "package": "ro-crate"}`, package optional) | `database export DB --format FMT [--package ro-crate] --out FILE` |
 | Delete database | `DELETE /db/{name}` | `database delete NAME` |

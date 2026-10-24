@@ -25,7 +25,7 @@ import UnitConversion (defaultUnitConfig)
 
 spec :: Spec
 spec = do
-    built <- runIO (buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) consumerDB)
+    built <- runIO (buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) consumerDB)
     describe "a product two demands were refused for two different reasons" $ case built of
         Left err ->
             it "builds its fixture" $ expectationFailure ("the consumer fixture did not build: " <> show err)
@@ -211,7 +211,7 @@ stubConfig =
         , dcIsUploaded = False
         , dcDeletable = False
         , dcGeographyPolicy = GeoExact
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated

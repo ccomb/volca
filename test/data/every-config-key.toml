@@ -40,7 +40,7 @@ default = true
 depends = ["other"]
 deletable = false
 geography_policy = "parent"
-allocation = "wet mass"
+allocation = "none"
 licence = "CC-BY-4.0"
 downloads = "refused"
 release = { name = "Db", version = "1.0", system_model = "cut-off" }

@@ -44,12 +44,12 @@ import Service.Compare (Sides (..), compareDatabases)
 import TestHelpers (shippedGeographies)
 import Types (
     Activity (..),
-    AllocationKey (..),
     BioDirection (..),
     BiosphereFlow (..),
     BuildInputs (..),
     Database (..),
     Exchange (..),
+    FileReading (..),
     LocationSource (..),
     ProcessId,
     ReferenceConvention (..),
@@ -165,7 +165,7 @@ database :: Int -> IO Database
 database shift = do
     built <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig M.empty Declared [])
+            (BuildInputs defaultUnitConfig M.empty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities =
                     M.fromList

@@ -571,7 +571,7 @@ spec = do
         -- the block divided and count more refusals than files offered.
         it "counts a name with no reading once for the file, not once per product" $
             withSystemTempDirectory "es2-divided" $ \dir -> do
-                let dividing = (defaultLoadOptions defaultUnitConfig){loAllocation = ByProperty DryMass}
+                let dividing = (defaultLoadOptions defaultUnitConfig){loAllocation = ReadDeclared}
                 writeFile (dir </> "cheese_and_whey_v2.spold") twoProductsCarryingDryMass
                 refused <- loadDatabaseWithLocationAliases dividing dir
                 err <- either (return . T.unpack) (const (fail "expected the load to refuse")) refused

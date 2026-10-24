@@ -92,6 +92,8 @@ knownDivergences =
     , ("count_search_matches", "query")
     , ("derive_database", "database")
     , ("derive_database", "new_name")
+    , ("derive_database", "parent")
+    , ("derive_database", "system_model")
     , ("drop_scenario", "database")
     , ("edit_database_parameters", "database")
     , ("edit_database_parameters", "note")

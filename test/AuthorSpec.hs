@@ -44,7 +44,6 @@ import EcoSpold.Writer2 (checkEcoSpold2Exportable)
 import Service (convertActivityForAPI)
 import Types (
     Activity (..),
-    AllocationKey (..),
     BioDirection (..),
     BiosphereFlow (..),
     BuildInputs (..),
@@ -54,6 +53,7 @@ import Types (
     Exchange (..),
     ExchangeLocation (..),
     ExchangeProperties (..),
+    FileReading (..),
     LocationSource (..),
     Medium (..),
     Parameter (..),
@@ -1036,7 +1036,7 @@ buildFixtureAt :: UUID -> UUID -> IO Database
 buildFixtureAt actId prodId = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities =
                     M.fromList
@@ -1066,7 +1066,7 @@ buildTwoProductTreatment :: IO Database
 buildTwoProductTreatment = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities =
                     M.fromList
@@ -1099,7 +1099,7 @@ buildBareFixture = do
         noBio = act{exchanges = filter isTechnosphereExchange (exchanges act)}
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = M.singleton (supplierActId, supplierProdId) noBio
                 , sdbTechFlows = M.singleton supplierProdId (milkFlowAt supplierProdId)

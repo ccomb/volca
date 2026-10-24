@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.13.1** speaks wire formats **2 to 84** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.13.1** speaks wire formats **2 to 85** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -789,30 +789,40 @@ Delete a method collection: unload it and remove its staged file.
 
 Delete a reference-data set of ``kind`` and remove its staged file.
 
-##### `Client.derive_database(new_name: str, allocation: str, db_name: str | None = None) -> dict`
+##### `Client.derive_database(new_name: str, *, system_model: str | Path | None = None, parent: bool = False, db_name: str | None = None) -> dict`
 
-Read a database's sources again under another allocation key.
+Make a parent or a child of a database, under ``new_name``.
 
-Divides every multi-output block by a property of the
-products instead of by the shares the source declares: ``"wet mass"``
-weighs each product as it is, ``"dry mass"`` weighs its dry matter,
-``"price"`` weighs what each product brings in,
-``"declared"`` keeps the source's own shares, and ``"none"`` keeps a
-block of several products whole, each declared share turned into a
-price, for databases derived from it. The source is untouched
-and both stay loadable side by side, so two allocations of one study
-can be compared.
+``parent=True`` reads the database's files again keeping every block
+of several products whole, each declared share turned into a price.
+``system_model`` divides a parent into a child: the text of a system
+model's TOML file, or the path of one, which names the property every
+block is divided by and the exceptions, each with its own property,
+its reason, and the processes it takes::
+
+    name = "Agribalyse, economic"
+    version = "1.0.0"
+
+    [allocation]
+    default = "price"
+
+    [[allocation.exceptions]]
+    key = "wet mass"
+    reason = "Dairies weigh their milk, not its price."
+    classification = { system = "Category", value = "Agricultural\Food\Cheese production" }
+
+Give one of the two. The source is untouched and every database stays
+loadable side by side, so two divisions of one study can be compared.
 
 This is a full load, not a copy: seconds to minutes on a large
-database. Refused when the key divides no block of the source, or when
-it is the key that source already reads under: either would leave that
-source under a second name; a refusal names the first blocks the key
-could not divide and why.
+database. Refused when a parent is asked of a database that is not
+read from its files, a child of a database that is not a parent, when
+the model does not read, or when an exception takes or divides nothing;
+a refusal names what went wrong.
 
 Returns the engine's ``LoadDatabaseResponse`` dict, as
 `load_database` does: ``"database"`` describes the new database
-and ``"deps"`` how each of its dependencies loaded. It has no
-``message``.
+and ``"deps"`` how each of its dependencies loaded.
 
 ##### `Client.document_file(path: str, db_name: str | None = None) -> bytes`
 
@@ -1799,6 +1809,19 @@ Set the multiplier a scoring set's values are shown with, or drop it with ``None
 ##### `Client.set_scoring_set_unit(collection: str, name: str, unit: str) -> dict`
 
 Change the unit a scoring set's scores are expressed in.
+
+##### `Client.system_model(*, db_name: str | None = None) -> dict`
+
+The system model a child is divided by::
+
+    {"text": "name = ...",
+     "exceptions": [{"key": "wet mass", "reason": "...",
+                     "processes": [{"activity": "...", "name": "..."}]}]}
+
+``text`` is the model's file as written; each exception lists the
+processes of the parent it takes, read on the parent as now loaded.
+Refused on a database that is not a child, or whose parent is not
+loaded. Needs wire revision 85.
 
 ##### `Client.terms_to_accept(db_name: str | None = None) -> list[dict]`
 
@@ -2804,8 +2827,10 @@ endpoint. Derived from the engine's declared topology, not runtime state.
 ``allocation`` is the key its multi-output blocks were divided by:
 ``"declared"`` for the shares the source itself states, otherwise the name
 of the property recomputed them (``"dry mass"``, ``"wet mass"``,
-``"price"``), or ``"none"`` for blocks kept whole. Without it a column of
-shares cannot say which of the two it is showing.
+``"price"``), or ``"none"`` for blocks kept whole. A child divided by a
+system model reports its model's default property; its exceptions are in
+`Client.system_model`. Without it a column of shares cannot say
+which of the two it is showing.
 ``source`` names the database this one was derived from, and is ``None``
 for one read straight from its files. Both are ``None`` against an engine
 older than wire revision 20.

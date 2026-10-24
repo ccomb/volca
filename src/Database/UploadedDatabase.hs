@@ -13,6 +13,7 @@ module Database.UploadedDatabase (
     readUploadMeta,
     writeUploadMeta,
     parseMetaToml,
+    parseMetaTomlWith,
     formatMetaToml,
     parseFormat,
 
@@ -41,9 +42,11 @@ import System.FilePath (splitDirectories, (</>))
 import Text.Read (readMaybe)
 
 -- Re-export DatabaseFormat from Database.Upload (single definition)
+
+import Database.SystemModel (parseSystemModel)
 import Database.Upload (DatabaseFormat (..))
 import Progress (ProgressLevel (..), reportProgress)
-import Types (AllocationKey, Licence, LicenceKeys (..), Release (..), Requirement (..), allocationKeyText, licenceFromKeys, licenceKeys, parseAllocationKey)
+import Types (Licence, LicenceKeys (..), Reading (..), Release (..), Requirement (..), SystemModel (..), allocationKeyText, fileReadingKey, licenceFromKeys, licenceKeys, modelOf, parseFileReading)
 
 -- | Metadata for an uploaded database
 data UploadMeta = UploadMeta
@@ -71,12 +74,14 @@ data UploadMeta = UploadMeta
     a path: such a copy has no file to point at. A file written before this
     field existed reads none, which is what it meant.
     -}
-    , umAllocation :: !AllocationKey
-    {- ^ The key this database's multi-output blocks were divided under. The
-    only durable record of it: a re-keyed database owns no files of its own,
-    so nothing else on disk says the shares it loads are not the ones its
-    source declares. A file written before this field existed reads back as
-    'Declared', which is what it meant.
+    , umReading :: !Reading
+    {- ^ How this database's multi-output blocks are divided: by its files,
+    or, for a child, by the system model kept beside this file. The only
+    durable record of it: a child owns no files of its own, so nothing else
+    on disk says the shares it loads are not the ones its source declares. A
+    file written before @allocation@ existed reads back as declared, which is
+    what it meant; one naming a property is refused, since that reading no
+    longer exists.
     -}
     , umLicence :: !Licence
     {- ^ The licence as its owner set it; a copy records its source's when it
@@ -112,10 +117,16 @@ added one @[[requires]]@ block per required release (@name@, @version@,
 @system_model@, @substitute@), written after every other key since TOML puts
 the keys that follow a header inside it. The parser reads every
 version, taking absent fields to mean what their absence meant when they did
-not exist.
+not exist. Version 9 writes @system_model_file@ in place of @allocation@
+for a child, the model beside it, and no longer reads a property under
+@allocation@.
 -}
 metaVersion :: Int
-metaVersion = 8
+metaVersion = 9
+
+-- | The file a child's system model is kept in, beside its @meta.toml@.
+systemModelFileName :: FilePath
+systemModelFileName = "system-model.toml"
 
 -- | Name of the metadata file in each upload directory
 metaFileName :: FilePath
@@ -175,19 +186,51 @@ readUploadMeta uploadDir = do
             result <- try $ TIO.readFile metaPath
             case result of
                 Left (_ :: SomeException) -> return Nothing
-                Right content -> return $ parseMetaToml content
+                Right content -> do
+                    model <- readModel
+                    let meta = parseMetaTomlWith model content
+                    -- Say why, where the scan would only say it could not read the file.
+                    case (meta, readingRefusal model content) of
+                        (Nothing, Just why) -> reportProgress Warning (uploadDir <> ": " <> T.unpack why)
+                        _ -> pure ()
+                    return meta
+  where
+    readModel :: IO (Maybe Text)
+    readModel = do
+        let path = uploadDir </> systemModelFileName
+        present <- doesFileExist path
+        if present then Just <$> TIO.readFile path else pure Nothing
 
--- | Write meta.toml to an upload directory
+{- | Write meta.toml to an upload directory, and a child's system model
+beside it, as its author wrote it.
+-}
 writeUploadMeta :: FilePath -> UploadMeta -> IO ()
 writeUploadMeta uploadDir meta = do
     let metaPath = uploadDir </> metaFileName
+    mapM_ (TIO.writeFile (uploadDir </> systemModelFileName) . smText) (modelOf (umReading meta))
     TIO.writeFile metaPath (formatMetaToml meta)
 
-{- | Parse meta.toml content
+-- | 'parseMetaTomlWith' for a database that keeps no system model.
+parseMetaToml :: Text -> Maybe UploadMeta
+parseMetaToml = parseMetaTomlWith Nothing
+
+{- | Why the reading a meta.toml names cannot be read, when that is what stops
+it: a property no longer read from the files, a model missing or not parsing.
+-}
+readingRefusal :: Maybe Text -> Text -> Maybe Text
+readingRefusal model content = either Just (const Nothing) (readingOf model (fst (requiresBlocks content)))
+
+-- | The reading a meta.toml's keys name, with the system model kept beside it.
+readingOf :: Maybe Text -> [(Text, Text)] -> Either Text Reading
+readingOf model pairs = case lookup "system_model_file" pairs of
+    Just _ -> maybe (Left ("its system model, " <> T.pack systemModelFileName <> ", is missing")) (fmap ByModel . parseSystemModel) model
+    Nothing -> FromFiles <$> parseFileReading (maybe "declared" unquote (lookup "allocation" pairs))
+
+{- | Parse meta.toml content, given the system model kept beside it if any.
 Simple key=value parser (not a full TOML parser)
 -}
-parseMetaToml :: Text -> Maybe UploadMeta
-parseMetaToml content = do
+parseMetaTomlWith :: Maybe Text -> Text -> Maybe UploadMeta
+parseMetaTomlWith model content = do
     let (top, blocks) = requiresBlocks content
         getValue key = lookup key top
         -- A list or a flag nobody can read stops the file, as a bad key does.
@@ -208,9 +251,7 @@ parseMetaToml content = do
     -- the whole file: dividing a database on a guess would restate its
     -- inventory in silence, where a database the scan refuses is named in
     -- the log and still on disk for a binary that knows the key.
-    allocation <-
-        either (const Nothing) Just $
-            parseAllocationKey (maybe "declared" unquote (getValue "allocation"))
+    reading <- either (const Nothing) Just (readingOf model top)
 
     -- Same rule: a refusal nobody can read must not come back as granted.
     -- The downloads switch these keys replaced was never released, and stops
@@ -240,7 +281,7 @@ parseMetaToml content = do
             , umDepends = maybe [] parseStringList (getValue "depends")
             , umSource = unquote <$> getValue "source"
             , umBuiltIn = unquote <$> getValue "builtin"
-            , umAllocation = allocation
+            , umReading = reading
             , umLicence = licence
             , umRelease = release
             , umRequires = requires
@@ -361,7 +402,7 @@ formatMetaToml UploadMeta{..} =
             ++ [ "format = " <> quote (formatToText umFormat)
                , "dataPath = " <> quote (T.pack umDataPath)
                , "depends = [" <> T.intercalate ", " (map quote umDepends) <> "]"
-               , "allocation = " <> quote (allocationKeyText umAllocation)
+               , readingLine umReading
                ]
             ++ maybe [] (\s -> ["source = " <> quote s]) umSource
             ++ maybe [] (\b -> ["builtin = " <> quote b]) umBuiltIn
@@ -370,6 +411,11 @@ formatMetaToml UploadMeta{..} =
             ++ maybe [] releaseLines umRelease
             ++ concatMap requirementLines umRequires
   where
+    readingLine :: Reading -> Text
+    readingLine reading = case reading of
+        FromFiles fr -> "allocation = " <> quote (allocationKeyText (fileReadingKey fr))
+        ByModel _ -> "system_model_file = " <> quote (T.pack systemModelFileName)
+
     requirementLines :: Requirement -> [Text]
     requirementLines Requirement{reqRelease = Release{..}, ..} =
         ["", requiresHeader, "name = " <> quote releaseName, "version = " <> quote releaseVersion]

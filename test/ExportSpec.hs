@@ -151,7 +151,7 @@ buildFixture :: Compartment -> IO Database
 buildFixture comp = do
     r <-
         DB.buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = M.singleton (actU, prodU) act
                 , sdbTechFlows = M.singleton prodU (TechnosphereFlow prodU "product" unitU M.empty Nothing Nothing)
@@ -306,4 +306,4 @@ lineAt :: Int -> SimpleDatabase -> Exchange
 lineAt position = fromMaybe (error "no such line") . lookupLine position
 
 built :: SimpleDatabase -> IO Database
-built sdb = DB.buildDatabaseWithMatrices (BuildInputs energyUnits mempty Declared []) sdb >>= either (fail . T.unpack) pure
+built sdb = DB.buildDatabaseWithMatrices (BuildInputs energyUnits mempty ReadDeclared []) sdb >>= either (fail . T.unpack) pure

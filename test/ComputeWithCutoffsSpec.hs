@@ -121,7 +121,7 @@ stayed unresolved, which is what the refusal used to read.
 -}
 build :: SimpleDatabase -> IO Database
 build sdb = do
-    db <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty Declared []) sdb >>= either (fail . show) pure
+    db <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty ReadDeclared []) sdb >>= either (fail . show) pure
     pure db{dbLinkingStats = relinkSimpleDatabase [] emptySynonymDB defaultUnitConfig M.empty GeoGlobal emptyAliasMap sdb}
 
 mainSdb :: SimpleDatabase

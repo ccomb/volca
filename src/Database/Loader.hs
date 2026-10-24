@@ -33,7 +33,6 @@ module Database.Loader (
     loadDatabase,
     LoadOptions (..),
     defaultLoadOptions,
-    reportKeyRefusals,
     loadDatabaseWithLocationAliases,
     loadSimaProCSV,
     loadDatabaseWithCrossDBLinking,
@@ -143,11 +142,8 @@ import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word64)
 import Database.Allocation (
     Allocating (..),
-    PropertyRefusal,
     allocate,
     allocateAll,
-    describePropertyRefusal,
-    propertyKeyRefusals,
  )
 import Database.CrossLinking (
     AliasMap,
@@ -626,6 +622,9 @@ History of manual bumps:
      @price@ property.
 - 79: an EcoSpold 2 input without an @activityLinkId@ is linked to the one
      process of its database whose reference product it buys.
+- 80: the reading a cache was built under is a 'FileReading' (declared or
+     whole), not an allocation key that could name a property, so the stamp
+     in 'BuildInputs' changes layout.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -633,7 +632,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 79
+     in hi `xor` lo `xor` 80
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1230,7 +1229,7 @@ again there would compound.
 loadDatabaseWithLocationAliases :: LoadOptions -> FilePath -> IO (Either T.Text SimpleDatabase)
 loadDatabaseWithLocationAliases opts path = do
     loaded <- readSourceUnder opts path
-    traverse (\db -> reportKeyRefusals opts db >> patchedUnder opts db) loaded
+    traverse (patchedUnder opts) loaded
 
 {- | The database with the configured patches applied, saying what each one
 touched. A patch that matched no exchange is almost certainly a wrong selector
@@ -1287,38 +1286,15 @@ and positional arguments of which two are maps invite a caller to swap them.
 data LoadOptions = LoadOptions
     { loUnitConfig :: !UC.UnitConfig -- The merged unit table amounts are converted through
     , loLocationAliases :: !(M.Map T.Text T.Text) -- Wrong location -> correct location
-    , loAllocation :: !AllocationKey -- How a multi-output block is divided
+    , loAllocation :: !FileReading -- How a multi-output block is divided: as declared, or kept whole
     , loPatches :: ![ExchangePatch] -- Declarative adjustments to the amounts the source states
     }
-
-{- | Say what the key this load asked for could not divide.
-
-Loud rather than silent: such a block keeps every share its source declared
-and still loses its column, and nothing else in the run says which key refused
-it or why. The first ten are named, and a count says how many there were.
--}
-reportKeyRefusals :: LoadOptions -> SimpleDatabase -> IO ()
-reportKeyRefusals opts db = case loAllocation opts of
-    Declared -> pure ()
-    Unallocated -> pure ()
-    ByProperty prop -> unless (null refusals) $ do
-        reportProgress Warning $
-            show (length refusals) <> " blocks were not divided: the key names a property they do not carry"
-        mapM_ (warn prop) (take 10 refusals)
-  where
-    refusals :: [(T.Text, PropertyRefusal)]
-    refusals = propertyKeyRefusals (allocating opts (sdbUnits db)) (M.elems (sdbActivities db))
-
-    warn :: AllocationProperty -> (T.Text, PropertyRefusal) -> IO ()
-    warn prop (name, reason) =
-        reportProgress Warning . T.unpack $
-            name <> " has no column -- " <> describePropertyRefusal prop reason
 
 -- | What 'allocate' reads, for a load of these options over these units.
 allocating :: LoadOptions -> UnitDB -> Allocating
 allocating opts unitDB =
     Allocating
-        { alKey = loAllocation opts
+        { alKey = fileReadingKey (loAllocation opts)
         , alUnitConfig = loUnitConfig opts
         , alUnitDB = unitDB
         }
@@ -1329,7 +1305,7 @@ defaultLoadOptions unitConfig =
     LoadOptions
         { loUnitConfig = unitConfig
         , loLocationAliases = M.empty
-        , loAllocation = Declared
+        , loAllocation = ReadDeclared
         , loPatches = []
         }
 
@@ -1339,7 +1315,7 @@ Named together rather than one at a time: a publisher writes its file names by
 one convention, so a directory that has one unreadable file usually has
 thousands, and naming the first alone would take as many loads to find that out
 as there are files. The first ten are named and the count says how many there
-were, the way 'reportKeyRefusals' names what the allocation key refused.
+were.
 -}
 refusedFiles :: Int -> NE.NonEmpty T.Text -> T.Text
 refusedFiles offered refusals =

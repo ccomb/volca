@@ -30,6 +30,8 @@ while any copy of it is loaded.
 module Database.Edit (
     copyDatabase,
     deriveDatabase,
+    Derivation (..),
+    derivationOf,
     resolveDeleteSelection,
     DeleteSelection (..),
     DeleteRequest (..),
@@ -58,7 +60,7 @@ import qualified Data.IntSet as IS
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -123,6 +125,7 @@ import Database.Manager (
     withReservedName,
  )
 import Database.Rebuild (processKey, renderKey, resolveProcess)
+import Database.SystemModel (parseSystemModel)
 import Database.Upload (DatabaseFormat (..), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
 import Matrix (clearCachedSolver)
@@ -134,14 +137,19 @@ import Types (
     AllocationKey (..),
     ClassificationFilter,
     Database (..),
+    FileReading (..),
     Parameter,
     ProcessId,
+    Reading (..),
+    SystemModel,
     allocationKeyText,
     findProcessIdByActivityUUID,
     getActivity,
     initializeRuntimeFields,
+    modelOf,
     parseProcessRef,
     processRefText,
+    readingKey,
  )
 import UnitConversion (UnitConfig)
 
@@ -191,52 +199,79 @@ nameIsFree manager slug = do
             then Left ("Database already exists: " <> slug)
             else Right ()
 
-{- | Read a source's own files again under another allocation key, and
-register the result under @newName@.
+{- | Make a parent of a database read from its files, or a child of a parent,
+and register it under @newName@.
 
-Not a copy. A copy shares the source's value as it stands, and the key is what
-produced that value: it decides the inventory of every process the load
-produces, so a re-keyed database has to be read from the files again. That is
-a full load -- tens of seconds where a copy is instantaneous -- which is why
-this hands back what a load hands back rather than what a copy does.
+Not a copy. A copy shares the source's value as it stands, and the division
+is what produced that value: it decides the inventory of every process the load
+produces. A parent reads the source's files again with every block of several
+products kept whole; a child divides the parent as it stands in memory, edits
+and all, by its system model. Either is a full load -- tens of seconds where a
+copy is instantaneous -- which is why this hands back what a load hands back
+rather than what a copy does.
 
 The home it writes is a copy's home: no data of its own, 'umDataPath' pointing
-at the source's files and 'umSource' naming whose they are, plus the key,
-without which a restart would rebuild the database as @declared@ under a name
-promising otherwise. The source's journal is deliberately left behind: an edit
-is recorded against a process the source's key produced, and under another key
-that process need not exist. The load says so when there is one. A parent's
-journal is the exception under a property key: the load divides the parent as
-it stands in memory, edits and all, rather than its files.
-
-Asking for the key the source already reads under is refused before the load:
-that result is the source, and it is the one duplicate no load can detect,
-since a key dividing the same blocks a second time divides them just as well.
+at the source's files and 'umSource' naming whose they are, plus how it is
+read, without which a restart would rebuild it as @declared@ under a name
+promising otherwise; a child's model is kept beside it. The journal of a
+source read from files is deliberately left behind: an edit is recorded
+against a process its shares produced, and kept whole that process need not
+exist. The load says so when there is one.
 -}
 deriveDatabase ::
     DatabaseManager ->
     Text ->
     Text ->
-    AllocationKey ->
+    Derivation ->
     IO (Either Text (LoadedDatabase, [DepLoadResult]))
-deriveDatabase manager srcName newName key = do
+deriveDatabase manager srcName newName derivation = do
     availableDbs <- readTVarIO (dmAvailableDbs manager)
     case M.lookup srcName availableDbs of
         Nothing -> pure (Left ("Database not found: " <> srcName))
         Just srcConfig
             | T.null slug -> pure (Left ("Invalid name (no usable characters): " <> newName))
-            | key == dcAllocation srcConfig ->
-                pure . Left $
-                    srcName
-                        <> " is already read under "
-                        <> allocationKeyText key
-                        <> ": the result would be that database under another name"
+            | Just refusal <- unfit (dcReading srcConfig) -> pure (Left refusal)
             | otherwise ->
                 withReservedName manager slug (nameIsFree manager slug) $ \() ->
-                    loadDerived manager slug srcConfig key
+                    loadDerived manager slug srcConfig derivation
   where
     slug :: Text
     slug = slugify newName
+
+    -- A parent is read from files declaring their shares; a child is divided
+    -- from a parent. Anything else is that database under another name, or a
+    -- reading that no longer exists.
+    unfit :: Reading -> Maybe Text
+    unfit reading = case (derivation, reading) of
+        (AsParent, FromFiles ReadDeclared) -> Nothing
+        (AsParent, FromFiles ReadWhole) -> Just (srcName <> " is already a parent: the result would be that database under another name")
+        (AsParent, ByModel _) -> Just (srcName <> " is a child: derive the parent from the database whose files it reads")
+        (AsChild _, FromFiles ReadWhole) -> Nothing
+        (AsChild _, _) -> Just (srcName <> " is not a parent: derive a parent from it first, then the child from that parent")
+
+-- | What a derivation makes of its source.
+data Derivation
+    = -- | A parent: the source's files read again, every block of several products kept whole.
+      AsParent
+    | -- | A child: the parent divided by a system model.
+      AsChild !SystemModel
+
+{- | The derivation a request asks for: a parent, or a child with the text of
+its system model. Exactly one: a request naming both, or neither, says
+nothing a derivation could follow.
+-}
+derivationOf :: Bool -> Maybe Text -> Either Text Derivation
+derivationOf parent model = case (parent, model) of
+    (True, Nothing) -> Right AsParent
+    (False, Just text) -> AsChild <$> parseSystemModel text
+    (True, Just _) -> Left "ask for a parent or give a system model, not both"
+    (False, Nothing) -> Left "ask for a parent, or give the text of the system model that divides a child from its parent"
+
+-- | How the derived database is read.
+derivedReading :: Derivation -> Reading
+derivedReading derivation = case derivation of
+    AsParent -> FromFiles ReadWhole
+    AsChild model -> ByModel model
 
 {- | Give the derived database a home, register it, load it, and keep it only
 if the key actually divided something.
@@ -251,13 +286,13 @@ loadDerived ::
     DatabaseManager ->
     Text ->
     DatabaseConfig ->
-    AllocationKey ->
+    Derivation ->
     IO (Either Text (LoadedDatabase, [DepLoadResult]))
-loadDerived manager slug srcConfig key = do
+loadDerived manager slug srcConfig derivation = do
     -- The terms in force, recorded so a derived database whose source is
     -- later gone keeps the ones it was served under.
     inForce <- licenceOf <$> readTVarIO (dmAvailableDbs manager) <*> pure srcConfig
-    recordDerived slug srcConfig{dcLicence = inForce} key >>= \case
+    recordDerived slug srcConfig{dcLicence = inForce} (derivedReading derivation) >>= \case
         Left err -> pure (Left err)
         Right derivedConfig -> do
             atomically $ modifyTVar' (dmAvailableDbs manager) (M.insert slug derivedConfig)
@@ -265,7 +300,7 @@ loadDerived manager slug srcConfig key = do
                 Left err -> Left err <$ discardDerived manager slug
                 Right (loaded, deps) -> do
                     unitConfig <- getMergedUnitConfig manager
-                    case dividedRefusal unitConfig key (dcName srcConfig) (ldDatabase loaded) of
+                    case dividedRefusal unitConfig (derivedReading derivation) (dcName srcConfig) (ldDatabase loaded) of
                         Nothing -> pure (Right (loaded, deps))
                         Just refusal -> Left refusal <$ discardDerived manager slug
 
@@ -278,12 +313,12 @@ to a database, and both numbers are named: @0 of 4087@ says the source carries
 blocks and none of them could be weighed, where @0 of 0@ would say it carries
 none at all.
 -}
-dividedRefusal :: UnitConfig -> AllocationKey -> Text -> Database -> Maybe Text
-dividedRefusal unitConfig key srcName db = case key of
+dividedRefusal :: UnitConfig -> Reading -> Text -> Database -> Maybe Text
+dividedRefusal unitConfig reading srcName db = case reading of
     -- Kept whole rather than divided: a parent worth keeping holds at least
     -- one block every product of which declares a share, the blocks the
     -- source's own shares divide. One missing a share is whole under both.
-    Unallocated
+    FromFiles ReadWhole
         | any keptWhole (dbActivities db) -> Nothing
         | otherwise -> Just ("none kept no process of several products whole in " <> srcName <> sameDatabase)
     _
@@ -298,8 +333,12 @@ dividedRefusal unitConfig key srcName db = case key of
                     <> sameDatabase
                     <> reasons
   where
+    key :: AllocationKey
+    key = readingKey reading
+
     -- A block the key could not weigh is still whole in the derived database,
-    -- so weighing it again names what it lacks.
+    -- so weighing it again names what it lacks. A child's exceptions answer
+    -- for their own blocks when it is divided; its default names the rest.
     reasons :: Text
     reasons = case key of
         Declared -> ""
@@ -349,25 +388,22 @@ The path is the source's own, made absolute for the same reason a copy's is:
 it is read back from a home of its own, where a path relative to the working
 directory would mean somewhere else.
 -}
-recordDerived :: Text -> DatabaseConfig -> AllocationKey -> IO (Either Text DatabaseConfig)
-recordDerived slug srcConfig key = do
-    let dividedFromParent = case key of
-            ByProperty _ -> dcAllocation srcConfig == Unallocated
-            _ -> False
+recordDerived :: Text -> DatabaseConfig -> Reading -> IO (Either Text DatabaseConfig)
+recordDerived slug srcConfig reading = do
     written <- try $ do
         uploadsDir <- UploadedDB.getDatabaseUploadsDir
         let home = uploadsDir </> T.unpack slug
         createDirectoryIfMissing True home
         sourcePath <- makeAbsolute (dcPath srcConfig)
         hasJournal <- doesFileExist (journalPath (uploadsDir </> T.unpack (dcName srcConfig)))
-        -- A parent's edits are not left behind by a child read under a
-        -- property: it is divided from the parent as it stands in memory.
-        when (hasJournal && not dividedFromParent) . reportProgress Warning . T.unpack $
+        -- A parent's edits are not left behind by its child: it is divided
+        -- from the parent as it stands in memory.
+        when (hasJournal && isNothing (modelOf reading)) . reportProgress Warning . T.unpack $
             "the edits recorded on "
                 <> dcName srcConfig
-                <> " stay behind: each names a process its key produced, and "
+                <> " stay behind: each names a process its shares produced, and "
                 <> slug
-                <> " reads the same files under another one"
+                <> " reads the same files kept whole"
         UploadedDB.writeUploadMeta
             home
             UploadedDB.UploadMeta
@@ -378,7 +414,7 @@ recordDerived slug srcConfig key = do
                 , UploadedDB.umDataPath = sourcePath
                 , UploadedDB.umDepends = dcDepends srcConfig
                 , UploadedDB.umSource = Just (dcName srcConfig)
-                , UploadedDB.umAllocation = key
+                , UploadedDB.umReading = reading
                 , UploadedDB.umBuiltIn = Nothing
                 , UploadedDB.umLicence = dcLicence srcConfig
                 , UploadedDB.umRelease = Nothing
@@ -394,7 +430,7 @@ recordDerived slug srcConfig key = do
                 , dcDefault = False
                 , dcIsUploaded = True
                 , dcDeletable = True
-                , dcAllocation = key
+                , dcReading = reading
                 , dcSource = Just (dcName srcConfig)
                 , dcRelease = Nothing
                 }
@@ -485,7 +521,7 @@ recordCopy slug src = do
                 , UploadedDB.umSource = Just (dcName config)
                 , -- A copy holds the source's value as it stands, which the
                   -- source's own key produced.
-                  UploadedDB.umAllocation = dcAllocation config
+                  UploadedDB.umReading = dcReading config
                 , UploadedDB.umBuiltIn = Nothing
                 , UploadedDB.umLicence = dcLicence config
                 , UploadedDB.umRelease = Nothing
@@ -1161,7 +1197,7 @@ databaseProvenance configs config =
         { pvDatabase = dcDisplayName config
         , pvOriginal = dcDisplayName original
         , pvRelease = dcRelease original
-        , pvReallocated = if dcAllocation original == dcAllocation config then Nothing else Just (dcAllocation config)
+        , pvReallocated = if dcReading original == dcReading config then Nothing else Just (dcReading config)
         }
   where
     original = filesOwner configs config

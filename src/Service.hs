@@ -392,6 +392,7 @@ convertToInventoryExport db bioFlowDB unitDB processId rootActivity cutoffs inve
                         , prsProductAmount = rpAmount rootProduct
                         , prsProductUnit = rpUnit rootProduct
                         , prsAllocationPercent = dsPercent <$> activityReferenceShare rootActivity
+                        , prsAllocationBy = dsBy =<< activityReferenceShare rootActivity
                         , prsAllocationFormula = dsFormula =<< activityReferenceShare rootActivity
                         , prsMassAllocationPercent = Nothing
                         , prsNativeType = activityNativeType rootActivity
@@ -1635,6 +1636,7 @@ mkActivitySummary db processId activity =
             , prsProductAmount = rpAmount refProduct
             , prsProductUnit = rpUnit refProduct
             , prsAllocationPercent = dsPercent <$> activityReferenceShare activity
+            , prsAllocationBy = dsBy =<< activityReferenceShare activity
             , prsAllocationFormula = dsFormula =<< activityReferenceShare activity
             , prsMassAllocationPercent = Nothing
             , prsNativeType = activityNativeType activity
@@ -1656,6 +1658,7 @@ unknownActivitySummary db pid =
         , prsProductAmount = 1.0
         , prsProductUnit = ""
         , prsAllocationPercent = Nothing
+        , prsAllocationBy = Nothing
         , prsAllocationFormula = Nothing
         , prsMassAllocationPercent = Nothing
         , prsNativeType = Nothing
@@ -1817,6 +1820,7 @@ crossDBLinkToSummary link =
         , prsProductAmount = 1.0
         , prsProductUnit = cdlExchangeUnit link
         , prsAllocationPercent = Nothing
+        , prsAllocationBy = Nothing
         , prsAllocationFormula = Nothing
         , prsMassAllocationPercent = Nothing
         , prsNativeType = Nothing
@@ -2360,6 +2364,7 @@ buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf 
                 , prsProductAmount = rootRefAmount
                 , prsProductUnit = activityUnit rootActivity
                 , prsAllocationPercent = dsPercent <$> activityReferenceShare rootActivity
+                , prsAllocationBy = dsBy =<< activityReferenceShare rootActivity
                 , prsAllocationFormula = dsFormula =<< activityReferenceShare rootActivity
                 , prsMassAllocationPercent = Nothing
                 , prsNativeType = activityNativeType rootActivity
@@ -2432,6 +2437,7 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor 
                 , prsProductAmount = rootRefAmount
                 , prsProductUnit = activityUnit rootActivity
                 , prsAllocationPercent = dsPercent <$> activityReferenceShare rootActivity
+                , prsAllocationBy = dsBy =<< activityReferenceShare rootActivity
                 , prsAllocationFormula = dsFormula =<< activityReferenceShare rootActivity
                 , prsMassAllocationPercent = Nothing
                 , prsNativeType = activityNativeType rootActivity

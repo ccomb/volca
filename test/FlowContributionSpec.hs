@@ -51,7 +51,7 @@ import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), addDatabase, initDatabaseManager, loadDatabase)
 import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
-import Types (AllocationKey (..), GeographyPolicy (..), Licence (..))
+import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
 
 -- | The factor and the contribution, in that order, as every surface reports them.
 type FactorAndContribution = (Double, Double)
@@ -130,7 +130,7 @@ sampleConfig =
         , dcIsUploaded = False
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated

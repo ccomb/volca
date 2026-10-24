@@ -8,7 +8,8 @@ import Test.Hspec
 
 import qualified Data.Set as S
 import Database.UploadedDatabase
-import Types (Acceptance (..), AllocationKey (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..), Release (..), Requirement (..), StandardLicence (..))
+import TestHelpers (modelDividingBy)
+import Types (Acceptance (..), AllocationProperty (..), Attribution (..), FileReading (..), Licence (..), OwnLicence (..), Permission (..), Reading (..), Release (..), Requirement (..), StandardLicence (..), SystemModel (..))
 
 -- | Minimal UploadMeta without description
 baseMeta :: UploadMeta
@@ -21,7 +22,7 @@ baseMeta =
         , umDataPath = "data"
         , umDepends = []
         , umSource = Nothing
-        , umAllocation = Declared
+        , umReading = FromFiles ReadDeclared
         , umBuiltIn = Nothing
         , umLicence = LicenceUnstated
         , umRelease = Nothing
@@ -103,7 +104,7 @@ spec = do
                         , umDataPath = "data"
                         , umDepends = []
                         , umSource = Nothing
-                        , umAllocation = Declared
+                        , umReading = FromFiles ReadDeclared
                         , umBuiltIn = Nothing
                         , umLicence = LicenceUnstated
                         , umRelease = Nothing
@@ -117,6 +118,16 @@ spec = do
 
         it "returns Nothing for missing required field" $
             parseMetaToml "displayName = \"x\"\n" `shouldBe` Nothing
+
+        -- A database divided by a property is a child now: an older meta.toml
+        -- naming one would load under a key nothing applies any more.
+        it "refuses a database read from its files under a property" $
+            parseMetaToml "version = 8\ndisplayName = \"DB\"\nformat = \"simapro\"\ndataPath = \"d\"\nallocation = \"price\"\n" `shouldBe` Nothing
+
+        it "reads a child's model from the file kept beside it, and refuses a child without it" $ do
+            let child = baseMeta{umSource = Just "parent", umReading = ByModel (modelDividingBy Price)}
+            parseMetaTomlWith (Just (smText (modelDividingBy Price))) (formatMetaToml child) `shouldBe` Just child
+            parseMetaTomlWith Nothing (formatMetaToml child) `shouldBe` Nothing
 
         it "ignores comment lines" $ do
             let toml = "# This is a comment\nversion = 1\ndisplayName = \"DB\"\nformat = \"ilcd\"\ndataPath = \"d\"\n"

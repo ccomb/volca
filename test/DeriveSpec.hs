@@ -1,25 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Tests for re-keying a database ('Database.Edit.deriveDatabase').
+{- | Tests for deriving a database ('Database.Edit.deriveDatabase').
 
-Deriving is not copying: a copy shares the value the source's own key
-produced, and the key is what produced it, so a derived database is read from
-the source's files again. What that has to get right is checked here:
+Deriving is not copying. A parent is its source's files read again, each block
+of several products kept whole; a child is a parent divided by a system model.
+What that has to get right is checked here:
 
-* a block is divided by the property instead of by the shares its source
-  declares, and the inventory of every product follows;
-* a key that divides nothing is refused and leaves nothing behind: such a
-  load is its source under a second name, at the price of a second database
-  in memory and a second cache on disk;
-* so is the key the source already reads under, which is the duplicate no
-  count of divided blocks can see;
-* the key survives a restart, which is the one thing a derived database
-  cannot work out for itself -- it owns no files, so nothing else on disk
-  says its shares are not the ones its source declares;
-* a child of a parent read under @none@ is divided from the parent as it
-  stands in memory: a price edited on the parent reaches the child, before
-  and after a restart, an input consuming a coproduct finds the piece that
-  now produces it, and a block of one product is not cut to its share twice.
+* a child's blocks are divided by its model's property instead of by the
+  shares its source declares, and the inventory of every product follows;
+* an exception of the model divides the blocks it takes by its own property,
+  and one that divides none of them is refused, named;
+* a derivation that divides nothing is refused and leaves nothing behind;
+* a child is asked of a parent, and a parent of a database read from its
+  files, never anything else;
+* the model survives a restart, which is the one thing a child cannot work out
+  for itself -- it owns no files, so nothing else on disk says how it is divided;
+* a child is divided from the parent as it stands in memory: a price edited on
+  the parent reaches the child, before and after a restart, an input consuming
+  a coproduct finds the piece that now produces it, and a block of one product
+  is not cut to its share twice.
 -}
 module DeriveSpec (spec) where
 
@@ -30,6 +29,7 @@ import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Maybe (isJust)
 import Data.Text (Text, isInfixOf)
+import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import System.FilePath ((</>))
@@ -38,7 +38,7 @@ import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
 import Database.Author (ExchangeEdit (..))
-import Database.Edit (deriveDatabase, editExchanges)
+import Database.Edit (Derivation (..), deriveDatabase, editExchanges)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
@@ -46,16 +46,18 @@ import Database.Manager (
     initDatabaseManager,
     loadDatabase,
  )
+import Database.SystemModel (parseSystemModel)
 import Database.Upload (DatabaseFormat (..))
-import TestHelpers (withScratchDataDir, withinTolerance)
+import TestHelpers (modelDividingBy, withScratchDataDir, withinTolerance)
 import Types (
     Activity (..),
-    AllocationKey (..),
     AllocationProperty (..),
     Database (..),
     Exchange,
+    FileReading (..),
     GeographyPolicy (..),
     Licence (..),
+    Reading (..),
     StatedAmount (..),
     TechnosphereFlow (..),
     exchangeAmount,
@@ -66,74 +68,62 @@ import Types (
 
 spec :: Spec
 spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
-    it "divides a block by the property instead of by the declared shares" $
+    it "divides a block by the model's property instead of by the declared shares" $
         withSource coproductCSV $ \manager -> do
-            derived <- deriveDatabase manager source "cheese-wet" (ByProperty WetMass)
-            db <- either (fail . show) (pure . ldDatabase . fst) derived
+            _ <- either (fail . show) pure =<< deriveDatabase manager source parentName AsParent
+            db <- either (fail . show) (pure . ldDatabase . fst) =<< deriveDatabase manager parentName "cheese-wet" (AsChild (modelDividingBy WetMass))
             V.length (dbActivities db) `shouldBe` 2
             M.size (dbActivityUUIDIndex db) `shouldBe` 1
             -- The source declares 51 / 49 and would put 5.1 kg of milk behind
             -- the cheese. 1 kg of cheese beside 3 kg of whey is 25 / 75, and
-            -- the whole inventory follows the key that divided the block.
+            -- the whole inventory follows the property that divided the block.
             milkAmounts db `shouldSatisfy` near [2.5, 7.5]
 
-    it "refuses a key that divides nothing, and registers nothing" $
-        withSource singleProductCSV $ \manager -> do
-            derived <- deriveDatabase manager source "steel-wet" (ByProperty WetMass)
-            case derived of
-                Right _ -> expectationFailure "expected a refusal, the derivation was kept"
-                Left err -> do
-                    err `shouldSatisfy` isInfixOf "divided 0 of the 1 blocks"
-                    available <- readTVarIO (dmAvailableDbs manager)
-                    loaded <- readTVarIO (dmLoadedDbs manager)
-                    M.member "steel-wet" available `shouldBe` False
-                    M.member "steel-wet" loaded `shouldBe` False
-
-    it "names the blocks a key could not divide, and why" $
+    it "names the blocks a property could not divide, and registers nothing" $
         withSource coproductCSV $ \manager -> do
-            derived <- deriveDatabase manager source "cheese-dry" (ByProperty DryMass)
+            _ <- either (fail . show) pure =<< deriveDatabase manager source parentName AsParent
+            derived <- deriveDatabase manager parentName "cheese-dry" (AsChild (modelDividingBy DryMass))
             case derived of
                 Right _ -> expectationFailure "expected a refusal, the source states no dry mass"
                 Left err -> do
                     err `shouldSatisfy` isInfixOf "divided 0 of the 1 blocks"
-                    err `shouldSatisfy` isInfixOf "dry mass: no product of the block states one"
+                    available <- readTVarIO (dmAvailableDbs manager)
+                    M.member "cheese-dry" available `shouldBe` False
 
-    it "reads a block whole under none, the cheese and the whey in one process" $
+    it "reads a block whole as a parent, the cheese and the whey in one process" $
         withSource coproductCSV $ \manager -> do
-            derived <- deriveDatabase manager source "dairy-parent" Unallocated
+            derived <- deriveDatabase manager source parentName AsParent
             db <- either (fail . show) (pure . ldDatabase . fst) derived
             V.length (dbActivities db) `shouldBe` 1
             [length (filter exchangeIsProductOutput (exchanges a)) | a <- V.toList (dbActivities db)] `shouldBe` [2]
 
-    it "refuses none over a source with no block of several products" $
+    it "refuses a parent of a source with no block of several products" $
         withSource singleProductCSV $ \manager -> do
-            derived <- deriveDatabase manager source "steel-parent" Unallocated
+            derived <- deriveDatabase manager source "steel-parent" AsParent
             fromLeft "" derived `shouldSatisfy` isInfixOf "kept no process of several products whole"
 
-    it "refuses the key its source already reads under" $
+    it "refuses a parent of a parent, and a child of a database that is not one" $
         withSource coproductCSV $ \manager -> do
-            -- The block divides under 'Declared' as well as it does under a
-            -- property, so the count of divided blocks says nothing here: the
-            -- duplicate is the key, and it is known before any load.
-            derived <- deriveDatabase manager source "dairy-again" Declared
-            case derived of
-                Right _ -> expectationFailure "expected a refusal, the derivation was kept"
-                Left err -> do
-                    err `shouldSatisfy` isInfixOf "is already read under declared"
-                    available <- readTVarIO (dmAvailableDbs manager)
-                    M.member "dairy-again" available `shouldBe` False
+            _ <- either (fail . show) pure =<< deriveDatabase manager source parentName AsParent
+            again <- deriveDatabase manager parentName "dairy-again" AsParent
+            fromLeft "" again `shouldSatisfy` isInfixOf "is already a parent"
+            orphan <- deriveDatabase manager source "dairy-orphan" (AsChild (modelDividingBy Price))
+            fromLeft "" orphan `shouldSatisfy` isInfixOf "is not a parent"
+            available <- readTVarIO (dmAvailableDbs manager)
+            filter (`M.member` available) ["dairy-again", "dairy-orphan"] `shouldBe` []
 
-    it "is still under its key after a restart" $
+    it "is still divided by its model after a restart" $
         withSource coproductCSV $ \manager -> do
-            _ <- either (fail . show) pure =<< deriveDatabase manager source "cheese-wet" (ByProperty WetMass)
+            _ <- either (fail . show) pure =<< deriveDatabase manager source parentName AsParent
+            _ <- either (fail . show) pure =<< deriveDatabase manager parentName "cheese-wet" (AsChild (modelDividingBy WetMass))
             -- A boot rebuilds every uploaded database's configuration from its
-            -- meta.toml. Written without the key, the derivation came back
-            -- divided the way its source declares, under a name promising the
-            -- opposite.
+            -- meta.toml and the model file beside it. Without them the child
+            -- would come back with nothing to divide it.
             rebooted <- initDatabaseManager defaultConfig NoCache
             available <- readTVarIO (dmAvailableDbs rebooted)
-            fmap dcAllocation (M.lookup "cheese-wet" available) `shouldBe` Just (ByProperty WetMass)
-            fmap dcSource (M.lookup "cheese-wet" available) `shouldBe` Just (Just source)
+            fmap dcReading (M.lookup "cheese-wet" available) `shouldBe` Just (ByModel (modelDividingBy WetMass))
+            fmap dcSource (M.lookup "cheese-wet" available) `shouldBe` Just (Just parentName)
+            loadedDb rebooted "cheese-wet" >>= (`shouldSatisfy` near [2.5, 7.5]) . milkAmounts
 
     describe "a child of a parent" $ do
         it "divides the parent's blocks by the prices their declared shares became" $
@@ -156,6 +146,21 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 -- whey finds no supplier there; in the child it is a reference.
                 wheyLinks parent `shouldBe` [False]
                 wheyLinks child `shouldBe` [True]
+
+        it "divides the blocks an exception takes by the exception's property" $
+            withParent $ \manager -> do
+                parent <- loadedDb manager parentName
+                child <- deriveWith manager (exceptionTaking "wet mass" (dairyActivity parent))
+                -- The dairy by mass, 25 / 75; the rest priced as by default.
+                inputOf "Cow milk" child `shouldSatisfy` near [2.5, 7.5]
+                inputOf "Cream" child `shouldSatisfy` near [2]
+
+        it "refuses an exception that divides none of the blocks it takes, named" $
+            withParent $ \manager -> do
+                parent <- loadedDb manager parentName
+                model <- either (fail . show) pure (parseSystemModel (exceptionTaking "dry mass" (dairyActivity parent)))
+                derived <- deriveDatabase manager parentName childName (AsChild model)
+                fromLeft "" derived `shouldSatisfy` isInfixOf "the dry mass exception \"Dairy by its solids.\" divides none of the 1 blocks it takes"
 
         it "refuses an edit of the parent while a child divided from it is loaded" $
             withParent $ \manager -> do
@@ -245,11 +250,31 @@ derivation has a home, so the parent can be edited.
 -}
 withParent :: (DatabaseManager -> IO ()) -> IO ()
 withParent k = withSource farmCSV $ \manager -> do
-    _ <- either (fail . show) pure =<< deriveDatabase manager source parentName Unallocated
+    _ <- either (fail . show) pure =<< deriveDatabase manager source parentName AsParent
     k manager
 
 deriveChild :: DatabaseManager -> IO Database
-deriveChild manager = either (fail . show) (pure . ldDatabase . fst) =<< deriveDatabase manager parentName childName (ByProperty Price)
+deriveChild manager = either (fail . show) (pure . ldDatabase . fst) =<< deriveDatabase manager parentName childName (AsChild (modelDividingBy Price))
+
+-- | The child divided by the model the text of a file describes.
+deriveWith :: DatabaseManager -> Text -> IO Database
+deriveWith manager text = do
+    model <- either (fail . show) pure (parseSystemModel text)
+    either (fail . show) (pure . ldDatabase . fst) =<< deriveDatabase manager parentName childName (AsChild model)
+
+-- | A model pricing every block but one, divided by @key@.
+exceptionTaking :: Text -> Text -> Text
+exceptionTaking key activity =
+    T.unlines
+        [ "name = \"Dairy apart\""
+        , "version = \"1.0.0\""
+        , "[allocation]"
+        , "default = \"price\""
+        , "[[allocation.exceptions]]"
+        , "key = \"" <> key <> "\""
+        , "reason = \"Dairy by its solids.\""
+        , "processes = [\"" <> activity <> "\"]"
+        ]
 
 loadedDb :: DatabaseManager -> Text -> IO Database
 loadedDb manager name = either (fail . show) (pure . ldDatabase . fst) =<< loadDatabase manager name
@@ -289,7 +314,7 @@ sourceConfig csvPath =
         , dcIsUploaded = False
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated

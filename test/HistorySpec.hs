@@ -10,7 +10,8 @@ import Data.JournalFile (Entry (..))
 import Database.Author (AuthoredActivity (..), ExchangeEdit (..), ExchangeSelector (..))
 import Database.History
 import Database.Journal (Change (..), EditLine (..), JournalOp (..), ParameterLine (..), Prior (..), noteFrom)
-import Types (AllocationKey (..), AllocationProperty (..), Parameter (..), ParameterDefinition (..), Release (..), StatedAmount (..))
+import TestHelpers (modelDividingBy)
+import Types (AllocationProperty (..), Parameter (..), ParameterDefinition (..), Reading (..), Release (..), StatedAmount (..))
 
 bread :: AuthoredActivity
 bread =
@@ -51,7 +52,7 @@ spec = describe "Database.History" $ do
                        ]
 
     it "reports each change with its reason, or says it was given none" $ do
-        let report = changesReport Provenance{pvDatabase = "my bakery", pvOriginal = "bakery", pvRelease = Just (Release "Bakery data" "2025" Nothing), pvReallocated = Just (ByProperty DryMass)} history
+        let report = changesReport Provenance{pvDatabase = "my bakery", pvOriginal = "bakery", pvRelease = Just (Release "Bakery data" "2025" Nothing), pvReallocated = Just (ByModel (modelDividingBy DryMass))} history
         T.lines report
             `shouldStartWith` [ "# Changes to my bakery"
                               , ""
@@ -59,7 +60,7 @@ spec = describe "Database.History" $ do
                               , ""
                               , "Modified data; not endorsed by the publisher of the original."
                               , ""
-                              , "Multi-output processes are divided by dry mass, not as the original divides them."
+                              , "Multi-output processes are divided by the system model every block by dry mass 1.0.0, not as the original divides them."
                               , ""
                               , "## 2026-10-01: Added 1 activity"
                               , ""

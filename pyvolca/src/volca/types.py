@@ -248,8 +248,10 @@ class DatabaseInfo(FromJson):
     ``allocation`` is the key its multi-output blocks were divided by:
     ``"declared"`` for the shares the source itself states, otherwise the name
     of the property recomputed them (``"dry mass"``, ``"wet mass"``,
-    ``"price"``), or ``"none"`` for blocks kept whole. Without it a column of
-    shares cannot say which of the two it is showing.
+    ``"price"``), or ``"none"`` for blocks kept whole. A child divided by a
+    system model reports its model's default property; its exceptions are in
+    :meth:`Client.system_model`. Without it a column of shares cannot say
+    which of the two it is showing.
     ``source`` names the database this one was derived from, and is ``None``
     for one read straight from its files. Both are ``None`` against an engine
     older than wire revision 20.

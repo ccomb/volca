@@ -317,7 +317,7 @@ treatmentDatabase = treatmentDatabaseNaming "producer of Y"
 treatmentDatabaseNaming :: Text -> IO Database
 treatmentDatabaseNaming producerName =
     buildDatabaseWithMatrices
-        (BuildInputs defaultUnitConfig mempty Declared [])
+        (BuildInputs defaultUnitConfig mempty ReadDeclared [])
         SimpleDatabase
             { sdbActivities =
                 M.fromList

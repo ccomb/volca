@@ -35,7 +35,7 @@ def test_derive_database_raises_on_an_in_band_failure(client):
     client._require_wire = mock.Mock()  # type: ignore[method-assign]
     client._call = mock.Mock(return_value={"tag": "LoadFailed", "error": "the key divides no block"})  # type: ignore[method-assign]
     with pytest.raises(VoLCAError, match="divides no block"):
-        client.derive_database("x-wet", "wet mass", db_name="x")
+        client.derive_database("x-parent", parent=True, db_name="x")
 
 
 def test_a_successful_load_is_returned(client):

@@ -433,19 +433,11 @@ applyStructuredFilters geographies db geoParam productParam classFilters exactMa
                         , allWordsMatch prod getProductNames a
                         ]
 
+        -- Filters on one system are alternatives, systems all apply.
         classFiltered =
-            let groups = M.fromListWith (++) [(sys, [(val, match)]) | ClassificationFilter{clfSystem = sys, clfValue = val, clfMatch = match} <- classFilters]
-                matchOne v (q, match) = case match of
-                    MatchExact -> T.toLower q == T.toLower v
-                    MatchContains -> T.isInfixOf (T.toLower q) (T.toLower v)
-                applyGroup acc (sys, pairs) =
-                    [ (pid, a)
-                    | (pid, a) <- acc
-                    , case M.lookup sys (activityClassification a) of
-                        Just v -> any (matchOne v) pairs
-                        Nothing -> False
-                    ]
-             in foldl applyGroup productFiltered (M.toList groups)
+            let groups = M.elems (M.fromListWith (++) [(clfSystem f, [f]) | f <- classFilters])
+                applyGroup acc filters = [(pid, a) | (pid, a) <- acc, any (`classificationMatches` activityClassification a) filters]
+             in foldl applyGroup productFiltered groups
      in classFiltered
 
 {- | Search activities by multiple fields (name, geography, product, classification).

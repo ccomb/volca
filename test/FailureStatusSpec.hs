@@ -10,7 +10,7 @@ below is given a name that exists nowhere, on a writable instance.
 -}
 module FailureStatusSpec (spec) where
 
-import API.Types (UploadChunk (..))
+import API.Types (DeriveRequest (..), UploadChunk (..))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Test.Hspec
@@ -63,7 +63,7 @@ failing =
     , ("unload", (`failure` unloadDatabaseHandler "nope"))
     , ("delete", (`failure` deleteDatabaseHandler "nope"))
     , ("copy", (`failure` copyDatabaseHandler "nope" "nope-copy"))
-    , ("derive", (`failure` deriveDatabaseHandler "nope" "nope-derived" Nothing))
+    , ("derive", (`failure` deriveDatabaseHandler "nope" "nope-derived" DeriveRequest{drParent = Just True, drSystemModel = Nothing}))
     , ("finalize", (`failure` finalizeDatabaseHandler "nope"))
     , ("upload", (`failure` uploadDatabaseHandler (Just "nope") Nothing (source [])))
     , ("upload without a name", (`failure` uploadDatabaseHandler Nothing Nothing (source [])))

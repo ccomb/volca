@@ -105,7 +105,7 @@ chainOfFour = do
                     , sdbProductSystems = []
                     , sdbReferenceConvention = SignedReferences
                     }
-         in buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty Declared []) sdb >>= either (fail . show) pure
+         in buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty ReadDeclared []) sdb >>= either (fail . show) pure
 
 -- ---------------------------------------------------------------------------
 -- Helper: build solver + DB for SAMPLE.min3, with factorization pre-triggered

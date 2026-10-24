@@ -111,7 +111,7 @@ data ILCDExchangeRaw = ILCDExchangeRaw
 {- | Parse an ILCD directory into a SimpleDatabase.
 Expects subdirectories: processes/, flows/, flowproperties/, unitgroups/
 -}
-parseILCDDirectory :: UnitConfig -> AllocationKey -> FilePath -> IO (Either Text SimpleDatabase)
+parseILCDDirectory :: UnitConfig -> FileReading -> FilePath -> IO (Either Text SimpleDatabase)
 parseILCDDirectory unitConfig key dir = runExceptT $ do
     liftIO $ reportProgress Info $ "Loading ILCD database from: " ++ dir
 
@@ -137,7 +137,7 @@ parseILCDDirectory unitConfig key dir = runExceptT $ do
     liftIO $ reportProgress Info $ printf "Parsed %d processes, building activity map..." (length processes)
 
     -- Step 5: Build ActivityMap
-    let alloc = Allocating{alKey = key, alUnitConfig = unitConfig, alUnitDB = unitDB}
+    let alloc = Allocating{alKey = fileReadingKey key, alUnitConfig = unitConfig, alUnitDB = unitDB}
         activityMap = buildActivityMap alloc flowInfoMap techFlowDB bioFlowDB wasteFlowDB processes
 
     literature <- ExceptT $ parseSources (dir </> "sources")
@@ -935,7 +935,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
 
     -- \| The number itself, once the role says a share belongs on the exchange.
     shareOf :: ILCDExchangeRaw -> Maybe DeclaredShare
-    shareOf raw = flip DeclaredShare Nothing <$> ierShare raw
+    shareOf raw = (\pct -> DeclaredShare pct Nothing Nothing) <$> ierShare raw
 
     -- Look up the reference exchange's flow unit. Reference exchange is typically
     -- a technosphere product, but for waste-treatment processes it may be a

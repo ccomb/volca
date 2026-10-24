@@ -114,6 +114,7 @@ module Database.Manager (
     databaseLicence,
     releasesRead,
     parentOf,
+    systemModelOf,
     termsToAccept,
     acceptedTerms,
     acceptTerms,
@@ -187,6 +188,7 @@ import Data.Bitraversable (bitraverse)
 import Data.Char (toLower)
 import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
+import Data.Functor ((<&>))
 import Data.Indexing (uniqueIndex)
 import qualified Data.Indexing as Indexing
 import Data.List (find, intercalate, isPrefixOf, nub, sort, sortOn)
@@ -203,6 +205,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
+import Database.SystemModel (takenProcesses)
 import GHC.Generics (Generic)
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath (addTrailingPathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (</>))
@@ -298,6 +301,7 @@ import Types (
     Database (..),
     DatabaseDocumentation (..),
     ExchangeLocation (..),
+    FileReading (..),
     FlowClosure (..),
     GeographyPolicy (..),
     LibraryDocument (..),
@@ -305,14 +309,18 @@ import Types (
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
+    ModelException,
+    ModelTitle (..),
     Modification (..),
     Permission (..),
     ProcessId,
+    Reading (..),
     Release (..),
     SimpleDatabase (..),
     SparseTriple (..),
     SupplierAmbiguity (..),
     SupplierRequest (..),
+    SystemModel,
     Terms (..),
     UUID,
     Unit (..),
@@ -334,7 +342,10 @@ import Types (
     flowClosure,
     granted,
     initializeRuntimeFields,
+    modelOf,
+    modelTitle,
     parseAllocationKey,
+    readingKey,
     reasonsOf,
     sharedFlowSynonyms,
     statedCode,
@@ -582,7 +593,8 @@ data DatabaseStatus = DatabaseStatus
     , dsFormat :: !(Maybe Upload.DatabaseFormat) -- Detected format
     , dsActivityCount :: !Int -- Number of activities (0 if unloaded)
     , dsDependsOn :: ![Text] -- Names of databases this one depends on (for cross-DB linking)
-    , dsAllocation :: !AllocationKey -- The key its multi-output blocks were divided under
+    , dsAllocation :: !AllocationKey -- The key its multi-output blocks were divided under; a child's model's default
+    , dsSystemModel :: !(Maybe ModelTitle) -- The model a child was divided by
     , dsSource :: !(Maybe Text) -- The database whose files it reads, when it owns none
     , dsLicence :: !Licence -- What it is served under, its source's for a copy
     , dsRelease :: !(Maybe Release) -- Which published database it is, as its owner declared
@@ -604,6 +616,7 @@ instance ToJSON DatabaseStatus where
             , "dsActivityCount" .= dsActivityCount
             , "dsDependsOn" .= dsDependsOn
             , "dsAllocation" .= allocationKeyText dsAllocation
+            , "dsSystemModel" .= dsSystemModel
             , "dsSource" .= dsSource
             , "dsLicence" .= dsLicence
             , "dsRelease" .= dsRelease
@@ -629,6 +642,8 @@ instance FromJSON DatabaseStatus where
             -- "declared" beside shares some other key produced is the silent
             -- misreading the field was put on the wire to end.
             <*> (v .:? "dsAllocation" A..!= "declared" >>= either (fail . T.unpack) pure . parseAllocationKey)
+            -- Before models were on the wire no database was divided by one.
+            <*> v .:? "dsSystemModel"
             <*> v .:? "dsSource"
             -- Before terms were on the wire every database could be downloaded.
             <*> v .:? "dsLicence" A..!= LicenceUnstated
@@ -1972,11 +1987,11 @@ uploadMetaToConfig slug dirPath meta =
         , dcIsUploaded = True -- Discovered from uploads/ directory
         , dcDeletable = True
         , dcGeographyPolicy = GeoGlobal -- Uploads can't yet express policy; default to permissive
-        , -- Read, never assumed: a database derived under a property key is
-          -- rebuilt from this config at every restart, and a hardcoded
-          -- 'Declared' here handed it back divided the way its source
-          -- declares under a name promising the opposite.
-          dcAllocation = UploadedDB.umAllocation meta
+        , -- Read, never assumed: a parent or a child is rebuilt from this
+          -- config at every restart, and a hardcoded reading here would hand
+          -- it back divided the way its source declares under a name
+          -- promising the opposite.
+          dcReading = UploadedDB.umReading meta
         , -- A copy's or a derived database's come from its source, in 'withSourcePatches'.
           dcPatches = []
         , dcSource = UploadedDB.umSource meta
@@ -2331,7 +2346,8 @@ listDatabases manager = do
                 , dsFormat = dcFormat config
                 , dsActivityCount = actCount
                 , dsDependsOn = dcDepends config
-                , dsAllocation = dcAllocation config
+                , dsAllocation = readingKey (dcReading config)
+                , dsSystemModel = modelTitle <$> modelOf (dcReading config)
                 , dsSource = dcSource config
                 , dsLicence = licenceOf availableDbs config
                 , dsRelease = dcRelease config
@@ -2409,7 +2425,7 @@ loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig cachePolicy othe
                     Loader.LoadOptions
                         { Loader.loUnitConfig = unitConfig
                         , Loader.loLocationAliases = locationAliases
-                        , Loader.loAllocation = dcAllocation dbConfig
+                        , Loader.loAllocation = filesReading (dcReading dbConfig)
                         , Loader.loPatches = dcPatches dbConfig
                         }
                 , rlSourcePath = sourcePath
@@ -2799,18 +2815,21 @@ loadDatabaseSingleFromConfig manager dbName = do
     parseOrReplay :: DatabaseConfig -> SynonymDB -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
     parseOrReplay dbConfig synonymDB = do
         configs <- liftIO $ readTVarIO (dmAvailableDbs manager)
-        maybe (fromFiles configs dbConfig synonymDB) (fromParent dbConfig synonymDB) (parentOf configs dbConfig)
+        case (dcReading dbConfig, parentOf configs dbConfig) of
+            (FromFiles _, _) -> fromFiles configs dbConfig synonymDB
+            (ByModel model, Just parentName) -> fromParent dbConfig synonymDB parentName model
+            (ByModel _, Nothing) -> throwE (dbName <> " is divided by a system model, and none of its sources is a parent read under none")
 
     {- The parent is loaded as it stands, its journal replayed, so what was
     edited on it reaches the child.
     shortcut: a child is never cached and is divided again at every load;
     cache it under its parent's journal stamp when that shows in load times. -}
-    fromParent :: DatabaseConfig -> SynonymDB -> Text -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
-    fromParent dbConfig synonymDB parentName = do
+    fromParent :: DatabaseConfig -> SynonymDB -> Text -> SystemModel -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
+    fromParent dbConfig synonymDB parentName model = do
         (parent, _) <- ExceptT (loadDatabase manager parentName)
         unitConfig <- liftIO $ getMergedUnitConfig manager
         liftIO $ reportProgress Info $ "Dividing " <> T.unpack dbName <> " from its parent " <> T.unpack parentName
-        child <- ExceptT (Child.childOf unitConfig (dcAllocation dbConfig) (ldDatabase parent))
+        child <- ExceptT (Child.childOf unitConfig model (ldDatabase parent))
         (db, solver) <- liftIO $ withRuntime dbName synonymDB child
         (edited, _) <- ExceptT (replayEdits manager dbConfig LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = dbConfig})
         pure (edited, FromParent)
@@ -2886,7 +2905,7 @@ source's key, which is still not the files' own.
 databaseModification :: M.Map Text DatabaseConfig -> DatabaseConfig -> IO Modification
 databaseModification configs config = do
     edited <- maybe (pure False) Journal.journalHasEntries =<< editHome config
-    pure Modification{modificationEdited = edited, modificationReallocated = dcAllocation (filesOwner configs config) /= dcAllocation config}
+    pure Modification{modificationEdited = edited, modificationReallocated = dcReading (filesOwner configs config) /= dcReading config}
 
 {- | The database whose files this one reads, at the end of its chain of
 sources: itself, for one that owns its files.
@@ -2964,19 +2983,44 @@ withRuntime dbName synonymDB rebuilt = do
     pure (db, solver)
 
 {- | The parent a database is divided from: the nearest one up its chain of
-sources read under @none@, when the database itself is read under a property.
+sources read under @none@, when the database itself is divided by a model.
 
 A database read under @declared@ reads its files instead. The shares it applies
 are the files' own, per exchange where a source states them, and the parent
 keeps only one share per product.
 -}
 parentOf :: M.Map Text DatabaseConfig -> DatabaseConfig -> Maybe Text
-parentOf configs config = case dcAllocation config of
-    ByProperty _ -> find readWhole (drop 1 (sourceChain configs (dcName config)))
-    _ -> Nothing
+parentOf configs config = case dcReading config of
+    ByModel _ -> find readWhole (drop 1 (sourceChain configs (dcName config)))
+    FromFiles _ -> Nothing
   where
     readWhole :: Text -> Bool
-    readWhole name = (dcAllocation <$> M.lookup name configs) == Just Unallocated
+    readWhole name = (dcReading <$> M.lookup name configs) == Just (FromFiles ReadWhole)
+
+{- | A child's system model, with each exception and the processes it takes
+from the parent as now loaded: the parent's edits since the child was divided
+show in what a rule takes.
+-}
+systemModelOf :: DatabaseManager -> Text -> IO (Either Text (SystemModel, [(ModelException, [(UUID, Text)])]))
+systemModelOf manager dbName = do
+    configs <- readTVarIO (dmAvailableDbs manager)
+    case M.lookup dbName configs of
+        Nothing -> pure (Left ("Database not found: " <> dbName))
+        Just config -> case (dcReading config, parentOf configs config) of
+            (ByModel model, Just parentName) ->
+                getDatabase manager parentName <&> \case
+                    Nothing -> Left ("the parent " <> parentName <> " of " <> dbName <> " is not loaded")
+                    Just parent -> either (Left . T.intercalate "; " . NE.toList) (Right . (,) model) (takenProcesses model (ldDatabase parent))
+            (ByModel _, Nothing) -> pure (Left (dbName <> " is divided by a system model, and none of its sources is a parent read under none"))
+            (FromFiles _, _) -> pure (Left (dbName <> " is read from its files, not divided from a parent by a system model"))
+
+{- | How the files under a database are read: a child's are its parent's,
+read whole.
+-}
+filesReading :: Reading -> FileReading
+filesReading reading = case reading of
+    FromFiles fr -> fr
+    ByModel _ -> ReadWhole
 
 {- | Save the replayed database to its matrix cache and stamp the cache with
 the journal it now holds, so the next load reads it instead of replaying.
@@ -3416,7 +3460,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                     Loader.LoadOptions
                         { Loader.loUnitConfig = unitConfig
                         , Loader.loLocationAliases = dcLocationAliases dbConfig
-                        , Loader.loAllocation = dcAllocation dbConfig
+                        , Loader.loAllocation = filesReading (dcReading dbConfig)
                         , Loader.loPatches = dcPatches dbConfig
                         }
                     (M.elems indexedDbs)
@@ -3567,7 +3611,7 @@ removeDatabase manager dbName = do
                                     <> dbName
                                     <> ": "
                                     <> T.intercalate ", " names
-                                    <> " were copied from it and read its files. Delete them first."
+                                    <> " were made from it and read its files. Delete them first."
   where
     tryIO :: IO a -> IO (Either SomeException a)
     tryIO = Control.Exception.try
@@ -5109,7 +5153,7 @@ cache is trusted only if it records the same pair.
 currentBuildInputs :: DatabaseManager -> DatabaseConfig -> IO BuildInputs
 currentBuildInputs manager dbConfig = do
     unitConfig <- getMergedUnitConfig manager
-    pure (BuildInputs unitConfig (dcLocationAliases dbConfig) (dcAllocation dbConfig) (dcPatches dbConfig))
+    pure (BuildInputs unitConfig (dcLocationAliases dbConfig) (filesReading (dcReading dbConfig)) (dcPatches dbConfig))
 
 {- | Snapshot of flow + unit metadata across every currently-loaded DB.
 Used to characterize or display a cross-DB-merged 'Inventory', whose

@@ -48,14 +48,15 @@ import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Types (
     Activity (..),
-    AllocationKey (..),
     BuildInputs (..),
     CrossDBLink (..),
     Database (..),
     Exchange (..),
+    FileReading (..),
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
+    Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -237,7 +238,7 @@ buildOrFail :: SimpleParts -> IO Database
 buildOrFail (SimpleParts acts flows units) = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = acts
                 , sdbTechFlows = flows
@@ -273,7 +274,7 @@ consumerConfig path =
         , dcIsUploaded = False
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated

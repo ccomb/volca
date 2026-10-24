@@ -39,7 +39,7 @@ import Database.Loader (LoadOptions (..))
 import Database.Manager (CachePolicy (..), LoadSource (..), RawLoad (..), loadDatabaseRawWithCrossDB)
 import SynonymDB (emptySynonymDB)
 import TestHelpers (unitDef)
-import Types (AllocationKey (..), GeographyPolicy (..))
+import Types (FileReading (..), GeographyPolicy (..))
 import UnitConversion (UnitConfig, defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
 {- | Copy regular files from one directory into another (non-recursive,
@@ -69,7 +69,7 @@ runRawWith unitConfig locationAliases dstDir = do
                     LoadOptions
                         { loUnitConfig = unitConfig
                         , loLocationAliases = locationAliases
-                        , loAllocation = Declared
+                        , loAllocation = ReadDeclared
                         , loPatches = []
                         }
                 , rlSourcePath = dstDir

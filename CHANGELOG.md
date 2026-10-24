@@ -4,6 +4,19 @@
 
 ### Added
 
+- A database divided by price, dry mass or wet mass is now a child of a
+  parent, divided by a system model: a small TOML file that names the
+  property for every process of several products, and the exceptions, each
+  with its own property, the reason for it, and the processes it takes, by
+  category or by identifier. The file is kept beside the child as written,
+  and a new page of the engine gives it back with, for each exception, the
+  processes it takes. Each product of a child says which property divided it,
+  so a cheese dairy divided by mass in a child priced everywhere else is not
+  shown as priced. A model that names a key the engine does not read, an
+  exception without a reason, one that takes no process or divides none of
+  those it takes, and a process two exceptions take, are each refused with
+  what is wrong. Wire revision 85.
+
 - A database derived from a parent is divided from the parent as it stands,
   its edits included, rather than from the files: a price changed on the
   parent changes the shares of the derived database, at once for a new
@@ -22,15 +35,15 @@
 - A database can be read as a parent: under the `none` allocation key, a
   process of several products is kept whole, with its inventory as the
   source states it, and each product's declared share becomes a price
-  deduced from it. A database derived from the parent under `price` then
+  deduced from it. A child divided from the parent by price then
   divides it back into the declared shares. A process kept whole has no
   column of its own, and the warning says why instead of asking for a
-  missing share. Deriving `none` from a source with no process of several
+  missing share. Deriving a parent from a source with no process of several
   products is refused, the result being the same database. Wire revision 83.
 
 - The openLCA export refuses a process a parent database keeps whole,
   which openLCA would read with the whole inventory on every product, and
-  asks for a database derived under a key instead.
+  asks for a child of it instead.
 
 - A product line can carry a price, and a database can be divided by what
   each product brings in: the `price` allocation key gives each product of
@@ -421,6 +434,20 @@
   lognormal spreads it cannot write (one centred elsewhere than the
   parameter's amount). Every export writes each name a formula reads as its
   parameter spells it: Brightway tells `Yield` from `yield`.
+
+### Changed
+
+- A database is no longer read from its files under a property: the
+  `allocation` of a database entry and of an uploaded database accepts only
+  `declared` and `none`, and refuses the others with what to do instead.
+  Asking for a derived database now says whether it is a parent, read from
+  the files with each process of several products kept whole, or a child of
+  a parent, with the text of its system model; the request no longer takes
+  an allocation key. A derived database kept by an older version under a
+  property is refused at load, named, and must be derived again from a
+  parent. In pyvolca, `derive_database` takes `parent=True` or
+  `system_model=` (the text or the path of the file), and `system_model()`
+  reads a child's model back.
 
 ### Fixed
 

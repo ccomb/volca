@@ -13,8 +13,8 @@ import API.DatabaseHandlers (convertDbStatus)
 import API.Types (DatabaseStatusAPI (..))
 import Config (DatabaseConfig (..))
 import Database.Manager (DatabaseLoadStatus (..), DatabaseStatus (..), databaseModification)
-import TestHelpers (dbConfigFor, membersOnly)
-import Types (AllocationKey (..), AllocationProperty (..), Licence (..), Modification (..), Release (..))
+import TestHelpers (dbConfigFor, membersOnly, modelDividingBy)
+import Types (AllocationKey (..), AllocationProperty (..), FileReading (..), Licence (..), Modification (..), Reading (..), Release (..))
 
 mkStatus :: [A.Value -> A.Value] -> DatabaseStatus
 mkStatus _ =
@@ -30,6 +30,7 @@ mkStatus _ =
         , dsActivityCount = 42
         , dsDependsOn = ["ecoinvent-3-9-1-adapted", "wfldb"]
         , dsAllocation = ByProperty WetMass
+        , dsSystemModel = Nothing
         , dsSource = Just "agribalyse-3-2-declared"
         , dsLicence = membersOnly
         , dsRelease = Just (Release "Agribalyse" "3.2" Nothing)
@@ -41,9 +42,9 @@ spec = do
     describe "databaseModification" $ do
         -- None of these keeps a journal: what is checked is the division alone.
         let original = dbConfigFor "original"
-            derived = (dbConfigFor "dry"){dcSource = Just "original", dcAllocation = ByProperty DryMass}
-            copyOfDerived = (dbConfigFor "copy"){dcSource = Just "dry", dcAllocation = ByProperty DryMass}
-            backToDeclared = (dbConfigFor "back"){dcSource = Just "dry", dcAllocation = Declared}
+            derived = (dbConfigFor "dry"){dcSource = Just "original", dcReading = ByModel (modelDividingBy DryMass)}
+            copyOfDerived = (dbConfigFor "copy"){dcSource = Just "dry", dcReading = ByModel (modelDividingBy DryMass)}
+            backToDeclared = (dbConfigFor "back"){dcSource = Just "dry", dcReading = FromFiles ReadDeclared}
             configs = M.fromList [(dcName c, c) | c <- [original, derived, copyOfDerived, backToDeclared]]
             reallocated config = modificationReallocated <$> databaseModification configs config
         it "says a database re-divided from its original is modified" $

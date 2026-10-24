@@ -8,7 +8,7 @@ import Test.Hspec
 
 import Config (DatabaseConfig (..))
 import Database.Requirements
-import Types (AllocationKey (..), GeographyPolicy (..), Licence (..), Release (..), Requirement (..))
+import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..), Release (..), Requirement (..))
 
 ei :: Text -> Release
 ei version = Release{releaseName = "ecoinvent", releaseVersion = version, releaseSystemModel = Just "Allocation, cut-off by classification"}
@@ -28,7 +28,7 @@ config name release requires =
         , dcIsUploaded = True
         , dcDeletable = True
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated

@@ -164,7 +164,7 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
         Declared -> (,) FromSource <$> declaredShares
         ByProperty prop
             | length products < 2 -> (,) FromSource <$> declaredShares
-            | otherwise -> (,) FromProperty <$> propertyKeyShares prop unitCfg unitDB (map snd products)
+            | otherwise -> (,) (FromProperty prop) <$> propertyKeyShares prop unitCfg unitDB (map snd products)
         -- A lone product's declared share is the same statement as under a
         -- property key: nothing else in the file can stand for the half cut away.
         Unallocated
@@ -200,7 +200,7 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
         exchangeShare :: Double
         exchangeShare = case from of
             FromSource -> M.findWithDefault share SharedExchange{seProduct = productAt, seExchange = at} pairs
-            FromProperty -> share
+            FromProperty _ -> share
 
     {- The share a split process records is the one that was applied to it.
     Where that is what the row already says, the row is left alone, formula
@@ -211,11 +211,11 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
     applied :: SharesFrom -> Double -> Exchange -> Exchange
     applied from share ex = case from of
         FromSource -> ex
-        FromProperty -> withShare share ex
+        FromProperty prop -> withShare prop share ex
 
-    withShare :: Double -> Exchange -> Exchange
-    withShare share ex = case ex of
-        TechnosphereExchange{} -> ex{techShare = Just (DeclaredShare{dsPercent = share, dsFormula = Nothing})}
+    withShare :: AllocationProperty -> Double -> Exchange -> Exchange
+    withShare prop share ex = case ex of
+        TechnosphereExchange{} -> ex{techShare = Just (DeclaredShare{dsPercent = share, dsFormula = Nothing, dsBy = Just prop})}
         BiosphereExchange{} -> ex
         WasteExchange{} -> ex
 
@@ -251,7 +251,7 @@ deducePrices placed
 -- | Whether the shares a block was split on replace what its source declared.
 data SharesFrom
     = FromSource
-    | FromProperty
+    | FromProperty !AllocationProperty
     deriving (Eq, Show)
 
 {- | The shares a property key gives the products of one block, keeping a

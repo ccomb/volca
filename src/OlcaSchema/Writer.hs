@@ -213,7 +213,7 @@ describeRefusals refusals =
         , ("waste inputs go to a treatment the database does not have, so their sign cannot be decided:", [n | TreatmentAbsent n <- refusals])
         , ("references are a positive output of a waste flow, which openLCA cannot make:", [n | PositiveWasteReference n <- refusals])
         , ("amounts are not finite:", [n | NotFinite n <- refusals])
-        , ("coproducts are of a process a parent database keeps whole, which openLCA would read with the whole inventory; export a database derived from it under an allocation key:", [n | KeptWhole n <- refusals])
+        , ("coproducts are of a process a parent database keeps whole, which openLCA would read with the whole inventory; export a child divided from it by a system model:", [n | KeptWhole n <- refusals])
         ]
 
 -- | Every location code a process or a line states, with how often.

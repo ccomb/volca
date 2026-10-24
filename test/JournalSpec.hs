@@ -52,7 +52,6 @@ import Database.Journal (
 import Database.Rebuild (renderKey)
 import Types (
     Activity (..),
-    AllocationKey (..),
     BioDirection (..),
     BiosphereFlow (..),
     BuildInputs (..),
@@ -61,6 +60,7 @@ import Types (
     Exchange (..),
     ExchangeLocation (..),
     ExchangeProperties (..),
+    FileReading (..),
     LocationSource (..),
     Medium (..),
     Parameter (..),
@@ -570,7 +570,7 @@ buildDepFixture :: IO Database
 buildDepFixture = do
     built <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = M.singleton (depActId, depProdId) depActivity
                 , sdbTechFlows = M.singleton depProdId wheatFlow
@@ -592,7 +592,7 @@ buildFixtureWith :: [Exchange] -> IO Database
 buildFixtureWith extra = do
     built <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = M.singleton (supplierActId, supplierProdId) supplierActivity{exchanges = exchanges supplierActivity <> extra}
                 , sdbTechFlows = M.fromList ((supplierProdId, milkFlow) : [(depProdId, wheatFlow) | not (null extra)])

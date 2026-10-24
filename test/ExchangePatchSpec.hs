@@ -12,7 +12,6 @@ import Database.Patch (ProcessNames (..), applyExchangePatches, describeExchange
 import Test.Hspec
 import Types (
     Activity (..),
-    AllocationKey (..),
     BioDirection (..),
     BiosphereFlow (..),
     BuildInputs (..),
@@ -21,6 +20,7 @@ import Types (
     ExchangeFormula (..),
     ExchangePatch (..),
     ExchangePatchMatch (..),
+    FileReading (..),
     LocationSource (..),
     PatchOp (..),
     ReferenceConvention (..),
@@ -289,7 +289,7 @@ spec = do
             loaded <-
                 either (fail . T.unpack) pure
                     =<< loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig){loPatches = [halveB]} "test-data/SAMPLE.min"
-            first <- built loaded (BuildInputs defaultUnitConfig M.empty Declared [halveB])
+            first <- built loaded (BuildInputs defaultUnitConfig M.empty ReadDeclared [halveB])
             -- A re-staged database is rebuilt from the activities it was built with.
             second <- built (toSimpleDatabase first) (dbBuiltWith first)
             productBInputs loaded `shouldBe` [0.4]

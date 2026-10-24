@@ -253,10 +253,15 @@ expression when that share was a formula rather than a number (the SimaPro
 allocation column). 'Database.Allocation.allocate' splits on it, the SimaPro
 writer writes it back, and it stays on the reference exchange of a split
 process as the record of what the source said.
+
+'dsBy' is the property a child's system model divided the block by, when one
+replaced what the source said; a page showing the share of a cheese dairy
+divided by dry mass in a child priced everywhere else must not call it a price.
 -}
 data DeclaredShare = DeclaredShare
     { dsPercent :: !Double
     , dsFormula :: !(Maybe Text)
+    , dsBy :: !(Maybe AllocationProperty)
     }
     deriving (Eq, Show, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeclaredShare)
@@ -1231,7 +1236,7 @@ data ClassificationMatch
       MatchExact
     | -- | The value as a substring of the activity's.
       MatchContains
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic, NFData)
 
 {- | Narrows a query to the activities whose 'activityClassification' under
 'clfSystem' matches 'clfValue'. Never serialised: each surface reads its own
@@ -1242,7 +1247,18 @@ data ClassificationFilter = ClassificationFilter
     , clfValue :: !Text
     , clfMatch :: !ClassificationMatch
     }
-    deriving (Eq, Show)
+    deriving (Eq, Show, Generic, NFData)
+
+{- | Whether a classification holds the filter's value under its system,
+case-blind. One filter; how several combine is the caller's.
+-}
+classificationMatches :: ClassificationFilter -> M.Map Text Text -> Bool
+classificationMatches ClassificationFilter{clfSystem = sys, clfValue = want, clfMatch = match} classification =
+    case M.lookup sys classification of
+        Nothing -> False
+        Just have -> case match of
+            MatchExact -> T.toCaseFold want == T.toCaseFold have
+            MatchContains -> T.toCaseFold want `T.isInfixOf` T.toCaseFold have
 
 {- | The source block one process came out of, as a listing needs to know it.
 
@@ -1740,7 +1756,7 @@ database at the next start.
 data BuildInputs = BuildInputs
     { biUnitConfig :: !UnitConfig
     , biLocationAliases :: !(M.Map Text Text)
-    , biAllocation :: !AllocationKey
+    , biAllocation :: !FileReading
     , biPatches :: ![ExchangePatch]
     }
     deriving (Eq, Show, Generic, NFData, Store)
@@ -2417,6 +2433,18 @@ data AllocationProperty
     | Price
     deriving (Show, Eq, Generic, NFData, Store)
 
+-- | On the wire a property is the word it is written as everywhere else.
+instance ToJSON AllocationProperty where
+    toJSON = toJSON . propertyName
+
+instance FromJSON AllocationProperty where
+    parseJSON raw = do
+        word <- parseJSON raw
+        maybe (fail ("expected dry mass, wet mass or price, got: " <> T.unpack word)) pure (lookup word [(propertyName p, p) | p <- [DryMass, WetMass, Price]])
+
+instance ToSchema AllocationProperty where
+    declareNamedSchema _ = declareNamedSchema (Proxy :: Proxy Text)
+
 {- | How the shares of a multi-output activity are decided. Maps to TOML field
 @allocation@ on a database entry.
 
@@ -2471,6 +2499,110 @@ parseAllocationKey raw =
 
     refusal :: Text
     refusal = "expected one of " <> T.intercalate " | " (map fst table) <> ", got: " <> raw
+
+{- | How a database reads its own files: under the shares they declare, or
+keeping each block of several products whole as a parent.
+
+Never under a property. A database divided by a property is a child, divided
+from a parent by a 'SystemModel', so the readers of every format allocate one
+way and the rule for each block lives in one file.
+-}
+data FileReading
+    = ReadDeclared
+    | ReadWhole
+    deriving (Show, Eq, Generic, NFData, Store)
+
+-- | The key a reader of files applies.
+fileReadingKey :: FileReading -> AllocationKey
+fileReadingKey reading = case reading of
+    ReadDeclared -> Declared
+    ReadWhole -> Unallocated
+
+{- | The reading a word names, with what to do instead when it names a
+property: @declared@ and @none@ only, the words of 'parseAllocationKey'.
+-}
+parseFileReading :: Text -> Either Text FileReading
+parseFileReading raw =
+    parseAllocationKey raw >>= \case
+        Declared -> Right ReadDeclared
+        Unallocated -> Right ReadWhole
+        ByProperty prop ->
+            Left $
+                propertyName prop
+                    <> " is no longer read from the files: read the database under none, as a parent, and derive a child from it with a system model"
+
+{- | How a child is divided from its parent: one property for every block of
+several products, and exceptions that give some of them another one, each with
+the reason it was made. The file it was written in is kept as written, since it
+is what a child's delivery cites.
+-}
+data SystemModel = SystemModel
+    { smName :: !Text
+    , smVersion :: !Text
+    , smDescription :: !(Maybe Text)
+    , smDefault :: !AllocationProperty
+    , smExceptions :: ![ModelException]
+    , smText :: !Text
+    }
+    deriving (Show, Eq, Generic, NFData)
+
+-- | Some blocks of the parent divided under another property, and why.
+data ModelException = ModelException
+    { exKey :: !AllocationProperty
+    , exReason :: !Reason
+    , exSelects :: !Selector
+    }
+    deriving (Show, Eq, Generic, NFData)
+
+-- | Why an exception was made. Never empty: only the decoder builds one.
+newtype Reason = Reason Text
+    deriving (Show, Eq, Generic, NFData)
+
+reasonText :: Reason -> Text
+reasonText (Reason t) = t
+
+{- | Which blocks of the parent an exception takes: a rule on their
+classification, so a block the parent gains later follows it, or named one by
+one for a case that stands alone.
+-}
+data Selector
+    = ByClassification !ClassificationFilter
+    | ByProcesses !(NonEmpty UUID)
+    deriving (Show, Eq, Generic, NFData)
+
+{- | How a database is read: from its files, or divided from its parent by a
+model. The parent is the database's source, which the delete guard, the
+licence and the patches already follow.
+-}
+data Reading
+    = FromFiles !FileReading
+    | ByModel !SystemModel
+    deriving (Show, Eq, Generic, NFData)
+
+-- | The model a child was divided by, if it is one.
+modelOf :: Reading -> Maybe SystemModel
+modelOf reading = case reading of
+    ByModel model -> Just model
+    FromFiles _ -> Nothing
+
+-- | A model as a listing names it.
+data ModelTitle = ModelTitle
+    { mtName :: !Text
+    , mtVersion :: !Text
+    }
+    deriving (Show, Eq, Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ModelTitle)
+
+modelTitle :: SystemModel -> ModelTitle
+modelTitle model = ModelTitle{mtName = smName model, mtVersion = smVersion model}
+
+{- | The key a listing names for a database: a child's is its model's
+default, the one most of its blocks were divided under.
+-}
+readingKey :: Reading -> AllocationKey
+readingKey reading = case reading of
+    FromFiles fr -> fileReadingKey fr
+    ByModel model -> ByProperty (smDefault model)
 
 {- | Per-database knob controlling how aggressively geography may be widened when
 linking an exchange to a supplier. Maps to TOML field @geography_policy@.

@@ -62,17 +62,18 @@ import Database.UploadedDatabase (UploadMeta (..), readUploadMeta)
 import SharedSolver (SharedSolver, createSharedSolver)
 import Types (
     Activity (..),
-    AllocationKey (..),
     BioDirection (..),
     BiosphereFlow (..),
     BuildInputs (..),
     Compartment (..),
     Database (..),
     Exchange (..),
+    FileReading (..),
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
     Medium (..),
+    Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -165,7 +166,7 @@ spec = describe "persisting an edit" $ do
                 unloadDatabase manager "bafu-like" `shouldReturn` Right ()
                 let uploads = uploadsDirOf home
                 removed <- removeDatabase manager "bafu-like"
-                removed `shouldSatisfy` failsWith "copied from it"
+                removed `shouldSatisfy` failsWith "made from it"
                 listDirectory (uploads </> "bafu-like") >>= (`shouldSatisfy` elem "data")
 
     describe "deleting an uploaded database" $
@@ -350,7 +351,7 @@ baseConfig name =
         , dcIsUploaded = False
         , dcDeletable = True
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
@@ -381,7 +382,7 @@ buildFrom :: M.Map (UUID, UUID) Activity -> IO Database
 buildFrom activities = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = activities
                 , sdbTechFlows = M.singleton supplierProdId milkFlow

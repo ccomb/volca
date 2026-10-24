@@ -29,6 +29,7 @@ module API.DatabaseHandlers (
     explainedFlowAPI,
     copyDatabaseHandler,
     deriveDatabaseHandler,
+    systemModelHandler,
     deleteDatabaseHandler,
     deleteActivitiesHandler,
     createActivitiesHandler,
@@ -137,6 +138,7 @@ import API.Types (
     DeleteClassFilter (..),
     DeleteSelectionRequest (..),
     DeleteSelectionResponse (..),
+    DeriveRequest (..),
     ExchangeEditRequest (..),
     ExchangeEditResponse (..),
     ExplainCFResult (..),
@@ -148,6 +150,7 @@ import API.Types (
     GapEntryAPI (..),
     GapReportAPI (..),
     LoadDatabaseResponse (..),
+    ModelExceptionAPI (..),
     ParametersEditRequest (..),
     ParametersEditResponse (..),
     QualityCheckAPI (..),
@@ -161,6 +164,8 @@ import API.Types (
     ScenarioAPI (..),
     ScenarioSaveRequest (..),
     SynonymGroupsResponse (..),
+    SystemModelAPI (..),
+    TakenProcessAPI (..),
     UploadChunk (..),
     UploadResponse (..),
     toAuthoredActivities,
@@ -193,6 +198,7 @@ import Database.Edit (
     databaseHistory,
     databaseProvenance,
     deleteActivitiesInDB,
+    derivationOf,
     deriveDatabase,
     editDatabaseParameters,
     editExchanges,
@@ -259,6 +265,7 @@ import Database.Manager (
     setUploadLicence,
     setUploadRelease,
     setupErrorMessage,
+    systemModelOf,
     unitDefsUploadsDir,
     unloadCompartmentMappings,
     unloadDatabase,
@@ -286,27 +293,33 @@ import qualified Method.Explain as Explain
 import Method.Mapping (BuildProvenance (..), CF (..), CFUnit (..), provenanceStrategyText, strategyToText)
 import Method.Types (Method (..), MethodCF (..))
 import Types (
-    AllocationKey (..),
     BiosphereFlow (..),
     BlockerReason (..),
     ClassificationFilter (..),
     ClassificationMatch (..),
     Database (..),
+    FileReading (..),
     GeographyPolicy (..),
     Licence (..),
+    ModelException (..),
     Modification,
     Permission (..),
     ProcessRef (..),
+    Reading (..),
     Release (..),
     Requirement (..),
+    SystemModel (..),
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
     getUnitNameForBioFlow,
     granted,
     isModified,
-    parseAllocationKey,
+    modelOf,
+    modelTitle,
     processRefText,
+    readingKey,
+    reasonText,
     unresolvedCount,
     withheldSentence,
  )
@@ -592,21 +605,22 @@ copyDatabaseHandler dbName newName = do
     mapM_ (failWith err403) refusal
     simpleAction (copyDatabase dbManager dbName newName) ("Copied database: " <> dbName <> " -> " <> newName)
 
-{- | Read a loaded or configured database's own files again under another
-allocation key, and register the result under @newName@.
+{- | Make a parent of a database read from its files, or a child of a parent
+divided by a system model, and register it under @newName@.
 
 Answers with what a load answers with, not with what a copy answers with: it
 is a load, of tens of seconds on a large source, and the page that asks for it
 is the one that already waits on that answer and shows the progress lines
 underneath it.
 
-An unreadable key is a 400 naming the keys there are. A key that divided
-nothing is a 400 too, like every other reason a load produced no database.
+A request asking for both or neither is a 400, as is a system model that does
+not read, does not fit the parent or divides nothing, like every other reason
+a load produced no database.
 -}
-deriveDatabaseHandler :: Text -> Text -> Maybe Text -> AppM LoadDatabaseResponse
-deriveDatabaseHandler dbName newName mAllocation = do
+deriveDatabaseHandler :: Text -> Text -> DeriveRequest -> AppM LoadDatabaseResponse
+deriveDatabaseHandler dbName newName request = do
     guardMutation
-    key <- either badKey pure (parseAllocationKey (fromMaybe "declared" mAllocation))
+    derivation <- either badRequest pure (derivationOf (fromMaybe False (drParent request)) (drSystemModel request))
     dbManager <- asks aeDbManager
     hostingConfig <- asks aeHostingConfig
     -- A derived database is another database of the user's own, already
@@ -615,12 +629,33 @@ deriveDatabaseHandler dbName newName mAllocation = do
         (uploaded, loadedUploads) <- quotaCounts dbManager
         pure (copyRefusal uploaded loadedUploads hostingConfig)
     mapM_ (failWith err403) refusal
-    (loadedDb, depResults) <- ioEither400 (deriveDatabase dbManager dbName newName key)
+    (loadedDb, depResults) <- ioEither400 (deriveDatabase dbManager dbName newName derivation)
     status <- liftIO (loadedStatus dbManager loadedDb)
     pure (LoadSucceeded status depResults)
   where
-    badKey :: Text -> AppM a
-    badKey err = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 ("allocation: " <> err))}
+    badRequest :: Text -> AppM a
+    badRequest err = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 err)}
+
+{- | A child's system model, each exception with the processes it takes from
+the parent as loaded. A database read from its files has none: a 400 that says
+so, like a parent not loaded.
+-}
+systemModelHandler :: Text -> AppM SystemModelAPI
+systemModelHandler dbName = do
+    dbManager <- asks aeDbManager
+    (model, taken) <- ioEither400 (systemModelOf dbManager dbName)
+    pure
+        SystemModelAPI
+            { smaText = smText model
+            , smaExceptions =
+                [ ModelExceptionAPI
+                    { meaKey = exKey ex
+                    , meaReason = reasonText (exReason ex)
+                    , meaProcesses = [TakenProcessAPI{tpaActivity = UUID.toText u, tpaName = name} | (u, name) <- processes]
+                    }
+                | (ex, processes) <- taken
+                ]
+            }
 
 -- | Delete an uploaded database (move to trash)
 deleteDatabaseHandler :: Text -> AppM ActivateResponse
@@ -1295,7 +1330,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , UploadedDB.umDataPath = makeRelative uploadDir (urPath uploadResult)
                             , UploadedDB.umDepends = []
                             , UploadedDB.umSource = Nothing
-                            , UploadedDB.umAllocation = Declared
+                            , UploadedDB.umReading = FromFiles ReadDeclared
                             , UploadedDB.umBuiltIn = Nothing
                             , UploadedDB.umLicence = licence
                             , UploadedDB.umRelease = Nothing
@@ -1319,7 +1354,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , dcIsUploaded = True -- Freshly uploaded database
                             , dcDeletable = True
                             , dcGeographyPolicy = GeoGlobal
-                            , dcAllocation = Declared
+                            , dcReading = FromFiles ReadDeclared
                             , dcPatches = []
                             , dcSource = Nothing
                             , dcLicence = licence
@@ -1352,6 +1387,7 @@ convertDbStatus ds =
         , dsaActivityCount = dsActivityCount ds
         , dsaDependsOn = dsDependsOn ds
         , dsaAllocation = allocationKeyText (dsAllocation ds)
+        , dsaSystemModel = dsSystemModel ds
         , dsaSource = dsSource ds
         , dsaLicence = dsLicence ds
         , dsaRelease = dsRelease ds
@@ -1392,7 +1428,8 @@ makeStatusFromLoadedDb configs modification loaded =
             , dsaFormat = formatDisplayText <$> dcFormat config
             , dsaActivityCount = V.length (dbActivities db)
             , dsaDependsOn = dcDepends config
-            , dsaAllocation = allocationKeyText (dcAllocation config)
+            , dsaAllocation = allocationKeyText (readingKey (dcReading config))
+            , dsaSystemModel = modelTitle <$> modelOf (dcReading config)
             , dsaSource = dcSource config
             , dsaLicence = licenceOf configs config
             , dsaRelease = dcRelease config
@@ -1531,7 +1568,7 @@ uploadMethodHandler mName mDesc src =
                             , UploadedDB.umDataPath = makeRelative uploadDir methodDir
                             , UploadedDB.umDepends = []
                             , UploadedDB.umSource = Nothing
-                            , UploadedDB.umAllocation = Declared
+                            , UploadedDB.umReading = FromFiles ReadDeclared
                             , UploadedDB.umBuiltIn = Nothing
                             , UploadedDB.umLicence = LicenceUnstated
                             , UploadedDB.umRelease = Nothing

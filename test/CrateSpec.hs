@@ -18,7 +18,7 @@ import Test.Hspec
 import Config (DatabaseConfig (..))
 import Database.Crate
 import Database.Upload (DatabaseFormat (..))
-import Types (Acceptance (..), AllocationKey (..), Attribution (..), GeographyPolicy (..), Licence (..), OwnLicence (..), Permission (..), Release (..), StandardLicence (..))
+import Types (Acceptance (..), Attribution (..), FileReading (..), GeographyPolicy (..), Licence (..), OwnLicence (..), Permission (..), Reading (..), Release (..), StandardLicence (..))
 import Zip (zipFiles)
 
 ecoinvent :: Release
@@ -74,7 +74,7 @@ config name release =
         , dcIsUploaded = True
         , dcDeletable = True
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated

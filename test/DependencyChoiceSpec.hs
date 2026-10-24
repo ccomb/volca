@@ -14,7 +14,7 @@ import Database.Manager (
     DependencyStatus (..),
     buildDependencyChoices,
  )
-import Types (AllocationKey (..), GeographyPolicy (..), Licence (..))
+import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
 
 cfg :: Text -> Text -> DatabaseConfig
 cfg name display =
@@ -31,7 +31,7 @@ cfg name display =
         , dcIsUploaded = False
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated

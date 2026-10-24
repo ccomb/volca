@@ -50,10 +50,10 @@ import System.FilePath ((</>))
 import TestHelpers (membersOnly, withScratchDataDir)
 import Types (
     Activity (..),
-    AllocationKey (..),
     BuildInputs (..),
     Database (..),
     Exchange (..),
+    FileReading (..),
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
@@ -62,6 +62,7 @@ import Types (
     ParameterSet (..),
     ProcessRef (..),
     ProductSystem (..),
+    Reading (..),
     Redefinition (..),
     RedefinitionContext (..),
     ReferenceConvention (..),
@@ -376,7 +377,7 @@ mkConfig name =
         , dcIsUploaded = False
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
@@ -388,7 +389,7 @@ buildOrFail :: SimpleParts -> IO Database
 buildOrFail (SimpleParts acts flows units) = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig M.empty Declared [])
+            (BuildInputs defaultUnitConfig M.empty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = acts
                 , sdbTechFlows = flows

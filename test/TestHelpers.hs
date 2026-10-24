@@ -3,6 +3,7 @@
 module TestHelpers (
     unitDef,
     dbConfigFor,
+    modelDividingBy,
     withScratchDataDir,
     loadSampleDatabase,
     loadSampleDatabaseWithPath,
@@ -90,7 +91,7 @@ loadSampleDatabaseWithPath path = do
     case loadResult of
         Left err -> error $ "Failed to load test database: " ++ show err
         Right simpleDb -> do
-            dbResult <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) simpleDb
+            dbResult <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) simpleDb
             case dbResult of
                 Left err -> error $ "Failed to build matrix: " ++ show err
                 Right db -> return db
@@ -278,12 +279,24 @@ dbConfigFor name =
         , dcIsUploaded = False
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
         , dcRequires = []
+        }
+
+-- | A system model dividing every block by one property, with no exception.
+modelDividingBy :: AllocationProperty -> SystemModel
+modelDividingBy prop =
+    SystemModel
+        { smName = "every block by " <> propertyName prop
+        , smVersion = "1.0.0"
+        , smDescription = Nothing
+        , smDefault = prop
+        , smExceptions = []
+        , smText = "name = \"every block by " <> propertyName prop <> "\"\nversion = \"1.0.0\"\n\n[allocation]\ndefault = \"" <> propertyName prop <> "\"\n"
         }
 
 -- | Install a database in the manager's loaded set, solver and config included.

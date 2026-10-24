@@ -50,16 +50,17 @@ import Database.Rebuild (deleteActivities)
 import SharedSolver (SharedSolver, createSharedSolver)
 import Types (
     Activity (..),
-    AllocationKey (..),
     BuildInputs (..),
     ClassificationFilter (..),
     ClassificationMatch (..),
     Database (..),
     Exchange (..),
+    FileReading (..),
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
     ProcessId,
+    Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -438,7 +439,7 @@ mkConfig name =
         , dcIsUploaded = False
         , dcDeletable = True
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
@@ -450,7 +451,7 @@ buildOrFail :: SimpleParts -> IO Database
 buildOrFail (SimpleParts acts flows units) = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = acts
                 , sdbTechFlows = flows

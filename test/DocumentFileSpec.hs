@@ -14,7 +14,7 @@ import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), DatabaseManager, addDatabase, initDatabaseManager, loadDatabase, readDocumentFile)
-import Types (AllocationKey (..), GeographyPolicy (..), Licence (..))
+import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
 
 ilcdConfig :: DatabaseConfig
 ilcdConfig =
@@ -31,7 +31,7 @@ ilcdConfig =
         , dcIsUploaded = False
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated

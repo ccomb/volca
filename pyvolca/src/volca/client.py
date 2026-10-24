@@ -936,42 +936,70 @@ class Client:
     def derive_database(
         self,
         new_name: str,
-        allocation: str,
+        *,
+        system_model: str | Path | None = None,
+        parent: bool = False,
         db_name: str | None = None,
     ) -> dict:
-        """Read a database's sources again under another allocation key.
+        """Make a parent or a child of a database, under ``new_name``.
 
-        Divides every multi-output block by a property of the
-        products instead of by the shares the source declares: ``"wet mass"``
-        weighs each product as it is, ``"dry mass"`` weighs its dry matter,
-        ``"price"`` weighs what each product brings in,
-        ``"declared"`` keeps the source's own shares, and ``"none"`` keeps a
-        block of several products whole, each declared share turned into a
-        price, for databases derived from it. The source is untouched
-        and both stay loadable side by side, so two allocations of one study
-        can be compared.
+        ``parent=True`` reads the database's files again keeping every block
+        of several products whole, each declared share turned into a price.
+        ``system_model`` divides a parent into a child: the text of a system
+        model's TOML file, or the path of one, which names the property every
+        block is divided by and the exceptions, each with its own property,
+        its reason, and the processes it takes::
+
+            name = "Agribalyse, economic"
+            version = "1.0.0"
+
+            [allocation]
+            default = "price"
+
+            [[allocation.exceptions]]
+            key = "wet mass"
+            reason = "Dairies weigh their milk, not its price."
+            classification = { system = "Category", value = "Agricultural\\Food\\Cheese production" }
+
+        Give one of the two. The source is untouched and every database stays
+        loadable side by side, so two divisions of one study can be compared.
 
         This is a full load, not a copy: seconds to minutes on a large
-        database. Refused when the key divides no block of the source, or when
-        it is the key that source already reads under: either would leave that
-        source under a second name; a refusal names the first blocks the key
-        could not divide and why.
+        database. Refused when a parent is asked of a database that is not
+        read from its files, a child of a database that is not a parent, when
+        the model does not read, or when an exception takes or divides nothing;
+        a refusal names what went wrong.
 
         Returns the engine's ``LoadDatabaseResponse`` dict, as
         :meth:`load_database` does: ``"database"`` describes the new database
-        and ``"deps"`` how each of its dependencies loaded. It has no
-        ``message``.
+        and ``"deps"`` how each of its dependencies loaded.
         """
-        self._require_wire(20, "derive_database", engine_hint="0.13.0")
+        self._require_wire(85, "derive_database", engine_hint="0.16.0")
+        if parent == (system_model is not None):
+            raise VoLCAError("derive_database: give parent=True or a system_model, one of the two")
+        if isinstance(system_model, Path):
+            system_model = system_model.read_text(encoding="utf-8")
+        body = {"parent": True} if parent else {"systemModel": system_model}
         return self._require_success(
-            self._call(
-                "derive_database",
-                db_name=self._db(db_name),
-                new_name=new_name,
-                allocation=allocation,
-            ),
+            self._call("derive_database", db_name=self._db(db_name), new_name=new_name, body=body),
             "derive_database",
         )
+
+    def system_model(self, *, db_name: str | None = None) -> dict:
+        """The system model a child is divided by::
+
+            {"text": "name = ...",
+             "exceptions": [{"key": "wet mass", "reason": "...",
+                             "processes": [{"activity": "...", "name": "..."}]}]}
+
+        ``text`` is the model's file as written; each exception lists the
+        processes of the parent it takes, read on the parent as now loaded.
+        Refused on a database that is not a child, or whose parent is not
+        loaded. Needs wire revision 85.
+        """
+        self._require_wire(85, "system_model", engine_hint="0.16.0")
+        target = urllib.parse.quote(self._db(db_name), safe="")
+        return self._json(self._session.get(f"{self.base_url}/api/v1/db/{target}/system-model"))
 
     # -- Database write operations --
     #

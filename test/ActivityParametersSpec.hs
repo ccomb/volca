@@ -58,7 +58,7 @@ butter = do
     db <-
         either (fail . show) pure
             =<< buildDatabaseWithMatrices
-                (BuildInputs defaultUnitConfig M.empty Declared [])
+                (BuildInputs defaultUnitConfig M.empty ReadDeclared [])
                 SimpleDatabase
                     { sdbActivities = M.singleton (process, product') made
                     , sdbTechFlows = M.singleton product' (mkTechFlow product' "butter")

@@ -48,13 +48,14 @@ import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase 
 import SharedSolver (createSharedSolver)
 import Types (
     Activity (..),
-    AllocationKey (..),
     BuildInputs (..),
     Database (..),
     Exchange (..),
+    FileReading (..),
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
+    Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -291,7 +292,7 @@ fixture =
 loadedFixture :: IO (DatabaseManager, Database)
 loadedFixture = do
     manager <- initDatabaseManager defaultConfig NoCache
-    db <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) fixture >>= either (fail . show) pure
+    db <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) fixture >>= either (fail . show) pure
     solver <-
         createSharedSolver
             fixtureName
@@ -321,7 +322,7 @@ fixtureConfig =
         , dcIsUploaded = False
         , dcDeletable = True
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated

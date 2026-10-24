@@ -70,7 +70,7 @@ simple acts =
 
 build :: SimpleDatabase -> IO Database
 build sdb =
-    buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty Declared []) sdb
+    buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty ReadDeclared []) sdb
         >>= either (fail . show) pure
 
 {- | R takes 2 kg of P (internal) and 0.5 kg of M, P takes 3 kg of M, nobody

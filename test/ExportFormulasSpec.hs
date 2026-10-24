@@ -419,7 +419,7 @@ warningsOf :: SimpleDatabase -> IO [T.Text]
 warningsOf = either (fail . T.unpack) (pure . snd) . serializeSimaProCSVWithWarnings defaultWriterConfig
 
 built :: SimpleDatabase -> IO Database
-built sdb = either (fail . T.unpack) pure =<< buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) sdb
+built sdb = either (fail . T.unpack) pure =<< buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) sdb
 
 loadBytes :: BS.ByteString -> IO SimpleDatabase
 loadBytes bytes = withSystemTempFile "formulas.csv" $ \path h -> do

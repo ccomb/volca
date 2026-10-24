@@ -272,7 +272,7 @@ casDbWith cas =
 -- | An activity carrying an allocation percentage and a source block identity.
 allocated :: Text -> Maybe Double -> Maybe Text -> Activity
 allocated name percent nativeId =
-    (mkActivity name [(reference breadFlow){techShare = (`DeclaredShare` Nothing) <$> percent}])
+    (mkActivity name [(reference breadFlow){techShare = (\p -> DeclaredShare p Nothing Nothing) <$> percent}])
         { activityNativeId = NativeProcessId <$> nativeId
         }
 

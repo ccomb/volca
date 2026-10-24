@@ -59,7 +59,6 @@ import Database.Upload (DatabaseFormat (..))
 import SharedSolver (createSharedSolver)
 import Types (
     Activity (..),
-    AllocationKey (..),
     BioDirection (..),
     BiosphereFlow (..),
     BuildInputs (..),
@@ -67,12 +66,14 @@ import Types (
     Database (..),
     Exchange (..),
     ExchangeProperties (..),
+    FileReading (..),
     GeographyPolicy (..),
     Licence (..),
     LocationSource (..),
     Medium (..),
     Modification (..),
     Price (..),
+    Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -545,7 +546,7 @@ uploadedConfig name dataDir =
         , dcIsUploaded = True
         , dcDeletable = True
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
@@ -618,7 +619,7 @@ buildFrom :: M.Map (UUID, UUID) Activity -> M.Map UUID TechnosphereFlow -> IO Da
 buildFrom activities techFlows = do
     r <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = activities
                 , sdbTechFlows = techFlows

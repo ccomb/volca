@@ -27,7 +27,7 @@ import qualified Data.UUID as UUID
 import Database.Manager (CachePolicy (..), DatabaseManager (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import TestHelpers (withScratchDataDir)
-import Types (AllocationKey (..), GeographyPolicy (..), Licence (..))
+import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
 
 -- | The tool definition advertised under a given MCP name.
 toolByName :: Text -> Maybe Value
@@ -121,7 +121,7 @@ sampleConfig =
         , dcIsUploaded = False
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated

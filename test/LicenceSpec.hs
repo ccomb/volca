@@ -19,13 +19,14 @@ import qualified Database.UploadedDatabase as UploadedDB
 import TestHelpers (membersOnly, withScratchDataDir)
 import Types (
     Acceptance (..),
-    AllocationKey (..),
     Attribution (..),
+    FileReading (..),
     GeographyPolicy (..),
     Licence (..),
     LicenceKeys (..),
     OwnLicence (..),
     Permission (..),
+    Reading (..),
     Release (..),
     StandardLicence (..),
     granted,
@@ -54,7 +55,7 @@ configured =
         , dcIsUploaded = False
         , dcDeletable = False
         , dcGeographyPolicy = GeoGlobal
-        , dcAllocation = Declared
+        , dcReading = FromFiles ReadDeclared
         , dcPatches = []
         , dcSource = Nothing
         , dcLicence = LicenceUnstated
@@ -83,7 +84,7 @@ withUpload k = withScratchDataDir $ do
             , UploadedDB.umDataPath = "data"
             , UploadedDB.umDepends = []
             , UploadedDB.umSource = Nothing
-            , UploadedDB.umAllocation = Declared
+            , UploadedDB.umReading = FromFiles ReadDeclared
             , UploadedDB.umBuiltIn = Nothing
             , UploadedDB.umLicence = LicenceUnstated
             , UploadedDB.umRelease = Nothing

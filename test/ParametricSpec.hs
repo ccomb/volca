@@ -494,7 +494,7 @@ kitchen :: Activity
 kitchen =
     ( activity
         "kitchen"
-        [ (reference pBread){techShare = Just DeclaredShare{dsPercent = 100, dsFormula = Just "own_share"}}
+        [ (reference pBread){techShare = Just DeclaredShare{dsPercent = 100, dsFormula = Just "own_share", dsBy = Nothing}}
         , (withFormula (named "flour_kg" "1 / yield") (line pFlour 1.25 Input)){techActivityLinkId = Just aFlour}
         , emission "0.5 * flour_kg" 0.625
         ]
@@ -512,7 +512,7 @@ pantryDb =
             [ ((aBread, pBread), activity "salted" [reference pBread, emission "salt_kg * 2" 0.02])
             , ((aFlour, pFlour), activity "brined" [reference pFlour, emission "salt_g / 100" 0.1])
             , ((aLoaf, pLoaf), activity "plain" [reference pLoaf])
-            , ((aJam, pJam), activity "shared" [(reference pJam){techShare = Just DeclaredShare{dsPercent = 100, dsFormula = Just "share_pct"}}])
+            , ((aJam, pJam), activity "shared" [(reference pJam){techShare = Just DeclaredShare{dsPercent = 100, dsFormula = Just "share_pct", dsBy = Nothing}}])
             ]
         )
         ( M.fromList
@@ -744,7 +744,7 @@ build :: Text -> M.Map UUID TechnosphereFlow -> M.Map (UUID, UUID) Activity -> M
 build name flows acts parameters =
     either (\e -> fail (T.unpack name <> ": " <> T.unpack e)) pure
         =<< buildDatabaseWithMatrices
-            (BuildInputs bakeryUnits M.empty Declared [])
+            (BuildInputs bakeryUnits M.empty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = acts
                 , sdbTechFlows = flows
@@ -805,7 +805,7 @@ bakeryActivities =
         , ((aCake, pCake), (activity "cake" [reference pCake, emission "ratio" 12]){activityParameters = M.singleton "yield" (input 3)})
         , ((aMill, pMeal), milled pMeal)
         , ((aMill, pBran), milled pBran)
-        , ((aJam, pJam), activity "jam" [(reference pJam){techShare = Just DeclaredShare{dsPercent = 100, dsFormula = Just "share_pct"}}])
+        , ((aJam, pJam), activity "jam" [(reference pJam){techShare = Just DeclaredShare{dsPercent = 100, dsFormula = Just "share_pct", dsBy = Nothing}}])
         , ((aLoaf, pLoaf), activity "loaf" [withFormula (formulaOf "hydration") (reference pLoaf), from aDough (withFormula (formulaOf "1 + hydration") (line pDough 2 Input)), from aBread (line pBread 1 Input), from aBin (withFormula (formulaOf "-0.2 - 0.3 * hydration") (line pWaste (-0.5) Input)), emission "hydration * hydration" 1])
         , ((aDough, pDough), activity "dough" [reference pDough, from aLoaf (withFormula (formulaOf "0.1 * hydration") (line pLoaf 0.1 Input)), (emission "" 0.3){bioFormula = Nothing}])
         , -- A treatment, its reference a negative output.
@@ -878,7 +878,7 @@ named :: Text -> Text -> Maybe ExchangeFormula
 named name formula = Just ExchangeFormula{efName = Just name, efText = formula}
 
 declared :: Double -> Exchange -> Exchange
-declared percent ex = ex{techShare = Just DeclaredShare{dsPercent = percent, dsFormula = Nothing}}
+declared percent ex = ex{techShare = Just DeclaredShare{dsPercent = percent, dsFormula = Nothing, dsBy = Nothing}}
 
 formulaOf :: Text -> Maybe ExchangeFormula
 formulaOf formula = Just ExchangeFormula{efName = Nothing, efText = formula}

@@ -1812,6 +1812,7 @@ productToExchange unitCfg env role ProductRow{..} =
             DeclaredShare
                 { dsPercent = resolveAmount env prAllocRaw prAllocation
                 , dsFormula = mfilter (not . isNumericFormula) (nonEmptyText prAllocRaw)
+                , dsBy = Nothing
                 }
         flow =
             TechnosphereFlow

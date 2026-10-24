@@ -33,10 +33,10 @@ fixture :: IO SimpleDatabase
 fixture = withSystemTempDirectory "olca-package" $ \dir -> do
     writePackage dir
     pkg <- readPackage dir >>= either (fail . T.unpack) pure
-    builtDatabase <$> either (fail . T.unpack) pure (buildDatabase defaultUnitConfig Declared pkg)
+    builtDatabase <$> either (fail . T.unpack) pure (buildDatabase defaultUnitConfig ReadDeclared pkg)
 
 matrices :: SimpleDatabase -> IO Database
-matrices sdb = buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) sdb >>= either (fail . T.unpack) pure
+matrices sdb = buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) sdb >>= either (fail . T.unpack) pure
 
 inventoryOf :: Database -> (UUID, UUID) -> IO (M.Map UUID Double)
 inventoryOf db key = case M.lookup key (dbProcessIdLookup db) of
@@ -323,7 +323,7 @@ spec = describe "an openLCA package written from a database" $ do
             refused (oneProcess [bio co2 (1 / 0) Emission]) "not finite"
         it "a coproduct of a process a parent database keeps whole, its shares turned into prices" $ do
             let shared ex = case ex of
-                    TechnosphereExchange{} -> ex{techShare = Just (DeclaredShare 50 Nothing), techProperties = noProperties{epPrice = Just (DeducedFromShare 25)}}
+                    TechnosphereExchange{} -> ex{techShare = Just (DeclaredShare 50 Nothing Nothing), techProperties = noProperties{epPrice = Just (DeducedFromShare 25)}}
                     _ -> ex
                 parent = oneProcess [TechnosphereExchange made 2 kg Coproduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
             refused parent{sdbActivities = M.map (\a -> a{exchanges = map shared (exchanges a)}) (sdbActivities parent)} "a parent database keeps whole"

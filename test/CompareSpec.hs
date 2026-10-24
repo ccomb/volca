@@ -41,7 +41,6 @@ import Database.Author (AuthorContext (..), EditedActivity (..), ExchangeEdit, a
 import Service.Compare (ProcessIn (..), Sides (..), applicableChanges, changesPresent, compareActivities, compareDatabases, limitComparison, resolveProcess)
 import Types (
     Activity (..),
-    AllocationKey (..),
     BioDirection (..),
     BiosphereFlow (..),
     BuildInputs (..),
@@ -49,6 +48,7 @@ import Types (
     Database,
     DatasetDates (..),
     Exchange (..),
+    FileReading (..),
     LocationSource (..),
     NativeActivityType (..),
     ReferenceConvention (..),
@@ -508,7 +508,7 @@ databaseKeyed :: (Row -> UUID) -> [Row] -> IO Database
 databaseKeyed key rows = do
     built <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig M.empty Declared [])
+            (BuildInputs defaultUnitConfig M.empty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = M.fromList (map (entry key) rows)
                 , sdbTechFlows = M.fromList [(tfId (rowProduct r), rowProduct r) | r <- rows]

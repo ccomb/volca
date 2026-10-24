@@ -28,10 +28,10 @@ readFixture = withSystemTempDirectory "olca-package" $ \dir -> do
     readPackage dir >>= either (fail . T.unpack) pure
 
 built :: Package -> IO Built
-built = either (fail . T.unpack) pure . buildDatabase defaultUnitConfig Declared
+built = either (fail . T.unpack) pure . buildDatabase defaultUnitConfig ReadDeclared
 
 matrices :: Built -> IO Database
-matrices b = buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) (builtDatabase b) >>= either (fail . T.unpack) pure
+matrices b = buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) (builtDatabase b) >>= either (fail . T.unpack) pure
 
 loaded :: IO (Built, Database)
 loaded = do
@@ -255,7 +255,7 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         pkg <- readFixture
         -- CO2 is a mass flow; kWh is in the energy group.
         let wrong = editing steelA (\p -> p{prExchanges = map (\x -> if rxFlow x == co2F then x{rxUnit = kwhU} else x) (prExchanges p)}) pkg
-        case buildDatabase defaultUnitConfig Declared wrong of
+        case buildDatabase defaultUnitConfig ReadDeclared wrong of
             Left why -> T.unpack why `shouldContain` "steel production · carbon dioxide"
             Right _ -> expectationFailure "loaded a line in a unit its flow has no conversion from"
 
@@ -264,7 +264,7 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         let inEnergy x = if rxFlow x == co2F || rxFlow x == slagF then x{rxUnit = kwhU} else x
             unknown x = if rxFlow x == co2F then x{rxFlow = uid' 998} else x
             wrong = editing recyclingI (\p -> p{prExchanges = map unknown (prExchanges p)}) (editing steelA (\p -> p{prExchanges = map inEnergy (prExchanges p)}) pkg)
-        case buildDatabase defaultUnitConfig Declared wrong of
+        case buildDatabase defaultUnitConfig ReadDeclared wrong of
             Left why -> do
                 let said = T.unpack why
                 said `shouldContain` "3 lines cannot be read"

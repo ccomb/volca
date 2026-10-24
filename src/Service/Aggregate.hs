@@ -65,7 +65,6 @@ import Types (
     BioFlowDB,
     BiosphereFlow (..),
     ClassificationFilter (..),
-    ClassificationMatch (..),
     CrossDBLink (..),
     Database (..),
     ExchangeKind (..),
@@ -76,6 +75,7 @@ import Types (
     activityLocation,
     activityName,
     activityUnit,
+    classificationMatches,
     exchangeAmount,
     exchangeFlowId,
     exchangeIsInput,
@@ -474,12 +474,7 @@ filterRow p r =
         Just want -> case rowExchangeType r of
             Just actual -> actual == want
             Nothing -> True -- row lacks the attribute → don't exclude
-    classOk = all classMatches (apFilterClassifications p)
-    classMatches ClassificationFilter{clfSystem = sys, clfValue = val, clfMatch = match} = case M.lookup sys (rowClassifications r) of
-        Nothing -> False
-        Just v -> case match of
-            MatchExact -> ci val == ci v
-            MatchContains -> contains val v
+    classOk = all (`classificationMatches` rowClassifications r) (apFilterClassifications p)
 
 -- | Extract the group key for one row.
 groupKey :: Text -> AggRow -> Text

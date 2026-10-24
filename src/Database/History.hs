@@ -44,17 +44,18 @@ import Database.Journal (
  )
 import Types (
     Activity (..),
-    AllocationKey (..),
     BiosphereFlow (..),
     Database (..),
     ExchangeLocation (..),
+    FileReading (..),
     Parameter (..),
     ParameterDefinition (..),
+    Reading (..),
     Release (..),
     StatedAmount (..),
+    SystemModel (..),
     TechnosphereFlow (..),
     WasteFlow (..),
-    allocationKeyText,
     getActivity,
     locationCode,
  )
@@ -184,7 +185,7 @@ data Provenance = Provenance
     { pvDatabase :: Text
     , pvOriginal :: Text
     , pvRelease :: Maybe Release
-    , pvReallocated :: Maybe AllocationKey
+    , pvReallocated :: Maybe Reading
     }
 
 {- | The report shipped beside a modified database's data: which original it
@@ -203,9 +204,10 @@ changesReport provenance lines' =
             <> maybe [] (\key -> ["", reallocated key]) (pvReallocated provenance)
             <> concatMap section lines'
   where
-    reallocated key = case key of
-        Unallocated -> "Multi-output processes are kept whole, not divided as the original divides them."
-        _ -> "Multi-output processes are divided by " <> allocationKeyText key <> ", not as the original divides them."
+    reallocated reading = case reading of
+        FromFiles ReadWhole -> "Multi-output processes are kept whole, not divided as the original divides them."
+        FromFiles ReadDeclared -> "Multi-output processes are divided by the shares the original declares."
+        ByModel model -> "Multi-output processes are divided by the system model " <> smName model <> " " <> smVersion model <> ", not as the original divides them."
     section line =
         ["", "## " <> hlAt line <> ": " <> hlSummary line, "", "Reason: " <> maybe "No reason given" noteText (hlNote line)]
             <> (if null (hlDetails line) then [] else "" : map ("- " <>) (hlDetails line))

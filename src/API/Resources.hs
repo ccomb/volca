@@ -577,18 +577,20 @@ description r = case r of
         \showing the user those terms in full and receiving their explicit agreement: \
         \never on your own initiative, and never to get past the refusal for them."
     DeriveDatabase ->
-        "LCA / ACV: read a database's source files again under another allocation \
-        \key, and register the result under a new name. Use it to ask what a study \
-        \would look like with the multi-output blocks divided by a property of the products \
-        \instead of the shares the source declares: 'wet mass' divides a block by the \
-        \mass of each product, 'dry mass' by its dry matter, 'price' by what each \
-        \product brings in, 'declared' keeps the \
-        \source's own shares, and 'none' keeps a block of several products whole, \
-        \each declared share turned into a price, for databases derived from it. The source is untouched and both stay usable side by \
-        \side. This is a full load, not a copy: seconds to minutes on a large \
-        \database. Refused when the key divides no block, when it is the key the \
-        \source already reads under, when the products carry no such property, and \
-        \on a read-only instance."
+        "LCA / ACV: make a parent or a child of a database, and register it under a \
+        \new name. A parent (parent=true) reads the source's files again keeping each \
+        \block of several products whole, every declared share turned into a price. \
+        \A child (system_model) divides a parent by a system model: the text of a \
+        \TOML file naming its default property (price, dry mass or wet mass) and its \
+        \exceptions, each with its property, its reason, and the processes it takes \
+        \by classification or by activity id. Use it to ask what a study would look \
+        \like with the multi-output blocks divided by a property of the products \
+        \instead of the shares the source declares. The source is untouched and every \
+        \database stays usable side by side. This is a full load, not a copy: \
+        \seconds to minutes on a large database. Refused when neither or both are \
+        \given, when a child is asked of a database that is not a parent, when the \
+        \model does not read or an exception takes or divides nothing, and on a \
+        \read-only instance."
     ListPresets ->
         "LCA / ACV: list named classification filter presets configured in this \
         \instance. Each preset bundles multiple (system, value, mode) classification \
@@ -1382,8 +1384,9 @@ params r = case r of
     AcceptTerms -> [pDatabase]
     DeriveDatabase ->
         [ pDatabase
-        , Param "new_name" "string" Required "Name to register the re-keyed database under. Must not already exist."
-        , Param "allocation" "string" Optional "The key its multi-output blocks are divided by: declared (the source's own shares, the default) | dry mass | wet mass | price | none."
+        , Param "new_name" "string" Required "Name to register the new database under. Must not already exist."
+        , Param "parent" "boolean" Optional "If true, make a parent: the source's files read again with each block of several products kept whole. Give this or system_model, not both."
+        , Param "system_model" "string" Optional "The text of a system model's TOML file, to make a child of a parent. Example: name = \"Agribalyse, economic\"  version = \"1.0.0\"  [allocation] default = \"price\"  [[allocation.exceptions]] key = \"wet mass\"  reason = \"...\"  classification = { system = \"Category\", value = \"Agricultural\\\\Food\\\\Cheese production\" } (processes = [\"<activity id>\", ...] instead of classification for a few processes)."
         ]
     ListPresets -> []
     SearchActivities ->

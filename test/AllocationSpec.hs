@@ -57,6 +57,7 @@ product_ unitName amount declared = (summary, Just row)
             , prsProductAmount = amount
             , prsProductUnit = unitName
             , prsAllocationPercent = declared
+            , prsAllocationBy = Nothing
             , prsAllocationFormula = Nothing
             , prsMassAllocationPercent = Nothing
             , prsNativeType = Nothing
@@ -518,7 +519,7 @@ productRow :: UUID -> Double -> TechRole -> Maybe Double -> M.Map Text Text -> E
 productRow fid amount role share cls =
     (tech fid amount role)
         { techUnitId = if fid == wheyId then mjId else kgId
-        , techShare = (\p -> DeclaredShare p (if fid == wheyId then Just "Qw*DMw/total*100" else Nothing)) <$> share
+        , techShare = (\p -> DeclaredShare p (if fid == wheyId then Just "Qw*DMw/total*100" else Nothing) Nothing) <$> share
         , techClassification = cls
         }
 
@@ -655,7 +656,7 @@ withTwoOutputDataset k = withSystemTempDirectory "es2-two-outputs" $ \dir -> do
     BS.writeFile (dir </> "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.spold") twoOutputsXml
     loaded <- loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig) dir
     simpleDb <- either (fail . T.unpack) pure loaded
-    built <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) simpleDb
+    built <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) simpleDb
     db <- either (fail . T.unpack) pure built
     k (simpleDb, db)
 
@@ -704,7 +705,7 @@ withSuppliedGas k = withSystemTempDirectory "es2-listed-at-zero" $ \dir -> do
     BS.writeFile (dir </> "cccccccc-cccc-cccc-cccc-cccccccccccc_dddddddd-dddd-dddd-dddd-dddddddddddd.spold") gasConsumerXml
     loaded <- loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig) dir
     simpleDb <- either (fail . T.unpack) pure loaded
-    built <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) simpleDb
+    built <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) simpleDb
     either (fail . T.unpack) k built
 
 gasProducerXml :: BS.ByteString

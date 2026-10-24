@@ -60,7 +60,7 @@ import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMetho
 import Method.ScoringEdit (ScoringEdit, planScoringEdit)
 import Method.Types (MethodCollection)
 import Progress (ProgressLevel (..), reportProgress)
-import Types (AllocationKey (..), Licence (..))
+import Types (FileReading (..), Licence (..), Reading (..))
 
 -- | Why a change to a method collection was not made.
 data MethodEditRefusal
@@ -147,7 +147,7 @@ recordMethodCopy home slug source seed = do
                     , UploadedDB.umDataPath = fromMaybe "" dataPath
                     , UploadedDB.umDepends = []
                     , UploadedDB.umSource = Just (mcName source)
-                    , UploadedDB.umAllocation = Declared
+                    , UploadedDB.umReading = FromFiles ReadDeclared
                     , UploadedDB.umBuiltIn = builtinOf (mcOrigin source)
                     , UploadedDB.umLicence = LicenceUnstated
                     , UploadedDB.umRelease = Nothing

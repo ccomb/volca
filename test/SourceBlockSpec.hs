@@ -31,7 +31,7 @@ import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
 import Search.BM25 (addBM25Index)
 import Service (ActivityFilterCore (..), SearchFilter (..), activitiesNamed, activityMatches, mkActivitySummary)
 import TestHelpers (shippedGeographies)
-import Types (AllocationKey (..), BuildInputs (..), Database (..), ProcessId)
+import Types (BuildInputs (..), Database (..), FileReading (..), ProcessId)
 import UnitConversion (defaultUnitConfig)
 
 spec :: Spec
@@ -165,7 +165,7 @@ withDatabase csv k = withSystemTempDirectory "source-block" $ \dir -> do
     BS.writeFile path csv
     loaded <- loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig) path
     simpleDb <- either (fail . T.unpack) pure loaded
-    built <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) simpleDb
+    built <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) simpleDb
     either (fail . T.unpack) k built
 
 -- | Every process of the database, summarised the way a search result is.

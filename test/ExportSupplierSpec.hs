@@ -97,7 +97,7 @@ spec = do
         it "finds the input the engine linked, at its place among the exported exchanges" $ do
             let background = buildIndexedDatabase "background" emptySynonymDB backgroundDb
             (linked, stats) <- fixActivityLinksWithCrossDB [background] emptySynonymDB defaultUnitConfig locationHierarchy GeoGlobal (fixture "BR")
-            built <- either (fail . T.unpack) pure =<< buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty Declared []) linked
+            built <- either (fail . T.unpack) pure =<< buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty ReadDeclared []) linked
             let db = built{dbCrossDBLinks = cdlLinks stats}
                 exported = toSimpleDatabase db
             Dependencies found <- either (fail . T.unpack) pure (dependenciesOf (M.singleton "background" background) db)
@@ -134,7 +134,7 @@ loadBrightway db = withSystemTempFile "export-supplier.xlsx" $ \path h -> do
 ilcdRoundTrip :: SimpleDatabase -> IO SimpleDatabase
 ilcdRoundTrip db = withSystemTempDirectory "export-supplier-ilcd" $ \dir -> do
     _ <- either (fail . T.unpack) pure =<< ILCD.writeILCDDatabase ILCD.defaultWriteOptions dir db
-    either (fail . T.unpack) pure =<< parseILCDDirectory defaultUnitConfig Declared dir
+    either (fail . T.unpack) pure =<< parseILCDDirectory defaultUnitConfig ReadDeclared dir
 
 -- | The name of the activity a gin buys its seed from, once read back.
 supplierOf :: SimpleDatabase -> Text -> Maybe Text

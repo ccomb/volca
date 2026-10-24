@@ -91,6 +91,15 @@ withParsedPaths dbPath methodPath body =
 
 spec :: Spec
 spec = do
+    describe "a database entry's allocation" $ do
+        -- Dividing by a property is what a child of a parent does, by its
+        -- system model; a configured database reads its files as they declare
+        -- or whole, and says what to do instead of loading something else.
+        it "refuses a property, and says to derive a child instead" $
+            case TOML.decode "name = \"agb\"\npath = \"agb\"\nallocation = \"price\"\n" :: Either TOML.TOMLError DatabaseConfig of
+                Right _ -> expectationFailure "expected a refusal, the database was read under price"
+                Left err -> T.pack (show err) `shouldSatisfy` T.isInfixOf "derive a child from it with a system model"
+
     describe "listenOn" $ do
         it "listens on the interface the configuration names" $
             listenOn Nothing (serverOn "0.0.0.0") `shouldBe` ListenOn "0.0.0.0" 8080

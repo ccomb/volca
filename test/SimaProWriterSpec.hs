@@ -351,7 +351,7 @@ inventoryByName (acts, tech, bio, waste, units) target = do
     let actMap = M.fromList [(activityKey a, a) | a <- acts]
     built <-
         buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty Declared [])
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = actMap
                 , sdbTechFlows = tech
@@ -989,7 +989,7 @@ allocationDb =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 50 Nothing)) M.empty noProperties Nothing
+            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 50 Nothing Nothing)) M.empty noProperties Nothing
             , TechnosphereExchange matU 10.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
             ]
             M.empty
@@ -1035,7 +1035,7 @@ zeroAllocationDb =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 0 Nothing)) M.empty noProperties Nothing
+            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 0 Nothing Nothing)) M.empty noProperties Nothing
             , TechnosphereExchange matU 0.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
             ]
             M.empty
@@ -1190,7 +1190,7 @@ guardDb alloc ntype exs =
         Activity "guard maker" [] [] M.empty M.empty "GLO" LocationDeclared "kg" (map withShare exs) M.empty ntype Nothing Nothing noDates
     -- The share a source declares lives on the reference exchange.
     withShare ex = case ex of
-        TechnosphereExchange{techRole = ReferenceProduct} -> ex{techShare = (`DeclaredShare` Nothing) <$> alloc}
+        TechnosphereExchange{techRole = ReferenceProduct} -> ex{techShare = (\p -> DeclaredShare p Nothing Nothing) <$> alloc}
         TechnosphereExchange{} -> ex
         BiosphereExchange{} -> ex
         WasteExchange{} -> ex

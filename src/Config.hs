@@ -93,7 +93,7 @@ import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName, (</>))
 import TOML (DecodeTOML (..), Decoder, TOMLError, Table, Value (..), decode, decodeFile, getArrayOf, getField, getFieldOpt, getFieldOptWith, getFieldWith)
-import Types (AllocationKey (..), ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), Release (..), Requirement, licenceFromKeys, parseAllocationKey)
+import Types (ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), FileReading (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), Reading (..), Release (..), Requirement, licenceFromKeys, parseFileReading)
 
 -- | A single classification filter entry (system + value)
 data ClassificationEntry = ClassificationEntry
@@ -279,21 +279,22 @@ data DatabaseConfig = DatabaseConfig
     , dcIsUploaded :: !Bool -- True for uploaded databases (vs. configured in TOML)
     , dcDeletable :: !Bool -- May the UI delete this entry? Defaults to dcIsUploaded.
     , dcGeographyPolicy :: !GeographyPolicy -- How aggressively to widen geography when linking suppliers
-    , dcAllocation :: !AllocationKey -- How a multi-output block is divided; the same source under two keys is two databases
+    , dcReading :: !Reading -- How a multi-output block is divided: by its files, or by a system model from the parent named in dcSource
     , dcPatches :: ![ExchangePatch] -- Declarative adjustments to the amounts this database states
     , dcSource :: !(Maybe Text)
     {- ^ The database whose files this one reads, when it does not own them: a
-    copy, or a source re-keyed under another allocation. Carried here rather
-    than left in the upload metadata because a reader of a re-keyed database
-    needs to know the shares were recomputed, and from what.
+    copy, a parent of the database it reads whole, or the parent a child is
+    divided from. Carried here rather than left in the upload metadata
+    because a reader of a derived database needs to know the shares were
+    recomputed, and from what.
     -}
     , dcLicence :: !Licence
     -- ^ The licence it is published under; a copy is served under its source's, see 'licenceOf'
     , dcRelease :: !(Maybe Release)
     {- ^ Which published database it is, as its owner declares. A copy or a
-    database derived under another allocation key starts with none: a copy is
-    made to be changed, and a re-keyed one holds other amounts, so neither is
-    the publisher's release until its owner says so.
+    derived database starts with none: a copy is made to be changed, and a
+    derived one holds other amounts, so neither is the publisher's release
+    until its owner says so.
     -}
     , dcRequires :: ![Requirement]
     {- ^ The releases its exchanges were linked against where it was made, read
@@ -695,7 +696,8 @@ instance DecodeTOML DatabaseConfig where
         let dcIsUploaded = False -- Databases from TOML are not uploaded
         dcDeletable <- fromMaybe dcIsUploaded <$> getFieldOpt "deletable"
         dcGeographyPolicy <- fromMaybe GeoGlobal <$> getFieldOptWith geographyPolicyDecoder "geography_policy"
-        dcAllocation <- fromMaybe Declared <$> getFieldOptWith allocationKeyDecoder "allocation"
+        -- A configured database reads its files; only a derivation makes a child.
+        dcReading <- FromFiles . fromMaybe ReadDeclared <$> getFieldOptWith fileReadingDecoder "allocation"
         dcPatches <- fromMaybe [] <$> getFieldOptWith (getArrayOf exchangePatchDecoder) "patches"
         let dcSource = Nothing -- A configured database owns the files it names
         dcLicence <- licenceDecoder
@@ -729,17 +731,15 @@ licenceDecoder = do
     keys <- LicenceKeys <$> getFieldOpt "licence" <*> getFieldOpt "licence_text" <*> getFieldOpt "refuses" <*> getFieldOpt "attribution" <*> getFieldOpt "accept"
     either (fail . T.unpack) pure (licenceFromKeys keys)
 
-{- | @allocation@ on a database entry: how its multi-output blocks are divided.
-
-Naming a property here loads the source under that key instead of the one it
-declares. To have both, configure the same path twice under two names: the key
-decides the inventory of every process the load produces, so one database
-carries one key.
+{- | @allocation@ on a database entry: @declared@, the shares its files
+state, or @none@, its blocks of several products kept whole as a parent. A
+property is refused with what to do instead: a database divided by a property
+is a child, derived from a parent with a system model.
 -}
-allocationKeyDecoder :: Decoder AllocationKey
-allocationKeyDecoder = do
+fileReadingDecoder :: Decoder FileReading
+fileReadingDecoder = do
     raw <- tomlDecoder :: Decoder Text
-    either (fail . T.unpack . ("allocation: " <>)) pure (parseAllocationKey raw)
+    either (fail . T.unpack . ("allocation: " <>)) pure (parseFileReading raw)
 
 geographyPolicyDecoder :: Decoder GeographyPolicy
 geographyPolicyDecoder = do

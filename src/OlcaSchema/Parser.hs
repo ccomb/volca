@@ -82,7 +82,7 @@ data Built = Built
     }
 
 -- | Read and compute a package, saying what the load noticed.
-parseOlcaDirectory :: UnitConfig -> AllocationKey -> FilePath -> IO (Either Text SimpleDatabase)
+parseOlcaDirectory :: UnitConfig -> FileReading -> FilePath -> IO (Either Text SimpleDatabase)
 parseOlcaDirectory cfg key dir = do
     reportProgress Info ("Loading openLCA package from: " <> dir)
     package <- P.readPackage dir
@@ -113,7 +113,7 @@ data Context = Context
     -- ^ For each process, the lines a product system names as its reference
     }
 
-buildDatabase :: UnitConfig -> AllocationKey -> P.Package -> Either Text Built
+buildDatabase :: UnitConfig -> FileReading -> P.Package -> Either Text Built
 buildDatabase cfg key pkg =
     -- Each process is read through and its package lines let go: what reads a
     -- process sees every table but no process, and the index over all processes
@@ -175,7 +175,7 @@ buildDatabase cfg key pkg =
             { cxPackage = shared
             , cxFlowUnits = flowUnits
             , cxProducers = producers
-            , cxAllocating = Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitDB}
+            , cxAllocating = Allocating{alKey = fileReadingKey key, alUnitConfig = cfg, alUnitDB = unitDB}
             , cxGlobals = (globalValues, globalUnsettled)
             , cxReferenceLines = M.fromListWith IS.union [(process, IS.singleton line) | P.SystemDoc{P.sdProcess = Just process, P.sdLine = Just line} <- systemDocs]
             }
@@ -842,7 +842,7 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
             (if P.rxReference raw then ReferenceProduct else Coproduct)
             sign
             (Supplier Nothing ClaimByProduct [])
-            ((\pct -> DeclaredShare{dsPercent = pct, dsFormula = Nothing}) <$> M.lookup (lnAt ln) shares)
+            ((\pct -> DeclaredShare{dsPercent = pct, dsFormula = Nothing, dsBy = Nothing}) <$> M.lookup (lnAt ln) shares)
 
     linked :: TechRole -> (Exchange, [Notice])
     linked role =

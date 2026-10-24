@@ -39,12 +39,14 @@ import Data.Time.Calendar (fromGregorian)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Database (buildDatabaseWithMatrices)
+import Database.Child (childOf)
 import Database.Loader (LoadOptions (..), defaultLoadOptions, loadDatabase, loadDatabaseWithLocationAliases)
 import EcoSpold.Writer2 (VolatileMeta (..), checkEcoSpold2Exportable, noVolatileMeta, writeEcoSpold2)
 import Matrix (computeInventoryMatrix)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
+import TestHelpers (modelDividingBy)
 import Types
 import UnitConversion (defaultUnitConfig)
 
@@ -322,7 +324,7 @@ fixtureWasteCoproduct =
 buildDb :: SimpleDatabase -> IO Database
 buildDb sdb = do
     res <-
-        buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty Declared []) sdb
+        buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) sdb
     case res of
         Left err -> error $ "matrix build failed: " ++ T.unpack err
         Right db -> pure db
@@ -537,12 +539,12 @@ spec = describe "EcoSpold2 writer round-trip" $ do
                         `shouldBe` [properties]
 
     -- A parent's process keeps its coproducts whole. Written out, it is one file
-    -- named after its reference product; read back under a key, every product
-    -- must come back as a process of its own, each with the share its price
-    -- gives it, or a database derived from the export would lose the cream.
+    -- named after its reference product; read back whole and divided by price,
+    -- every product must come back as a process of its own, each with the
+    -- share its price gives it, or a child of the export would lose the cream.
     -- The parent has no process making cream alone, so the butter bought with
-    -- it names no supplier, and must find the cream once the key has made one.
-    it "writes a process kept whole that a key divides into every product when read back" $ do
+    -- it names no supplier, and must find the cream once the child has made one.
+    it "writes a process kept whole that a child divides into every product when read back" $ do
         let priced share amount = noProperties{epPrice = Just (DeducedFromShare (share / amount))}
             cream = uuid "aaaaaaaa-0000-4000-8000-0000000000a2"
             whole =
@@ -569,7 +571,9 @@ spec = describe "EcoSpold2 writer round-trip" $ do
                 _ -> ex
         child <- withSystemTempDirectory "es2-parent" $ \dir -> do
             forM_ (writeOrFail noVolatileMeta parent) $ \(fname, doc) -> BS.writeFile (dir </> fname) (TE.encodeUtf8 doc)
-            either (error . T.unpack) pure =<< loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig){loAllocation = ByProperty Price} dir
+            whole <- either (error . T.unpack) pure =<< loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig){loAllocation = ReadWhole} dir
+            built <- either (error . T.unpack) pure =<< buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadWhole []) whole
+            either (error . T.unpack) (pure . toSimpleDatabase) =<< childOf defaultUnitConfig (modelDividingBy Price) built
         M.keys (sdbActivities child) `shouldBe` [(actA, prodA), (actA, cream), (actB, prodB)]
         [[bioAmount ex | ex@BiosphereExchange{} <- exchanges a] | a <- M.elems (sdbActivities child)]
             `shouldBe` [[5.1], [4.9], []]

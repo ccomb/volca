@@ -11,8 +11,10 @@ import Data.OpenApi (ToSchema (..))
 import Data.Text (Text)
 import GHC.Generics
 import Types (
+    AllocationProperty,
     BlockerReason (..),
     Licence,
+    ModelTitle,
     Modification,
     Release (..),
     Severity,
@@ -83,7 +85,8 @@ data DatabaseStatusAPI = DatabaseStatusAPI
     property recomputed them, and a column headed @declared@ over recomputed
     shares says something untrue.
     -}
-    , dsaSource :: Maybe Text -- The database whose files it reads, when it owns none (a copy, or a re-keyed load)
+    , dsaSystemModel :: Maybe ModelTitle -- The system model a child was divided by; its default is dsaAllocation
+    , dsaSource :: Maybe Text -- The database whose files it reads, when it owns none (a copy, or the parent of a child)
     , dsaLicence :: Licence -- What it is served under, its source's for a copy
     , dsaRelease :: Maybe Release -- Which published database it is, as its owner declared
     , dsaModification :: Modification -- How its data differs from the files it reads
@@ -355,6 +358,44 @@ data DepLoadResult
     | DepLoadFailed {dlfName :: Text, dlfError :: Text}
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DepLoadResult)
+
+{- | What a derivation makes: a parent of a database read from its files
+(@parent: true@), or a child of a parent divided by a system model, given as
+the text of its TOML file (@systemModel@). Exactly one of the two.
+-}
+data DeriveRequest = DeriveRequest
+    { drParent :: Maybe Bool
+    , drSystemModel :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeriveRequest)
+
+{- | A child's system model: its file as written, and each exception with the
+processes of the parent it takes, so a reader can check a rule took what its
+reason says.
+-}
+data SystemModelAPI = SystemModelAPI
+    { smaText :: Text
+    , smaExceptions :: [ModelExceptionAPI]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped SystemModelAPI)
+
+data ModelExceptionAPI = ModelExceptionAPI
+    { meaKey :: AllocationProperty
+    , meaReason :: Text
+    , meaProcesses :: [TakenProcessAPI]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ModelExceptionAPI)
+
+-- | A process of the parent an exception takes: its activity and its name.
+data TakenProcessAPI = TakenProcessAPI
+    { tpaActivity :: Text
+    , tpaName :: Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped TakenProcessAPI)
 
 {- | Response for the load database endpoint. A failure is an HTTP error. The
 @"tag": "LoadSucceeded"@ the answer carried when it could also be a failure
