@@ -958,8 +958,9 @@ class Client:
         could not divide and why.
 
         Returns the engine's ``LoadDatabaseResponse`` dict, as
-        :meth:`load_database` does: ``{"database": ...}`` describing the new
-        database, with no ``message``.
+        :meth:`load_database` does: ``"database"`` describes the new database
+        and ``"deps"`` how each of its dependencies loaded. It has no
+        ``message``.
         """
         self._require_wire(20, "derive_database", engine_hint="0.13.0")
         return self._require_success(

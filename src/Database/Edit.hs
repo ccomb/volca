@@ -301,12 +301,15 @@ dividedRefusal unitConfig key srcName db = case key of
     -- A block the key could not weigh is still whole in the derived database,
     -- so weighing it again names what it lacks.
     reasons :: Text
-    reasons = case (key, propertyKeyRefusals (Allocating key unitConfig (dbUnits db)) (V.toList (dbActivities db))) of
-        (ByProperty prop, refused@(_ : _)) ->
-            ". "
-                <> T.intercalate "; " [name <> " -- " <> describePropertyRefusal prop reason | (name, reason) <- take 3 refused]
-                <> (if length refused > 3 then "; and " <> T.pack (show (length refused - 3)) <> " more" else "")
-        _ -> ""
+    reasons = case key of
+        Declared -> ""
+        Unallocated -> ""
+        ByProperty prop -> case propertyKeyRefusals (Allocating key unitConfig (dbUnits db)) (V.toList (dbActivities db)) of
+            [] -> ""
+            refused ->
+                ". "
+                    <> T.intercalate "; " [name <> " -- " <> describePropertyRefusal prop reason | (name, reason) <- take 3 refused]
+                    <> (if length refused > 3 then "; and " <> T.pack (show (length refused - 3)) <> " more" else "")
 
     sameDatabase :: Text
     sameDatabase = ": the result would be that database under another name"
