@@ -806,7 +806,13 @@ can be compared.
 This is a full load, not a copy: seconds to minutes on a large
 database. Refused when the key divides no block of the source, or when
 it is the key that source already reads under: either would leave that
-source under a second name.
+source under a second name; a refusal names the first blocks the key
+could not divide and why.
+
+Returns the engine's ``LoadDatabaseResponse`` dict, as
+`load_database` does: ``"database"`` describes the new database
+and ``"deps"`` how each of its dependencies loaded. It has no
+``message``.
 
 ##### `Client.document_file(path: str, db_name: str | None = None) -> bytes`
 
