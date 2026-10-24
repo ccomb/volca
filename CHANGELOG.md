@@ -429,6 +429,13 @@
   as a missing dry mass or prices in two currencies, instead of only
   counting them.
 
+- An EcoSpold 2 input that names no supplying activity is now linked to the
+  process of its own database that makes the product it buys, when only one
+  process makes it. A product several processes make is still left for a
+  dependency, the line carrying no geography to choose by. A parent exported in EcoSpold 2 and read back under a key used to
+  leave every input that bought a coproduct without a supplier, which
+  scored the processes downstream as if that input were free.
+
 - An EcoSpold 2 file holding a process with several products now comes
   back with every product when it is read under a key that divides it. Each
   product's process used to claim the one name the file carries, and only

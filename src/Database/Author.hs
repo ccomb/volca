@@ -80,7 +80,7 @@ import Data.Either (partitionEithers)
 import Data.Indexing (repeated)
 import Data.List (nub)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -574,7 +574,7 @@ applyExchangeEdits ctx edits act = case accErrors final of
                     , eaNewBioFlows = accNewFlows final
                     , eaNewTechFlows = accNewTechFlows final
                     , eaNewWasteFlows = accNewWasteFlows final
-                    , eaWarnings = accWarnings final
+                    , eaWarnings = accWarnings final <> besideDeduced edits (exchanges (accActivity final))
                     , eaRestated =
                         [ RestatedLine{rlPosition = position, rlFrom = exchangeAmount before, rlTo = exchangeAmount after}
                         | (position, before, after) <- zip3 [0 ..] (exchanges (accActivity final)) (exchanges stated)
@@ -663,9 +663,7 @@ applyOneEdit ctx act edit = case edit of
         Right (matched, isSelected) -> Right (changed (filter (not . isSelected) current) matched)
     SetAmount sel amount -> onSelected (amountCheck amount) (selectFrom sel current) (withAmount amount)
     SetFormula sel formula -> onSelected (foldMap formulaProblems formula) (selectFrom sel current) (reformulated formula)
-    SetPrice flow price ->
-        (\step -> step{esWarnings = besideDeduced flow price current})
-            <$> onSelected (foldMap priceCheck price) (selectProduct flow current) (priced price)
+    SetPrice flow price -> onSelected (foldMap priceCheck price) (selectProduct flow current) (priced price)
     -- An added line resolves exactly as a written one does: same provider
     -- lookup, same unit rules, same new-flow warning.
     AddExchange authored -> case resolveOne ctx authored of
@@ -726,23 +724,36 @@ priceCheck (StatedAmount currency amount) =
     ["the price is " <> T.pack (show amount) <> "; it must be a finite number, zero or more" | isNaN amount || isInfinite amount || amount < 0]
         <> ["a price names its currency" | T.null (T.strip currency)]
 
-{- | A stated price set beside a price another product of the block deduced
-from its share: the price key cannot compare the two, so it would refuse the
-block until every product is priced by hand.
+{- | A stated price left beside a price another product of the block deduced
+from its share, by an edit that touched a price: the price key cannot compare
+the two, so it would refuse the block until every product is priced by hand.
+Judged once the whole batch is applied, so pricing every product in one edit
+does not warn.
 -}
-besideDeduced :: UUID -> Maybe StatedAmount -> [Exchange] -> [Text]
-besideDeduced flow price current =
-    [ "the other products of this activity carry prices deduced from their declared shares, which the price key cannot compare with this one: price each of them"
-    | isJust price
-    , any deducedElsewhere current
+besideDeduced :: [ExchangeEdit] -> [Exchange] -> [Text]
+besideDeduced edits final =
+    [ "some products of this activity carry prices deduced from their declared shares and others stated prices, which the price key cannot compare: price each of them"
+    | any pricing edits
+    , any isStated prices
+    , not (all isStated prices)
     ]
   where
-    deducedElsewhere :: Exchange -> Bool
-    deducedElsewhere ex = exchangeIsProductOutput ex && exchangeFlowId ex /= flow && isDeduced (epPrice (exchangeProperties ex))
-    isDeduced :: Maybe Price -> Bool
-    isDeduced = \case
-        Just DeducedFromShare{} -> True
-        _ -> False
+    prices :: [Price]
+    prices = mapMaybe (epPrice . exchangeProperties) (filter exchangeIsProductOutput final)
+    pricing :: ExchangeEdit -> Bool
+    pricing = \case
+        SetPrice _ _ -> True
+        RemoveExchange _ -> False
+        SetAmount _ _ -> False
+        AddExchange _ -> False
+        SetText _ -> False
+        SetFormula _ _ -> False
+        SetParameter _ _ -> False
+        RemoveParameter _ -> False
+    isStated :: Price -> Bool
+    isStated = \case
+        StatedPrice{} -> True
+        DeducedFromShare{} -> False
 
 priced :: Maybe StatedAmount -> Exchange -> Exchange
 priced price ex = case ex of
