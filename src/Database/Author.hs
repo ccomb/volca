@@ -80,7 +80,7 @@ import Data.Either (partitionEithers)
 import Data.Indexing (repeated)
 import Data.List (nub)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
