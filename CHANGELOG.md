@@ -424,6 +424,12 @@
 
 ### Fixed
 
+- An EcoSpold 2 input that names no supplying activity now finds its
+  supplier among the database's own processes by name, as a SimaPro input
+  does. A parent exported in EcoSpold 2 and read back under a key used to
+  leave every input that bought a coproduct without a supplier, which
+  scored the processes downstream as if that input were free.
+
 - An EcoSpold 2 file holding a process with several products now comes
   back with every product when it is read under a key that divides it. Each
   product's process used to claim the one name the file carries, and only

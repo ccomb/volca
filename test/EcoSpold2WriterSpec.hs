@@ -540,16 +540,29 @@ spec = describe "EcoSpold2 writer round-trip" $ do
     -- named after its reference product; read back under a key, every product
     -- must come back as a process of its own, each with the share its price
     -- gives it, or a database derived from the export would lose the cream.
+    -- The parent has no process making cream alone, so the butter bought with
+    -- it names no supplier, and must find the cream once the key has made one.
     it "writes a process kept whole that a key divides into every product when read back" $ do
         let priced share amount = noProperties{epPrice = Just (DeducedFromShare (share / amount))}
             cream = uuid "aaaaaaaa-0000-4000-8000-0000000000a2"
             whole =
                 TechnosphereExchange cream 3.0 unitKg Coproduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty (priced 49 3) Nothing
             fixture = fixtureWithExchange whole
+            milk = M.map (\a -> a{exchanges = map (withPrice (priced 51 1)) (exchanges a) <> [BiosphereExchange co2 10.0 unitKg Emission "" Nothing Nothing Nothing]}) (sdbActivities fixture)
+            butter =
+                (head (M.elems milk))
+                    { activityName = "butter"
+                    , exchanges =
+                        [ TechnosphereExchange prodB 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                        , TechnosphereExchange cream 2.0 unitKg Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                        ]
+                    }
             parent =
                 fixture
-                    { sdbActivities = M.map (\a -> a{exchanges = map (withPrice (priced 51 1)) (exchanges a) <> [BiosphereExchange co2 10.0 unitKg Emission "" Nothing Nothing Nothing]}) (sdbActivities fixture)
-                    , sdbTechFlows = M.insert cream (TechnosphereFlow cream "cream" unitKg M.empty Nothing Nothing) (sdbTechFlows fixture)
+                    { sdbActivities = M.insert (actB, prodB) butter milk
+                    , sdbTechFlows =
+                        M.insert prodB (TechnosphereFlow prodB "butter" unitKg M.empty Nothing Nothing) $
+                            M.insert cream (TechnosphereFlow cream "cream" unitKg M.empty Nothing Nothing) (sdbTechFlows fixture)
                     }
             withPrice props ex = case ex of
                 TechnosphereExchange{techRole = ReferenceProduct} -> ex{techProperties = props}
@@ -557,9 +570,14 @@ spec = describe "EcoSpold2 writer round-trip" $ do
         child <- withSystemTempDirectory "es2-parent" $ \dir -> do
             forM_ (writeOrFail noVolatileMeta parent) $ \(fname, doc) -> BS.writeFile (dir </> fname) (TE.encodeUtf8 doc)
             either (error . T.unpack) pure =<< loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig){loAllocation = ByProperty Price} dir
-        M.keys (sdbActivities child) `shouldBe` [(actA, prodA), (actA, cream)]
+        M.keys (sdbActivities child) `shouldBe` [(actA, prodA), (actA, cream), (actB, prodB)]
         [[bioAmount ex | ex@BiosphereExchange{} <- exchanges a] | a <- M.elems (sdbActivities child)]
-            `shouldBe` [[5.1], [4.9]]
+            `shouldBe` [[5.1], [4.9], []]
+        [ (techFlowId ex, techActivityLinkId ex)
+          | Just a <- [M.lookup (actB, prodB) (sdbActivities child)]
+          , ex@TechnosphereExchange{techRole = Input} <- exchanges a
+          ]
+            `shouldBe` [(cream, Just actA)]
 
     -- Export-boundary guards: data EcoSpold2 cannot faithfully re-encode must be
     -- rejected loudly by 'checkEcoSpold2Exportable' rather than silently

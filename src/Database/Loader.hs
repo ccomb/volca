@@ -624,6 +624,8 @@ History of manual bumps:
      caches miss the field.
 - 78: an exchange's properties carry a price, read from an EcoSpold 2
      @price@ property.
+- 79: an EcoSpold 2 input without an @activityLinkId@ is linked by name
+     within its database, as a SimaPro one is.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -631,7 +633,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 78
+     in hi `xor` lo `xor` 79
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -1723,7 +1725,10 @@ loadEcoSpoldDirectory opts dir = do
                     (conflict : more) -> return (Left (T.intercalate "; " (conflict : more)))
                     []
                         | isEcoSpold1 -> Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
-                        | otherwise -> return (Right simpleDb)
+                        -- A line without an activityLinkId may buy a coproduct
+                        -- that only the allocation made into a process of its
+                        -- own, as an exported parent's lines do.
+                        | otherwise -> Right <$> linkWithinDatabaseByName (loUnitConfig opts) simpleDb
 
     -- Process one worker's share of files
     processWorker :: UTCTime -> Bool -> Expr.UnitConversions -> (Int, [FilePath]) -> IO (Either (NE.NonEmpty T.Text) Harvest)
