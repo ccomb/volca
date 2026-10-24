@@ -624,8 +624,8 @@ History of manual bumps:
      caches miss the field.
 - 78: an exchange's properties carry a price, read from an EcoSpold 2
      @price@ property.
-- 79: an EcoSpold 2 input without an @activityLinkId@ is linked by name
-     within its database, as a SimaPro one is.
+- 79: an EcoSpold 2 input without an @activityLinkId@ is linked to the one
+     process of its database whose reference product it buys.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -1437,6 +1437,26 @@ linkWithinDatabaseByName unitConfig db = do
 
     return $ db{sdbActivities = fixedActivities}
 
+{- | Link an EcoSpold 2 input that names no activity to the one process of the
+database whose reference product is the flow it buys. An exported parent
+writes such inputs: they bought a coproduct, which only the allocation made
+into a process of its own. The line carries no geography, so a flow several
+processes make names none of them, and stays for a dependency to supply.
+-}
+linkSoleProducers :: SimpleDatabase -> IO SimpleDatabase
+linkSoleProducers db = do
+    let producers = M.fromListWith (<>) [(product, activity NE.:| []) | (activity, product) <- M.keys (sdbActivities db)]
+        link ex = case ex of
+            TechnosphereExchange{techActivityLinkId = Nothing, techRole = role, techFlowId = flow}
+                | role == Input || role == ReferenceInput || role == AvoidedProduct
+                , Just activity <- M.lookup flow producers >>= sole ->
+                    ex{techActivityLinkId = Just activity}
+            _ -> ex
+        linked = M.map (\act -> act{exchanges = map link (exchanges act)}) (sdbActivities db)
+        count = length . concatMap (filter (isJust . exchangeActivityLinkId) . exchanges) . M.elems
+    reportProgress Info $ printf "Linking within the database: %d input(s) without an activityLinkId bought the product of a single process here" (count linked - count (sdbActivities db))
+    pure db{sdbActivities = linked}
+
 -- | Fix all activities using name-only matching
 fixAllActivitiesByName :: UC.UnitConfig -> UnitDB -> NameOnlyIndex -> TechFlowDB -> ActivityMap -> (ActivityMap, UnlinkedSummary)
 fixAllActivitiesByName unitConfig unitDB idx techFlowDb activities =
@@ -1725,10 +1745,7 @@ loadEcoSpoldDirectory opts dir = do
                     (conflict : more) -> return (Left (T.intercalate "; " (conflict : more)))
                     []
                         | isEcoSpold1 -> Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
-                        -- A line without an activityLinkId may buy a coproduct
-                        -- that only the allocation made into a process of its
-                        -- own, as an exported parent's lines do.
-                        | otherwise -> Right <$> linkWithinDatabaseByName (loUnitConfig opts) simpleDb
+                        | otherwise -> Right <$> linkSoleProducers simpleDb
 
     -- Process one worker's share of files
     processWorker :: UTCTime -> Bool -> Expr.UnitConversions -> (Int, [FilePath]) -> IO (Either (NE.NonEmpty T.Text) Harvest)
