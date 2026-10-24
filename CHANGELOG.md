@@ -424,6 +424,11 @@
 
 ### Fixed
 
+- Deriving a database under a property key that divides none of its blocks
+  now names the first three blocks it could not divide and the reason, such
+  as a missing dry mass or prices in two currencies, instead of only
+  counting them.
+
 - An EcoSpold 2 file holding a process with several products now comes
   back with every product when it is read under a key that divides it. Each
   product's process used to claim the one name the file carries, and only

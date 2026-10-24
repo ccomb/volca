@@ -69,7 +69,7 @@ import System.FilePath ((</>))
 
 import Config (DatabaseConfig (..), licenceOf)
 import Database (Geographies)
-import Database.Allocation (keptWhole)
+import Database.Allocation (Allocating (..), describePropertyRefusal, keptWhole, propertyKeyRefusals)
 import Database.Author (
     ActivityText (..),
     AuthorContext (..),
@@ -143,6 +143,7 @@ import Types (
     parseProcessRef,
     processRefText,
  )
+import UnitConversion (UnitConfig)
 
 {- | Copy a loaded database into the runtime registry under the slugified
 @newName@.
@@ -262,9 +263,11 @@ loadDerived manager slug srcConfig key = do
             atomically $ modifyTVar' (dmAvailableDbs manager) (M.insert slug derivedConfig)
             loadDatabase manager slug >>= \case
                 Left err -> Left err <$ discardDerived manager slug
-                Right (loaded, deps) -> case dividedRefusal key (dcName srcConfig) (ldDatabase loaded) of
-                    Nothing -> pure (Right (loaded, deps))
-                    Just refusal -> Left refusal <$ discardDerived manager slug
+                Right (loaded, deps) -> do
+                    unitConfig <- getMergedUnitConfig manager
+                    case dividedRefusal unitConfig key (dcName srcConfig) (ldDatabase loaded) of
+                        Nothing -> pure (Right (loaded, deps))
+                        Just refusal -> Left refusal <$ discardDerived manager slug
 
 {- | Why the key divided nothing worth keeping, when it did.
 
@@ -275,8 +278,8 @@ to a database, and both numbers are named: @0 of 4087@ says the source carries
 blocks and none of them could be weighed, where @0 of 0@ would say it carries
 none at all.
 -}
-dividedRefusal :: AllocationKey -> Text -> Database -> Maybe Text
-dividedRefusal key srcName db = case key of
+dividedRefusal :: UnitConfig -> AllocationKey -> Text -> Database -> Maybe Text
+dividedRefusal unitConfig key srcName db = case key of
     -- Kept whole rather than divided: a parent worth keeping holds at least
     -- one block every product of which declares a share, the blocks the
     -- source's own shares divide. One missing a share is whole under both.
@@ -293,7 +296,18 @@ dividedRefusal key srcName db = case key of
                     <> " blocks of "
                     <> srcName
                     <> sameDatabase
+                    <> reasons
   where
+    -- A block the key could not weigh is still whole in the derived database,
+    -- so weighing it again names what it lacks.
+    reasons :: Text
+    reasons = case (key, propertyKeyRefusals (Allocating key unitConfig (dbUnits db)) (V.toList (dbActivities db))) of
+        (ByProperty prop, refused@(_ : _)) ->
+            ". "
+                <> T.intercalate "; " [name <> " -- " <> describePropertyRefusal prop reason | (name, reason) <- take 3 refused]
+                <> (if length refused > 3 then "; and " <> T.pack (show (length refused - 3)) <> " more" else "")
+        _ -> ""
+
     sameDatabase :: Text
     sameDatabase = ": the result would be that database under another name"
 

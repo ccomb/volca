@@ -954,7 +954,12 @@ class Client:
         This is a full load, not a copy: seconds to minutes on a large
         database. Refused when the key divides no block of the source, or when
         it is the key that source already reads under: either would leave that
-        source under a second name.
+        source under a second name; a refusal names the first blocks the key
+        could not divide and why.
+
+        Returns the engine's ``LoadDatabaseResponse`` dict, as
+        :meth:`load_database` does: ``{"database": ...}`` describing the new
+        database, with no ``message``.
         """
         self._require_wire(20, "derive_database", engine_hint="0.13.0")
         return self._require_success(

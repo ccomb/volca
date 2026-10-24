@@ -89,6 +89,15 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                     M.member "steel-wet" available `shouldBe` False
                     M.member "steel-wet" loaded `shouldBe` False
 
+    it "names the blocks a key could not divide, and why" $
+        withSource coproductCSV $ \manager -> do
+            derived <- deriveDatabase manager source "cheese-dry" (ByProperty DryMass)
+            case derived of
+                Right _ -> expectationFailure "expected a refusal, the source states no dry mass"
+                Left err -> do
+                    err `shouldSatisfy` isInfixOf "divided 0 of the 1 blocks"
+                    err `shouldSatisfy` isInfixOf "dry mass: no product of the block states one"
+
     it "reads a block whole under none, the cheese and the whey in one process" $
         withSource coproductCSV $ \manager -> do
             derived <- deriveDatabase manager source "dairy-parent" Unallocated
