@@ -579,6 +579,31 @@ spec = describe "EcoSpold2 writer round-trip" $ do
           ]
             `shouldBe` [(cream, Just actA)]
 
+    -- An EcoSpold 2 line carries no geography: a product two processes make
+    -- names neither, and the input waits for a dependency rather than going to
+    -- whichever producer sorts first.
+    it "leaves an input without a link alone when several processes make its product" $ do
+        let unlinked = TechnosphereExchange prodB 2.0 unitKg Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+            fixture = fixtureWithExchange unlinked
+            actC = uuid "cccccccc-0000-4000-8000-000000000003"
+            butterAt location =
+                (head (M.elems (sdbActivities fixture)))
+                    { activityName = "butter"
+                    , activityLocation = location
+                    , exchanges = [TechnosphereExchange prodB 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
+                    }
+            twoButters =
+                fixture
+                    { sdbActivities = M.insert (actB, prodB) (butterAt "FR") (M.insert (actC, prodB) (butterAt "DE") (sdbActivities fixture))
+                    , sdbTechFlows = M.insert prodB (TechnosphereFlow prodB "butter" unitKg M.empty Nothing Nothing) (sdbTechFlows fixture)
+                    }
+        sdb' <- roundTrip twoButters
+        [ techActivityLinkId ex
+          | Just a <- [M.lookup (actA, prodA) (sdbActivities sdb')]
+          , ex@TechnosphereExchange{techRole = Input} <- exchanges a
+          ]
+            `shouldBe` [Nothing]
+
     -- Export-boundary guards: data EcoSpold2 cannot faithfully re-encode must be
     -- rejected loudly by 'checkEcoSpold2Exportable' rather than silently
     -- corrupted (a non-finite amount clamps to 0.0; a ReferenceInput re-parses
