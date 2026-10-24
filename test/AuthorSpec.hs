@@ -577,6 +577,12 @@ spec = do
                     warningsOn act = either (const ["refused"]) eaWarnings (applyExchangeEdits (contextOf fixtureDb) [cheesePrice] act)
                 warningsOn parentRow `shouldSatisfy` any (isInfixOf "price each of them")
                 warningsOn importedActivity `shouldBe` []
+                -- Pricing every product in one edit leaves nothing deduced, in
+                -- whichever order the prices come.
+                let wheyPrice = SetPrice coproductId (Just (StatedAmount "EUR2005" 1))
+                    warningsAfter edits = either (const ["refused"]) eaWarnings (applyExchangeEdits (contextOf fixtureDb) edits parentRow)
+                warningsAfter [cheesePrice, wheyPrice] `shouldBe` []
+                warningsAfter [wheyPrice, cheesePrice] `shouldBe` []
 
             it "keeps every field an edit does not name" $ do
                 -- The reason this operation exists: classification, synonyms,
