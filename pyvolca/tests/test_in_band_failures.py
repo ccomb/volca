@@ -7,6 +7,8 @@ load that never happened looked like one that did.
 
 from __future__ import annotations
 
+import textwrap
+import tomllib
 from unittest import mock
 
 import pytest
@@ -36,6 +38,23 @@ def test_derive_database_raises_on_an_in_band_failure(client):
     client._call = mock.Mock(return_value={"tag": "LoadFailed", "error": "the key divides no block"})  # type: ignore[method-assign]
     with pytest.raises(VoLCAError, match="divides no block"):
         client.derive_database("x-parent", parent=True, db_name="x")
+
+
+def test_derive_database_still_takes_the_allocation_it_took_before(client):
+    client._require_wire = mock.Mock()  # type: ignore[method-assign]
+    client._call = mock.Mock(return_value={"tag": "LoadSucceeded", "database": {}, "deps": []})  # type: ignore[method-assign]
+    with pytest.warns(DeprecationWarning, match="parent=True"):
+        client.derive_database("x-parent", "none", "x")
+    assert client._call.call_args.kwargs["body"] == {"parent": True}
+    with pytest.raises(VoLCAError, match="no longer read from the files"):
+        client.derive_database("x-price", "price", "x")
+
+
+def test_the_documented_system_model_reads_as_toml():
+    doc = Client.derive_database.__doc__ or ""
+    example = doc.split("::", 1)[1].split("Give one", 1)[0]
+    model = tomllib.loads(textwrap.dedent(example))
+    assert model["allocation"]["exceptions"][0]["classification"]["value"] == "Agricultural\\Food\\Cheese production"
 
 
 def test_a_successful_load_is_returned(client):

@@ -62,6 +62,10 @@ spec = do
             fmap rsKeys (resolve (exception ["key = \"wet mass\"", "reason = \"Ovens.\"", "processes = [\"" <> uuidText oven <> "\"]"]))
                 `shouldBe` Right (M.fromList [(cheese, Price), (oven, WetMass)])
 
+        it "takes a block once, however many times its id is written" $
+            fmap (map snd . rsTaken) (resolve (exception ["key = \"wet mass\"", "reason = \"Ovens.\"", "processes = [\"" <> uuidText oven <> "\", \"" <> uuidText oven <> "\"]"]))
+                `shouldBe` Right [[oven]]
+
         it "refuses an id the parent lacks, or one naming a process of one product" $ do
             let named u = resolve (exception ["key = \"wet mass\"", "reason = \"Odd.\"", "processes = [\"" <> uuidText u <> "\"]"])
             problems (named nowhere) `shouldSatisfy` isInfixOf "which the parent does not hold"

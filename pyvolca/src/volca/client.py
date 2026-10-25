@@ -936,10 +936,11 @@ class Client:
     def derive_database(
         self,
         new_name: str,
+        allocation: str | None = None,
+        db_name: str | None = None,
         *,
         system_model: str | Path | None = None,
         parent: bool = False,
-        db_name: str | None = None,
     ) -> dict:
         """Make a parent or a child of a database, under ``new_name``.
 
@@ -959,9 +960,11 @@ class Client:
             [[allocation.exceptions]]
             key = "wet mass"
             reason = "Dairies weigh their milk, not its price."
-            classification = { system = "Category", value = "Agricultural\\Food\\Cheese production" }
+            classification = { system = "Category", value = "Agricultural\\\\Food\\\\Cheese production" }
 
-        Give one of the two. The source is untouched and every database stays
+        Give one of the two. ``allocation="none"``, the form before system
+        models, still asks for a parent and warns; a property there is refused,
+        since a database is no longer read from its files under one. The source is untouched and every database stays
         loadable side by side, so two divisions of one study can be compared.
 
         This is a full load, not a copy: seconds to minutes on a large
@@ -975,6 +978,19 @@ class Client:
         and ``"deps"`` how each of its dependencies loaded.
         """
         self._require_wire(85, "derive_database", engine_hint="0.16.0")
+        if allocation is not None:
+            if allocation != "none":
+                raise VoLCAError(
+                    f"derive_database: {allocation} is no longer read from the files: "
+                    "derive a parent with parent=True, then a child from it with a system_model"
+                )
+            warnings.warn(
+                'derive_database(new_name, "none") is now derive_database(new_name, parent=True). '
+                f"The allocation argument keeps working until pyvolca {_compat.RENAMED_REMOVED_IN} removes it.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            parent = True
         if parent == (system_model is not None):
             raise VoLCAError("derive_database: give parent=True or a system_model, one of the two")
         if isinstance(system_model, Path):

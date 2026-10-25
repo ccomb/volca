@@ -28,6 +28,7 @@ module Database.SystemModel (
     Resolution (..),
     parentProcesses,
     takenProcesses,
+    severalProducts,
 ) where
 
 import Data.Either (partitionEithers)
@@ -191,7 +192,7 @@ resolveModel model allActs = case NE.nonEmpty (concatMap problemsOf taken <> ove
     takenBy :: Selector -> [UUID]
     takenBy selector = case selector of
         ByClassification f -> M.keys (M.filter (classificationMatches f . activityClassification) blocks)
-        ByProcesses ids -> filter (`M.member` blocks) (NE.toList ids)
+        ByProcesses ids -> filter (`M.member` blocks) (S.toList (S.fromList (NE.toList ids)))
 
     problemsOf :: (ModelException, [UUID]) -> [Text]
     problemsOf (ex, us) =
@@ -211,8 +212,9 @@ resolveModel model allActs = case NE.nonEmpty (concatMap problemsOf taken <> ove
     quoted :: ModelException -> Text
     quoted ex = "the " <> propertyName (exKey ex) <> " exception \"" <> reasonText (exReason ex) <> "\""
 
-    severalProducts :: Activity -> Bool
-    severalProducts act = length (filter exchangeIsProductOutput (exchanges act)) > 1
+-- | A block: the only kind of process a model divides.
+severalProducts :: Activity -> Bool
+severalProducts act = length (filter exchangeIsProductOutput (exchanges act)) > 1
 
 -- | A parent's processes keyed by activity, as 'resolveModel' reads them.
 parentProcesses :: Database -> M.Map UUID Activity

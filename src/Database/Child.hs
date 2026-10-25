@@ -22,7 +22,7 @@ import Data.UUID (UUID)
 import Database.Allocation (Allocating (..), allocate, describePropertyRefusal, propertyKeyRefusals)
 import Database.Loader (getReferenceProductUUID, linkWithinDatabaseByName)
 import Database.Rebuild (rebuildFromActivities)
-import Database.SystemModel (Resolution (..), parentProcesses, resolveModel)
+import Database.SystemModel (Resolution (..), parentProcesses, resolveModel, severalProducts)
 import Progress (ProgressLevel (..), reportProgress)
 import Types (
     Activity (..),
@@ -58,12 +58,14 @@ already linked keeps its supplier.
 childOf :: UnitConfig -> SystemModel -> Database -> IO (Either Text Database)
 childOf unitConfig model parent = case resolveModel model activities of
     Left problems -> pure (Left (T.intercalate "; " (NE.toList problems)))
-    Right resolution -> case divide resolution of
-        Left refusal -> pure (Left refusal)
-        Right pieces -> do
-            reportRefusals (refused resolution)
-            linked <- linkWithinDatabaseByName unitConfig simple{sdbActivities = pieces}
-            pure (rebuildFromActivities unitConfig parent (sdbActivities linked))
+    Right resolution ->
+        let whys = refused resolution
+         in case divide resolution whys of
+                Left refusal -> pure (Left refusal)
+                Right pieces -> do
+                    reportRefusals whys
+                    linked <- linkWithinDatabaseByName unitConfig simple{sdbActivities = pieces}
+                    pure (rebuildFromActivities unitConfig parent (sdbActivities linked))
   where
     simple :: SimpleDatabase
     simple = toSimpleDatabase parent
@@ -74,15 +76,17 @@ childOf unitConfig model parent = case resolveModel model activities of
     allocating :: AllocationProperty -> Allocating
     allocating prop = Allocating{alKey = ByProperty prop, alUnitConfig = unitConfig, alUnitDB = sdbUnits simple}
 
-    divide :: Resolution -> Either Text (M.Map (UUID, UUID) Activity)
-    divide resolution = do
-        mapM_ (refuseIdle (M.fromList (refused resolution))) (rsTaken resolution)
+    divide :: Resolution -> [(UUID, Text)] -> Either Text (M.Map (UUID, UUID) Activity)
+    divide resolution whys = do
+        mapM_ (refuseIdle (M.fromList whys)) (rsTaken resolution)
         keyed
             [ keyedPiece
             | (k@(activityId, _), act) <- M.toList (sdbActivities simple)
             , keyedPiece <- case M.lookup activityId (rsKeys resolution) of
-                Just prop -> [((activityId, getReferenceProductUUID piece), piece) | piece <- NE.toList (allocate (allocating prop) act)]
-                Nothing -> [(k, act)]
+                -- Keyed by activity alone: a sibling of one product under the
+                -- same activity must not be cut a second time.
+                Just prop | severalProducts act -> [((activityId, getReferenceProductUUID piece), piece) | piece <- NE.toList (allocate (allocating prop) act)]
+                _ -> [(k, act)]
             ]
 
     -- Each block its property could not weigh, and why.

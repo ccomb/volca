@@ -247,7 +247,9 @@ deriveDatabase manager srcName newName derivation = do
         (AsParent, FromFiles ReadWhole) -> Just (srcName <> " is already a parent: the result would be that database under another name")
         (AsParent, ByModel _) -> Just (srcName <> " is a child: derive the parent from the database whose files it reads")
         (AsChild _, FromFiles ReadWhole) -> Nothing
-        (AsChild _, _) -> Just (srcName <> " is not a parent: derive a parent from it first, then the child from that parent")
+        (AsChild _, FromFiles ReadDeclared) -> Just notParent
+        (AsChild _, ByModel _) -> Just notParent
+    notParent = srcName <> " is not a parent: derive a parent from it first, then the child from that parent"
 
 -- | What a derivation makes of its source.
 data Derivation

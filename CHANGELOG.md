@@ -447,7 +447,8 @@
   property is refused at load, named, and must be derived again from a
   parent. In pyvolca, `derive_database` takes `parent=True` or
   `system_model=` (the text or the path of the file), and `system_model()`
-  reads a child's model back.
+  reads a child's model back. `allocation="none"` still asks for a parent,
+  with a warning, until pyvolca 1.0; a property there is refused.
 
 ### Fixed
 

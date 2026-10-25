@@ -789,7 +789,7 @@ Delete a method collection: unload it and remove its staged file.
 
 Delete a reference-data set of ``kind`` and remove its staged file.
 
-##### `Client.derive_database(new_name: str, *, system_model: str | Path | None = None, parent: bool = False, db_name: str | None = None) -> dict`
+##### `Client.derive_database(new_name: str, allocation: str | None = None, db_name: str | None = None, *, system_model: str | Path | None = None, parent: bool = False) -> dict`
 
 Make a parent or a child of a database, under ``new_name``.
 
@@ -809,9 +809,11 @@ its reason, and the processes it takes::
     [[allocation.exceptions]]
     key = "wet mass"
     reason = "Dairies weigh their milk, not its price."
-    classification = { system = "Category", value = "Agricultural\Food\Cheese production" }
+    classification = { system = "Category", value = "Agricultural\\Food\\Cheese production" }
 
-Give one of the two. The source is untouched and every database stays
+Give one of the two. ``allocation="none"``, the form before system
+models, still asks for a parent and warns; a property there is refused,
+since a database is no longer read from its files under one. The source is untouched and every database stays
 loadable side by side, so two divisions of one study can be compared.
 
 This is a full load, not a copy: seconds to minutes on a large
