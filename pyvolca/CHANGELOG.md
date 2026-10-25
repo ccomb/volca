@@ -18,6 +18,65 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
+## [0.14.0] - 2026-10-25
+
+This release speaks wire revisions 2 to 85. Each capability below checks the
+revision it needs and names the engine release to upgrade to when it is
+missing; most need engine 0.16.0.
+
+### Changed
+
+- `derive_database()` makes a parent (`parent=True`) or a child of a parent
+  divided by a system model (`system_model=`, the text of the TOML file or its
+  path), and `system_model()` reads a child's model back. A property given as
+  `allocation` (`"wet mass"`, `"price"`, ...) is refused, since the engine no
+  longer reads a database from its files under one: derive a parent, then a
+  child from it. `allocation="none"` still asks for a parent, with a
+  `DeprecationWarning`, until pyvolca 1.0 (wire revision 85).
+- `Server.start()` waits 1200 seconds of idleness before the engine stops,
+  instead of 300.
+
+### Added
+
+- Parameters and formulas. An activity carries the `parameters` and
+  `database_parameters` its formulas read, with the uncertainty of an input
+  parameter, and each exchange the `formula` its amount follows.
+  `edit_exchanges()` sets and removes parameters and formulas, and prices a
+  product output (`set_prices`). `database_parameters()` and
+  `edit_database_parameters()` read and edit a database's own parameters.
+  `formula_language()` describes the language and `check_formula()` checks a
+  formula where it would be written (wire revisions 64 to 74, 84).
+- Scores, inventories and supply chains at other values of the parameters:
+  `parameters=` on each of them, `parameter_sets=` on a batch score, and
+  scenarios, the named sets of values a database keeps, through
+  `scenarios()`, `save_scenario()` and `drop_scenario()` (wire revisions 66,
+  68, 75, 77).
+- `reduced_model()` gives an activity's scores as a function of some of its
+  parameters, and the model it returns evaluates new values locally with
+  `evaluate()`, without asking the engine again (wire revision 69).
+- `get_impacts_batch(exchange_contributions=True)` says what each line of an
+  activity adds to its scores (wire revision 70).
+- `get_inventory(flow=..., limit=...)` filters an inventory by flow name and
+  caps it, and counts the flows that matched (wire revision 67).
+- `score_table()` scores many processes into one flat row each: the reference
+  amount and unit, each method's score under the method's name, and each
+  scoring set score in a column of its own. `exclude_long_term=` leaves
+  long-term emissions out. `ScoredActivity.product_amount` and `product_unit`
+  say what each batch score is per (wire revision 80).
+- `quality_report()`, `computed_quality_report()` and their `_csv` forms read
+  a database's quality reports.
+- `Server(databases=..., methods=...)` starts an engine on databases and
+  method collections named by path, with no TOML of one's own.
+- `volca.compare_plot` puts two scores on one basis (`per_left_unit`) and
+  draws how far they differ (`scatter_grid`).
+- `download_units()` and `unit_table()` download a unit table, the built-in
+  one included (wire revision 81).
+- A write takes `note=`, the reason for the change, and `database_history()`
+  reads every change with its reason; `DatabaseInfo.modification` says what a
+  database holds that its source does not (wire revision 79).
+- `terms_to_accept()` lists the terms of use a database asks its readers to
+  accept, and `accept_terms()` accepts them (wire revision 78).
+
 ## [0.13.1] - 2026-10-13
 
 ### Fixed
