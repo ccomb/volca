@@ -714,8 +714,7 @@ instance DecodeTOML DatabaseConfig where
 {- | @release = { name = "...", version = "...", system_model = "..." }@ on a
 database entry. A release missing its name or its version stops the load:
 read as one, it would match every database sharing the half that is there.
-The check is written out because a missing field inside an optional table
-reads as no table at all.
+The check is written out so the refusal says which two fields a release needs.
 -}
 releaseDecoder :: Decoder Release
 releaseDecoder = do
