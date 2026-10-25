@@ -50,6 +50,10 @@ module Config (
     documentKeyPaths,
     unknownKeys,
 
+    -- * Optional fields, read strictly once present
+    getFieldOpt,
+    getFieldOptWith,
+
     -- * VOLCA_DATA_DIR resolution
     redirectIntoDataDir,
     applyDataDir,
@@ -92,7 +96,8 @@ import Progress (ProgressLevel (..), reportProgress)
 import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName, (</>))
-import TOML (DecodeTOML (..), Decoder, TOMLError, Table, Value (..), decode, decodeFile, getArrayOf, getField, getFieldOpt, getFieldOptWith, getFieldWith)
+import TOML (DecodeTOML (..), Decoder, TOMLError, Table, Value (..), decode, decodeFile, getArrayOf, getField, getFieldWith)
+import qualified TOML
 import Types (ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), FileReading (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), Reading (..), Release (..), Requirement, licenceFromKeys, parseFileReading)
 
 -- | A single classification filter entry (system + value)
@@ -1078,6 +1083,19 @@ keyPaths = S.toAscList . S.fromList . go []
     go _ AcceptsAnything = []
     go here (Accepts known) =
         concat [T.intercalate "." (reverse (k : here)) : go (k : here) nested | (k, nested) <- M.toList known]
+
+{- | An optional field, read in full once it is written. toml-reader's own
+versions read a field missing anywhere inside the value as the value itself
+missing: one database entry without its name emptied the whole list, and the
+engine started with no database and said nothing.
+-}
+getFieldOptWith :: Decoder a -> Text -> Decoder (Maybe a)
+getFieldOptWith decoder key = do
+    present <- TOML.getFieldOpt key :: Decoder (Maybe Value)
+    traverse (const (getFieldWith decoder key)) present
+
+getFieldOpt :: (DecodeTOML a) => Text -> Decoder (Maybe a)
+getFieldOpt = getFieldOptWith tomlDecoder
 
 {- | The dotted path of every key of a parsed document that the given shape
 does not name, an array written @name[]@ because the complaint is about the

@@ -452,6 +452,11 @@
 
 ### Fixed
 
+- A configuration file with one entry missing a field it needs, such as a
+  database without its name, is now refused with the field named. The engine
+  used to read the whole list of that entry as absent and start with no
+  database, without a word.
+
 - Deriving a database under a property key that divides none of its blocks
   now names the first three blocks it could not divide and the reason, such
   as a missing dry mass or prices in two currencies, instead of only

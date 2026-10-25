@@ -91,6 +91,14 @@ withParsedPaths dbPath methodPath body =
 
 spec :: Spec
 spec = do
+    describe "an entry missing a field it needs" $ do
+        -- One entry without its name used to make the whole list read as
+        -- absent: the engine started with no database and said nothing.
+        it "is refused, and does not empty the list it is in" $
+            case TOML.decode "[[databases]]\nname = \"a\"\npath = \"a\"\n\n[[databases]]\npath = \"b\"\n" :: Either TOML.TOMLError Config of
+                Right cfg -> expectationFailure ("expected a refusal, read " <> show (length (cfgDatabases cfg)) <> " databases")
+                Left err -> T.pack (show err) `shouldSatisfy` T.isInfixOf "name"
+
     describe "a database entry's allocation" $ do
         -- Dividing by a property is what a child of a parent does, by its
         -- system model; a configured database reads its files as they declare

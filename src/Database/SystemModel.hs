@@ -41,9 +41,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
-import TOML (Decoder, TOMLError, Table, Value, decode, decodeWith, getArrayOf, getField, getFieldOpt, getFieldWith, renderTOMLError, tomlDecoder)
+import TOML (Decoder, TOMLError, Table, decode, decodeWith, getArrayOf, getField, getFieldWith, renderTOMLError, tomlDecoder)
 
-import Config (KeySpec (..), unknownKeys)
+import Config (KeySpec (..), getFieldOpt, getFieldOptWith, unknownKeys)
 import Types (
     Activity (..),
     AllocationProperty,
@@ -115,13 +115,13 @@ modelDecoder text = do
             }
   where
     allocation :: Decoder (AllocationProperty, [ModelException])
-    allocation = (,) <$> getFieldWith property "default" <*> (fromMaybe [] <$> optionalWith (getArrayOf exception) "exceptions")
+    allocation = (,) <$> getFieldWith property "default" <*> (fromMaybe [] <$> getFieldOptWith (getArrayOf exception) "exceptions")
 
     exception :: Decoder ModelException
     exception = do
         key <- getFieldWith property "key"
         why <- T.strip <$> getField "reason"
-        selector <- (,) <$> optionalWith classification "classification" <*> getFieldOpt "processes"
+        selector <- (,) <$> getFieldOptWith classification "classification" <*> getFieldOpt "processes"
         reason <- if T.null why then fail "an exception needs its reason" else pure (Reason why)
         selects <- case selector of
             (Just c, Nothing) -> pure (ByClassification c)
@@ -129,14 +129,6 @@ modelDecoder text = do
             (Nothing, Nothing) -> fail ("the exception \"" <> T.unpack why <> "\" takes no process: write classification or processes")
             (Just _, Just _) -> fail ("the exception \"" <> T.unpack why <> "\" writes both classification and processes: write one")
         pure ModelException{exKey = key, exReason = reason, exSelects = selects}
-
-    -- toml-reader's getFieldOptWith reads a field missing inside the table as
-    -- the table itself missing, which dropped an exception written without
-    -- its reason: once the table is there, every field it needs is required.
-    optionalWith :: Decoder a -> Text -> Decoder (Maybe a)
-    optionalWith decoder key = do
-        present <- getFieldOpt key :: Decoder (Maybe Value)
-        traverse (const (getFieldWith decoder key)) present
 
     classification :: Decoder ClassificationFilter
     classification = do
