@@ -20,9 +20,12 @@ Then paste the rendered block at the top of this file and tighten wording.
 
 ## [0.14.0] - 2026-10-25
 
-This release speaks wire revisions 2 to 85. Each capability below checks the
-revision it needs and names the engine release to upgrade to when it is
-missing; most need engine 0.16.0.
+This release speaks wire revisions 2 to 85. Most capabilities below check the
+revision they need and name the engine release to upgrade to when it is
+missing; most need engine 0.16.0. Two read an older engine without refusing:
+`terms_to_accept()` and `accept_terms()` find no terms before wire revision 78,
+and `score_table()` leaves the reference amount and unit empty before
+revision 80.
 
 ### Changed
 
@@ -45,7 +48,13 @@ missing; most need engine 0.16.0.
   product output (`set_prices`). `database_parameters()` and
   `edit_database_parameters()` read and edit a database's own parameters.
   `formula_language()` describes the language and `check_formula()` checks a
-  formula where it would be written (wire revisions 64 to 74, 84).
+  formula where it would be written (wire revisions 64, 65, 72 to 74, 84).
+- A technosphere exchange carries the `price` it states among its
+  `properties` (wire revision 82).
+- Each exchange of `get_activity()` carries its `selector` and `position`, and
+  `edit_exchanges()` reaches an input or a waste output that names no supplier
+  by its flow and location: `ExchangeSelector(kind, flow=..., location=...)`
+  (wire revisions 70, 76).
 - Scores, inventories and supply chains at other values of the parameters:
   `parameters=` on each of them, `parameter_sets=` on a batch score, and
   scenarios, the named sets of values a database keeps, through
