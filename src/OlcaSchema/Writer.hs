@@ -66,7 +66,7 @@ import qualified Data.UUID.V5 as UUID5
 import Numeric (readHex)
 
 import qualified Data.IntMap.Strict as IM
-import Database.Allocation (isCoproduct)
+import Database.Allocation (isCoproduct, producerKeyOf)
 import qualified Database.ExportFormulas as EF
 import qualified Expr
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
@@ -319,7 +319,7 @@ lineOf cx act ex = do
 
     -- The written process of the supplier, else the identifier as the source stated it.
     provider = case supplierKey of
-        Just k | M.member k activities -> Just (ilcdProcessUUID (cxShared cx) k)
+        Just k | Just p <- producerKeyOf activities k -> Just (ilcdProcessUUID (cxShared cx) p)
         Just (l, _) -> Just l
         Nothing -> Nothing
 

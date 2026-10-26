@@ -37,6 +37,8 @@ module Database.Allocation (
     asAllocated,
     isCoproduct,
     keptWhole,
+    wholeBlockMakes,
+    producerKeyOf,
     describeRefusal,
     describePropertyRefusal,
     propertyKeyRefusals,
@@ -58,6 +60,7 @@ import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.UUID as UUID
 import Types
 import UnitConversion (UnitConfig, convertUnit)
 
@@ -541,6 +544,28 @@ keptWhole act = any isCoproduct products && all (isJust . exchangeDeclaredShare)
   where
     products :: [Exchange]
     products = filter exchangeIsProductOutput (exchanges act)
+
+{- | Whether a block kept whole makes the product of this flow beside its
+reference: what a parent answers an input buying that product with, the block
+standing in for the piece its child will cut.
+-}
+wholeBlockMakes :: Activity -> UUID -> Bool
+wholeBlockMakes act flow = keptWhole act && any (\ex -> isCoproduct ex && exchangeFlowId ex == flow) (exchanges act)
+
+{- | The process that answers a link to @(activity, product)@: the process of
+that key, or else the block kept whole under that activity when it makes the
+product. A parent keys a whole block by its reference alone, so its coproducts
+are answered here and nowhere else; every place asking whether a link has a
+producer asks this, or a coproduct of a parent counts as answered in one place
+and missing in the next.
+-}
+producerKeyOf :: M.Map (UUID, UUID) Activity -> (UUID, UUID) -> Maybe (UUID, UUID)
+producerKeyOf processes key@(activity, flow)
+    | M.member key processes = Just key
+    | otherwise = case M.lookupGE (activity, UUID.nil) processes of
+        Just (blockKey@(blockActivity, _), block)
+            | blockActivity == activity && wholeBlockMakes block flow -> Just blockKey
+        _ -> Nothing
 
 isCoproduct :: Exchange -> Bool
 isCoproduct ex = case ex of

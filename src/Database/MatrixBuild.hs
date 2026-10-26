@@ -37,7 +37,7 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
-import Database.Allocation (AllocatedActivity, AllocationRefusal, allocatedActivity, asAllocated, describeRefusal)
+import Database.Allocation (AllocatedActivity, AllocationRefusal, allocatedActivity, asAllocated, describeRefusal, wholeBlockMakes)
 import Types
 import UnitConversion (UnitConfig, convertUnit, missingConversion, unitKey)
 
@@ -214,8 +214,19 @@ buildTechTriples unitConfig unitDB tables supplierRefUnits =
     (refusals, rows) = perActivity tables
     lkp = itProcessIdLookup tables
     actCount = itActivityCount tables
-    step (normFactor, j, allocated, ex) =
-        techTriple unitConfig unitDB lkp supplierRefUnits actCount normFactor j (allocatedActivity allocated) ex
+    step (normFactor, j, allocated, ex)
+        | boughtFromWholeBlock ex = Right mempty
+        | otherwise = techTriple unitConfig unitDB lkp supplierRefUnits actCount normFactor j (allocatedActivity allocated) ex
+
+    -- A coproduct of a block a parent keeps whole: the block has no column to
+    -- draw on, as for its reference, and warned once for itself.
+    boughtFromWholeBlock :: Exchange -> Bool
+    boughtFromWholeBlock ex = case exchangeActivityLinkId ex of
+        Just activity
+            | Nothing <- findProducer lkp ex
+            , Just (pid :| []) <- M.lookup activity (itActivityUUIDIndex tables) ->
+                wholeBlockMakes (itActivities tables V.! fromIntegral pid) (exchangeFlowId ex)
+        _ -> False
     pack rs = let (ts, ws) = fold rs in (VU.fromList ts, refusals ++ ws)
 
 techTriple ::

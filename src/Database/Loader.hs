@@ -116,6 +116,7 @@ import Control.Monad
 import Data.Bits (xor)
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
+import Data.Containers.ListUtils (nubOrdOn)
 import Data.Either (lefts, partitionEithers, rights)
 import Data.List (intercalate, sort, sortBy, sortOn)
 import qualified Data.List.NonEmpty as NE
@@ -144,6 +145,10 @@ import Database.Allocation (
     Allocating (..),
     allocate,
     allocateAll,
+    isCoproduct,
+    keptWhole,
+    producerKeyOf,
+    wholeBlockMakes,
  )
 import Database.CrossLinking (
     AliasMap,
@@ -625,6 +630,8 @@ History of manual bumps:
 - 80: the reading a cache was built under is a 'FileReading' (declared or
      whole), not an allocation key that could name a property, so the stamp
      in 'BuildInputs' changes layout.
+- 81: a parent links an input buying a coproduct of a block it keeps whole
+     to that block, where it used to leave it to another database.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -632,7 +639,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 80
+     in hi `xor` lo `xor` 81
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -970,13 +977,20 @@ rankedProducers keyOf unitDB activities techFlowDb =
     M.map (NE.sortWith producerOrder) $
         M.fromListWith
             (<>)
-            [ (keyOf (normalizeText (tfName flow)) act, producing actUUID prodUUID act ex NE.:| [])
+            [ (keyOf (normalizeText (tfName flow)) act, producing actUUID made act ex NE.:| [])
             | ((actUUID, prodUUID), act) <- M.toList activities
-            , ex <- exchanges act
-            , exchangeIsReference ex
+            , (made, ex) <- madeBy prodUUID act
             , Just flow <- [M.lookup (exchangeFlowId ex) techFlowDb]
             ]
   where
+    -- The reference under the process's own key, and each coproduct of a
+    -- block kept whole under the key its child will give the piece making it
+    -- ('producerKeyOf'). A coproduct written on two rows makes one producer.
+    madeBy :: UUID.UUID -> Activity -> [(UUID.UUID, Exchange)]
+    madeBy prodUUID act =
+        [(prodUUID, ex) | ex <- exchanges act, exchangeIsReference ex]
+            <> nubOrdOn fst [(exchangeFlowId ex, ex) | keptWhole act, ex <- exchanges act, isCoproduct ex]
+
     producing :: UUID.UUID -> UUID.UUID -> Activity -> Exchange -> NameProducer
     producing actUUID prodUUID act ex =
         NameProducer
@@ -2241,6 +2255,9 @@ index assigned only when matrices are built, so it never exists on a
 'collectDanglingProductNames' has the real lookup and calls 'findProducer'
 directly, honouring both branches.
 
+A link to a coproduct of a block a parent keeps whole is answered by that
+block ('producerKeyOf'): its child cuts the piece under that very key.
+
 An absent @activityLinkId@ (SimaPro inputs awaiting cross-DB linking, or a genuine
 orphan) is never an internal producer. A *non-nil* link to an activity absent
 from this database – e.g. a partial EcoSpold2 import that references ecoinvent
@@ -2252,7 +2269,7 @@ hasInternalProducer :: SimpleDatabase -> Exchange -> Bool
 hasInternalProducer db ex =
     case exchangeActivityLinkId ex of
         Nothing -> False
-        Just actUUID -> M.member (actUUID, exchangeFlowId ex) (sdbActivities db)
+        Just actUUID -> isJust (producerKeyOf (sdbActivities db) (actUUID, exchangeFlowId ex))
 
 {- | Re-resolve the cross-DB links of a 'SimpleDatabase' against the given
 dependencies, optionally aliasing supplier names. Unlike
@@ -2693,7 +2710,18 @@ gapReportForLoaded dbName db =
 -- | The scan both of the above run, on the simple view the caller already holds.
 loadedEdges :: Database -> SimpleDatabase -> [GapEdge]
 loadedEdges db sdb =
-    gapEdgesWith (isJust . findProducer (dbProcessIdLookup db)) sdb (dbCrossDBLinks db) (dbLinkingStats db)
+    gapEdgesWith answered sdb (dbCrossDBLinks db) (dbLinkingStats db)
+  where
+    -- 'producerKeyOf' on the loaded tables: the simple view may hold some
+    -- processes only, and the block answering a coproduct need not be one.
+    answered :: Exchange -> Bool
+    answered ex =
+        isJust (findProducer (dbProcessIdLookup db) ex)
+            || maybe False (wholeBlockAnswers (exchangeFlowId ex)) (exchangeActivityLinkId ex)
+
+    wholeBlockAnswers :: UUID.UUID -> UUID.UUID -> Bool
+    wholeBlockAnswers flow activity =
+        maybe False (\pid -> wholeBlockMakes (dbActivities db V.! fromIntegral pid) flow) (findProcessIdByActivityUUID db activity)
 
 -- | How a gap's reason is spelled on the wire, by every surface that names one.
 gapReasons :: GapReason -> NE.NonEmpty BlockerReason
@@ -2713,7 +2741,7 @@ gapReportForStaged dbName sdb stats =
 own activity-key set (for the internal-resolution gate), and its flow tables.
 Bundled so the per-activity / per-exchange matchers keep short signatures.
 
-@lsOwnKeys@ lets the per-exchange matcher tell a non-nil link that resolves
+@lsOwnProcesses@ lets the per-exchange matcher tell a non-nil link that resolves
 *internally* (the matrix builder handles it) from a dangling one that needs a
 cross-DB supplier – so we never emit a redundant cross-DB link for an input
 already satisfied in place.
@@ -2721,7 +2749,7 @@ already satisfied in place.
 data LinkScan = LinkScan
     { lsCtx :: !LinkingContext
     , lsConvention :: !ReferenceConvention
-    , lsOwnKeys :: !(S.Set (UUID.UUID, UUID.UUID))
+    , lsOwnProcesses :: !ActivityMap
     , lsTechFlows :: !TechFlowDB
     , lsWasteFlows :: !WasteFlowDB
     , lsUnits :: !UnitDB
@@ -2733,7 +2761,7 @@ Returns statistics including the CrossDBLinks for chained solving
 findAllCrossDBLinks :: LinkingContext -> SimpleDatabase -> CrossDBLinkingStats
 findAllCrossDBLinks ctx db =
     let activities = sdbActivities db
-        !scan = LinkScan ctx (sdbReferenceConvention db) (M.keysSet activities) (sdbTechFlows db) (sdbWasteFlows db) (sdbUnits db)
+        !scan = LinkScan ctx (sdbReferenceConvention db) activities (sdbTechFlows db) (sdbWasteFlows db) (sdbUnits db)
         results = M.mapWithKey (findActivityCrossDBLinks scan) activities
      in mconcat (M.elems results)
 
@@ -2769,7 +2797,7 @@ A link whose target resolves in the internal matrix would be double-counted by
 a cross-DB link too, so 'resolvesInternally' gates it out – mirroring
 'Database.MatrixBuild.findProducer': a populated process link, or a non-nil
 @activityLinkId@ whose @(linkId, flowId)@ key is one of this database's own
-('lsOwnKeys'). Waste outputs take the same gate, then a strict matcher chosen by
+('lsOwnProcesses', through 'producerKeyOf'). Waste outputs take the same gate, then a strict matcher chosen by
 their link – 'findWasteTreatmentByActivity' when they name a treatment,
 'findWasteTreatmentAcrossDatabases' when they name none – with no synonym and
 no widening in either.
@@ -2782,7 +2810,7 @@ findExchangeCrossDBLink ::
     Int ->
     Exchange ->
     CrossDBLinkingStats
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnKeys = ownKeys, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@TechnosphereExchange{techFlowId = fid, techAmount = written, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = statedLoc}
+findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnProcesses = ownProcesses, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@TechnosphereExchange{techFlowId = fid, techAmount = written, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = statedLoc}
     | namesASupplier ex && not resolvesInternally =
         maybe mempty resolveTechInput (M.lookup fid techFlowDb)
     | otherwise = mempty
@@ -2790,7 +2818,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnKe
     loc :: T.Text
     loc = locationCode statedLoc
 
-    resolvesInternally = maybe False (\supplier -> S.member (supplier, fid) ownKeys) linkId
+    resolvesInternally = maybe False (\supplier -> isJust (producerKeyOf ownProcesses (supplier, fid))) linkId
     mkTechLink supAct supProd supName supLoc srcDb tied factor (coefficient, exchangeUnit) =
         CrossDBLink
             { cdlConsumerActUUID = consumerActUUID
@@ -2982,7 +3010,7 @@ findExchangeCrossDBLink _ _ _ _ BiosphereExchange{} = mempty
 -- would link the waste to an activity nobody asked for.
 -- Waste inputs (treatment side) are left alone: they have no clean LCA
 -- semantic as a cross-DB demand.
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows = wasteFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp, waLocation = waLoc}
+findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnProcesses = ownProcesses, lsWasteFlows = wasteFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp, waLocation = waLoc}
     | not isInp && not resolvesInternally =
         case treatmentMatch of
             WasteMatched entry dbN
@@ -3028,7 +3056,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnKeys = ownKeys, lsWasteFlows 
   where
     -- Same gate as the technosphere arm: a link the matrix already routes in
     -- place would be counted twice if a cross-DB link were emitted for it too.
-    resolvesInternally = maybe False (\supplier -> S.member (supplier, fid) ownKeys) lid
+    resolvesInternally = maybe False (\supplier -> isJust (producerKeyOf ownProcesses (supplier, fid))) lid
     treatmentMatch
         | ClaimById treatment <- claim = findWasteTreatmentByActivity ctx treatment fid
         | otherwise = findWasteTreatmentAcrossDatabases ctx fid flowName
