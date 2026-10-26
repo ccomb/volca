@@ -23,6 +23,7 @@ from volca.types import (
     SetAmount,
     SetFormula,
     SetParameter,
+    SetDryMass,
     SetPrice,
     TechInput,
     Uncertainty,
@@ -617,6 +618,29 @@ class TestEditExchanges:
         _version_ok(session, wire=83)
         with pytest.raises(VoLCAError, match="wire revision >= 84"):
             client.edit_exchanges("a_b", set_prices=[SetPrice("p-1", 0.42, "EUR2005")])
+        session.post.assert_not_called()
+
+    def test_dry_masses_travel_only_when_stated(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=86)
+        _ok(session, {"removed": [], "amountsSet": [], "added": 0, "dryMassesSet": [1, 1], "transient": False, "warnings": []})
+        client.edit_exchanges("a_b", set_dry_masses=[SetDryMass("p-1", 0.5915), SetDryMass("p-2", None)])
+        assert session.post.call_args[1]["json"]["setDryMasses"] == [
+            {"product": "p-1", "dryMass": {"amount": 0.5915, "unit": "kg"}},
+            {"product": "p-2", "dryMass": None},
+        ]
+        client.edit_exchanges("a_b", name="milk")
+        assert "setDryMasses" not in session.post.call_args[1]["json"]
+
+    def test_a_dry_mass_is_above_zero(self):
+        with pytest.raises(ValueError, match="above zero"):
+            SetDryMass("p-1", 0)
+
+    def test_dry_masses_never_sent_to_an_engine_that_cannot_keep_them(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=85)
+        with pytest.raises(VoLCAError, match="wire revision >= 86"):
+            client.edit_exchanges("a_b", set_dry_masses=[SetDryMass("p-1", 0.5915)])
         session.post.assert_not_called()
 
     def test_note_travels_with_the_edit(self, mocked_client):

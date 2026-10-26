@@ -221,6 +221,23 @@ spec = do
             replayOutcome ctx [event (edited supplierPid [(SetPrice supplierProdId (Just (StatedAmount "EUR2005" (-0.42))), 1)])]
                 `shouldSatisfy` failsWith "zero or more"
 
+        it "states a product's dry mass in place, and takes it off again" $ do
+            let stated = event (edited supplierPid [(SetDryMass supplierProdId (Just milkDryMass), 1)])
+            case replayJournal ctx [stated] of
+                Left err -> expectationFailure ("replay: " <> show err)
+                Right db -> dryMassesOf db `shouldSatisfy` elem (Just milkDryMass)
+            case replayJournal ctx [stated, event (edited supplierPid [(SetDryMass supplierProdId Nothing, 1)])] of
+                Left err -> expectationFailure ("replay: " <> show err)
+                Right db -> dryMassesOf db `shouldBe` dryMassesOf fixture
+
+        it "states a dry mass only on a product output, as a mass above zero" $ do
+            replayOutcome ctx [event (edited supplierPid [(SetDryMass co2Id (Just milkDryMass), 1)])]
+                `shouldSatisfy` failsWith "is no product output of this activity"
+            replayOutcome ctx [event (edited supplierPid [(SetDryMass supplierProdId (Just (StatedAmount "%" 13)), 1)])]
+                `shouldSatisfy` failsWith "% is not one"
+            replayOutcome ctx [event (edited supplierPid [(SetDryMass supplierProdId (Just (StatedAmount "kg" 0)), 1)])]
+                `shouldSatisfy` failsWith "above zero"
+
         it "brings along the flow an added line introduces" $
             case replayJournal ctx [event (edited supplierPid [(AddExchange methane, 1)])] of
                 Left err -> expectationFailure ("replay: " <> show err)
@@ -443,6 +460,7 @@ richEvents =
     , event parametrised
     , event databaseParameters
     , event repriced
+    , event dryMassed
     , Entry "2026-10-21T10:00:00Z" (Change (noteFrom "Measured on site") rememberedEdit)
     , Entry "2026-10-21T10:05:00Z" (Change Nothing rememberedParameters)
     ]
@@ -496,6 +514,26 @@ repriced =
 
 milkPrice :: StatedAmount
 milkPrice = StatedAmount "EUR2005" 0.42
+
+-- | A product given a dry mass, then its dry mass taken off.
+dryMassed :: JournalOp
+dryMassed =
+    edited
+        supplierPid
+        [ (SetDryMass supplierProdId (Just milkDryMass), 1)
+        , (SetDryMass supplierProdId Nothing, 1)
+        ]
+
+-- | A kilogram of milk at 13 % dry matter.
+milkDryMass :: StatedAmount
+milkDryMass = StatedAmount "kg" 0.13
+
+dryMassesOf :: Database -> [Maybe StatedAmount]
+dryMassesOf db =
+    [ epDryMass (techProperties ex)
+    | act <- V.toList (dbActivities db)
+    , ex@TechnosphereExchange{techRole = ReferenceProduct} <- exchanges act
+    ]
 
 -- | The price of each product output of the database, in activity order.
 pricesOf :: Database -> [Maybe Price]

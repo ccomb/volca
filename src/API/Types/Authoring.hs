@@ -201,6 +201,16 @@ data SetPriceAPI = SetPriceAPI
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetPriceAPI)
 
+{- | The dry mass of one unit of a product output, named by its flow, in a unit
+of mass; none removes it. What a @dry mass@ key divides a block on.
+-}
+data SetDryMassAPI = SetDryMassAPI
+    { sdmProduct :: Text
+    , sdmDryMass :: Maybe StatedAmount
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetDryMassAPI)
+
 {- | A parameter of the activity to add, or to replace under the same spelling:
 a value, or a formula in VoLCA's language whose value the engine computes.
 -}
@@ -221,7 +231,7 @@ the texts to restate, and its parameters.
 Lists rather than one tagged list, for the reason 'ActivityInput' has
 three: what makes sense on an addition cannot be sent on a removal and back
 again. They apply in one order: removals, parameters set, amounts, formulas,
-prices, additions, texts, parameters removed. So an edit that drops one supplier and
+prices, dry masses, additions, texts, parameters removed. So an edit that drops one supplier and
 adds another is never ambiguous about which happened first, a formula reads
 the parameters set beside it, and a parameter is removed once the formulas set
 here have stopped reading it. A parameter set is replaced whole: a unit,
@@ -248,6 +258,7 @@ data ExchangeEditRequest = ExchangeEditRequest
     , eerSetParameters :: [SetParameterAPI]
     , eerSetFormulas :: [SetFormulaAPI]
     , eerSetPrices :: [SetPriceAPI]
+    , eerSetDryMasses :: [SetDryMassAPI]
     , eerRemoveParameters :: [Text]
     , eerNote :: Maybe Text
     -- ^ Why the change was made, kept in the database's history
@@ -273,6 +284,7 @@ instance FromJSON ExchangeEditRequest where
             <*> o .:? "setParameters" .!= []
             <*> o .:? "setFormulas" .!= []
             <*> o .:? "setPrices" .!= []
+            <*> o .:? "setDryMasses" .!= []
             <*> o .:? "removeParameters" .!= []
             <*> o .:? "note"
 
@@ -288,6 +300,7 @@ data ExchangeEditResponse = ExchangeEditResponse
     -- ^ The texts rewritten: @name@, @location@, @description@.
     , eepFormulasSet :: [Int]
     , eepPricesSet :: [Int]
+    , eepDryMassesSet :: [Int]
     , eepParametersSet :: [Text]
     , eepParametersRemoved :: [Text]
     , eepRestated :: [RestatedLineAPI]
@@ -398,6 +411,7 @@ toExchangeEdits req = case partitionEithers stated of
             <> map toSetAmount (eerSetAmounts req)
             <> map toSetFormula (eerSetFormulas req)
             <> map toSetPrice (eerSetPrices req)
+            <> map toSetDryMass (eerSetDryMasses req)
             <> map (Right . AddExchange . toTechInput) (eerAddInputs req)
             <> map (fmap AddExchange . toBio) (eerAddBiosphere req)
             <> map (Right . AddExchange . toWasteOutput) (eerAddWasteOutputs req)
@@ -414,6 +428,9 @@ toExchangeEdits req = case partitionEithers stated of
     toSetPrice sp = case UUID.fromText (sprProduct sp) of
         Just flow -> Right (SetPrice flow (sprPrice sp))
         Nothing -> Left ["a price names its product by flow identifier, not " <> sprProduct sp]
+    toSetDryMass sd = case UUID.fromText (sdmProduct sd) of
+        Just flow -> Right (SetDryMass flow (sdmDryMass sd))
+        Nothing -> Left ["a dry mass names its product by flow identifier, not " <> sdmProduct sd]
 
 {- | A parameter states a value or a formula, never both: a calculated
 parameter's value is what its formula gives, and an uncertainty spreads a

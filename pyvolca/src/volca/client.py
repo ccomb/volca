@@ -108,6 +108,7 @@ from .types import (
     ServerVersion,
     SetAmount,
     SetFormula,
+    SetDryMass,
     SetPrice,
     SetParameter,
     Substitution,
@@ -1271,6 +1272,7 @@ class Client:
         set_parameters: Sequence[SetParameter] = (),
         set_formulas: Sequence[SetFormula] = (),
         set_prices: Sequence[SetPrice] = (),
+        set_dry_masses: Sequence[SetDryMass] = (),
         remove_parameters: Sequence[str] = (),
         note: str | None = None,
         db_name: str | None = None,
@@ -1290,7 +1292,10 @@ class Client:
         names each product by its flow id, and ``pricesSet`` counts the
         products priced. A price is what the ``"price"`` allocation key of
         :meth:`derive_database` divides a process of several products by.
-        Needs wire revision 84.
+        Needs wire revision 84. Their dry mass too: ``set_dry_masses`` states
+        it per unit of each product, and ``dryMassesSet`` counts the products
+        reached; it is what a ``"dry mass"`` exception of a system model
+        divides by. Needs wire revision 86.
 
         A selector that names nothing is refused rather than treated as done.
         One that names several lines applies to all of them, and the counts come
@@ -1352,6 +1357,8 @@ class Client:
             self._require_wire(76, "edit_exchanges(a selector by flow for an input or a waste output)", engine_hint="0.16.0")
         if set_prices:
             self._require_wire(84, "edit_exchanges(set_prices=)", engine_hint="0.16.0")
+        if set_dry_masses:
+            self._require_wire(86, "edit_exchanges(set_dry_masses=)", engine_hint="0.16.1")
         target = self._db(db_name)
         return self._json(
             self._session.post(
@@ -1365,6 +1372,7 @@ class Client:
                     **texts,
                     **parametric,
                     **({"setPrices": [p.to_wire() for p in set_prices]} if set_prices else {}),
+                    **({"setDryMasses": [d.to_wire() for d in set_dry_masses]} if set_dry_masses else {}),
                     **self._note(note, "edit_exchanges"),
                 },
             )

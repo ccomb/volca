@@ -80,7 +80,7 @@ import Data.Either (partitionEithers)
 import Data.Indexing (repeated)
 import Data.List (nub)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -485,6 +485,11 @@ data ExchangeEdit
       the others of its block, and leaves what the activity is untouched.
       -}
       SetPrice UUID (Maybe StatedAmount)
+    | {- | The dry mass of one unit of a product output, named by its flow, or
+      none: what a @dry mass@ key divides a block on. A source that keeps it in
+      a parameter rather than in a property table has it copied here.
+      -}
+      SetDryMass UUID (Maybe StatedAmount)
     | -- | A parameter of the activity, added, or replaced under the same spelling.
       SetParameter Text Parameter
     | RemoveParameter Text
@@ -611,6 +616,7 @@ amountsBefore activity = \case
     RemoveExchange selector -> named selector
     SetFormula selector _ -> named selector
     SetPrice _ _ -> []
+    SetDryMass _ _ -> []
     AddExchange _ -> []
     SetText _ -> []
     SetParameter _ _ -> []
@@ -664,6 +670,7 @@ applyOneEdit ctx act edit = case edit of
     SetAmount sel amount -> onSelected (amountCheck amount) (selectFrom sel current) (withAmount amount)
     SetFormula sel formula -> onSelected (foldMap formulaProblems formula) (selectFrom sel current) (reformulated formula)
     SetPrice flow price -> onSelected (foldMap priceCheck price) (selectProduct flow current) (priced price)
+    SetDryMass flow dryMass -> onSelected (foldMap (dryMassCheck (acUnitConfig ctx)) dryMass) (selectProduct flow current) (dryMassed dryMass)
     -- An added line resolves exactly as a written one does: same provider
     -- lookup, same unit rules, same new-flow warning.
     AddExchange authored -> case resolveOne ctx authored of
@@ -743,6 +750,7 @@ besideDeduced edits final =
     pricing :: ExchangeEdit -> Bool
     pricing = \case
         SetPrice _ _ -> True
+        SetDryMass _ _ -> False
         RemoveExchange _ -> False
         SetAmount _ _ -> False
         AddExchange _ -> False
@@ -758,6 +766,20 @@ besideDeduced edits final =
 priced :: Maybe StatedAmount -> Exchange -> Exchange
 priced price ex = case ex of
     TechnosphereExchange{techProperties = props} -> ex{techProperties = props{epPrice = StatedPrice <$> price}}
+    _ -> ex
+
+{- | A dry mass stated by hand: more than nothing, in a unit of mass. Both are
+what the @dry mass@ key refuses a block for when it divides, and an edit that
+would only be refused there, under another name, is refused here instead.
+-}
+dryMassCheck :: UnitConfig -> StatedAmount -> [Text]
+dryMassCheck cfg (StatedAmount unit amount) =
+    ["the dry mass is " <> T.pack (show amount) <> "; it must be a finite number above zero" | isNaN amount || isInfinite amount || amount <= 0]
+        <> ["a dry mass is a mass, and " <> unit <> " is not one" | isNothing (convertUnit cfg unit "kg" 1)]
+
+dryMassed :: Maybe StatedAmount -> Exchange -> Exchange
+dryMassed dryMass ex = case ex of
+    TechnosphereExchange{techProperties = props} -> ex{techProperties = props{epDryMass = dryMass}}
     _ -> ex
 
 {- | A line given a formula keeps its name, and its amount until the activity

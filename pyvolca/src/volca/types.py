@@ -3243,6 +3243,25 @@ class SetPrice:
 
 
 @dataclass(frozen=True)
+class SetDryMass:
+    """The dry mass of one unit of a product output, named by its flow id:
+    ``amount`` in ``unit``, a unit of mass (a kilogram of cheese at 59 % dry
+    matter is ``SetDryMass(flow, 0.59)``). An ``amount`` of ``None`` removes it."""
+
+    product: str
+    amount: float | None
+    unit: str = "kg"
+
+    def __post_init__(self) -> None:
+        if self.amount is not None and not self.amount > 0:
+            raise ValueError(f"SetDryMass({self.product!r}): a dry mass is above zero, not {self.amount}")
+
+    def to_wire(self) -> dict:
+        dry_mass = None if self.amount is None else {"amount": self.amount, "unit": self.unit}
+        return {"product": self.product, "dryMass": dry_mass}
+
+
+@dataclass(frozen=True)
 class SetParameter:
     """A parameter to add, of an activity or of a database, or to replace whole
     under the same spelling: a ``value`` (with an ``uncertainty`` if it varies), or a

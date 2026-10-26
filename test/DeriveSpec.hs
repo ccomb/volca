@@ -162,6 +162,17 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 derived <- deriveDatabase manager parentName childName (AsChild model)
                 fromLeft "" derived `shouldSatisfy` isInfixOf "the dry mass exception \"Dairy by its solids.\" divides none of the 1 blocks it takes"
 
+        it "divides by the dry masses stated on the parent, where the exception takes the block" $
+            withParent $ \manager -> do
+                parent <- loadedDb manager parentName
+                let (cheese, whey) = dairyProducts parent
+                    dried flow amount = SetDryMass flow (Just (StatedAmount "kg" amount))
+                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [dried cheese 0.6, dried whey 0.065]
+                isRight edited `shouldBe` True
+                child <- deriveWith manager (exceptionTaking "dry mass" (dairyActivity parent))
+                -- 1 kg at 0.6 kg dry beside 3 kg at 0.065: 0.6 / 0.795 and 0.195 / 0.795 of the milk.
+                inputOf "Cow milk" child `shouldSatisfy` near [6 / 0.795, 1.95 / 0.795]
+
         it "refuses an edit of the parent while a child divided from it is loaded" $
             withParent $ \manager -> do
                 _ <- deriveChild manager

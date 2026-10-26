@@ -584,6 +584,7 @@ inEditOrder = L.sortOn rank
         SetAmount _ _ -> 1
         SetFormula _ _ -> 1
         SetPrice _ _ -> 1
+        SetDryMass _ _ -> 1
         RemoveExchange _ -> 2
         RemoveParameter _ -> 2
         AddExchange _ -> 3

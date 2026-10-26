@@ -121,6 +121,8 @@ describeEdit namer (EditLine edit _ before) = case edit of
     SetFormula selector Nothing -> selected selector <> ": formula removed"
     SetPrice flow (Just price) -> "Product " <> flowNamed namer flow <> ": price set to " <> number (saAmount price) <> " " <> saUnit price
     SetPrice flow Nothing -> "Product " <> flowNamed namer flow <> ": price removed"
+    SetDryMass flow (Just dryMass) -> "Product " <> flowNamed namer flow <> ": dry mass set to " <> number (saAmount dryMass) <> " " <> saUnit dryMass
+    SetDryMass flow Nothing -> "Product " <> flowNamed namer flow <> ": dry mass removed"
     AddExchange exchange -> "Added " <> authoredExchange exchange
     SetText (ActivityName name) -> "Name set to " <> quoted name
     SetText (ActivityLocation location) -> "Location set to " <> location

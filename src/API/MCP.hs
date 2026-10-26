@@ -411,6 +411,7 @@ paramsToSchema ps =
         "set_amounts" -> setAmountItemSchema
         "set_formulas" -> setFormulaItemSchema
         "set_prices" -> setPriceItemSchema
+        "set_dry_masses" -> setDryMassItemSchema
         "set_parameters" -> setParameterItemSchema
         "add_inputs" -> providerLineSchema "Producer of what is consumed"
         "add_waste_outputs" -> providerLineSchema "Treatment the waste is handed to"
@@ -489,6 +490,21 @@ paramsToSchema ps =
                             ]
                     ]
             , "required" .= (["product", "price"] :: [Text])
+            ]
+
+    setDryMassItemSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "product" .= stringField "Flow id of a product output of the activity, its reference product or a coproduct"
+                    , "dryMass"
+                        .= object
+                            [ "type" .= (["object", "null"] :: [Text])
+                            , "description" .= ("{amount, unit}: the dry mass of one unit of the product, in a unit of mass (e.g. 0.59 kg for a kilogram of cheese at 59 % dry matter); null removes it" :: Text)
+                            ]
+                    ]
+            , "required" .= (["product", "dryMass"] :: [Text])
             ]
 
     setParameterItemSchema =
@@ -2002,6 +2018,7 @@ callEditExchanges dbManager rid args = runTool rid $ do
                 <*> parseArrayArg "set_parameters" Nothing args
                 <*> parseArrayArg "set_formulas" Nothing args
                 <*> parseArrayArg "set_prices" Nothing args
+                <*> parseArrayArg "set_dry_masses" Nothing args
                 <*> parseArrayArg "remove_parameters" Nothing args
                 <*> optionalText "note" args
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))

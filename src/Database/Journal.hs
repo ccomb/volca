@@ -382,6 +382,7 @@ applyOp ctx = \case
         AddExchange _ -> False
         SetFormula _ _ -> False
         SetPrice _ _ -> False
+        SetDryMass _ _ -> False
     siblingsOf pid activityUUID =
         [ other
         | other <- maybe [] NE.toList (M.lookup activityUUID (dbActivityUUIDIndex (acDb ctx)))
@@ -511,6 +512,8 @@ editJSON (EditLine edit matched before) = object (("matched" .= matched) : prior
             ["edit" .= ("formula" :: Text), "select" .= selectorJSON selector, "formula" .= formula]
         SetPrice flow price ->
             ["edit" .= ("price" :: Text), "product" .= UUID.toText flow, "price" .= price]
+        SetDryMass flow dryMass ->
+            ["edit" .= ("dry mass" :: Text), "product" .= UUID.toText flow, "dryMass" .= dryMass]
         SetParameter name parameter ->
             ["edit" .= ("parameter" :: Text), "name" .= name, "parameter" .= parameterJSON parameter]
         RemoveParameter name ->
@@ -530,6 +533,7 @@ parseEdit = withObject "exchange edit" $ \o -> do
             "description" -> SetText . ActivityDescription <$> o .: "value"
             "formula" -> SetFormula <$> (o .: "select" >>= parseSelector) <*> o .: "formula"
             "price" -> SetPrice <$> (o .: "product" >>= flowIn) <*> o .: "price"
+            "dry mass" -> SetDryMass <$> (o .: "product" >>= flowIn) <*> o .: "dryMass"
             "parameter" -> SetParameter <$> o .: "name" <*> (o .: "parameter" >>= parseParameter)
             "unparameter" -> RemoveParameter <$> o .: "name"
             other -> fail ("unknown exchange edit: " <> T.unpack other)

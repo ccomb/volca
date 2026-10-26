@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 85** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 86** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -871,7 +871,7 @@ edits: copy a configured one first.
 (`database_history`) and in the changes report its export
 carries. Needs wire revision 79.
 
-##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, set_parameters: Sequence[SetParameter] = (), set_formulas: Sequence[SetFormula] = (), set_prices: Sequence[SetPrice] = (), remove_parameters: Sequence[str] = (), note: str | None = None, db_name: str | None = None) -> dict`
+##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, set_parameters: Sequence[SetParameter] = (), set_formulas: Sequence[SetFormula] = (), set_prices: Sequence[SetPrice] = (), set_dry_masses: Sequence[SetDryMass] = (), remove_parameters: Sequence[str] = (), note: str | None = None, db_name: str | None = None) -> dict`
 
 Change what one activity consumes and emits, its texts or its parameters, keeping the activity.
 
@@ -888,7 +888,10 @@ selector reaches them. Their price alone can change: ``set_prices``
 names each product by its flow id, and ``pricesSet`` counts the
 products priced. A price is what the ``"price"`` allocation key of
 `derive_database` divides a process of several products by.
-Needs wire revision 84.
+Needs wire revision 84. Their dry mass too: ``set_dry_masses`` states
+it per unit of each product, and ``dryMassesSet`` counts the products
+reached; it is what a ``"dry mass"`` exception of a system model
+divides by. Needs wire revision 86.
 
 A selector that names nothing is refused rather than treated as done.
 One that names several lines applies to all of them, and the counts come
@@ -3870,6 +3873,18 @@ it and keep the amount; a named line keeps its name either way.
 |-------|------|---------|
 | `select` | `ExchangeSelector` | _required_ |
 | `formula` | `str \| None` | _required_ |
+
+### `SetDryMass`
+
+The dry mass of one unit of a product output, named by its flow id:
+``amount`` in ``unit``, a unit of mass (a kilogram of cheese at 59 % dry
+matter is ``SetDryMass(flow, 0.59)``). An ``amount`` of ``None`` removes it.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `product` | `str` | _required_ |
+| `amount` | `float \| None` | _required_ |
+| `unit` | `str` | 'kg' |
 
 ### `SetPrice`
 
