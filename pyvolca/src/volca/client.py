@@ -118,6 +118,7 @@ from .types import (
     parse_exchange_detail,
 )
 from . import _compat
+from .compare_scores import MethodComparison, join, pair_categories
 
 
 class VoLCAError(Exception):
@@ -3018,6 +3019,37 @@ class Client:
             for b in scored
             for s in b.results
         ]
+
+    def compare_methods(
+        self,
+        left_collection: str,
+        right_collection: str,
+        process_ids: list[str],
+        *,
+        forced: dict[str, str] | None = None,
+        chunk: int = 100,
+        workers: int = 8,
+    ) -> MethodComparison:
+        """Score this database's processes under two collections and pair their categories.
+
+        Only the method varies: the database, and so every activity and its
+        reference, is the same on both sides. Categories pair as in
+        :func:`volca.compare_scores.pair_categories`, ``forced`` first; each
+        pair's points are ``(left score, right score)`` per activity, ready
+        for :func:`volca.compare_plot.scatter_grid`. ``chunk`` and ``workers``
+        are as in :meth:`score_table`. Refuses one collection compared with itself.
+        """
+        if left_collection == right_collection:
+            raise VoLCAError(f"{left_collection!r} compared with itself says nothing; name two collections")
+        methods = self.list_methods()
+        pairing = pair_categories(
+            [m for m in methods if m.collection == left_collection],
+            [m for m in methods if m.collection == right_collection],
+            forced,
+        )
+        left = self.score_table(process_ids, collection=left_collection, chunk=chunk, workers=workers)
+        right = self.score_table(process_ids, collection=right_collection, chunk=chunk, workers=workers)
+        return MethodComparison(pairing, join(left, right, pairing.pairs))
 
     def quality_report(self, db_name: str | None = None, *, limit: int | None = None) -> dict:
         """The database's structural quality report, as the engine sends it.

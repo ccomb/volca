@@ -291,6 +291,8 @@ def readme_namespace() -> dict[str, Any]:
     from unittest.mock import MagicMock
 
     import volca
+    from volca.compare_plot import Point
+    from volca.compare_scores import CategoryPair, CategoryPairing, CategoryPoints, MethodComparison
     from volca import (
         Activity,
         ActivityComparison,
@@ -623,6 +625,13 @@ def readme_namespace() -> dict[str, Any]:
         }
         for a in (activity_a, activity_b)
     ]
+    climate = Method(id="ef-cc", name="Climate change", category="climate change", unit="kg CO2 eq", factor_count=420, collection="ef-31")
+    gwp = Method(id="ipcc-gwp", name="GWP 100", category="climate change", unit="kg CO2-Eq", factor_count=210, collection="ef-31-other")
+    pair = CategoryPair(climate, gwp, "same impact category")
+    c.compare_methods.return_value = MethodComparison(
+        CategoryPairing(pairs=[pair], different_units=[], ambiguous=[], unpaired_left=[], unpaired_right=[]),
+        [CategoryPoints(pair, [Point(activity_a.activity_name, 0.42, 0.43)])],
+    )
     c.refresh_stubs.return_value = None
 
     return {
