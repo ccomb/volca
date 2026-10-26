@@ -42,18 +42,11 @@ class AmbiguousCategories:
 
 
 @dataclass(frozen=True)
-class DifferentUnits:
-    """Two paired categories whose results are stated in different units."""
-
-    pair: CategoryPair
-
-
-@dataclass(frozen=True)
 class CategoryPairing:
     """How the categories of two collections paired, and what was left."""
 
     pairs: list[CategoryPair]
-    different_units: list[DifferentUnits]
+    different_units: list[CategoryPair]
     ambiguous: list[AmbiguousCategories]
     unpaired_left: list[Method]
     unpaired_right: list[Method]
@@ -108,7 +101,8 @@ def pair_categories(
     aside, is set apart in ``different_units``: its two scores may not measure
     the same thing. A forced pair is the caller's word, units included
     (``MJ`` against ``MJ (net calorific)``, say).
-    Raises ValueError for a forced name no category or several categories hold.
+    Raises ValueError for a forced name no category or several categories
+    hold, and for a category named in two forced pairs.
     """
     forced = dict(forced or {})
     pairs: list[CategoryPair] = []
@@ -123,6 +117,8 @@ def pair_categories(
     for l, r in forced.items():
         pairs.append(CategoryPair(named(l, left, "left"), named(r, right, "right"), "forced"))
     taken = {id(p.left) for p in pairs} | {id(p.right) for p in pairs}
+    if len(taken) != 2 * len(pairs):
+        raise ValueError("a category is named in two forced pairs; each pairs once")
     rest_left = [m for m in left if id(m) not in taken]
     rest_right = [m for m in right if id(m) not in taken]
 
@@ -141,8 +137,9 @@ def pair_categories(
             if (k := key(m)) is not None:
                 by_right.setdefault(k, []).append(m)
         done: set[int] = set()
-        for k in by_left.keys() & by_right.keys():
-            ls, rs = by_left[k], by_right[k]
+        for k, ls in by_left.items():
+            if (rs := by_right.get(k)) is None:
+                continue
             if len(ls) == 1 and len(rs) == 1:
                 pairs.append(CategoryPair(ls[0], rs[0], matched_on))
             else:
@@ -154,7 +151,7 @@ def pair_categories(
     same = [p for p in pairs if p.matched_on == "forced" or unit_key(p.left.unit) == unit_key(p.right.unit)]
     return CategoryPairing(
         pairs=same,
-        different_units=[DifferentUnits(p) for p in pairs if p not in same],
+        different_units=[p for p in pairs if p not in same],
         ambiguous=ambiguous,
         unpaired_left=rest_left,
         unpaired_right=rest_right,
@@ -174,17 +171,18 @@ def join(
     scaling. A score is read under its category's name, never its impact
     category, which several categories share. An activity scored on one side
     only, a zero, or a burden against a credit is counted in ``left_out``
-    rather than drawn.
+    rather than drawn. Two credits make a point: their ratio holds, though a
+    log scale draws neither.
     """
     right_by_id = {r["process_id"]: r for r in right_rows}
+    left_only = len({l["process_id"] for l in left_rows} - right_by_id.keys())
+    right_only = len(right_by_id.keys() - {l["process_id"] for l in left_rows})
     joined = []
     for pair in pairs:
         points: list[Point] = []
-        left_out: Counter[str] = Counter()
+        left_out: Counter[str] = +Counter(NotScoredOnTheRight=left_only, NotScoredOnTheLeft=right_only)
         for l in left_rows:
-            r = right_by_id.get(l["process_id"])
-            if r is None:
-                left_out["NotScoredOnTheRight"] += 1
+            if (r := right_by_id.get(l["process_id"])) is None:
                 continue
             a, b = l[pair.left.name], r[pair.right.name]
             judged = ratio(a, b)

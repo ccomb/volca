@@ -312,13 +312,13 @@ from volca.compare_plot import band_shares, scatter_grid
 
 ids = [a.process_id for a in c.search_activities(name="wheat flour")]
 compared = c.compare_methods("ef-31", "ef-31-other", ids, forced={"Land use": "Land occupation"})
-print("left apart:", [m.name for m in compared.pairing.unpaired_left], "units differ:", [d.pair.left.name for d in compared.pairing.different_units])
+print("left apart:", [m.name for m in compared.pairing.unpaired_left], "units differ:", [d.left.name for d in compared.pairing.different_units])
 for cat in compared.categories:
     print(cat.pair.left.name, "=", cat.pair.right.name, band_shares([p.right / p.left for p in cat.points]), dict(cat.left_out))
-scatter_grid({f"{cat.pair.left.name} ({cat.pair.left.unit})": cat.points for cat in compared.categories}, "methods.png", labels=("ef-31", "ef-31-other"))
+scatter_grid({f"{cat.pair.left.name} ({cat.pair.left.unit})": [p for p in cat.points if p.left > 0] for cat in compared.categories}, "methods.png", labels=("ef-31", "ef-31-other"))
 ```
 
-Only the method varies: the same activities are scored under both collections, so their scores are per the same reference and need no scaling. Categories pair on their name, then on its words alone (`Human toxicity, cancer_inorganics` is `Human toxicity cancer (inorganics)`), then on their impact category, case and spacing aside, after the pairs you force; a name or impact category several categories share pairs none of them and is listed in `pairing.ambiguous`. A pair whose result units differ beyond punctuation (`kg CO2 Equivalents` and `kg CO2-eq` are one) is set apart in `pairing.different_units` and not drawn; force the pair to draw it all the same. Each category's `left_out` counts the activities not drawn: a zero, or a burden against a credit. `volca.compare_scores.pair_categories` and `join` do the same work on rows you already hold.
+Only the method varies: the same activities are scored under both collections, so their scores are per the same reference and need no scaling. Categories pair on their name, then on its words alone (`Human toxicity, cancer_inorganics` is `Human toxicity cancer (inorganics)`), then on their impact category, case and spacing aside, after the pairs you force; a name or impact category several categories share pairs none of them and is listed in `pairing.ambiguous`. A pair whose result units differ beyond punctuation (`kg CO2 Equivalents` and `kg CO2-eq` are one) is set apart in `pairing.different_units` and not drawn; force the pair to draw it all the same. Each category's `left_out` counts the activities left out, and why: scored on one side only, a zero, or a burden against a credit. Two credits stay in `points`, since their ratio holds, but a log scale draws only burdens, hence the filter before `scatter_grid`. `volca.compare_scores.pair_categories` and `join` do the same work on rows you already hold.
 
 ## Run counterfactuals (substitutions)
 

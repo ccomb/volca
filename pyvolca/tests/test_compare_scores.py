@@ -50,11 +50,21 @@ class TestPairCategories:
             [method("Climate change", unit="kg CO2-Eq"), method("Water use", unit="m3")],
         )
         assert [x.left.name for x in p.pairs] == ["Climate change"]
-        assert [d.pair.left.name for d in p.different_units] == ["Water use"]
+        assert [d.left.name for d in p.different_units] == ["Water use"]
 
     def test_a_forced_pair_is_kept_whatever_its_units(self):
         p = pair_categories([method("Fossils", unit="MJ")], [method("Fossil use", unit="MJ (net calorific)")], {"Fossils": "Fossil use"})
         assert [x.matched_on for x in p.pairs] == ["forced"] and p.different_units == []
+
+
+    def test_a_category_forced_twice_is_refused(self):
+        with pytest.raises(ValueError, match="two forced pairs"):
+            pair_categories([method("A"), method("B")], [method("C")], {"A": "C", "B": "C"})
+
+    def test_pairs_keep_the_left_collection_order(self):
+        names = [f"c{i}" for i in range(20)]
+        p = pair_categories([method(n) for n in names], [method(n) for n in reversed(names)])
+        assert [x.left.name for x in p.pairs] == names
 
 
 class TestJoin:
@@ -70,6 +80,11 @@ class TestJoin:
         pair = pair_categories([method("X")], [method("X")]).pairs
         [cat] = join([{"process_id": "p1", "activity_name": "a", "X": 1.0}], [], pair)
         assert cat.points == [] and cat.left_out == {"NotScoredOnTheRight": 1}
+
+    def test_an_activity_missing_on_the_left_is_counted(self):
+        pair = pair_categories([method("X")], [method("X")]).pairs
+        [cat] = join([], [{"process_id": "p1", "activity_name": "a", "X": 1.0}], pair)
+        assert cat.points == [] and cat.left_out == {"NotScoredOnTheLeft": 1}
 
     def test_a_burden_against_a_credit_is_not_drawn(self):
         pair = pair_categories([method("X")], [method("X")]).pairs
