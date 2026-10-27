@@ -559,7 +559,7 @@ applicableChanges ctx p query =
     retextsIdentity :: [ExchangeEdit] -> Maybe Text
     retextsIdentity edits = do
         ref <- processIdToRef (inDatabase p) (inProcessId p)
-        retextsAuthoredIdentity (prActivity ref, prProduct ref) (inActivity p) edits
+        retextsAuthoredIdentity ref (inActivity p) edits
     summaryOutcomes :: [ChangeOutcome]
     exchangeOutcomes :: [ChangeOutcome]
     (summaryOutcomes, exchangeOutcomes) = splitAt (length (cqSummary query)) outcomes

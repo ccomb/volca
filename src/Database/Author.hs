@@ -289,7 +289,7 @@ brings along. The caller inserts the flows and the activity together –
 to a flow nothing declares.
 -}
 data ResolvedInsert = ResolvedInsert
-    { riKey :: (UUID, UUID)
+    { riKey :: ProcessRef
     , riActivity :: Activity
     , riNewTechFlows :: [TechnosphereFlow]
     , riNewWasteFlows :: [WasteFlow]
@@ -327,27 +327,25 @@ validateAuthored ctx activities =
                     dups -> Left (map duplicateMessage dups)
         (errs, _) -> Left (concat errs)
   where
-    duplicateMessage (a, p) =
+    duplicateMessage key =
         "Two activities in this batch mint the same identity ("
-            <> UUID.toText a
-            <> "_"
-            <> UUID.toText p
+            <> processRefText key
             <> "): same name, location, product and unit."
 
 validateOne :: AuthorContext -> AuthoredActivity -> Either [Text] (ResolvedInsert, [Text])
 validateOne ctx a =
     case (productChecks, partitionEithers (map resolveExchange (aaExchanges a)), mProductUnit) of
         ([], ([], resolved), Just (unitRef, unitLabel)) ->
-            let key = (authoredActivityUUID (aaName a) (aaLocation a), authoredProductUUID (aaProductName a) unitLabel)
+            let key = ProcessRef (authoredActivityUUID (aaName a) (aaLocation a)) (authoredProductUUID (aaProductName a) unitLabel)
                 productExchange =
                     TechnosphereExchange
-                        { techFlowId = snd key
+                        { techFlowId = prProduct key
                         , techAmount = aaProductAmount a
                         , techUnitId = unitRef
                         , techRole = ReferenceProduct
                         , -- Self-link, as every loaded database records its
                           -- reference products.
-                          techActivityLinkId = Just (fst key)
+                          techActivityLinkId = Just (prActivity key)
                         , techSupplierClaim = ClaimByProduct
                         , techLocation = ""
                         , techComment = Nothing
@@ -359,7 +357,7 @@ validateOne ctx a =
                         }
                 productFlow =
                     TechnosphereFlow
-                        { tfId = snd key
+                        { tfId = prProduct key
                         , tfName = aaProductName a
                         , tfUnitId = unitRef
                         , tfSynonyms = M.empty
@@ -371,7 +369,7 @@ validateOne ctx a =
                         { riKey = key
                         , riActivity = buildActivity a unitLabel (productExchange : map reExchange resolved)
                         , riNewTechFlows =
-                            [productFlow | not (M.member (snd key) (dbTechFlows (acDb ctx)))]
+                            [productFlow | not (M.member (prProduct key) (dbTechFlows (acDb ctx)))]
                                 <> mapMaybe reNewTechFlow resolved
                         , riNewWasteFlows = mapMaybe reNewWasteFlow resolved
                         , riNewBioFlows = mapMaybe reNewBioFlow resolved
@@ -505,9 +503,9 @@ own description no longer mints, and the next rewrite of it would be refused
 as addressing another activity. Such an activity is rewritten instead, which
 moves it to the identity its new name mints.
 -}
-retextsAuthoredIdentity :: (UUID, UUID) -> Activity -> [ExchangeEdit] -> Maybe Text
-retextsAuthoredIdentity (activityKey, _) act edits
-    | activityKey == authoredActivityUUID (activityName act) (activityLocation act)
+retextsAuthoredIdentity :: ProcessRef -> Activity -> [ExchangeEdit] -> Maybe Text
+retextsAuthoredIdentity key act edits
+    | prActivity key == authoredActivityUUID (activityName act) (activityLocation act)
     , any entersIdentity edits =
         Just "This activity was written here and its name and location make its identity: rewrite it to rename or relocate it."
     | otherwise = Nothing

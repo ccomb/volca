@@ -60,6 +60,7 @@ import Types (
     ParameterDefinition (..),
     Pedigree (..),
     Price (..),
+    ProcessRef (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
     SparseTriple (..),
@@ -181,14 +182,14 @@ spec = do
                 b <- resolveOrFail fixtureDb baseActivity
                 riKey a `shouldBe` riKey b
                 riKey a
-                    `shouldBe` ( authoredActivityUUID "cheese, at dairy" "FR"
-                               , authoredProductUUID "cheese" "kg"
-                               )
+                    `shouldBe` ProcessRef
+                        (authoredActivityUUID "cheese, at dairy" "FR")
+                        (authoredProductUUID "cheese" "kg")
 
             it "gives the same product two units two identities" $ do
                 a <- resolveOrFail fixtureDb baseActivity
                 b <- resolveOrFail fixtureDb baseActivity{aaProductUnit = "item"}
-                snd (riKey a) `shouldNotBe` snd (riKey b)
+                prProduct (riKey a) `shouldNotBe` prProduct (riKey b)
 
             -- The unit table holds `L` and `l` as two rows, so the two spellings
             -- no longer meet on a key: what makes them one unit is the factor of
@@ -201,7 +202,7 @@ spec = do
                         Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                         Right ([r], _) -> do
                             activityUnit (riActivity r) `shouldBe` "kg"
-                            snd (riKey r) `shouldBe` authoredProductUUID "cheese" "kg"
+                            prProduct (riKey r) `shouldBe` authoredProductUUID "cheese" "kg"
                         Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
 
             it "names the units a spelling could be when the database records two of them" $
@@ -467,9 +468,9 @@ spec = do
                     Left err -> expectationFailure ("insertActivities: " <> show err)
                     Right db' -> do
                         dbActivityCount db' `shouldBe` dbActivityCount fixtureDb + 1
-                        M.member (snd (riKey r)) (dbTechFlows db') `shouldBe` True
+                        M.member (prProduct (riKey r)) (dbTechFlows db') `shouldBe` True
                         map bfName (M.elems (dbBioFlows db')) `shouldSatisfy` elem "Nitrous oxide"
-                        uncurry (findProcessId db') (riKey r) `shouldSatisfy` (/= Nothing)
+                        findProcessId db' (prActivity (riKey r)) (prProduct (riKey r)) `shouldSatisfy` (/= Nothing)
 
             it "names the treatment a waste output was linked to" $ do
                 -- A waste output with no target is what a final waste flow looks
@@ -515,11 +516,11 @@ spec = do
                 highDb <- buildFixtureAt highActId highProdId
                 let pidText = UUID.toText highActId <> "_" <> UUID.toText highProdId
                 r <- resolveOrFail highDb baseActivity{aaExchanges = [techInput pidText 2 Nothing]}
-                riKey r < (highActId, highProdId) `shouldBe` True
+                riKey r < ProcessRef highActId highProdId `shouldBe` True
                 case insertActivities defaultUnitConfig [r] highDb of
                     Left err -> expectationFailure ("insertActivities: " <> show err)
                     Right db' ->
-                        case (uncurry (findProcessId db') (riKey r), findProcessId db' highActId highProdId) of
+                        case (findProcessId db' (prActivity (riKey r)) (prProduct (riKey r)), findProcessId db' highActId highProdId) of
                             (Just col, Just row) ->
                                 [ v
                                 | SparseTriple i j v <- VU.toList (dbTechnosphereTriples db')
@@ -533,7 +534,7 @@ spec = do
                 r <- resolveOrFail fixtureDb baseActivity
                 case insertActivities defaultUnitConfig [r] fixtureDb of
                     Left err -> expectationFailure ("insertActivities: " <> show err)
-                    Right db' -> case uncurry (findProcessId db') (riKey r) of
+                    Right db' -> case findProcessId db' (prActivity (riKey r)) (prProduct (riKey r)) of
                         Nothing -> expectationFailure "the inserted activity has no process id"
                         Just pid -> case deleteActivities [pid] db' of
                             Left err -> expectationFailure ("deleteActivities: " <> show err)
@@ -559,7 +560,7 @@ spec = do
                             Left err -> expectationFailure ("replaceActivities: " <> show err)
                             Right db'' -> do
                                 dbActivityCount db'' `shouldBe` dbActivityCount db'
-                                inputAmounts db'' (fst (riKey second)) `shouldBe` [7]
+                                inputAmounts db'' (prActivity (riKey second)) `shouldBe` [7]
 
         -- Editing an imported activity is the operation authoring cannot do:
         -- the row keeps its identity and everything a description would drop.
@@ -796,7 +797,7 @@ the activity view describes it, next to the process id its treatment sits at.
 insertedWasteOutput :: Database -> ResolvedInsert -> Either Text (ExchangeWithUnit, Text)
 insertedWasteOutput db r = do
     db' <- insertActivities defaultUnitConfig [r] db
-    pid <- note "the authored activity has no process id" (uncurry (findProcessId db') (riKey r))
+    pid <- note "the authored activity has no process id" (findProcessId db' (prActivity (riKey r)) (prProduct (riKey r)))
     act <- note "the inserted activity is not in the database" (getActivity db' pid)
     treatment <- note "the treatment has no process id" (findProcessId db' treatActId usedOilId)
     case [ewu | ewu <- pfaExchanges (convertActivityForAPI db' pid act), WasteExchange{waIsInput = False} <- [ewuExchange ewu]] of

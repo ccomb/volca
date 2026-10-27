@@ -117,13 +117,12 @@ import Database.Rebuild (
     deleteActivitiesWith,
     insertActivities,
     processKey,
-    renderKey,
     replaceActivities,
     resolveProcess,
  )
 import Parametric (editedParameters)
 import Progress (ProgressLevel (..), reportProgress)
-import Types (BioDirection (..), Compartment (..), Database (..), ExchangeLocation, Parameter (..), ParameterDefinition (..), getActivity, locationCode, readExchangeLocation)
+import Types (BioDirection (..), Compartment (..), Database (..), ExchangeLocation, Parameter (..), ParameterDefinition (..), ProcessRef (..), getActivity, locationCode, processRefText, readExchangeLocation)
 
 -- ---------------------------------------------------------------------------
 -- What a journal records
@@ -321,13 +320,13 @@ applyOp :: AuthorContext -> JournalOp -> Either Text Database
 applyOp ctx = \case
     Created activities written -> do
         resolved <- resolve activities
-        let minted = map (renderKey . riKey) resolved
+        let minted = map (processRefText . riKey) resolved
         if minted == written
             then insertActivities (acUnitConfig ctx) resolved (acDb ctx)
             else Left (drift written minted)
     Replaced target activity -> do
         resolved <- resolve [activity]
-        case map (renderKey . riKey) resolved of
+        case map (processRefText . riKey) resolved of
             [minted]
                 | minted == target -> replaceActivities (acUnitConfig ctx) resolved (acDb ctx)
             others -> Left (drift [target] others)
@@ -344,7 +343,7 @@ applyOp ctx = \case
         act <- maybe (Left ("Unknown process id: " <> target)) Right (getActivity (acDb ctx) pid)
         edited <- first (T.intercalate "; ") (applyExchangeEdits ctx (map fst edits) act)
         let shared = filter ofTheActivity (map fst edits)
-        siblings <- if null shared then pure [] else traverse (alongside shared) (siblingsOf pid (fst key))
+        siblings <- if null shared then pure [] else traverse (alongside shared) (siblingsOf pid (prActivity key))
         if eaMatched edited == map snd edits
             then
                 replaceActivities

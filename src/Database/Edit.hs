@@ -124,7 +124,7 @@ import Database.Manager (
     unloadDatabase,
     withReservedName,
  )
-import Database.Rebuild (processKey, renderKey, resolveProcess)
+import Database.Rebuild (processKey, resolveProcess)
 import Database.SystemModel (parseSystemModel)
 import Database.Upload (DatabaseFormat (..), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
@@ -140,6 +140,7 @@ import Types (
     FileReading (..),
     Parameter,
     ProcessId,
+    ProcessRef (..),
     Reading (..),
     SystemModel,
     allocationKeyText,
@@ -626,7 +627,7 @@ writeActivities manager dbName note verb authored =
     description, so the record and the result cannot disagree. Its identities
     are the canonical ones minted here, which is also what a replay compares
     against. -}
-    operation resolved = case (verb, zip authored (map (renderKey . riKey) resolved)) of
+    operation resolved = case (verb, zip authored (map (processRefText . riKey) resolved)) of
         -- Refused rather than journalled: a line recording that nothing
         -- happened would be replayed forever for nothing.
         (CreateActivities, []) -> Left (Malformed ["a create writes at least one activity"])
@@ -649,7 +650,7 @@ writeActivities manager dbName note verb authored =
             Right done ->
                 Right
                     WriteReport
-                        { wrWritten = map (renderKey . riKey) resolved
+                        { wrWritten = map (processRefText . riKey) resolved
                         , wrPersisted = moPersisted done
                         , wrWarnings = warnings <> moWarnings done
                         }
@@ -706,7 +707,7 @@ editExchanges manager dbName note target edits =
                         ctx <- authorContext manager (ldDatabase loaded)
                         case applyExchangeEdits ctx edits activity of
                             Left errs -> pure (Left (Malformed errs))
-                            Right edited -> commit (renderKey key) (amountsBeforeEach ctx activity edits) edited
+                            Right edited -> commit (processRefText key) (amountsBeforeEach ctx activity edits) edited
   where
     -- The identity is recorded canonically even when the caller addressed the
     -- activity by its bare UUID, so the journal keeps naming the same process
@@ -774,7 +775,7 @@ editDatabaseParameters manager dbName note edits =
                                 ParametersReport
                                     { prSet = [name | (name, Just _) <- edits]
                                     , prRemoved = [name | (name, Nothing) <- edits]
-                                    , prRestated = [renderKey key | Right key <- map (processKey (ldDatabase loaded)) (M.keys moved)]
+                                    , prRestated = [processRefText key | Right key <- map (processKey (ldDatabase loaded)) (M.keys moved)]
                                     , prPersisted = moPersisted done
                                     , prWarnings = moWarnings done
                                     }
@@ -801,16 +802,16 @@ presenceRefusal :: Database -> WriteVerb -> [ResolvedInsert] -> Maybe WriteRefus
 presenceRefusal db verb resolved = case verb of
     CreateActivities -> case filter present keys of
         [] -> Nothing
-        clashes -> Just (AlreadyPresent (map renderKey clashes))
+        clashes -> Just (AlreadyPresent (map processRefText clashes))
     -- The mismatch is checked before presence on purpose: a body that mints
     -- elsewhere describes a process the database may well not have, and
     -- answering "no such activity" would send the author looking for the wrong
     -- mistake.
-    ReplaceActivity target -> case filter ((/= canonicalTarget db target) . renderKey) keys of
+    ReplaceActivity target -> case filter ((/= canonicalTarget db target) . processRefText) keys of
         elsewhere@(_ : _) ->
             Just . Malformed $
                 [ "This activity's identity is "
-                    <> renderKey wrong
+                    <> processRefText wrong
                     <> ", not "
                     <> target
                     <> ". Identity comes from the name, location, product and unit, so\
@@ -819,12 +820,12 @@ presenceRefusal db verb resolved = case verb of
                 ]
         [] -> case filter (not . present) keys of
             [] -> Nothing
-            absent -> Just (NotPresent (map renderKey absent))
+            absent -> Just (NotPresent (map processRefText absent))
   where
     keys = map riKey resolved
-    present key = M.member key (dbProcessIdLookup db)
+    present key = M.member (prActivity key, prProduct key) (dbProcessIdLookup db)
 
-{- | The PUT target in the currency 'renderKey' speaks. A process is addressed
+{- | The PUT target in the currency 'processRefText' speaks. A process is addressed
 by the canonical @activityUUID_productUUID@ pair, or by the bare activity UUID
 the read endpoints also accept, so the handle a caller got from a read works
 here too. A target that resolves to nothing is kept as sent: the presence
@@ -836,7 +837,7 @@ canonicalTarget db target = case parseProcessRef target of
     Nothing -> fromMaybe target $ do
         actUUID <- UUID.fromText target
         pid <- findProcessIdByActivityUUID db actUUID
-        renderKey <$> dbProcessIdTable db V.!? fromIntegral pid
+        processRefText . uncurry ProcessRef <$> dbProcessIdTable db V.!? fromIntegral pid
 
 -- | The loaded databases a database draws suppliers from.
 loadedDependencies :: DatabaseManager -> Database -> IO [Database]
@@ -1164,7 +1165,7 @@ deleteActivitiesInDB manager dbName DeleteRequest{drName = nameP, drLocation = g
                     let toDelete =
                             resolveDeleteSelection
                                 DeleteSelection{dsFiltered = filtered, dsKeep = keepPids, dsExtra = extraPids}
-                    case traverse (fmap renderKey . processKey db) toDelete of
+                    case traverse (fmap processRefText . processKey db) toDelete of
                         Left err -> pure (Left err)
                         -- A filter that matched nothing changes nothing: no
                         -- rebuild, and no line in the journal saying an empty
