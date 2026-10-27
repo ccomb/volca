@@ -773,6 +773,7 @@ editReportToAPI report =
         , eepFormulasSet = erFormulasSet report
         , eepPricesSet = erPricesSet report
         , eepDryMassesSet = erDryMassesSet report
+        , eepWetMassesSet = erWetMassesSet report
         , eepParametersSet = erParametersSet report
         , eepParametersRemoved = erParametersRemoved report
         , eepRestated = [RestatedLineAPI{rsPosition = rlPosition line, rsFrom = rlFrom line, rsTo = rlTo line} | line <- erRestated report]

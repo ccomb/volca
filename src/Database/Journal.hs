@@ -122,7 +122,7 @@ import Database.Rebuild (
  )
 import Parametric (editedParameters)
 import Progress (ProgressLevel (..), reportProgress)
-import Types (BioDirection (..), Compartment (..), Database (..), ExchangeLocation, Parameter (..), ParameterDefinition (..), ProcessRef (..), getActivity, locationCode, processRefText, readExchangeLocation)
+import Types (AllocationProperty (..), BioDirection (..), Compartment (..), Database (..), ExchangeLocation, Parameter (..), ParameterDefinition (..), ProcessRef (..), getActivity, locationCode, processRefText, propertyName, readExchangeLocation)
 
 -- ---------------------------------------------------------------------------
 -- What a journal records
@@ -380,8 +380,7 @@ applyOp ctx = \case
         SetAmount _ _ -> False
         AddExchange _ -> False
         SetFormula _ _ -> False
-        SetPrice _ _ -> False
-        SetDryMass _ _ -> False
+        SetProperty{} -> False
     siblingsOf pid activityUUID =
         [ other
         | other <- maybe [] NE.toList (M.lookup activityUUID (dbActivityUUIDIndex (acDb ctx)))
@@ -509,10 +508,8 @@ editJSON (EditLine edit matched before) = object (("matched" .= matched) : prior
             ["edit" .= ("description" :: Text), "value" .= paragraphs]
         SetFormula selector formula ->
             ["edit" .= ("formula" :: Text), "select" .= selectorJSON selector, "formula" .= formula]
-        SetPrice flow price ->
-            ["edit" .= ("price" :: Text), "product" .= UUID.toText flow, "price" .= price]
-        SetDryMass flow dryMass ->
-            ["edit" .= ("dry mass" :: Text), "product" .= UUID.toText flow, "dryMass" .= dryMass]
+        SetProperty prop flow value ->
+            ["edit" .= propertyName prop, "product" .= UUID.toText flow, valueKey prop .= value]
         SetParameter name parameter ->
             ["edit" .= ("parameter" :: Text), "name" .= name, "parameter" .= parameterJSON parameter]
         RemoveParameter name ->
@@ -522,6 +519,8 @@ parseEdit :: Value -> Parser EditLine
 parseEdit = withObject "exchange edit" $ \o -> do
     matched <- o .: "matched"
     before <- maybe PriorUnknown Prior <$> o .:? "before"
+    let property :: AllocationProperty -> Parser ExchangeEdit
+        property prop = SetProperty prop <$> (o .: "product" >>= flowIn) <*> o .: valueKey prop
     edit <-
         o .: "edit" >>= \case
             ("remove" :: Text) -> RemoveExchange <$> (o .: "select" >>= parseSelector)
@@ -531,8 +530,9 @@ parseEdit = withObject "exchange edit" $ \o -> do
             "location" -> SetText . ActivityLocation <$> o .: "value"
             "description" -> SetText . ActivityDescription <$> o .: "value"
             "formula" -> SetFormula <$> (o .: "select" >>= parseSelector) <*> o .: "formula"
-            "price" -> SetPrice <$> (o .: "product" >>= flowIn) <*> o .: "price"
-            "dry mass" -> SetDryMass <$> (o .: "product" >>= flowIn) <*> o .: "dryMass"
+            "price" -> property Price
+            "dry mass" -> property DryMass
+            "wet mass" -> property WetMass
             "parameter" -> SetParameter <$> o .: "name" <*> (o .: "parameter" >>= parseParameter)
             "unparameter" -> RemoveParameter <$> o .: "name"
             other -> fail ("unknown exchange edit: " <> T.unpack other)
@@ -597,6 +597,13 @@ selectorJSON = \case
   where
     locationPair :: Maybe ExchangeLocation -> [Pair]
     locationPair = maybe [] (\stated -> ["location" .= locationCode stated])
+
+-- | The field a property's value is written under, beside its name.
+valueKey :: AllocationProperty -> KM.Key
+valueKey = \case
+    Price -> "price"
+    DryMass -> "dryMass"
+    WetMass -> "wetMass"
 
 flowIn :: Text -> Parser UUID.UUID
 flowIn raw = maybe (fail ("not a flow identifier: " <> T.unpack raw)) pure (UUID.fromText raw)

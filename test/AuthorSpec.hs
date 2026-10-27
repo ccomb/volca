@@ -44,6 +44,7 @@ import EcoSpold.Writer2 (checkEcoSpold2Exportable)
 import Service (convertActivityForAPI)
 import Types (
     Activity (..),
+    AllocationProperty (..),
     BioDirection (..),
     BiosphereFlow (..),
     BuildInputs (..),
@@ -587,7 +588,7 @@ spec = do
                 inputsOf act = [ex | ex@TechnosphereExchange{techRole = Input} <- exchanges act]
 
             it "warns when a price is set beside one a share was turned into, never otherwise" $ do
-                let cheesePrice = SetPrice importedProdId (Just (StatedAmount "EUR2005" 12))
+                let cheesePrice = SetProperty Price importedProdId (Just (StatedAmount "EUR2005" 12))
                     deducedWhey ex = case ex of
                         TechnosphereExchange{techRole = Coproduct} -> ex{techProperties = noProperties{epPrice = Just (DeducedFromShare 30)}}
                         _ -> ex
@@ -597,7 +598,7 @@ spec = do
                 warningsOn importedActivity `shouldBe` []
                 -- Pricing every product in one edit leaves nothing deduced, in
                 -- whichever order the prices come.
-                let wheyPrice = SetPrice coproductId (Just (StatedAmount "EUR2005" 1))
+                let wheyPrice = SetProperty Price coproductId (Just (StatedAmount "EUR2005" 1))
                     warningsAfter edits = either (const ["refused"]) eaWarnings (applyExchangeEdits (contextOf fixtureDb) edits parentRow)
                 warningsAfter [cheesePrice, wheyPrice] `shouldBe` []
                 warningsAfter [wheyPrice, cheesePrice] `shouldBe` []

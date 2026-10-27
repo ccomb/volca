@@ -49,6 +49,7 @@ import API.Types (
     SetAmountAPI (..),
     SetDryMassAPI (..),
     SetPriceAPI (..),
+    SetWetMassAPI (..),
     TechInputAPI (..),
  )
 import App.Env (AppEnv (..), runApp)
@@ -420,6 +421,7 @@ noEdits =
         , eerSetFormulas = []
         , eerSetPrices = []
         , eerSetDryMasses = []
+        , eerSetWetMasses = []
         , eerRemoveParameters = []
         , eerNote = Nothing
         }
@@ -479,6 +481,21 @@ documentingSpec = describe "documenting the changes made to a database" $ do
     it "reads a dry mass as the document states it" $
         fmap (map (\sd -> (sdmProduct sd, sdmDryMass sd)) . eerSetDryMasses) (decode "{\"setDryMasses\":[{\"product\":\"p-1\",\"dryMass\":{\"amount\":0.13,\"unit\":\"kg\"}},{\"product\":\"p-2\",\"dryMass\":null}]}")
             `shouldBe` Just [("p-1", Just (StatedAmount "kg" 0.13)), ("p-2", Nothing)]
+
+    it "states a product's wet mass, keeping it on the activity and the change in the history" $
+        withWritableDb $ \env -> do
+            let milkWetMass = StatedAmount "kg" 1.03
+                setWetMass = SetWetMassAPI{swmProduct = UUID.toText supplierProdId, swmWetMass = Just milkWetMass}
+            res <- edit env "authored" supplierPid noEdits{eerSetWetMasses = [setWetMass], eerNote = Just "density of milk"}
+            fmap eepWetMassesSet res `shouldSatisfy` either (const False) (== [1])
+            activities <- activitiesOf env "authored"
+            [epWetMass (techProperties ex) | act <- activities, ex@TechnosphereExchange{techRole = ReferenceProduct} <- exchanges act]
+                `shouldBe` [Just milkWetMass]
+            history env `shouldReturn` Right [(Just "density of milk", ["Product \"milk\": wet mass set to 1.03 kg"])]
+
+    it "reads a wet mass as the document states it" $
+        fmap (map (\sw -> (swmProduct sw, swmWetMass sw)) . eerSetWetMasses) (decode "{\"setWetMasses\":[{\"product\":\"p-1\",\"wetMass\":{\"amount\":0.92,\"unit\":\"kg\"}},{\"product\":\"p-2\",\"wetMass\":null}]}")
+            `shouldBe` Just [("p-1", Just (StatedAmount "kg" 0.92)), ("p-2", Nothing)]
 
     it "reads each edit of a batch against the amounts the edits before it left" $
         withWritableDb $ \env -> do

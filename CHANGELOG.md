@@ -12,6 +12,12 @@
   or less, or in a unit that is not a mass, is refused at the edit. The change
   is kept in the database's history, and an EcoSpold 2 export carries the dry
   mass on the product. Wire revision 87.
+- An edit of an activity can state the wet mass of one unit of its products the
+  same way. On a product sold in litres or cubic metres this is its density:
+  a wet mass key weighs a litre of wine stated at 0.92 kg as 0.92 kg, where
+  before it could not weigh the litre at all and left the whole process
+  undivided. A wet mass stated on a product is weighed before the product's
+  own amount. Wire revision 88.
 
 ### Added
 

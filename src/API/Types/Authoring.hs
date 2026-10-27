@@ -26,6 +26,7 @@ import Database.Author (
  )
 import GHC.Generics
 import Types (
+    AllocationProperty (..),
     BioDirection (..),
     Compartment (..),
     Parameter (..),
@@ -35,6 +36,7 @@ import Types (
     Uncertainty,
     locationCode,
     parseMedium,
+    propertyName,
     readExchangeLocation,
     unknownMedium,
  )
@@ -211,6 +213,18 @@ data SetDryMassAPI = SetDryMassAPI
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetDryMassAPI)
 
+{- | The wet mass of one unit of a product output, named by its flow, in a unit
+of mass; none removes it. What a @wet mass@ key divides a block on: on a
+product in litres or cubic metres it is the product's density, and it is
+weighed before the line's own amount.
+-}
+data SetWetMassAPI = SetWetMassAPI
+    { swmProduct :: Text
+    , swmWetMass :: Maybe StatedAmount
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetWetMassAPI)
+
 {- | A parameter of the activity to add, or to replace under the same spelling:
 a value, or a formula in VoLCA's language whose value the engine computes.
 -}
@@ -231,7 +245,7 @@ the texts to restate, and its parameters.
 Lists rather than one tagged list, for the reason 'ActivityInput' has
 three: what makes sense on an addition cannot be sent on a removal and back
 again. They apply in one order: removals, parameters set, amounts, formulas,
-prices, dry masses, additions, texts, parameters removed. So an edit that drops one supplier and
+prices, dry masses, wet masses, additions, texts, parameters removed. So an edit that drops one supplier and
 adds another is never ambiguous about which happened first, a formula reads
 the parameters set beside it, and a parameter is removed once the formulas set
 here have stopped reading it. A parameter set is replaced whole: a unit,
@@ -259,6 +273,7 @@ data ExchangeEditRequest = ExchangeEditRequest
     , eerSetFormulas :: [SetFormulaAPI]
     , eerSetPrices :: [SetPriceAPI]
     , eerSetDryMasses :: [SetDryMassAPI]
+    , eerSetWetMasses :: [SetWetMassAPI]
     , eerRemoveParameters :: [Text]
     , eerNote :: Maybe Text
     -- ^ Why the change was made, kept in the database's history
@@ -285,6 +300,7 @@ instance FromJSON ExchangeEditRequest where
             <*> o .:? "setFormulas" .!= []
             <*> o .:? "setPrices" .!= []
             <*> o .:? "setDryMasses" .!= []
+            <*> o .:? "setWetMasses" .!= []
             <*> o .:? "removeParameters" .!= []
             <*> o .:? "note"
 
@@ -301,6 +317,7 @@ data ExchangeEditResponse = ExchangeEditResponse
     , eepFormulasSet :: [Int]
     , eepPricesSet :: [Int]
     , eepDryMassesSet :: [Int]
+    , eepWetMassesSet :: [Int]
     , eepParametersSet :: [Text]
     , eepParametersRemoved :: [Text]
     , eepRestated :: [RestatedLineAPI]
@@ -410,8 +427,9 @@ toExchangeEdits req = case partitionEithers stated of
             <> map toSetParameter (eerSetParameters req)
             <> map toSetAmount (eerSetAmounts req)
             <> map toSetFormula (eerSetFormulas req)
-            <> map toSetPrice (eerSetPrices req)
-            <> map toSetDryMass (eerSetDryMasses req)
+            <> map (\sp -> toSetProperty Price (sprProduct sp) (sprPrice sp)) (eerSetPrices req)
+            <> map (\sd -> toSetProperty DryMass (sdmProduct sd) (sdmDryMass sd)) (eerSetDryMasses req)
+            <> map (\sw -> toSetProperty WetMass (swmProduct sw) (swmWetMass sw)) (eerSetWetMasses req)
             <> map (Right . AddExchange . toTechInput) (eerAddInputs req)
             <> map (fmap AddExchange . toBio) (eerAddBiosphere req)
             <> map (Right . AddExchange . toWasteOutput) (eerAddWasteOutputs req)
@@ -425,12 +443,9 @@ toExchangeEdits req = case partitionEithers stated of
             ]
     toSetAmount sa = flip SetAmount (saAmount sa) <$> toSelector (saSelect sa)
     toSetFormula sf = flip SetFormula (sfFormula sf) <$> toSelector (sfSelect sf)
-    toSetPrice sp = case UUID.fromText (sprProduct sp) of
-        Just flow -> Right (SetPrice flow (sprPrice sp))
-        Nothing -> Left ["a price names its product by flow identifier, not " <> sprProduct sp]
-    toSetDryMass sd = case UUID.fromText (sdmProduct sd) of
-        Just flow -> Right (SetDryMass flow (sdmDryMass sd))
-        Nothing -> Left ["a dry mass names its product by flow identifier, not " <> sdmProduct sd]
+    toSetProperty prop named value = case UUID.fromText named of
+        Just flow -> Right (SetProperty prop flow value)
+        Nothing -> Left ["a " <> propertyName prop <> " names its product by flow identifier, not " <> named]
 
 {- | A parameter states a value or a formula, never both: a calculated
 parameter's value is what its formula gives, and an uncertainty spreads a

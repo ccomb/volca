@@ -412,6 +412,7 @@ paramsToSchema ps =
         "set_formulas" -> setFormulaItemSchema
         "set_prices" -> setPriceItemSchema
         "set_dry_masses" -> setDryMassItemSchema
+        "set_wet_masses" -> setWetMassItemSchema
         "set_parameters" -> setParameterItemSchema
         "add_inputs" -> providerLineSchema "Producer of what is consumed"
         "add_waste_outputs" -> providerLineSchema "Treatment the waste is handed to"
@@ -505,6 +506,21 @@ paramsToSchema ps =
                             ]
                     ]
             , "required" .= (["product", "dryMass"] :: [Text])
+            ]
+
+    setWetMassItemSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "product" .= stringField "Flow id of a product output of the activity, its reference product or a coproduct"
+                    , "wetMass"
+                        .= object
+                            [ "type" .= (["object", "null"] :: [Text])
+                            , "description" .= ("{amount, unit}: the wet mass of one unit of the product, in a unit of mass; for a product in litres or cubic metres this is its density (e.g. 0.92 kg for a litre of wine); null removes it" :: Text)
+                            ]
+                    ]
+            , "required" .= (["product", "wetMass"] :: [Text])
             ]
 
     setParameterItemSchema =
@@ -2020,6 +2036,7 @@ callEditExchanges dbManager rid args = runTool rid $ do
                 <*> parseArrayArg "set_formulas" Nothing args
                 <*> parseArrayArg "set_prices" Nothing args
                 <*> parseArrayArg "set_dry_masses" Nothing args
+                <*> parseArrayArg "set_wet_masses" Nothing args
                 <*> parseArrayArg "remove_parameters" Nothing args
                 <*> optionalText "note" args
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))

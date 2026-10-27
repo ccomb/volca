@@ -36,7 +36,7 @@ history =
     describeJournal
         (namerFor Nothing)
         [ Entry "2026-10-01" (Change Nothing (Created [bread] ["a_b"]))
-        , Entry "2026-10-02" (Change (noteFrom "Measured on site") (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3) 1 (Prior [1.2]), EditLine (RemoveExchange (SelectInput "c_d")) 1 PriorUnknown, EditLine (SetPrice flowId (Just (StatedAmount "EUR2005" 0.42))) 1 (Prior []), EditLine (SetPrice flowId Nothing) 1 (Prior [])]))
+        , Entry "2026-10-02" (Change (noteFrom "Measured on site") (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3) 1 (Prior [1.2]), EditLine (RemoveExchange (SelectInput "c_d")) 1 PriorUnknown, EditLine (SetProperty Price flowId (Just (StatedAmount "EUR2005" 0.42))) 1 (Prior []), EditLine (SetProperty Price flowId Nothing) 1 (Prior [])]))
         , Entry "2026-10-03" (Change Nothing (ParametersEdited [ParameterLine "distance" (Just (value 90)) (Prior (Just (value 120))), ParameterLine "new" (Just (value 1)) (Prior Nothing)]))
         , Entry "2026-10-04" (Change Nothing (Deleted ["a_b"]))
         ]

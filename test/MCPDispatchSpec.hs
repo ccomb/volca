@@ -320,6 +320,7 @@ spec = describe "MCP database load/unload tools" $ do
                            , ("set_formulas", "object")
                            , ("set_parameters", "object")
                            , ("set_prices", "object")
+                           , ("set_wet_masses", "object")
                            ]
 
     describe "quality-report tool" $ do

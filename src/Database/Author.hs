@@ -92,6 +92,7 @@ import qualified Expr
 import Parametric (Before (..), describeParameterRefusal, formulaProblems, parameterProblems, restated, shareFormulas)
 import Types (
     Activity (..),
+    AllocationProperty (..),
     BioDirection (..),
     BiosphereFlow (..),
     Compartment (..),
@@ -131,6 +132,7 @@ import Types (
     noProperties,
     parseProcessRef,
     processRefText,
+    propertyName,
     withAmount,
     withFormula,
  )
@@ -479,16 +481,15 @@ data ExchangeEdit
     | SetText ActivityText
     | -- | A line's formula in VoLCA's language, or none; a named line keeps its name either way.
       SetFormula ExchangeSelector (Maybe Text)
-    | {- | The price of a product output, named by its flow, or none. It is the
-      one edit that reaches the product side: a price weighs a product against
-      the others of its block, and leaves what the activity is untouched.
+    | {- | A property of one unit of a product output, named by its flow, or
+      none: its price, its dry mass or its wet mass. It is the one edit that
+      reaches the product side: a property weighs a product against the others
+      of its block under that key, and leaves what the activity is untouched.
+      A source that keeps a dry matter or a density in a parameter rather than
+      in a property table has it copied here; the wet mass of one litre is the
+      product's density.
       -}
-      SetPrice UUID (Maybe StatedAmount)
-    | {- | The dry mass of one unit of a product output, named by its flow, or
-      none: what a @dry mass@ key divides a block on. A source that keeps it in
-      a parameter rather than in a property table has it copied here.
-      -}
-      SetDryMass UUID (Maybe StatedAmount)
+      SetProperty AllocationProperty UUID (Maybe StatedAmount)
     | -- | A parameter of the activity, added, or replaced under the same spelling.
       SetParameter Text Parameter
     | RemoveParameter Text
@@ -614,8 +615,7 @@ amountsBefore activity = \case
     SetAmount selector _ -> named selector
     RemoveExchange selector -> named selector
     SetFormula selector _ -> named selector
-    SetPrice _ _ -> []
-    SetDryMass _ _ -> []
+    SetProperty{} -> []
     AddExchange _ -> []
     SetText _ -> []
     SetParameter _ _ -> []
@@ -666,8 +666,7 @@ applyOneEdit ctx act edit = case edit of
         Right (matched, isSelected) -> Right (changed (filter (not . isSelected) current) matched)
     SetAmount sel amount -> onSelected (amountCheck amount) (selectFrom sel current) (withAmount amount)
     SetFormula sel formula -> onSelected (foldMap formulaProblems formula) (selectFrom sel current) (reformulated formula)
-    SetPrice flow price -> onSelected (foldMap priceCheck price) (selectProduct flow current) (priced price)
-    SetDryMass flow dryMass -> onSelected (foldMap (dryMassCheck (acUnitConfig ctx)) dryMass) (selectProduct flow current) (dryMassed dryMass)
+    SetProperty prop flow value -> onSelected (foldMap (propertyCheck (acUnitConfig ctx) prop) value) (selectProduct flow current) (withProperty prop value)
     -- An added line resolves exactly as a written one does: same provider
     -- lookup, same unit rules, same new-flow warning.
     AddExchange authored -> case resolveOne ctx authored of
@@ -718,11 +717,24 @@ selectProduct flow current = case length (filter isProduct current) of
     isProduct :: Exchange -> Bool
     isProduct ex = exchangeIsProductOutput ex && exchangeFlowId ex == flow
 
--- | A price stated by hand: a finite amount, in a currency it names.
-priceCheck :: StatedAmount -> [Text]
-priceCheck (StatedAmount currency amount) =
-    ["the price is " <> T.pack (show amount) <> "; it must be a finite number, zero or more" | isNaN amount || isInfinite amount || amount < 0]
-        <> ["a price names its currency" | T.null (T.strip currency)]
+{- | A property stated by hand. A price is a finite amount, zero or more, in a
+currency it names. A mass is more than nothing, in a unit of mass: both are
+what a mass key refuses a block for when it divides, and an edit that would
+only be refused there, under another name, is refused here instead.
+-}
+propertyCheck :: UnitConfig -> AllocationProperty -> StatedAmount -> [Text]
+propertyCheck cfg prop (StatedAmount unit amount) = case prop of
+    Price ->
+        ["the price is " <> T.pack (show amount) <> "; it must be a finite number, zero or more" | not finite || amount < 0]
+            <> ["a price names its currency" | T.null (T.strip unit)]
+    _ ->
+        ["the " <> name <> " is " <> T.pack (show amount) <> "; it must be a finite number above zero" | not finite || amount <= 0]
+            <> ["a " <> name <> " is a mass, and " <> unit <> " is not one" | isNothing (convertUnit cfg unit "kg" 1)]
+  where
+    name :: Text
+    name = propertyName prop
+    finite :: Bool
+    finite = not (isNaN amount || isInfinite amount)
 
 {- | A stated price left beside a price another product of the block deduced
 from its share, by an edit that touched a price: the price key cannot compare
@@ -742,8 +754,7 @@ besideDeduced edits final =
     prices = mapMaybe (epPrice . exchangeProperties) (filter exchangeIsProductOutput final)
     pricing :: ExchangeEdit -> Bool
     pricing = \case
-        SetPrice _ _ -> True
-        SetDryMass _ _ -> False
+        SetProperty prop _ _ -> prop == Price
         RemoveExchange _ -> False
         SetAmount _ _ -> False
         AddExchange _ -> False
@@ -756,24 +767,16 @@ besideDeduced edits final =
         StatedPrice{} -> True
         DeducedFromShare{} -> False
 
-priced :: Maybe StatedAmount -> Exchange -> Exchange
-priced price ex = case ex of
-    TechnosphereExchange{techProperties = props} -> ex{techProperties = props{epPrice = StatedPrice <$> price}}
+withProperty :: AllocationProperty -> Maybe StatedAmount -> Exchange -> Exchange
+withProperty prop value ex = case ex of
+    TechnosphereExchange{techProperties = props} -> ex{techProperties = stated props}
     _ -> ex
-
-{- | A dry mass stated by hand: more than nothing, in a unit of mass. Both are
-what the @dry mass@ key refuses a block for when it divides, and an edit that
-would only be refused there, under another name, is refused here instead.
--}
-dryMassCheck :: UnitConfig -> StatedAmount -> [Text]
-dryMassCheck cfg (StatedAmount unit amount) =
-    ["the dry mass is " <> T.pack (show amount) <> "; it must be a finite number above zero" | isNaN amount || isInfinite amount || amount <= 0]
-        <> ["a dry mass is a mass, and " <> unit <> " is not one" | isNothing (convertUnit cfg unit "kg" 1)]
-
-dryMassed :: Maybe StatedAmount -> Exchange -> Exchange
-dryMassed dryMass ex = case ex of
-    TechnosphereExchange{techProperties = props} -> ex{techProperties = props{epDryMass = dryMass}}
-    _ -> ex
+  where
+    stated :: ExchangeProperties -> ExchangeProperties
+    stated props = case prop of
+        Price -> props{epPrice = StatedPrice <$> value}
+        DryMass -> props{epDryMass = value}
+        WetMass -> props{epWetMass = value}
 
 {- | A line given a formula keeps its name, and its amount until the activity
 is restated; a line given none keeps its amount, and a named line its name on

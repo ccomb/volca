@@ -135,6 +135,7 @@ import qualified Search.BM25 as BM25
 import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches)
 import Types (
     AllocationKey (..),
+    AllocationProperty (..),
     ClassificationFilter,
     Database (..),
     FileReading (..),
@@ -671,6 +672,7 @@ data EditReport = EditReport
     , erFormulasSet :: [Int]
     , erPricesSet :: [Int]
     , erDryMassesSet :: [Int]
+    , erWetMassesSet :: [Int]
     , erParametersSet :: [Text]
     , erParametersRemoved :: [Text]
     , erRestated :: [RestatedLine]
@@ -738,8 +740,9 @@ editExchanges manager dbName note target edits =
                         , erAdded = length [() | AddExchange _ <- edits]
                         , erTextsSet = [textField text | SetText text <- edits]
                         , erFormulasSet = [n | (SetFormula _ _, n) <- zip edits matched]
-                        , erPricesSet = [n | (SetPrice _ _, n) <- zip edits matched]
-                        , erDryMassesSet = [n | (SetDryMass _ _, n) <- zip edits matched]
+                        , erPricesSet = [n | (SetProperty Price _ _, n) <- zip edits matched]
+                        , erDryMassesSet = [n | (SetProperty DryMass _ _, n) <- zip edits matched]
+                        , erWetMassesSet = [n | (SetProperty WetMass _ _, n) <- zip edits matched]
                         , erParametersSet = [name | SetParameter name _ <- edits]
                         , erParametersRemoved = [name | RemoveParameter name <- edits]
                         , erRestated = eaRestated edited
