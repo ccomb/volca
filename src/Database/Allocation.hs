@@ -37,6 +37,8 @@ module Database.Allocation (
     asAllocated,
     isCoproduct,
     keptWhole,
+    producerKeyBy,
+    producerKeyOf,
     describeRefusal,
     describePropertyRefusal,
     propertyKeyRefusals,
@@ -541,6 +543,34 @@ keptWhole act = any isCoproduct products && all (isJust . exchangeDeclaredShare)
   where
     products :: [Exchange]
     products = filter exchangeIsProductOutput (exchanges act)
+
+{- | Whether a block kept whole makes the product of this flow beside its
+reference: what a parent answers an input buying that product with, the block
+standing in for the piece its child will cut.
+-}
+wholeBlockMakes :: Activity -> UUID -> Bool
+wholeBlockMakes act flow = keptWhole act && any (\ex -> isCoproduct ex && exchangeFlowId ex == flow) (exchanges act)
+
+{- | The process that answers a link to @(activity, product)@: the process of
+that key, or else the one block kept whole under that activity that makes the
+product. A parent keys a whole block by its reference alone, so its coproducts
+are answered here and nowhere else; every place asking whether a link has a
+producer asks this, or a coproduct of a parent counts as answered in one place
+and missing in the next. Two whole blocks sharing an activity and both making
+the product answer nothing: the link does not say which.
+-}
+producerKeyOf :: M.Map (UUID, UUID) Activity -> (UUID, UUID) -> Maybe (UUID, UUID)
+producerKeyOf = producerKeyBy id
+
+-- | 'producerKeyOf' on a table holding something an activity is read from, as a loaded database's process ids.
+producerKeyBy :: (a -> Activity) -> M.Map (UUID, UUID) a -> (UUID, UUID) -> Maybe (UUID, UUID)
+producerKeyBy activityOf processes key@(activity, flow)
+    | M.member key processes = Just key
+    | otherwise = case [blockKey | (blockKey, block) <- M.toList rows, wholeBlockMakes (activityOf block) flow] of
+        [blockKey] -> Just blockKey
+        _ -> Nothing
+  where
+    rows = M.takeWhileAntitone ((== activity) . fst) (M.dropWhileAntitone ((< activity) . fst) processes)
 
 isCoproduct :: Exchange -> Bool
 isCoproduct ex = case ex of

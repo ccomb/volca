@@ -34,6 +34,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import Database.Allocation (producerKeyOf)
 import Database.CrossLinking (IndexedDatabase, SupplierEntry (..), findSupplierByActivityProduct)
 import Types
 
@@ -116,7 +117,7 @@ makerOf (Dependencies deps) db = \(act, prod) (position, ex) -> case ex of
     TechnosphereExchange{techRole = role, techActivityLinkId = link, techFlowId = flow}
         | buys role
         , Just supplier <- link
-        , Just maker <- M.lookup (supplier, flow) (sdbActivities db) ->
+        , Just maker <- producerKeyOf (sdbActivities db) (supplier, flow) >>= (`M.lookup` sdbActivities db) ->
             if S.member flow named then OneOfMakers maker else SoleMaker maker
         | buys role, Just e <- M.lookup (act, prod, position) deps -> InDependency e
         | buys role, Just supplier <- link -> Dangling supplier

@@ -18,7 +18,9 @@ What that has to get right is checked here:
 * a child is divided from the parent as it stands in memory: a price edited on
   the parent reaches the child, before and after a restart, an input consuming
   a coproduct finds the piece that now produces it, and a block of one product
-  is not cut to its share twice.
+  is not cut to its share twice;
+* a parent answers an input buying a coproduct of a block it keeps whole
+  itself, never from another database, and keeps that link through a delete.
 -}
 module DeriveSpec (spec) where
 
@@ -38,7 +40,9 @@ import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
 import Database.Author (ExchangeEdit (..))
-import Database.Edit (Derivation (..), deriveDatabase, editExchanges)
+import Database.Edit (DeleteRequest (..), Derivation (..), deleteActivitiesInDB, deriveDatabase, editExchanges)
+import Database.ExportSupplier (noDependencies, unnamedWarnings)
+import Database.Loader (GapReport (..), countUnlinkedExchanges, gapReportForLoaded)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
@@ -57,13 +61,16 @@ import Types (
     FileReading (..),
     GeographyPolicy (..),
     Licence (..),
+    ProcessRef (..),
     Reading (..),
     StatedAmount (..),
     TechnosphereFlow (..),
     exchangeAmount,
     exchangeFlowId,
     exchangeIsProductOutput,
+    processRefText,
     techActivityLinkId,
+    toSimpleDatabase,
  )
 
 spec :: Spec
@@ -142,10 +149,41 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
             withParent $ \manager -> do
                 parent <- loadedDb manager parentName
                 child <- deriveChild manager
-                -- The parent knows its products by the reference alone, so the
-                -- whey finds no supplier there; in the child it is a reference.
-                wheyLinks parent `shouldBe` [False]
-                wheyLinks child `shouldBe` [True]
+                -- The parent links the whey to its dairy block under the key
+                -- the child gives the piece making the whey, and the link holds.
+                wheyLinks parent `shouldBe` [True]
+                wheySuppliers child `shouldBe` wheySuppliers parent
+                wheySuppliers child `shouldSatisfy` all (`elem` V.toList (dbProcessIdTable child))
+
+        it "answers its own coproducts, though the source it reads is loaded beside it" $
+            withSource farmCSV $ \manager -> do
+                _ <- loadedDb manager source
+                _ <- either (fail . show) pure =<< deriveDatabase manager source parentName AsParent
+                parent <- loadedDb manager parentName
+                -- The source sells the whey cut to its declared share. A
+                -- parent drawing on it would mix the two readings.
+                length (dbCrossDBLinks parent) `shouldBe` 0
+                wheyLinks parent `shouldBe` [True]
+                -- Left: the milk and the cream, which nothing here makes.
+                countUnlinkedExchanges (toSimpleDatabase parent) `shouldBe` 2
+                grUnresolvedEdges (gapReportForLoaded parentName parent) `shouldBe` 2
+                unnamedWarnings noDependencies (toSimpleDatabase parent) `shouldBe` []
+
+        it "keeps the coproduct links when another process of the parent is deleted" $
+            withParent $ \manager -> do
+                parent <- loadedDb manager parentName
+                deleted <- deleteActivitiesInDB manager parentName (deleteIds [processOf parent "Creamery"])
+                isRight deleted `shouldBe` True
+                loadedDb manager parentName >>= (`shouldBe` [True]) . wheyLinks
+
+        it "loads a parent whose coproduct is in another unit than the reference" $
+            withSource steamCSV $ \manager -> do
+                derived <- deriveDatabase manager source parentName AsParent
+                parent <- either (fail . show) (pure . ldDatabase . fst) derived
+                -- Steam in MJ beside acid in kg: drawn on the block's column,
+                -- the kilograms would not convert and the load would fail.
+                [isJust (techActivityLinkId ex) | a <- V.toList (dbActivities parent), ex <- snd (partitionProducts a), named parent "Steam" ex]
+                    `shouldBe` [True]
 
         it "divides the blocks an exception takes by the exception's property" $
             withParent $ \manager -> do
@@ -220,6 +258,34 @@ wheyLinks db =
     , ex <- snd (partitionProducts a)
     , named db "Whey" ex
     ]
+
+-- | The process each whey input of the database names as its supplier.
+wheySuppliers :: Database -> [(UUID.UUID, UUID.UUID)]
+wheySuppliers db =
+    [ (supplier, exchangeFlowId ex)
+    | a <- V.toList (dbActivities db)
+    , ex <- snd (partitionProducts a)
+    , named db "Whey" ex
+    , Just supplier <- [techActivityLinkId ex]
+    ]
+
+-- | The key of the process of this name, as a request names it.
+processOf :: Database -> Text -> Text
+processOf db name = head [processRefText (uncurry ProcessRef key) | (key, a) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db)), activityName a == name]
+
+deleteIds :: [Text] -> DeleteRequest
+deleteIds ids =
+    DeleteRequest
+        { drName = Nothing
+        , drLocation = Nothing
+        , drProduct = Nothing
+        , drClassifications = []
+        , drExactName = False
+        , drKeep = []
+        , drExtra = []
+        , drIds = Just ids
+        , drNote = Nothing
+        }
 
 partitionProducts :: Activity -> ([Exchange], [Exchange])
 partitionProducts a = (filter exchangeIsProductOutput (exchanges a), filter (not . exchangeIsProductOutput) (exchanges a))
@@ -356,6 +422,16 @@ farmCSV =
         [ ("Dairy", ["Products", "Cheese;kg;1;51;not defined;material;", "Whey;kg;3;49;not defined;material;", "", "Materials/fuels", "Cow milk;kg;10;Undefined;0;0;0;"])
         , ("Pig farm", ["Products", "Pig;kg;1;100;not defined;material;", "", "Materials/fuels", "Whey;kg;2;Undefined;0;0;0;"])
         , ("Creamery", ["Products", "Butter;kg;1;50;not defined;material;", "", "Materials/fuels", "Cream;kg;4;Undefined;0;0;0;"])
+        ]
+
+{- | A nitric acid plant selling its steam, in MJ beside the acid's kilograms,
+and a dryer buying that steam.
+-}
+steamCSV :: BS.ByteString
+steamCSV =
+    simaProBlocks
+        [ ("Nitric acid plant", ["Products", "Nitric acid;kg;1;80;not defined;chemicals;", "Steam;MJ;5;20;not defined;energy;", "", "Materials/fuels", "Ammonia;kg;0.3;Undefined;0;0;0;"])
+        , ("Dryer", ["Products", "Dried grain;kg;1;100;not defined;material;", "", "Materials/fuels", "Steam;MJ;2;Undefined;0;0;0;"])
         ]
 
 -- | One SimaPro process block, wrapped in the header its parser expects.

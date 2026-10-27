@@ -286,6 +286,18 @@ spec = do
                     Right ([r], _) -> map wfName (riNewWasteFlows r) `shouldBe` ["used oil"]
                     Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
 
+            it "files each flow its lines bring under its own kind, after its own product, in the order of the lines" $ do
+                depDb <- buildFixture
+                let writing = (emptyOf fixtureDb){dbTechFlows = M.empty, dbWasteFlows = M.empty}
+                    ctx = (contextOf writing){acDeps = [depDb]}
+                case validateAuthored ctx [baseActivity{aaExchanges = mixedNewFlows}] of
+                    Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
+                    Right ([r], _) -> do
+                        map bfName (riNewBioFlows r) `shouldBe` ["Nitrous oxide", "Methane"]
+                        map tfName (riNewTechFlows r) `shouldBe` [aaProductName baseActivity, "milk"]
+                        map wfName (riNewWasteFlows r) `shouldBe` ["used oil"]
+                    Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
+
             it "refuses an amount to a dependency stated in another unit than its product's" $ do
                 -- The link into a dependency carries the flow's unit, not the
                 -- exchange's, and the matrix converts the raw amount from it.
@@ -690,6 +702,17 @@ spec = do
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right edited -> map tfName (eaNewTechFlows edited) `shouldBe` ["milk"]
 
+            it "files each flow added lines bring under its own kind, in the order of the lines" $ do
+                depDb <- buildFixture
+                let writing = (emptyOf fixtureDb){dbTechFlows = M.empty, dbWasteFlows = M.empty}
+                    ctx = (contextOf writing){acDeps = [depDb]}
+                case applyExchangeEdits ctx (map AddExchange mixedNewFlows) importedActivity of
+                    Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
+                    Right edited -> do
+                        map bfName (eaNewBioFlows edited) `shouldBe` ["Nitrous oxide", "Methane"]
+                        map tfName (eaNewTechFlows edited) `shouldBe` ["milk"]
+                        map wfName (eaNewWasteFlows edited) `shouldBe` ["used oil"]
+
             it "refuses a selector that matches nothing" $
                 editRefused "matches no exchange" [RemoveExchange (SelectBiosphere (mkUUID 998))]
 
@@ -787,6 +810,18 @@ techInput provider amount unit =
 wasteOut :: Text -> Double -> Maybe Text -> AuthoredExchange
 wasteOut provider amount unit =
     AuthoredWasteOutput{awProvider = provider, awAmount = amount, awUnit = unit, awComment = Nothing}
+
+{- | Lines that each bring a flow new to a database holding no products or
+waste flows of its own: two biosphere flows around a dependency's product and
+treatment, so that both kind and order are visible.
+-}
+mixedNewFlows :: [AuthoredExchange]
+mixedNewFlows =
+    [ bioOf (FlowByName "Nitrous oxide" air "kg") 0.5 Nothing
+    , techInput supplierPid 2 Nothing
+    , wasteOut treatPid 1 Nothing
+    , bioOf (FlowByName "Methane" air "kg") 0.1 Nothing
+    ]
 
 treatPid :: Text
 treatPid = UUID.toText treatActId <> "_" <> UUID.toText usedOilId
