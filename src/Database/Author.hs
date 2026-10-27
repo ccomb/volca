@@ -327,6 +327,7 @@ validateAuthored ctx activities =
                     dups -> Left (map duplicateMessage dups)
         (errs, _) -> Left (concat errs)
   where
+    duplicateMessage :: ProcessRef -> Text
     duplicateMessage key =
         "Two activities in this batch mint the same identity ("
             <> processRefText key

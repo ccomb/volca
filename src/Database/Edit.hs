@@ -149,6 +149,7 @@ import Types (
     initializeRuntimeFields,
     modelOf,
     parseProcessRef,
+    processIdToRef,
     processRefText,
     readingKey,
  )
@@ -823,6 +824,7 @@ presenceRefusal db verb resolved = case verb of
             absent -> Just (NotPresent (map processRefText absent))
   where
     keys = map riKey resolved
+    present :: ProcessRef -> Bool
     present key = M.member (prActivity key, prProduct key) (dbProcessIdLookup db)
 
 {- | The PUT target in the currency 'processRefText' speaks. A process is addressed
@@ -837,7 +839,7 @@ canonicalTarget db target = case parseProcessRef target of
     Nothing -> fromMaybe target $ do
         actUUID <- UUID.fromText target
         pid <- findProcessIdByActivityUUID db actUUID
-        processRefText . uncurry ProcessRef <$> dbProcessIdTable db V.!? fromIntegral pid
+        processRefText <$> processIdToRef db pid
 
 -- | The loaded databases a database draws suppliers from.
 loadedDependencies :: DatabaseManager -> Database -> IO [Database]

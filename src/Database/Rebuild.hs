@@ -66,6 +66,7 @@ import Types (
     findProcessId,
     findProcessIdByActivityUUID,
     parseProcessRef,
+    processIdToRef,
     processRefText,
     readExchangeLocation,
  )
@@ -303,6 +304,7 @@ checkKeys intent existing keys = case intent of
     Insert -> refuse "already exists" (filter held keys)
     Replace -> refuse "does not exist" (filter (not . held) keys)
   where
+    held :: ProcessRef -> Bool
     held key = M.member (mapKey key) existing
     refuse _ [] = Right ()
     refuse what offenders =
@@ -319,8 +321,7 @@ after the next rebuild.
 -}
 processKey :: Database -> ProcessId -> Either Text ProcessRef
 processKey db pid =
-    maybe (Left ("ProcessId out of range: " <> T.pack (show pid))) (Right . uncurry ProcessRef) $
-        dbProcessIdTable db V.!? fromIntegral pid
+    maybe (Left ("ProcessId out of range: " <> T.pack (show pid))) Right (processIdToRef db pid)
 
 {- | Resolve a process-id string to its 'ProcessId'. Accepts the canonical
 @activityUUID_productUUID@ form and the bare-activity-UUID fallback (when the
