@@ -9,6 +9,13 @@
   was found, so a script can follow every activity of one database to its
   counterpart in the other, not only those that changed. Wire revision 86.
 
+### Fixed
+
+- Comparing a database with its SimaPro CSV export paired none of its
+  activities: SimaPro writes " U" or " S" after a product's geography, so no
+  product name matched. That mark is now set aside with the geography, when
+  pairing activities by name and lines by flow name.
+
 ## [0.16.0] - 2026-10-25
 
 ### Added

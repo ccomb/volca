@@ -13,7 +13,8 @@ write for itself, and each client wrote them a little differently.
 
 * Activities pair in a cascade, each rung seeing only what the rungs before it
   left unpaired: the same process id; then the same activity and product
-  names, case and a trailing @ {GEO}@ aside, at the same location; then the
+  names, case and a trailing @ {GEO}@ aside (with the @ U@ or @ S@ SimaPro
+  writes after it), at the same location; then the
   same reference product at the same location, from the same kind of activity.
   The second rung catches a release that regenerates its identifiers, the
   third an activity renamed around a product that kept its identifier, and the
@@ -64,7 +65,7 @@ import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -938,9 +939,16 @@ several (Sides b o) = NE.length b > 1 || NE.length o > 1
 indexBy :: (Ord k) => (a -> Maybe k) -> [a] -> M.Map k (NonEmpty a)
 indexBy keyOf xs = M.fromListWith (flip (<>)) [(k, x :| []) | x <- xs, Just k <- [keyOf x]]
 
--- | A name without case and without its trailing @ {GEO}@, which some releases write and some do not.
+{- | A name without case and without its trailing @ {GEO}@, which some releases write and some do not.
+SimaPro follows a product's geography with @ U@ or @ S@, the kind of process it comes
+from, which the same data in another format does not write.
+-}
 normalName :: Text -> Text
-normalName = T.toCaseFold . stripGeoSuffix
+normalName = T.toCaseFold . stripGeoSuffix . stripProcessKind
+
+stripProcessKind :: Text -> Text
+stripProcessKind name =
+    fromMaybe name (L.find (T.isSuffixOf "}") (mapMaybe (`T.stripSuffix` name) [" U", " S"]))
 
 stripGeoSuffix :: Text -> Text
 stripGeoSuffix name

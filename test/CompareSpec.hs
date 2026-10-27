@@ -284,6 +284,10 @@ spec = describe "Service.Compare" $ do
             map chaMatch (dbcChanged c) `shouldBe` [SameNames]
             (dbcAddedCount c, dbcRemovedCount c) `shouldBe` (0, 0)
 
+        it "pairs a product SimaPro names with its kind of process after the geography" $ do
+            c <- compareVersions [row 1 wheat "wheat production" []] [row 2 (productFlow 200 "wheat grain {FR} U") "wheat production {FR}" []]
+            (dbcAddedCount c, dbcRemovedCount c, map pamMatch (dbcUnchanged c) <> map chaMatch (dbcChanged c)) `shouldBe` (0, 0, [SameNames])
+
         it "pairs a renamed activity by its product" $ do
             c <- compareVersions [row 1 barley "barley production" []] [row 2 barley "barley grain production" []]
             map chaMatch (dbcChanged c) `shouldBe` [SameProduct]
