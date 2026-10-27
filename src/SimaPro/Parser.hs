@@ -335,7 +335,6 @@ data ParseAcc = ParseAcc
     , paActivities :: ![Activity] -- reversed; file order is restored per worker
     , paTechFlows :: !(M.Map FlowInUnit TechnosphereFlow)
     , paBioFlows :: !(M.Map FlowInUnit BiosphereFlow)
-    , paWasteFlows :: !(M.Map FlowInUnit WasteFlow)
     , paUnits :: !(M.Map UUID.UUID Unit)
     , paFallbacks :: ![(Text, Text, Double)] -- reversed, as the activities are
     , paDateNotes :: ![DateNote] -- reversed
@@ -375,9 +374,6 @@ techFlowInUnit f = FlowInUnit{fiuFlow = tfId f, fiuUnit = tfUnitId f}
 
 bioFlowInUnit :: BiosphereFlow -> FlowInUnit
 bioFlowInUnit f = FlowInUnit{fiuFlow = bfId f, fiuUnit = bfUnitId f}
-
-wasteFlowInUnit :: WasteFlow -> FlowInUnit
-wasteFlowInUnit f = FlowInUnit{fiuFlow = wfId f, fiuUnit = wfUnitId f}
 
 -- ============================================================================
 -- Global parameter bundle
@@ -450,7 +446,6 @@ data WorkerResult = WorkerResult
     { wrActivities :: ![Activity]
     , wrTechFlows :: !(M.Map FlowInUnit TechnosphereFlow)
     , wrBioFlows :: !(M.Map FlowInUnit BiosphereFlow)
-    , wrWasteFlows :: !(M.Map FlowInUnit WasteFlow)
     , wrUnits :: !(M.Map UUID.UUID Unit)
     , wrFallbacks :: ![(Text, Text, Double)]
     , wrDateNotes :: ![DateNote]
@@ -1010,13 +1005,12 @@ keeping the last one here leaves the answer alone.
 absorbBlock :: UnitConversion.UnitConfig -> GlobalParams -> ProcessBlock -> ParseAcc -> ParseAcc
 absorbBlock unitCfg gp block acc = case processBlockToActivity unitCfg gp block of
     Nothing -> warned
-    Just (activity, techs, bios, wastes, units) ->
+    Just BlockYield{..} ->
         warned
-            { paActivities = (: paActivities warned) $!! activity
-            , paTechFlows = keyedBy techFlowInUnit (paTechFlows warned) techs
-            , paBioFlows = keyedBy bioFlowInUnit (paBioFlows warned) bios
-            , paWasteFlows = keyedBy wasteFlowInUnit (paWasteFlows warned) wastes
-            , paUnits = foldl' (\m u -> M.insert (unitId u) u m) (paUnits warned) units
+            { paActivities = (: paActivities warned) $!! byActivity
+            , paTechFlows = keyedBy techFlowInUnit (paTechFlows warned) byTechFlows
+            , paBioFlows = keyedBy bioFlowInUnit (paBioFlows warned) byBioFlows
+            , paUnits = foldl' (\m u -> M.insert (unitId u) u m) (paUnits warned) byUnits
             }
   where
     {- Everything a block yields is forced as the block closes, and that is the
@@ -1574,6 +1568,18 @@ shadowedByProject GlobalParams{..} =
   where
     database = S.fromList (map (T.toLower . parName) (gpDbInput ++ gpDbCalc))
 
+{- | What one process block becomes: its activity, the flows it names and the
+units they are written in. SimaPro has no waste flows to yield: its two waste
+sections are elementary ('Final waste flows') and technosphere ('Waste to
+treatment').
+-}
+data BlockYield = BlockYield
+    { byActivity :: Activity
+    , byTechFlows :: [TechnosphereFlow]
+    , byBioFlows :: [BiosphereFlow]
+    , byUnits :: [Unit]
+    }
+
 {- | Convert ProcessBlock to list of Activities (one per product)
 This matches EcoSpold behavior where multi-product processes create multiple activities
 Global params (db + project level) are passed in so the amounts read them; the
@@ -1583,7 +1589,7 @@ processBlockToActivity ::
     UnitConversion.UnitConfig ->
     GlobalParams ->
     ProcessBlock ->
-    Maybe (Activity, [TechnosphereFlow], [BiosphereFlow], [WasteFlow], [Unit])
+    Maybe BlockYield
 processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
     case productsInFileOrder of
         [] -> Nothing
@@ -1643,9 +1649,6 @@ processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
     sharedExchanges = avoidedExs ++ techExs ++ bioExs
     sharedTechFlows = avoidedFlows ++ techFlows
     sharedBioFlows = bioFlows
-    -- The format has no waste axis: its two waste sections are elementary
-    -- ('Final waste flows') and technosphere ('Waste to treatment').
-    sharedWasteFlows = []
     sharedUnitNames =
         S.toList . S.fromList $ unitName <$> (avoidedUnits ++ techUnits ++ bioUnits)
 
@@ -1659,7 +1662,7 @@ processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
     -- identifier fall back to name and location and can still collide there.
     nativeId = NativeProcessId <$> nonEmptyText pbIdentifier
 
-    block :: ProductRow -> [ProductRow] -> (Activity, [TechnosphereFlow], [BiosphereFlow], [WasteFlow], [Unit])
+    block :: ProductRow -> [ProductRow] -> BlockYield
     block reference coproducts =
         let (referenceExchange, referenceFlow, referenceUnit) = productToExchange unitCfg env ReferenceProduct reference
             (coproductExs, coproductFlows, coproductUnits) = unzip3 (productToExchange unitCfg env Coproduct <$> coproducts)
@@ -1725,7 +1728,7 @@ processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
                 map
                     (\name -> Unit (generateUnitUUID name) name name "")
                     (S.toList . S.fromList $ map unitName (referenceUnit : coproductUnits) ++ sharedUnitNames)
-         in (activity, referenceFlow : coproductFlows ++ sharedTechFlows, sharedBioFlows, sharedWasteFlows, allUnits)
+         in BlockYield activity (referenceFlow : coproductFlows ++ sharedTechFlows) sharedBioFlows allUnits
 
 {- | The formula a row's amount follows, in VoLCA's language and in the unit the
 row is recorded in, when its cell holds one that gives that amount. A cell
@@ -2181,7 +2184,6 @@ emptyParseAcc cfg sink =
         , paActivities = []
         , paTechFlows = M.empty
         , paBioFlows = M.empty
-        , paWasteFlows = M.empty
         , paUnits = M.empty
         , paFallbacks = []
         , paDateNotes = []
@@ -2229,7 +2231,6 @@ parseWorkerRange cfg unitCfg gp range =
         { wrActivities = reverse (paActivities finalAcc)
         , wrTechFlows = paTechFlows finalAcc
         , wrBioFlows = paBioFlows finalAcc
-        , wrWasteFlows = paWasteFlows finalAcc
         , wrUnits = paUnits finalAcc
         , wrFallbacks = reverse (paFallbacks finalAcc)
         , wrDateNotes = reverse (paDateNotes finalAcc)
@@ -2403,7 +2404,6 @@ parseSimaProCSV unitCfg path = do
     let
         allTechFlows = concatMap (M.elems . wrTechFlows) results
         allBioFlows = concatMap (M.elems . wrBioFlows) results
-        allWasteFlows = concatMap (M.elems . wrWasteFlows) results
 
     -- Build deduplicated maps – UUID disjointness across kinds is guaranteed
     -- by construction: a technosphere flow hashes with an empty compartment, an
@@ -2417,12 +2417,11 @@ parseSimaProCSV unitCfg path = do
             -- trailing name;unit;cas blocks) so the native CAS bridge fires on
             -- a SimaPro export, which otherwise carries no per-flow CAS at all.
             bioIndexed <- indexFlows unitNames bioFlowInUnit bfName allBioFlows
-            wasteFlowDB <- indexFlows unitNames wasteFlowInUnit wfName allWasteFlows
-            pure (techFlowDB, fillCASFromRegistry substanceCAS bioIndexed, wasteFlowDB)
+            pure (techFlowDB, fillCASFromRegistry substanceCAS bioIndexed)
 
     case indexed of
         Left err -> pure (Left err)
-        Right (techFlowDB, (bioFlowDB, casConflicts), wasteFlowDB) -> do
+        Right (techFlowDB, (bioFlowDB, casConflicts)) -> do
             forM_ (shadowedByProject (fgParams globals)) $ \name ->
                 reportProgress Warning $
                     printf "project parameter '%s' replaces the database parameter of the same name" (T.unpack name)
@@ -2439,7 +2438,6 @@ parseSimaProCSV unitCfg path = do
             let !numTechFlows = M.size techFlowDB
             let !numBioFlows = M.size bioFlowDB
             let !numBioFlowsCAS = length [() | f <- M.elems bioFlowDB, maybe False (not . T.null) (bfCAS f)]
-            let !numWasteFlows = M.size wasteFlowDB
             let !numUnits = M.size unitDB
 
             endTime <- getCurrentTime
@@ -2448,7 +2446,7 @@ parseSimaProCSV unitCfg path = do
             reportProgress Info $ printf "  Activities: %d processes" numActivities
             reportProgress Info $ printf "  Technosphere flows: %d unique" numTechFlows
             reportProgress Info $ printf "  Biosphere flows: %d unique (%d carry a CAS)" numBioFlows numBioFlowsCAS
-            reportProgress Info $ printf "  Waste flows: %d unique" numWasteFlows
+            reportProgress Info $ printf "  Waste flows: %d unique" (0 :: Int)
             reportProgress Info $ printf "  Units: %d unique" numUnits
 
             return . Right $
@@ -2456,7 +2454,7 @@ parseSimaProCSV unitCfg path = do
                     { spfActivities = activities
                     , spfTechFlows = techFlowDB
                     , spfBioFlows = bioFlowDB
-                    , spfWasteFlows = wasteFlowDB
+                    , spfWasteFlows = M.empty
                     , spfUnits = unitDB
                     , spfDocumentation =
                         DatabaseDocumentation
