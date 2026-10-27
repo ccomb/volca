@@ -7,6 +7,11 @@ the categories of the two collections, :func:`join` puts each activity's two
 scores side by side for every pair, and :meth:`volca.Client.compare_methods`
 does both from two calls to :meth:`volca.Client.score_table`. The points draw
 with :func:`volca.compare_plot.scatter_grid`.
+
+Two databases scored under one collection (one dataset in two formats, say)
+pair by activity instead: :func:`scale_to_left` brings each pair's right
+scores to the left reference, then :func:`join` holds them per method, and
+:meth:`volca.Client.compare_database_scores` does it all.
 """
 
 from __future__ import annotations
@@ -17,8 +22,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .compare_plot import Point, ratio
-from .types import Method
+from .compare_plot import DifferentMeasures, Point, UnknownUnit, per_left_unit, ratio
+from .types import DatabaseComparison, Method, PairedActivities, UnitDefinition
 
 CategoryMatch = Literal["forced", "same name", "same words", "same impact category"]
 
@@ -66,6 +71,20 @@ class MethodComparison:
     """One database scored under two collections, as :meth:`volca.Client.compare_methods` returns it."""
 
     pairing: CategoryPairing
+    categories: list[CategoryPoints]
+
+
+@dataclass(frozen=True)
+class DatabaseScoreComparison:
+    """Two databases scored under one collection, as :meth:`volca.Client.compare_database_scores` returns it.
+
+    ``activities`` is how the activities paired, with what did not; ``left_out``
+    counts the pairs set aside before any score was read, by reason. Each of
+    ``categories`` pairs a method with itself.
+    """
+
+    activities: DatabaseComparison
+    left_out: Counter[str]
     categories: list[CategoryPoints]
 
 
@@ -192,3 +211,47 @@ def join(
                 left_out[type(judged).__name__] += 1
         joined.append(CategoryPoints(pair, points, left_out))
     return joined
+
+
+ROW_IDENTITY = ("process_id", "activity_name", "product_amount", "product_unit")
+"""The keys of a :meth:`volca.Client.score_table` row that are not scores."""
+
+
+def scale_to_left(
+    pairs: Sequence[PairedActivities],
+    left_rows: Sequence[Mapping],
+    right_rows: Sequence[Mapping],
+    units: Mapping[str, UnitDefinition],
+) -> tuple[list[Mapping], list[Mapping], Counter[str]]:
+    """Each pair's two rows on one basis, ready for :func:`join`.
+
+    A score is per one unit of its activity's reference, whatever the amount
+    and sign the reference is written with, so the right row's scores are
+    multiplied by :func:`volca.compare_plot.per_left_unit` and the row takes
+    the left process id. A pair is set aside, and counted under its reason,
+    when either side was not scored, has no reference product, or when the
+    two references measure different things or use a unit the table lacks:
+    the reason holds for every method, so it is counted once per pair.
+    """
+    left_by_id = {r["process_id"]: r for r in left_rows}
+    right_by_id = {r["process_id"]: r for r in right_rows}
+    left: list[Mapping] = []
+    right: list[Mapping] = []
+    left_out: Counter[str] = Counter()
+    for pair in pairs:
+        l, r = left_by_id.get(pair.base.process_id), right_by_id.get(pair.other.process_id)
+        if l is None or r is None:
+            left_out["NotScoredOnTheLeft" if l is None else "NotScoredOnTheRight"] += 1
+            continue
+        if l["product_unit"] is None or r["product_unit"] is None:
+            left_out["NoReferenceProduct"] += 1
+            continue
+        scale = per_left_unit(l["product_unit"], r["product_unit"], units)
+        if isinstance(scale, (UnknownUnit, DifferentMeasures)):
+            left_out[type(scale).__name__] += 1
+            continue
+        left.append(l)
+        right.append(
+            {**r, "process_id": l["process_id"]} | {k: v * scale for k, v in r.items() if k not in ROW_IDENTITY}
+        )
+    return left, right, left_out

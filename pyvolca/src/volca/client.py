@@ -118,7 +118,7 @@ from .types import (
     parse_exchange_detail,
 )
 from . import _compat
-from .compare_scores import MethodComparison, join, pair_categories
+from .compare_scores import CategoryPair, DatabaseScoreComparison, MethodComparison, join, pair_categories, scale_to_left
 
 
 class VoLCAError(Exception):
@@ -2996,13 +2996,25 @@ class Client:
         :meth:`score_activities`. Raises VoLCAError naming every id the
         engine did not score.
         """
+        rows, unscored = self._scored_rows(process_ids, collection, chunk, workers, exclude_long_term)
+        if unscored:
+            raise VoLCAError(f"the engine did not score {unscored}")
+        return rows
+
+    def _scored_rows(
+        self,
+        process_ids: list[str],
+        collection: str | None,
+        chunk: int,
+        workers: int,
+        exclude_long_term: bool | None = None,
+    ) -> tuple[list[dict], list[str]]:
+        """The rows of :meth:`score_table`, and the ids the engine did not score."""
         collection = self._resolve_collection(collection)
         batches = [process_ids[i : i + chunk] for i in range(0, len(process_ids), chunk)]
         with ThreadPoolExecutor(workers) as pool:
             scored = list(pool.map(lambda ids: self.score_activities(ids, collection=collection, top_flows=0, exclude_long_term=exclude_long_term), batches))
         unscored = [pid for b in scored for pid in b.not_found + b.invalid + b.unscorable]
-        if unscored:
-            raise VoLCAError(f"the engine did not score {unscored}")
         return [
             {
                 "process_id": s.process_id,
@@ -3018,7 +3030,7 @@ class Client:
             }
             for b in scored
             for s in b.results
-        ]
+        ], unscored
 
     def compare_methods(
         self,
@@ -3050,6 +3062,42 @@ class Client:
         left = self.score_table(process_ids, collection=left_collection, chunk=chunk, workers=workers)
         right = self.score_table(process_ids, collection=right_collection, chunk=chunk, workers=workers)
         return MethodComparison(pairing, join(left, right, pairing.pairs))
+
+    def compare_database_scores(
+        self,
+        other_database: str,
+        *,
+        collection: str | None = None,
+        units: dict[str, UnitDefinition] | None = None,
+        chunk: int = 100,
+        workers: int = 8,
+    ) -> DatabaseScoreComparison:
+        """Score this database and another under one collection, activity by activity.
+
+        Only the database varies: the same data in two formats, say. Activities
+        pair as :meth:`compare_databases` pairs them, and every pair is scored
+        on both sides; the right score is brought to one unit of the left
+        reference (``units`` is the unit table, :meth:`unit_table` when not
+        given). Each method's points are ``(left score, right score)``, ready
+        for :func:`volca.compare_plot.scatter_grid`. A pair the engine did not
+        score, or whose references measure different things, is counted in
+        ``left_out``, not drawn; what did not pair stays in ``activities``.
+        Refuses one database compared with itself.
+        """
+        self._require_wire(86, "compare_database_scores", engine_hint="0.16.1")
+        database = self._db(None)
+        if database == other_database:
+            raise VoLCAError(f"{database!r} compared with itself says nothing; name another database")
+        collection = self._resolve_collection(collection)
+        activities = self.compare_databases(other_database)
+        pairs = activities.pairs()
+        left, _ = self._scored_rows([p.base.process_id for p in pairs], collection, chunk, workers)
+        right, _ = self.use(other_database)._scored_rows([p.other.process_id for p in pairs], collection, chunk, workers)
+        left, right, left_out = scale_to_left(pairs, left, right, self.unit_table() if units is None else units)
+        methods = [m for m in self.list_methods() if m.collection == collection]
+        return DatabaseScoreComparison(
+            activities, left_out, join(left, right, [CategoryPair(m, m, "same name") for m in methods])
+        )
 
     def quality_report(self, db_name: str | None = None, *, limit: int | None = None) -> dict:
         """The database's structural quality report, as the engine sends it.

@@ -620,6 +620,20 @@ activity when it is not this one, which is how an adapted copy is held
 against the dataset it was adapted from. A result whose ``identical``
 is True says the two activities say the same thing.
 
+##### `Client.compare_database_scores(other_database: str, *, collection: str | None = None, units: dict[str, UnitDefinition] | None = None, chunk: int = 100, workers: int = 8) -> DatabaseScoreComparison`
+
+Score this database and another under one collection, activity by activity.
+
+Only the database varies: the same data in two formats, say. Activities
+pair as `compare_databases` pairs them, and every pair is scored
+on both sides; the right score is brought to one unit of the left
+reference (``units`` is the unit table, `unit_table` when not
+given). Each method's points are ``(left score, right score)``, ready
+for `volca.compare_plot.scatter_grid`. A pair the engine did not
+score, or whose references measure different things, is counted in
+``left_out``, not drawn; what did not pair stays in ``activities``.
+Refuses one database compared with itself.
+
 ##### `Client.compare_databases(other_database: str, *, limit: int | None = None) -> DatabaseComparison`
 
 Compare this database with another loaded one, usually its next version.
