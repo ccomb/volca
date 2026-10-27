@@ -80,7 +80,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
             milkAmounts db `shouldSatisfy` near [2.5, 7.5]
 
     it "names the blocks a property could not divide, and registers nothing" $
-        withSource coproductCSV $ \manager -> do
+        withSource farmCSV $ \manager -> do
             _ <- either (fail . show) pure =<< deriveDatabase manager source parentName AsParent
             derived <- deriveDatabase manager parentName "cheese-dry" (AsChild (modelDividingBy DryMass))
             case derived of

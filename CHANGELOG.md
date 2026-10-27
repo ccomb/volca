@@ -9,6 +9,12 @@
   was found, so a script can follow every activity of one database to its
   counterpart in the other, not only those that changed. Wire revision 86.
 
+### Fixed
+
+- When a key divides none of a database's blocks, the refusal counts the
+  blocks of several products it could have divided, not every process of the
+  database.
+
 ## [0.16.0] - 2026-10-25
 
 ### Added

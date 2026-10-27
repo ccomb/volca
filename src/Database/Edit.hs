@@ -134,6 +134,7 @@ import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
 import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches)
 import Types (
+    Activity (exchanges),
     AllocationKey (..),
     ClassificationFilter,
     Database (..),
@@ -144,6 +145,7 @@ import Types (
     Reading (..),
     SystemModel,
     allocationKeyText,
+    exchangeIsProductOutput,
     findProcessIdByActivityUUID,
     getActivity,
     initializeRuntimeFields,
@@ -331,7 +333,7 @@ dividedRefusal unitConfig reading srcName db = case reading of
             Just $
                 allocationKeyText key
                     <> " divided 0 of the "
-                    <> T.pack (show (M.size blocks))
+                    <> T.pack (show wholeBlocks)
                     <> " blocks of "
                     <> srcName
                     <> sameDatabase
@@ -362,6 +364,11 @@ dividedRefusal unitConfig reading srcName db = case reading of
 
     divided :: Int
     divided = length (filter ((> 1) . NE.length) (M.elems blocks))
+
+    -- With none divided, each block of several products is still one process
+    -- making them all; a process of one product was never a block to divide.
+    wholeBlocks :: Int
+    wholeBlocks = V.length (V.filter ((> 1) . length . filter exchangeIsProductOutput . exchanges) (dbActivities db))
 
 {- | Undo a derivation that will not be kept: unload it, then take its home
 and its cache with 'removeDatabase', which refuses a loaded database.
