@@ -13,7 +13,8 @@ write for itself, and each client wrote them a little differently.
 
 * Activities pair in a cascade, each rung seeing only what the rungs before it
   left unpaired: the same process id; then the same activity and product
-  names, case and a trailing @ {GEO}@ aside, at the same location; then the
+  names, case and a trailing @ {GEO}@ aside (with the @ U@ or @ S@ SimaPro
+  writes after it), at the same location; then the
   same reference product at the same location, from the same kind of activity.
   The second rung catches a release that regenerates its identifiers, the
   third an activity renamed around a product that kept its identifier, and the
@@ -59,6 +60,7 @@ module Service.Compare (
 ) where
 
 import Control.Monad (mfilter)
+import Data.Foldable (asum)
 import Data.List (mapAccumL)
 import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty (..))
@@ -938,14 +940,19 @@ several (Sides b o) = NE.length b > 1 || NE.length o > 1
 indexBy :: (Ord k) => (a -> Maybe k) -> [a] -> M.Map k (NonEmpty a)
 indexBy keyOf xs = M.fromListWith (flip (<>)) [(k, x :| []) | x <- xs, Just k <- [keyOf x]]
 
--- | A name without case and without its trailing @ {GEO}@, which some releases write and some do not.
+{- | A name without case and without its trailing @ {GEO}@, which some releases write and some do not.
+SimaPro follows a product's geography with @ U@ or @ S@, the kind of process it comes
+from, which the same data in another format does not write. The mark goes even
+between two SimaPro databases: a library holding both the unit and the system
+process of one product at one place then has them ambiguous on the names rung.
+-}
 normalName :: Text -> Text
 normalName = T.toCaseFold . stripGeoSuffix
 
 stripGeoSuffix :: Text -> Text
 stripGeoSuffix name
     | not (T.null upToBrace)
-    , Just code <- T.stripSuffix "}" geography
+    , Just code <- asum [T.stripSuffix end geography | end <- ["}", "} U", "} S"]]
     , not (T.any (== '}') code) =
         T.dropEnd 2 upToBrace
     | otherwise = name

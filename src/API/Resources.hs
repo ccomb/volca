@@ -896,7 +896,8 @@ description r = case r of
         \The other activity may sit in another loaded database (other_database), \
         \which is how an adapted copy is held against the dataset it was adapted \
         \from. Lines pair on the flow identifier and role first, then on the flow \
-        \name (case and a trailing ' {GEO}' aside), compartment and role, and a \
+        \name (case and a trailing ' {GEO}', with SimaPro's ' U' or ' S' \
+        \after it, aside), compartment and role, and a \
         \changed line says which in 'match' ('SameFlow' or 'SameFlowName'). The \
         \role is part of a line: a flow moving from input to coproduct is one line \
         \removed and one added. The lines of one flow in one unit are summed; when \
@@ -916,8 +917,8 @@ description r = case r of
         \exchange-level detail compare_activities gives. Activities pair in a \
         \cascade, each rung seeing only what the rungs before it left unpaired: \
         \'SameProcessId' (the same activityUUID_productUUID), then 'SameNames' \
-        \(the same activity and product names, case and a trailing ' {GEO}' \
-        \aside, at the same location), then 'SameProduct' (the same reference \
+        \(the same activity and product names, case and a trailing ' {GEO}', \
+        \with SimaPro's ' U' or ' S' after it, aside, at the same location), then 'SameProduct' (the same reference \
         \product flow at the same location, from the same kind of activity, so the \
         \market for a product never pairs with its production). Each changed \
         \activity says the rung that paired it. A key several activities answer \
