@@ -3262,6 +3262,27 @@ class SetDryMass:
 
 
 @dataclass(frozen=True)
+class SetWetMass:
+    """The wet mass of one unit of a product output, named by its flow id:
+    ``amount`` in ``unit``, a unit of mass. On a product in litres or cubic
+    metres it is the product's density (a litre of wine at 0.92 is
+    ``SetWetMass(flow, 0.92)``), and the wet mass key weighs it before the
+    line's own amount. An ``amount`` of ``None`` removes it."""
+
+    product: str
+    amount: float | None
+    unit: str = "kg"
+
+    def __post_init__(self) -> None:
+        if self.amount is not None and not self.amount > 0:
+            raise ValueError(f"SetWetMass({self.product!r}): a wet mass is above zero, not {self.amount}")
+
+    def to_wire(self) -> dict:
+        wet_mass = None if self.amount is None else {"amount": self.amount, "unit": self.unit}
+        return {"product": self.product, "wetMass": wet_mass}
+
+
+@dataclass(frozen=True)
 class SetParameter:
     """A parameter to add, of an activity or of a database, or to replace whole
     under the same spelling: a ``value`` (with an ``uncertainty`` if it varies), or a

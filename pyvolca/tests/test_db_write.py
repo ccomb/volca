@@ -24,6 +24,7 @@ from volca.types import (
     SetFormula,
     SetParameter,
     SetDryMass,
+    SetWetMass,
     SetPrice,
     TechInput,
     Uncertainty,
@@ -635,6 +636,23 @@ class TestEditExchanges:
     def test_a_dry_mass_is_above_zero(self):
         with pytest.raises(ValueError, match="above zero"):
             SetDryMass("p-1", 0)
+
+    def test_wet_masses_travel_only_when_stated(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=88)
+        _ok(session, {"removed": [], "amountsSet": [], "added": 0, "wetMassesSet": [1], "transient": False, "warnings": []})
+        client.edit_exchanges("a_b", set_wet_masses=[SetWetMass("p-1", 0.92), SetWetMass("p-2", None)])
+        assert session.post.call_args[1]["json"]["setWetMasses"] == [
+            {"product": "p-1", "wetMass": {"amount": 0.92, "unit": "kg"}},
+            {"product": "p-2", "wetMass": None},
+        ]
+
+    def test_wet_masses_never_sent_to_an_engine_that_cannot_keep_them(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=87)
+        with pytest.raises(VoLCAError, match="wire revision >= 88"):
+            client.edit_exchanges("a_b", set_wet_masses=[SetWetMass("p-1", 0.92)])
+        session.post.assert_not_called()
 
     def test_dry_masses_never_sent_to_an_engine_that_cannot_keep_them(self, mocked_client):
         client, session = mocked_client
