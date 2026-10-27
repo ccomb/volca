@@ -727,10 +727,13 @@ propertyCheck cfg prop (StatedAmount unit amount) = case prop of
     Price ->
         ["the price is " <> T.pack (show amount) <> "; it must be a finite number, zero or more" | not finite || amount < 0]
             <> ["a price names its currency" | T.null (T.strip unit)]
-    _ ->
+    DryMass -> mass
+    WetMass -> mass
+  where
+    mass :: [Text]
+    mass =
         ["the " <> name <> " is " <> T.pack (show amount) <> "; it must be a finite number above zero" | not finite || amount <= 0]
             <> ["a " <> name <> " is a mass, and " <> unit <> " is not one" | isNothing (convertUnit cfg unit "kg" 1)]
-  where
     name :: Text
     name = propertyName prop
     finite :: Bool
