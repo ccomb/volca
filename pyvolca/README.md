@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 85** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 86** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -2379,6 +2379,18 @@ formulas read the amount by, when the source gives one (wire revision 64).
 | `text` | `str` | _required_ |
 | `name` | `str \| None` | None |
 
+### `PairedActivities`
+
+Two activities the cascade paired, one from each database, and the rung that paired them.
+
+``matched_on`` reads as in `ChangedActivity`.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `matched_on` | `str` | _required_ |
+| `base` | `Activity` | _required_ |
+| `other` | `Activity` | _required_ |
+
 ### `Parameter`
 
 A name a dataset's formulas read.
@@ -2830,7 +2842,9 @@ Two databases side by side, as `Client.compare_databases` returns them.
 
 The ``*_count`` fields always cover the full lists, which a ``limit`` may
 have truncated. A pair whose only difference is the dates its datasets
-state is in ``redated``, not ``changed``.
+state is in ``redated``, not ``changed``; a pair that says the same thing
+on both sides is in ``unchanged``, which is ``None`` against an engine
+older than wire revision 86.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -2845,6 +2859,17 @@ state is in ``redated``, not ``changed``.
 | `changed` | `list[ChangedActivity]` | _required_ |
 | `redated` | `list[ChangedActivity]` | _required_ |
 | `ambiguous` | `list[AmbiguousActivities]` | _required_ |
+| `unchanged` | `list[PairedActivities] \| None` | _required_ |
+
+#### Methods
+
+##### `DatabaseComparison.pairs()`
+
+Every pair the cascade made, changed, redated or not.
+
+Raises ``ValueError`` when a list is incomplete, so missing pairs never
+pass for the whole pairing: an engine older than wire revision 86, or a
+comparison asked for with a ``limit`` smaller than a list.
 
 ### `DatabaseInfo`
 

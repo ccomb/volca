@@ -86,6 +86,7 @@ import API.Types (
     LineChange (..),
     LineMatch (..),
     LineRole (..),
+    PairedActivities (..),
     Quantity (..),
     SummaryChange (..),
     Supplier (..),
@@ -736,27 +737,33 @@ compareDatabases dbs =
         , dbcChangedCount = length changed
         , dbcRedatedCount = length redated
         , dbcAmbiguousCount = length ambiguous
-        , dbcUnchangedCount = length (cPairs paired) - length differing
+        , dbcUnchangedCount = length unchanged
         , dbcAdded = added
         , dbcRemoved = removed
         , dbcChanged = changed
         , dbcRedated = redated
         , dbcAmbiguous = ambiguous
+        , dbcUnchanged = unchanged
         }
   where
     paired :: Cascade ActivityMatch ProcessIn
     paired = cascade activityKey [minBound .. maxBound] (fmap processesOf dbs)
     redated, changed :: [ChangedActivity]
-    (redated, changed) = L.partition (onlyRedated . chaComparison) differing
-    differing :: [ChangedActivity]
-    differing =
-        L.sortOn
-            (summaryOrder . acmpOther . chaComparison)
-            [ ChangedActivity{chaMatch = match, chaComparison = comparison}
-            | (match, pair) <- cPairs paired
-            , let comparison = compareActivities pair
-            , not (identical comparison)
-            ]
+    (redated, changed) =
+        L.partition
+            (onlyRedated . chaComparison)
+            [ChangedActivity{chaMatch = match, chaComparison = c} | (match, c) <- differing]
+    sameOnBoth, differing :: [(ActivityMatch, ActivityComparison)]
+    (sameOnBoth, differing) =
+        L.partition (identical . snd) $
+            L.sortOn
+                (summaryOrder . acmpOther . snd)
+                [(match, compareActivities pair) | (match, pair) <- cPairs paired]
+    unchanged :: [PairedActivities]
+    unchanged =
+        [ PairedActivities{pamMatch = match, pamBase = acmpBase c, pamOther = acmpOther c}
+        | (match, c) <- sameOnBoth
+        ]
     added :: [ActivitySummary]
     added = summariesOf (otherSide (cUnpaired paired))
     removed :: [ActivitySummary]
@@ -782,6 +789,7 @@ limitComparison n c =
         , dbcChanged = take n (dbcChanged c)
         , dbcRedated = take n (dbcRedated c)
         , dbcAmbiguous = take n (dbcAmbiguous c)
+        , dbcUnchanged = take n (dbcUnchanged c)
         }
 
 processesOf :: Database -> [ProcessIn]

@@ -20,7 +20,7 @@ import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Vector.Unboxed as U
 import qualified Matrix
-import Service (computeScalingVectorWithSubstitutions, inventoryWithSubsAndDeps)
+import Service (inventoryWithSubsAndDeps)
 import SharedSolver (
     SharedSolver,
     computeInventoryMatrixWithDepsCached,
@@ -61,7 +61,7 @@ spec = do
             let pid = 0
                 noDeps _ = pure Nothing
 
-            eRaw <- computeScalingVectorWithSubstitutions db solver pid []
+            eRaw <- SharedSolver.computeScalingVectorCached db solver pid
             eSub <- inventoryWithSubsAndDeps defaultUnitConfig noDeps db "SAMPLE.min3" solver pid []
 
             case (eRaw, eSub) of

@@ -923,11 +923,14 @@ description r = case r of
         \activity says the rung that paired it. A key several activities answer \
         \to, on either side, pairs none of them: they are listed under 'ambiguous' \
         \and not compared. A pair whose only difference is the dates its datasets \
-        \state is listed under 'redated' rather than 'changed'. 'database' is the \
+        \state is listed under 'redated' rather than 'changed', and a pair that says \
+        \the same thing on both sides under 'unchanged', with its rung, so the three \
+        \lists together are every pair. 'database' is the \
         \base, usually the older version. The \
         \counts always cover the full lists and limit truncates each list: pass a \
         \limit when calling from a conversation, since two versions of a large \
-        \database differ by thousands of activities."
+        \database differ by thousands of activities, and 'unchanged' alone holds \
+        \nearly every activity of the database."
     CompareMethodCollections ->
         "LCA / ACV: compare two loaded method collections, typically two \
         \versions or two ports of one method: for each pair of impact \
@@ -1622,7 +1625,7 @@ params r = case r of
     CompareDatabases ->
         [ pDatabase
         , Param "other_database" "string" Required "Loaded database to compare against, usually the newer version"
-        , pLimit "Max entries per list (added, removed, changed, redated, ambiguous), in name order (default: all). The counts always cover the full lists."
+        , pLimit "Max entries per list (added, removed, changed, redated, ambiguous, unchanged), in name order (default: all). The counts always cover the full lists."
         ]
     CompareMethodCollections ->
         [ Param "collection" "string" Required "Base method collection, usually the older version"

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Comparing two databases now also lists the activities that say the same
+  thing in both, each with the activity it was paired with and how the pair
+  was found, so a script can follow every activity of one database to its
+  counterpart in the other, not only those that changed. Wire revision 86.
+
 ### Fixed
 
 - A parent answers by itself an input that buys a coproduct of one of its

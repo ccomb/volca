@@ -174,3 +174,40 @@ def test_a_database_comparison_from_an_engine_before_redated_pairs_reads_none():
     )
 
     assert (d.redated_count, d.redated) == (0, [])
+    assert d.unchanged is None
+    with pytest.raises(ValueError, match="wire revision 86"):
+        d.pairs()
+
+
+def comparison_with_unchanged(unchanged_count: int) -> DatabaseComparison:
+    return DatabaseComparison.from_json(
+        {
+            "addedCount": 0,
+            "removedCount": 0,
+            "changedCount": 1,
+            "redatedCount": 1,
+            "ambiguousCount": 0,
+            "unchangedCount": unchanged_count,
+            "added": [],
+            "removed": [],
+            "changed": [{"match": "SameProduct", "comparison": COMPARISON}],
+            "redated": [{"match": "SameProcessId", "comparison": COMPARISON}],
+            "ambiguous": [],
+            "unchanged": [{"match": "SameNames", "base": summary("oat production"), "other": summary("oat production")}],
+        }
+    )
+
+
+def test_pairs_are_the_changed_the_redated_and_the_unchanged():
+    pairs = comparison_with_unchanged(1).pairs()
+
+    assert [(p.matched_on, p.base.activity_name) for p in pairs] == [
+        ("SameProduct", "wheat production"),
+        ("SameProcessId", "wheat production"),
+        ("SameNames", "oat production"),
+    ]
+
+
+def test_pairs_refuse_a_truncated_list():
+    with pytest.raises(ValueError, match="limit"):
+        comparison_with_unchanged(2).pairs()
