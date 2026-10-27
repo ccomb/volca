@@ -27,6 +27,7 @@ module API.Resources (
     ParamKind (..),
     allResources,
     mcpName,
+    fromMcpName,
     description,
     params,
     requiredParams,
@@ -38,6 +39,7 @@ module API.Resources (
     apiPathText,
 ) where
 
+import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Network.HTTP.Types.Method (StdMethod (..))
@@ -533,6 +535,10 @@ mcpName r = case r of
     UndoMethodEdit -> "undo_method_edit"
     GetMethodHistory -> "get_method_history"
     SearchMethodFlows -> "search_method_flows"
+
+-- | The resource a client names by its MCP tool name, if the registry declares one.
+fromMcpName :: Text -> Maybe Resource
+fromMcpName name = find ((== name) . mcpName) allResources
 
 -- ---------------------------------------------------------------------------
 -- Projection: human-readable description (shared across surfaces)
