@@ -37,6 +37,15 @@
   itself complete. The input is now linked to the block under the
   coproduct's own key, which is the piece its child cuts. Caches are rebuilt
   once.
+- Sea water and brine took the factor of fresh water in water use when the
+  method wrote its CAS numbers with leading zeros (007732-18-5) and the
+  database gave its sea water a CAS number. A factor matched by CAS is lent
+  to every flow of that substance only where the method gives the substance
+  one value; the check that the values agree read the CAS as written, while
+  the lending read it without the zeros, so the check never applied. Both
+  now read it the same way. A database exported to SimaPro CSV, which gives
+  sea water the CAS of water, scored 35 to 64 times higher in water use than
+  the same database read from EcoSpold 1; the two now agree.
 
 ## [0.16.0] - 2026-10-25
 
