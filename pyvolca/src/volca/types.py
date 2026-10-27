@@ -3591,8 +3591,10 @@ class ChangedActivity:
 
     ``matched_on`` is ``"SameProcessId"``, ``"SameNames"`` (the same activity
     and product names, case and a trailing geography aside, at the same
-    location) or ``"SameProduct"`` (the same reference product at the same
-    location, from the same kind of activity).
+    location), ``"SameProduct"`` (the same reference product at the same
+    location, from the same kind of activity) or ``"SameCutNames"`` (the same
+    names cut at 80 characters with their geography, as SimaPro cuts them,
+    for a name longer than that).
     """
 
     matched_on: str

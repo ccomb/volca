@@ -15,10 +15,15 @@ write for itself, and each client wrote them a little differently.
   left unpaired: the same process id; then the same activity and product
   names, case and a trailing @ {GEO}@ aside (with the @ U@ or @ S@ SimaPro
   writes after it), at the same location; then the
-  same reference product at the same location, from the same kind of activity.
+  same reference product at the same location, from the same kind of activity;
+  last, the same names cut where SimaPro cuts them, 80 characters with the
+  geography, for a name longer than that.
   The second rung catches a release that regenerates its identifiers, the
   third an activity renamed around a product that kept its identifier, and the
-  kind is what keeps the market for a product apart from its production.
+  kind is what keeps the market for a product apart from its production. The
+  fourth catches a database against its SimaPro export; it comes last because
+  two long names alike over their first 80 characters are one key, and a rung
+  before the others would leave them ambiguous where a stricter rung pairs them.
 * A key several activities answer to, on either side, pairs none of them. They
   are reported as ambiguous and leave the cascade: a looser rung cannot settle
   what a stricter one found undecidable. A key present on one side only decides
@@ -804,7 +809,8 @@ processesOf db = zipWith (\pid act -> ProcessIn db pid act (crossDBLinksOf db in
 activityKey :: ActivityMatch -> ProcessIn -> Maybe ActivityKey
 activityKey match p = case match of
     SameProcessId -> ByProcess <$> processIdToRef db (inProcessId p)
-    SameNames -> byNames <$> productName
+    SameNames -> byNames normalName <$> productName
+    SameCutNames -> byNames cutName <$> productName
     SameProduct ->
         byProduct . exchangeFlowId <$> L.find exchangeIsReference (exchanges act)
   where
@@ -815,14 +821,19 @@ activityKey match p = case match of
     -- A reference whose flow is unknown has no name to pair on.
     productName :: Maybe Text
     productName = mfilter (not . T.null) (rpName <$> referenceProductOf (dbTechFlows db) (dbUnits db) act)
-    byNames :: Text -> ActivityKey
-    byNames name =
+    byNames :: (Text -> Text) -> Text -> ActivityKey
+    byNames normal name =
         ByNames
             NamesKey
-                { nkActivity = normalName (activityName act)
+                { nkActivity = normal (activityName act)
                 , nkLocation = activityLocation act
-                , nkProduct = normalName name
+                , nkProduct = normal name
                 }
+    -- A name already cut has no closing brace, so it keeps its tag and the cut
+    -- gives it back. A name shorter than the cut is its whole name, which the
+    -- names rung has already tried.
+    cutName :: Text -> Text
+    cutName name = T.toCaseFold (T.stripEnd (T.take 80 (stripGeoSuffix name <> " {" <> activityLocation act <> "}")))
     byProduct :: UUID -> ActivityKey
     byProduct flow =
         ByProduct

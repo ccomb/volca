@@ -229,6 +229,8 @@ data ActivityMatch
       SameNames
     | -- | The same reference product flow at the same location, from the same kind of activity.
       SameProduct
+    | -- | The same names cut where SimaPro cuts them, 80 characters with the geography, for a name longer than that.
+      SameCutNames
     deriving (Eq, Ord, Show, Enum, Bounded, Generic)
     deriving anyclass (ToJSON, ToSchema)
 
