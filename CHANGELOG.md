@@ -34,7 +34,8 @@
   the name there. A last rung, 'SameCutNames', pairs what the others left by
   their names cut the same way. Two long names alike over their first 80
   characters are then one name: several of them on one side are reported
-  ambiguous, and a single one on each side pairs as a rename. Wire revision 88.
+  ambiguous. Two names both longer than 80 characters never pair there, since
+  SimaPro writes none. Wire revision 88.
 - A parent answers by itself an input that buys a coproduct of one of its
   blocks kept whole, such as the bran of a wheat milling. Before, such an
   input counted as unresolved, so the parent could not be opened again after

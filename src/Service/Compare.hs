@@ -755,7 +755,7 @@ compareDatabases dbs =
         }
   where
     paired :: Cascade ActivityMatch ProcessIn
-    paired = cascade activityKey [minBound .. maxBound] (fmap processesOf dbs)
+    paired = cascadeWith activityRung [minBound .. maxBound] (fmap processesOf dbs)
     redated, changed :: [ChangedActivity]
     (redated, changed) =
         L.partition
@@ -805,6 +805,13 @@ processesOf db = zipWith (\pid act -> ProcessIn db pid act (crossDBLinksOf db in
   where
     index :: M.Map UUID (M.Map UUID CrossDBLink)
     index = crossDBLinkIndex db
+
+{- | SimaPro writes no name longer than its cut, so of two names cut alike one at
+least is 80 characters or fewer; two longer ones were never cut, and differ.
+-}
+activityRung :: ActivityMatch -> Sides [ProcessIn] -> Rung ProcessIn
+activityRung SameCutNames = refusing (all ((> 80) . T.length . activityName . inActivity)) . pairOn (activityKey SameCutNames)
+activityRung match = pairOn (activityKey match)
 
 activityKey :: ActivityMatch -> ProcessIn -> Maybe ActivityKey
 activityKey match p = case match of

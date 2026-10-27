@@ -336,11 +336,10 @@ spec = describe "Service.Compare" $ do
                     [row 3 (productFlow 702 (cut pv)) (cut pv) []]
             map (\a -> (ambMatch a, length (ambBase a), length (ambOther a))) (dbcAmbiguous c) `shouldBe` [(SameCutNames, 2, 1)]
 
-        it "pairs one long name with one that differs only after the cut, as a rename" $ do
+        -- Neither is a cut: SimaPro writes no name longer than 80 characters.
+        it "never pairs two long names that differ only after 80 characters" $ do
             c <- compareVersions [row 1 (productFlow 700 (pv <> " grid")) (pv <> " grid") []] [row 2 (productFlow 701 (pv <> " house")) (pv <> " house") []]
-            map chaMatch (dbcChanged c) `shouldBe` [SameCutNames]
-            comparison <- onlyChange c
-            acmpSummary comparison `shouldBe` [ActivityNameChanged (pv <> " grid") (pv <> " house"), ProductNameChanged (pv <> " grid") (pv <> " house")]
+            counts c `shouldBe` (1, 1, 0, 0, 0)
 
         it "pairs two identical long names on their whole names" $ do
             let long = [row 1 (productFlow 700 (pv <> " grid")) (pv <> " grid") [], row 2 (productFlow 701 (pv <> " house")) (pv <> " house") []]
