@@ -2080,7 +2080,7 @@ enteredDepths :: Consumer -> [CrossDBLink] -> M.Map Text (M.Map ProcessRef Int)
 enteredDepths consumer extras =
     M.fromListWith
         (M.unionWith min)
-        [ (cdlSourceDatabase link, M.singleton ProcessRef{prActivity = cdlSupplierActUUID link, prProduct = cdlSupplierProdUUID link} (depth + 1))
+        [ (cdlSourceDatabase link, M.singleton (linkSupplier link) (depth + 1))
         | link <- dbCrossDBLinks db ++ extras
         , Just (pid, _) <- [linkConsumer db link]
         , processScaling db (coScaling consumer) pid /= 0
@@ -2112,7 +2112,7 @@ consumerLinks minQ consumer extras =
         ConsumerLink
             { clConsumer = nameAt (coLevel consumer) (coName consumer) db pid
             , clConsumerDb = coName consumer
-            , clSupplier = ProcessRef{prActivity = cdlSupplierActUUID link, prProduct = cdlSupplierProdUUID link}
+            , clSupplier = linkSupplier link
             , clPerUnit = StatedAmount{saUnit = cdlExchangeUnit link, saAmount = cdlCoefficient link / normFactor}
             }
 
@@ -3442,7 +3442,7 @@ findStaticCrossDBLink rootDb consumerPid depDbName depSupRef =
             cdlSourceDatabase lk == depDbName
                 && cdlConsumerActUUID lk == prActivity consumerRef
                 && cdlConsumerProdUUID lk == prProduct consumerRef
-                && ProcessRef (cdlSupplierActUUID lk) (cdlSupplierProdUUID lk) == depSupRef
+                && linkSupplier lk == depSupRef
      in case filter matches (dbCrossDBLinks rootDb) of
             (lk : _) -> Just lk
             [] -> Nothing

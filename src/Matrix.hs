@@ -815,7 +815,7 @@ accumulateDepDemandsWith db extraLinks scalingVec =
                 let consumerIdx = fromIntegral $ actIdx V.! fromIntegral consumerPid
                     consumerScale = scalingVec U.! consumerIdx
                     demand = cdlCoefficient link * consumerScale / normFactor
-                    supplierKey = ProcessRef{prActivity = cdlSupplierActUUID link, prProduct = cdlSupplierProdUUID link}
+                    supplierKey = linkSupplier link
                     entry = StatedAmount{saUnit = cdlExchangeUnit link, saAmount = demand}
                  in if demand == 0
                         then acc
