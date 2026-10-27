@@ -280,6 +280,12 @@ spec = do
             isToolError resp `shouldBe` True
             toolText resp `shouldBe` Just "Ask the operator."
 
+        it "refuse a name the registry does not declare as unknown, not as read-only" $ do
+            manager <- initDatabaseManager defaultConfig NoCache
+            resp <- callTool Nothing manager [] (Just (hosting True)) Nothing noRequestId "no_such_tool" KM.empty
+            isToolError resp `shouldBe` True
+            toolText resp `shouldBe` Just "Unknown tool: no_such_tool"
+
         it "still answer a read-only tool" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             listed <- callTool Nothing manager [] (Just (hosting True)) Nothing noRequestId "list_databases" KM.empty

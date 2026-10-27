@@ -289,7 +289,7 @@ brings along. The caller inserts the flows and the activity together –
 to a flow nothing declares.
 -}
 data ResolvedInsert = ResolvedInsert
-    { riKey :: (UUID, UUID)
+    { riKey :: ProcessRef
     , riActivity :: Activity
     , riNewTechFlows :: [TechnosphereFlow]
     , riNewWasteFlows :: [WasteFlow]
@@ -327,27 +327,26 @@ validateAuthored ctx activities =
                     dups -> Left (map duplicateMessage dups)
         (errs, _) -> Left (concat errs)
   where
-    duplicateMessage (a, p) =
+    duplicateMessage :: ProcessRef -> Text
+    duplicateMessage key =
         "Two activities in this batch mint the same identity ("
-            <> UUID.toText a
-            <> "_"
-            <> UUID.toText p
+            <> processRefText key
             <> "): same name, location, product and unit."
 
 validateOne :: AuthorContext -> AuthoredActivity -> Either [Text] (ResolvedInsert, [Text])
 validateOne ctx a =
     case (productChecks, partitionEithers (map resolveExchange (aaExchanges a)), mProductUnit) of
         ([], ([], resolved), Just (unitRef, unitLabel)) ->
-            let key = (authoredActivityUUID (aaName a) (aaLocation a), authoredProductUUID (aaProductName a) unitLabel)
+            let key = ProcessRef (authoredActivityUUID (aaName a) (aaLocation a)) (authoredProductUUID (aaProductName a) unitLabel)
                 productExchange =
                     TechnosphereExchange
-                        { techFlowId = snd key
+                        { techFlowId = prProduct key
                         , techAmount = aaProductAmount a
                         , techUnitId = unitRef
                         , techRole = ReferenceProduct
                         , -- Self-link, as every loaded database records its
                           -- reference products.
-                          techActivityLinkId = Just (fst key)
+                          techActivityLinkId = Just (prActivity key)
                         , techSupplierClaim = ClaimByProduct
                         , techLocation = ""
                         , techComment = Nothing
@@ -359,7 +358,7 @@ validateOne ctx a =
                         }
                 productFlow =
                     TechnosphereFlow
-                        { tfId = snd key
+                        { tfId = prProduct key
                         , tfName = aaProductName a
                         , tfUnitId = unitRef
                         , tfSynonyms = M.empty
@@ -371,10 +370,10 @@ validateOne ctx a =
                         { riKey = key
                         , riActivity = buildActivity a unitLabel (productExchange : map reExchange resolved)
                         , riNewTechFlows =
-                            [productFlow | not (M.member (snd key) (dbTechFlows (acDb ctx)))]
-                                <> mapMaybe reNewTechFlow resolved
-                        , riNewWasteFlows = mapMaybe reNewWasteFlow resolved
-                        , riNewBioFlows = mapMaybe reNewBioFlow resolved
+                            [productFlow | not (M.member (prProduct key) (dbTechFlows (acDb ctx)))]
+                                <> mapMaybe (adoptedProduct . reAdoption) resolved
+                        , riNewWasteFlows = mapMaybe (adoptedWaste . reAdoption) resolved
+                        , riNewBioFlows = mapMaybe (adoptedBio . reAdoption) resolved
                         }
                     , map here (concatMap reWarnings resolved)
                     )
@@ -510,9 +509,9 @@ own description no longer mints, and the next rewrite of it would be refused
 as addressing another activity. Such an activity is rewritten instead, which
 moves it to the identity its new name mints.
 -}
-retextsAuthoredIdentity :: (UUID, UUID) -> Activity -> [ExchangeEdit] -> Maybe Text
-retextsAuthoredIdentity (activityKey, _) act edits
-    | activityKey == authoredActivityUUID (activityName act) (activityLocation act)
+retextsAuthoredIdentity :: ProcessRef -> Activity -> [ExchangeEdit] -> Maybe Text
+retextsAuthoredIdentity key act edits
+    | prActivity key == authoredActivityUUID (activityName act) (activityLocation act)
     , any entersIdentity edits =
         Just "This activity was written here and its name and location make its identity: rewrite it to rename or relocate it."
     | otherwise = Nothing
@@ -646,9 +645,9 @@ applyStep ctx acc edit = case applyOneEdit ctx (accActivity acc) edit of
         acc
             { accActivity = esActivity step
             , accMatched = accMatched acc <> [esMatched step]
-            , accNewFlows = accNewFlows acc <> esNewFlows step
-            , accNewTechFlows = accNewTechFlows acc <> esNewTechFlows step
-            , accNewWasteFlows = accNewWasteFlows acc <> esNewWasteFlows step
+            , accNewFlows = accNewFlows acc <> maybeToList (adoptedBio (esAdoption step))
+            , accNewTechFlows = accNewTechFlows acc <> maybeToList (adoptedProduct (esAdoption step))
+            , accNewWasteFlows = accNewWasteFlows acc <> maybeToList (adoptedWaste (esAdoption step))
             , accWarnings = accWarnings acc <> esWarnings step
             }
 
@@ -656,9 +655,7 @@ applyStep ctx acc edit = case applyOneEdit ctx (accActivity acc) edit of
 data EditStep = EditStep
     { esActivity :: Activity
     , esMatched :: Int
-    , esNewFlows :: [BiosphereFlow]
-    , esNewTechFlows :: [TechnosphereFlow]
-    , esNewWasteFlows :: [WasteFlow]
+    , esAdoption :: Adoption
     , esWarnings :: [Text]
     }
 
@@ -680,9 +677,7 @@ applyOneEdit ctx act edit = case edit of
                 EditStep
                     { esActivity = act{exchanges = current <> [reExchange resolved]}
                     , esMatched = 1
-                    , esNewFlows = maybeToList (reNewBioFlow resolved)
-                    , esNewTechFlows = maybeToList (reNewTechFlow resolved)
-                    , esNewWasteFlows = maybeToList (reNewWasteFlow resolved)
+                    , esAdoption = reAdoption resolved
                     , esWarnings = reWarnings resolved
                     }
     SetText text -> case textCheck text of
@@ -704,9 +699,7 @@ applyOneEdit ctx act edit = case edit of
         EditStep
             { esActivity = edited
             , esMatched = matched
-            , esNewFlows = []
-            , esNewTechFlows = []
-            , esNewWasteFlows = []
+            , esAdoption = NothingToAdopt
             , esWarnings = []
             }
     onSelected :: [Text] -> Either Text (Int, Exchange -> Bool) -> (Exchange -> Exchange) -> Either [Text] EditStep
@@ -964,14 +957,33 @@ describeSelector sel = case sel of
 -- | One resolved inventory line, plus whatever it drags into the vocabulary.
 data ResolvedExchange = ResolvedExchange
     { reExchange :: Exchange
-    , reNewBioFlow :: Maybe BiosphereFlow
-    , reNewTechFlow :: Maybe TechnosphereFlow
-    , reNewWasteFlow :: Maybe WasteFlow
+    , reAdoption :: Adoption
     , reWarnings :: [Text]
     }
 
--- | The flow a linked exchange brings into the edited database: one of a kind, or none.
-data Adoption = NothingToAdopt | AdoptProduct TechnosphereFlow | AdoptWaste WasteFlow
+-- | The flow a resolved line brings into the edited database: one of a kind, or none.
+data Adoption = NothingToAdopt | AdoptProduct TechnosphereFlow | AdoptWaste WasteFlow | AdoptBio BiosphereFlow
+
+adoptedProduct :: Adoption -> Maybe TechnosphereFlow
+adoptedProduct adoption = case adoption of
+    AdoptProduct flow -> Just flow
+    AdoptWaste _ -> Nothing
+    AdoptBio _ -> Nothing
+    NothingToAdopt -> Nothing
+
+adoptedWaste :: Adoption -> Maybe WasteFlow
+adoptedWaste adoption = case adoption of
+    AdoptWaste flow -> Just flow
+    AdoptProduct _ -> Nothing
+    AdoptBio _ -> Nothing
+    NothingToAdopt -> Nothing
+
+adoptedBio :: Adoption -> Maybe BiosphereFlow
+adoptedBio adoption = case adoption of
+    AdoptBio flow -> Just flow
+    AdoptProduct _ -> Nothing
+    AdoptWaste _ -> Nothing
+    NothingToAdopt -> Nothing
 
 resolveOne :: AuthorContext -> AuthoredExchange -> Either [Text] ResolvedExchange
 resolveOne ctx ex = case ex of
@@ -1040,9 +1052,7 @@ resolveLinked ctx provider amount mUnit adopt build =
         pure
             ResolvedExchange
                 { reExchange = build sup unitRef
-                , reNewBioFlow = Nothing
-                , reNewTechFlow = case adoption of AdoptProduct flow -> Just flow; _ -> Nothing
-                , reNewWasteFlow = case adoption of AdoptWaste flow -> Just flow; _ -> Nothing
+                , reAdoption = adoption
                 , reWarnings = []
                 }
     defaultUnit :: Supplier -> Text
@@ -1211,9 +1221,7 @@ resolveBio ctx flowRef direction amount mUnit comment
                     , bioPedigree = Nothing
                     , bioFormula = Nothing
                     }
-                mNew
-                Nothing
-                Nothing
+                (maybe NothingToAdopt AdoptBio mNew)
                 warnings
             )
     -- The biosphere matrix carries amounts through unconverted, so a unit the

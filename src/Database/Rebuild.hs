@@ -31,7 +31,6 @@ module Database.Rebuild (
     rebuildFromActivities,
 
     -- * Identity
-    renderKey,
     processKey,
     resolveProcess,
 ) where
@@ -67,6 +66,7 @@ import Types (
     findProcessId,
     findProcessIdByActivityUUID,
     parseProcessRef,
+    processIdToRef,
     processRefText,
     readExchangeLocation,
  )
@@ -122,7 +122,7 @@ Every id must be in range – an out-of-range id is a caller error, surfaced as
 during unlinking are @O(log n)@.
 -}
 resolveDeleteKeys :: Database -> [ProcessId] -> Either Text (S.Set (UUID, UUID))
-resolveDeleteKeys db = fmap S.fromList . traverse (processKey db)
+resolveDeleteKeys db = fmap S.fromList . traverse (fmap mapKey . processKey db)
 
 -- | The database's activities, keyed the way a rebuild takes them.
 activityMap :: Database -> M.Map (UUID, UUID) Activity
@@ -131,6 +131,10 @@ activityMap db =
         [ (dbProcessIdTable db V.! i, dbActivities db V.! i)
         | i <- [0 .. V.length (dbActivities db) - 1]
         ]
+
+-- | A process's key in 'activityMap', which the loaders' builders share.
+mapKey :: ProcessRef -> (UUID, UUID)
+mapKey ref = (prActivity ref, prProduct ref)
 
 -- | Where an activity supplied from, as an exchange buying from it would state it.
 suppliedFrom :: Activity -> ExchangeLocation
@@ -288,39 +292,36 @@ applyResolved intent unitConfig inserts db
                 , dbBioFlows = M.union (indexBy bfId (concatMap riNewBioFlows inserts)) (dbBioFlows db)
                 , dbWasteFlows = M.union (indexBy wfId (concatMap riNewWasteFlows inserts)) (dbWasteFlows db)
                 }
-            (M.union (M.fromList [(riKey i, riActivity i) | i <- inserts]) existing)
+            (M.union (M.fromList [(mapKey (riKey i), riActivity i) | i <- inserts]) existing)
   where
     indexBy key xs = M.fromList [(key x, x) | x <- xs]
 
 {- | Refuse a batch whose keys contradict the intent, naming every offending
 identity at once so a long batch is not fixed one round-trip at a time.
 -}
-checkKeys :: WriteIntent -> M.Map (UUID, UUID) Activity -> [(UUID, UUID)] -> Either Text ()
+checkKeys :: WriteIntent -> M.Map (UUID, UUID) Activity -> [ProcessRef] -> Either Text ()
 checkKeys intent existing keys = case intent of
-    Insert -> refuse "already exists" (filter (`M.member` existing) keys)
-    Replace -> refuse "does not exist" (filter (not . (`M.member` existing)) keys)
+    Insert -> refuse "already exists" (filter held keys)
+    Replace -> refuse "does not exist" (filter (not . held) keys)
   where
+    held :: ProcessRef -> Bool
+    held key = M.member (mapKey key) existing
     refuse _ [] = Right ()
     refuse what offenders =
         Left $
             "Refusing to write: "
-                <> T.intercalate ", " (map renderKey offenders)
+                <> T.intercalate ", " (map processRefText offenders)
                 <> " "
                 <> what
                 <> " in this database"
-
--- | @activityUUID_productUUID@, the identity a process is addressed by.
-renderKey :: (UUID, UUID) -> Text
-renderKey = processRefText . uncurry ProcessRef
 
 {- | The identity a 'ProcessId' currently stands for. Out of range is a caller
 error and says so, rather than resolving to whichever row is at that index
 after the next rebuild.
 -}
-processKey :: Database -> ProcessId -> Either Text (UUID, UUID)
+processKey :: Database -> ProcessId -> Either Text ProcessRef
 processKey db pid =
-    maybe (Left ("ProcessId out of range: " <> T.pack (show pid))) Right $
-        dbProcessIdTable db V.!? fromIntegral pid
+    maybe (Left ("ProcessId out of range: " <> T.pack (show pid))) Right (processIdToRef db pid)
 
 {- | Resolve a process-id string to its 'ProcessId'. Accepts the canonical
 @activityUUID_productUUID@ form and the bare-activity-UUID fallback (when the

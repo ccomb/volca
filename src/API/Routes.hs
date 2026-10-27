@@ -1618,9 +1618,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 86: the @setDryMasses@ an edit of an activity's exchanges takes,
+(revision 87: the @setDryMasses@ an edit of an activity's exchanges takes,
 which states the dry mass of a product output, and the @dryMassesSet@ its
 answer gives;
+revision 86: the @unchanged@ list of a comparison of two databases, every
+pair the cascade made that says the same thing on both sides, with its rung;
 revision 85: the body of the @derive@ route, which makes a parent (@parent@) or
 a child divided by a system model (@systemModel@) and no longer reads a source
 under a property, the @system-model@ route, the @systemModel@ a database status
@@ -1804,7 +1806,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 86
+currentWireVersion = 87
 
 getVersion :: AppM Value
 getVersion = do
@@ -2412,7 +2414,7 @@ supplierAnswers frame@SupplierFrame{sfName = dbName, sfDatabase = db, sfSolver =
                     Just (depDb, depSolver) -> do
                         found <-
                             either unprocessable (pure . concat) . sequence $
-                                [ fmap (\(p, conversion) -> (s, p, conversion)) . maybeToList <$> Matrix.inSupplierUnit unitCfg name depDb key (StatedAmount unit 1)
+                                [ fmap (\(p, conversion) -> (s, p, conversion)) . maybeToList <$> Matrix.inSupplierUnit unitCfg name depDb (uncurry ProcessRef key) (StatedAmount unit 1)
                                 | s@(RM.Elsewhere _ key unit) <- group
                                 ]
                         got <- solved depDb name depSolver 1 [p | (_, p, _) <- found]

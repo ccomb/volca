@@ -239,6 +239,15 @@ data ChangedActivity = ChangedActivity
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ChangedActivity)
 
+-- | Two activities the cascade paired that say the same thing.
+data PairedActivities = PairedActivities
+    { pamMatch :: !ActivityMatch
+    , pamBase :: !ActivitySummary
+    , pamOther :: !ActivitySummary
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped PairedActivities)
+
 -- | Activities one key of a rung names on either side, too many to pair.
 data AmbiguousActivities = AmbiguousActivities
     { ambMatch :: !ActivityMatch
@@ -251,7 +260,9 @@ data AmbiguousActivities = AmbiguousActivities
 {- | Two databases side by side. The counts always cover the full lists, which
 a limit may have truncated. A pair whose only difference is the dates its
 datasets state is redated, not changed: a new release restamps every dataset,
-and those would bury the few that say something new.
+and those would bury the few that say something new. The pairs that say the
+same thing are listed too, so changed, redated and unchanged together are
+every pair the cascade made.
 -}
 data DatabaseComparison = DatabaseComparison
     { dbcAddedCount :: !Int
@@ -265,6 +276,7 @@ data DatabaseComparison = DatabaseComparison
     , dbcChanged :: ![ChangedActivity]
     , dbcRedated :: ![ChangedActivity]
     , dbcAmbiguous :: ![AmbiguousActivities]
+    , dbcUnchanged :: ![PairedActivities]
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped DatabaseComparison)

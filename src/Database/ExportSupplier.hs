@@ -82,7 +82,7 @@ dependenciesOf indexed db = do
             [] -> Left (refusal act prod ("its supplier in " <> source <> " is not loaded"))
       where
         source = cdlSourceDatabase l
-        supplier = ProcessRef (cdlSupplierActUUID l) (cdlSupplierProdUUID l)
+        supplier = linkSupplier l
 
     refusal :: UUID -> UUID -> Text -> Text
     refusal act prod why =

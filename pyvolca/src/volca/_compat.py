@@ -32,10 +32,11 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 86
-"""The newest wire revision this pyvolca understands (revision 86 added the
+KNOWN_WIRE = 87
+"""The newest wire revision this pyvolca understands (revision 87 added the
 ``set_dry_masses`` of ``edit_exchanges()``, which states the dry mass of a
-product output; revision 85 made
+product output; revision 86 added the ``unchanged`` pairs of a database
+comparison and ``DatabaseComparison.pairs()``; revision 85 made
 ``derive_database()`` make a parent or a child divided by a system model, and
 added ``system_model()``; revision 84 added
 the ``set_prices`` of ``edit_exchanges()``, which prices a product output;

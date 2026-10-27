@@ -67,7 +67,7 @@ spec = do
         it "silently drops suppliers not present in the dep DB" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             let n = fromIntegral (dbActivityCount db) :: Int
-                fakeSupplier = (UUID.nil, UUID.nil)
+                fakeSupplier = ProcessRef UUID.nil UUID.nil
                 demands = M.singleton fakeSupplier StatedAmount{saUnit = "kg", saAmount = 42.0}
             case depDemandsToVector defaultUnitConfig "SAMPLE.min3" db demands of
                 Right (Demand vec) -> do
@@ -273,12 +273,12 @@ mkUuid :: Int -> UUID
 mkUuid tag = UUID.fromWords64 0 (fromIntegral tag)
 
 {- | Pick the first activity that has a reference output exchange with a
-known unit, returning ((actUUID, prodUUID), matrixIndex, refUnit).
+known unit, returning (its reference, matrixIndex, refUnit).
 -}
-firstActivityWithRefUnit :: Database -> Maybe ((UUID, UUID), Int, Text)
+firstActivityWithRefUnit :: Database -> Maybe (ProcessRef, Int, Text)
 firstActivityWithRefUnit db =
     listToMaybe
-        [ (procId, fromIntegral (dbActivityIndex db V.! idx), unit)
+        [ (uncurry ProcessRef procId, fromIntegral (dbActivityIndex db V.! idx), unit)
         | (idx, procId) <- zip [0 ..] (V.toList (dbProcessIdTable db))
         , let act = dbActivities db V.! idx
               refExs = [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]

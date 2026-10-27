@@ -11,7 +11,14 @@
   products in parameters rather than beside each product. A dry mass of zero
   or less, or in a unit that is not a mass, is refused at the edit. The change
   is kept in the database's history, and an EcoSpold 2 export carries the dry
-  mass on the product. Wire revision 86.
+  mass on the product. Wire revision 87.
+
+### Added
+
+- Comparing two databases now also lists the activities that say the same
+  thing in both, each with the activity it was paired with and how the pair
+  was found, so a script can follow every activity of one database to its
+  counterpart in the other, not only those that changed. Wire revision 86.
 
 ## [0.16.0] - 2026-10-25
 

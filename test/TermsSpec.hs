@@ -147,6 +147,11 @@ spec = do
             reply <- callOn manager (Just "ana") "get_impacts"
             fmap ("Terms of the dependency" `T.isInfixOf`) (errorText reply) `shouldBe` Just True
 
+        it "ask for them before saying a tool name is unknown" $ do
+            manager <- managerOn root dependency asked
+            reply <- callOn manager (Just "ana") "no_such_tool"
+            fmap ("Terms of the dependency" `T.isInfixOf`) (errorText reply) `shouldBe` Just True
+
         it "answer once the reader accepted them, and only that reader" $ do
             manager <- managerOn root dependency asked
             accepted <- callOn manager (Just "ana") "accept_terms"

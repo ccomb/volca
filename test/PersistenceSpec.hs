@@ -56,7 +56,6 @@ import Database.Manager (
     removeDatabase,
     unloadDatabase,
  )
-import Database.Rebuild (renderKey)
 import Database.Upload (DatabaseFormat (..))
 import Database.UploadedDatabase (UploadMeta (..), readUploadMeta)
 import SharedSolver (SharedSolver, createSharedSolver)
@@ -73,6 +72,7 @@ import Types (
     Licence (..),
     LocationSource (..),
     Medium (..),
+    ProcessRef (..),
     Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
@@ -85,6 +85,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    processRefText,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -279,7 +280,7 @@ processKeysOf manager dbName = do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
     pure $ case M.lookup dbName loadedDbs of
         Nothing -> []
-        Just loaded -> map renderKey (V.toList (dbProcessIdTable (ldDatabase loaded)))
+        Just loaded -> map (processRefText . uncurry ProcessRef) (V.toList (dbProcessIdTable (ldDatabase loaded)))
 
 -- | Delete the first process, through the request path a client uses.
 deleteFirst :: DatabaseManager -> Text -> [Text] -> IO DeleteOutcome
@@ -307,7 +308,7 @@ here, and a deletion is the one every database supports, so these examples pin
 the mutation path itself rather than what happened to be edited.
 -}
 dropSecond :: Change
-dropSecond = Change Nothing (Deleted [renderKey (otherActId, supplierProdId)])
+dropSecond = Change Nothing (Deleted [processRefText (ProcessRef otherActId supplierProdId)])
 
 deleteIds :: [Text] -> DeleteRequest
 deleteIds ids =

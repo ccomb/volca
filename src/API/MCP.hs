@@ -605,7 +605,7 @@ arguments every process-reading tool names them by.
 -}
 toolUses :: Text -> KeyMap Value -> [Use]
 toolUses name args = do
-    resource <- maybe [] pure (find ((== name) . R.mcpName) R.allResources)
+    resource <- maybe [] pure (R.fromMcpName name)
     kind <- maybe [] pure (R.resourceUsage resource)
     (dbKey, pidKey) <-
         [ ("database", "process_id")
@@ -651,7 +651,9 @@ callTool reader dbManager presets mHosting mBaseUrl rid name args = do
     case (missingTerms accepted terms, licenceRefusalFor name licences) of
         (missing@(_ : _), _) -> pure (toolError rid (termsRefusalText missing))
         (_, Just refusal) -> pure (toolError rid refusal)
-        ([], Nothing) -> dispatchTool reader dbManager presets mHosting mBaseUrl rid name args (licenceOfDatabase licences)
+        ([], Nothing) -> case R.fromMcpName name of
+            Nothing -> pure (toolError rid ("Unknown tool: " <> name))
+            Just resource -> dispatchTool reader dbManager presets mHosting mBaseUrl rid resource args (licenceOfDatabase licences)
 
 {- | The databases a call reads: those it names, and those its substitutions
 reach into. Loading or unloading one reads none of its data, and accepting its
@@ -709,7 +711,7 @@ licence does not grant what the tool's answer is made of.
 -}
 licenceRefusalFor :: Text -> [NamedLicence] -> Maybe Text
 licenceRefusalFor name licences = do
-    resource <- find ((== name) . R.mcpName) R.allResources
+    resource <- R.fromMcpName name
     needed <- R.resourceNeeds resource
     listToMaybe [withheldSentence (nlDatabase l) needed | l <- licences, not (granted (nlLicence l) needed)]
 
@@ -719,71 +721,70 @@ answer to it. A call naming none reads none, so there is nothing to trim.
 licenceOfDatabase :: [NamedLicence] -> Licence
 licenceOfDatabase = maybe LicenceUnstated nlLicence . find ((== "database") . nlArgument)
 
-dispatchTool :: Maybe Text -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> Licence -> IO Value
-dispatchTool reader dbManager presets mHosting mBaseUrl rid name args licence = case name of
-    "list_databases" -> callListDatabases dbManager rid
-    "accept_terms" -> callAcceptTerms reader dbManager rid args
-    "load_database" -> callLoadDatabase dbManager mHosting rid args
-    "unload_database" -> callUnloadDatabase dbManager rid args
-    "derive_database" -> callDeriveDatabase dbManager mHosting rid args
-    "list_presets" -> callListPresets presets rid
-    "search_activities" -> withDb dbManager rid args $ callSearchActivities (DM.managerGeographies dbManager) presets rid args
-    "search_flows" -> withDb dbManager rid args $ callSearchFlows rid args
-    "count_search_matches" -> withDb dbManager rid args $ callCountSearchMatches (DM.managerGeographies dbManager) rid args
-    "get_activity" -> withDb dbManager rid args $ callGetActivity licence rid args
-    "get_supply_chain" -> callGetSupplyChain dbManager presets rid args
-    "aggregate" -> withDb dbManager rid args $ callAggregate dbManager presets rid args
-    "get_inventory" -> callGetInventory dbManager rid args
-    "get_impacts" -> callGetImpacts dbManager mBaseUrl licence rid args
-    "compute_sensitivity" -> callComputeSensitivity dbManager mBaseUrl rid args
-    "get_reduced_model" -> callGetReducedModel dbManager mHosting rid args
-    "get_formula_language" -> pure (toolSuccessJson rid (toJSON formulaLanguage))
-    "check_formula" -> withDb dbManager rid args $ callCheckFormula dbManager rid args
-    "list_methods" -> callListMethods dbManager rid
-    "get_flow_mapping" -> callGetFlowMapping dbManager rid args
-    "get_characterization" -> callGetCharacterization dbManager rid args
-    "explain_cf" -> callExplainCF dbManager mBaseUrl rid args
-    "get_flow_factors" -> callGetFlowFactors dbManager mBaseUrl rid args
-    "get_contributing_flows" -> callGetContributingFlows dbManager mBaseUrl licence rid args
-    "get_contributing_activities" -> callGetContributingActivities dbManager mBaseUrl rid args
-    "get_score_contributing_flows" -> callGetScoreContributingFlows dbManager mBaseUrl rid args
-    "get_score_contributing_activities" -> callGetScoreContributingActivities dbManager mBaseUrl rid args
-    "list_geographies" -> callListGeographies dbManager rid args
-    "list_classifications" -> withDb dbManager rid args $ callListClassifications rid args
-    "get_path_to" -> withDb dbManager rid args $ callGetPathTo rid args
-    "get_consumers" -> withDb dbManager rid args $ callGetConsumers (DM.managerGeographies dbManager) presets rid args
-    "compare_impacts" -> callCompareImpacts dbManager rid args
-    "compare_activities" -> withDb dbManager rid args $ callCompareActivities dbManager rid args
-    "compare_databases" -> withDb dbManager rid args $ callCompareDatabases dbManager rid args
-    "compare_method_collections" -> callCompareMethodCollections dbManager rid args
-    "profile_method_collection" -> callProfileMethodCollection dbManager rid args
-    "score_activity" -> callScoreActivity dbManager mHosting mBaseUrl rid args
-    "score_activities" -> callScoreActivities dbManager mHosting mBaseUrl rid args
-    "list_scoring_sets" -> callListScoringSets dbManager rid args
-    "get_gap_report" -> callGetGapReport dbManager rid args
-    "get_quality_report" -> callGetQualityReport dbManager rid args
-    "get_computed_quality_report" -> callGetComputedQualityReport dbManager mHosting rid args
-    "get_characterization_coverage" -> callGetCoverageReport dbManager rid args
-    "edit_exchanges" -> callEditExchanges dbManager rid args
-    "get_database_history" -> callDatabaseHistory dbManager rid args
-    "get_database_parameters" -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
-    "edit_database_parameters" -> callEditDatabaseParameters dbManager rid args
-    "list_scenarios" -> callScenarios dbManager rid args (\_ -> pure ())
-    "save_scenario" -> callScenarios dbManager rid args $ \dbName -> do
+dispatchTool :: Maybe Text -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> R.Resource -> KeyMap Value -> Licence -> IO Value
+dispatchTool reader dbManager presets mHosting mBaseUrl rid resource args licence = case resource of
+    R.ListDatabases -> callListDatabases dbManager rid
+    R.AcceptTerms -> callAcceptTerms reader dbManager rid args
+    R.LoadDatabase -> callLoadDatabase dbManager mHosting rid args
+    R.UnloadDatabase -> callUnloadDatabase dbManager rid args
+    R.DeriveDatabase -> callDeriveDatabase dbManager mHosting rid args
+    R.ListPresets -> callListPresets presets rid
+    R.SearchActivities -> withDb dbManager rid args $ callSearchActivities (DM.managerGeographies dbManager) presets rid args
+    R.SearchFlows -> withDb dbManager rid args $ callSearchFlows rid args
+    R.CountSearchMatches -> withDb dbManager rid args $ callCountSearchMatches (DM.managerGeographies dbManager) rid args
+    R.GetActivity -> withDb dbManager rid args $ callGetActivity licence rid args
+    R.GetSupplyChain -> callGetSupplyChain dbManager presets rid args
+    R.Aggregate -> withDb dbManager rid args $ callAggregate dbManager presets rid args
+    R.GetInventory -> callGetInventory dbManager rid args
+    R.GetImpacts -> callGetImpacts dbManager mBaseUrl licence rid args
+    R.ComputeSensitivity -> callComputeSensitivity dbManager mBaseUrl rid args
+    R.GetReducedModel -> callGetReducedModel dbManager mHosting rid args
+    R.GetFormulaLanguage -> pure (toolSuccessJson rid (toJSON formulaLanguage))
+    R.CheckFormula -> withDb dbManager rid args $ callCheckFormula dbManager rid args
+    R.ListMethods -> callListMethods dbManager rid
+    R.GetFlowMapping -> callGetFlowMapping dbManager rid args
+    R.GetCharacterization -> callGetCharacterization dbManager rid args
+    R.ExplainCF -> callExplainCF dbManager mBaseUrl rid args
+    R.GetFlowFactors -> callGetFlowFactors dbManager mBaseUrl rid args
+    R.GetContributingFlows -> callGetContributingFlows dbManager mBaseUrl licence rid args
+    R.GetContributingActivities -> callGetContributingActivities dbManager mBaseUrl rid args
+    R.GetScoreContributingFlows -> callGetScoreContributingFlows dbManager mBaseUrl rid args
+    R.GetScoreContributingActivities -> callGetScoreContributingActivities dbManager mBaseUrl rid args
+    R.ListGeographies -> callListGeographies dbManager rid args
+    R.ListClassifications -> withDb dbManager rid args $ callListClassifications rid args
+    R.GetPathTo -> withDb dbManager rid args $ callGetPathTo rid args
+    R.GetConsumers -> withDb dbManager rid args $ callGetConsumers (DM.managerGeographies dbManager) presets rid args
+    R.CompareImpacts -> callCompareImpacts dbManager rid args
+    R.CompareActivities -> withDb dbManager rid args $ callCompareActivities dbManager rid args
+    R.CompareDatabases -> withDb dbManager rid args $ callCompareDatabases dbManager rid args
+    R.CompareMethodCollections -> callCompareMethodCollections dbManager rid args
+    R.ProfileMethodCollection -> callProfileMethodCollection dbManager rid args
+    R.ScoreActivity -> callScoreActivity dbManager mHosting mBaseUrl rid args
+    R.ScoreActivities -> callScoreActivities dbManager mHosting mBaseUrl rid args
+    R.ListScoringSets -> callListScoringSets dbManager rid args
+    R.GetGapReport -> callGetGapReport dbManager rid args
+    R.GetQualityReport -> callGetQualityReport dbManager rid args
+    R.GetComputedQualityReport -> callGetComputedQualityReport dbManager mHosting rid args
+    R.GetCoverageReport -> callGetCoverageReport dbManager rid args
+    R.EditExchanges -> callEditExchanges dbManager rid args
+    R.DatabaseHistory -> callDatabaseHistory dbManager rid args
+    R.DatabaseParameters -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
+    R.EditDatabaseParameters -> callEditDatabaseParameters dbManager rid args
+    R.ListScenarios -> callScenarios dbManager rid args (\_ -> pure ())
+    R.SaveScenario -> callScenarios dbManager rid args $ \dbName -> do
         scenario <- except (requireText "name" args)
         values <- except (parseArrayArg "parameters" Nothing args)
         ExceptT (first refusalMessage <$> saveScenario dbManager dbName (ScenarioName scenario) values)
-    "drop_scenario" -> callScenarios dbManager rid args $ \dbName -> do
+    R.DropScenario -> callScenarios dbManager rid args $ \dbName -> do
         scenario <- except (requireText "name" args)
         ExceptT (first refusalMessage <$> dropScenario dbManager dbName (ScenarioName scenario))
-    "copy_method_collection" -> callCopyMethodCollection dbManager rid args
-    "edit_method_factors" -> callEditMethodFactors dbManager rid args
-    "edit_method_categories" -> callEditMethodCategories dbManager rid args
-    "edit_scoring_sets" -> callEditScoringSets dbManager rid args
-    "undo_method_edit" -> callUndoMethodEdit dbManager rid args
-    "get_method_history" -> callGetMethodHistory dbManager rid args
-    "search_method_flows" -> callSearchMethodFlows dbManager rid args
-    _ -> return $ toolError rid ("Unknown tool: " <> name)
+    R.CopyMethodCollection -> callCopyMethodCollection dbManager rid args
+    R.EditMethodFactors -> callEditMethodFactors dbManager rid args
+    R.EditMethodCategories -> callEditMethodCategories dbManager rid args
+    R.EditMethodScoringSets -> callEditScoringSets dbManager rid args
+    R.UndoMethodEdit -> callUndoMethodEdit dbManager rid args
+    R.GetMethodHistory -> callGetMethodHistory dbManager rid args
+    R.SearchMethodFlows -> callSearchMethodFlows dbManager rid args
 
 -- Helper: extract database, then run action
 
@@ -792,7 +793,7 @@ every caller. Read from the resource registry rather than a list kept here,
 so the two cannot drift apart.
 -}
 mutatingTool :: Text -> Bool
-mutatingTool name = any (\r -> R.mcpName r == name && R.resourceMutates r) R.allResources
+mutatingTool = maybe False R.resourceMutates . R.fromMcpName
 
 withDb ::
     DatabaseManager ->

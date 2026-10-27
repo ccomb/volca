@@ -2301,7 +2301,7 @@ collectUnlinkedProductNames db =
 
 {- | Supplier demands a dependency answers, counted as demands rather than as
 links. A link stands for one demand at most, so several links made at one
-consumer triple answer no more than the demands made there, and a waste output
+demand site answer no more than the demands made there, and a waste output
 answers none: it is no demand ('isSupplierDemand'). Counting the links instead
 let a database with as many such links as unanswered demands report itself
 complete and ready, while the impact routes refused it.
@@ -2313,17 +2313,17 @@ asking for the same product at the same consumer.
 -}
 countAnsweredDemands :: SimpleDatabase -> [CrossDBLink] -> Int
 countAnsweredDemands db links =
-    sum [min n (M.findWithDefault 0 triple covered) | (triple, n) <- M.toList demands]
+    sum [min n (M.findWithDefault 0 site covered) | (site, n) <- M.toList demands]
   where
-    covered :: M.Map (UUID.UUID, UUID.UUID, UUID.UUID) Int
+    covered :: M.Map DemandSite Int
     covered = crossDBCoveredCounts (filter ((/= 0) . cdlCoefficient) links)
 
-    demands :: M.Map (UUID.UUID, UUID.UUID, UUID.UUID) Int
+    demands :: M.Map DemandSite Int
     demands =
         M.fromListWith
             (+)
-            [ ((actUUID, prodUUID, exchangeFlowId ex), 1 :: Int)
-            | ((actUUID, prodUUID), act) <- M.toList (sdbActivities db)
+            [ (exchangeDemandSite consumer ex, 1 :: Int)
+            | (consumer, act) <- M.toList (sdbActivities db)
             , ex <- exchanges act
             , isSupplierDemand ex
             , not (hasInternalProducer db ex)
@@ -2350,38 +2350,58 @@ countTotalTechInputs db =
         , isSupplierDemand ex
         ]
 
-{- | How many cross-DB links resolve each consumer @(activityUUID, productUUID,
-flowId)@ triple. The engine resolves a demand by @(activityLinkId, flowId)@, so
-one activity can consume the same product flow from several suppliers; counting
-coverage (rather than testing set membership) lets the dangling scan drop exactly
-the covered occurrences and still name a genuinely unresolved sibling.
+{- | Where a supplier demand is made: the consumer process and the flow it
+asks for. A link answers a demand made at the same site, so the link and the
+exchange side must both build it here and nowhere else.
 -}
-crossDBCoveredCounts :: [CrossDBLink] -> M.Map (UUID.UUID, UUID.UUID, UUID.UUID) Int
-crossDBCoveredCounts links =
-    M.fromListWith (+) [((cdlConsumerActUUID l, cdlConsumerProdUUID l, cdlConsumerFlowId l), 1) | l <- links]
+data DemandSite
+    = DemandSite
+        -- | the consumer process
+        !ProcessRef
+        -- | the flow it asks for
+        !UUID.UUID
+    deriving (Eq, Ord)
 
-{- | Tally dangling product names from @(consumer-triple, productName)@ pairs,
-dropping per triple as many occurrences as 'crossDBCoveredCounts' already
-covers. Inputs sharing a triple share a product name, so the surplus over the
+-- | The site a cross-DB link answers.
+linkDemandSite :: CrossDBLink -> DemandSite
+linkDemandSite l = DemandSite (ProcessRef (cdlConsumerActUUID l) (cdlConsumerProdUUID l)) (cdlConsumerFlowId l)
+
+-- | The site an exchange of the consumer @(activityUUID, productUUID)@ makes its demand at.
+exchangeDemandSite :: (UUID.UUID, UUID.UUID) -> Exchange -> DemandSite
+exchangeDemandSite (actUUID, prodUUID) ex = DemandSite (ProcessRef actUUID prodUUID) (exchangeFlowId ex)
+
+{- | How many cross-DB links resolve each demand site. The engine resolves a
+demand by @(activityLinkId, flowId)@, so one activity can consume the same
+product flow from several suppliers; counting coverage (rather than testing set
+membership) lets the dangling scan drop exactly the covered occurrences and
+still name a genuinely unresolved sibling.
+-}
+crossDBCoveredCounts :: [CrossDBLink] -> M.Map DemandSite Int
+crossDBCoveredCounts links =
+    M.fromListWith (+) [(linkDemandSite l, 1) | l <- links]
+
+{- | Tally dangling product names from @(demand site, productName)@ pairs,
+dropping per site as many occurrences as 'crossDBCoveredCounts' already
+covers. Inputs sharing a site share a product name, so the surplus over the
 covered count is the real gap.
 -}
 tallyDangling ::
-    M.Map (UUID.UUID, UUID.UUID, UUID.UUID) Int ->
-    [((UUID.UUID, UUID.UUID, UUID.UUID), T.Text)] ->
+    M.Map DemandSite Int ->
+    [(DemandSite, T.Text)] ->
     M.Map T.Text Int
 tallyDangling covered inputs =
     M.fromListWith
         (+)
         [ (name, surplus)
-        | (triple, (name, n)) <- M.toList byTriple
-        , let surplus = n - M.findWithDefault 0 triple covered
+        | (site, (name, n)) <- M.toList bySite
+        , let surplus = n - M.findWithDefault 0 site covered
         , surplus > 0
         ]
   where
-    byTriple =
+    bySite =
         M.fromListWith
             (\(nm, a) (_, b) -> (nm, a + b))
-            [(triple, (name, 1 :: Int)) | (triple, name) <- inputs]
+            [(site, (name, 1 :: Int)) | (site, name) <- inputs]
 
 {- | Product names of a *loaded* database's dangling internal links: non-nil
 @activityLinkId@ inputs that 'findProducer' cannot resolve against the
@@ -2391,7 +2411,7 @@ supplier gaps a partial EcoSpold2 import leaves behind – distinct from nil-lin
 inputs, the cross-DB candidates already tracked in the linking stats.
 
 Sharing 'findProducer' keeps this honest with the matrix: an input the matrix
-routes is not dangling, however its activity link looks. Subtracting per-triple cross-DB
+routes is not dangling, however its activity link looks. Subtracting per-site cross-DB
 coverage ('crossDBCoveredCounts') keeps it honest the other way: once the
 matching background is loaded, a UUID- or attribute-resolved input is supplied,
 not missing.
@@ -2400,8 +2420,8 @@ collectDanglingProductNames :: Database -> M.Map T.Text Int
 collectDanglingProductNames db =
     tallyDangling
         (crossDBCoveredCounts (dbCrossDBLinks db))
-        [ ((actUUID, prodUUID, exchangeFlowId ex), tfName flow)
-        | ((actUUID, prodUUID), act) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db))
+        [ (exchangeDemandSite consumer ex, tfName flow)
+        | (consumer, act) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db))
         , ex@TechnosphereExchange{} <- exchanges act
         , isSupplierDemand ex
         , isNothing (findProducer (dbProcessIdLookup db) ex)
@@ -2418,8 +2438,8 @@ collectStagedDanglingProductNames :: SimpleDatabase -> [CrossDBLink] -> M.Map T.
 collectStagedDanglingProductNames db links =
     tallyDangling
         (crossDBCoveredCounts links)
-        [ ((actUUID, prodUUID, exchangeFlowId ex), tfName flow)
-        | ((actUUID, prodUUID), act) <- M.toList (sdbActivities db)
+        [ (exchangeDemandSite consumer ex, tfName flow)
+        | (consumer, act) <- M.toList (sdbActivities db)
         , ex@TechnosphereExchange{} <- exchanges act
         , isSupplierDemand ex
         , not (hasInternalProducer db ex)
@@ -2508,8 +2528,8 @@ data GapReport = GapReport
     deriving (Show, Eq)
 
 {- | Shared gap-edge scan: every supplier demand with no internal producer,
-minus per-triple cross-DB coverage. The per-triple accounting mirrors
-'tallyDangling' (count-based: a partially covered triple drops its covered
+minus per-site cross-DB coverage. The per-site accounting mirrors
+'tallyDangling' (count-based: a partially covered site drops its covered
 occurrences in scan order), so edge counts stay consistent with the dangling
 scans.
 -}
@@ -2520,14 +2540,14 @@ gapEdgesWith ::
     CrossDBLinkingStats ->
     [GapEdge]
 gapEdgesWith hasProducer db links stats =
-    concatMap surplus (M.toList byTriple)
+    concatMap surplus (M.toList bySite)
   where
     covered = crossDBCoveredCounts links
-    surplus (triple, es) = drop (M.findWithDefault 0 triple covered) es
-    byTriple =
+    surplus (site, es) = drop (M.findWithDefault 0 site covered) es
+    bySite =
         M.fromListWith
             (flip (<>))
-            [ ((actUUID, prodUUID, exchangeFlowId ex), [edge])
+            [ (exchangeDemandSite (actUUID, prodUUID) ex, [edge])
             | ((actUUID, prodUUID), act) <- M.toList (sdbActivities db)
             , ex <- exchanges act
             , isSupplierDemand ex
@@ -2633,7 +2653,7 @@ gapEntries db edges =
 
 {- | Assemble the report. Header counts reuse the setup-page predicates
 ('countTotalTechInputs' / 'countUnlinkedExchanges'), and 'grUnresolvedEdges' is
-the per-triple count the setup page now reads too ('countAnsweredDemands'), so
+the per-site count the setup page now reads too ('countAnsweredDemands'), so
 the two agree. 'grCrossDBLinks' stays a count of links: this report is about
 the edges themselves.
 -}

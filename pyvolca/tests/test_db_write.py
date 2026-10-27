@@ -622,7 +622,7 @@ class TestEditExchanges:
 
     def test_dry_masses_travel_only_when_stated(self, mocked_client):
         client, session = mocked_client
-        _version_ok(session, wire=86)
+        _version_ok(session, wire=87)
         _ok(session, {"removed": [], "amountsSet": [], "added": 0, "dryMassesSet": [1, 1], "transient": False, "warnings": []})
         client.edit_exchanges("a_b", set_dry_masses=[SetDryMass("p-1", 0.5915), SetDryMass("p-2", None)])
         assert session.post.call_args[1]["json"]["setDryMasses"] == [
@@ -638,8 +638,8 @@ class TestEditExchanges:
 
     def test_dry_masses_never_sent_to_an_engine_that_cannot_keep_them(self, mocked_client):
         client, session = mocked_client
-        _version_ok(session, wire=85)
-        with pytest.raises(VoLCAError, match="wire revision >= 86"):
+        _version_ok(session, wire=86)
+        with pytest.raises(VoLCAError, match="wire revision >= 87"):
             client.edit_exchanges("a_b", set_dry_masses=[SetDryMass("p-1", 0.5915)])
         session.post.assert_not_called()
 

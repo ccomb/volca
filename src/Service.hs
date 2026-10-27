@@ -1959,7 +1959,7 @@ getPathTo db solver pidText target = do
             case validateProcessIdInMatrixIndex db rootPid of
                 Left err -> return $ Left err
                 Right () -> do
-                    eVec <- computeScalingVectorWithSubstitutions db solver rootPid []
+                    eVec <- first MatrixError <$> SharedSolver.computeScalingVectorCached db solver rootPid
                     case eVec of
                         Left err -> return $ Left err
                         Right supplyVec ->
@@ -2060,7 +2060,7 @@ unit of the process takes, in the unit of the exchange that asks for it.
 data ConsumerLink = ConsumerLink
     { clConsumer :: !Text -- as the chain names it
     , clConsumerDb :: !Text
-    , clSupplier :: !(UUID, UUID)
+    , clSupplier :: !ProcessRef
     , clPerUnit :: !StatedAmount
     }
 
@@ -2069,18 +2069,18 @@ data DepCall = DepCall
     { dcName :: !Text
     , dcDemands :: !SupplierDemands
     , dcLinks :: ![ConsumerLink]
-    , dcEntered :: !(M.Map (UUID, UUID) Int)
+    , dcEntered :: !(M.Map ProcessRef Int)
     -- ^ Each supplier bought, at one more than the depth of the shallowest process buying it
     }
 
 {- | The depth each dependency is entered at, by dependency and supplier: one
 more than the shallowest process of the level that buys it.
 -}
-enteredDepths :: Consumer -> [CrossDBLink] -> M.Map Text (M.Map (UUID, UUID) Int)
+enteredDepths :: Consumer -> [CrossDBLink] -> M.Map Text (M.Map ProcessRef Int)
 enteredDepths consumer extras =
     M.fromListWith
         (M.unionWith min)
-        [ (cdlSourceDatabase link, M.singleton (cdlSupplierActUUID link, cdlSupplierProdUUID link) (depth + 1))
+        [ (cdlSourceDatabase link, M.singleton (linkSupplier link) (depth + 1))
         | link <- dbCrossDBLinks db ++ extras
         , Just (pid, _) <- [linkConsumer db link]
         , processScaling db (coScaling consumer) pid /= 0
@@ -2112,7 +2112,7 @@ consumerLinks minQ consumer extras =
         ConsumerLink
             { clConsumer = nameAt (coLevel consumer) (coName consumer) db pid
             , clConsumerDb = coName consumer
-            , clSupplier = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
+            , clSupplier = linkSupplier link
             , clPerUnit = StatedAmount{saUnit = cdlExchangeUnit link, saAmount = cdlCoefficient link / normFactor}
             }
 
@@ -2595,7 +2595,7 @@ resolveOneDep unitCfg geographies depLookup scf depth visited call
             min
             [ (fromIntegral (dbActivityIndex depDb V.! fromIntegral pid), d)
             | (supplier, d) <- M.toList (dcEntered call)
-            , Just pid <- [M.lookup supplier (dbProcessIdLookup depDb)]
+            , Just pid <- [findProcessId depDb (prActivity supplier) (prProduct supplier)]
             ]
 
 {- | Build reverse adjacency (consumer -> [supplier]) from a vector of
@@ -2683,26 +2683,6 @@ produces.
 -}
 referenceMagnitude :: Activity -> Double
 referenceMagnitude = abs . getReferenceProductAmount
-
-{- | Root-only scaling vector: solve @(I-A)x = d@. Substitutions are applied by
-the cross-DB applicator ('applySubstitutionsAt', via
-'computeScalingVectorWithSubstitutionsCrossDB'), never here – this path is only
-ever called with an empty list. A non-empty list is a programmer error, surfaced
-loudly rather than silently mishandled (the previous in-place applicator used a
-'defaultUnitConfig' and could never see the merged unit table).
--}
-computeScalingVectorWithSubstitutions ::
-    Database ->
-    SharedSolver ->
-    ProcessId ->
-    [Substitution] ->
-    IO (Either ServiceError (U.Vector Double))
-computeScalingVectorWithSubstitutions db sharedSolver processId subs =
-    case subs of
-        [] -> either (pure . Left) (fmap Right . solveWithSharedSolver sharedSolver) (demandFor db processId)
-        _ ->
-            pure . Left . MatrixError $
-                "computeScalingVectorWithSubstitutions: substitutions must be applied via the cross-DB path"
 
 {- | Run sensitivity analysis on a process: compute the baseline scaling
 vector @x₀@ once, then resolve every 'Perturbation' to a (consumer column,
@@ -3442,7 +3422,7 @@ findStaticCrossDBLink rootDb consumerPid depDbName depSupRef =
             cdlSourceDatabase lk == depDbName
                 && cdlConsumerActUUID lk == prActivity consumerRef
                 && cdlConsumerProdUUID lk == prProduct consumerRef
-                && ProcessRef (cdlSupplierActUUID lk) (cdlSupplierProdUUID lk) == depSupRef
+                && linkSupplier lk == depSupRef
      in case filter matches (dbCrossDBLinks rootDb) of
             (lk : _) -> Just lk
             [] -> Nothing

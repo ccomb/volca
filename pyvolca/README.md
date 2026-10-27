@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 86** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 87** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -302,6 +302,23 @@ scatter_grid({"Climate change": points}, "clouds.png", labels=("before", "after"
 ```
 
 A score is per one unit of its activity's reference product, whatever the sign that reference is written with, so only the units need putting on one basis: `per_left_unit` gives the scale, or says why there is none (an unknown unit, or two measures without a `factor`). `ratio` refuses a zero and a burden against a credit, rather than drawing them. Only `scatter_grid` needs matplotlib (``pip install 'pyvolca[plot]'``).
+
+## Compare two implementations of a method
+
+> *EF 3.1 as its authors publish it, and as a software adapts it: where do their scores part?*
+
+```python
+from volca.compare_plot import band_shares, scatter_grid
+
+ids = [a.process_id for a in c.search_activities(name="wheat flour")]
+compared = c.compare_methods("ef-31", "ef-31-other", ids, forced={"Land use": "Land occupation"})
+print("left apart:", [m.name for m in compared.pairing.unpaired_left], "units differ:", [d.left.name for d in compared.pairing.different_units])
+for cat in compared.categories:
+    print(cat.pair.left.name, "=", cat.pair.right.name, band_shares([p.right / p.left for p in cat.points]), dict(cat.left_out))
+scatter_grid({f"{cat.pair.left.name} ({cat.pair.left.unit})": [p for p in cat.points if p.left > 0] for cat in compared.categories}, "methods.png", labels=("ef-31", "ef-31-other"))
+```
+
+Only the method varies: the same activities are scored under both collections, so their scores are per the same reference and need no scaling. Categories pair on their name, then on its words alone (`Human toxicity, cancer_inorganics` is `Human toxicity cancer (inorganics)`), then on their impact category, case and spacing aside, after the pairs you force; a name or impact category several categories share pairs none of them and is listed in `pairing.ambiguous`. A pair whose result units differ beyond punctuation (`kg CO2 Equivalents` and `kg CO2-eq` are one) is set apart in `pairing.different_units` and not drawn; force the pair to draw it all the same. Each category's `left_out` counts the activities left out, and why: scored on one side only, a zero, or a burden against a credit. Two credits stay in `points`, since their ratio holds, but a log scale draws only burdens, hence the filter before `scatter_grid`. `volca.compare_scores.pair_categories` and `join` do the same work on rows you already hold.
 
 ## Run counterfactuals (substitutions)
 
@@ -625,6 +642,17 @@ pattern prefix, at one direction, compartment and location.
 ``category`` compares only the pair whose base category has that name,
 much faster than comparing them all. ``limit`` keeps the first entries
 of each list of each category; the counts cover them all.
+
+##### `Client.compare_methods(left_collection: str, right_collection: str, process_ids: list[str], *, forced: dict[str, str] | None = None, chunk: int = 100, workers: int = 8) -> MethodComparison`
+
+Score this database's processes under two collections and pair their categories.
+
+Only the method varies: the database, and so every activity and its
+reference, is the same on both sides. Categories pair as in
+`volca.compare_scores.pair_categories`, ``forced`` first; each
+pair's points are ``(left score, right score)`` per activity, ready
+for `volca.compare_plot.scatter_grid`. ``chunk`` and ``workers``
+are as in `score_table`. Refuses one collection compared with itself.
 
 ##### `Client.compute_sensitivity(process_id: str, method_id: str, perturbations: list[dict], *, collection: str | None = None) -> SensitivityResult`
 
@@ -2354,6 +2382,18 @@ formulas read the amount by, when the source gives one (wire revision 64).
 | `text` | `str` | _required_ |
 | `name` | `str \| None` | None |
 
+### `PairedActivities`
+
+Two activities the cascade paired, one from each database, and the rung that paired them.
+
+``matched_on`` reads as in `ChangedActivity`.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `matched_on` | `str` | _required_ |
+| `base` | `Activity` | _required_ |
+| `other` | `Activity` | _required_ |
+
 ### `Parameter`
 
 A name a dataset's formulas read.
@@ -2805,7 +2845,9 @@ Two databases side by side, as `Client.compare_databases` returns them.
 
 The ``*_count`` fields always cover the full lists, which a ``limit`` may
 have truncated. A pair whose only difference is the dates its datasets
-state is in ``redated``, not ``changed``.
+state is in ``redated``, not ``changed``; a pair that says the same thing
+on both sides is in ``unchanged``, which is ``None`` against an engine
+older than wire revision 86.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -2820,6 +2862,17 @@ state is in ``redated``, not ``changed``.
 | `changed` | `list[ChangedActivity]` | _required_ |
 | `redated` | `list[ChangedActivity]` | _required_ |
 | `ambiguous` | `list[AmbiguousActivities]` | _required_ |
+| `unchanged` | `list[PairedActivities] \| None` | _required_ |
+
+#### Methods
+
+##### `DatabaseComparison.pairs()`
+
+Every pair the cascade made, changed, redated or not.
+
+Raises ``ValueError`` when a list is incomplete, so missing pairs never
+pass for the whole pairing: an engine older than wire revision 86, or a
+comparison asked for with a ``limit`` smaller than a list.
 
 ### `DatabaseInfo`
 

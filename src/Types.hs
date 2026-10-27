@@ -2065,10 +2065,11 @@ supplying process, qualified by the database that holds it. One renderer, so
 the several payloads carrying a link's identity cannot spell it three ways.
 -}
 supplierRefText :: CrossDBLink -> Text
-supplierRefText link =
-    qualifyRef
-        (cdlSourceDatabase link)
-        (processRefText ProcessRef{prActivity = cdlSupplierActUUID link, prProduct = cdlSupplierProdUUID link})
+supplierRefText link = qualifyRef (cdlSourceDatabase link) (processRefText (linkSupplier link))
+
+-- | The process a cross-database link buys from, in the database that holds it.
+linkSupplier :: CrossDBLink -> ProcessRef
+linkSupplier link = ProcessRef{prActivity = cdlSupplierActUUID link, prProduct = cdlSupplierProdUUID link}
 
 -- | Text form of the process a 'ProcessId' indexes, for display.
 processIdToText :: Database -> ProcessId -> Text

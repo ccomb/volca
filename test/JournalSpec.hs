@@ -49,7 +49,6 @@ import Database.Journal (
     readJournal,
     replayJournal,
  )
-import Database.Rebuild (renderKey)
 import Types (
     Activity (..),
     BioDirection (..),
@@ -66,6 +65,7 @@ import Types (
     Parameter (..),
     ParameterDefinition (..),
     Price (..),
+    ProcessRef (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
     StatedAmount (..),
@@ -78,6 +78,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    processRefText,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -328,14 +329,14 @@ depends on it fails on the assertion rather than here.
 -}
 mintedKey :: Database -> AuthoredActivity -> Text
 mintedKey db activity = case validateAuthored ctx [activity] of
-    Right ([resolved], _) -> renderKey (riKey resolved)
+    Right ([resolved], _) -> processRefText (riKey resolved)
     Right _ -> "the fixture activity resolved to something other than one process"
     Left errs -> "the fixture activity does not resolve: " <> T.intercalate "; " errs
   where
     ctx = AuthorContext{acDb = db, acDeps = [], acUnitConfig = defaultUnitConfig}
 
 processKeys :: Database -> S.Set Text
-processKeys = S.fromList . map renderKey . V.toList . dbProcessIdTable
+processKeys = S.fromList . map (processRefText . uncurry ProcessRef) . V.toList . dbProcessIdTable
 
 -- | Every biosphere amount in the database, so an edit's effect is visible.
 emissionsOf :: Database -> [Double]
@@ -656,8 +657,8 @@ depProdId = mkUUID 5
 kgUnitId = mkUUID 10
 
 supplierPid, depPid :: Text
-supplierPid = renderKey (supplierActId, supplierProdId)
-depPid = renderKey (depActId, depProdId)
+supplierPid = processRefText (ProcessRef supplierActId supplierProdId)
+depPid = processRefText (ProcessRef depActId depProdId)
 
 wheatFlow :: TechnosphereFlow
 wheatFlow =
