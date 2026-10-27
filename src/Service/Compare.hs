@@ -749,19 +749,20 @@ compareDatabases dbs =
     paired :: Cascade ActivityMatch ProcessIn
     paired = cascade activityKey [minBound .. maxBound] (fmap processesOf dbs)
     redated, changed :: [ChangedActivity]
-    (redated, changed) = L.partition (onlyRedated . chaComparison) differing
-    sameOnBoth, differing :: [ChangedActivity]
+    (redated, changed) =
+        L.partition
+            (onlyRedated . chaComparison)
+            [ChangedActivity{chaMatch = match, chaComparison = c} | (match, c) <- differing]
+    sameOnBoth, differing :: [(ActivityMatch, ActivityComparison)]
     (sameOnBoth, differing) =
-        L.partition (identical . chaComparison) $
+        L.partition (identical . snd) $
             L.sortOn
-                (summaryOrder . acmpOther . chaComparison)
-                [ ChangedActivity{chaMatch = match, chaComparison = compareActivities pair}
-                | (match, pair) <- cPairs paired
-                ]
+                (summaryOrder . acmpOther . snd)
+                [(match, compareActivities pair) | (match, pair) <- cPairs paired]
     unchanged :: [PairedActivities]
     unchanged =
-        [ PairedActivities{pamMatch = chaMatch c, pamBase = acmpBase (chaComparison c), pamOther = acmpOther (chaComparison c)}
-        | c <- sameOnBoth
+        [ PairedActivities{pamMatch = match, pamBase = acmpBase c, pamOther = acmpOther c}
+        | (match, c) <- sameOnBoth
         ]
     added :: [ActivitySummary]
     added = summariesOf (otherSide (cUnpaired paired))
