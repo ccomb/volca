@@ -37,7 +37,7 @@ module Database.Allocation (
     asAllocated,
     isCoproduct,
     keptWhole,
-    wholeBlockMakes,
+    producerKeyBy,
     producerKeyOf,
     describeRefusal,
     describePropertyRefusal,
@@ -60,7 +60,6 @@ import qualified Data.Map as M
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.UUID as UUID
 import Types
 import UnitConversion (UnitConfig, convertUnit)
 
@@ -553,19 +552,25 @@ wholeBlockMakes :: Activity -> UUID -> Bool
 wholeBlockMakes act flow = keptWhole act && any (\ex -> isCoproduct ex && exchangeFlowId ex == flow) (exchanges act)
 
 {- | The process that answers a link to @(activity, product)@: the process of
-that key, or else the block kept whole under that activity when it makes the
+that key, or else the one block kept whole under that activity that makes the
 product. A parent keys a whole block by its reference alone, so its coproducts
 are answered here and nowhere else; every place asking whether a link has a
 producer asks this, or a coproduct of a parent counts as answered in one place
-and missing in the next.
+and missing in the next. Two whole blocks sharing an activity and both making
+the product answer nothing: the link does not say which.
 -}
 producerKeyOf :: M.Map (UUID, UUID) Activity -> (UUID, UUID) -> Maybe (UUID, UUID)
-producerKeyOf processes key@(activity, flow)
+producerKeyOf = producerKeyBy id
+
+-- | 'producerKeyOf' on a table holding something an activity is read from, as a loaded database's process ids.
+producerKeyBy :: (a -> Activity) -> M.Map (UUID, UUID) a -> (UUID, UUID) -> Maybe (UUID, UUID)
+producerKeyBy activityOf processes key@(activity, flow)
     | M.member key processes = Just key
-    | otherwise = case M.lookupGE (activity, UUID.nil) processes of
-        Just (blockKey@(blockActivity, _), block)
-            | blockActivity == activity && wholeBlockMakes block flow -> Just blockKey
+    | otherwise = case [blockKey | (blockKey, block) <- M.toList rows, wholeBlockMakes (activityOf block) flow] of
+        [blockKey] -> Just blockKey
         _ -> Nothing
+  where
+    rows = M.takeWhileAntitone ((== activity) . fst) (M.dropWhileAntitone ((< activity) . fst) processes)
 
 isCoproduct :: Exchange -> Bool
 isCoproduct ex = case ex of

@@ -127,7 +127,7 @@ import qualified Data.Map as M
 -- per dataset) is real, and the lazy API would stack one unforced merge per
 -- occurrence, holding every superseded record until something forced the chain.
 import qualified Data.Map.Strict as MS
-import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Ord (Down (..))
 import Data.Proxy (Proxy (..))
 import qualified Data.Set as S
@@ -147,8 +147,8 @@ import Database.Allocation (
     allocateAll,
     isCoproduct,
     keptWhole,
+    producerKeyBy,
     producerKeyOf,
-    wholeBlockMakes,
  )
 import Database.CrossLinking (
     AliasMap,
@@ -2252,7 +2252,7 @@ same database – the @(activityLinkId, flowId)@ branch of
 The process-link branch is deliberately omitted: a 'ProcessId' is an interned
 index assigned only when matrices are built, so it never exists on a
 'SimpleDatabase' (it is always 'Nothing' here). The loaded-database counterpart
-'collectDanglingProductNames' has the real lookup and calls 'findProducer'
+'collectDanglingProductNames' has the real lookup and asks 'answeredHere'
 directly, honouring both branches.
 
 A link to a coproduct of a block a parent keeps whole is answered by that
@@ -2427,7 +2427,7 @@ that no cross-DB link supplies. The loaded-path counterpart that names the
 supplier gaps a partial EcoSpold2 import leaves behind – distinct from nil-link
 inputs, the cross-DB candidates already tracked in the linking stats.
 
-Sharing 'findProducer' keeps this honest with the matrix: an input the matrix
+Sharing 'answeredHere' with the gap report keeps this honest with the matrix: an input the matrix
 routes is not dangling, however its activity link looks. Subtracting per-site cross-DB
 coverage ('crossDBCoveredCounts') keeps it honest the other way: once the
 matching background is loaded, a UUID- or attribute-resolved input is supplied,
@@ -2441,7 +2441,7 @@ collectDanglingProductNames db =
         | (consumer, act) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db))
         , ex@TechnosphereExchange{} <- exchanges act
         , isSupplierDemand ex
-        , isNothing (findProducer (dbProcessIdLookup db) ex)
+        , not (answeredHere db ex)
         , claimsAnActivityUUID (exchangeSupplierClaim ex)
         , Just flow <- [M.lookup (exchangeFlowId ex) (dbTechFlows db)]
         ]
@@ -2710,18 +2710,18 @@ gapReportForLoaded dbName db =
 -- | The scan both of the above run, on the simple view the caller already holds.
 loadedEdges :: Database -> SimpleDatabase -> [GapEdge]
 loadedEdges db sdb =
-    gapEdgesWith answered sdb (dbCrossDBLinks db) (dbLinkingStats db)
-  where
-    -- 'producerKeyOf' on the loaded tables: the simple view may hold some
-    -- processes only, and the block answering a coproduct need not be one.
-    answered :: Exchange -> Bool
-    answered ex =
-        isJust (findProducer (dbProcessIdLookup db) ex)
-            || maybe False (wholeBlockAnswers (exchangeFlowId ex)) (exchangeActivityLinkId ex)
+    gapEdgesWith (answeredHere db) sdb (dbCrossDBLinks db) (dbLinkingStats db)
 
-    wholeBlockAnswers :: UUID.UUID -> UUID.UUID -> Bool
-    wholeBlockAnswers flow activity =
-        maybe False (\pid -> wholeBlockMakes (dbActivities db V.! fromIntegral pid) flow) (findProcessIdByActivityUUID db activity)
+{- | Whether a loaded database answers an input itself: the matrix routes it, or
+it buys a coproduct of a block kept whole ('producerKeyOf' on the loaded
+tables, since a simple view may hold some processes only).
+-}
+answeredHere :: Database -> Exchange -> Bool
+answeredHere db ex =
+    isJust (findProducer (dbProcessIdLookup db) ex)
+        || maybe False (\activity -> isJust (producerKeyBy activityAt (dbProcessIdLookup db) (activity, exchangeFlowId ex))) (exchangeActivityLinkId ex)
+  where
+    activityAt pid = dbActivities db V.! fromIntegral pid
 
 -- | How a gap's reason is spelled on the wire, by every surface that names one.
 gapReasons :: GapReason -> NE.NonEmpty BlockerReason

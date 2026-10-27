@@ -30,14 +30,14 @@ import Data.Int (Int32)
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
-import Database.Allocation (AllocatedActivity, AllocationRefusal, allocatedActivity, asAllocated, describeRefusal, wholeBlockMakes)
+import Database.Allocation (AllocatedActivity, AllocationRefusal, allocatedActivity, asAllocated, describeRefusal, producerKeyBy)
 import Types
 import UnitConversion (UnitConfig, convertUnit, missingConversion, unitKey)
 
@@ -223,9 +223,8 @@ buildTechTriples unitConfig unitDB tables supplierRefUnits =
     boughtFromWholeBlock :: Exchange -> Bool
     boughtFromWholeBlock ex = case exchangeActivityLinkId ex of
         Just activity
-            | Nothing <- findProducer lkp ex
-            , Just (pid :| []) <- M.lookup activity (itActivityUUIDIndex tables) ->
-                wholeBlockMakes (itActivities tables V.! fromIntegral pid) (exchangeFlowId ex)
+            | Nothing <- findProducer lkp ex ->
+                isJust (producerKeyBy ((itActivities tables V.!) . fromIntegral) lkp (activity, exchangeFlowId ex))
         _ -> False
     pack rs = let (ts, ws) = fold rs in (VU.fromList ts, refusals ++ ws)
 
