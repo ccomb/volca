@@ -161,6 +161,21 @@ spec = do
                     mkMethod "Water use" [namedCF "Water, river" 6.98]
             reachedFlows mappings `shouldBe` [bfId rootRiverWater]
 
+        it "binds a CAS both databases declare to the root's own flow" $ do
+            -- The dependency's flow sorts first, so only the root-first union
+            -- of the two CAS indexes keeps the root's flow ahead of it.
+            let water i name = riverWater{bfId = mkUUID i, bfName = name, bfCAS = Just "7732-18-5"}
+                rootWater = water 521 "Water, root spelling"
+                depWater = water 520 "Water, dependency spelling"
+            manager <- DM.initDatabaseManager defaultConfig DM.NoCache
+            let root = (withOwnFlows [rootWater] (mkDB 100 ["FR"] [])){dbDependsOn = ["dep"]}
+            install manager "dep" (withOwnFlows [depWater] (mkDB 1 ["FR"] []))
+            install manager "root" root
+            mappings <-
+                DM.mapMethodToFlowsCached manager "root" collection root $
+                    mkMethod "Water use" [(namedCF "water, unlisted" 1.0){mcfCAS = Just "7732-18-5"}]
+            reachedFlows mappings `shouldBe` [bfId rootWater]
+
         it "judges a flow synonym shared across the root and its dependencies" $ do
             -- Each database holds one of the two flows listing the synonym, so
             -- each alone would keep it; together it names two substances.
