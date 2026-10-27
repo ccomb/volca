@@ -125,7 +125,7 @@ import Database.Manager (
     withReservedName,
  )
 import Database.Rebuild (processKey, resolveProcess)
-import Database.SystemModel (parseSystemModel)
+import Database.SystemModel (parseSystemModel, severalProducts)
 import Database.Upload (DatabaseFormat (..), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
 import Matrix (clearCachedSolver)
@@ -134,7 +134,6 @@ import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
 import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches)
 import Types (
-    Activity (exchanges),
     AllocationKey (..),
     ClassificationFilter,
     Database (..),
@@ -145,7 +144,6 @@ import Types (
     Reading (..),
     SystemModel,
     allocationKeyText,
-    exchangeIsProductOutput,
     findProcessIdByActivityUUID,
     getActivity,
     initializeRuntimeFields,
@@ -368,7 +366,7 @@ dividedRefusal unitConfig reading srcName db = case reading of
     -- With none divided, each block of several products is still one process
     -- making them all; a process of one product was never a block to divide.
     wholeBlocks :: Int
-    wholeBlocks = V.length (V.filter ((> 1) . length . filter exchangeIsProductOutput . exchanges) (dbActivities db))
+    wholeBlocks = V.length (V.filter severalProducts (dbActivities db))
 
 {- | Undo a derivation that will not be kept: unload it, then take its home
 and its cache with 'removeDatabase', which refuses a loaded database.
