@@ -628,7 +628,7 @@ Only the database varies: the same data in two formats, say. Activities
 pair as `compare_databases` pairs them, and every pair is scored
 on both sides; the right score is brought to one unit of the left
 reference (``units`` is the unit table, `unit_table` when not
-given). Each method's points are ``(left score, right score)``, ready
+given: pass it on an engine whose configuration names its own). Each method's points are ``(left score, right score)``, ready
 for `volca.compare_plot.scatter_grid`. A pair the engine did not
 score, or whose references measure different things, is counted in
 ``left_out``, not drawn; what did not pair stays in ``activities``.

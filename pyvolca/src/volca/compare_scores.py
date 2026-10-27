@@ -185,7 +185,8 @@ def join(
     """Each activity's two scores, one list of points per category pair.
 
     The rows are :meth:`volca.Client.score_table` rows of one database under
-    two collections, so an activity is the same on both sides and its scores
+    two collections, or rows of two databases :func:`scale_to_left` already
+    put on one basis, so an activity is the same on both sides and its scores
     are per the same reference: they pair by ``process_id`` and need no
     scaling. A score is read under its category's name, never its impact
     category, which several categories share. An activity scored on one side

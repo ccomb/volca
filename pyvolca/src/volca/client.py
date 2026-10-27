@@ -2996,7 +2996,7 @@ class Client:
         :meth:`score_activities`. Raises VoLCAError naming every id the
         engine did not score.
         """
-        rows, unscored = self._scored_rows(process_ids, collection, chunk, workers, exclude_long_term)
+        rows, unscored = self._scored_rows(process_ids, collection, chunk=chunk, workers=workers, exclude_long_term=exclude_long_term)
         if unscored:
             raise VoLCAError(f"the engine did not score {unscored}")
         return rows
@@ -3005,6 +3005,7 @@ class Client:
         self,
         process_ids: list[str],
         collection: str | None,
+        *,
         chunk: int,
         workers: int,
         exclude_long_term: bool | None = None,
@@ -3078,7 +3079,7 @@ class Client:
         pair as :meth:`compare_databases` pairs them, and every pair is scored
         on both sides; the right score is brought to one unit of the left
         reference (``units`` is the unit table, :meth:`unit_table` when not
-        given). Each method's points are ``(left score, right score)``, ready
+        given: pass it on an engine whose configuration names its own). Each method's points are ``(left score, right score)``, ready
         for :func:`volca.compare_plot.scatter_grid`. A pair the engine did not
         score, or whose references measure different things, is counted in
         ``left_out``, not drawn; what did not pair stays in ``activities``.
@@ -3089,11 +3090,13 @@ class Client:
         if database == other_database:
             raise VoLCAError(f"{database!r} compared with itself says nothing; name another database")
         collection = self._resolve_collection(collection)
+        # Read before the long scoring, so a missing table fails at once.
+        units = self.unit_table() if units is None else units
         activities = self.compare_databases(other_database)
         pairs = activities.pairs()
-        left, _ = self._scored_rows([p.base.process_id for p in pairs], collection, chunk, workers)
-        right, _ = self.use(other_database)._scored_rows([p.other.process_id for p in pairs], collection, chunk, workers)
-        left, right, left_out = scale_to_left(pairs, left, right, self.unit_table() if units is None else units)
+        left, _ = self._scored_rows([p.base.process_id for p in pairs], collection, chunk=chunk, workers=workers)
+        right, _ = self.use(other_database)._scored_rows([p.other.process_id for p in pairs], collection, chunk=chunk, workers=workers)
+        left, right, left_out = scale_to_left(pairs, left, right, units)
         methods = [m for m in self.list_methods() if m.collection == collection]
         return DatabaseScoreComparison(
             activities, left_out, join(left, right, [CategoryPair(m, m, "same name") for m in methods])
