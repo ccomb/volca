@@ -18,6 +18,7 @@ import Test.Hspec
 import API.Types (
     ActivityComparison (..),
     ActivityMatch (..),
+    ActivitySummary (..),
     AmbiguousActivities (..),
     ChangeOutcome (..),
     ChangePresence (..),
@@ -30,6 +31,7 @@ import API.Types (
     LineChange (..),
     LineMatch (..),
     LineRole (..),
+    PairedActivities (..),
     Quantity (..),
     SummaryChange (..),
     Supplier (..),
@@ -303,6 +305,12 @@ spec = describe "Service.Compare" $ do
                     [row 3 rye "rye production" []]
             counts c `shouldBe` (0, 0, 0, 1, 0)
             map (\a -> (ambMatch a, length (ambBase a), length (ambOther a))) (dbcAmbiguous c) `shouldBe` [(SameNames, 2, 1)]
+            length (dbcUnchanged c) `shouldBe` 0
+
+        it "lists an unchanged pair with its rung and the process of each side" $ do
+            c <- compareVersions [row 1 wheat "wheat production" []] [row 2 wheat "wheat production" []]
+            (dbcChangedCount c, dbcUnchangedCount c) `shouldBe` (0, 1)
+            map (\p -> (pamMatch p, prsProcessId (pamBase p) /= prsProcessId (pamOther p))) (dbcUnchanged c) `shouldBe` [(SameNames, True)]
 
         it "lets a key present on one side only reach the next rung" $ do
             c <-
@@ -325,9 +333,10 @@ spec = describe "Service.Compare" $ do
             (dbcChangedCount c, dbcRedatedCount c) `shouldBe` (1, 0)
 
     it "a limit shortens the lists, never the counts" $ do
-        c <- compareVersions [row 1 wheat "wheat production" []] [row 1 wheat "wheat production" [], row 2 barley "barley production" [], row 3 oat "oat production" []]
+        c <- compareVersions [row 1 wheat "wheat production" [], row 4 rye "rye production" []] [row 1 wheat "wheat production" [], row 4 rye "rye production" [], row 2 barley "barley production" [], row 3 oat "oat production" []]
         let limited = limitComparison 1 c
         (dbcAddedCount limited, length (dbcAdded limited)) `shouldBe` (2, 1)
+        (dbcUnchangedCount limited, length (dbcUnchanged limited)) `shouldBe` (2, 1)
 
 -- ---------------------------------------------------------------------------
 -- Fixtures

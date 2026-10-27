@@ -3602,12 +3602,30 @@ class AmbiguousActivities:
 
 
 @dataclass
+class PairedActivities:
+    """Two activities the cascade paired, one from each database, and the rung that paired them.
+
+    ``matched_on`` reads as in :class:`ChangedActivity`.
+    """
+
+    matched_on: str
+    base: Activity
+    other: Activity
+
+    @classmethod
+    def from_json(cls, d: dict) -> "PairedActivities":
+        return cls(matched_on=d["match"], base=Activity.from_json(d["base"]), other=Activity.from_json(d["other"]))
+
+
+@dataclass
 class DatabaseComparison:
     """Two databases side by side, as :meth:`Client.compare_databases` returns them.
 
     The ``*_count`` fields always cover the full lists, which a ``limit`` may
     have truncated. A pair whose only difference is the dates its datasets
-    state is in ``redated``, not ``changed``.
+    state is in ``redated``, not ``changed``; a pair that says the same thing
+    on both sides is in ``unchanged``, which is ``None`` against an engine
+    older than wire revision 86.
     """
 
     added_count: int
@@ -3621,6 +3639,7 @@ class DatabaseComparison:
     changed: list[ChangedActivity]
     redated: list[ChangedActivity]
     ambiguous: list[AmbiguousActivities]
+    unchanged: list[PairedActivities] | None
 
     @classmethod
     def from_json(cls, d: dict) -> "DatabaseComparison":
@@ -3637,4 +3656,20 @@ class DatabaseComparison:
             changed=[ChangedActivity.from_json(c) for c in d["changed"]],
             redated=[ChangedActivity.from_json(c) for c in d.get("redated", [])],
             ambiguous=[AmbiguousActivities.from_json(a) for a in d["ambiguous"]],
+            unchanged=None if "unchanged" not in d else [PairedActivities.from_json(p) for p in d["unchanged"]],
         )
+
+    def pairs(self) -> list[PairedActivities]:
+        """Every pair the cascade made, changed, redated or not.
+
+        Raises ``ValueError`` when a list is incomplete, so missing pairs never
+        pass for the whole pairing: an engine older than wire revision 86, or a
+        comparison asked for with a ``limit`` smaller than a list.
+        """
+        if self.unchanged is None:
+            raise ValueError("this engine does not list unchanged pairs; it needs wire revision 86")
+        lists = [(self.changed, self.changed_count), (self.redated, self.redated_count), (self.unchanged, self.unchanged_count)]
+        if any(len(found) < count for found, count in lists):
+            raise ValueError("a limit truncated the comparison; ask for it without one to get every pair")
+        differing = [PairedActivities(c.matched_on, c.comparison.base, c.comparison.other) for c in self.changed + self.redated]
+        return differing + self.unchanged
