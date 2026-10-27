@@ -2409,7 +2409,7 @@ supplierAnswers frame@SupplierFrame{sfName = dbName, sfDatabase = db, sfSolver =
                     Just (depDb, depSolver) -> do
                         found <-
                             either unprocessable (pure . concat) . sequence $
-                                [ fmap (\(p, conversion) -> (s, p, conversion)) . maybeToList <$> Matrix.inSupplierUnit unitCfg name depDb key (StatedAmount unit 1)
+                                [ fmap (\(p, conversion) -> (s, p, conversion)) . maybeToList <$> Matrix.inSupplierUnit unitCfg name depDb (uncurry ProcessRef key) (StatedAmount unit 1)
                                 | s@(RM.Elsewhere _ key unit) <- group
                                 ]
                         got <- solved depDb name depSolver 1 [p | (_, p, _) <- found]

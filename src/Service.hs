@@ -2060,7 +2060,7 @@ unit of the process takes, in the unit of the exchange that asks for it.
 data ConsumerLink = ConsumerLink
     { clConsumer :: !Text -- as the chain names it
     , clConsumerDb :: !Text
-    , clSupplier :: !(UUID, UUID)
+    , clSupplier :: !ProcessRef
     , clPerUnit :: !StatedAmount
     }
 
@@ -2069,18 +2069,18 @@ data DepCall = DepCall
     { dcName :: !Text
     , dcDemands :: !SupplierDemands
     , dcLinks :: ![ConsumerLink]
-    , dcEntered :: !(M.Map (UUID, UUID) Int)
+    , dcEntered :: !(M.Map ProcessRef Int)
     -- ^ Each supplier bought, at one more than the depth of the shallowest process buying it
     }
 
 {- | The depth each dependency is entered at, by dependency and supplier: one
 more than the shallowest process of the level that buys it.
 -}
-enteredDepths :: Consumer -> [CrossDBLink] -> M.Map Text (M.Map (UUID, UUID) Int)
+enteredDepths :: Consumer -> [CrossDBLink] -> M.Map Text (M.Map ProcessRef Int)
 enteredDepths consumer extras =
     M.fromListWith
         (M.unionWith min)
-        [ (cdlSourceDatabase link, M.singleton (cdlSupplierActUUID link, cdlSupplierProdUUID link) (depth + 1))
+        [ (cdlSourceDatabase link, M.singleton ProcessRef{prActivity = cdlSupplierActUUID link, prProduct = cdlSupplierProdUUID link} (depth + 1))
         | link <- dbCrossDBLinks db ++ extras
         , Just (pid, _) <- [linkConsumer db link]
         , processScaling db (coScaling consumer) pid /= 0
@@ -2112,7 +2112,7 @@ consumerLinks minQ consumer extras =
         ConsumerLink
             { clConsumer = nameAt (coLevel consumer) (coName consumer) db pid
             , clConsumerDb = coName consumer
-            , clSupplier = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
+            , clSupplier = ProcessRef{prActivity = cdlSupplierActUUID link, prProduct = cdlSupplierProdUUID link}
             , clPerUnit = StatedAmount{saUnit = cdlExchangeUnit link, saAmount = cdlCoefficient link / normFactor}
             }
 
@@ -2595,7 +2595,7 @@ resolveOneDep unitCfg geographies depLookup scf depth visited call
             min
             [ (fromIntegral (dbActivityIndex depDb V.! fromIntegral pid), d)
             | (supplier, d) <- M.toList (dcEntered call)
-            , Just pid <- [M.lookup supplier (dbProcessIdLookup depDb)]
+            , Just pid <- [findProcessId depDb (prActivity supplier) (prProduct supplier)]
             ]
 
 {- | Build reverse adjacency (consumer -> [supplier]) from a vector of

@@ -114,10 +114,10 @@ newtype Demand = Demand {unDemand :: Vector}
 -- | Final inventory vector mapping biosphere flow UUIDs to quantities.
 type Inventory = M.Map UUID Double
 
-{- | Demand a consumer DB places on one supplier @(activityUUID, productUUID)@,
-stated in the consumer's exchange unit (for cross-DB unit conversion).
+{- | Demand a consumer DB places on one supplier, stated in the consumer's
+exchange unit (for cross-DB unit conversion).
 -}
-type SupplierDemands = M.Map (UUID, UUID) StatedAmount
+type SupplierDemands = M.Map ProcessRef StatedAmount
 
 -- | Per-dependency-DB supplier demands, keyed by source database name.
 type DepDemands = M.Map Text SupplierDemands
@@ -773,8 +773,8 @@ perturbABatch solve x specs = do
 Accumulate cross-database supplier demands for a given root scaling vector.
 
 For every 'CrossDBLink' whose consumer has non-zero scaling, add
-@coefficient / normFactor(consumer) * scale@ to the demand on the supplier
-@(actUUID, prodUUID)@. Results are grouped by the supplier's database name
+@coefficient / normFactor(consumer) * scale@ to the demand on the supplier's
+'ProcessRef'. Results are grouped by the supplier's database name
 so the caller can solve each dependency database in one multi-RHS batch.
 
 The division by the consumer's normalization factor matches the convention
@@ -815,7 +815,7 @@ accumulateDepDemandsWith db extraLinks scalingVec =
                 let consumerIdx = fromIntegral $ actIdx V.! fromIntegral consumerPid
                     consumerScale = scalingVec U.! consumerIdx
                     demand = cdlCoefficient link * consumerScale / normFactor
-                    supplierKey = (cdlSupplierActUUID link, cdlSupplierProdUUID link)
+                    supplierKey = ProcessRef{prActivity = cdlSupplierActUUID link, prProduct = cdlSupplierProdUUID link}
                     entry = StatedAmount{saUnit = cdlExchangeUnit link, saAmount = demand}
                  in if demand == 0
                         then acc
@@ -868,7 +868,7 @@ reference-product unit via 'convertUnit', mirroring the internal technosphere
 path in 'Database.buildDatabaseWithMatrices'. Fails with 'Left' on an unknown
 unit pair – we never silently use raw values when units are incompatible.
 
-Suppliers whose @(actUUID, prodUUID)@ does not resolve in the dep DB are
+Suppliers whose 'ProcessRef' does not resolve in the dep DB are
 silently dropped (they've already been accepted as cross-DB links; a missing
 ProcessId here means the dep DB was loaded but doesn't have that exact
 supplier, which is recorded at link time).
@@ -902,11 +902,11 @@ inSupplierUnit ::
     -- | dep DB name, for error messages
     Text ->
     Database ->
-    (UUID, UUID) ->
+    ProcessRef ->
     StatedAmount ->
     Either Text (Maybe (ProcessId, Double))
 inSupplierUnit unitConfig depDbName depDb supplierKey StatedAmount{saUnit = exchangeUnit, saAmount = amt} =
-    case M.lookup supplierKey (dbProcessIdLookup depDb) of
+    case findProcessId depDb (prActivity supplierKey) (prProduct supplierKey) of
         Nothing -> Right Nothing -- supplier absent in dep DB; drop
         Just pid ->
             let act = dbActivities depDb V.! fromIntegral pid
