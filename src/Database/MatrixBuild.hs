@@ -30,14 +30,14 @@ import Data.Int (Int32)
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map as M
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
-import Database.Allocation (AllocatedActivity, AllocationRefusal, allocatedActivity, asAllocated, describeRefusal)
+import Database.Allocation (AllocatedActivity, AllocationRefusal, allocatedActivity, asAllocated, describeRefusal, producerKeyBy)
 import Types
 import UnitConversion (UnitConfig, convertUnit, missingConversion, unitKey)
 
@@ -214,8 +214,18 @@ buildTechTriples unitConfig unitDB tables supplierRefUnits =
     (refusals, rows) = perActivity tables
     lkp = itProcessIdLookup tables
     actCount = itActivityCount tables
-    step (normFactor, j, allocated, ex) =
-        techTriple unitConfig unitDB lkp supplierRefUnits actCount normFactor j (allocatedActivity allocated) ex
+    step (normFactor, j, allocated, ex)
+        | boughtFromWholeBlock ex = Right mempty
+        | otherwise = techTriple unitConfig unitDB lkp supplierRefUnits actCount normFactor j (allocatedActivity allocated) ex
+
+    -- A coproduct of a block a parent keeps whole: the block has no column to
+    -- draw on, as for its reference, and warned once for itself.
+    boughtFromWholeBlock :: Exchange -> Bool
+    boughtFromWholeBlock ex = case exchangeActivityLinkId ex of
+        Just activity
+            | Nothing <- findProducer lkp ex ->
+                isJust (producerKeyBy ((itActivities tables V.!) . fromIntegral) lkp (activity, exchangeFlowId ex))
+        _ -> False
     pack rs = let (ts, ws) = fold rs in (VU.fromList ts, refusals ++ ws)
 
 techTriple ::

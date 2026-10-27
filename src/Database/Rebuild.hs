@@ -42,7 +42,9 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 
+import Data.Maybe (isNothing)
 import Database (buildIndexesWithProcessIds, buildProductIndex)
+import Database.Allocation (producerKeyOf)
 import Database.Author (ResolvedInsert (..))
 import Database.MatrixBuild (
     InterningTables (..),
@@ -110,7 +112,7 @@ deleteActivitiesWith unitConfig pids db = do
     -- against what the other half says: where each deleted activity supplied
     -- from, which after the delete nothing else records.
     let (removed, survivors) = M.partitionWithKey (\key _ -> S.member key deletedKeys) (activityMap db)
-        unlink = unlinkActivity (M.keysSet survivors) (M.map suppliedFrom removed)
+        unlink = unlinkActivity survivors (M.map suppliedFrom removed)
         unlinkedMap = M.map unlink survivors
     if M.null unlinkedMap
         then Left "Refusing to delete: the result would have no activities"
@@ -147,7 +149,8 @@ The link target is exactly that pair: 'findProducer' resolves
 @(activityLink, flowId)@ against the interning table, so a multi-product
 activity that keeps at least one product stays a valid target for exchanges
 pointing at a *surviving* product, while exchanges pointing at a deleted
-product are unlinked. A biosphere exchange has no producer link and is
+product are unlinked. A parent's block kept whole answers its coproducts under
+their own keys ('producerKeyOf'), and keeps them while it survives. A biosphere exchange has no producer link and is
 returned unchanged. An already-orphan link stays orphan.
 
 An unlinked line keeps the location its supplier supplied from, when it states
@@ -158,12 +161,12 @@ of any country the ranking puts first, which is how a foreground exported away
 from its background comes home buying its electricity somewhere it never did.
 A location the line already states is the source's own word and is left alone.
 -}
-unlinkActivity :: S.Set (UUID, UUID) -> M.Map (UUID, UUID) ExchangeLocation -> Activity -> Activity
-unlinkActivity survivingKeys removed act =
+unlinkActivity :: M.Map (UUID, UUID) Activity -> M.Map (UUID, UUID) ExchangeLocation -> Activity -> Activity
+unlinkActivity survivors removed act =
     act{exchanges = map unlinkExchange (exchanges act)}
   where
     dangling :: UUID -> UUID -> Bool
-    dangling link flow = not (S.member (link, flow) survivingKeys)
+    dangling link flow = isNothing (producerKeyOf survivors (link, flow))
 
     supplied :: UUID -> UUID -> Maybe ExchangeLocation
     supplied link flow = M.lookup (link, flow) removed

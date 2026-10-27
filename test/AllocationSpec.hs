@@ -199,6 +199,15 @@ spec = do
             map inputAmounts (parentOf (activity [productRow cheeseId 1.0 ReferenceProduct (Just 51) M.empty, input 10.0]))
                 `shouldBe` [[5.1]]
 
+        it "answers a coproduct with the one block under its activity making it, and with none when two do" $ do
+            -- Two whole blocks sharing an activity: cheese making cream, whey making germ and cream.
+            let mill = u "a1"
+                germId = u "a2"
+                wheyBlock = activity [productRow wheyId 1.0 ReferenceProduct (Just 60) M.empty, productRow germId 1.0 Coproduct (Just 20) M.empty, productRow creamId 1.0 Coproduct (Just 20) M.empty, input 10.0]
+                blocks = M.fromList [((mill, cheeseId), head (parentOf dairy)), ((mill, wheyId), head (parentOf wheyBlock))]
+            map (producerKeyOf blocks) [(mill, germId), (mill, creamId), (mill, wheyId), (mill, feedId)]
+                `shouldBe` [Just (mill, wheyId), Nothing, Just (mill, wheyId), Nothing]
+
         it "has the gate say the block was kept whole, not that a share is missing" $
             [T.unpack (describeRefusal refusal) | Left refusal <- map asAllocated (parentOf dairy)]
                 `shouldSatisfy` (\said -> not (null said) && all (isInfixOfS "kept whole by the allocation key") said)

@@ -14,6 +14,14 @@
 - When a key divides none of a database's blocks, the refusal counts the
   blocks of several products it could have divided, not every process of the
   database.
+- A parent answers by itself an input that buys a coproduct of one of its
+  blocks kept whole, such as the bran of a wheat milling. Before, such an
+  input counted as unresolved, so the parent could not be opened again after
+  a restart. When the database it was read from was loaded, the input was
+  filled from that database's declared shares instead, and the parent called
+  itself complete. The input is now linked to the block under the
+  coproduct's own key, which is the piece its child cuts. Caches are rebuilt
+  once.
 
 ## [0.16.0] - 2026-10-25
 

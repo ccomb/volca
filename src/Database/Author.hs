@@ -371,9 +371,9 @@ validateOne ctx a =
                         , riActivity = buildActivity a unitLabel (productExchange : map reExchange resolved)
                         , riNewTechFlows =
                             [productFlow | not (M.member (prProduct key) (dbTechFlows (acDb ctx)))]
-                                <> mapMaybe reNewTechFlow resolved
-                        , riNewWasteFlows = mapMaybe reNewWasteFlow resolved
-                        , riNewBioFlows = mapMaybe reNewBioFlow resolved
+                                <> mapMaybe (adoptedProduct . reAdoption) resolved
+                        , riNewWasteFlows = mapMaybe (adoptedWaste . reAdoption) resolved
+                        , riNewBioFlows = mapMaybe (adoptedBio . reAdoption) resolved
                         }
                     , map here (concatMap reWarnings resolved)
                     )
@@ -639,9 +639,9 @@ applyStep ctx acc edit = case applyOneEdit ctx (accActivity acc) edit of
         acc
             { accActivity = esActivity step
             , accMatched = accMatched acc <> [esMatched step]
-            , accNewFlows = accNewFlows acc <> esNewFlows step
-            , accNewTechFlows = accNewTechFlows acc <> esNewTechFlows step
-            , accNewWasteFlows = accNewWasteFlows acc <> esNewWasteFlows step
+            , accNewFlows = accNewFlows acc <> maybeToList (adoptedBio (esAdoption step))
+            , accNewTechFlows = accNewTechFlows acc <> maybeToList (adoptedProduct (esAdoption step))
+            , accNewWasteFlows = accNewWasteFlows acc <> maybeToList (adoptedWaste (esAdoption step))
             , accWarnings = accWarnings acc <> esWarnings step
             }
 
@@ -649,9 +649,7 @@ applyStep ctx acc edit = case applyOneEdit ctx (accActivity acc) edit of
 data EditStep = EditStep
     { esActivity :: Activity
     , esMatched :: Int
-    , esNewFlows :: [BiosphereFlow]
-    , esNewTechFlows :: [TechnosphereFlow]
-    , esNewWasteFlows :: [WasteFlow]
+    , esAdoption :: Adoption
     , esWarnings :: [Text]
     }
 
@@ -672,9 +670,7 @@ applyOneEdit ctx act edit = case edit of
                 EditStep
                     { esActivity = act{exchanges = current <> [reExchange resolved]}
                     , esMatched = 1
-                    , esNewFlows = maybeToList (reNewBioFlow resolved)
-                    , esNewTechFlows = maybeToList (reNewTechFlow resolved)
-                    , esNewWasteFlows = maybeToList (reNewWasteFlow resolved)
+                    , esAdoption = reAdoption resolved
                     , esWarnings = reWarnings resolved
                     }
     SetText text -> case textCheck text of
@@ -696,9 +692,7 @@ applyOneEdit ctx act edit = case edit of
         EditStep
             { esActivity = edited
             , esMatched = matched
-            , esNewFlows = []
-            , esNewTechFlows = []
-            , esNewWasteFlows = []
+            , esAdoption = NothingToAdopt
             , esWarnings = []
             }
     onSelected :: [Text] -> Either Text (Int, Exchange -> Bool) -> (Exchange -> Exchange) -> Either [Text] EditStep
@@ -941,14 +935,33 @@ describeSelector sel = case sel of
 -- | One resolved inventory line, plus whatever it drags into the vocabulary.
 data ResolvedExchange = ResolvedExchange
     { reExchange :: Exchange
-    , reNewBioFlow :: Maybe BiosphereFlow
-    , reNewTechFlow :: Maybe TechnosphereFlow
-    , reNewWasteFlow :: Maybe WasteFlow
+    , reAdoption :: Adoption
     , reWarnings :: [Text]
     }
 
--- | The flow a linked exchange brings into the edited database: one of a kind, or none.
-data Adoption = NothingToAdopt | AdoptProduct TechnosphereFlow | AdoptWaste WasteFlow
+-- | The flow a resolved line brings into the edited database: one of a kind, or none.
+data Adoption = NothingToAdopt | AdoptProduct TechnosphereFlow | AdoptWaste WasteFlow | AdoptBio BiosphereFlow
+
+adoptedProduct :: Adoption -> Maybe TechnosphereFlow
+adoptedProduct adoption = case adoption of
+    AdoptProduct flow -> Just flow
+    AdoptWaste _ -> Nothing
+    AdoptBio _ -> Nothing
+    NothingToAdopt -> Nothing
+
+adoptedWaste :: Adoption -> Maybe WasteFlow
+adoptedWaste adoption = case adoption of
+    AdoptWaste flow -> Just flow
+    AdoptProduct _ -> Nothing
+    AdoptBio _ -> Nothing
+    NothingToAdopt -> Nothing
+
+adoptedBio :: Adoption -> Maybe BiosphereFlow
+adoptedBio adoption = case adoption of
+    AdoptBio flow -> Just flow
+    AdoptProduct _ -> Nothing
+    AdoptWaste _ -> Nothing
+    NothingToAdopt -> Nothing
 
 resolveOne :: AuthorContext -> AuthoredExchange -> Either [Text] ResolvedExchange
 resolveOne ctx ex = case ex of
@@ -1017,9 +1030,7 @@ resolveLinked ctx provider amount mUnit adopt build =
         pure
             ResolvedExchange
                 { reExchange = build sup unitRef
-                , reNewBioFlow = Nothing
-                , reNewTechFlow = case adoption of AdoptProduct flow -> Just flow; _ -> Nothing
-                , reNewWasteFlow = case adoption of AdoptWaste flow -> Just flow; _ -> Nothing
+                , reAdoption = adoption
                 , reWarnings = []
                 }
     defaultUnit :: Supplier -> Text
@@ -1188,9 +1199,7 @@ resolveBio ctx flowRef direction amount mUnit comment
                     , bioPedigree = Nothing
                     , bioFormula = Nothing
                     }
-                mNew
-                Nothing
-                Nothing
+                (maybe NothingToAdopt AdoptBio mNew)
                 warnings
             )
     -- The biosphere matrix carries amounts through unconverted, so a unit the

@@ -50,10 +50,11 @@ A block its property cannot weigh stays whole and loses its column, and is
 named. An exception that can weigh none of the blocks it takes is refused: the
 child would carry its reason and nothing it did.
 
-The pieces are then linked by name among themselves: an input that consumed a
-coproduct found no supplier in the parent, whose name index holds reference
-products only, and finds the piece that now produces it. An input the parent
-already linked keeps its supplier.
+An input the parent linked to a coproduct of a block it kept whole already
+names the piece producing it: the parent links it under the block's activity
+and the coproduct, the key the piece is given here. The pieces are still
+linked by name among themselves, for an input the parent left unlinked. An
+input the parent already linked keeps its supplier.
 -}
 childOf :: UnitConfig -> SystemModel -> Database -> IO (Either Text Database)
 childOf unitConfig model parent = case resolveModel model activities of
