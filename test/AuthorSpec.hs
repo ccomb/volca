@@ -168,7 +168,12 @@ spec = do
             it "refuses a batch that mints one identity twice" $
                 case validateAuthored (contextOf fixtureDb) [baseActivity, baseActivity] of
                     Right _ -> expectationFailure "expected the duplicate identity to be refused"
-                    Left errs -> errs `shouldSatisfy` any (isInfixOf "mint the same identity")
+                    Left errs ->
+                        errs
+                            `shouldBe` [ "Two activities in this batch mint the same identity ("
+                                            <> authoredKeyText
+                                            <> "): same name, location, product and unit."
+                                       ]
 
         describe "validateAuthored (resolution)" $ do
             it "mints the same identity for the same description, twice" $ do
@@ -493,7 +498,7 @@ spec = do
             it "refuses a key the database already holds" $ do
                 r <- resolveOrFail fixtureDb baseActivity
                 case insertActivities defaultUnitConfig [r] fixtureDb >>= insertActivities defaultUnitConfig [r] of
-                    Left err -> err `shouldSatisfy` isInfixOf "already exists"
+                    Left err -> err `shouldBe` ("Refusing to write: " <> authoredKeyText <> " already exists in this database")
                     Right _ -> expectationFailure "expected the second insert to be refused"
 
             it "leaves the database untouched on an empty batch" $
@@ -757,6 +762,10 @@ inputAmounts db actUUID =
     , fst key == actUUID
     , ex@TechnosphereExchange{techRole = Input} <- exchanges act
     ]
+
+-- | The key 'baseActivity' mints, spelled out so a refusal's wording is pinned.
+authoredKeyText :: Text
+authoredKeyText = UUID.toText (authoredActivityUUID "cheese, at dairy" "FR") <> "_" <> UUID.toText (authoredProductUUID "cheese" "kg")
 
 baseActivity :: AuthoredActivity
 baseActivity =
