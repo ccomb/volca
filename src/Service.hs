@@ -1959,7 +1959,7 @@ getPathTo db solver pidText target = do
             case validateProcessIdInMatrixIndex db rootPid of
                 Left err -> return $ Left err
                 Right () -> do
-                    eVec <- computeScalingVectorWithSubstitutions db solver rootPid []
+                    eVec <- first MatrixError <$> SharedSolver.computeScalingVectorCached db solver rootPid
                     case eVec of
                         Left err -> return $ Left err
                         Right supplyVec ->
@@ -2683,26 +2683,6 @@ produces.
 -}
 referenceMagnitude :: Activity -> Double
 referenceMagnitude = abs . getReferenceProductAmount
-
-{- | Root-only scaling vector: solve @(I-A)x = d@. Substitutions are applied by
-the cross-DB applicator ('applySubstitutionsAt', via
-'computeScalingVectorWithSubstitutionsCrossDB'), never here – this path is only
-ever called with an empty list. A non-empty list is a programmer error, surfaced
-loudly rather than silently mishandled (the previous in-place applicator used a
-'defaultUnitConfig' and could never see the merged unit table).
--}
-computeScalingVectorWithSubstitutions ::
-    Database ->
-    SharedSolver ->
-    ProcessId ->
-    [Substitution] ->
-    IO (Either ServiceError (U.Vector Double))
-computeScalingVectorWithSubstitutions db sharedSolver processId subs =
-    case subs of
-        [] -> either (pure . Left) (fmap Right . solveWithSharedSolver sharedSolver) (demandFor db processId)
-        _ ->
-            pure . Left . MatrixError $
-                "computeScalingVectorWithSubstitutions: substitutions must be applied via the cross-DB path"
 
 {- | Run sensitivity analysis on a process: compute the baseline scaling
 vector @x₀@ once, then resolve every 'Perturbation' to a (consumer column,
