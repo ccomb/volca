@@ -62,7 +62,10 @@ waterRow loc val =
         }
 
 tablesFor :: SynonymDB -> [BiosphereFlow] -> IO MethodTables
-tablesFor synDB flows = buildMethodTables mempty defaultUnitConfig M.empty <$> mapMethodFlows context method
+tablesFor synDB = tablesWith synDB [waterRow Nothing 42.95, waterRow (Just "FR") 10.0]
+
+tablesWith :: SynonymDB -> [MethodCF] -> [BiosphereFlow] -> IO MethodTables
+tablesWith synDB factors flows = buildMethodTables mempty defaultUnitConfig M.empty <$> mapMethodFlows context method
   where
     context =
         MapContext
@@ -82,8 +85,17 @@ tablesFor synDB flows = buildMethodTables mempty defaultUnitConfig M.empty <$> m
             , methodUnit = "m3 world eq. deprived"
             , methodCategory = "Water use"
             , methodMethodology = Nothing
-            , methodFactors = [waterRow Nothing 42.95, waterRow (Just "FR") 10.0]
+            , methodFactors = factors
             }
+
+{- | Two region-suffixed water rows that disagree, their CAS zero-padded as
+some method files write it.
+-}
+paddedRows :: [MethodCF]
+paddedRows =
+    [ (waterRow Nothing 42.95){mcfFlowRef = mkUUID 101, mcfFlowName = "Water, cooling, unspecified natural origin, IAI Area, Asia, without China and GCC", mcfCAS = Just "007732-18-5"}
+    , (waterRow Nothing 2.17){mcfFlowRef = mkUUID 102, mcfFlowName = "Water, cooling, unspecified natural origin, BR-Southern grid", mcfCAS = Just "007732-18-5"}
+    ]
 
 factorOf :: MethodTables -> BiosphereFlow -> Maybe Double
 factorOf tables f = cfValue <$> lookupCFForFlow tables (bfId f) (Just f)
@@ -112,4 +124,12 @@ spec = describe "EF's generic water resource with the shipped registry" $ do
             it "leaves the line unmatched where no flow carries the fresh-water name" $ do
                 tables <- tablesFor registry [river, ocean, sole]
                 map (factorOf tables) [river, ocean, sole] `shouldBe` [Nothing, Nothing, Nothing]
+                bridgedWater tables `shouldBe` []
+
+            -- The disagreement must be seen whichever way the CAS is padded:
+            -- counted under "007732-18-5" while the bridge keys "7732-18-5",
+            -- it vetoed nothing and the ocean took 42.95.
+            it "refuses the bridge for disagreeing rows whose CAS is zero-padded" $ do
+                tables <- tablesWith registry paddedRows [ocean, sole]
+                map (factorOf tables) [ocean, sole] `shouldBe` [Nothing, Nothing]
                 bridgedWater tables `shouldBe` []

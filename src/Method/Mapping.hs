@@ -1797,10 +1797,10 @@ buildMethodTables (Placing cmap vocabulary) unitConfig energyDensities mappings 
     casValuesBySub =
         M.fromListWith
             S.union
-            [ ((SR.CASNumber cas, medium, Subcompartment subClass), S.singleton (mcfValue cf))
+            [ ((casNo, medium, Subcompartment subClass), S.singleton (mcfValue cf))
             | (cf, _) <- mappings
             , Just cas <- [mcfCAS cf]
-            , not (T.null cas)
+            , Just casNo <- [SR.casKey cas]
             , Nothing <- [mcfConsumerLocation cf]
             , Just (medium, Subcompartment normSub) <- [cfMediumSub cmap cf]
             , let subClass = normSub
