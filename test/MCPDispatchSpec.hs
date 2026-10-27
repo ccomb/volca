@@ -22,6 +22,7 @@ import Data.Text.Encoding (encodeUtf8)
 import Test.Hspec
 
 import API.MCP (RequestId (..), RpcRequest (..), callTool, handleInitialize, mcpCountsAsActivity, noRequestId, toolDefinitions, webUrlBase)
+import API.Resources (allResources, mcpName)
 import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), ReadOnly (..), ServerName (..), defaultConfig)
 import qualified Data.UUID as UUID
 import Database.Manager (CachePolicy (..), DatabaseManager (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
@@ -175,6 +176,27 @@ spec = describe "MCP database load/unload tools" $ do
         unloadResp <- call "unload_database"
         resultText loadResp `shouldSatisfy` maybe False (not . T.isPrefixOf "Unknown tool:")
         resultText unloadResp `shouldSatisfy` maybe False (not . T.isPrefixOf "Unknown tool:")
+
+    -- Every name the registry declares reaches a handler, and a name it does
+    -- not declare is refused by name. The handler's own error (here, no such
+    -- database) is what proves the call got past dispatch.
+    describe "a tool name" $ do
+        forM_ allResources $ \resource ->
+            it (T.unpack (mcpName resource) <> " is routed by callTool") $
+                withScratchDataDir $ do
+                    resp <- call (mcpName resource)
+                    resultText resp `shouldSatisfy` maybe False (not . T.isPrefixOf "Unknown tool:")
+
+        it "the registry does not declare is refused with its name" $ do
+            resp <- call "no_such_tool"
+            isError resp `shouldBe` True
+            resultText resp `shouldBe` Just "Unknown tool: no_such_tool"
+
+        it "the registry does not declare still meets the preset check first" $ do
+            manager <- initDatabaseManager defaultConfig NoCache
+            resp <- callTool Nothing manager [] Nothing Nothing noRequestId "no_such_tool" (KM.singleton "preset" (String "transformed"))
+            isError resp `shouldBe` True
+            resultText resp `shouldSatisfy` maybe False ("transformed" `T.isInfixOf`)
 
     it "surface the engine error when unloading a database that is not loaded" $ do
         resp <- call "unload_database"
