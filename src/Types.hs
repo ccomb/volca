@@ -1839,8 +1839,8 @@ data Database = Database
     , dbReferenceConvention :: !ReferenceConvention -- How its inputs read a supplier whose reference is negative
     , -- Runtime-only fields (not serialized to cache)
       dbSynonymDB :: !(Maybe SynonymDB) -- Embedded synonym database for flow matching
-    , dbFlowsByName :: !(M.Map Text [BiosphereFlow]) -- Biosphere flow name index for LCIA matching
-    , dbFlowsByCAS :: !(M.Map Text [BiosphereFlow]) -- CAS → biosphere flows for LCIA matching
+    , dbFlowsByName :: !FlowsByName -- Biosphere flow name index for LCIA matching
+    , dbFlowsByCAS :: !FlowsByCAS -- CAS → biosphere flows for LCIA matching
     -- Product name search index: word token → ProcessId set (built at runtime)
     , dbProductSearchIndex :: !(M.Map Text IS.IntSet)
     , -- BM25 ranking index (built at runtime, not serialized)
@@ -1961,8 +1961,8 @@ instance Store Database where
                 , dbReferenceConvention = referenceConvention
                 , -- Runtime-only fields set to defaults
                   dbSynonymDB = Nothing
-                , dbFlowsByName = M.empty
-                , dbFlowsByCAS = M.empty
+                , dbFlowsByName = FlowsByName M.empty
+                , dbFlowsByCAS = FlowsByCAS M.empty
                 , dbProductSearchIndex = M.empty
                 , dbBM25Index = Nothing
                 }
@@ -2102,6 +2102,19 @@ refActivityUUID t = case parseProcessRef t of
 addSynonymDBToDatabase :: Database -> SynonymDB -> Database
 addSynonymDBToDatabase db synDB = db{dbSynonymDB = Just synDB}
 
+{- | Biosphere flows under their normalized names ('normalizeName'), and under
+the synonyms that name one substance only.
+-}
+newtype FlowsByName = FlowsByName {unFlowsByName :: M.Map Text [BiosphereFlow]}
+    deriving (Generic, NFData)
+
+{- | Biosphere flows under their canonical CAS number ('nonEmptyCAS'). A type
+of its own because both indexes key on 'Text', each by its own rule, and
+travel side by side.
+-}
+newtype FlowsByCAS = FlowsByCAS {unFlowsByCAS :: M.Map Text [BiosphereFlow]}
+    deriving (Generic, NFData)
+
 {- | Build the biosphere flow name index. Groups flows by normalized name for
 LCIA lookup: every flow under its own name, and under each synonym it lists
 when that synonym names one substance only.
@@ -2112,7 +2125,7 @@ the names a method gives chromium of unstated valence and characterizes as
 hexavalent; indexed, those rows landed on whichever of the two flows came first
 and charged trivalent chromium the hexavalent factors.
 -}
-buildFlowNameIndex :: BioFlowDB -> M.Map Text [BiosphereFlow]
+buildFlowNameIndex :: BioFlowDB -> FlowsByName
 buildFlowNameIndex = flowNameIndexOver . pure
 
 {- | The name index over several flow sets, each set's flows ahead of the next
@@ -2120,8 +2133,8 @@ set's under every name. Whether a synonym is shared is judged over all the sets
 together: two databases each holding one of the flows that list it would
 otherwise both keep it.
 -}
-flowNameIndexOver :: [BioFlowDB] -> M.Map Text [BiosphereFlow]
-flowNameIndexOver sets = M.unionsWith (++) (map indexOf sets)
+flowNameIndexOver :: [BioFlowDB] -> FlowsByName
+flowNameIndexOver sets = FlowsByName $ M.unionsWith (++) (map indexOf sets)
   where
     shared :: S.Set Text
     shared = M.keysSet (sharedFlowSynonyms sets)
@@ -2171,15 +2184,16 @@ canonicalizes on the way in. A flow stating no CAS – empty, or a placeholder
 made of zeros and dashes – is left out rather than indexed under a key
 unrelated substances would share.
 -}
-buildFlowCASIndex :: BioFlowDB -> M.Map Text [BiosphereFlow]
+buildFlowCASIndex :: BioFlowDB -> FlowsByCAS
 buildFlowCASIndex bioDB =
-    M.fromListWith
-        (++)
-        [ (cas, [f])
-        | f <- M.elems bioDB
-        , Just stated <- [bfCAS f]
-        , Just cas <- [nonEmptyCAS stated]
-        ]
+    FlowsByCAS $
+        M.fromListWith
+            (++)
+            [ (cas, [f])
+            | f <- M.elems bioDB
+            , Just stated <- [bfCAS f]
+            , Just cas <- [nonEmptyCAS stated]
+            ]
 
 -- | Add biosphere flow indexes (name + CAS) and search index to a Database
 addFlowNameIndexToDatabase :: Database -> Database
@@ -2201,8 +2215,8 @@ inventory is right and only the factors are missing.
 -}
 data FlowClosure = FlowClosure
     { clByUUID :: !BioFlowDB
-    , clByName :: !(M.Map Text [BiosphereFlow])
-    , clByCAS :: !(M.Map Text [BiosphereFlow])
+    , clByName :: !FlowsByName
+    , clByCAS :: !FlowsByCAS
     }
 
 -- | The closure of a database that depends on nothing: its own prebuilt indexes.
@@ -2229,7 +2243,7 @@ flowClosure root deps =
      in FlowClosure
             { clByUUID = merged
             , clByName = flowNameIndexOver [dbBioFlows root, depFlows]
-            , clByCAS = M.unionWith (++) (dbFlowsByCAS root) (buildFlowCASIndex depFlows)
+            , clByCAS = FlowsByCAS (M.unionWith (++) (unFlowsByCAS (dbFlowsByCAS root)) (unFlowsByCAS (buildFlowCASIndex depFlows)))
             }
 
 {- | Fill empty @bfCAS@ from registry name→CAS bindings, then rebuild the CAS

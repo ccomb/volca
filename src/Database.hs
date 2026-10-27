@@ -104,8 +104,8 @@ buildDatabaseWithMatrices inputs SimpleDatabase{sdbActivities = activityMap, sdb
                         , dbProductSystems = productSystems
                         , dbReferenceConvention = referenceConvention
                         , dbSynonymDB = Nothing
-                        , dbFlowsByName = M.empty
-                        , dbFlowsByCAS = M.empty
+                        , dbFlowsByName = FlowsByName M.empty
+                        , dbFlowsByCAS = FlowsByCAS M.empty
                         , dbProductSearchIndex = M.empty
                         , dbBM25Index = Nothing
                         }

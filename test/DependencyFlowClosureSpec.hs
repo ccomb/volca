@@ -183,7 +183,7 @@ spec = do
                     methane{bfId = mkUUID i, bfName = name, bfSynonyms = M.singleton "en" (S.singleton "Chromium")}
                 root = withOwnFlows [listingChromium 510 "Chromium III"] (mkDB 100 ["FR"] [])
                 dep = withOwnFlows [listingChromium 511 "Chromium VI"] (mkDB 1 ["FR"] [])
-            M.member "chromium" (clByName (flowClosure root [dep])) `shouldBe` False
+            M.member "chromium" (unFlowsByName (clByName (flowClosure root [dep]))) `shouldBe` False
 
         it "drops a dependent's cached mapping when the dependency changes" $ do
             (manager, root) <- setup []

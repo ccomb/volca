@@ -20,7 +20,7 @@ import UnitConversion (defaultUnitConfig)
 import Method.Mapping (MapContext (..), buildMethodTables, cfValue, lookupCFForFlow, mapMethodFlows)
 import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..))
 import SynonymDB (SynonymDB, buildFromPairs, emptySynonymDB, normalizeName)
-import Types (BiosphereFlow (..), Medium (..))
+import Types (BiosphereFlow (..), FlowsByCAS (..), FlowsByName (..), Medium (..))
 import qualified Types as VT
 
 mkUUID :: Integer -> UUID
@@ -80,8 +80,8 @@ factors synDB flows = do
     context =
         MapContext
             { mcBioFlowsByUUID = M.fromList [(bfId f, f) | f <- flows]
-            , mcBioFlowsByName = M.fromListWith (++) [(normalizeName (bfName f), [f]) | f <- flows]
-            , mcBioFlowsByCAS = M.fromListWith (++) [(cas, [f]) | f <- flows, Just cas <- [bfCAS f]]
+            , mcBioFlowsByName = FlowsByName $ M.fromListWith (++) [(normalizeName (bfName f), [f]) | f <- flows]
+            , mcBioFlowsByCAS = FlowsByCAS $ M.fromListWith (++) [(cas, [f]) | f <- flows, Just cas <- [bfCAS f]]
             , mcSynonymDB = synDB
             , mcActivities = M.empty
             , mcPlacing = mempty

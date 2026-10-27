@@ -23,6 +23,8 @@ import SynonymDB (BridgeDirection (..), SynEdge (..), buildFromEdges, buildFromP
 import TestHelpers (unitDef)
 import Types (
     BiosphereFlow (..),
+    FlowsByCAS (..),
+    FlowsByName (..),
     Medium (..),
     Unit (..),
  )
@@ -107,14 +109,14 @@ spec = do
 
     describe "pickByCompartment (via findFlowByNameComp)" $ do
         it "returns Nothing for empty candidate list" $
-            fmap bfId (findFlowByNameComp mempty M.empty "co2" Nothing) `shouldBe` Nothing
+            fmap bfId (findFlowByNameComp mempty (FlowsByName M.empty) "co2" Nothing) `shouldBe` Nothing
 
         it "returns first flow when no compartment preference" $ do
             fid1 <- nextRandom
             fid2 <- nextRandom
             let f1 = mkFlow fid1 "co2" Air Nothing
                 f2 = mkFlow fid2 "co2" Water Nothing
-                byName = M.singleton "co2" [f1, f2]
+                byName = FlowsByName $ M.singleton "co2" [f1, f2]
             fmap bfId (findFlowByNameComp mempty byName "co2" Nothing) `shouldBe` Just fid1
 
         it "prefers exact medium+subcomp match" $ do
@@ -122,7 +124,7 @@ spec = do
             fid2 <- nextRandom
             let fAir = mkFlow fid1 "co2" Air (Just "urban air")
                 fWater = mkFlow fid2 "co2" Water (Just "surface water")
-                byName = M.singleton "co2" [fWater, fAir]
+                byName = FlowsByName $ M.singleton "co2" [fWater, fAir]
                 comp = Compartment "air" "urban air" ""
             fmap bfId (findFlowByNameComp mempty byName "co2" (Just comp)) `shouldBe` Just fid1
 
@@ -133,7 +135,7 @@ spec = do
             fid2 <- nextRandom
             let fAir = mkFlow fid1 "co2" Air (Just "non-urban air")
                 fWater = mkFlow fid2 "co2" Water Nothing
-                byName = M.singleton "co2" [fWater, fAir]
+                byName = FlowsByName $ M.singleton "co2" [fWater, fAir]
                 comp = Compartment "air" "" ""
             fmap bfId (findFlowByNameComp mempty byName "co2" (Just comp)) `shouldBe` Just fid1
 
@@ -143,7 +145,7 @@ spec = do
             fid <- nextRandom
             let fAir = mkFlow fid "co2" Air (Just "non-urban air")
                 comp = Compartment "air" "unspecified" ""
-            fmap bfId (findFlowByNameComp mempty (M.singleton "co2" [fAir]) "co2" (Just comp)) `shouldBe` Nothing
+            fmap bfId (findFlowByNameComp mempty (FlowsByName (M.singleton "co2" [fAir])) "co2" (Just comp)) `shouldBe` Nothing
 
         it "takes the flow at unspecified for a row written at unspecified" $ do
             -- A row whose factors differ by location reaches only the flow it
@@ -153,7 +155,7 @@ spec = do
             fidUnspec <- nextRandom
             let fSurface = mkFlow fidSurface "water" Water (Just "surface water")
                 fUnspec = mkFlow fidUnspec "water" Water (Just "unspecified")
-                byName = M.singleton "water" [fSurface, fUnspec]
+                byName = FlowsByName $ M.singleton "water" [fSurface, fUnspec]
                 comp = Compartment "water" "unspecified" ""
             fmap bfId (findFlowByNameComp mempty byName "water" (Just comp)) `shouldBe` Just fidUnspec
 
@@ -163,7 +165,7 @@ spec = do
             -- cascade is free to try the next one.
             fid1 <- nextRandom
             let fWater = mkFlow fid1 "co2" Water Nothing
-                byName = M.singleton "co2" [fWater]
+                byName = FlowsByName $ M.singleton "co2" [fWater]
                 comp = Compartment "air" "" ""
             fmap bfId (findFlowByNameComp mempty byName "co2" (Just comp)) `shouldBe` Nothing
 
@@ -175,7 +177,7 @@ spec = do
             -- the "urban air" case below is where that is pinned.
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air Nothing
-                byName = M.singleton "ammonia" [flow]
+                byName = FlowsByName $ M.singleton "ammonia" [flow]
                 comp = Compartment "emissions to air" "" ""
             fmap bfId (findFlowByNameComp mempty byName "ammonia" (Just comp)) `shouldBe` Just fid
 
@@ -187,7 +189,7 @@ spec = do
             fidNow <- nextRandom
             let fLongTerm = mkFlow fidLongTerm "co2" Air (Just "low. pop., long-term")
                 fNow = mkFlow fidNow "co2" Air (Just "low. pop.")
-                byName = M.singleton "co2" [fLongTerm, fNow]
+                byName = FlowsByName $ M.singleton "co2" [fLongTerm, fNow]
                 comp = Compartment "air" "low. pop." ""
             fmap bfId (findFlowByNameComp mempty byName "co2" (Just comp)) `shouldBe` Just fidNow
 
@@ -197,7 +199,7 @@ spec = do
             -- "air". Both sides go through the table, as scoring does.
             fid <- nextRandom
             let fAir = mkFlow fid "co2" Air Nothing
-                byName = M.singleton "co2" [fAir]
+                byName = FlowsByName $ M.singleton "co2" [fAir]
                 cmap = mempty{cmSpellings = M.singleton ("emissions to air", "", "") (Compartment "air" "" "")}
                 comp = Compartment "Emissions to air" "" ""
             fmap bfId (findFlowByNameComp (Placing cmap mempty) byName "co2" (Just comp)) `shouldBe` Just fid
@@ -210,7 +212,7 @@ spec = do
             let fKg = mkFlow fidKg "Waste water" Water (Just "river")
                 fM3 = mkFlow fidM3 "Waste water/m3" Water (Just "unspecified")
                 comp = Compartment "water" "" ""
-                pick name order = fmap bfId (findFlowByNameComp mempty (M.singleton "waste water" order) name (Just comp))
+                pick name order = fmap bfId (findFlowByNameComp mempty (FlowsByName (M.singleton "waste water" order)) name (Just comp))
             pick "Waste water" [fM3, fKg] `shouldBe` Just fidKg
             pick "Waste water/m3" [fKg, fM3] `shouldBe` Just fidM3
 
@@ -223,7 +225,7 @@ spec = do
             let fLongTerm = mkFlow fidLongTerm "co2" Air (Just "low. pop., long-term")
                 fPlain = mkFlow fidPlain "co2" Air Nothing
                 comp = Compartment "air" "low. pop." ""
-            fmap bfId (findFlowByNameComp mempty (M.singleton "co2" [fLongTerm, fPlain]) "co2" (Just comp))
+            fmap bfId (findFlowByNameComp mempty (FlowsByName (M.singleton "co2" [fLongTerm, fPlain])) "co2" (Just comp))
                 `shouldBe` Nothing
 
         it "gives a row to the flow an if_absent row sends to it, while that row holds" $ do
@@ -234,7 +236,7 @@ spec = do
             fidAgri <- nextRandom
             let fForest = mkFlow fidForest "zinc" Soil (Just "forestry")
                 fAgri = mkFlow fidAgri "zinc" Soil (Just "agricultural")
-                byName = M.singleton "zinc" [fAgri, fForest]
+                byName = FlowsByName $ M.singleton "zinc" [fAgri, fForest]
                 cmap = mempty{cmIfAbsent = M.singleton (Soil, Subcompartment "forestry") (Subcompartment "non-agricultural")}
                 comp = Compartment "soil" "non-agricultural" ""
                 speaksForest = methodVocabulary cmap [mkCFComp "zinc" "soil" "forestry" 1.0]
@@ -249,7 +251,7 @@ spec = do
             let fRoot = mkFlow fidRoot "Water/m3" Water (Just "unspecified")
                 fDep = mkFlow fidDep "Water" Water (Just "unspecified")
                 fVapour = mkFlow fidVapour "Water" Air (Just "unspecified")
-                byName = M.singleton "water" [fDep, fVapour, fRoot]
+                byName = FlowsByName $ M.singleton "water" [fDep, fVapour, fRoot]
                 located = (mkCFComp "Water" "water" "unspecified" (-12.1)){mcfConsumerLocation = Just "FR"}
                 global = mkCFComp "Water" "water" "unspecified" (-42.955)
                 flowsOf = map (fmap (bfId . resFlow) . snd)
@@ -261,11 +263,11 @@ spec = do
         it "finds flow by CAS number" $ do
             fid <- nextRandom
             let flow = mkFlow fid "Carbon dioxide" Air Nothing
-                byCAS = M.singleton "124-38-9" [flow]
+                byCAS = FlowsByCAS $ M.singleton "124-38-9" [flow]
             fmap bfId (findFlowByCAS mempty byCAS "co2" "124-38-9" Nothing) `shouldBe` Just fid
 
         it "returns Nothing for unknown CAS" $
-            fmap bfId (findFlowByCAS mempty M.empty "co2" "000-00-0" Nothing) `shouldBe` Nothing
+            fmap bfId (findFlowByCAS mempty (FlowsByCAS M.empty) "co2" "000-00-0" Nothing) `shouldBe` Nothing
 
         -- The index is keyed canonically; a method whose parser kept the
         -- source's zero-padding still has to reach the same flow, or its
@@ -273,7 +275,7 @@ spec = do
         it "meets a canonically indexed flow from a zero-padded query" $ do
             fid <- nextRandom
             let flow = mkFlow fid "Carbon dioxide" Air Nothing
-                byCAS = M.singleton "124-38-9" [flow]
+                byCAS = FlowsByCAS $ M.singleton "124-38-9" [flow]
             fmap bfId (findFlowByCAS mempty byCAS "co2" "000124-38-9" Nothing) `shouldBe` Just fid
 
         -- An all-zeros placeholder is not a substance anchor: indexing it
@@ -281,24 +283,24 @@ spec = do
         it "refuses an all-zeros placeholder rather than treating it as a CAS" $ do
             fid <- nextRandom
             let flow = mkFlow fid "Unknown" Air Nothing
-                byCAS = M.singleton "0-00-0" [flow]
+                byCAS = FlowsByCAS $ M.singleton "0-00-0" [flow]
             fmap bfId (findFlowByCAS mempty byCAS "co2" "000-00-0" Nothing) `shouldBe` Nothing
 
     describe "findFlowByName" $ do
         it "finds a flow by name (case-insensitive via normalization)" $ do
             fid <- nextRandom
             let flow = mkFlow fid "Carbon dioxide" Air Nothing
-                byName = M.singleton "carbon dioxide" [flow]
+                byName = FlowsByName $ M.singleton "carbon dioxide" [flow]
             fmap bfId (findFlowByName mempty byName "Carbon dioxide") `shouldBe` Just fid
 
         it "returns Nothing for unknown name" $
-            fmap bfId (findFlowByName mempty M.empty "co2") `shouldBe` Nothing
+            fmap bfId (findFlowByName mempty (FlowsByName M.empty) "co2") `shouldBe` Nothing
 
     describe "findFlowBySynonym" $ do
         it "returns Nothing when synonym not in DB" $ do
             fid <- nextRandom
             let flow = mkFlow fid "Carbon dioxide" Air Nothing
-                byName = M.singleton "carbon dioxide" [flow]
+                byName = FlowsByName $ M.singleton "carbon dioxide" [flow]
             fmap bfId (findFlowBySynonym (SynonymSearch emptySynonymDB byName mempty) "CO2") `shouldBe` Nothing
 
     describe "findFlowBySynonymComp" $ do
@@ -308,7 +310,7 @@ spec = do
             let synDB = buildFromPairs [("CO2", "Carbon dioxide")]
                 fAir = mkFlow fid1 "Carbon dioxide" Air Nothing
                 fWater = mkFlow fid2 "Carbon dioxide" Water Nothing
-                byName = M.singleton "carbon dioxide" [fWater, fAir]
+                byName = FlowsByName $ M.singleton "carbon dioxide" [fWater, fAir]
                 comp = Compartment "air" "" ""
             fmap bfId (findFlowBySynonymComp (SynonymSearch synDB byName mempty) "CO2" (Just comp))
                 `shouldBe` Just fid1
@@ -317,13 +319,13 @@ spec = do
             fid <- nextRandom
             let synDB = buildFromPairs [("CO2", "Carbon dioxide")]
                 flow = mkFlow fid "Carbon dioxide" Air Nothing
-                byName = M.singleton "carbon dioxide" [flow]
+                byName = FlowsByName $ M.singleton "carbon dioxide" [flow]
             fmap bfId (findFlowBySynonymComp (SynonymSearch synDB byName mempty) "methane" Nothing)
                 `shouldBe` Nothing
 
         it "returns Nothing when no flows match any synonym" $ do
             let synDB = buildFromPairs [("CO2", "Carbon dioxide")]
-            fmap bfId (findFlowBySynonymComp (SynonymSearch synDB M.empty mempty) "CO2" Nothing)
+            fmap bfId (findFlowBySynonymComp (SynonymSearch synDB (FlowsByName M.empty) mempty) "CO2" Nothing)
                 `shouldBe` Nothing
 
     describe "expandSynonymMappings direction" $ do
@@ -333,7 +335,7 @@ spec = do
         -- inherits a withdrawal scarcity factor (wrong sign/magnitude).
         let synDB = buildFromEdges [SynEdge "freshwater" "Water, unspecified natural origin" BridgeInput]
             resourceFlow fid = mkFlow fid "Water, unspecified natural origin" NaturalResource Nothing
-            flowsByName fid = M.singleton "water unspecified natural origin" [resourceFlow fid]
+            flowsByName fid = FlowsByName $ M.singleton "water unspecified natural origin" [resourceFlow fid]
             inputCF = (mkCF "freshwater" Nothing 1.0){mcfDirection = Input}
             outputCF = (mkCF "freshwater" Nothing 1.0){mcfDirection = Output}
             fannedIds cf fid =
@@ -363,7 +365,7 @@ spec = do
         it "fans out through a pivot alias that is neither a flow nor a CF name" $ do
             fid <- nextRandom
             let coalFlow = mkFlow fid "Coal, hard" NaturalResource Nothing
-                flowsByName = M.singleton "coal hard" [coalFlow]
+                flowsByName = FlowsByName $ M.singleton "coal hard" [coalFlow]
             [ bfId flow
               | (_, Just (Resolution flow BySynonym)) <-
                     drop 1 (expandSynonymMappings synDB flowsByName [(energyCF, Nothing)])
@@ -379,7 +381,7 @@ spec = do
         let synDB = buildFromEdges [SynEdge "Water, fresh" "Water, unspecified natural origin" BridgeInput]
             regionalCF loc = (mkCF ("Water, unspecified natural origin, " <> loc) Nothing 72.1){mcfDirection = Input}
             freshFlow fid = mkFlow fid "Water, fresh, AU" NaturalResource Nothing
-            flowsByName fid = M.singleton (normalizeName "Water, fresh, AU") [freshFlow fid]
+            flowsByName fid = FlowsByName $ M.singleton (normalizeName "Water, fresh, AU") [freshFlow fid]
             fannedIds cf fid =
                 [bfId flow | (_, Just (Resolution flow BySynonym)) <- drop 1 (expandSynonymMappings synDB (flowsByName fid) [(cf, Nothing)])]
 
@@ -405,7 +407,7 @@ spec = do
         -- method carried none. The loader surfaces these so the loss is
         -- distinguishable from a genuinely uncharacterized flow.
         let synDB = buildFromEdges [SynEdge "freshwater" "Water, unspecified natural origin" BridgeInput]
-            flowsByName fid = M.singleton "water unspecified natural origin" [mkFlow fid "Water, unspecified natural origin" NaturalResource Nothing]
+            flowsByName fid = FlowsByName $ M.singleton "water unspecified natural origin" [mkFlow fid "Water, unspecified natural origin" NaturalResource Nothing]
             inputCF = (mkCF "freshwater" Nothing 1.0){mcfDirection = Input}
             outputCF = (mkCF "freshwater" Nothing 1.0){mcfDirection = Output}
 
@@ -646,7 +648,7 @@ spec = do
                 MapContext
                     { mcBioFlowsByUUID = flows
                     , mcBioFlowsByName = VT.buildFlowNameIndex flows
-                    , mcBioFlowsByCAS = M.empty
+                    , mcBioFlowsByCAS = FlowsByCAS M.empty
                     , mcSynonymDB = emptySynonymDB
                     , mcActivities = M.empty
                     , mcPlacing = mempty
@@ -686,7 +688,7 @@ spec = do
             let ore = mkFlow (fromWords 3 0 0 0) "Arsenic" NaturalResource (Just "in ground")
                 ion = (mkFlow (fromWords 4 0 0 0) "Arsenic ion" Water Nothing){bfSynonyms = M.singleton "en" (S.singleton "Arsenic")}
                 index = VT.buildFlowNameIndex (M.fromList [(bfId f, f) | f <- [ore, ion]])
-            S.fromList . map bfId <$> M.lookup "arsenic" index `shouldBe` Just (S.fromList [bfId ore, bfId ion])
+            S.fromList . map bfId <$> M.lookup "arsenic" (unFlowsByName index) `shouldBe` Just (S.fromList [bfId ore, bfId ion])
 
     describe "a row no database flow claimed at build time" $ do
         -- Such a row is filed under the method's own flow name, and the
@@ -1120,7 +1122,7 @@ spec = do
             fid <- nextRandom
             let synDB = buildFromPairs [("co2", "carbon dioxide")]
                 flow = mkFlow fid "carbon dioxide" Air Nothing
-                byName = M.singleton "carbon dioxide" [flow]
+                byName = FlowsByName $ M.singleton "carbon dioxide" [flow]
             fmap bfId (findFlowBySynonym (SynonymSearch synDB byName mempty) "co2")
                 `shouldBe` Just fid
 
@@ -1128,7 +1130,7 @@ spec = do
         it "null medium matches any flow" $ do
             fid <- nextRandom
             let flow = mkFlow fid "co2" Water Nothing
-                byName = M.singleton "co2" [flow]
+                byName = FlowsByName $ M.singleton "co2" [flow]
                 comp = Compartment "" "" ""
             fmap bfId (findFlowByNameComp mempty byName "co2" (Just comp)) `shouldBe` Just fid
 
@@ -1141,7 +1143,7 @@ spec = do
             fid2 <- nextRandom
             let fUrbanAir = mkFlow fid1 "nox" Air (Just "urban")
                 fWater = mkFlow fid2 "nox" Water Nothing
-                byName = M.singleton "nox" [fWater, fUrbanAir]
+                byName = FlowsByName $ M.singleton "nox" [fWater, fUrbanAir]
                 comp = Compartment "urban air" "" ""
                 rule = mempty{cmSpellings = M.singleton ("urban air", "", "") (Compartment "air" "urban" "")}
             fmap bfId (findFlowByNameComp mempty byName "nox" (Just comp)) `shouldBe` Nothing
@@ -1152,12 +1154,12 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air Nothing
                 cf = mkCFComp "ammonia" "urban air" "" 0.747
-            compartmentGapWarning mempty (M.singleton "ammonia" [flow]) [(cf, Nothing)]
+            compartmentGapWarning mempty (FlowsByName (M.singleton "ammonia" [flow])) [(cf, Nothing)]
                 `shouldBe` Just "1 factor(s) name a flow this database files under another compartment (method: \"urban air\"; database: \"air\"). Declare a [[compartment-mappings]] table bridging them."
 
         it "stays silent when the name is simply absent" $ do
             let cf = mkCFComp "ammonia" "air" "" 0.747
-            compartmentGapWarning mempty M.empty [(cf, Nothing)] `shouldBe` Nothing
+            compartmentGapWarning mempty (FlowsByName M.empty) [(cf, Nothing)] `shouldBe` Nothing
 
         it "stays silent when the database speaks the stated medium, only not for that substance" $ do
             -- Nitrite in water and not in air is the database's inventory,
@@ -1166,7 +1168,7 @@ spec = do
             fid2 <- nextRandom
             let nitrite = mkFlow fid1 "nitrite" Water Nothing
                 co2 = mkFlow fid2 "co2" Air Nothing
-                byName = M.fromList [("nitrite", [nitrite]), ("co2", [co2])]
+                byName = FlowsByName $ M.fromList [("nitrite", [nitrite]), ("co2", [co2])]
                 cf = mkCFComp "nitrite" "air" "" 1.0
             compartmentGapWarning mempty byName [(cf, Nothing)] `shouldBe` Nothing
 
@@ -1174,7 +1176,7 @@ spec = do
             fid <- nextRandom
             let flow = mkFlow fid "ammonia" Air Nothing
                 cf = mkCFComp "ammonia" "air" "" 0.747
-            compartmentGapWarning mempty (M.singleton "ammonia" [flow]) [(cf, Just (Resolution flow ByName))] `shouldBe` Nothing
+            compartmentGapWarning mempty (FlowsByName (M.singleton "ammonia" [flow])) [(cf, Just (Resolution flow ByName))] `shouldBe` Nothing
 
     describe "fillBroadcastVector + computeLCIAScoreFromTables (Phase 1)" $ do
         let mkUnit uid name = Unit{unitId = uid, unitName = name, unitSymbol = name, unitComment = ""}
@@ -1617,7 +1619,7 @@ spec = do
                             , mkCFComp "!Occupation, industrial area, benthos" "natural resource" "" 1.0
                             ]
                         }
-                ctx = MapContext flowDB (byName allFlows) M.empty emptySynonymDB M.empty mempty M.empty
+                ctx = MapContext flowDB (byName allFlows) (FlowsByCAS M.empty) emptySynonymDB M.empty mempty M.empty
             mappings <- mapMethodFlows ctx method
             -- The exclusion rows themselves never become factors: a method that
             -- kept them would characterize the very flows it just disowned.
@@ -1638,7 +1640,7 @@ spec = do
                             , mkCFComp "!Occupation, industrial area, benthos" "natural resource" "" 1.0
                             ]
                         }
-                ctx = MapContext flowDB (byName allFlows) M.empty emptySynonymDB M.empty mempty M.empty
+                ctx = MapContext flowDB (byName allFlows) (FlowsByCAS M.empty) emptySynonymDB M.empty mempty M.empty
                 -- The curated registry bridges the dry industrial area and its
                 -- drowned namesake through the label they share, as data/flows.csv
                 -- does; the fan-out then travels by name, knowing no exceptions.
@@ -1670,7 +1672,7 @@ spec = do
                             , mkCFComp "Occupation*" "natural resource" "" 1.0
                             ]
                         }
-                ctx = MapContext flowDB (byName allFlows) M.empty emptySynonymDB M.empty mempty M.empty
+                ctx = MapContext flowDB (byName allFlows) (FlowsByCAS M.empty) emptySynonymDB M.empty mempty M.empty
             mappings <- mapMethodFlows ctx method
             map (fmap (bfId . resFlow) . snd) mappings
                 `shouldMatchList` map (Just . bfId) (waterRiver : occupationFlows)
@@ -1709,5 +1711,5 @@ uuidFromInt :: Int -> UUID
 uuidFromInt n = fromWords (fromIntegral n) 0 0 0
 
 -- | Name index the cascade reads, keyed like the loader keys it.
-byName :: [BiosphereFlow] -> M.Map Text [BiosphereFlow]
-byName fs = M.fromListWith (++) [(normalizeName (bfName f), [f]) | f <- fs]
+byName :: [BiosphereFlow] -> FlowsByName
+byName fs = FlowsByName $ M.fromListWith (++) [(normalizeName (bfName f), [f]) | f <- fs]

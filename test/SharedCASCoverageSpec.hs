@@ -41,6 +41,8 @@ import SubstanceRegistry (CASNumber (..))
 import SynonymDB (buildFromPairs, emptySynonymDB, normalizeName)
 import Types (
     BiosphereFlow (..),
+    FlowsByCAS (..),
+    FlowsByName (..),
     Medium (..),
  )
 import qualified Types as VT
@@ -149,8 +151,8 @@ mapCtx :: MapContext
 mapCtx =
     MapContext
         { mcBioFlowsByUUID = flowDB
-        , mcBioFlowsByName = M.empty
-        , mcBioFlowsByCAS = M.fromList [(waterCAS, allFlows)]
+        , mcBioFlowsByName = FlowsByName M.empty
+        , mcBioFlowsByCAS = FlowsByCAS $ M.fromList [(waterCAS, allFlows)]
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
         , mcPlacing = mempty
@@ -228,10 +230,11 @@ carbonSynonyms =
     MapContext
         { mcBioFlowsByUUID = carbonFlows
         , mcBioFlowsByName =
-            M.fromListWith
-                (++)
-                [(normalizeName (bfName f), [f]) | f <- [methaneNonFossil, methaneFossil]]
-        , mcBioFlowsByCAS = M.fromList [(methaneCAS, [methaneNonFossil, methaneFossil])]
+            FlowsByName $
+                M.fromListWith
+                    (++)
+                    [(normalizeName (bfName f), [f]) | f <- [methaneNonFossil, methaneFossil]]
+        , mcBioFlowsByCAS = FlowsByCAS $ M.fromList [(methaneCAS, [methaneNonFossil, methaneFossil])]
         , mcSynonymDB = buildFromPairs [("Methane, biogenic", "Methane, non-fossil")]
         , mcActivities = M.empty
         , mcPlacing = mempty
@@ -346,8 +349,8 @@ fallbackCtx :: MapContext
 fallbackCtx =
     MapContext
         { mcBioFlowsByUUID = fallbackFlowDB
-        , mcBioFlowsByName = M.fromListWith (++) [(normalizeName (bfName f), [f]) | f <- fallbackFlows]
-        , mcBioFlowsByCAS = M.empty
+        , mcBioFlowsByName = FlowsByName $ M.fromListWith (++) [(normalizeName (bfName f), [f]) | f <- fallbackFlows]
+        , mcBioFlowsByCAS = FlowsByCAS M.empty
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
         , mcPlacing = mempty
@@ -392,8 +395,8 @@ acrCtx :: MapContext
 acrCtx =
     MapContext
         { mcBioFlowsByUUID = M.fromList [(bfId acrFlow, acrFlow)]
-        , mcBioFlowsByName = M.empty
-        , mcBioFlowsByCAS = M.fromList [(acrCAS, [acrFlow])]
+        , mcBioFlowsByName = FlowsByName M.empty
+        , mcBioFlowsByCAS = FlowsByCAS $ M.fromList [(acrCAS, [acrFlow])]
         , mcSynonymDB = emptySynonymDB
         , mcActivities = M.empty
         , mcPlacing = mempty
@@ -556,7 +559,7 @@ spec = describe "Water-use sign: CAS-shared resource flows must be characterized
                 ctx =
                     acrCtx
                         { mcBioFlowsByUUID = M.insert (bfId indoor) indoor (mcBioFlowsByUUID acrCtx)
-                        , mcBioFlowsByCAS = M.fromList [(acrCAS, [acrFlow, indoor])]
+                        , mcBioFlowsByCAS = FlowsByCAS $ M.fromList [(acrCAS, [acrFlow, indoor])]
                         }
             mappings <- mapMethodFlows ctx acrMethod
             let tables = buildMethodTables mempty defaultUnitConfig M.empty mappings

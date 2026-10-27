@@ -58,6 +58,8 @@ import Types (
     Database (..),
     Exchange (..),
     ExchangeLocation (..),
+    FlowsByCAS (..),
+    FlowsByName (..),
     ProcessId,
     ProcessRef (..),
     TechnosphereFlow (..),
@@ -232,8 +234,8 @@ rebuildFromActivities unitConfig db activities =
                           dbLinkingStats = mempty
                         , -- Runtime-only indexes are reset; re-attached by the effectful caller.
                           dbSynonymDB = Nothing
-                        , dbFlowsByName = M.empty
-                        , dbFlowsByCAS = M.empty
+                        , dbFlowsByName = FlowsByName M.empty
+                        , dbFlowsByCAS = FlowsByCAS M.empty
                         , dbProductSearchIndex = M.empty
                         , dbBM25Index = Nothing
                         }

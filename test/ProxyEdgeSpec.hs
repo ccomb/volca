@@ -24,6 +24,8 @@ import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..))
 import qualified SubstanceRegistry as SR
 import Types (
     BiosphereFlow (..),
+    FlowsByCAS (..),
+    FlowsByName (..),
     Medium (..),
  )
 import qualified Types as VT
@@ -71,13 +73,13 @@ proxyEntries :: [(MethodCF, Maybe Resolution)] -> [(Double, Text)]
 proxyEntries xs = [(mcfValue cf, bfName f) | (cf, Just (Resolution f ByProxy)) <- xs]
 
 noTargets :: ProxyTargets
-noTargets = ProxyTargets M.empty M.empty M.empty
+noTargets = ProxyTargets (FlowsByName M.empty) (FlowsByCAS M.empty) M.empty
 
 spec :: Spec
 spec = describe "expandProxyEdges" $ do
     let phosphorusCF = mkCF "phosphorus" 2.0 (Just "7723-14-0")
         phosphateFlow = mkFlow 10 "phosphate" (Just "14265-44-2")
-        byNameTargets = ProxyTargets (M.fromList [("phosphate", [phosphateFlow])]) M.empty M.empty
+        byNameTargets = ProxyTargets (FlowsByName (M.fromList [("phosphate", [phosphateFlow])])) (FlowsByCAS M.empty) M.empty
         baseMappings = [(phosphorusCF, Nothing)]
 
     it "borrows a CF onto the proxy flow, scaled and tagged ByProxy" $ do
@@ -85,7 +87,7 @@ spec = describe "expandProxyEdges" $ do
         proxyEntries (expandProxyEdges byNameTargets edges baseMappings)
             `shouldBe` [(1.0, "phosphate")] -- 2.0 * 0.5
     it "resolves the target flow by CAS" $ do
-        let targets = ProxyTargets M.empty (M.fromList [("14265-44-2", [phosphateFlow])]) M.empty
+        let targets = ProxyTargets (FlowsByName M.empty) (FlowsByCAS (M.fromList [("14265-44-2", [phosphateFlow])])) M.empty
             edges = [proxyEdge (nameKey "phosphorus") (casKey "14265-44-2") 0.5]
         proxyEntries (expandProxyEdges targets edges baseMappings)
             `shouldBe` [(1.0, "phosphate")]
@@ -111,7 +113,7 @@ spec = describe "expandProxyEdges" $ do
     it "emits one proxy CF per matching database flow" $ do
         let f1 = mkFlow 10 "phosphate" Nothing
             f2 = mkFlow 11 "phosphate" Nothing
-            targets = ProxyTargets (M.fromList [("phosphate", [f1, f2])]) M.empty M.empty
+            targets = ProxyTargets (FlowsByName (M.fromList [("phosphate", [f1, f2])])) (FlowsByCAS M.empty) M.empty
             edges = [proxyEdge (nameKey "phosphorus") (nameKey "phosphate") 0.5]
         proxyEntries (expandProxyEdges targets edges baseMappings)
             `shouldBe` [(1.0, "phosphate"), (1.0, "phosphate")]

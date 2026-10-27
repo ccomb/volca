@@ -164,7 +164,7 @@ import Progress (ProgressLevel (..), reportProgress)
 import SubstanceRegistry (nonEmptyCAS, normalizeCAS)
 import qualified SubstanceRegistry as SR
 import SynonymDB
-import Types (Activity (..), BioFlowDB, BiosphereFlow (..), Database (..), FlowClosure (..), Medium (..), ProcessId, SparseTriple (..), Unit (..), UnitDB, ownFlowClosure, parseMedium)
+import Types (Activity (..), BioFlowDB, BiosphereFlow (..), Database (..), FlowClosure (..), FlowsByCAS (..), FlowsByName (..), Medium (..), ProcessId, SparseTriple (..), Unit (..), UnitDB, ownFlowClosure, parseMedium)
 import qualified Types as VT
 import UnitConversion (UnitConfig, convertOntoFactorBasis, convertUnit, isKnownUnit, normalizeToCanonical, unitKey)
 
@@ -230,8 +230,8 @@ instance Monoid MappingStats where
 -- | Everything the CF matcher cascade needs, precomputed once per method.
 data MapContext = MapContext
     { mcBioFlowsByUUID :: !BioFlowDB -- Biosphere flows by UUID (CF matching targets these)
-    , mcBioFlowsByName :: !(M.Map Text [BiosphereFlow])
-    , mcBioFlowsByCAS :: !(M.Map Text [BiosphereFlow])
+    , mcBioFlowsByName :: !FlowsByName
+    , mcBioFlowsByCAS :: !FlowsByCAS
     , mcSynonymDB :: !SynonymDB
     , mcActivities :: !(M.Map Text [Activity])
     , mcPlacing :: !Placing
@@ -355,7 +355,7 @@ CAS number is the evidence there is.
 -}
 findFlowByCASWithinSubstance :: MapContext -> MethodCF -> Maybe BiosphereFlow
 findFlowByCASWithinSubstance ctx cf =
-    mcfCAS cf >>= nonEmptyCAS >>= (`M.lookup` mcBioFlowsByCAS ctx) >>= \flows ->
+    mcfCAS cf >>= nonEmptyCAS >>= (`M.lookup` unFlowsByCAS (mcBioFlowsByCAS ctx)) >>= \flows ->
         pickByCompartment (mcPlacing ctx) (mcfFlowName cf) (filter sameSubstance flows) (mcfCompartment cf)
   where
     substanceOf :: Text -> Maybe Int
@@ -583,7 +583,7 @@ Judged on the whole database, not on the flows of that name: a substance the
 database has in water and not in air leaves a factor stated in air unmatched
 too, and that is the database's inventory, not its vocabulary.
 -}
-compartmentGapWarning :: CompartmentMap -> M.Map Text [BiosphereFlow] -> [(MethodCF, Maybe Resolution)] -> Maybe Text
+compartmentGapWarning :: CompartmentMap -> FlowsByName -> [(MethodCF, Maybe Resolution)] -> Maybe Text
 compartmentGapWarning cmap flowsByName mappings
     | null gaps = Nothing
     | otherwise =
@@ -605,7 +605,7 @@ compartmentGapWarning cmap flowsByName mappings
         pure med
     databaseMedia :: S.Set Medium
     databaseMedia =
-        S.fromList (mapMaybe (fst . flowMediumSub cmap) (concat (M.elems flowsByName)))
+        S.fromList (mapMaybe (fst . flowMediumSub cmap) (concat (M.elems (unFlowsByName flowsByName))))
     speaks :: Text -> Bool
     speaks med = either (const False) (`S.member` databaseMedia) (parseMedium med)
     gaps :: [(Text, S.Set Medium)]
@@ -614,7 +614,7 @@ compartmentGapWarning cmap flowsByName mappings
         | (cf, Nothing) <- mappings
         , Just stated <- [statedMedium cf]
         , not (speaks stated)
-        , Just flows <- [M.lookup (normalizeName (mcfFlowName cf)) flowsByName]
+        , Just flows <- [M.lookup (normalizeName (mcfFlowName cf)) (unFlowsByName flowsByName)]
         , let seen = S.fromList (mapMaybe (fst . flowMediumSub cmap) flows)
         , not (S.null seen)
         ]
@@ -649,25 +649,25 @@ way in, as 'findFlowByNameComp' does for names: the index is keyed canonically,
 and a method that states a padded CAS must still meet the flow that states it
 unpadded.
 -}
-findFlowByCAS :: Placing -> M.Map Text [BiosphereFlow] -> Text -> Text -> Maybe Compartment -> Maybe BiosphereFlow
+findFlowByCAS :: Placing -> FlowsByCAS -> Text -> Text -> Maybe Compartment -> Maybe BiosphereFlow
 findFlowByCAS place flowsByCAS name cas mComp =
-    nonEmptyCAS cas >>= (`M.lookup` flowsByCAS) >>= \flows -> pickByCompartment place name flows mComp
+    nonEmptyCAS cas >>= (`M.lookup` unFlowsByCAS flowsByCAS) >>= \flows -> pickByCompartment place name flows mComp
 
 -- | Find flow by normalized name match (compartment-aware)
-findFlowByName :: Placing -> M.Map Text [BiosphereFlow] -> Text -> Maybe BiosphereFlow
+findFlowByName :: Placing -> FlowsByName -> Text -> Maybe BiosphereFlow
 findFlowByName place flowsByName name = findFlowByNameComp place flowsByName name Nothing
 
 -- | Find flow by normalized name with compartment preference
-findFlowByNameComp :: Placing -> M.Map Text [BiosphereFlow] -> Text -> Maybe Compartment -> Maybe BiosphereFlow
+findFlowByNameComp :: Placing -> FlowsByName -> Text -> Maybe Compartment -> Maybe BiosphereFlow
 findFlowByNameComp place flowsByName name mComp =
-    M.lookup (normalizeName name) flowsByName >>= \flows -> pickByCompartment place name flows mComp
+    M.lookup (normalizeName name) (unFlowsByName flowsByName) >>= \flows -> pickByCompartment place name flows mComp
 
 {- | What a synonym search reads: the group table it expands a name in, the
 flows it can land on, and what it judges a landing with.
 -}
 data SynonymSearch = SynonymSearch
     { ssSynonyms :: !SynonymDB
-    , ssFlowsByName :: !(M.Map Text [BiosphereFlow])
+    , ssFlowsByName :: !FlowsByName
     , ssPlacing :: !Placing
     }
 
@@ -681,8 +681,8 @@ findFlowBySynonymComp (SynonymSearch synDB flowsByName place) name =
     pickByCompartment place name (concatMap (flowsNamed flowsByName) (synonymNames synDB name))
 
 -- | The flows bearing one name, whatever its spelling.
-flowsNamed :: M.Map Text [BiosphereFlow] -> Text -> [BiosphereFlow]
-flowsNamed flowsByName syn = M.findWithDefault [] (normalizeName syn) flowsByName
+flowsNamed :: FlowsByName -> Text -> [BiosphereFlow]
+flowsNamed flowsByName syn = M.findWithDefault [] (normalizeName syn) (unFlowsByName flowsByName)
 
 {- | The synonym view a CF resolves against: input-only bridges apply to INPUT
 (resource) CFs, output-only to OUTPUT (emission) CFs. On untyped data both
@@ -731,7 +731,7 @@ buildSynGroupFlows ctx cfs =
   where
     synDB = mcSynonymDB ctx
     flowsByName = mcBioFlowsByName ctx
-    groupFlows syn = M.findWithDefault [] (normalizeName syn) flowsByName
+    groupFlows syn = M.findWithDefault [] (normalizeName syn) (unFlowsByName flowsByName)
     keys =
         S.toList $
             S.fromList
@@ -1210,7 +1210,7 @@ unspecified, has two flows of that name, and only the one the cascade listed
 first used to get the country factors.
 -}
 spreadLocatedRows ::
-    M.Map Text [BiosphereFlow] ->
+    FlowsByName ->
     [(MethodCF, Maybe Resolution)] ->
     [(MethodCF, Maybe Resolution)]
 spreadLocatedRows flowsByName mappings =
@@ -1218,7 +1218,7 @@ spreadLocatedRows flowsByName mappings =
         ++ [ (cf, Just (Resolution namesake strategy))
            | (cf, Just (Resolution flow strategy)) <- mappings
            , isJust (mcfConsumerLocation cf)
-           , namesake <- M.findWithDefault [] (normalizeName (bfName flow)) flowsByName
+           , namesake <- M.findWithDefault [] (normalizeName (bfName flow)) (unFlowsByName flowsByName)
            , bfId namesake /= bfId flow
            , medium namesake == medium flow
            ]
@@ -1264,7 +1264,7 @@ preferBetter@.
 -}
 expandSynonymMappings ::
     SynonymDB ->
-    M.Map Text [BiosphereFlow] ->
+    FlowsByName ->
     [(MethodCF, Maybe Resolution)] ->
     [(MethodCF, Maybe Resolution)]
 expandSynonymMappings synDB flowsByName mappings =
@@ -1273,7 +1273,7 @@ expandSynonymMappings synDB flowsByName mappings =
     expand (cf, _) =
         [ (cf, Just (Resolution flow BySynonym))
         | peer <- synonymNames (viewFor (mcfDirection cf) synDB) (mcfFlowName cf)
-        , flow <- M.findWithDefault [] peer flowsByName
+        , flow <- M.findWithDefault [] peer (unFlowsByName flowsByName)
         ]
 
 {- | Every normalized name the registry holds for the same substance as this
@@ -1308,7 +1308,7 @@ uncharacterized flow, per the no-silent-misbehaviour rule.
 directionExcludedCFs ::
     Placing ->
     SynonymDB ->
-    M.Map Text [BiosphereFlow] ->
+    FlowsByName ->
     [(MethodCF, Maybe Resolution)] ->
     [MethodCF]
 directionExcludedCFs place synDB flowsByName mappings =
@@ -1444,8 +1444,8 @@ projectRegionalResourceFlows synDB bioFlows mappings =
 the three ways a proxy can name it: normalized name, CAS, and flow UUID.
 -}
 data ProxyTargets = ProxyTargets
-    { ptByName :: !(M.Map Text [BiosphereFlow])
-    , ptByCAS :: !(M.Map Text [BiosphereFlow])
+    { ptByName :: !FlowsByName
+    , ptByCAS :: !FlowsByCAS
     , ptByUUID :: !(M.Map UUID BiosphereFlow)
     }
 
@@ -1486,8 +1486,8 @@ expandProxyEdges targets edges mappings =
     cfsMatching (SR.ByCAS (SR.CASNumber c)) = M.findWithDefault [] c cfsByCAS
     cfsMatching (SR.ByUUID (SR.FlowUUID u)) = M.findWithDefault [] u cfsByUUID
 
-    flowsMatching (SR.ByName _ (SR.NormName n)) = M.findWithDefault [] n (ptByName targets)
-    flowsMatching (SR.ByCAS (SR.CASNumber c)) = M.findWithDefault [] c (ptByCAS targets)
+    flowsMatching (SR.ByName _ (SR.NormName n)) = M.findWithDefault [] n (unFlowsByName (ptByName targets))
+    flowsMatching (SR.ByCAS (SR.CASNumber c)) = M.findWithDefault [] c (unFlowsByCAS (ptByCAS targets))
     flowsMatching (SR.ByUUID (SR.FlowUUID u)) = maybe [] pure (M.lookup u (ptByUUID targets))
 
 {- | Cascade-order rank of a match strategy (UUID → name → synonym → CAS →
