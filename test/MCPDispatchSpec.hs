@@ -1,9 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | The database load/unload MCP tools are advertised in 'toolDefinitions'
-*and* routed by 'callTool'. The two live in different places (the resource
-registry vs. the dispatch case), so a name typo would compile yet strand a
-tool at runtime with an "Unknown tool" reply. These tests pin both ends.
+{- | The MCP tools are advertised in 'toolDefinitions' and routed by
+'callTool'. Dispatch matches every resource of the registry, so a tool with no
+handler no longer compiles; these tests pin what a client sees at both ends,
+including the reply to a name the registry does not declare.
 -}
 module MCPDispatchSpec (spec) where
 
