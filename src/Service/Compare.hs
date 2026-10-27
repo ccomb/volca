@@ -60,12 +60,13 @@ module Service.Compare (
 ) where
 
 import Control.Monad (mfilter)
+import Data.Foldable (asum)
 import Data.List (mapAccumL)
 import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -941,19 +942,17 @@ indexBy keyOf xs = M.fromListWith (flip (<>)) [(k, x :| []) | x <- xs, Just k <-
 
 {- | A name without case and without its trailing @ {GEO}@, which some releases write and some do not.
 SimaPro follows a product's geography with @ U@ or @ S@, the kind of process it comes
-from, which the same data in another format does not write.
+from, which the same data in another format does not write. The mark goes even
+between two SimaPro databases: a library holding both the unit and the system
+process of one product at one place then has them ambiguous on the names rung.
 -}
 normalName :: Text -> Text
-normalName = T.toCaseFold . stripGeoSuffix . stripProcessKind
-
-stripProcessKind :: Text -> Text
-stripProcessKind name =
-    fromMaybe name (L.find (T.isSuffixOf "}") (mapMaybe (`T.stripSuffix` name) [" U", " S"]))
+normalName = T.toCaseFold . stripGeoSuffix
 
 stripGeoSuffix :: Text -> Text
 stripGeoSuffix name
     | not (T.null upToBrace)
-    , Just code <- T.stripSuffix "}" geography
+    , Just code <- asum [T.stripSuffix end geography | end <- ["}", "} U", "} S"]]
     , not (T.any (== '}') code) =
         T.dropEnd 2 upToBrace
     | otherwise = name
