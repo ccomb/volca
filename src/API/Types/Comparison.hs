@@ -282,3 +282,59 @@ data DatabaseComparison = DatabaseComparison
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped DatabaseComparison)
+
+{- | Two activities of two databases the cascade paired, ready for their scores
+to be compared: a score of the other activity times 'spPerBaseUnit' is a score
+per one unit of the base activity's reference product.
+-}
+data ScorePair = ScorePair
+    { spMatch :: !ActivityMatch
+    , spBase :: !Text
+    , spOther :: !Text
+    , spActivityName :: !Text
+    -- ^ As the base database names it.
+    , spLocation :: !Text
+    , spPerBaseUnit :: !Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScorePair)
+
+-- | Why the scores of a pair cannot be put per one unit of the same thing.
+data PairRefusal
+    = -- | One side or both have no reference product, so its score is per nothing named.
+      NoReferenceProduct
+    | -- | The unit table does not know this unit.
+      UnknownUnit {uuUnit :: !Text}
+    | -- | The unit table holds several spellings this unit could be, differing by case.
+      AmbiguousUnit {auUnit :: !Text}
+    | -- | The two units measure different things: a mass and a volume need a density.
+      DifferentMeasures {dmBaseUnit :: !Text, dmOtherUnit :: !Text}
+    | -- | The unit table gives this unit a factor of zero, which nothing converts from or to.
+      ZeroFactor {zfUnit :: !Text}
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped PairRefusal)
+
+-- | A pair whose scores are not compared, and why.
+data SetApartPair = SetApartPair
+    { sapBase :: !Text
+    , sapOther :: !Text
+    , sapActivityName :: !Text
+    , sapLocation :: !Text
+    , sapReason :: !PairRefusal
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped SetApartPair)
+
+{- | Every pair of activities two databases share, as 'DatabaseComparison'
+makes them, without what differs inside each pair: what a client needs to
+score both databases and compare the scores activity by activity.
+-}
+data ScorePairs = ScorePairs
+    { spsPairs :: ![ScorePair]
+    , spsSetApart :: ![SetApartPair]
+    , spsUnpairedBaseCount :: !Int
+    , spsUnpairedOtherCount :: !Int
+    , spsAmbiguousCount :: !Int
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScorePairs)

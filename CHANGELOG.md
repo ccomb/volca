@@ -9,6 +9,13 @@
   answer as the whole collection. Characterization costs per method, so one
   category of a large database comes back several times faster. The answer
   carries no single score, since one category alone cannot make one.
+- `GET /db/{db}/score-pairs?other_database={other}` pairs the activities of
+  two databases as the comparison of databases does, without comparing their
+  lines, and gives for each pair what a score of the other activity is
+  multiplied by to be per unit of this one's product: 3.6 when this one
+  makes kilowatt hours and the other megajoules. A pair whose products are
+  measured in different quantities, or in a unit no loaded table knows, is
+  set apart with its reason rather than given a factor.
 - An edit of an activity can state the dry mass of its products: each is
   named by its flow and given the dry mass of one unit of it, in a unit of
   mass, or its dry mass is removed. This is what a dry mass exception of a
