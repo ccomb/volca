@@ -610,6 +610,15 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
         withinTolerance 1.0e-9 6.0 score `shouldBe` True
         (T.isPrefixOf "eco-dep::" <$> ewuTargetProcessId reported) `shouldBe` Just True
 
+    -- The line is written against a treatment of -1: one of +1 takes it turned.
+    it "cross-DB waste input of -3 from an EcoSpold 2 database to an ILCD treatment scores +6" $ do
+        (score, _) <- scoreCrossOf SignedReferences (sentWaste tA) "ilcd-dep" ReferenceInput 1.0
+        withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    it "cross-DB waste input of -3 found by name in an ILCD database scores +6" $ do
+        (score, _) <- scoreCrossOf SignedReferences (sentWaste tB){waLocation = "GLO"} "ilcd-dep" ReferenceInput 1.0
+        withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
     it "says a waste input matched by name alone may come from another version" $ do
         depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
         let stats = findAllCrossDBLinks (ctxWithDep "eco-dep" depDB) (simpleDB (M.singleton (pA, yY) (producer (sentWaste tB){waLocation = "GLO"})))

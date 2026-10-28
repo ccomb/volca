@@ -2823,8 +2823,65 @@ findExchangeCrossDBLink scan@LinkScan{lsWasteFlows = wasteFlowDb} consumerActUUI
   where
     asTechnosphereFlow WasteFlow{..} = TechnosphereFlow{tfId = wfId, tfName = wfName, tfUnitId = wfUnitId, tfSynonyms = wfSynonyms, tfCAS = wfCAS, tfSubstanceId = wfSubstanceId}
 findExchangeCrossDBLink _ _ _ _ BiosphereExchange{} = mempty
-findExchangeCrossDBLink scan consumerActUUID consumerProdUUID position ex@WasteExchange{} =
-    findWasteOutputCrossDBLink scan consumerActUUID consumerProdUUID position ex
+-- Cross-DB linking for waste OUTPUTS the internal matrix does not route:
+-- strict match only. No synonym, no fuzzy name match, no location widening.
+-- Multi-DB matches stay orphan as 'cdlWasteAmbiguous'. Which matcher applies
+-- follows the link: an output that names its treatment is matched on that
+-- identity, one that names none on the flow itself. Neither falls back on the
+-- other – substituting a treatment found by name for the one the author named
+-- would link the waste to an activity nobody asked for.
+-- A waste input naming no treatment is a cut-off marker and is left alone.
+findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnProcesses = ownProcesses, lsWasteFlows = wasteFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp, waLocation = waLoc}
+    | not isInp && not resolvesInternally =
+        case treatmentMatch of
+            WasteMatched entry dbN
+                | Just perLine <- lineInLinkUnit (lcUnitConfig ctx) unitDb ex (seUnit entry) ->
+                    let
+                        -- The dep-demand solve drives the matched treatment in
+                        -- its OWN reference convention: an EcoSpold2 treatment
+                        -- has a negative-output reference ('seRefSign' = -1),
+                        -- an ILCD one a positive 'ReferenceInput' (+1). The
+                        -- consumer's waste-output amount is positive, so we
+                        -- carry the treatment's sign into the coefficient –
+                        -- without it a negative-reference background treatment
+                        -- scores the treated waste's burden with a flipped sign.
+                        !crossLink =
+                            CrossDBLink
+                                { cdlConsumerActUUID = consumerActUUID
+                                , cdlConsumerProdUUID = consumerProdUUID
+                                , cdlConsumerFlowId = fid
+                                , cdlSupplierActUUID = seActivityUUID entry
+                                , cdlSupplierProdUUID = seProductUUID entry
+                                , cdlCoefficient = amt * perLine * signFactor (seRefSign entry)
+                                , cdlExchangeUnit = seUnit entry
+                                , cdlFlowName = seProductName entry
+                                , cdlLocation = seLocation entry
+                                , cdlSourceDatabase = dbN
+                                , cdlTiedAlternatives = []
+                                , cdlAnswers = Just AnsweredExchange{aePosition = position, aeFactor = perLine * signFactor (seRefSign entry)}
+                                }
+                     in
+                        mempty{cdlLinks = [crossLink], cdlWasteExactLinks = 1}
+            -- A treatment measured in another kind of unit than the line treats none of it.
+            WasteMatched entry _ ->
+                mempty
+                    { cdlCutoffWasteCount = 1
+                    , cdlUnresolvedRequests =
+                        M.singleton
+                            (supplierRequest flowName claim waLoc)
+                            (UnresolvedProduct (M.singleton UnitIncompatible{uiQueryUnit = writtenUnitName unitDb ex, uiSupplierUnit = seUnit entry} 1))
+                    }
+            WasteAmbiguous _ -> mempty{cdlWasteAmbiguous = 1}
+            WasteNoMatch -> mempty{cdlCutoffWasteCount = 1}
+    | otherwise = mempty
+  where
+    -- Same gate as the technosphere arm: a link the matrix already routes in
+    -- place would be counted twice if a cross-DB link were emitted for it too.
+    resolvesInternally = maybe False (\supplier -> isJust (producerKeyOf ownProcesses (supplier, fid))) lid
+    treatmentMatch
+        | ClaimById treatment <- claim = findWasteTreatmentByActivity ctx treatment fid
+        | otherwise = findWasteTreatmentAcrossDatabases ctx fid flowName
+    flowName = maybe "" wfName (M.lookup fid wasteFlowDb)
 
 -- | The supplier of a line that asks for one, read as the flow @flow@.
 findDemandCrossDBLink :: LinkScan -> UUID.UUID -> UUID.UUID -> Int -> Exchange -> TechnosphereFlow -> CrossDBLinkingStats
@@ -2863,9 +2920,16 @@ findDemandCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnProc
     {- The same, read in the supplier's direction. A database whose treatments
     are positive writes the waste it sends one as a demand of +x; reaching a
     treatment whose reference is -1, that demand carries the treatment's sign,
-    as a waste output does, or it would run the treatment backwards. -}
+    as a waste output does, or it would run the treatment backwards. A database
+    whose treatments are negative writes a waste line against a reference of -1,
+    so reaching a treatment whose reference is +1 the line turns. -}
     signedPerLine :: ReferenceSign -> T.Text -> Maybe Double
-    signedPerLine refSign = fmap (* readingSign convention refSign) . perLineIn
+    signedPerLine refSign = fmap (* lineSign) . perLineIn
+      where
+        lineSign = case convention of
+            SignedReferences | isWasteExchange ex -> negate (signFactor refSign)
+            SignedReferences -> readingSign convention refSign
+            PositiveReferences -> readingSign convention refSign
     unitRefused :: TechnosphereFlow -> T.Text -> CrossDBLinkingStats
     unitRefused flow flowUnitName = unresolvedStats flow UnitIncompatible{uiQueryUnit = writtenUnitName unitDb ex, uiSupplierUnit = flowUnitName}
     resolveTechInput :: TechnosphereFlow -> CrossDBLinkingStats
@@ -3022,69 +3086,6 @@ findDemandCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnProc
                 { cdlUnresolvedRequests = M.singleton (supplierRequest (tfName flow) claim statedLoc) (UnresolvedProduct (M.singleton blocker 1))
                 , cdlLocationUnresolved = unresolved
                 }
-
-{- | Cross-DB linking for waste OUTPUTS the internal matrix does not route:
-strict match only. No synonym, no fuzzy name match, no location widening.
-Multi-DB matches stay orphan as 'cdlWasteAmbiguous'. Which matcher applies
-follows the link: an output that names its treatment is matched on that
-identity, one that names none on the flow itself. Neither falls back on the
-other – substituting a treatment found by name for the one the author named
-would link the waste to an activity nobody asked for.
-A waste input naming no treatment is a cut-off marker and is left alone.
--}
-findWasteOutputCrossDBLink :: LinkScan -> UUID.UUID -> UUID.UUID -> Int -> Exchange -> CrossDBLinkingStats
-findWasteOutputCrossDBLink LinkScan{lsCtx = ctx, lsOwnProcesses = ownProcesses, lsWasteFlows = wasteFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp, waLocation = waLoc}
-    | not isInp && not resolvesInternally =
-        case treatmentMatch of
-            WasteMatched entry dbN
-                | Just perLine <- lineInLinkUnit (lcUnitConfig ctx) unitDb ex (seUnit entry) ->
-                    let
-                        -- The dep-demand solve drives the matched treatment in
-                        -- its OWN reference convention: an EcoSpold2 treatment
-                        -- has a negative-output reference ('seRefSign' = -1),
-                        -- an ILCD one a positive 'ReferenceInput' (+1). The
-                        -- consumer's waste-output amount is positive, so we
-                        -- carry the treatment's sign into the coefficient –
-                        -- without it a negative-reference background treatment
-                        -- scores the treated waste's burden with a flipped sign.
-                        !crossLink =
-                            CrossDBLink
-                                { cdlConsumerActUUID = consumerActUUID
-                                , cdlConsumerProdUUID = consumerProdUUID
-                                , cdlConsumerFlowId = fid
-                                , cdlSupplierActUUID = seActivityUUID entry
-                                , cdlSupplierProdUUID = seProductUUID entry
-                                , cdlCoefficient = amt * perLine * signFactor (seRefSign entry)
-                                , cdlExchangeUnit = seUnit entry
-                                , cdlFlowName = seProductName entry
-                                , cdlLocation = seLocation entry
-                                , cdlSourceDatabase = dbN
-                                , cdlTiedAlternatives = []
-                                , cdlAnswers = Just AnsweredExchange{aePosition = position, aeFactor = perLine * signFactor (seRefSign entry)}
-                                }
-                     in
-                        mempty{cdlLinks = [crossLink], cdlWasteExactLinks = 1}
-            -- A treatment measured in another kind of unit than the line treats none of it.
-            WasteMatched entry _ ->
-                mempty
-                    { cdlCutoffWasteCount = 1
-                    , cdlUnresolvedRequests =
-                        M.singleton
-                            (supplierRequest flowName claim waLoc)
-                            (UnresolvedProduct (M.singleton UnitIncompatible{uiQueryUnit = writtenUnitName unitDb ex, uiSupplierUnit = seUnit entry} 1))
-                    }
-            WasteAmbiguous _ -> mempty{cdlWasteAmbiguous = 1}
-            WasteNoMatch -> mempty{cdlCutoffWasteCount = 1}
-    | otherwise = mempty
-  where
-    -- Same gate as the technosphere arm: a link the matrix already routes in
-    -- place would be counted twice if a cross-DB link were emitted for it too.
-    resolvesInternally = maybe False (\supplier -> isJust (producerKeyOf ownProcesses (supplier, fid))) lid
-    treatmentMatch
-        | ClaimById treatment <- claim = findWasteTreatmentByActivity ctx treatment fid
-        | otherwise = findWasteTreatmentAcrossDatabases ctx fid flowName
-    flowName = maybe "" wfName (M.lookup fid wasteFlowDb)
-findWasteOutputCrossDBLink _ _ _ _ _ = mempty
 
 {- | What one unit of a line holds in the unit its link to another database
 speaks: the flow's for a supplier, the treatment's for a waste, so that the

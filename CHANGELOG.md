@@ -33,7 +33,10 @@
   scores, which rise accordingly. The treatment is found as any input's
   supplier is: by the identity the file names, or by name and unit when that
   identity is in no dependency, and the activity's inputs show it. Before, such
-  waste was left with no treatment and no burden.
+  waste was left with no treatment and no burden. An activity's inputs now call
+  such a waste line, within its own database too, a waste sent to treatment
+  (`SentToTreatment`), or `TreatmentNotLoaded` when its treatment is found
+  nowhere, where they called it `TreatsWaste`.
 - When a key divides none of a database's blocks, the refusal counts the
   blocks of several products it could have divided, not every process of the
   database.
