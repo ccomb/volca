@@ -28,6 +28,12 @@
 
 ### Fixed
 
+- The waste an EcoSpold 2 database sends to a treatment of a database it
+  depends on, such as ecoinvent, is now treated there and counted in its
+  scores, which rise accordingly. The treatment is found as any input's
+  supplier is: by the identity the file names, or by name and unit when that
+  identity is in no dependency, and the activity's inputs show it. Before, such
+  waste was left with no treatment and no burden.
 - When a key divides none of a database's blocks, the refusal counts the
   blocks of several products it could have divided, not every process of the
   database.

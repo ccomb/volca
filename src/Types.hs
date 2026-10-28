@@ -1474,13 +1474,13 @@ the burden is accounted for when it is missing. Only the engine holds both
 facts, so the engine states the role instead of leaving it to be inferred.
 -}
 data WasteRole
-    = -- | An input: this activity is the one treating the waste.
+    = -- | An input naming no treatment: this activity is the one treating the waste.
       TreatsWaste
-    | -- | An output whose treatment resolved.
+    | -- | A line whose treatment resolved.
       SentToTreatment
     | -- | An output naming no treatment: nothing treats this waste.
       FinalWasteFlow
-    | -- | An output naming a treatment no loaded database ships.
+    | -- | A line naming a treatment no loaded database ships.
       TreatmentNotLoaded
     deriving (Eq, Show, Generic, NFData, Enum, Bounded)
     deriving anyclass (ToSchema)

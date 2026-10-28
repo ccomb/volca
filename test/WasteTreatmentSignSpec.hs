@@ -594,3 +594,40 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
                     ]
         depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
         linksFor (ctxWithDep "eco-dep" depDB) rootActs `shouldBe` []
+
+    -- EcoSpold 2 writes the waste it sends as an input of -3 kg naming its
+    -- treatment, a demand like any input: the treatment of a dependency
+    -- answers it, by its identity or, failing that, by name and unit.
+    it "cross-DB waste input of -3 naming the dependency's treatment scores +6 and reports it" $ do
+        (score, reported) <- scoreCrossOf SignedReferences (sentWaste tA) "eco-dep" ReferenceProduct (-1.0)
+        withinTolerance 1.0e-9 6.0 score `shouldBe` True
+        ewuWasteRole reported `shouldBe` Just SentToTreatment
+        (T.isPrefixOf "eco-dep::" <$> ewuTargetProcessId reported) `shouldBe` Just True
+
+    -- The line states GLO: this context knows no geography to read an empty location against.
+    it "cross-DB waste input of -3 naming a treatment no dependency ships scores +6 by name" $ do
+        (score, reported) <- scoreCrossOf SignedReferences (sentWaste tB){waLocation = "GLO"} "eco-dep" ReferenceProduct (-1.0)
+        withinTolerance 1.0e-9 6.0 score `shouldBe` True
+        (T.isPrefixOf "eco-dep::" <$> ewuTargetProcessId reported) `shouldBe` Just True
+
+    it "says a waste input matched by name alone may come from another version" $ do
+        depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
+        let stats = findAllCrossDBLinks (ctxWithDep "eco-dep" depDB) (simpleDB (M.singleton (pA, yY) (producer (sentWaste tB){waLocation = "GLO"})))
+        map afProduct (cdlAttributeFallbacks stats) `shouldBe` ["waste W"]
+
+    it "leaves a waste input naming no treatment cut off" $ do
+        depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
+        linksFor (ctxWithDep "eco-dep" depDB) (M.singleton (pA, yY) (producer (wasteEx True Nothing (-3.0)))) `shouldBe` []
+
+    it "a waste input linked inside its own database gets no cross-DB link" $ do
+        let rootActs =
+                M.fromList
+                    [ ((pA, yY), producer (sentWaste tA))
+                    , ((tA, wW), treatment ReferenceProduct (-1.0))
+                    ]
+        depDB <- buildDB "eco-dep" (M.singleton (tA, wW) (treatment ReferenceProduct (-1.0)))
+        linksFor (ctxWithDep "eco-dep" depDB) rootActs `shouldBe` []
+
+-- | 3 kg of waste W sent to the treatment @treatmentAct@, as EcoSpold 2 writes it.
+sentWaste :: UUID -> Exchange
+sentWaste treatmentAct = (wasteEx True (Just treatmentAct) (-3.0)){waSupplierClaim = ClaimById treatmentAct}

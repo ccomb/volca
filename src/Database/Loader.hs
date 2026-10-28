@@ -2584,20 +2584,21 @@ mkGapEdge ::
     Exchange ->
     Maybe GapEdge
 mkGapEdge db stats actUUID prodUUID ex = case ex of
-    TechnosphereExchange{} ->
-        let name = flowNameOr tfName (sdbTechFlows db)
-            -- An input naming its supplier by identity has a refusal on
-            -- record only where a mapping row spoke for it: that refusal is
-            -- the reason. Otherwise the identity simply answers nowhere.
-            reason = case recordedReasons (supplierRequest name (exchangeSupplierClaim ex) (techLocation ex)) of
-                Just reasons -> GapBlocked reasons
-                Nothing
-                    | claimsAnActivityUUID (exchangeSupplierClaim ex) -> GapDanglingIdentity
-                    | otherwise -> GapBlocked (NE.singleton (blockerReason NoNameMatch))
-         in Just (edge name reason)
+    TechnosphereExchange{} -> Just (demandEdge (flowNameOr tfName (sdbTechFlows db)))
+    -- A waste input naming its treatment is linked as an input is ('findExchangeCrossDBLink').
+    WasteExchange{waSupplierClaim = ClaimById _} -> Just (demandEdge (flowNameOr wfName (sdbWasteFlows db)))
     WasteExchange{} -> Just (edge (flowNameOr wfName (sdbWasteFlows db)) GapWasteInput)
     BiosphereExchange{} -> Nothing
   where
+    -- An input naming its supplier by identity has a refusal on record only
+    -- where a mapping row spoke for it: that refusal is the reason. Otherwise
+    -- the identity simply answers nowhere.
+    demandEdge name =
+        edge name $ case recordedReasons (supplierRequest name (exchangeSupplierClaim ex) (exchangeStatedLocation ex)) of
+            Just reasons -> GapBlocked reasons
+            Nothing
+                | claimsAnActivityUUID (exchangeSupplierClaim ex) -> GapDanglingIdentity
+                | otherwise -> GapBlocked (NE.singleton (blockerReason NoNameMatch))
     -- A name the linker never recorded a refusal for is a name it matched
     -- nowhere, which is what 'NoNameMatch' says.
     recordedReasons :: SupplierRequest -> Maybe (NE.NonEmpty BlockerReason)
@@ -2797,7 +2798,9 @@ A link whose target resolves in the internal matrix would be double-counted by
 a cross-DB link too, so 'resolvesInternally' gates it out – mirroring
 'Database.MatrixBuild.findProducer': a populated process link, or a non-nil
 @activityLinkId@ whose @(linkId, flowId)@ key is one of this database's own
-('lsOwnProcesses', through 'producerKeyOf'). Waste outputs take the same gate, then a strict matcher chosen by
+('lsOwnProcesses', through 'producerKeyOf'). A waste input that names its
+treatment, as EcoSpold 2 writes the waste it sends, is such an input too.
+Waste outputs take the same gate, then a strict matcher chosen by
 their link – 'findWasteTreatmentByActivity' when they name a treatment,
 'findWasteTreatmentAcrossDatabases' when they name none – with no synonym and
 no widening in either.
@@ -2810,11 +2813,30 @@ findExchangeCrossDBLink ::
     Int ->
     Exchange ->
     CrossDBLinkingStats
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnProcesses = ownProcesses, lsTechFlows = techFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@TechnosphereExchange{techFlowId = fid, techAmount = written, techActivityLinkId = linkId, techSupplierClaim = claim, techLocation = statedLoc}
-    | namesASupplier ex && not resolvesInternally =
-        maybe mempty resolveTechInput (M.lookup fid techFlowDb)
+findExchangeCrossDBLink scan@LinkScan{lsTechFlows = techFlowDb} consumerActUUID consumerProdUUID position ex@TechnosphereExchange{techFlowId = fid} =
+    maybe mempty (findDemandCrossDBLink scan consumerActUUID consumerProdUUID position ex) (M.lookup fid techFlowDb)
+-- An EcoSpold 2 file sends its waste to treatment as an input of a negative
+-- amount naming the treatment, which is a demand like any input: a cut-off
+-- marker names none and stays below.
+findExchangeCrossDBLink scan@LinkScan{lsWasteFlows = wasteFlowDb} consumerActUUID consumerProdUUID position ex@WasteExchange{waIsInput = True, waFlowId = fid, waSupplierClaim = ClaimById _} =
+    maybe mempty (findDemandCrossDBLink scan consumerActUUID consumerProdUUID position ex . asTechnosphereFlow) (M.lookup fid wasteFlowDb)
+  where
+    asTechnosphereFlow WasteFlow{..} = TechnosphereFlow{tfId = wfId, tfName = wfName, tfUnitId = wfUnitId, tfSynonyms = wfSynonyms, tfCAS = wfCAS, tfSubstanceId = wfSubstanceId}
+findExchangeCrossDBLink _ _ _ _ BiosphereExchange{} = mempty
+findExchangeCrossDBLink scan consumerActUUID consumerProdUUID position ex@WasteExchange{} =
+    findWasteOutputCrossDBLink scan consumerActUUID consumerProdUUID position ex
+
+-- | The supplier of a line that asks for one, read as the flow @flow@.
+findDemandCrossDBLink :: LinkScan -> UUID.UUID -> UUID.UUID -> Int -> Exchange -> TechnosphereFlow -> CrossDBLinkingStats
+findDemandCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnProcesses = ownProcesses, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex techFlow
+    | namesASupplier ex && not resolvesInternally = resolveTechInput techFlow
     | otherwise = mempty
   where
+    fid = exchangeFlowId ex
+    written = exchangeAmount ex
+    linkId = exchangeActivityLinkId ex
+    claim = exchangeSupplierClaim ex
+    statedLoc = exchangeStatedLocation ex
     loc :: T.Text
     loc = locationCode statedLoc
 
@@ -3000,17 +3022,18 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnPr
                 { cdlUnresolvedRequests = M.singleton (supplierRequest (tfName flow) claim statedLoc) (UnresolvedProduct (M.singleton blocker 1))
                 , cdlLocationUnresolved = unresolved
                 }
-findExchangeCrossDBLink _ _ _ _ BiosphereExchange{} = mempty
--- Cross-DB linking for waste OUTPUTS the internal matrix does not route:
--- strict match only. No synonym, no fuzzy name match, no location widening.
--- Multi-DB matches stay orphan as 'cdlWasteAmbiguous'. Which matcher applies
--- follows the link: an output that names its treatment is matched on that
--- identity, one that names none on the flow itself. Neither falls back on the
--- other – substituting a treatment found by name for the one the author named
--- would link the waste to an activity nobody asked for.
--- Waste inputs (treatment side) are left alone: they have no clean LCA
--- semantic as a cross-DB demand.
-findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnProcesses = ownProcesses, lsWasteFlows = wasteFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp, waLocation = waLoc}
+
+{- | Cross-DB linking for waste OUTPUTS the internal matrix does not route:
+strict match only. No synonym, no fuzzy name match, no location widening.
+Multi-DB matches stay orphan as 'cdlWasteAmbiguous'. Which matcher applies
+follows the link: an output that names its treatment is matched on that
+identity, one that names none on the flow itself. Neither falls back on the
+other – substituting a treatment found by name for the one the author named
+would link the waste to an activity nobody asked for.
+A waste input naming no treatment is a cut-off marker and is left alone.
+-}
+findWasteOutputCrossDBLink :: LinkScan -> UUID.UUID -> UUID.UUID -> Int -> Exchange -> CrossDBLinkingStats
+findWasteOutputCrossDBLink LinkScan{lsCtx = ctx, lsOwnProcesses = ownProcesses, lsWasteFlows = wasteFlowDb, lsUnits = unitDb} consumerActUUID consumerProdUUID position ex@WasteExchange{waFlowId = fid, waAmount = amt, waActivityLinkId = lid, waSupplierClaim = claim, waIsInput = isInp, waLocation = waLoc}
     | not isInp && not resolvesInternally =
         case treatmentMatch of
             WasteMatched entry dbN
@@ -3061,6 +3084,7 @@ findExchangeCrossDBLink LinkScan{lsCtx = ctx, lsOwnProcesses = ownProcesses, lsW
         | ClaimById treatment <- claim = findWasteTreatmentByActivity ctx treatment fid
         | otherwise = findWasteTreatmentAcrossDatabases ctx fid flowName
     flowName = maybe "" wfName (M.lookup fid wasteFlowDb)
+findWasteOutputCrossDBLink _ _ _ _ _ = mempty
 
 {- | What one unit of a line holds in the unit its link to another database
 speaks: the flow's for a supplier, the treatment's for a waste, so that the
