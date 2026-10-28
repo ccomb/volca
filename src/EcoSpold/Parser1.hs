@@ -927,6 +927,7 @@ buildResult st =
                   pdWasteFlows = []
                 , pdUnits = reverse (psUnits st)
                 , pdDatasetNumber = psDatasetNumber st
+                , pdActivityId = Nothing
                 , pdWarnings =
                     placeholdersUsed st
                         ++ unplacedMediaSeen st

@@ -30,6 +30,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Read as TR
+import Data.UUID (UUID)
 import Numeric (showFFloat)
 import Types (Activity, BiosphereFlow, DocSection (..), LibraryDocument, TechnosphereFlow, Unit, WasteFlow)
 
@@ -48,6 +49,10 @@ data ParsedDataset = ParsedDataset
     , pdWasteFlows :: ![WasteFlow]
     , pdUnits :: ![Unit]
     , pdDatasetNumber :: !Int
+    , pdActivityId :: !(Maybe UUID)
+    {- ^ The identifier the dataset states for its activity, when it states one
+    that is a UUID: what names a file whose own name carries none.
+    -}
     , pdWarnings :: ![Text]
     -- ^ What the reader could not make sense of, for the caller to report.
     , pdLiterature :: ![LibraryDocument]

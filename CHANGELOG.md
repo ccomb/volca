@@ -28,6 +28,13 @@
 
 ### Fixed
 
+- A single EcoSpold 2 file (`.spold`) loads as a database, whatever it is
+  called. Sent as is, it used to be taken for EcoSpold 1 and refused; given as
+  the path of a database, it was refused as an unsupported file; and in a
+  folder, a name other than two identifiers (`lyocell.spold`) was refused. When
+  the name states no identifiers, the file now names itself by the activity id
+  and the reference product it states. A name that states them is read as
+  before, so no database already loaded changes its identifiers.
 - When a key divides none of a database's blocks, the refusal counts the
   blocks of several products it could have divided, not every process of the
   database.

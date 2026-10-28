@@ -252,7 +252,7 @@ methodParser =
 -- | Shared upload arguments parser (positional FILE, --name, --description)
 uploadArgsParser :: Parser UploadArgs
 uploadArgsParser = do
-    uaFile <- strArg "FILE" "Archive or data file to upload (ZIP, 7z, tar.gz, tar.xz, XML, CSV)"
+    uaFile <- strArg "FILE" "Archive or data file to upload (ZIP, 7z, tar.gz, tar.xz, XML, SPOLD, CSV)"
     uaName <- textOpt "name" (Just 'n') "NAME" "Display name (required)"
     uaDescription <- optTextOpt "description" Nothing "TEXT" "Optional description"
     pure UploadArgs{..}

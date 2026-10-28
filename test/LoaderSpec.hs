@@ -73,6 +73,7 @@ minimalDataset act techs =
         , pdWasteFlows = []
         , pdUnits = []
         , pdDatasetNumber = 0
+        , pdActivityId = Nothing
         , pdWarnings = []
         , pdLiterature = []
         }
@@ -514,13 +515,80 @@ spec = do
                 keys <- loadedKeys dir
                 length keys `shouldBe` 2
 
-        it "refuses a longer name whose last two parts are not identifiers" $
+        -- Neither half of this name is an identifier, so the name reads
+        -- nothing: the dataset's own activity id and reference product are
+        -- what files it.
+        it "files a longer name whose last two parts are not identifiers under what the dataset states" $
             withSystemTempDirectory "es2-suffixed" $ \dir -> do
                 copyFile dataset (dir </> "activityA_productX_v2.spold")
+                keys <- loadedKeys dir
+                map fst keys `shouldBe` [read "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
+
+        it "refuses a name it cannot read when the dataset states no activity id either" $
+            withSystemTempDirectory "es2-suffixed-anonymous" $ \dir -> do
+                contents <- readFile dataset
+                writeFile (dir </> "activityA_productX_v2.spold") (withoutActivityId contents)
                 result <- loadDatabase defaultUnitConfig dir
                 case result of
-                    Right _ -> expectationFailure "expected the load to refuse a name it cannot read"
-                    Left err -> T.unpack err `shouldContain` "activityA_productX_v2.spold"
+                    Right _ -> expectationFailure "expected the load to refuse a dataset that names itself nowhere"
+                    Left err -> do
+                        T.unpack err `shouldContain` "activityA_productX_v2.spold"
+                        T.unpack err `shouldContain` "states no activity id"
+
+    -- -----------------------------------------------------------------------
+    -- One EcoSpold 2 file on its own
+    -- -----------------------------------------------------------------------
+    describe "a single EcoSpold 2 file" $ do
+        -- Named after its product and not after a pair of identifiers: the
+        -- file is the whole database and its own content is the only identity.
+        let dataset = "test-data/electricity-production.spold"
+            statedActivity = read "12345678-1234-5678-9abc-123456789002" :: UUID.UUID
+            loadedKeys source = do
+                result <- loadDatabase defaultUnitConfig source
+                either (fail . show) (return . M.keys . sdbActivities) result
+
+        it "loads from a directory under the identity it states" $
+            withSystemTempDirectory "es2-single-dir" $ \dir -> do
+                copyFile dataset (dir </> "lyocell.spold")
+                keys <- loadedKeys dir
+                map fst keys `shouldBe` [statedActivity]
+                map snd keys `shouldNotBe` [UUID.nil]
+
+        it "loads when the path is the file itself" $
+            withSystemTempDirectory "es2-single-file" $ \dir -> do
+                copyFile dataset (dir </> "lyocell.spold")
+                dirKeys <- loadedKeys dir
+                fileKeys <- loadedKeys (dir </> "lyocell.spold")
+                fileKeys `shouldBe` dirKeys
+
+        it "keeps one identity whether the file is named after its pair or not" $
+            withSystemTempDirectory "es2-single-named" $ \dir -> do
+                copyFile dataset (dir </> "lyocell.spold")
+                [(act, prod)] <- loadedKeys dir
+                withSystemTempDirectory "es2-single-pair" $ \named -> do
+                    copyFile dataset (named </> (show act ++ "_" ++ show prod ++ ".spold"))
+                    loadedKeys named `shouldReturn` [(act, prod)]
+
+        it "refuses a path that is a file stating no activity id and named by nothing" $
+            withSystemTempDirectory "es2-single-anonymous" $ \dir -> do
+                contents <- readFile dataset
+                writeFile (dir </> "lyocell.spold") (withoutActivityId contents)
+                result <- loadDatabase defaultUnitConfig (dir </> "lyocell.spold")
+                case result of
+                    Right _ -> expectationFailure "expected the load to refuse a file that names itself nowhere"
+                    Left err -> T.unpack err `shouldContain` "states no activity id"
+
+    describe "statedKey" $ do
+        let stating act = (minimalDataset act []){pdActivityId = Just actUUID1}
+            withReference = minimalActivity "prod" "GLO" [refExchange flowUUID1]
+        it "is the activity id and the reference product the dataset states" $
+            statedKey (stating withReference) `shouldBe` Just (actUUID1, flowUUID1)
+
+        it "is nothing without an activity id" $
+            statedKey ((stating withReference){pdActivityId = Nothing}) `shouldBe` Nothing
+
+        it "is nothing without a reference product, which would file it under the nil UUID" $
+            statedKey (stating (minimalActivity "prod" "GLO" [])) `shouldBe` Nothing
 
     -- -----------------------------------------------------------------------
     -- A file offered to a load that becomes no dataset
@@ -572,10 +640,21 @@ spec = do
         it "counts a name with no reading once for the file, not once per product" $
             withSystemTempDirectory "es2-divided" $ \dir -> do
                 let dividing = (defaultLoadOptions defaultUnitConfig){loAllocation = ReadDeclared}
-                writeFile (dir </> "cheese_and_whey_v2.spold") twoProductsCarryingDryMass
+                writeFile (dir </> "cheese_and_whey_v2.spold") (withoutActivityId twoProductsCarryingDryMass)
                 refused <- loadDatabaseWithLocationAliases dividing dir
                 err <- either (return . T.unpack) (const (fail "expected the load to refuse")) refused
                 err `shouldContain` "1 of 1 files became no dataset"
+
+        -- The same block, now stating the activity it belongs to: its name
+        -- reads nothing, so the dataset files it under that activity and the
+        -- first of its reference products.
+        it "files a block of several products under the activity it states" $
+            withSystemTempDirectory "es2-divided-stated" $ \dir -> do
+                let dividing = (defaultLoadOptions defaultUnitConfig){loAllocation = ReadDeclared}
+                writeFile (dir </> "cheese_and_whey_v2.spold") twoProductsCarryingDryMass
+                loaded <- loadDatabaseWithLocationAliases dividing dir
+                keys <- either (fail . show) (return . M.keys . sdbActivities) loaded
+                map fst keys `shouldBe` [read "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
 
     -- -----------------------------------------------------------------------
     -- getReferenceProductUUID
@@ -1253,6 +1332,14 @@ spec = do
             let cls = activityClassification (head activities)
             M.lookup "Category" cls `shouldBe` Just "Energy"
             M.lookup "SubCategory" cls `shouldBe` Just "Electricity"
+
+-- | The same EcoSpold 2 text with the @id@ its @\<activity\>@ states taken off.
+withoutActivityId :: String -> String
+withoutActivityId contents =
+    T.unpack (before <> beforeId <> T.drop 1 (T.dropWhile (/= '"') (T.drop (T.length " id=\"") fromId)))
+  where
+    (before, fromActivity) = T.breakOn "<activity " (T.pack contents)
+    (beforeId, fromId) = T.breakOn " id=\"" fromActivity
 
 {- | One EcoSpold 2 block with two product outputs, each stating a dry mass, so
 a load keyed on that property divides it into two processes. Written here

@@ -91,6 +91,7 @@ module Database.Loader (
     generateActivityUUIDFromActivity,
     datasetUUIDFromPath,
     getReferenceProductUUID,
+    statedKey,
     indexActivities,
     UnlinkedSummary (..),
     UnlinkedExchange (..),
@@ -681,6 +682,17 @@ getReferenceProductUUID act =
     case filter exchangeIsReference (exchanges act) of
         (ref : _) -> exchangeFlowId ref
         [] -> UUID.nil -- No reference product found
+
+{- | The (activity, product) pair an EcoSpold 2 dataset states itself, for a file
+whose name states none. Neither half may be missing: a dataset with no
+reference product would be filed under the nil UUID, shared with every other.
+-}
+statedKey :: ParsedDataset -> Maybe (UUID.UUID, UUID.UUID)
+statedKey parsed = do
+    actUUID <- pdActivityId parsed
+    let prodUUID = getReferenceProductUUID (pdActivity parsed)
+    guard (prodUUID /= UUID.nil)
+    pure (actUUID, prodUUID)
 
 {- | Key the activities of a name-linked file by @(activityUUID, productUUID)@,
 naming every key two blocks claimed.
@@ -1277,6 +1289,7 @@ readSourceUnder opts path = do
         then case map toLower (takeExtension path) of
             ".csv" -> loadSimaProCSV opts path
             ".xml" -> loadSingleEcoSpold1File opts path
+            ".spold" -> loadEcoSpoldFiles opts [] [path] False
             ".xlsx" -> loadBrightwayExcel opts path
             _ -> return $ Left $ T.pack $ "Unsupported file type: " ++ path
         else
@@ -1665,81 +1678,86 @@ loadEcoSpoldDirectory opts dir = do
             loadSingleEcoSpold1File opts singleXml
         ([], xs) -> do
             reportProgress Info $ "Found " ++ show (length xs) ++ " EcoSpold1 (.XML) files for processing"
-            loadWithWorkerParallelism [] xs True
+            loadEcoSpoldFiles opts [] xs True
         (xs, []) -> do
             reportProgress Info $ "Found " ++ show (length xs) ++ " EcoSpold2 (.spold) files for processing"
-            loadWithWorkerParallelism conversionFiles xs False
+            loadEcoSpoldFiles opts conversionFiles xs False
         (xs, _) -> do
             reportProgress Info $ "Found " ++ show (length xs) ++ " EcoSpold2 (.spold) files for processing"
-            loadWithWorkerParallelism conversionFiles xs False -- Prefer EcoSpold2 if both present
+            loadEcoSpoldFiles opts conversionFiles xs False -- Prefer EcoSpold2 if both present
+
+{- | Load the EcoSpold files named, divided among the workers.
+
+The files may be a directory's or one file the caller named: what a file is
+read as is decided here, by its own name and content, not by where it sits.
+-}
+loadEcoSpoldFiles :: LoadOptions -> [FilePath] -> [FilePath] -> Bool -> IO (Either T.Text SimpleDatabase)
+loadEcoSpoldFiles opts conversionFiles allFiles isEcoSpold1 = do
+    -- Get actual number of CPU capabilities (respects +RTS -N)
+    numWorkers <- getNumCapabilities
+    let workers = distributeFiles numWorkers allFiles
+    reportProgress Info $
+        printf
+            "Processing %d files with %d parallel workers (%d files per worker)"
+            (length allFiles)
+            numWorkers
+            (length allFiles `div` numWorkers)
+
+    -- Process all workers in parallel
+    conversions <- readUnitConversions conversionFiles
+    startTime <- getCurrentTime
+    scoped <- inheritLogScope
+    results <- mapConcurrently (scoped . processWorker startTime conversions) (zip [1 ..] workers)
+
+    -- Every file no worker could turn into a dataset, in one message: the
+    -- workers each hold a share of the directory, so what one of them
+    -- refused is a share of the answer.
+    case concatMap NE.toList (lefts results) of
+        (refusal : rest) -> return $ Left $ refusedFiles (length allFiles) (refusal NE.:| rest)
+        [] -> do
+            let !harvested = mconcat (rights results)
+
+            endTime <- getCurrentTime
+            let totalDuration = realToFrac $ diffUTCTime endTime startTime
+            let totalFiles = length allFiles
+            let avgFilesPerSec = fromIntegral totalFiles / totalDuration
+            let totalRawFlows = hvRawFlows harvested
+            let totalRawUnits = hvRawUnits harvested
+            let totalFlows = M.size (hvTechFlows harvested) + M.size (hvBioFlows harvested)
+            let flowDeduplication = if totalRawFlows > 0 then 100.0 * (1.0 - fromIntegral totalFlows / fromIntegral totalRawFlows) else 0.0 :: Double
+            let unitDeduplication = if totalRawUnits > 0 then 100.0 * (1.0 - fromIntegral (M.size (hvUnits harvested)) / fromIntegral totalRawUnits) else 0.0 :: Double
+
+            reportProgress Info $ printf "Parsing completed (%s, %.1f files/sec):" (formatDuration totalDuration) avgFilesPerSec
+            reportProgress Info $ printf "  Activities: %d processes" (M.size (hvActivities harvested))
+            reportProgress Info $
+                printf
+                    "  Flows: %d tech + %d bio (%.1f%% deduplication from %d raw)"
+                    (M.size (hvTechFlows harvested))
+                    (M.size (hvBioFlows harvested))
+                    flowDeduplication
+                    totalRawFlows
+            reportProgress Info $
+                printf
+                    "  Units: %d unique (%.1f%% deduplication from %d raw)"
+                    (M.size (hvUnits harvested))
+                    unitDeduplication
+                    totalRawUnits
+            reportMemoryUsage "Final parsing memory usage"
+
+            -- For EcoSpold1: fix activity links using supplier lookup table
+            let simpleDb = harvestDatabase (referenceConventionOf (if isEcoSpold1 then EcoSpold1 else EcoSpold2)) harvested
+            case unitNamesDisagreeing harvested of
+                (conflict : more) -> return (Left (T.intercalate "; " (conflict : more)))
+                []
+                    | isEcoSpold1 -> Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
+                    | otherwise -> Right <$> linkSoleProducers simpleDb
   where
     locationAliases :: MS.Map T.Text T.Text
     locationAliases = loLocationAliases opts
-    -- Worker-based parallelism: divide files among N workers, all process in parallel
-    loadWithWorkerParallelism :: [FilePath] -> [FilePath] -> Bool -> IO (Either T.Text SimpleDatabase)
-    loadWithWorkerParallelism conversionFiles allFiles isEcoSpold1 = do
-        -- Get actual number of CPU capabilities (respects +RTS -N)
-        numWorkers <- getNumCapabilities
-        let workers = distributeFiles numWorkers allFiles
-        reportProgress Info $
-            printf
-                "Processing %d files with %d parallel workers (%d files per worker)"
-                (length allFiles)
-                numWorkers
-                (length allFiles `div` numWorkers)
-
-        -- Process all workers in parallel
-        conversions <- readUnitConversions conversionFiles
-        startTime <- getCurrentTime
-        scoped <- inheritLogScope
-        results <- mapConcurrently (scoped . processWorker startTime isEcoSpold1 conversions) (zip [1 ..] workers)
-
-        -- Every file no worker could turn into a dataset, in one message: the
-        -- workers each hold a share of the directory, so what one of them
-        -- refused is a share of the answer.
-        case concatMap NE.toList (lefts results) of
-            (refusal : rest) -> return $ Left $ refusedFiles (length allFiles) (refusal NE.:| rest)
-            [] -> do
-                let !harvested = mconcat (rights results)
-
-                endTime <- getCurrentTime
-                let totalDuration = realToFrac $ diffUTCTime endTime startTime
-                let totalFiles = length allFiles
-                let avgFilesPerSec = fromIntegral totalFiles / totalDuration
-                let totalRawFlows = hvRawFlows harvested
-                let totalRawUnits = hvRawUnits harvested
-                let totalFlows = M.size (hvTechFlows harvested) + M.size (hvBioFlows harvested)
-                let flowDeduplication = if totalRawFlows > 0 then 100.0 * (1.0 - fromIntegral totalFlows / fromIntegral totalRawFlows) else 0.0 :: Double
-                let unitDeduplication = if totalRawUnits > 0 then 100.0 * (1.0 - fromIntegral (M.size (hvUnits harvested)) / fromIntegral totalRawUnits) else 0.0 :: Double
-
-                reportProgress Info $ printf "Parsing completed (%s, %.1f files/sec):" (formatDuration totalDuration) avgFilesPerSec
-                reportProgress Info $ printf "  Activities: %d processes" (M.size (hvActivities harvested))
-                reportProgress Info $
-                    printf
-                        "  Flows: %d tech + %d bio (%.1f%% deduplication from %d raw)"
-                        (M.size (hvTechFlows harvested))
-                        (M.size (hvBioFlows harvested))
-                        flowDeduplication
-                        totalRawFlows
-                reportProgress Info $
-                    printf
-                        "  Units: %d unique (%.1f%% deduplication from %d raw)"
-                        (M.size (hvUnits harvested))
-                        unitDeduplication
-                        totalRawUnits
-                reportMemoryUsage "Final parsing memory usage"
-
-                -- For EcoSpold1: fix activity links using supplier lookup table
-                let simpleDb = harvestDatabase (referenceConventionOf (if isEcoSpold1 then EcoSpold1 else EcoSpold2)) harvested
-                case unitNamesDisagreeing harvested of
-                    (conflict : more) -> return (Left (T.intercalate "; " (conflict : more)))
-                    []
-                        | isEcoSpold1 -> Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
-                        | otherwise -> Right <$> linkSoleProducers simpleDb
 
     -- Process one worker's share of files
-    processWorker :: UTCTime -> Bool -> Expr.UnitConversions -> (Int, [FilePath]) -> IO (Either (NE.NonEmpty T.Text) Harvest)
-    processWorker _startTime isEcoSpold1 conversions (workerNum, workerFiles) = do
+    processWorker :: UTCTime -> Expr.UnitConversions -> (Int, [FilePath]) -> IO (Either (NE.NonEmpty T.Text) Harvest)
+    processWorker _startTime conversions (workerNum, workerFiles) = do
         workerStartTime <- getCurrentTime
         reportProgress Info $ printf "Worker %d started: processing %d files" workerNum (length workerFiles)
 
@@ -1754,7 +1772,7 @@ loadEcoSpoldDirectory opts dir = do
         let paired = zipWith (\f -> either (Left . T.pack) (Right . (f,))) workerFiles workerResults
         let (unread, oks) = partitionEithers paired
         let split = [(f, allocateParsed opts r) | (f, r) <- oks]
-        let (unreadableNames, keyed) = partitionEithers [keyDatasetsOf isEcoSpold1 f rs | (f, rs) <- split]
+        let (unreadableNames, keyed) = partitionEithers [keyDatasetsOf f rs | (f, rs) <- split]
 
         -- A file whose content has no reading and a file whose name has none
         -- are the same answer: it was offered and it becomes no dataset. They
@@ -1783,20 +1801,18 @@ loadEcoSpoldDirectory opts dir = do
     -- \| The datasets one file becomes, each under its own key, or the one
     --    reason it becomes none.
     --
-    --    The key is read once per process the file holds, but the reason a file has
-    --    none is read once for the file: an EcoSpold 2 key is read from the name,
-    --    which is the same name however many processes the allocation divided the
-    --    file into, so reading it per process would name a refused file once per
-    --    process and count more refusals than the directory offered files.
+    --    The key is read once per process the file holds, but a file with none is
+    --    refused once: the traversal stops at the first process refused, so the
+    --    refusals counted never exceed the files the directory offered.
     --
     --    An EcoSpold 2 file the allocation divided into several processes names
     --    one product, and each process is filed under its own product beside the
     --    activity the name gives: a process kept whole with its coproducts, once
     --    written and read back under a key, keeps every product it had.
     --
-    keyDatasetsOf :: Bool -> FilePath -> [ParsedDataset] -> Either T.Text [((UUID, UUID), ParsedDataset)]
-    keyDatasetsOf isEcoSpold1 filepath parsed =
-        traverse (\p -> (,p) . ownProduct p <$> processKeyOf isEcoSpold1 filepath (pdActivity p)) parsed
+    keyDatasetsOf :: FilePath -> [ParsedDataset] -> Either T.Text [((UUID, UUID), ParsedDataset)]
+    keyDatasetsOf filepath parsed =
+        traverse (\p -> (,p) . ownProduct p <$> processKeyOf filepath p) parsed
       where
         ownProduct :: ParsedDataset -> (UUID, UUID) -> (UUID, UUID)
         ownProduct p (actUUID, prodUUID)
@@ -1804,32 +1820,39 @@ loadEcoSpoldDirectory opts dir = do
             | otherwise = (actUUID, prodUUID)
 
     -- The (activity, product) pair one process is filed under
-    processKeyOf :: Bool -> FilePath -> Activity -> Either T.Text (UUID, UUID)
-    processKeyOf True filepath activity =
-        -- EcoSpold1: prefer the identifier the file itself carries, so a
-        -- dataset keeps its identity across releases; mint from name and
-        -- location only when the file name carries none.
-        let actUUID = fromMaybe (generateActivityUUIDFromActivity activity) (datasetUUIDFromPath filepath)
-            prodUUID = getReferenceProductUUID activity
-         in Right (actUUID, prodUUID)
-    processKeyOf False filepath _activity =
-        -- EcoSpold2: the identifiers are in the file name. Some publishers put
-        -- the dataset number in front of the pair, and the pair is then the
-        -- last two parts. What says the leading part is a number rather than
-        -- half of the name is that the two behind it are both identifiers, so
-        -- a longer name is read only when they are: in any other name a part
-        -- could as easily have been added at the end as at the front, and
-        -- there is nothing to choose between the two readings. The number is
-        -- dropped, this format addressing its suppliers by UUID and numbering
-        -- no dataset.
-        case reverse (T.splitOn "_" (T.pack (takeBaseName filepath))) of
-            [prodUUIDText, actUUIDText] ->
-                Right (parseUUID actUUIDText, parseUUID prodUUIDText)
-            prodUUIDText : actUUIDText : _ : _
-                | Just prodUUID <- UUID.fromText prodUUIDText
-                , Just actUUID <- UUID.fromText actUUIDText ->
-                    Right (actUUID, prodUUID)
-            _ -> Left $ T.pack $ filepath ++ ": the name is not [datasetNumber_]activityUUID_productUUID"
+    processKeyOf :: FilePath -> ParsedDataset -> Either T.Text (UUID, UUID)
+    processKeyOf filepath parsed
+        | isEcoSpold1 =
+            -- EcoSpold1: prefer the identifier the file itself carries, so a
+            -- dataset keeps its identity across releases; mint from name and
+            -- location only when the file name carries none.
+            let activity = pdActivity parsed
+                actUUID = fromMaybe (generateActivityUUIDFromActivity activity) (datasetUUIDFromPath filepath)
+             in Right (actUUID, getReferenceProductUUID activity)
+        | otherwise =
+            -- EcoSpold2: the identifiers are in the file name. Some publishers
+            -- put the dataset number in front of the pair, and the pair is then
+            -- the last two parts. What says the leading part is a number rather
+            -- than half of the name is that the two behind it are both
+            -- identifiers, so a longer name is read only when they are: in any
+            -- other name a part could as easily have been added at the end as
+            -- at the front, and there is nothing to choose between the two
+            -- readings. The number is dropped, this format addressing its
+            -- suppliers by UUID and numbering no dataset. A name with no reading
+            -- (a file called after its product, say) leaves the dataset to name
+            -- itself.
+            case reverse (T.splitOn "_" (T.pack (takeBaseName filepath))) of
+                [prodUUIDText, actUUIDText] ->
+                    Right (parseUUID actUUIDText, parseUUID prodUUIDText)
+                prodUUIDText : actUUIDText : _ : _
+                    | Just prodUUID <- UUID.fromText prodUUIDText
+                    , Just actUUID <- UUID.fromText actUUIDText ->
+                        Right (actUUID, prodUUID)
+                _ ->
+                    maybe
+                        (Left $ T.pack $ filepath ++ ": the name is not [datasetNumber_]activityUUID_productUUID, and the dataset states no activity id and reference product of its own")
+                        Right
+                        (statedKey parsed)
 
 {- | Load a single EcoSpold1 file containing multiple datasets
 This handles files where <ecoSpold> contains multiple <dataset> elements.

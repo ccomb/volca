@@ -312,6 +312,7 @@ data ParseState = ParseState
     , psPendingCommentLang :: !Text -- xml:lang on the currently-open <comment>
     , psActivityType :: !(Maybe Int) -- ecospold2 <activity activityType="1..8"> attribute
     , psSpecialActivityType :: !(Maybe Int) -- ecospold2 <activity specialActivityType="…"> attribute
+    , psActivityId :: !(Maybe UUID) -- ecospold2 <activity id="…"> attribute, when it is a UUID
     , psParams :: !(M.Map Text Double) -- <parameter> variableName → amount (amounts are pre-evaluated in the source)
     , psAmbiguousParams :: !(S.Set Text) -- variableNames declared twice with two amounts, struck from psParams at the end
     , psParamExprs :: !(M.Map Text Text) -- <parameter> variableName → mathematicalRelation (raw formula, for inspection)
@@ -344,6 +345,7 @@ initialParseState =
         , psPendingCommentLang = ""
         , psActivityType = Nothing
         , psSpecialActivityType = Nothing
+        , psActivityId = Nothing
         , psParams = M.empty
         , psAmbiguousParams = S.empty
         , psParamExprs = M.empty
@@ -994,6 +996,8 @@ parseWithXeno conversions xmlContent = do
                                 state{psActivityType = bsToIntMaybe value}
                             | onActivity && isElement name "specialActivityType" =
                                 state{psSpecialActivityType = bsToIntMaybe value}
+                            | onActivity && isElement name "id" =
+                                state{psActivityId = UUID.fromText (bsToText value)}
                             | onParameter && isElement name "variableName" =
                                 state{psPendingParam = pending{ppVariableName = bsToText value}}
                             | onParameter && isElement name "amount" =
@@ -1324,6 +1328,7 @@ parseWithXeno conversions xmlContent = do
                             , -- This format addresses a supplier by UUID, so it
                               -- numbers no dataset and links none by number.
                               pdDatasetNumber = 0
+                            , pdActivityId = psActivityId st
                             , pdWarnings = map T.pack (reverse (psWarnings st)) ++ placeholdersUsed st ++ dateWarnings
                             , pdLiterature = []
                             }

@@ -90,6 +90,35 @@ spec = do
             detectArchiveFormat (BL.pack [0x1F]) `shouldBe` ArchiveUnknown
             detectArchiveFormat (BL.pack [0x7F]) `shouldBe` ArchiveUnknown
 
+    -- One dataset sent as is has the same XML declaration and the same root
+    -- element in both versions of the format. It used to be filed as EcoSpold 1
+    -- whatever it was, then refused at load as holding no dataset.
+    describe "a single EcoSpold dataset sent as is" $ do
+        let ecoSpold2 = BLC.pack "<?xml version='1.0' encoding='UTF-8'?>\n<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold02\"><childActivityDataset/></ecoSpold>"
+            ecoSpold1 = BLC.pack "<?xml version=\"1.0\"?>\n<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\"><dataset/></ecoSpold>"
+            -- What an upload leaves on disk: the bytes written, then the format
+            -- read back from the directory that holds them.
+            stored bytes =
+                withSystemTempDirectory "volca-spold-upload" $ \tmp -> do
+                    let source = tmp </> "sent"
+                        target = tmp </> "stored"
+                    BL.writeFile source bytes
+                    createDirectoryIfMissing True target
+                    written <- extractArchiveFile source target
+                    files <- listDirectory target
+                    format <- detectDatabaseFormat target
+                    pure (written, files, format)
+
+        it "is told from EcoSpold 1 by the version its namespace names" $ do
+            detectArchiveFormat ecoSpold2 `shouldBe` ArchivePlainSpold
+            detectArchiveFormat ecoSpold1 `shouldBe` ArchivePlainXML
+
+        it "is kept as a .spold and read as EcoSpold 2" $
+            stored ecoSpold2 `shouldReturn` (Right (), ["data.spold"], EcoSpold2)
+
+        it "is still kept as an .xml and read as EcoSpold 1 when it is EcoSpold 1" $
+            stored ecoSpold1 `shouldReturn` (Right (), ["data.xml"], EcoSpold1)
+
     describe "handleUpload writes JSON-LD as .json" $
         it "persists data.json (not data.csv) so the loader can dispatch through OlcaSchema" $
             withSystemTempDirectory "volca-method-upload" $ \tmp -> do

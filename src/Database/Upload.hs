@@ -214,6 +214,7 @@ data ArchiveFormat
     | ArchiveGzip -- gzip (tar.gz): 1F 8B
     | ArchiveXz -- XZ (tar.xz): FD 37 7A 58 5A 00
     | ArchivePlainXML -- Plain XML file (EcoSpold1)
+    | ArchivePlainSpold -- Plain XML file of one EcoSpold 2 dataset
     | ArchivePlainJSON -- openLCA JSON-LD ImpactCategory document
     | ArchivePlainCSV
     | ArchiveUnknown
@@ -227,7 +228,7 @@ detectArchiveFormat content
     | matchesMagic [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C] = Archive7z
     | matchesMagic [0x1F, 0x8B] = ArchiveGzip
     | matchesMagic [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00] = ArchiveXz
-    | isXmlFile = ArchivePlainXML -- Check XML before plain text
+    | isXmlFile = if isEcoSpold2 then ArchivePlainSpold else ArchivePlainXML -- Check XML before plain text
     | isOlcaImpactCategory = ArchivePlainJSON -- Route openLCA JSON-LD to its own branch before CSV
     | isPlainText = ArchivePlainCSV
     | otherwise = ArchiveUnknown
@@ -248,6 +249,9 @@ detectArchiveFormat content
         matchesMagic [0x3C, 0x3F, 0x78, 0x6D, 0x6C]
             || matchesMagic [0x3C, 0x65, 0x63, 0x6F]
             || matchesMagic [0xEF, 0xBB, 0xBF, 0x3C, 0x3F]
+    -- EcoSpold 1 and 2 are both XML whose root is <ecoSpold>; only the
+    -- namespace on it, which names the version, tells them apart.
+    isEcoSpold2 = BS.isInfixOf "EcoSpold02" header2k
     -- openLCA JSON-LD ImpactCategory sniff: a JSON object whose first ~2KB
     -- mentions both "@type" and the quoted "ImpactCategory" token. Quoting
     -- avoids false positives on prose mentions inside other openLCA entities
@@ -278,7 +282,7 @@ extractArchiveFile archivePath targetDir = do
     extractUpload content targetDir
 
 {- | Extract upload data to target directory.
-Supports ZIP, 7z, tar.gz, tar.xz archives (auto-detected), plain XML, and CSV files.
+Supports ZIP, 7z, tar.gz, tar.xz archives (auto-detected), plain XML, a single .spold dataset, and CSV files.
 -}
 extractUpload :: BL.ByteString -> FilePath -> IO (Either Text ())
 extractUpload content targetDir = do
@@ -287,6 +291,11 @@ extractUpload content targetDir = do
         ArchivePlainXML -> do
             -- Plain XML: write directly (e.g., EcoSpold1 multi-dataset file)
             BL.writeFile (targetDir </> "data.xml") content
+            return $ Right ()
+        ArchivePlainSpold -> do
+            -- One EcoSpold 2 dataset: the .spold extension is what the loader
+            -- and the format detection read it by, and the dataset names itself.
+            BL.writeFile (targetDir </> "data.spold") content
             return $ Right ()
         ArchivePlainJSON -> do
             -- openLCA JSON-LD: keep the .json extension so the loader dispatches
@@ -304,7 +313,7 @@ extractUpload content targetDir = do
             BL.writeFile (targetDir </> "data.xlsx") content
             return $ Right ()
         ArchiveUnknown ->
-            return $ Left "Unsupported file format. Please upload a ZIP, 7z, tar.gz, tar.xz archive, XML, CSV, or openLCA JSON-LD file."
+            return $ Left "Unsupported file format. Please upload a ZIP, 7z, tar.gz, tar.xz archive, XML, SPOLD, CSV, or openLCA JSON-LD file."
         Archive7z -> extract7z content targetDir
         ArchiveZip -> extractZip content targetDir
         ArchiveGzip -> extractArchive ArchiveGzip content targetDir
@@ -474,6 +483,7 @@ extractArchive format archiveData targetDir = do
             ArchiveXlsx -> ".tar"
             Archive7z -> ".tar"
             ArchivePlainXML -> ".tar"
+            ArchivePlainSpold -> ".tar"
             ArchivePlainJSON -> ".tar"
             ArchivePlainCSV -> ".tar"
             ArchiveUnknown -> ".tar"
@@ -502,6 +512,7 @@ extractArchive format archiveData targetDir = do
         ArchiveXlsx -> "archive"
         Archive7z -> "archive"
         ArchivePlainXML -> "archive"
+        ArchivePlainSpold -> "archive"
         ArchivePlainJSON -> "archive"
         ArchivePlainCSV -> "archive"
         ArchiveUnknown -> "archive"
