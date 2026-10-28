@@ -4,6 +4,11 @@
 
 ### Added
 
+- A batch of activities can be scored under one method of a collection, at
+  `POST /db/{db}/impacts/{collection}/{methodId}`, with the same body and
+  answer as the whole collection. Characterization costs per method, so one
+  category of a large database comes back several times faster. The answer
+  carries no single score, since one category alone cannot make one.
 - An edit of an activity can state the dry mass of its products: each is
   named by its flow and given the dry mass of one unit of it, in a unit of
   mass, or its dry mass is removed. This is what a dry mass exception of a

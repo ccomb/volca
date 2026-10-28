@@ -199,7 +199,7 @@ spec = describe "a database at other values of its parameters" $ do
                 , [ParameterValue (Just (processIdText (aBread, pBread))) "mix_fr" 0, ParameterValue (Just (processIdText (aBread, pBread))) "mix_de" 1]
                 , []
                 ]
-        batch <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest processes sets))
+        batch <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing Nothing IncludeLongTerm (BatchImpactsRequest processes sets))
         alone <-
             sequence
                 [ answer manager (activityLCIABatchH "bakery" process (CollectionName "co2") (Just (SubstitutionRequest [] values)) IncludeLongTerm WithoutLines)
@@ -210,17 +210,17 @@ spec = describe "a database at other values of its parameters" $ do
         map (scoresOf . bieImpacts) (birResults batch) `shouldBe` map scoresOf alone
         -- The bread's score moves with each set, so the rows are not all one number.
         length (nub (map (scoresOf . bieImpacts) (birResults batch))) `shouldSatisfy` (> 2)
-        atDefaults <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest processes []))
+        atDefaults <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing Nothing IncludeLongTerm (BatchImpactsRequest processes []))
         [(bieParameterSet e, scoresOf (bieImpacts e)) | e <- birResults atDefaults] `shouldBe` [(Nothing, scoresOf (bieImpacts e)) | e <- drop 4 (birResults batch)]
 
     it "says each process's reference amount and unit, a treatment's -1 included" $ do
         manager <- scoringManager
-        batch <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest [processIdText (aBin, pWaste), processIdText (aBread, pBread)] []))
+        batch <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing Nothing IncludeLongTerm (BatchImpactsRequest [processIdText (aBin, pWaste), processIdText (aBread, pBread)] []))
         [(bieProductAmount e, bieProductUnit e) | e <- birResults batch] `shouldBe` [(Just (-1), Just "kg"), (Just 1, Just "kg")]
 
     it "refuses a batch one of whose sets it cannot compute, naming the set" $ do
         manager <- scoringManager
-        refused <- runHandler . runApp (envOf manager) $ batchImpactsH "bakery" (CollectionName "co2") Nothing IncludeLongTerm (BatchImpactsRequest [processIdText (aBread, pBread)] [[ParameterValue Nothing "yield" 2], [ParameterValue Nothing "nope" 1]])
+        refused <- runHandler . runApp (envOf manager) $ batchImpactsH "bakery" (CollectionName "co2") Nothing Nothing IncludeLongTerm (BatchImpactsRequest [processIdText (aBread, pBread)] [[ParameterValue Nothing "yield" 2], [ParameterValue Nothing "nope" 1]])
         either (\e -> (errHTTPCode e, take 16 (BSL.unpack (errBody e)))) (const (200, "")) refused `shouldBe` (400, "parameter set 1:")
 
     it "reads a request that only sets parameters, and refuses a misspelt field of one or of a batch" $ do
