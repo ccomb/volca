@@ -920,7 +920,9 @@ description r = case r of
         \(the same activity and product names, case and a trailing ' {GEO}', \
         \with SimaPro's ' U' or ' S' after it, aside, at the same location), then 'SameProduct' (the same reference \
         \product flow at the same location, from the same kind of activity, so the \
-        \market for a product never pairs with its production). Each changed \
+        \market for a product never pairs with its production), then 'SameCutNames' \
+        \(the same names cut at 80 characters with their geography, as SimaPro \
+        \cuts them, for a name longer than that). Each changed \
         \activity says the rung that paired it. A key several activities answer \
         \to, on either side, pairs none of them: they are listed under 'ambiguous' \
         \and not compared. A pair whose only difference is the dates its datasets \

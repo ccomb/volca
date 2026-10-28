@@ -1618,9 +1618,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 88: the @setWetMasses@ an edit of an activity's exchanges takes,
+(revision 89: the @setWetMasses@ an edit of an activity's exchanges takes,
 which states the wet mass of a product output, its density when the product is
 in litres or cubic metres, and the @wetMassesSet@ its answer gives;
+revision 88: the @SameCutNames@ rung of a comparison of two databases, which
+pairs names cut at 80 characters with their geography, as SimaPro cuts them;
 revision 87: the @setDryMasses@ an edit of an activity's exchanges takes,
 which states the dry mass of a product output, and the @dryMassesSet@ its
 answer gives;
@@ -1809,7 +1811,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 88
+currentWireVersion = 89
 
 getVersion :: AppM Value
 getVersion = do

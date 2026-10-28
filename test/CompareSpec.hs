@@ -10,6 +10,7 @@ module CompareSpec (spec) where
 
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Time.Calendar (fromGregorian)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
@@ -324,6 +325,27 @@ spec = describe "Service.Compare" $ do
             map chaMatch (dbcChanged c) `shouldBe` [SameProduct]
             dbcRemovedCount c `shouldBe` 1
 
+        it "pairs a name SimaPro cut at 80 characters with its geography" $ do
+            c <- compareVersions [row 1 (productFlow 700 pv) pv []] [row 2 (productFlow 701 (cut pv <> " U")) (cut pv) []]
+            (dbcAddedCount c, dbcRemovedCount c, map pamMatch (dbcUnchanged c) <> map chaMatch (dbcChanged c)) `shouldBe` (0, 0, [SameCutNames])
+
+        it "leaves two long names alike over their first 80 characters ambiguous against one" $ do
+            c <-
+                compareVersions
+                    [row 1 (productFlow 700 (pv <> " grid")) (pv <> " grid") [], row 2 (productFlow 701 (pv <> " house")) (pv <> " house") []]
+                    [row 3 (productFlow 702 (cut pv)) (cut pv) []]
+            map (\a -> (ambMatch a, length (ambBase a), length (ambOther a))) (dbcAmbiguous c) `shouldBe` [(SameCutNames, 2, 1)]
+
+        -- Neither is a cut: SimaPro writes no name longer than 80 characters.
+        it "never pairs two long names that differ only after 80 characters" $ do
+            c <- compareVersions [row 1 (productFlow 700 (pv <> " grid")) (pv <> " grid") []] [row 2 (productFlow 701 (pv <> " house")) (pv <> " house") []]
+            counts c `shouldBe` (1, 1, 0, 0, 0)
+
+        it "pairs two identical long names on their whole names" $ do
+            let long = [row 1 (productFlow 700 (pv <> " grid")) (pv <> " grid") [], row 2 (productFlow 701 (pv <> " house")) (pv <> " house") []]
+            c <- compareVersions long [r{rowActivity = rowActivity r + 10} | r <- long]
+            (dbcAmbiguousCount c, map pamMatch (dbcUnchanged c)) `shouldBe` (0, [SameNames, SameNames])
+
     describe "dates" $ do
         it "counts a pair that differs by its dates alone as redated, not changed" $ do
             let dated year = (row 1 wheat "wheat production" []){rowDates = noDates{datesLastRevised = Just (fromGregorian year 1 1)}}
@@ -400,6 +422,13 @@ wheat = productFlow 100 "wheat grain"
 barley = productFlow 300 "barley grain"
 oat = productFlow 400 "oat grain"
 rye = productFlow 500 "rye grain"
+
+-- | A name longer than SimaPro's cut, and the cut it writes: 80 characters of the name and its geography.
+pv :: Text
+pv = "Electricity, low voltage, PV, at 3kWp slanted-roof, single-Si, panel, mounted, at grid, distributed"
+
+cut :: Text -> Text
+cut name = T.take 80 (name <> " {FR}")
 maize = productFlow 600 "maize grain"
 
 productFlow :: Int -> Text -> TechnosphereFlow

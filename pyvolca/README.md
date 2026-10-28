@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 88** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 89** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -937,7 +937,7 @@ divides by. Needs wire revision 87. Their wet mass too:
 ``set_wet_masses`` states it per unit of each product, which on a
 product in litres or cubic metres is its density, and ``wetMassesSet``
 counts the products reached; the ``"wet mass"`` key weighs it before
-the line's own amount. Needs wire revision 88.
+the line's own amount. Needs wire revision 89.
 
 A selector that names nothing is refused rather than treated as done.
 One that names several lines applies to all of them, and the counts come
@@ -2673,8 +2673,10 @@ A pair of activities that differ, and the rung of the cascade that paired them.
 
 ``matched_on`` is ``"SameProcessId"``, ``"SameNames"`` (the same activity
 and product names, case and a trailing geography aside, at the same
-location) or ``"SameProduct"`` (the same reference product at the same
-location, from the same kind of activity).
+location), ``"SameProduct"`` (the same reference product at the same
+location, from the same kind of activity) or ``"SameCutNames"`` (the same
+names cut at 80 characters with their geography, as SimaPro cuts them,
+for a name longer than that).
 
 | Field | Type | Default |
 |-------|------|---------|

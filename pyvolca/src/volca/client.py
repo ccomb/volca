@@ -1302,7 +1302,7 @@ class Client:
         ``set_wet_masses`` states it per unit of each product, which on a
         product in litres or cubic metres is its density, and ``wetMassesSet``
         counts the products reached; the ``"wet mass"`` key weighs it before
-        the line's own amount. Needs wire revision 88.
+        the line's own amount. Needs wire revision 89.
 
         A selector that names nothing is refused rather than treated as done.
         One that names several lines applies to all of them, and the counts come
@@ -1367,7 +1367,7 @@ class Client:
         if set_dry_masses:
             self._require_wire(87, "edit_exchanges(set_dry_masses=)", engine_hint="0.16.1")
         if set_wet_masses:
-            self._require_wire(88, "edit_exchanges(set_wet_masses=)", engine_hint="0.16.1")
+            self._require_wire(89, "edit_exchanges(set_wet_masses=)", engine_hint="0.16.1")
         target = self._db(db_name)
         return self._json(
             self._session.post(
