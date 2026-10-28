@@ -208,6 +208,8 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "licence" :> ReqBody '[JSON] Licence :> Put '[JSON] Licence
                 -- Which published database an uploaded database is, or null for none
                 :<|> "db" :> Capture "dbName" Text :> "release" :> ReqBody '[JSON] (Maybe Release) :> Put '[JSON] (Maybe Release)
+                -- The name an uploaded database is shown under; its slug stays
+                :<|> "db" :> Capture "dbName" Text :> "display-name" :> ReqBody '[JSON] DisplayName :> Put '[JSON] DisplayName
                 -- A database accepted in place of a release a packaged database requires
                 :<|> "db" :> Capture "dbName" Text :> "accept-substitution" :> ReqBody '[JSON] ReleaseSubstitution :> Post '[JSON] DatabaseSetupInfo
                 -- Upload endpoint (streamed octet-stream body; metadata in query params)
@@ -1629,7 +1631,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 90: the @added@ moment a database, a method collection or a
+(revision 91: renaming an uploaded database, the name it is shown under and
+not its slug, at @PUT /db/{db}/display-name@;
+revision 90: the @added@ moment a database, a method collection or a
 reference table lists, when the engine made it;
 revision 89: the @setWetMasses@ an edit of an activity's exchanges takes,
 which states the wet mass of a product output, its density when the product is
@@ -1824,7 +1828,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 90
+currentWireVersion = 91
 
 getVersion :: AppM Value
 getVersion = do
@@ -3407,6 +3411,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.documentFileHandler
             :<|> DBHandlers.setLicenceHandler
             :<|> DBHandlers.setReleaseHandler
+            :<|> DBHandlers.setDisplayNameHandler
             :<|> DBHandlers.acceptSubstitutionHandler
             :<|> DBHandlers.uploadDatabaseHandler
             :<|> DBHandlers.getDatabaseSetupHandler

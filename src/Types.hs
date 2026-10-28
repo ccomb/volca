@@ -16,7 +16,7 @@ module Types (
 
 import API.JsonOptions (Stripped (..))
 import Control.DeepSeq (NFData)
-import Control.Monad ((<=<), (>=>))
+import Control.Monad (mfilter, (<=<), (>=>))
 import Crypto.Hash (SHA256 (..), hashWith)
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, withText, (.!=), (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
@@ -2879,6 +2879,21 @@ data Release = Release
     }
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Release)
+
+{- | The name a database is shown under, which its owner may change: never its
+slug, which its links and the databases depending on it keep. Never blank,
+the same rule an upload's name meets.
+-}
+newtype DisplayName = DisplayName {displayNameText :: Text}
+    deriving (Show, Eq)
+    deriving (ToJSON, ToSchema) via Text
+
+-- | The name with the spaces around it dropped, or nothing when only spaces are left.
+mkDisplayName :: Text -> Maybe DisplayName
+mkDisplayName = fmap DisplayName . mfilter (not . T.null) . Just . T.strip
+
+instance FromJSON DisplayName where
+    parseJSON = withText "DisplayName" (maybe (fail "A database's name cannot be blank") pure . mkDisplayName)
 
 {- | How a database's data came to differ from the files it was read from: its
 own edits, kept in its journal, and a division of its multi-output blocks other

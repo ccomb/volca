@@ -46,6 +46,7 @@ module API.DatabaseHandlers (
     documentFileHandler,
     setLicenceHandler,
     setReleaseHandler,
+    setDisplayNameHandler,
     acceptSubstitutionHandler,
     licenceRefusal,
     refuseUnlessGranted,
@@ -262,6 +263,7 @@ import Database.Manager (
     removeMethodCollection,
     removeUnitDefs,
     setDataPath,
+    setUploadDisplayName,
     setUploadLicence,
     setUploadRelease,
     setupErrorMessage,
@@ -298,6 +300,7 @@ import Types (
     ClassificationFilter (..),
     ClassificationMatch (..),
     Database (..),
+    DisplayName,
     FileReading (..),
     GeographyPolicy (..),
     Licence (..),
@@ -996,6 +999,17 @@ setReleaseHandler dbName release = do
     guardMutation
     dbManager <- asks aeDbManager
     liftIO (setUploadRelease dbManager dbName release) >>= either settingRefused pure
+
+{- | Rename an uploaded database, and answer with the name kept: the one sent
+without the spaces around it. 404 for a name the engine does not know, 409
+for a database the configuration file declares, 500 for an upload whose
+meta.toml cannot be read. A blank name is refused before it gets here.
+-}
+setDisplayNameHandler :: Text -> DisplayName -> AppM DisplayName
+setDisplayNameHandler dbName name = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    liftIO (setUploadDisplayName dbManager dbName name) >>= either settingRefused pure
 
 {- | Accept a database in place of a release an uploaded database requires,
 and answer with its setup as it now links. 404 for a name the engine does not

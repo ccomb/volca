@@ -727,6 +727,25 @@ class TestEditExchanges:
 
 
 # ---------------------------------------------------------------------------
+# set_display_name
+# ---------------------------------------------------------------------------
+
+
+class TestSetDisplayName:
+    def test_a_name_travels_as_a_json_string(self, mocked_client):
+        from tests.conftest import _make_response
+
+        client, session = mocked_client
+        client._checked = True
+        client._server_wire = 91
+        session.put.return_value = _make_response("Cheeses")
+        assert client.set_display_name("Cheeses") == "Cheeses"
+        call = session.put.call_args
+        assert call[0][0] == "http://test.local/api/v1/db/testdb/display-name"
+        assert call[1]["json"] == "Cheeses"
+
+
+# ---------------------------------------------------------------------------
 # set_release
 # ---------------------------------------------------------------------------
 

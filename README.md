@@ -142,7 +142,8 @@ load = true
 
 [[databases]]
 name = "my-sector-db"
-displayName = "Sector DB"
+displayName = "Sector DB"      # the name shown; an upload is renamed with
+                               # PUT /db/{name}/display-name, its name staying
 path = "DBs/sector.CSV"
 depends = ["agribalyse-3.2"]   # loads agribalyse first, then links
 load = true

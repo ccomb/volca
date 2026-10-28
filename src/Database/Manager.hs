@@ -122,6 +122,7 @@ module Database.Manager (
     setUploadLicence,
     SettingRefusal (..),
     setUploadRelease,
+    setUploadDisplayName,
     acceptSubstitution,
     getDatabaseSetupInfo,
     buildLoadedSetupInfo,
@@ -301,6 +302,7 @@ import Types (
     CrossDBLinkingStats (..),
     Database (..),
     DatabaseDocumentation (..),
+    DisplayName (..),
     ExchangeLocation (..),
     FileReading (..),
     FlowClosure (..),
@@ -2117,7 +2119,12 @@ writeUploadSetting manager dbName UploadSetting{..} = runExceptT $ do
     meta <- liftIO (UploadedDB.readUploadMeta uploadRoot) >>= maybe (throwE (SettingUnrecordable ("No readable meta.toml under " <> T.pack uploadRoot <> ": the " <> usNoun <> " of " <> dbName <> " would be lost at the next restart"))) pure
     liftIO $ do
         UploadedDB.writeUploadMeta uploadRoot (usMeta meta)
-        atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust usConfig dbName)
+        -- A staged and a loaded database each keep the config they were made
+        -- with, which MCP, the export and the setup read: all three move together.
+        atomically $ do
+            modifyTVar' (dmAvailableDbs manager) (M.adjust usConfig dbName)
+            modifyTVar' (dmStagedDbs manager) (M.adjust (\s -> s{sdConfig = usConfig (sdConfig s)}) dbName)
+            modifyTVar' (dmLoadedDbs manager) (M.adjust (\l -> l{ldConfig = usConfig (ldConfig l)}) dbName)
   where
     inConfigurationFile :: DatabaseConfig -> Maybe Text
     inConfigurationFile config
@@ -2163,6 +2170,22 @@ setUploadRelease manager dbName release = do
     -- ones staged before this declaration are staged again when next asked.
     atomically $ modifyTVar' (dmStagedDbs manager) (M.filter (null . dcRequires . sdConfig))
     pure (release <$ written)
+
+{- | Rename an uploaded database: the name it is shown under, not its slug. A
+copy is named in its own meta.toml, so it is renamed apart from its source.
+-}
+setUploadDisplayName :: DatabaseManager -> Text -> DisplayName -> IO (Either SettingRefusal DisplayName)
+setUploadDisplayName manager dbName name =
+    (name <$)
+        <$> writeUploadSetting
+            manager
+            dbName
+            UploadSetting
+                { usNoun = "name"
+                , usHeldElsewhere = const Nothing
+                , usMeta = \meta -> meta{UploadedDB.umDisplayName = displayNameText name}
+                , usConfig = \c -> c{dcDisplayName = displayNameText name}
+                }
 
 {- | Accept a database in place of a release an uploaded database requires.
 Recorded like any setting; its staged links and its matrix cache are dropped,

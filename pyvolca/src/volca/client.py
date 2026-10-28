@@ -1847,6 +1847,20 @@ class Client:
             raise VoLCAError(f"set_release failed (HTTP {resp.status_code}): {resp.text[:500]}")
         return resp.json()
 
+    def set_display_name(self, name: str, db_name: str | None = None) -> str:
+        """Rename an uploaded database: the name it is shown under, not the
+        name it is addressed by, which its links and the databases depending
+        on it keep.
+
+        Returns the name kept, without the spaces around it. Raises
+        VoLCAError on an HTTP error: a 400 for a blank name, a 404 for an
+        unknown database, a 409 for one the configuration file declares.
+        Needs wire revision 91.
+        """
+        self._require_wire(91, "set_display_name", engine_hint="0.16.1")
+        target = self._db(db_name)
+        return self._json(self._session.put(f"{self.base_url}/api/v1/db/{target}/display-name", json=name))
+
     def accept_substitution(self, release: dict, database: str, db_name: str | None = None) -> dict:
         """Accept ``database`` in place of a release a packaged database requires.
 
