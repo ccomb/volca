@@ -1009,10 +1009,17 @@ class Client:
 
             {"text": "name = ...",
              "exceptions": [{"key": "wet mass", "reason": "...",
-                             "processes": [{"activity": "...", "name": "..."}]}]}
+                             "processes": [{"activity": "...", "name": "..."}]}],
+             "substitutions": [{"coproduct": "...", "block": "...", "coproductName": "...",
+                                "replaces": "...", "replacedProcess": "...",
+                                "replacedProduct": "...", "ratio": 21.5, "reason": "..."}]}
 
         ``text`` is the model's file as written; each exception lists the
         processes of the parent it takes, read on the parent as now loaded.
+        Each substitution names a coproduct the model does not divide, and the
+        process of the parent it is credited against, ``ratio`` units of that
+        process's product per unit of the coproduct (wire revision 91; an
+        older engine sends no ``substitutions``).
         Refused on a database that is not a child, or whose parent is not
         loaded. Needs wire revision 85.
         """
@@ -1855,9 +1862,9 @@ class Client:
         Returns the name kept, without the spaces around it. Raises
         VoLCAError on an HTTP error: a 400 for a blank name, a 404 for an
         unknown database, a 409 for one the configuration file declares.
-        Needs wire revision 91.
+        Needs wire revision 92.
         """
-        self._require_wire(91, "set_display_name", engine_hint="0.16.1")
+        self._require_wire(92, "set_display_name", engine_hint="0.16.1")
         target = self._db(db_name)
         return self._json(self._session.put(f"{self.base_url}/api/v1/db/{target}/display-name", json=name))
 

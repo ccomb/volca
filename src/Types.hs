@@ -2549,9 +2549,10 @@ parseFileReading raw =
                     <> " is no longer read from the files: read the database under none, as a parent, and derive a child from it with a system model"
 
 {- | How a child is divided from its parent: one property for every block of
-several products, and exceptions that give some of them another one, each with
-the reason it was made. The file it was written in is kept as written, since it
-is what a child's delivery cites.
+several products, exceptions that give some of them another one, and
+coproducts left out of the division for what they displace, each with the
+reason it was made. The file it was written in is kept as written, since it is
+what a child's delivery cites.
 -}
 data SystemModel = SystemModel
     { smName :: !Text
@@ -2559,9 +2560,29 @@ data SystemModel = SystemModel
     , smDescription :: !(Maybe Text)
     , smDefault :: !AllocationProperty
     , smExceptions :: ![ModelException]
+    , smSubstitutions :: ![ModelSubstitution]
     , smText :: !Text
     }
     deriving (Show, Eq, Generic, NFData)
+
+{- | A coproduct of a block of the parent that is not divided: the products
+left carry the whole block, credited with what the coproduct displaces, a
+process of the parent, 'subRatio' of its product per unit of the coproduct.
+-}
+data ModelSubstitution = ModelSubstitution
+    { subCoproduct :: !ProcessRef
+    , subReplaces :: !ProcessRef
+    , subRatio :: !Ratio
+    , subReason :: !Reason
+    }
+    deriving (Show, Eq, Generic, NFData)
+
+-- | How much of a product one unit of another displaces. Finite and above zero: only the decoder builds one.
+newtype Ratio = Ratio Double
+    deriving (Show, Eq, Generic, NFData)
+
+ratioValue :: Ratio -> Double
+ratioValue (Ratio r) = r
 
 -- | Some blocks of the parent divided under another property, and why.
 data ModelException = ModelException

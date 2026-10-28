@@ -737,7 +737,7 @@ class TestSetDisplayName:
 
         client, session = mocked_client
         client._checked = True
-        client._server_wire = 91
+        client._server_wire = 92
         session.put.return_value = _make_response("Cheeses")
         assert client.set_display_name("Cheeses") == "Cheeses"
         call = session.put.call_args

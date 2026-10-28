@@ -32,8 +32,12 @@ import API.Types (
     LineChange (..),
     LineMatch (..),
     LineRole (..),
+    PairRefusal (..),
     PairedActivities (..),
     Quantity (..),
+    ScorePair (..),
+    ScorePairs (..),
+    SetApartPair (..),
     SummaryChange (..),
     Supplier (..),
     UncomparedLine (..),
@@ -41,7 +45,8 @@ import API.Types (
  )
 import Database (buildDatabaseWithMatrices)
 import Database.Author (AuthorContext (..), EditedActivity (..), ExchangeEdit, applyExchangeEdits, authoredActivityUUID)
-import Service.Compare (ProcessIn (..), Sides (..), applicableChanges, changesPresent, compareActivities, compareDatabases, limitComparison, resolveProcess)
+import Service.Compare (ProcessIn (..), Sides (..), applicableChanges, changesPresent, compareActivities, compareDatabases, limitComparison, resolveProcess, scorePairs)
+import TestHelpers (unitDef)
 import Types (
     Activity (..),
     BioDirection (..),
@@ -64,7 +69,7 @@ import Types (
     noDocumentation,
     noProperties,
  )
-import UnitConversion (defaultUnitConfig)
+import UnitConversion (UnitConfig, defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
 spec :: Spec
 spec = describe "Service.Compare" $ do
@@ -358,6 +363,31 @@ spec = describe "Service.Compare" $ do
             c <- compareVersions [dated 2023 1] [dated 2024 2]
             (dbcChangedCount c, dbcRedatedCount c) `shouldBe` (1, 0)
 
+    describe "pairs to score" $ do
+        let electricity = productFlow 700 "electricity"
+            producedIn unit = [(row 1 electricity "electricity production" []){rowUnit = unit}]
+            scorePairsOf base other = scorePairs withEnergy <$> (Sides <$> database base <*> database other)
+
+        it "scales a score per megajoule to one per kilowatt hour" $ do
+            pairs <- scorePairsOf (producedIn kWh) (producedIn megajoule)
+            (map spPerBaseUnit (spsPairs pairs), map sapReason (spsSetApart pairs)) `shouldBe` ([3.6], [])
+
+        it "sets apart a pair whose products are measured in different quantities" $ do
+            pairs <- scorePairsOf (producedIn kg) (producedIn item)
+            (length (spsPairs pairs), map sapReason (spsSetApart pairs)) `shouldBe` (0, [DifferentMeasures "kg" "item"])
+
+        it "sets apart a pair whose unit no table knows" $ do
+            pairs <- scorePairsOf (producedIn kg) (producedIn nonsense)
+            map sapReason (spsSetApart pairs) `shouldBe` [UnknownUnit "bushel of nonsense"]
+
+        it "sets apart a pair whose product names a unit its database does not register" $ do
+            pairs <- scorePairsOf (producedIn kg) (producedIn strayUnit)
+            map sapReason (spsSetApart pairs) `shouldBe` [UnregisteredUnit]
+
+        it "counts the activities left without a pair" $ do
+            pairs <- scorePairsOf (producedIn kg ++ [row 2 rye "rye production" []]) (producedIn kg)
+            (length (spsPairs pairs), spsUnpairedBaseCount pairs, spsUnpairedOtherCount pairs) `shouldBe` (1, 1, 0)
+
     it "a limit shortens the lists, never the counts" $ do
         c <- compareVersions [row 1 wheat "wheat production" [], row 4 rye "rye production" []] [row 1 wheat "wheat production" [], row 4 rye "rye production" [], row 2 barley "barley production" [], row 3 oat "oat production" []]
         let limited = limitComparison 1 c
@@ -394,6 +424,13 @@ kg = Unit{unitId = uuid 1, unitName = "kg", unitSymbol = "kg", unitComment = ""}
 gram = Unit{unitId = uuid 2, unitName = "g", unitSymbol = "g", unitComment = ""}
 -- The same unit under another identifier, as a second format would mint it.
 kgAgain = Unit{unitId = uuid 3, unitName = "kg", unitSymbol = "kg", unitComment = ""}
+
+kWh, megajoule, item, nonsense :: Unit
+kWh = Unit{unitId = uuid 6, unitName = "kWh", unitSymbol = "kWh", unitComment = ""}
+megajoule = Unit{unitId = uuid 7, unitName = "MJ", unitSymbol = "MJ", unitComment = ""}
+item = Unit{unitId = uuid 8, unitName = "item", unitSymbol = "item", unitComment = ""}
+-- A unit no unit table knows.
+nonsense = Unit{unitId = uuid 9, unitName = "bushel of nonsense", unitSymbol = "bushel of nonsense", unitComment = ""}
 
 -- Units a line names but the registry of its database lacks.
 strayUnit, otherStrayUnit :: Unit
@@ -537,10 +574,11 @@ data Row = Row
     , rowLines :: [Exchange]
     , rowDates :: DatasetDates
     , rowDescription :: [Text]
+    , rowUnit :: Unit
     }
 
 row :: Int -> TechnosphereFlow -> Text -> [Exchange] -> Row
-row n flow name lines' = Row{rowActivity = n, rowProduct = flow, rowName = name, rowAmount = 1, rowType = Nothing, rowLines = lines', rowDates = noDates, rowDescription = []}
+row n flow name lines' = Row{rowActivity = n, rowProduct = flow, rowName = name, rowAmount = 1, rowType = Nothing, rowLines = lines', rowDates = noDates, rowDescription = [], rowUnit = kg}
 
 database :: [Row] -> IO Database
 database = databaseKeyed (uuid . rowActivity)
@@ -556,7 +594,7 @@ databaseKeyed key rows = do
                 , sdbTechFlows = M.fromList [(tfId (rowProduct r), rowProduct r) | r <- rows]
                 , sdbBioFlows = M.fromList [(bfId f, f) | f <- [co2, co2Renumbered, water]]
                 , sdbWasteFlows = M.empty
-                , sdbUnits = M.fromList [(unitId u, u) | u <- [kg, gram, kgAgain]]
+                , sdbUnits = M.fromList [(unitId u, u) | u <- [kg, gram, kgAgain, kWh, megajoule, item, nonsense]]
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
@@ -590,7 +628,7 @@ entry key r =
         TechnosphereExchange
             { techFlowId = tfId (rowProduct r)
             , techAmount = rowAmount r
-            , techUnitId = unitId kg
+            , techUnitId = unitId (rowUnit r)
             , techRole = ReferenceProduct
             , techActivityLinkId = Just (key r)
             , techSupplierClaim = ClaimByProduct
@@ -602,6 +640,13 @@ entry key r =
             , techClassification = M.empty
             , techProperties = noProperties
             }
+
+-- | The default unit table, which measures no energy, plus the two units of energy the cases need.
+withEnergy :: UnitConfig
+withEnergy =
+    mkUnitConfig
+        (ucDimensionOrder defaultUnitConfig)
+        (M.union (M.fromList [("kWh", unitDef "energy" 3.6), ("MJ", unitDef "energy" 1)]) (ucUnits defaultUnitConfig))
 
 -- | Changes asked about or applied with no reason given.
 changesQuery :: [SummaryChange] -> [ExchangeChange] -> ChangesQuery
