@@ -160,6 +160,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "catalogue" :> "fingerprint" :> Get '[JSON] CatalogueFingerprint
                 :<|> "db" :> Capture "dbName" Text :> "compare" :> QueryParam "other_database" Text :> QueryParam "limit" Int :> Get '[JSON] DatabaseComparison
                 :<|> "db" :> Capture "dbName" Text :> "impacts" :> Capture "collection" DM.CollectionName :> QueryParam "top-flows" Int :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] BatchImpactsRequest :> Post '[JSON] BatchImpactsResponse
+                :<|> "db" :> Capture "dbName" Text :> "impacts" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "top-flows" Int :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] BatchImpactsRequest :> Post '[JSON] BatchImpactsResponse
                 -- Database management endpoints
                 :<|> "db" :> Get '[JSON] DatabaseListResponse
                 -- Load/Unload/Delete endpoints
@@ -1141,17 +1142,20 @@ withScoringSlot :: DatabaseManager -> AppM a -> AppM a
 withScoringSlot dm = maybe id (\slots -> bracket_ (liftIO (waitQSem slots)) (liftIO (signalQSem slots))) (dmScoringSlots dm)
 
 {- | Top-level multi-activity batch impacts, a chunk of activities per solve,
-parallel characterization. Used by the Servant POST route and by
-API.BatchImpacts.
+parallel characterization. Used by the Servant POST routes and by
+API.BatchImpacts. Given a method of the collection, only that one is scored:
+characterization costs per method, so one category of a large database comes
+back several times faster than the whole collection.
 -}
 batchImpactsH ::
     Text ->
     DM.CollectionName ->
+    Maybe Text ->
     Maybe Int ->
     LongTermMode ->
     BatchImpactsRequest ->
     AppM BatchImpactsResponse
-batchImpactsH dbName collectionName topFlowsParam ltMode req = do
+batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
     -- Before any lookup, like the read-only guard: a request this instance
     -- will not run gets the same answer whether or not its names resolve.
     hosting <- asks aeHostingConfig
@@ -1160,10 +1164,17 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
     dbManager <- asks aeDbManager
     loaded@(db, sharedSolver) <- requireDatabaseByName dbName
     loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
-    collection <- case M.lookup (DM.unCollectionName collectionName) loadedCollections of
+    whole <- case M.lookup (DM.unCollectionName collectionName) loadedCollections of
         Just mc -> pure mc
         Nothing ->
             throwError err404{errBody = collectionNotLoadedBody (DM.unCollectionName collectionName) (M.keys loadedCollections)}
+    -- A scoring set read off one of its categories would be wrong without
+    -- saying so, so a single method comes back without any.
+    collection <- case methodParam of
+        Nothing -> pure whole
+        Just methodText -> do
+            method <- loadMethodInCollection collectionName methodText
+            pure whole{mcMethods = [method], mcScoringSets = []}
     let resolved =
             [ (pidText, Service.resolveScorable db pidText)
             | pidText <- birProcessIds req
@@ -1305,7 +1316,7 @@ computedQualityReportH dbName mCollection mLimit = do
                             <> " in one request."
                 }
     response <-
-        batchImpactsH dbName collection Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = M.keys entriesByPid, birParameterSets = []}
+        batchImpactsH dbName collection Nothing Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = M.keys entriesByPid, birParameterSets = []}
     -- The ids come from the catalogue itself, so nothing should be
     -- unresolvable – but a dropped entry would silently shrink the report,
     -- so any is worth a warning in the log.
@@ -3311,9 +3322,15 @@ catalogueOf dbName = do
     pure (catalogueEntries unitCfg db)
 
 postImpactsBatch :: Text -> DM.CollectionName -> Maybe Int -> Maybe Bool -> BatchImpactsRequest -> AppM BatchImpactsResponse
-postImpactsBatch dbName collectionName topFlowsParam mExcludeLT =
+postImpactsBatch dbName collectionName = scoreBatchUnder dbName collectionName Nothing
+
+postMethodImpactsBatch :: Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> BatchImpactsRequest -> AppM BatchImpactsResponse
+postMethodImpactsBatch dbName collectionName methodText = scoreBatchUnder dbName collectionName (Just methodText)
+
+scoreBatchUnder :: Text -> DM.CollectionName -> Maybe Text -> Maybe Int -> Maybe Bool -> BatchImpactsRequest -> AppM BatchImpactsResponse
+scoreBatchUnder dbName collectionName methodParam topFlowsParam mExcludeLT =
     countedEach Scoring dbName (map (ProcessKey . bieProcessId) . birResults)
-        . batchImpactsH dbName collectionName topFlowsParam (longTermModeFromExclude (fromMaybe False mExcludeLT))
+        . batchImpactsH dbName collectionName methodParam topFlowsParam (longTermModeFromExclude (fromMaybe False mExcludeLT))
 
 -- ---------------------------------------------------------------------------
 -- Servant server
@@ -3369,6 +3386,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getCatalogueFingerprint
             :<|> getDatabaseComparison
             :<|> postImpactsBatch
+            :<|> postMethodImpactsBatch
             :<|> DBHandlers.getDatabases
             :<|> DBHandlers.loadDatabaseHandler
             :<|> DBHandlers.unloadDatabaseHandler

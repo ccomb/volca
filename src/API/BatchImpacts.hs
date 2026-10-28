@@ -115,7 +115,7 @@ runBatchImpacts ::
     [[ParameterValue]] ->
     IO (Either BatchError BatchImpactsResponse)
 runBatchImpacts dbm hosting dbName coll topFlows ltMode pids sets =
-    runBare dbm hosting (batchImpactsH dbName (CollectionName coll) topFlows ltMode BatchImpactsRequest{birProcessIds = pids, birParameterSets = sets})
+    runBare dbm hosting (batchImpactsH dbName (CollectionName coll) Nothing topFlows ltMode BatchImpactsRequest{birProcessIds = pids, birParameterSets = sets})
 
 {- | Computed-checks report over the whole catalogue of a loaded database.
 Same wire shape as the REST endpoint ('computedQualityReportH'), so both
