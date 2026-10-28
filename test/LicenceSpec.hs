@@ -61,6 +61,7 @@ configured =
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
         , dcRequires = []
+        , dcAdded = Nothing
         }
 
 refused :: Licence
@@ -90,6 +91,7 @@ withUpload k = withScratchDataDir $ do
             , UploadedDB.umRelease = Nothing
             , UploadedDB.umRequires = []
             , UploadedDB.umPackageMethod = Nothing
+            , UploadedDB.umAdded = Nothing
             }
     manager <- initDatabaseManager defaultConfig NoCache
     let upload = configured{dcName = "upload", dcIsUploaded = True}

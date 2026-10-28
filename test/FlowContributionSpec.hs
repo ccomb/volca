@@ -136,6 +136,7 @@ sampleConfig =
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
         , dcRequires = []
+        , dcAdded = Nothing
         }
 
 -- | A manager holding the sample database and the one-method collection.

@@ -27,6 +27,7 @@ config sets =
         , Config.mcActive = True
         , Config.mcDefault = False
         , Config.mcHome = Nothing
+        , Config.mcAdded = Nothing
         , Config.mcSource = Nothing
         , Config.mcDescription = Nothing
         , Config.mcFormat = Nothing

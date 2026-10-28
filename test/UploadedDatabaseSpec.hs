@@ -3,13 +3,15 @@
 module UploadedDatabaseSpec (spec) where
 
 import qualified Data.Text as T
+import Data.Time.Calendar (fromGregorian)
+import Data.Time.Clock (UTCTime (..))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import qualified Data.Set as S
 import Database.UploadedDatabase
 import TestHelpers (modelDividingBy)
-import Types (Acceptance (..), AllocationProperty (..), Attribution (..), FileReading (..), Licence (..), OwnLicence (..), Permission (..), Reading (..), Release (..), Requirement (..), StandardLicence (..), SystemModel (..))
+import Types (Acceptance (..), AllocationProperty (..), Attribution (..), FileReading (..), Licence (..), OwnLicence (..), Permission (..), Reading (..), Release (..), Requirement (..), StandardLicence (..), SystemModel (..), addedAt, addedText, parseAdded)
 
 -- | Minimal UploadMeta without description
 baseMeta :: UploadMeta
@@ -28,6 +30,7 @@ baseMeta =
         , umRelease = Nothing
         , umRequires = []
         , umPackageMethod = Nothing
+        , umAdded = Nothing
         }
 
 spec :: Spec
@@ -89,6 +92,41 @@ spec = do
              in formatMetaToml meta `shouldSatisfy` ("ilcd" `T.isInfixOf`)
 
     -- -----------------------------------------------------------------------
+    -- the moment a thing was made
+    -- -----------------------------------------------------------------------
+    describe "the moment a thing was made" $ do
+        let made = baseMeta{umAdded = parseAdded "2026-10-28T13:30:59Z"}
+            file = "version = 10\ndisplayName = \"DB\"\nformat = \"ecospold2\"\ndataPath = \"d\"\n"
+
+        it "is written to the second and read back" $ do
+            formatMetaToml made `shouldSatisfy` ("added = \"2026-10-28T13:30:59Z\"" `T.isInfixOf`)
+            parseMetaToml (formatMetaToml made) `shouldBe` Just made
+
+        it "is left out for a thing the engine did not date, which reads back with none" $ do
+            formatMetaToml baseMeta `shouldSatisfy` (not . ("added" `T.isInfixOf`))
+            fmap umAdded (parseMetaToml (formatMetaToml baseMeta)) `shouldBe` Just Nothing
+
+        it "is none in a file written before it existed" $
+            fmap umAdded (parseMetaToml file) `shouldBe` Just Nothing
+
+        it "does not refuse a database over a moment nobody can read" $
+            fmap umAdded (parseMetaToml (file <> "added = \"yesterday\"\n")) `shouldBe` Just Nothing
+
+        it "is cut to the second, and its text sorts in the order of time" $ do
+            let at = addedAt . UTCTime (fromGregorian 2026 10 28)
+            addedText (at 49859.75) `shouldBe` "2026-10-28T13:50:59Z"
+            addedText (at 49859.75) `shouldSatisfy` (< addedText (at 49860))
+
+        it "is read from the shorter file a reference table writes" $
+            withSystemTempDirectory "added" $ \dir -> do
+                writeFile (dir ++ "/meta.toml") "[meta]\nversion = 1\ndisplayName = \"Mine\"\nadded = \"2026-10-28T13:30:59Z\"\n\n"
+                readAdded dir `shouldReturn` parseAdded "2026-10-28T13:30:59Z"
+
+        it "is none where there is no such file" $
+            withSystemTempDirectory "added" $
+                \dir -> readAdded dir `shouldReturn` Nothing
+
+    -- -----------------------------------------------------------------------
     -- parseMetaToml
     -- -----------------------------------------------------------------------
     describe "parseMetaToml" $ do
@@ -110,6 +148,7 @@ spec = do
                         , umRelease = Nothing
                         , umRequires = []
                         , umPackageMethod = Nothing
+                        , umAdded = Nothing
                         }
 
         it "parses meta with description" $ do

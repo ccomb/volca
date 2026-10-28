@@ -53,6 +53,7 @@ configured dir =
         , mcActive = True
         , mcDefault = False
         , mcHome = Nothing
+        , mcAdded = Nothing
         , mcSource = Nothing
         , mcDescription = Nothing
         , mcFormat = Nothing

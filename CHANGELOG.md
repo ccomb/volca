@@ -18,6 +18,14 @@
   before it could not weigh the litre at all and left the whole process
   undivided. A wet mass stated on a product is weighed before the product's
   own amount. Wire revision 89.
+- A database, a method collection or a reference table says when the engine
+  made it: on upload, copy or derivation, to the second and in UTC
+  (`added`, as `2026-10-28T13:30:59Z`, in the lists of databases, method
+  collections and reference data, and `DatabaseInfo.added` in pyvolca). A
+  list can be ordered by it. What the configuration declares, what is built
+  into the engine, and what was uploaded before this release carry none:
+  the moment is not guessed from the age of a file, which every edit renews.
+  Wire revision 90.
 
 ### Added
 

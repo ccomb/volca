@@ -34,6 +34,7 @@ config name release requires =
         , dcLicence = LicenceUnstated
         , dcRelease = release
         , dcRequires = requires
+        , dcAdded = Nothing
         }
 
 -- | A model built on ecoinvent 3.12, beside the databases a reader may hold.

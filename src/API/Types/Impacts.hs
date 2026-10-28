@@ -58,6 +58,7 @@ data MethodCollectionStatusAPI = MethodCollectionStatusAPI
     , mcaMethodCount :: Int -- Number of impact categories (0 if unloaded)
     , mcaFormat :: Maybe Text -- Format (e.g. "ILCD")
     , mcaSource :: Maybe Text -- The collection this one is a copy of
+    , mcaAdded :: Maybe Text -- When the engine made it, as 2026-10-28T13:30:59Z (UTC, to the second); none for a declared or built-in collection
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped MethodCollectionStatusAPI)

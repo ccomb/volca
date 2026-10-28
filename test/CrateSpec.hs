@@ -80,6 +80,7 @@ config name release =
         , dcLicence = LicenceUnstated
         , dcRelease = release
         , dcRequires = []
+        , dcAdded = Nothing
         }
 
 spec :: Spec

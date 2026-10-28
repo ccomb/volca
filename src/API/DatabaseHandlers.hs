@@ -309,6 +309,8 @@ import Types (
     Release (..),
     Requirement (..),
     SystemModel (..),
+    addedNow,
+    addedText,
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
@@ -1321,6 +1323,7 @@ uploadDatabaseHandler mName mDesc src = do
             Left err -> failWith err400 err
             Right uploadResult -> do
                 let uploadDir = uploadsDir </> T.unpack (urSlug uploadResult)
+                added <- liftIO addedNow
 
                 -- Create meta.toml for self-describing upload
                 let meta =
@@ -1338,6 +1341,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , UploadedDB.umRelease = Nothing
                             , UploadedDB.umRequires = requires
                             , UploadedDB.umPackageMethod = Nothing
+                            , UploadedDB.umAdded = Just added
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1362,6 +1366,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , dcLicence = licence
                             , dcRelease = Nothing
                             , dcRequires = requires
+                            , dcAdded = Just added
                             }
 
                 -- Add to manager
@@ -1394,6 +1399,7 @@ convertDbStatus ds =
         , dsaLicence = dsLicence ds
         , dsaRelease = dsRelease ds
         , dsaModification = dsModification ds
+        , dsaAdded = addedText <$> dsAdded ds
         }
   where
     statusToText Unloaded = "unloaded"
@@ -1436,6 +1442,7 @@ makeStatusFromLoadedDb configs modification loaded =
             , dsaLicence = licenceOf configs config
             , dsaRelease = dcRelease config
             , dsaModification = modification
+            , dsaAdded = addedText <$> dcAdded config
             }
 
 -- uploadFormatToMeta removed - types are now unified (UploadedDB re-exports from Upload)
@@ -1560,6 +1567,7 @@ uploadMethodHandler mName mDesc src =
                             liftIO $ void (try (System.Directory.removeDirectoryRecursive uploadDir) :: IO (Either SomeException ()))
                             failWith err400 ("An uploaded openLCA package must hold one method: " <> err <> ". Export that method alone from openLCA.")
 
+                added <- liftIO addedNow
                 -- Create meta.toml (store path relative to upload dir)
                 let meta =
                         UploadedDB.UploadMeta
@@ -1576,6 +1584,7 @@ uploadMethodHandler mName mDesc src =
                             , UploadedDB.umRelease = Nothing
                             , UploadedDB.umRequires = []
                             , UploadedDB.umPackageMethod = Nothing
+                            , UploadedDB.umAdded = Just added
                             }
                 liftIO $ UploadedDB.writeUploadMeta uploadDir meta
 
@@ -1589,6 +1598,7 @@ uploadMethodHandler mName mDesc src =
                             , mcHome = Just uploadDir
                             , mcSource = Nothing
                             , mcDescription = mDescription
+                            , mcAdded = Just added
                             , mcFormat = detectedFormatLabel methodFormat
                             , mcScoringSets = []
                             , mcGlobalMethods = []
@@ -1680,6 +1690,7 @@ convertRefDataStatus s =
         , rdaIsUploaded = rdsIsUploaded s
         , rdaIsAuto = rdsIsAuto s
         , rdaEntryCount = rdsEntryCount s
+        , rdaAdded = addedText <$> rdsAdded s
         }
 
 listRefData :: RefDataKind -> AppM RefDataListResponse
@@ -1713,6 +1724,7 @@ uploadRefData kind mName mDesc src =
         dbManager <- asks aeDbManager
         let (_, _, _, addFn, _, uploadsDirOf) = rdOps kind
         uploadsDir <- liftIO uploadsDirOf
+        added <- liftIO addedNow
         let slug = T.toLower $ T.intercalate "-" $ T.words name
             uploadDir = uploadsDir </> T.unpack slug
             csvPath = uploadDir </> "data.csv"
@@ -1726,6 +1738,7 @@ uploadRefData kind mName mDesc src =
                         , "version = 1"
                         , "displayName = " <> quote name
                         , maybe "" (\d -> "description = " <> quote d) mDescription
+                        , "added = " <> quote (addedText added)
                         , ""
                         ]
             T.writeFile (uploadDir </> "meta.toml") metaContent
@@ -1737,6 +1750,7 @@ uploadRefData kind mName mDesc src =
                     , rdIsUploaded = True
                     , rdIsAuto = False
                     , rdDescription = mDescription
+                    , rdAdded = Just added
                     }
         liftIO $ addFn dbManager rd
         return $ UploadResponse True "Uploaded successfully" (Just slug) Nothing

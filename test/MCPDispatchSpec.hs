@@ -128,6 +128,7 @@ sampleConfig =
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
         , dcRequires = []
+        , dcAdded = Nothing
         }
 
 -- | Call a tool against that fixture, freshly loaded.

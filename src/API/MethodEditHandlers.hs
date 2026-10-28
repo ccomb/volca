@@ -70,6 +70,7 @@ import Method.Patch (describePatch)
 import Method.Scoring (RowTerms (..), ScoringGesture (..), ScoringRow (..), rowsOf, sumOfRows)
 import Method.Types (Compartment (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Service.CompareMethods (factorSide)
+import Types (addedText)
 
 {- | The copy answers with the collection it made, because the name it is
 known by is the slug of the one asked for, and the next request needs it.
@@ -99,6 +100,7 @@ methodCollectionStatusAPI s =
         , mcaMethodCount = mcsMethodCount s
         , mcaFormat = Just (mcsFormat s)
         , mcaSource = mcsSource s
+        , mcaAdded = addedText <$> mcsAdded s
         }
 
 editMethodFactorsHandler :: Text -> FactorEditRequest -> AppM MethodEditResponse

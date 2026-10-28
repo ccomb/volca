@@ -33,6 +33,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time.Calendar (Day)
+import Data.Time.Clock (UTCTime (..), getCurrentTime)
+import Data.Time.Format (defaultTimeLocale, formatTime, parseTimeM)
 import Data.Time.Format.ISO8601 (iso8601ParseM, iso8601Show)
 import Data.Time.LocalTime (TimeOfDay)
 import Data.UUID (UUID)
@@ -2896,6 +2898,37 @@ unmodified = Modification False False
 
 isModified :: Modification -> Bool
 isModified (Modification edited reallocated) = edited || reallocated
+
+{- | The moment the engine made a database, a method collection or a reference
+table, to the second. Written as text it sorts in the order of time, which is
+what lets a reader order a list by it without parsing. Kept only for what the
+engine made: what a configuration file declares, and what was made before the
+engine kept it, has no such moment, and it is not guessed from the age of a
+file, which every edit renews.
+-}
+newtype AddedAt = AddedAt UTCTime
+    deriving (Show, Eq, Ord)
+
+addedFormat :: String
+addedFormat = "%Y-%m-%dT%H:%M:%SZ"
+
+addedAt :: UTCTime -> AddedAt
+addedAt (UTCTime day time) = AddedAt (UTCTime day (fromInteger (floor time)))
+
+addedNow :: IO AddedAt
+addedNow = addedAt <$> getCurrentTime
+
+addedText :: AddedAt -> Text
+addedText (AddedAt time) = T.pack (formatTime defaultTimeLocale addedFormat time)
+
+parseAdded :: Text -> Maybe AddedAt
+parseAdded = fmap AddedAt . parseTimeM False defaultTimeLocale addedFormat . T.unpack
+
+instance ToJSON AddedAt where
+    toJSON = toJSON . addedText
+
+instance FromJSON AddedAt where
+    parseJSON = withText "AddedAt" (maybe (fail "not a moment written as 2026-10-28T13:30:59Z") pure . parseAdded)
 
 {- | Whether two releases are the same, read the way people write them: case
 and the run of spaces between words aside, but "3.12" is not "3.12.1".

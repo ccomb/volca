@@ -60,7 +60,7 @@ import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMetho
 import Method.ScoringEdit (ScoringEdit, planScoringEdit)
 import Method.Types (MethodCollection)
 import Progress (ProgressLevel (..), reportProgress)
-import Types (FileReading (..), Licence (..), Reading (..))
+import Types (AddedAt, FileReading (..), Licence (..), Reading (..), addedNow)
 
 -- | Why a change to a method collection was not made.
 data MethodEditRefusal
@@ -92,9 +92,10 @@ copyMethodCollection manager srcName newName = withMVar (dmMethodEditLock manage
     taken <- liftIO (doesDirectoryExist home)
     when (M.member slug available || taken) $ throwE (NameTaken slug)
     seed <- ExceptT (first EditRefused <$> journalSeed source)
-    recorded <- liftIO (recordMethodCopy home slug source seed)
+    added <- liftIO addedNow
+    recorded <- liftIO (recordMethodCopy home slug added source seed)
     either (\err -> liftIO (discardCopy manager slug home) >> throwE (EditRefused err)) pure recorded
-    liftIO (addMethodCollection manager (copyConfig slug home source))
+    liftIO (addMethodCollection manager (copyConfig slug home added source))
     loaded <- liftIO (loadMethodCollectionLocked manager slug)
     either (\err -> liftIO (discardCopy manager slug home) >> throwE (EditRefused err)) pure loaded
     pure slug
@@ -126,8 +127,8 @@ whole journal earns. A directory without @meta.toml@ is not discovered, so a
 copy cut short leaves nothing a restart would take for one, and its caller
 removes it.
 -}
-recordMethodCopy :: FilePath -> Text -> MethodConfig -> JournalSeed -> IO (Either Text ())
-recordMethodCopy home slug source seed = do
+recordMethodCopy :: FilePath -> Text -> AddedAt -> MethodConfig -> JournalSeed -> IO (Either Text ())
+recordMethodCopy home slug added source seed = do
     written <- try . runExceptT $ do
         liftIO (createDirectoryIfMissing True home)
         case seed of
@@ -153,6 +154,7 @@ recordMethodCopy home slug source seed = do
                     , UploadedDB.umRelease = Nothing
                     , UploadedDB.umRequires = []
                     , UploadedDB.umPackageMethod = mcPackageMethod source
+                    , UploadedDB.umAdded = Just added
                     }
     pure $ case written of
         Right result -> first (\err -> "could not record the copy " <> slug <> ": " <> err) result
@@ -164,14 +166,15 @@ recordMethodCopy home slug source seed = do
         MethodBuiltIn b -> Just (builtinMethodName b)
 
 -- | The copy as the registry lists it: its source's files, nothing configured.
-copyConfig :: Text -> FilePath -> MethodConfig -> MethodConfig
-copyConfig slug home source =
+copyConfig :: Text -> FilePath -> AddedAt -> MethodConfig -> MethodConfig
+copyConfig slug home added source =
     source
         { mcName = slug
         , mcActive = False
         , mcDefault = False
         , mcHome = Just home
         , mcSource = Just (mcName source)
+        , mcAdded = Just added
         , mcScoringSets = []
         , mcGlobalMethods = []
         , mcPatches = []
