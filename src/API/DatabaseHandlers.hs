@@ -1826,7 +1826,7 @@ refDataRows content =
     table [] = RefDataRowsResponse [] []
     table (header : rows) = RefDataRowsResponse (fitTo header) (map fitTo rows)
       where
-        width = maximum (map length (header : rows))
+        width = foldr (max . length) 0 (header : rows)
         fitTo :: [Text] -> [Text]
         fitTo cells = cells <> replicate (width - length cells) ""
 
