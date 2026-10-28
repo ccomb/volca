@@ -46,6 +46,7 @@ import API.Types (
 import Database (buildDatabaseWithMatrices)
 import Database.Author (AuthorContext (..), EditedActivity (..), ExchangeEdit, applyExchangeEdits, authoredActivityUUID)
 import Service.Compare (ProcessIn (..), Sides (..), applicableChanges, changesPresent, compareActivities, compareDatabases, limitComparison, resolveProcess, scorePairs)
+import TestHelpers (unitDef)
 import Types (
     Activity (..),
     BioDirection (..),
@@ -68,7 +69,6 @@ import Types (
     noDocumentation,
     noProperties,
  )
-import TestHelpers (unitDef)
 import UnitConversion (UnitConfig, defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
 spec :: Spec
