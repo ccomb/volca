@@ -36,13 +36,14 @@
 
 ### Fixed
 
-- A single EcoSpold 2 file (`.spold`) loads as a database, whatever it is
-  called. Sent as is, it used to be taken for EcoSpold 1 and refused; given as
-  the path of a database, it was refused as an unsupported file; and in a
-  folder, a name other than two identifiers (`lyocell.spold`) was refused. When
-  the name states no identifiers, the file now names itself by the activity id
-  and the reference product it states. A name that states them is read as
-  before, so no database already loaded changes its identifiers.
+- A single EcoSpold 2 file (`.spold`) loads as a database. Sent as is, it used
+  to be taken for EcoSpold 1 and refused; given as the path of a database, it
+  was refused as an unsupported file; and in a folder, a name of one part
+  (`lyocell.spold`), or of more parts whose last two are not identifiers, was
+  refused. Such a file now names itself by the activity id and the reference
+  product it states, and the load says so. Every other name is read as before,
+  a name of two parts included even when they are words, so no database
+  already loaded changes its identifiers.
 - The waste an EcoSpold 2 database sends to a treatment of a database it
   depends on, such as ecoinvent, is now treated there and counted in its
   scores, which rise accordingly. The treatment is found as any input's

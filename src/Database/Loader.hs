@@ -128,7 +128,7 @@ import qualified Data.Map as M
 -- per dataset) is real, and the lazy API would stack one unforced merge per
 -- occurrence, holding every superseded record until something forced the chain.
 import qualified Data.Map.Strict as MS
-import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Ord (Down (..))
 import Data.Proxy (Proxy (..))
 import qualified Data.Set as S
@@ -1289,7 +1289,7 @@ readSourceUnder opts path = do
         then case map toLower (takeExtension path) of
             ".csv" -> loadSimaProCSV opts path
             ".xml" -> loadSingleEcoSpold1File opts path
-            ".spold" -> loadEcoSpoldFiles opts [] [path] False
+            ".spold" -> loadEcoSpoldFiles opts (EcoSpold2Files M.empty [path])
             ".xlsx" -> loadBrightwayExcel opts path
             _ -> return $ Left $ T.pack $ "Unsupported file type: " ++ path
         else
@@ -1678,21 +1678,27 @@ loadEcoSpoldDirectory opts dir = do
             loadSingleEcoSpold1File opts singleXml
         ([], xs) -> do
             reportProgress Info $ "Found " ++ show (length xs) ++ " EcoSpold1 (.XML) files for processing"
-            loadEcoSpoldFiles opts [] xs True
-        (xs, []) -> do
-            reportProgress Info $ "Found " ++ show (length xs) ++ " EcoSpold2 (.spold) files for processing"
-            loadEcoSpoldFiles opts conversionFiles xs False
+            loadEcoSpoldFiles opts (EcoSpold1Files xs)
         (xs, _) -> do
+            -- Prefer EcoSpold2 if both present
             reportProgress Info $ "Found " ++ show (length xs) ++ " EcoSpold2 (.spold) files for processing"
-            loadEcoSpoldFiles opts conversionFiles xs False -- Prefer EcoSpold2 if both present
+            conversions <- readUnitConversions conversionFiles
+            loadEcoSpoldFiles opts (EcoSpold2Files conversions xs)
+
+{- | The EcoSpold files of one load. EcoSpold 2 formulas read the unit
+conversions its package ships beside the datasets; EcoSpold 1 has none.
+-}
+data EcoSpoldFiles
+    = EcoSpold1Files [FilePath]
+    | EcoSpold2Files Expr.UnitConversions [FilePath]
 
 {- | Load the EcoSpold files named, divided among the workers.
 
 The files may be a directory's or one file the caller named: what a file is
 read as is decided here, by its own name and content, not by where it sits.
 -}
-loadEcoSpoldFiles :: LoadOptions -> [FilePath] -> [FilePath] -> Bool -> IO (Either T.Text SimpleDatabase)
-loadEcoSpoldFiles opts conversionFiles allFiles isEcoSpold1 = do
+loadEcoSpoldFiles :: LoadOptions -> EcoSpoldFiles -> IO (Either T.Text SimpleDatabase)
+loadEcoSpoldFiles opts files = do
     -- Get actual number of CPU capabilities (respects +RTS -N)
     numWorkers <- getNumCapabilities
     let workers = distributeFiles numWorkers allFiles
@@ -1704,10 +1710,9 @@ loadEcoSpoldFiles opts conversionFiles allFiles isEcoSpold1 = do
             (length allFiles `div` numWorkers)
 
     -- Process all workers in parallel
-    conversions <- readUnitConversions conversionFiles
     startTime <- getCurrentTime
     scoped <- inheritLogScope
-    results <- mapConcurrently (scoped . processWorker startTime conversions) (zip [1 ..] workers)
+    results <- mapConcurrently (scoped . processWorker startTime) (zip [1 ..] workers)
 
     -- Every file no worker could turn into a dataset, in one message: the
     -- workers each hold a share of the directory, so what one of them
@@ -1755,19 +1760,28 @@ loadEcoSpoldFiles opts conversionFiles allFiles isEcoSpold1 = do
     locationAliases :: MS.Map T.Text T.Text
     locationAliases = loLocationAliases opts
 
+    allFiles :: [FilePath]
+    allFiles = case files of
+        EcoSpold1Files fs -> fs
+        EcoSpold2Files _ fs -> fs
+
+    isEcoSpold1 :: Bool
+    isEcoSpold1 = case files of
+        EcoSpold1Files _ -> True
+        EcoSpold2Files _ _ -> False
+
     -- Process one worker's share of files
-    processWorker :: UTCTime -> Expr.UnitConversions -> (Int, [FilePath]) -> IO (Either (NE.NonEmpty T.Text) Harvest)
-    processWorker _startTime conversions (workerNum, workerFiles) = do
+    processWorker :: UTCTime -> (Int, [FilePath]) -> IO (Either (NE.NonEmpty T.Text) Harvest)
+    processWorker _startTime (workerNum, workerFiles) = do
         workerStartTime <- getCurrentTime
         reportProgress Info $ printf "Worker %d started: processing %d files" workerNum (length workerFiles)
 
         -- Parse all files for this worker using appropriate parser. Both paths
         -- return a 'ParsedDataset'; EcoSpold 2 addresses its suppliers by UUID
         -- rather than by dataset number, so it fills neither of those fields.
-        let parseFile =
-                if isEcoSpold1
-                    then streamParseActivityAndFlowsFromFile1
-                    else streamParseActivityAndFlowsFromFile conversions
+        let parseFile = case files of
+                EcoSpold1Files _ -> streamParseActivityAndFlowsFromFile1
+                EcoSpold2Files conversions _ -> streamParseActivityAndFlowsFromFile conversions
         workerResults <- mapM parseFile workerFiles
         let paired = zipWith (\f -> either (Left . T.pack) (Right . (f,))) workerFiles workerResults
         let (unread, oks) = partitionEithers paired
@@ -1781,6 +1795,11 @@ loadEcoSpoldFiles opts conversionFiles allFiles isEcoSpold1 = do
             (refusal : rest) -> return $ Left (refusal NE.:| rest)
             [] -> do
                 let !harvested = harvestOf (concat keyed)
+
+                -- The one reading a name without a pair leaves is taken, and said.
+                mapM_
+                    (\f -> reportProgress Info $ f ++ ": the name states no activityUUID_productUUID, so the dataset is filed under the activity id and reference product it states")
+                    [f | not isEcoSpold1, (f, _) <- oks, isNothing (pairInName f)]
 
                 workerEndTime <- getCurrentTime
                 let workerDuration = realToFrac $ diffUTCTime workerEndTime workerStartTime
@@ -1830,29 +1849,29 @@ loadEcoSpoldFiles opts conversionFiles allFiles isEcoSpold1 = do
                 actUUID = fromMaybe (generateActivityUUIDFromActivity activity) (datasetUUIDFromPath filepath)
              in Right (actUUID, getReferenceProductUUID activity)
         | otherwise =
-            -- EcoSpold2: the identifiers are in the file name. Some publishers
-            -- put the dataset number in front of the pair, and the pair is then
-            -- the last two parts. What says the leading part is a number rather
-            -- than half of the name is that the two behind it are both
-            -- identifiers, so a longer name is read only when they are: in any
-            -- other name a part could as easily have been added at the end as
-            -- at the front, and there is nothing to choose between the two
-            -- readings. The number is dropped, this format addressing its
-            -- suppliers by UUID and numbering no dataset. A name with no reading
-            -- (a file called after its product, say) leaves the dataset to name
-            -- itself.
-            case reverse (T.splitOn "_" (T.pack (takeBaseName filepath))) of
-                [prodUUIDText, actUUIDText] ->
-                    Right (parseUUID actUUIDText, parseUUID prodUUIDText)
-                prodUUIDText : actUUIDText : _ : _
-                    | Just prodUUID <- UUID.fromText prodUUIDText
-                    , Just actUUID <- UUID.fromText actUUIDText ->
-                        Right (actUUID, prodUUID)
-                _ ->
-                    maybe
-                        (Left $ T.pack $ filepath ++ ": the name is not [datasetNumber_]activityUUID_productUUID, and the dataset states no activity id and reference product of its own")
-                        Right
-                        (statedKey parsed)
+            -- EcoSpold2: a name with no reading (a file called after its
+            -- product, say) leaves the dataset to name itself.
+            maybe
+                (Left $ T.pack $ filepath ++ ": the name is not [datasetNumber_]activityUUID_productUUID, and the dataset states no activity id that is a UUID, or no reference product, to be filed under instead")
+                Right
+                (pairInName filepath <|> statedKey parsed)
+
+    -- EcoSpold2: the identifiers are in the file name. Some publishers put the
+    -- dataset number in front of the pair, and the pair is then the last two
+    -- parts. What says the leading part is a number rather than half of the
+    -- name is that the two behind it are both identifiers, so a longer name is
+    -- read only when they are: in any other name a part could as easily have
+    -- been added at the end as at the front, and there is nothing to choose
+    -- between the two readings. The number is dropped, this format addressing
+    -- its suppliers by UUID and numbering no dataset.
+    pairInName :: FilePath -> Maybe (UUID, UUID)
+    pairInName filepath =
+        case reverse (T.splitOn "_" (T.pack (takeBaseName filepath))) of
+            [prodUUIDText, actUUIDText] ->
+                Just (parseUUID actUUIDText, parseUUID prodUUIDText)
+            prodUUIDText : actUUIDText : _ : _ ->
+                (,) <$> UUID.fromText actUUIDText <*> UUID.fromText prodUUIDText
+            _ -> Nothing
 
 {- | Load a single EcoSpold1 file containing multiple datasets
 This handles files where <ecoSpold> contains multiple <dataset> elements.
