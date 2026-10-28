@@ -1452,7 +1452,8 @@ resolveTarget ::
 resolveTarget db links = \case
     ex@TechnosphereExchange{techRole = role, techActivityLinkId = lid, techFlowId = fid}
         | role /= Input && role /= ReferenceInput -> Nothing
-        | isJust lid -> resolveByLinkedProducer db ex
+        -- A named activity this database does not hold was linked by its product in another.
+        | isJust lid -> resolveByLinkedProducer db ex <|> resolveByCrossDBLink links fid
         | otherwise -> resolveByProductFlow db fid <|> resolveByCrossDBLink links fid
     BiosphereExchange{} -> Nothing
     -- A named treatment this database does not hold was linked in another, as an input's supplier is.

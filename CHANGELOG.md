@@ -58,6 +58,11 @@
   such a waste line, within its own database too, a waste sent to treatment
   (`SentToTreatment`), or `TreatmentNotLoaded` when its treatment is found
   nowhere, where they called it `TreatsWaste`.
+- An input that names a supplier activity found in no database, but whose
+  product a dependency supplies, now shows that supplier among the activity's
+  inputs. It was already linked to it and counted in the scores, but the
+  inputs showed no supplier, and the interface then labelled the line with the
+  activity's own database.
 - When a key divides none of a database's blocks, the refusal counts the
   blocks of several products it could have divided, not every process of the
   database.
