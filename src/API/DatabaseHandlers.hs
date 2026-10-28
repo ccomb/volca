@@ -151,6 +151,7 @@ import API.Types (
     GapReportAPI (..),
     LoadDatabaseResponse (..),
     ModelExceptionAPI (..),
+    ModelSubstitutionAPI (..),
     ParametersEditRequest (..),
     ParametersEditResponse (..),
     QualityCheckAPI (..),
@@ -276,6 +277,7 @@ import qualified Database.Quality as Quality
 import Database.RelinkMapping (parseAliasMap)
 import Database.Requirements (ReleaseSubstitution)
 import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario, savedForExport)
+import Database.SystemModel (NamedSubstitution (..))
 import Database.Upload (
     DatabaseFormat (..),
     UploadData (..),
@@ -302,6 +304,7 @@ import Types (
     GeographyPolicy (..),
     Licence (..),
     ModelException (..),
+    ModelSubstitution (..),
     Modification,
     Permission (..),
     ProcessRef (..),
@@ -320,6 +323,7 @@ import Types (
     modelOf,
     modelTitle,
     processRefText,
+    ratioValue,
     readingKey,
     reasonText,
     unresolvedCount,
@@ -645,7 +649,7 @@ so, like a parent not loaded.
 systemModelHandler :: Text -> AppM SystemModelAPI
 systemModelHandler dbName = do
     dbManager <- asks aeDbManager
-    (model, taken) <- ioEither400 (systemModelOf dbManager dbName)
+    (model, (taken, substitutions)) <- ioEither400 (systemModelOf dbManager dbName)
     pure
         SystemModelAPI
             { smaText = smText model
@@ -656,6 +660,19 @@ systemModelHandler dbName = do
                     , meaProcesses = [TakenProcessAPI{tpaActivity = UUID.toText u, tpaName = name} | (u, name) <- processes]
                     }
                 | (ex, processes) <- taken
+                ]
+            , smaSubstitutions =
+                [ ModelSubstitutionAPI
+                    { msaCoproduct = processRefText (subCoproduct (nsRule ns))
+                    , msaBlock = nsBlock ns
+                    , msaCoproductName = nsCoproduct ns
+                    , msaReplaces = processRefText (subReplaces (nsRule ns))
+                    , msaReplacedProcess = nsReplaced ns
+                    , msaReplacedProduct = nsReplacedProduct ns
+                    , msaRatio = ratioValue (subRatio (nsRule ns))
+                    , msaReason = reasonText (subReason (nsRule ns))
+                    }
+                | ns <- substitutions
                 ]
             }
 

@@ -57,19 +57,20 @@ import Types (
     Activity (..),
     AllocationProperty (..),
     Database (..),
-    Exchange,
+    Exchange (..),
     FileReading (..),
     GeographyPolicy (..),
     Licence (..),
     ProcessRef (..),
     Reading (..),
     StatedAmount (..),
+    TechRole (..),
     TechnosphereFlow (..),
     exchangeAmount,
     exchangeFlowId,
     exchangeIsProductOutput,
+    exchangeIsReference,
     processRefText,
-    techActivityLinkId,
     toSimpleDatabase,
  )
 
@@ -243,6 +244,41 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 rebooted <- initDatabaseManager defaultConfig NoCache
                 loadedDb rebooted childName >>= (`shouldSatisfy` repriced) . inputOf "Cow milk"
 
+    describe "a child substituting a coproduct" $ do
+        it "leaves the whole block to the cheese, credited with the milk powder the whey displaces" $
+            withSource wheyCSV $ \manager -> do
+                parent <- parentOf manager
+                child <- deriveWith manager (substitutingWhey parent (snd (dairyProducts parent)))
+                -- The cheese carries the 10 kg of milk, and 3 kg of whey at
+                -- 0.25 kg of powder each come off it.
+                inputOf "Cow milk" child `shouldSatisfy` near [10]
+                avoidedOf "Milk powder" child `shouldSatisfy` near [0.75]
+                creditedTo child `shouldBe` [powderPlant parent]
+
+        it "has a line that bought the coproduct buy what it displaces, converted to the coproduct's unit first" $
+            withSource wheyCSV $ \manager -> do
+                parent <- parentOf manager
+                child <- deriveWith manager (substitutingWhey parent (snd (dairyProducts parent)))
+                -- 2000 g of whey are 2 kg, at 0.25 kg of powder each.
+                wheyLinks child `shouldBe` []
+                let bought = [ex | a <- V.toList (dbActivities child), ex <- snd (partitionProducts a), named child "Milk powder" ex, not (isAvoided ex)]
+                map exchangeAmount bought `shouldSatisfy` near [0.5]
+                map techActivityLinkId bought `shouldBe` [Just (powderPlant parent)]
+
+        it "takes the reference product too, the whey left to carry the block" $
+            withSource wheyCSV $ \manager -> do
+                parent <- parentOf manager
+                child <- deriveWith manager (substitutingWhey parent (fst (dairyProducts parent)))
+                [exchangeAmount ex | a <- V.toList (dbActivities child), ex <- exchanges a, exchangeIsReference ex, named child "Whey" ex] `shouldBe` [3]
+                inputOf "Cow milk" child `shouldSatisfy` near [10]
+
+        it "is still substituted after a restart" $
+            withSource wheyCSV $ \manager -> do
+                parent <- parentOf manager
+                _ <- deriveWith manager (substitutingWhey parent (snd (dairyProducts parent)))
+                rebooted <- initDatabaseManager defaultConfig NoCache
+                loadedDb rebooted childName >>= (`shouldSatisfy` near [0.75]) . avoidedOf "Milk powder"
+
 {- | The milk behind each product of the block, ordered by the product's own
 amount, which is what tells the 1 kg of cheese from the 3 kg of whey.
 -}
@@ -363,6 +399,42 @@ exceptionTaking key activity =
         , "processes = [\"" <> activity <> "\"]"
         ]
 
+-- | The parent of the source, derived under @none@.
+parentOf :: DatabaseManager -> IO Database
+parentOf manager = either (fail . show) (pure . ldDatabase . fst) =<< deriveDatabase manager source parentName AsParent
+
+-- | The milk powder plant, by activity, as a link names it.
+powderPlant :: Database -> UUID.UUID
+powderPlant db = head [activityId | ((activityId, _), a) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db)), activityName a == "Milk powder plant"]
+
+-- | The amounts of a product the database's processes avoid.
+avoidedOf :: Text -> Database -> [Double]
+avoidedOf flowName db = [exchangeAmount ex | a <- V.toList (dbActivities db), ex <- exchanges a, isAvoided ex, named db flowName ex]
+
+-- | The processes the database's avoided lines credit.
+creditedTo :: Database -> [UUID.UUID]
+creditedTo db = [supplier | a <- V.toList (dbActivities db), ex <- exchanges a, isAvoided ex, Just supplier <- [techActivityLinkId ex]]
+
+isAvoided :: Exchange -> Bool
+isAvoided ex = case ex of
+    TechnosphereExchange{techRole = AvoidedProduct} -> True
+    _ -> False
+
+-- | A model pricing every block, and substituting this product of the dairy by milk powder, 0.25 kg per kg.
+substitutingWhey :: Database -> UUID.UUID -> Text
+substitutingWhey parent product =
+    T.unlines
+        [ "name = \"Whey feeds\""
+        , "version = \"1.0.0\""
+        , "[allocation]"
+        , "default = \"price\""
+        , "[[substitutions]]"
+        , "coproduct = \"" <> dairyActivity parent <> "_" <> UUID.toText product <> "\""
+        , "replaces = \"" <> processOf parent "Milk powder plant" <> "\""
+        , "ratio = 0.25"
+        , "reason = \"Whey replaces milk powder in pig feed, by its solids.\""
+        ]
+
 loadedDb :: DatabaseManager -> Text -> IO Database
 loadedDb manager name = either (fail . show) (pure . ldDatabase . fst) =<< loadDatabase manager name
 
@@ -444,6 +516,17 @@ farmCSV =
         [ ("Dairy", ["Products", "Cheese;kg;1;51;not defined;material;", "Whey;kg;3;49;not defined;material;", "", "Materials/fuels", "Cow milk;kg;10;Undefined;0;0;0;"])
         , ("Pig farm", ["Products", "Pig;kg;1;100;not defined;material;", "", "Materials/fuels", "Whey;kg;2;Undefined;0;0;0;"])
         , ("Creamery", ["Products", "Butter;kg;1;50;not defined;material;", "", "Materials/fuels", "Cream;kg;4;Undefined;0;0;0;"])
+        ]
+
+{- | The dairy block, a pig farm buying its whey by the gram, and a milk
+powder plant: what a substitution of the whey has to credit and reroute.
+-}
+wheyCSV :: BS.ByteString
+wheyCSV =
+    simaProBlocks
+        [ ("Dairy", ["Products", "Cheese;kg;1;51;not defined;material;", "Whey;kg;3;49;not defined;material;", "", "Materials/fuels", "Cow milk;kg;10;Undefined;0;0;0;"])
+        , ("Pig farm", ["Products", "Pig;kg;1;100;not defined;material;", "", "Materials/fuels", "Whey;g;2000;Undefined;0;0;0;"])
+        , ("Milk powder plant", ["Products", "Milk powder;kg;1;100;not defined;material;", "", "Materials/fuels", "Skimmed milk;kg;8;Undefined;0;0;0;"])
         ]
 
 {- | A nitric acid plant selling its steam, in MJ beside the acid's kilograms,

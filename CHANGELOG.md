@@ -26,6 +26,18 @@
   into the engine, and what was uploaded before this release carry none:
   the moment is not guessed from the age of a file, which every edit renews.
   Wire revision 90.
+- A system model can substitute a coproduct rather than divide it. A line
+  under `[[substitutions]]` names the coproduct of a process, the process of
+  the parent it displaces, how much of that process's product one unit of the
+  coproduct displaces, and why. In the child, the products left carry the
+  whole process, credited with what the coproduct displaces, and a process
+  that bought the coproduct buys the displaced product instead. For example,
+  the 18 m3 of biogas of a slurry digester, substituted by natural gas at
+  23.3 MJ per m3, leave the digestate the whole digester, less 419 MJ of
+  natural gas. A substitution that would leave a process no product to carry
+  it, or credit a process the child does not hold, is refused when the child
+  is derived. The system model of a child lists its substitutions with the
+  names of the processes they take. Wire revision 91.
 
 ### Added
 

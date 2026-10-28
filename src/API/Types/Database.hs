@@ -377,13 +377,14 @@ data DeriveRequest = DeriveRequest
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeriveRequest)
 
-{- | A child's system model: its file as written, and each exception with the
-processes of the parent it takes, so a reader can check a rule took what its
-reason says.
+{- | A child's system model: its file as written, each exception with the
+processes of the parent it takes, and each substitution with the processes it
+names, so a reader can check a rule took what its reason says.
 -}
 data SystemModelAPI = SystemModelAPI
     { smaText :: Text
     , smaExceptions :: [ModelExceptionAPI]
+    , smaSubstitutions :: [ModelSubstitutionAPI]
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SystemModelAPI)
@@ -403,6 +404,23 @@ data TakenProcessAPI = TakenProcessAPI
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped TakenProcessAPI)
+
+{- | A coproduct a model substitutes rather than divides, named: its block and
+product, the process of the parent it displaces and that process's product,
+how much of that product one unit of the coproduct displaces, and why.
+-}
+data ModelSubstitutionAPI = ModelSubstitutionAPI
+    { msaCoproduct :: Text
+    , msaBlock :: Text
+    , msaCoproductName :: Text
+    , msaReplaces :: Text
+    , msaReplacedProcess :: Text
+    , msaReplacedProduct :: Text
+    , msaRatio :: Double
+    , msaReason :: Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ModelSubstitutionAPI)
 
 {- | Response for the load database endpoint. A failure is an HTTP error. The
 @"tag": "LoadSucceeded"@ the answer carried when it could also be a failure
