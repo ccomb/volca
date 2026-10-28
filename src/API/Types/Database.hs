@@ -48,6 +48,7 @@ data RefDataStatusAPI = RefDataStatusAPI
     , rdaIsUploaded :: Bool
     , rdaIsAuto :: Bool
     , rdaEntryCount :: Int
+    , rdaAdded :: Maybe Text -- When an upload made it, as 2026-10-28T13:30:59Z (UTC, to the second); none for a built-in or extracted table
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped RefDataStatusAPI)
@@ -90,6 +91,12 @@ data DatabaseStatusAPI = DatabaseStatusAPI
     , dsaLicence :: Licence -- What it is served under, its source's for a copy
     , dsaRelease :: Maybe Release -- Which published database it is, as its owner declared
     , dsaModification :: Modification -- How its data differs from the files it reads
+    , dsaAdded :: Maybe Text
+    {- ^ When the engine made it, as @2026-10-28T13:30:59Z@ (UTC, to the
+    second, so the text sorts in the order of time). None for a database the
+    configuration declares and for one made before the engine kept the
+    moment: it is not guessed from the age of a file, which every edit renews.
+    -}
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DatabaseStatusAPI)

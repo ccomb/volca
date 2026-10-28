@@ -11,6 +11,7 @@ module Database.UploadedDatabase (
 
     -- * Meta file operations
     readUploadMeta,
+    readAdded,
     writeUploadMeta,
     parseMetaToml,
     parseMetaTomlWith,
@@ -46,7 +47,7 @@ import Text.Read (readMaybe)
 import Database.SystemModel (parseSystemModel)
 import Database.Upload (DatabaseFormat (..))
 import Progress (ProgressLevel (..), reportProgress)
-import Types (Licence, LicenceKeys (..), Reading (..), Release (..), Requirement (..), SystemModel (..), allocationKeyText, fileReadingKey, licenceFromKeys, licenceKeys, modelOf, parseFileReading)
+import Types (AddedAt, Licence, LicenceKeys (..), Reading (..), Release (..), Requirement (..), SystemModel (..), addedText, allocationKeyText, fileReadingKey, licenceFromKeys, licenceKeys, modelOf, parseAdded, parseFileReading)
 
 -- | Metadata for an uploaded database
 data UploadMeta = UploadMeta
@@ -102,6 +103,12 @@ data UploadMeta = UploadMeta
     the collection holds; a copy keeps its source's. A file written before this
     field existed names none, which is what it meant.
     -}
+    , umAdded :: !(Maybe AddedAt)
+    {- ^ When the engine made it, set once by whatever creates it and kept by
+    every rewrite. A file written before this field existed has none, which is
+    what it meant, and so has one whose date nobody can read: the date is only
+    shown, and a database is not refused over it.
+    -}
     }
     deriving (Show, Eq, Generic)
 
@@ -119,10 +126,11 @@ the keys that follow a header inside it. The parser reads every
 version, taking absent fields to mean what their absence meant when they did
 not exist. Version 9 writes @system_model_file@ in place of @allocation@
 for a child, the model beside it, and no longer reads a property under
-@allocation@.
+@allocation@. Version 10 added @added@, when the engine made it, to the second
+and in UTC.
 -}
 metaVersion :: Int
-metaVersion = 9
+metaVersion = 10
 
 -- | The file a child's system model is kept in, beside its @meta.toml@.
 systemModelFileName :: FilePath
@@ -172,6 +180,23 @@ getRefDataUploadsDir subdir = do
 isUploadedPath :: FilePath -> Bool
 isUploadedPath path =
     "uploads" `elem` splitDirectories path
+
+{- | When the @meta.toml@ of a directory says it was made, whatever else the
+file holds: a reference table writes a shorter file of its own, which
+'readUploadMeta' would refuse for want of a format. Nothing when there is no
+file, it cannot be read, or it names no moment.
+-}
+readAdded :: FilePath -> IO (Maybe AddedAt)
+readAdded dir = do
+    let path = dir </> metaFileName
+    exists <- doesFileExist path
+    if not exists
+        then pure Nothing
+        else do
+            result <- try (TIO.readFile path)
+            pure $ case result of
+                Left (_ :: SomeException) -> Nothing
+                Right content -> parseAdded . unquote =<< lookup "added" (fst (requiresBlocks content))
 
 {- | Read meta.toml from an upload directory
 Returns Nothing if file doesn't exist or can't be parsed
@@ -286,6 +311,7 @@ parseMetaTomlWith model content = do
             , umRelease = release
             , umRequires = requires
             , umPackageMethod = unquote <$> getValue "package_method"
+            , umAdded = parseAdded . unquote =<< getValue "added"
             }
 
 {- | The key-value pairs before the first @[[requires]]@ header, and those of
@@ -407,6 +433,7 @@ formatMetaToml UploadMeta{..} =
             ++ maybe [] (\s -> ["source = " <> quote s]) umSource
             ++ maybe [] (\b -> ["builtin = " <> quote b]) umBuiltIn
             ++ maybe [] (\m -> ["package_method = " <> quote m]) umPackageMethod
+            ++ maybe [] (\added -> ["added = " <> quote (addedText added)]) umAdded
             ++ licenceLines (licenceKeys umLicence)
             ++ maybe [] releaseLines umRelease
             ++ concatMap requirementLines umRequires

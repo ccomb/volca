@@ -1618,7 +1618,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 89: the @setWetMasses@ an edit of an activity's exchanges takes,
+(revision 90: the @added@ moment a database, a method collection or a
+reference table lists, when the engine made it;
+revision 89: the @setWetMasses@ an edit of an activity's exchanges takes,
 which states the wet mass of a product output, its density when the product is
 in litres or cubic metres, and the @wetMassesSet@ its answer gives;
 revision 88: the @SameCutNames@ rung of a comparison of two databases, which
@@ -1811,7 +1813,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 89
+currentWireVersion = 90
 
 getVersion :: AppM Value
 getVersion = do

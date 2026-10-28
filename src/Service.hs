@@ -1455,8 +1455,9 @@ resolveTarget db links = \case
         | isJust lid -> resolveByLinkedProducer db ex
         | otherwise -> resolveByProductFlow db fid <|> resolveByCrossDBLink links fid
     BiosphereExchange{} -> Nothing
-    ex@WasteExchange{waIsInput = True, waActivityLinkId = lid}
-        | isJust lid -> resolveByLinkedProducer db ex
+    -- A named treatment this database does not hold was linked in another, as an input's supplier is.
+    ex@WasteExchange{waIsInput = True, waActivityLinkId = lid, waFlowId = fid}
+        | isJust lid -> resolveByLinkedProducer db ex <|> resolveByCrossDBLink links fid
         | otherwise -> Nothing
     -- An output's link names the activity that treats the waste, exactly as an
     -- input's names the one that supplies it. Reading it as no target at all
@@ -1482,10 +1483,12 @@ wasteRoleOf :: Maybe TargetRef -> Exchange -> Maybe WasteRole
 wasteRoleOf target = \case
     TechnosphereExchange{} -> Nothing
     BiosphereExchange{} -> Nothing
-    WasteExchange{waIsInput = True} -> Just TreatsWaste
-    WasteExchange{waSupplierClaim = claim}
+    -- EcoSpold 2 writes the waste it sends as an input of the treatment's own
+    -- negative product, so an input naming a treatment is sent, as an output is.
+    WasteExchange{waSupplierClaim = claim, waIsInput = isInput}
         | isJust target -> Just SentToTreatment
         | namesATreatment claim -> Just TreatmentNotLoaded
+        | isInput -> Just TreatsWaste
         | otherwise -> Just FinalWasteFlow
   where
     -- What the source said, not what linking made of it: a treatment named and

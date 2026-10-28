@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 89** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 90** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -2928,6 +2928,12 @@ against an engine older than wire revision 48.
 multi-output processes are divided otherwise than the original's.
 ``None`` against an engine older than wire revision 79.
 
+``added`` is the moment the engine made it, in UTC to the second
+(``"2026-10-28T13:30:59Z"``), so that sorting the texts sorts by time.
+``None`` for a database the configuration declares and for one made before
+the engine kept the moment, which is not guessed from the age of a file,
+and against an engine older than wire revision 90.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `name` | `str` | _required_ |
@@ -2945,6 +2951,7 @@ multi-output processes are divided otherwise than the original's.
 | `licence` | `dict \| None` | None |
 | `release` | `dict \| None` | None |
 | `modification` | `dict \| None` | None |
+| `added` | `str \| None` | None |
 
 #### Properties
 

@@ -134,6 +134,7 @@ import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
 import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches)
 import Types (
+    AddedAt,
     AllocationKey (..),
     AllocationProperty (..),
     ClassificationFilter,
@@ -144,6 +145,7 @@ import Types (
     ProcessRef (..),
     Reading (..),
     SystemModel,
+    addedNow,
     allocationKeyText,
     findProcessIdByActivityUUID,
     getActivity,
@@ -405,6 +407,7 @@ recordDerived slug srcConfig reading = do
         let home = uploadsDir </> T.unpack slug
         createDirectoryIfMissing True home
         sourcePath <- makeAbsolute (dcPath srcConfig)
+        added <- addedNow
         hasJournal <- doesFileExist (journalPath (uploadsDir </> T.unpack (dcName srcConfig)))
         -- A parent's edits are not left behind by its child: it is divided
         -- from the parent as it stands in memory.
@@ -430,10 +433,12 @@ recordDerived slug srcConfig reading = do
                 , UploadedDB.umRelease = Nothing
                 , UploadedDB.umRequires = dcRequires srcConfig
                 , UploadedDB.umPackageMethod = Nothing
+                , UploadedDB.umAdded = Just added
                 }
         pure
             srcConfig
                 { dcName = slug
+                , dcAdded = Just added
                 , dcDisplayName = slug
                 , dcPath = sourcePath
                 , dcLoad = False
@@ -463,11 +468,12 @@ registerCopy manager slug loaded = do
     -- since reached the registry and not the loaded config.
     inForce <- licenceOf <$> readTVarIO (dmAvailableDbs manager) <*> pure (ldConfig loaded)
     let src = loaded{ldConfig = (ldConfig loaded){dcLicence = inForce}}
-    recordCopy slug src >>= \case
+    added <- addedNow
+    recordCopy slug added src >>= \case
         Left err -> pure (Left err)
         Right () -> do
             let copiedDb = ldDatabase src
-                newConfig = renameConfig slug (ldConfig src)
+                newConfig = renameConfig slug added (ldConfig src)
             -- Fresh solver: a distinct name keys a distinct factorization cache.
             solver <- solverFor slug copiedDb
             synonymDB <- getMergedSynonymDB manager
@@ -500,8 +506,8 @@ replays the source's edits before its own. Edits the source makes later
 belong to the source alone. Its saved scenarios come along the same way: they
 are work on that data.
 -}
-recordCopy :: Text -> LoadedDatabase -> IO (Either Text ())
-recordCopy slug src = do
+recordCopy :: Text -> AddedAt -> LoadedDatabase -> IO (Either Text ())
+recordCopy slug added src = do
     written <- try $ do
         uploadsDir <- UploadedDB.getDatabaseUploadsDir
         let home = uploadsDir </> T.unpack slug
@@ -537,6 +543,7 @@ recordCopy slug src = do
                 , UploadedDB.umRelease = Nothing
                 , UploadedDB.umRequires = dcRequires config
                 , UploadedDB.umPackageMethod = Nothing
+                , UploadedDB.umAdded = Just added
                 }
     pure $ case written of
         Right () -> Right ()
@@ -549,9 +556,10 @@ delete path (the source may be a TOML-pinned, non-deletable database).
 
 The source it names is the one 'recordCopy' writes to the copy's home, so a
 listing says the same thing before and after the restart that reads it back.
+So is the moment it was made, which is the copy's own and not the source's.
 -}
-renameConfig :: Text -> DatabaseConfig -> DatabaseConfig
-renameConfig newName cfg =
+renameConfig :: Text -> AddedAt -> DatabaseConfig -> DatabaseConfig
+renameConfig newName added cfg =
     cfg
         { dcName = newName
         , dcDisplayName = newName
@@ -559,6 +567,7 @@ renameConfig newName cfg =
         , dcDeletable = True
         , dcSource = Just (dcName cfg)
         , dcRelease = Nothing
+        , dcAdded = Just added
         }
 
 -- ---------------------------------------------------------------------------

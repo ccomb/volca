@@ -72,6 +72,7 @@ mkRef p =
         , rdIsUploaded = False
         , rdIsAuto = False
         , rdDescription = Nothing
+        , rdAdded = Nothing
         }
 
 {- | A decoded database and method entry carrying the given paths. Read through
@@ -484,7 +485,7 @@ spec = do
                     -- A loop ends at the last database before one repeats.
                     licenceOf configs a `shouldBe` dcLicence b
 
-    let registry path uploaded = RefDataConfig{rdName = "flows", rdSource = FromFile path, rdActive = True, rdIsUploaded = uploaded, rdIsAuto = False, rdDescription = Nothing}
+    let registry path uploaded = RefDataConfig{rdName = "flows", rdSource = FromFile path, rdActive = True, rdIsUploaded = uploaded, rdIsAuto = False, rdDescription = Nothing, rdAdded = Nothing}
         reading path = defaultConfig{cfgFlowSynonyms = [registry path False]}
 
     describe "DatabaseConfig release" $ do

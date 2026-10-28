@@ -98,7 +98,7 @@ import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName, (</>))
 import TOML (DecodeTOML (..), Decoder, TOMLError, Table, Value (..), decode, decodeFile, getArrayOf, getField, getFieldWith)
 import qualified TOML
-import Types (ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), FileReading (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), Reading (..), Release (..), Requirement, licenceFromKeys, parseFileReading)
+import Types (AddedAt, ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), FileReading (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), Reading (..), Release (..), Requirement, licenceFromKeys, parseFileReading)
 
 -- | A single classification filter entry (system + value)
 data ClassificationEntry = ClassificationEntry
@@ -307,6 +307,10 @@ data DatabaseConfig = DatabaseConfig
     only one of that release, or the one its reader accepted in its place. A
     copy keeps its source's, since it links the same way.
     -}
+    , dcAdded :: !(Maybe AddedAt)
+    {- ^ When the engine made it. A database the configuration declares was not
+    made by the engine, and has none.
+    -}
     }
     deriving (Show, Eq, Generic)
 
@@ -374,6 +378,7 @@ data MethodConfig = MethodConfig
     origin names, which for a copy of a copy are the first source's.
     -}
     , mcDescription :: !(Maybe Text) -- Optional description
+    , mcAdded :: !(Maybe AddedAt) -- When the engine made it; a declared or built-in collection has none
     , mcFormat :: !(Maybe Text) -- Detected format ("SimaPro CSV", "ILCD", etc.)
     , mcScoringSets :: ![ScoringSetConfig] -- Formula-based scoring sets
     , mcGlobalMethods :: ![Text]
@@ -473,6 +478,7 @@ data RefDataConfig = RefDataConfig
     , rdIsUploaded :: !Bool
     , rdIsAuto :: !Bool -- True for auto-extracted synonym sets
     , rdDescription :: !(Maybe Text)
+    , rdAdded :: !(Maybe AddedAt) -- When an upload made it; a built-in, configured or extracted table has none
     }
     deriving (Show, Eq, Generic)
 
@@ -591,6 +597,7 @@ builtinEntry t =
         , rdIsUploaded = False
         , rdIsAuto = False
         , rdDescription = Just "Built into this engine"
+        , rdAdded = Nothing
         }
 
 -- | A built-in method collection as the registry lists it: on, and not the operator's to delete.
@@ -604,6 +611,7 @@ builtinMethodEntry m =
         , mcHome = Nothing
         , mcSource = Nothing
         , mcDescription = originDescription (MethodBuiltIn m)
+        , mcAdded = Nothing
         , mcFormat = Nothing
         , mcScoringSets = []
         , mcGlobalMethods = []
@@ -709,6 +717,7 @@ instance DecodeTOML DatabaseConfig where
         dcRelease <- getFieldOptWith releaseDecoder "release"
         -- A configured database names the databases it links to itself, in @depends@.
         let dcRequires = []
+        let dcAdded = Nothing -- The engine did not make a configured database
         pure DatabaseConfig{..}
 
 {- | @release = { name = "...", version = "...", system_model = "..." }@ on a
@@ -776,6 +785,7 @@ instance DecodeTOML MethodConfig where
         let mcHome = Nothing -- A collection the configuration declares changes by copying it
             mcSource = Nothing
         mcDescription <- maybe (originDescription mcOrigin) Just <$> getFieldOpt "description"
+        let mcAdded = Nothing -- Nor did it make a configured collection
         let mcFormat = Nothing -- Detected later from file content
         mcScoringSets <- fromMaybe [] <$> getFieldOpt "scoring"
         mcGlobalMethods <- fromMaybe [] <$> getFieldOpt "global-methods"
@@ -893,6 +903,7 @@ refDataDecoder builtin = do
         (Nothing, Nothing) -> fail "an entry needs a path, or the name of the built-in table (to keep it, or to switch it off with active = false)"
     let rdIsUploaded = False -- TOML entries are not uploaded
         rdIsAuto = False
+        rdAdded = Nothing -- Nor did it make a configured table
     pure RefDataConfig{..}
 
 instance DecodeTOML HostingConfig where

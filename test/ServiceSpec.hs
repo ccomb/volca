@@ -194,8 +194,15 @@ spec = do
                     }
             linked = Just (fromWords 1 2 3 4)
 
-        it "calls an input a treatment of the waste" $
-            wasteRoleOf (Just treatment) (wasteLine True linked) `shouldBe` Just TreatsWaste
+        it "calls an input naming no treatment a treatment of the waste" $
+            wasteRoleOf Nothing (wasteLine True Nothing) `shouldBe` Just TreatsWaste
+
+        -- EcoSpold 2 sends its waste as a negative input of the treatment's product.
+        it "calls a resolved input a waste sent to treatment" $
+            wasteRoleOf (Just treatment) (wasteLine True linked) `shouldBe` Just SentToTreatment
+
+        it "does not call an input whose named treatment is missing a treatment of the waste" $
+            wasteRoleOf Nothing (wasteLine True linked) `shouldBe` Just TreatmentNotLoaded
 
         it "calls a resolved output a waste sent to treatment" $
             wasteRoleOf (Just treatment) (wasteLine False linked) `shouldBe` Just SentToTreatment

@@ -18,6 +18,14 @@
   before it could not weigh the litre at all and left the whole process
   undivided. A wet mass stated on a product is weighed before the product's
   own amount. Wire revision 89.
+- A database, a method collection or a reference table says when the engine
+  made it: on upload, copy or derivation, to the second and in UTC
+  (`added`, as `2026-10-28T13:30:59Z`, in the lists of databases, method
+  collections and reference data, and `DatabaseInfo.added` in pyvolca). A
+  list can be ordered by it. What the configuration declares, what is built
+  into the engine, and what was uploaded before this release carry none:
+  the moment is not guessed from the age of a file, which every edit renews.
+  Wire revision 90.
 
 ### Added
 
@@ -35,6 +43,15 @@
   the name states no identifiers, the file now names itself by the activity id
   and the reference product it states. A name that states them is read as
   before, so no database already loaded changes its identifiers.
+- The waste an EcoSpold 2 database sends to a treatment of a database it
+  depends on, such as ecoinvent, is now treated there and counted in its
+  scores, which rise accordingly. The treatment is found as any input's
+  supplier is: by the identity the file names, or by name and unit when that
+  identity is in no dependency, and the activity's inputs show it. Before, such
+  waste was left with no treatment and no burden. An activity's inputs now call
+  such a waste line, within its own database too, a waste sent to treatment
+  (`SentToTreatment`), or `TreatmentNotLoaded` when its treatment is found
+  nowhere, where they called it `TreatsWaste`.
 - When a key divides none of a database's blocks, the refusal counts the
   blocks of several products it could have divided, not every process of the
   database.

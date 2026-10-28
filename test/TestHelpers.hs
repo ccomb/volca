@@ -285,6 +285,7 @@ dbConfigFor name =
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
         , dcRequires = []
+        , dcAdded = Nothing
         }
 
 -- | A system model dividing every block by one property, with no exception.

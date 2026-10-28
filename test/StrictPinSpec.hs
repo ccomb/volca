@@ -280,6 +280,7 @@ consumerConfig path =
         , dcLicence = LicenceUnstated
         , dcRelease = Nothing
         , dcRequires = []
+        , dcAdded = Nothing
         }
 
 -- ---------------------------------------------------------------------------

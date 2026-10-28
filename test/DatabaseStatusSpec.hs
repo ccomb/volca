@@ -14,7 +14,7 @@ import API.Types (DatabaseStatusAPI (..))
 import Config (DatabaseConfig (..))
 import Database.Manager (DatabaseLoadStatus (..), DatabaseStatus (..), databaseModification)
 import TestHelpers (dbConfigFor, membersOnly, modelDividingBy)
-import Types (AllocationKey (..), AllocationProperty (..), FileReading (..), Licence (..), Modification (..), Reading (..), Release (..))
+import Types (AllocationKey (..), AllocationProperty (..), FileReading (..), Licence (..), Modification (..), Reading (..), Release (..), parseAdded)
 
 mkStatus :: [A.Value -> A.Value] -> DatabaseStatus
 mkStatus _ =
@@ -35,6 +35,7 @@ mkStatus _ =
         , dsLicence = membersOnly
         , dsRelease = Just (Release "Agribalyse" "3.2" Nothing)
         , dsModification = Modification{modificationEdited = True, modificationReallocated = False}
+        , dsAdded = Nothing
         }
 
 spec :: Spec
@@ -79,6 +80,7 @@ spec = do
                     -- divided the way its source declares.
                     dsAllocation ds `shouldBe` Declared
                     dsSource ds `shouldBe` Nothing
+                    dsAdded ds `shouldBe` Nothing
                 A.Error e -> expectationFailure e
 
     describe "convertDbStatus" $ do
@@ -107,6 +109,14 @@ spec = do
 
         it "says the licence it is served under" $
             dsaLicence (convertDbStatus (mkStatus [])) `shouldBe` membersOnly
+
+        it "says when the engine made it, as text that sorts in the order of time, or nothing" $ do
+            dsaAdded (convertDbStatus (mkStatus [])) `shouldBe` Nothing
+            dsaAdded (convertDbStatus (mkStatus []){dsAdded = parseAdded "2026-10-28T13:30:59Z"}) `shouldBe` Just "2026-10-28T13:30:59Z"
+
+        it "keeps the moment through the status's own JSON" $
+            let made = (mkStatus []){dsAdded = parseAdded "2026-10-28T13:30:59Z"}
+             in decode (encode made) `shouldBe` Just made
 
         it "reads a status written before the licence was on the wire as having none" $
             case A.toJSON (mkStatus []) of

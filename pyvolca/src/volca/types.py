@@ -270,6 +270,12 @@ class DatabaseInfo(FromJson):
     (:meth:`Client.database_history`) holds a change, reallocated when its
     multi-output processes are divided otherwise than the original's.
     ``None`` against an engine older than wire revision 79.
+
+    ``added`` is the moment the engine made it, in UTC to the second
+    (``"2026-10-28T13:30:59Z"``), so that sorting the texts sorts by time.
+    ``None`` for a database the configuration declares and for one made before
+    the engine kept the moment, which is not guessed from the age of a file,
+    and against an engine older than wire revision 90.
     """
 
     name: str
@@ -287,6 +293,7 @@ class DatabaseInfo(FromJson):
     licence: dict | None = None
     release: dict | None = None
     modification: dict | None = None
+    added: str | None = None
 
     @property
     def modified(self) -> bool:

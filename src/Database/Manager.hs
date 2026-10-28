@@ -290,6 +290,7 @@ import SubstanceRegistry (CASNumber (..), KeyNormalizers (..), NormName (..), Su
 import SynonymDB (BridgeDirection (..), SynEdge (..), SynonymDB (..), buildFromCSV, emptySynonymDB, excludeJunkSynonyms, excludeOverFrequentSynonyms, loadFromCSVFileWithCache, mergeSynonymDBs, normalizeName, oversizedClasses, reopenedBridges, synonymCount, uncoveredUnitSuffixes)
 import Types (
     Activity,
+    AddedAt,
     AllocationKey (..),
     AttributeFallback (..),
     BioFlowDB,
@@ -599,6 +600,7 @@ data DatabaseStatus = DatabaseStatus
     , dsLicence :: !Licence -- What it is served under, its source's for a copy
     , dsRelease :: !(Maybe Release) -- Which published database it is, as its owner declared
     , dsModification :: !Modification -- How its data differs from the files it reads
+    , dsAdded :: !(Maybe AddedAt) -- When the engine made it; none for a configured database
     }
     deriving (Show, Eq, Generic)
 
@@ -621,6 +623,7 @@ instance ToJSON DatabaseStatus where
             , "dsLicence" .= dsLicence
             , "dsRelease" .= dsRelease
             , "dsModification" .= dsModification
+            , "dsAdded" .= dsAdded
             ]
 
 instance FromJSON DatabaseStatus where
@@ -651,6 +654,8 @@ instance FromJSON DatabaseStatus where
             <*> v .:? "dsRelease"
             -- Before modifications were on the wire none was reported.
             <*> v .:? "dsModification" A..!= unmodified
+            -- Before the moment was on the wire none was known.
+            <*> v .:? "dsAdded"
 
 -- | Status of a method collection (e.g., EF-3.1) for API responses
 data MethodCollectionStatus = MethodCollectionStatus
@@ -663,6 +668,7 @@ data MethodCollectionStatus = MethodCollectionStatus
     , mcsPath :: !Text -- Path to method directory
     , mcsMethodCount :: !Int -- Number of impact categories (0 if unloaded)
     , mcsFormat :: !Text -- "SimaPro CSV", "ILCD", etc.
+    , mcsAdded :: !(Maybe AddedAt) -- When the engine made it; none for a declared or built-in collection
     }
     deriving (Show, Eq, Generic)
 
@@ -678,6 +684,7 @@ instance ToJSON MethodCollectionStatus where
             , "mcsPath" .= mcsPath
             , "mcsMethodCount" .= mcsMethodCount
             , "mcsFormat" .= mcsFormat
+            , "mcsAdded" .= mcsAdded
             ]
 
 instance FromJSON MethodCollectionStatus where
@@ -692,6 +699,7 @@ instance FromJSON MethodCollectionStatus where
             <*> v .: "mcsPath"
             <*> v .: "mcsMethodCount"
             <*> v .: "mcsFormat"
+            <*> v .:? "mcsAdded"
 
 {- | The database manager maintains state for multiple databases
 Databases with load=true are pre-loaded at startup for instant switching
@@ -1998,6 +2006,7 @@ uploadMetaToConfig slug dirPath meta =
         , dcLicence = UploadedDB.umLicence meta
         , dcRelease = UploadedDB.umRelease meta
         , dcRequires = UploadedDB.umRequires meta
+        , dcAdded = UploadedDB.umAdded meta
         }
 
 {- | Record an uploaded database's dependency pin where a restart can find it.
@@ -2276,6 +2285,7 @@ discoverUploadedMethodConfigs = do
                         , mcHome = Just dirPath
                         , mcSource = UploadedDB.umSource meta
                         , mcDescription = UploadedDB.umDescription meta
+                        , mcAdded = UploadedDB.umAdded meta
                         , mcFormat = format
                         , mcScoringSets = []
                         , mcGlobalMethods = []
@@ -2352,6 +2362,7 @@ listDatabases manager = do
                 , dsLicence = licenceOf availableDbs config
                 , dsRelease = dcRelease config
                 , dsModification = modification
+                , dsAdded = dcAdded config
                 }
 
 -- | File extensions 'resolveDataPath' knows how to extract as archives.
@@ -4928,6 +4939,7 @@ listMethodCollections manager = do
             , mcsPath = T.pack (describeMethodOrigin (mcOrigin mc))
             , mcsMethodCount = maybe 0 (length . mcMethods) (M.lookup name loaded)
             , mcsFormat = fromMaybe (formatOf (mcOrigin mc)) (mcFormat mc)
+            , mcsAdded = mcAdded mc
             }
         | (name, mc) <- M.toList available
         ]
@@ -5243,6 +5255,7 @@ data RefDataStatus = RefDataStatus
     , rdsIsUploaded :: !Bool
     , rdsIsAuto :: !Bool
     , rdsEntryCount :: !Int
+    , rdsAdded :: !(Maybe AddedAt) -- When an upload made it; none for a built-in or extracted table
     }
     deriving (Show, Eq, Generic)
 
@@ -5256,6 +5269,7 @@ instance ToJSON RefDataStatus where
             , "rdsIsUploaded" .= rdsIsUploaded
             , "rdsIsAuto" .= rdsIsAuto
             , "rdsEntryCount" .= rdsEntryCount
+            , "rdsAdded" .= rdsAdded
             ]
 
 instance FromJSON RefDataStatus where
@@ -5268,6 +5282,7 @@ instance FromJSON RefDataStatus where
             <*> v .: "rdsIsUploaded"
             <*> v .: "rdsIsAuto"
             <*> v .: "rdsEntryCount"
+            <*> v .:? "rdsAdded"
 
 --------------------------------------------------------------------------------
 -- Generic ref-data operations (shared by flow synonyms, compartment maps, units)
@@ -5345,6 +5360,7 @@ listRefDataG ops manager = do
             , rdsIsUploaded = rdIsUploaded rd
             , rdsIsAuto = rdIsAuto rd
             , rdsEntryCount = maybe 0 (rdoCount ops) (M.lookup (rdName rd) loaded)
+            , rdsAdded = rdAdded rd
             }
         | rd <- M.elems available
         ]
@@ -5610,6 +5626,7 @@ discoverUploadedRefData baseDir = do
                         let name = T.pack entry
                             isAuto = "auto-" `T.isPrefixOf` name
                         reportProgress Info $ "Discovered uploaded ref data: " <> T.unpack name
+                        added <- UploadedDB.readAdded dirPath
                         return $
                             Just
                                 RefDataConfig
@@ -5619,6 +5636,7 @@ discoverUploadedRefData baseDir = do
                                     , rdIsUploaded = True
                                     , rdIsAuto = isAuto
                                     , rdDescription = Nothing
+                                    , rdAdded = added
                                     }
                     else return Nothing
 
@@ -5707,6 +5725,7 @@ autoCreateFlowSynonyms manager sourceName (SynonymOrigin description) pairs = do
                         , rdIsUploaded = True
                         , rdIsAuto = True
                         , rdDescription = Just description
+                        , rdAdded = Nothing
                         }
             addFlowSynonyms manager rd
             -- Close the candidate set only to audit its quality: an oversized
