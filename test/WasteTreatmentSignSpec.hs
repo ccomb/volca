@@ -578,6 +578,12 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
         ewuWasteRole reported `shouldBe` Just SentToTreatment
         (T.isPrefixOf "eco-dep::" <$> ewuTargetProcessId reported) `shouldBe` Just True
 
+    -- An input naming an activity no database holds is linked by its product;
+    -- the supplier reported must be the one that link charged, not none.
+    it "reports the dependency's supplier for an input naming an activity found nowhere" $ do
+        (_, reported) <- scoreCrossOf SignedReferences (techEx wW 3.0 Input (Just tB)){techLocation = "GLO"} "eco-dep" ReferenceProduct (-1.0)
+        (T.isPrefixOf "eco-dep::" <$> ewuTargetProcessId reported) `shouldBe` Just True
+
     it "reports the dependency's treatment for an output naming none" $ do
         (_, reported) <- scoreCross Nothing "eco-dep" ReferenceProduct (-1.0)
         ewuWasteRole reported `shouldBe` Just SentToTreatment

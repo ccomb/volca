@@ -46,6 +46,7 @@ module API.DatabaseHandlers (
     documentFileHandler,
     setLicenceHandler,
     setReleaseHandler,
+    setDisplayNameHandler,
     acceptSubstitutionHandler,
     licenceRefusal,
     refuseUnlessGranted,
@@ -154,6 +155,7 @@ import API.Types (
     GapReportAPI (..),
     LoadDatabaseResponse (..),
     ModelExceptionAPI (..),
+    ModelSubstitutionAPI (..),
     ParametersEditRequest (..),
     ParametersEditResponse (..),
     QualityCheckAPI (..),
@@ -266,6 +268,7 @@ import Database.Manager (
     removeMethodCollection,
     removeUnitDefs,
     setDataPath,
+    setUploadDisplayName,
     setUploadLicence,
     setUploadRelease,
     setupErrorMessage,
@@ -280,6 +283,7 @@ import qualified Database.Quality as Quality
 import Database.RelinkMapping (parseAliasMap)
 import Database.Requirements (ReleaseSubstitution)
 import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario, savedForExport)
+import Database.SystemModel (ModelOnParent (..), NamedSubstitution (..))
 import Database.Upload (
     DatabaseFormat (..),
     UploadData (..),
@@ -302,10 +306,12 @@ import Types (
     ClassificationFilter (..),
     ClassificationMatch (..),
     Database (..),
+    DisplayName,
     FileReading (..),
     GeographyPolicy (..),
     Licence (..),
     ModelException (..),
+    ModelSubstitution (..),
     Modification,
     Permission (..),
     ProcessRef (..),
@@ -324,6 +330,7 @@ import Types (
     modelOf,
     modelTitle,
     processRefText,
+    ratioValue,
     readingKey,
     reasonText,
     unresolvedCount,
@@ -649,17 +656,30 @@ so, like a parent not loaded.
 systemModelHandler :: Text -> AppM SystemModelAPI
 systemModelHandler dbName = do
     dbManager <- asks aeDbManager
-    (model, taken) <- ioEither400 (systemModelOf dbManager dbName)
+    onParent <- ioEither400 (systemModelOf dbManager dbName)
     pure
         SystemModelAPI
-            { smaText = smText model
+            { smaText = smText (mopModel onParent)
             , smaExceptions =
                 [ ModelExceptionAPI
                     { meaKey = exKey ex
                     , meaReason = reasonText (exReason ex)
                     , meaProcesses = [TakenProcessAPI{tpaActivity = UUID.toText u, tpaName = name} | (u, name) <- processes]
                     }
-                | (ex, processes) <- taken
+                | (ex, processes) <- mopExceptions onParent
+                ]
+            , smaSubstitutions =
+                [ ModelSubstitutionAPI
+                    { msaCoproduct = processRefText (subCoproduct (nsRule ns))
+                    , msaBlock = nsBlock ns
+                    , msaCoproductName = nsCoproduct ns
+                    , msaReplaces = processRefText (subReplaces (nsRule ns))
+                    , msaReplacedProcess = nsReplaced ns
+                    , msaReplacedProduct = nsReplacedProduct ns
+                    , msaRatio = ratioValue (subRatio (nsRule ns))
+                    , msaReason = reasonText (subReason (nsRule ns))
+                    }
+                | ns <- mopSubstitutions onParent
                 ]
             }
 
@@ -1000,6 +1020,17 @@ setReleaseHandler dbName release = do
     guardMutation
     dbManager <- asks aeDbManager
     liftIO (setUploadRelease dbManager dbName release) >>= either settingRefused pure
+
+{- | Rename an uploaded database, and answer with the name kept: the one sent
+without the spaces around it. 404 for a name the engine does not know, 409
+for a database the configuration file declares, 500 for an upload whose
+meta.toml cannot be read. A blank name is refused before it gets here.
+-}
+setDisplayNameHandler :: Text -> DisplayName -> AppM DisplayName
+setDisplayNameHandler dbName name = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    liftIO (setUploadDisplayName dbManager dbName name) >>= either settingRefused pure
 
 {- | Accept a database in place of a release an uploaded database requires,
 and answer with its setup as it now links. 404 for a name the engine does not

@@ -33,11 +33,11 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.UUID as UUID
-import Servant (errBody, errHTTPCode, runHandler)
+import Servant (ServerError, errBody, errHTTPCode, runHandler)
 import Test.Hspec
 
 import API.MCP (callTool, noRequestId)
-import API.Routes (getActivityLCIA, getContributingFlows, getScoreContributingFlows, postImpactsBatch)
+import API.Routes (getActivityLCIA, getContributingFlows, getScoreContributingFlows, postImpactsBatch, postMethodImpactsBatch)
 import API.Types (
     BatchImpactsEntry (..),
     BatchImpactsRequest (..),
@@ -156,7 +156,16 @@ managerUnder licence = do
 
 -- | Run a REST handler against that manager, failing the test on an error status.
 runOk :: AppM a -> IO a
-runOk handler = do
+runOk handler =
+    runEither handler
+        >>= either (\e -> fail (show (errHTTPCode e) <> ": " <> BSL.unpack (errBody e))) pure
+
+-- | The error status a REST handler answers with, Nothing when it succeeds.
+runStatus :: AppM a -> IO (Maybe Int)
+runStatus handler = either (Just . errHTTPCode) (const Nothing) <$> runEither handler
+
+runEither :: AppM a -> IO (Either ServerError a)
+runEither handler = do
     manager <- loadedManager
     let env =
             AppEnv
@@ -170,7 +179,6 @@ runOk handler = do
                 , aeReader = Nothing
                 }
     runHandler (runApp env handler)
-        >>= either (\e -> fail (show (errHTTPCode e) <> ": " <> BSL.unpack (errBody e))) pure
 
 -- | The two numbers of every row a REST answer lists.
 restRows :: [FlowContributionEntry] -> [FactorAndContribution]
@@ -234,6 +242,22 @@ spec = describe "a contributing flow's factor and contribution" $ do
         response <- runOk (postImpactsBatch "sample" (CollectionName collectionName) (Just 5) Nothing (BatchImpactsRequest [productD] []))
         concatMap restRows [lrTopContributors r | e <- birResults response, r <- lbrResults (bieImpacts e)]
             `shouldBe` expected
+
+    it "land in their own fields in a REST batch score under one method" $ do
+        response <- runOk (postMethodImpactsBatch "sample" (CollectionName collectionName) methodIdText (Just 5) Nothing (BatchImpactsRequest [productD] []))
+        concatMap restRows [lrTopContributors r | e <- birResults response, r <- lbrResults (bieImpacts e)]
+            `shouldBe` expected
+
+    -- A single score summed over one of its categories would be wrong without saying so.
+    it "come back from a batch under one method without any single score" $ do
+        let scoringSets = map (M.keys . lbrScoringResults . bieImpacts) . birResults
+        whole <- runOk (postImpactsBatch "sample" (CollectionName collectionName) Nothing Nothing (BatchImpactsRequest [productD] []))
+        one <- runOk (postMethodImpactsBatch "sample" (CollectionName collectionName) methodIdText Nothing Nothing (BatchImpactsRequest [productD] []))
+        (scoringSets whole, scoringSets one) `shouldBe` ([["Single"]], [[]])
+
+    it "are refused for a method the collection does not hold" $ do
+        status <- runStatus (postMethodImpactsBatch "sample" (CollectionName collectionName) (UUID.toText UUID.nil) Nothing Nothing (BatchImpactsRequest [productD] []))
+        status `shouldBe` Just 404
 
     it "land in their own fields in the MCP get_contributing_flows reply" $
         mcpRows "get_contributing_flows" [] `shouldReturn` expected

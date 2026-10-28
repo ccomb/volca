@@ -1437,9 +1437,9 @@ resolveByLinkedProducer :: Database -> Exchange -> Maybe TargetRef
 resolveByLinkedProducer db ex = linkedProducer db ex >>= targetOf db
 
 {- | Resolve the target activity (if any) for one exchange. Technosphere broken
-links (linkId set but unresolvable) do NOT fall through to the product-flow
-path – that matches the original behaviour. Use '<|>' to chain fallbacks only
-where the original code did. Every linked arm resolves the way the matrix
+links (linkId set but unresolvable here) do NOT fall through to the
+product-flow path, only to the cross-DB link the loader charged for them.
+Every linked arm resolves the way the matrix
 routes it; a waste output is the one that stops there, with no fallback to the
 activity UUID, because a link it cannot route is a treatment this database does
 not hold and reporting a row for it would hide that.
@@ -1452,7 +1452,8 @@ resolveTarget ::
 resolveTarget db links = \case
     ex@TechnosphereExchange{techRole = role, techActivityLinkId = lid, techFlowId = fid}
         | role /= Input && role /= ReferenceInput -> Nothing
-        | isJust lid -> resolveByLinkedProducer db ex
+        -- A named activity this database does not hold was linked by its product in another.
+        | isJust lid -> resolveByLinkedProducer db ex <|> resolveByCrossDBLink links fid
         | otherwise -> resolveByProductFlow db fid <|> resolveByCrossDBLink links fid
     BiosphereExchange{} -> Nothing
     -- A named treatment this database does not hold was linked in another, as an input's supplier is.

@@ -4,6 +4,18 @@
 
 ### Added
 
+- A batch of activities can be scored under one method of a collection, at
+  `POST /db/{db}/impacts/{collection}/{methodId}`, with the same body and
+  answer as the whole collection. Characterization costs per method, so one
+  category of a large database comes back several times faster. The answer
+  carries no single score, since one category alone cannot make one.
+- `GET /db/{db}/score-pairs?other_database={other}` pairs the activities of
+  two databases as the comparison of databases does, without comparing their
+  lines, and gives for each pair what a score of the other activity is
+  multiplied by to be per unit of this one's product: 3.6 when this one
+  makes kilowatt hours and the other megajoules. A pair whose products are
+  measured in different quantities, or in a unit no loaded table knows, is
+  set apart with its reason rather than given a factor.
 - An edit of an activity can state the dry mass of its products: each is
   named by its flow and given the dry mass of one unit of it, in a unit of
   mass, or its dry mass is removed. This is what a dry mass exception of a
@@ -26,6 +38,24 @@
   into the engine, and what was uploaded before this release carry none:
   the moment is not guessed from the age of a file, which every edit renews.
   Wire revision 90.
+- A system model can substitute a coproduct rather than divide it. A line
+  under `[[substitutions]]` names the coproduct of a process, the process of
+  the parent it displaces, how much of that process's product one unit of the
+  coproduct displaces, and why. In the child, the products left carry the
+  whole process, credited with what the coproduct displaces, and a process
+  that bought the coproduct buys the displaced product instead. For example,
+  the 18 m3 of biogas of a slurry digester, substituted by natural gas at
+  23.3 MJ per m3, leave the digestate the whole digester, less 419 MJ of
+  natural gas. A substitution that would leave a process no product to carry
+  it, or credit a process the child does not hold, is refused when the child
+  is derived. The system model of a child lists its substitutions with the
+  names of the processes they take. Wire revision 91.
+- An uploaded database can be renamed, at `PUT /db/{db}/display-name` with
+  the new name as a JSON string, or `set_display_name()` in pyvolca. Only the
+  name it is shown under changes: the name it is addressed by stays, so its
+  links and the databases depending on it keep working. A blank name is
+  refused, and so is a database the configuration file declares, whose name
+  is written there. Wire revision 92.
 - A reference table can be read row by row, as its CSV says it, loaded or not:
   `GET /flow-synonyms/{name}/rows`, `/units/{name}/rows` and
   `/compartment-mappings/{name}/rows` give the header and every row, all
@@ -34,7 +64,7 @@
   open a unit table or a compartment mapping and search it. A compartment
   mapping also downloads as its CSV
   (`GET /compartment-mappings/{name}/download`), as units and synonyms
-  already did. Wire revision 91.
+  already did. Wire revision 93.
 
 ### Added
 
@@ -62,6 +92,11 @@
   such a waste line, within its own database too, a waste sent to treatment
   (`SentToTreatment`), or `TreatmentNotLoaded` when its treatment is found
   nowhere, where they called it `TreatsWaste`.
+- An input that names a supplier activity found in no database, but whose
+  product a dependency supplies, now shows that supplier among the activity's
+  inputs. It was already linked to it and counted in the scores, but the
+  inputs showed no supplier, and the interface then labelled the line with the
+  activity's own database.
 - When a key divides none of a database's blocks, the refusal counts the
   blocks of several products it could have divided, not every process of the
   database.

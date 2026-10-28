@@ -104,13 +104,13 @@ spec = do
                         }
             res <-
                 runHandler . runApp env $
-                    batchImpactsH "no-such-db" (CollectionName "no-coll") Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = ["a", "b", "c"], birParameterSets = []}
+                    batchImpactsH "no-such-db" (CollectionName "no-coll") Nothing Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = ["a", "b", "c"], birParameterSets = []}
             -- A 404 here would mean the database was looked up first.
             either (Just . errHTTPCode) (const Nothing) res `shouldBe` Just 403
             -- Two activities at two parameter sets are four scores.
             atSets <-
                 runHandler . runApp env{aeHostingConfig = Just (limits (Just 3) Nothing)} $
-                    batchImpactsH "no-such-db" (CollectionName "no-coll") Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = ["a", "b"], birParameterSets = [[], []]}
+                    batchImpactsH "no-such-db" (CollectionName "no-coll") Nothing Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = ["a", "b"], birParameterSets = [[], []]}
             either (Just . errHTTPCode) (const Nothing) atSets `shouldBe` Just 403
 
     -- The assistant tools score through these wrappers, which used to run

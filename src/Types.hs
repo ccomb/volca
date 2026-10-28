@@ -16,7 +16,7 @@ module Types (
 
 import API.JsonOptions (Stripped (..))
 import Control.DeepSeq (NFData)
-import Control.Monad ((<=<), (>=>))
+import Control.Monad (mfilter, (<=<), (>=>))
 import Crypto.Hash (SHA256 (..), hashWith)
 import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, withText, (.!=), (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
@@ -2549,9 +2549,10 @@ parseFileReading raw =
                     <> " is no longer read from the files: read the database under none, as a parent, and derive a child from it with a system model"
 
 {- | How a child is divided from its parent: one property for every block of
-several products, and exceptions that give some of them another one, each with
-the reason it was made. The file it was written in is kept as written, since it
-is what a child's delivery cites.
+several products, exceptions that give some of them another one, and
+coproducts left out of the division for what they displace, each with the
+reason it was made. The file it was written in is kept as written, since it is
+what a child's delivery cites.
 -}
 data SystemModel = SystemModel
     { smName :: !Text
@@ -2559,9 +2560,29 @@ data SystemModel = SystemModel
     , smDescription :: !(Maybe Text)
     , smDefault :: !AllocationProperty
     , smExceptions :: ![ModelException]
+    , smSubstitutions :: ![ModelSubstitution]
     , smText :: !Text
     }
     deriving (Show, Eq, Generic, NFData)
+
+{- | A coproduct of a block of the parent that is not divided: the products
+left carry the whole block, credited with what the coproduct displaces, a
+process of the parent, 'subRatio' of its product per unit of the coproduct.
+-}
+data ModelSubstitution = ModelSubstitution
+    { subCoproduct :: !ProcessRef
+    , subReplaces :: !ProcessRef
+    , subRatio :: !Ratio
+    , subReason :: !Reason
+    }
+    deriving (Show, Eq, Generic, NFData)
+
+-- | How much of a product one unit of another displaces. Finite and above zero: only the decoder builds one.
+newtype Ratio = Ratio Double
+    deriving (Show, Eq, Generic, NFData)
+
+ratioValue :: Ratio -> Double
+ratioValue (Ratio r) = r
 
 -- | Some blocks of the parent divided under another property, and why.
 data ModelException = ModelException
@@ -2879,6 +2900,21 @@ data Release = Release
     }
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Release)
+
+{- | The name a database is shown under, which its owner may change: never its
+slug, which its links and the databases depending on it keep. Never blank,
+the same rule an upload's name meets.
+-}
+newtype DisplayName = DisplayName {displayNameText :: Text}
+    deriving (Show, Eq)
+    deriving (ToJSON, ToSchema) via Text
+
+-- | The name with the spaces around it dropped, or nothing when only spaces are left.
+mkDisplayName :: Text -> Maybe DisplayName
+mkDisplayName = fmap DisplayName . mfilter (not . T.null) . Just . T.strip
+
+instance FromJSON DisplayName where
+    parseJSON = withText "DisplayName" (maybe (fail "A database's name cannot be blank") pure . mkDisplayName)
 
 {- | How a database's data came to differ from the files it was read from: its
 own edits, kept in its journal, and a division of its multi-output blocks other

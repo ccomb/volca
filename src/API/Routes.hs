@@ -13,7 +13,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScorePairs, ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import qualified Config
 import Control.Concurrent.Async (mapConcurrently)
@@ -159,7 +159,9 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "catalogue" :> QueryParam "offset" Int :> QueryParam "limit" Int :> Get '[JSON] CataloguePage
                 :<|> "db" :> Capture "dbName" Text :> "catalogue" :> "fingerprint" :> Get '[JSON] CatalogueFingerprint
                 :<|> "db" :> Capture "dbName" Text :> "compare" :> QueryParam "other_database" Text :> QueryParam "limit" Int :> Get '[JSON] DatabaseComparison
+                :<|> "db" :> Capture "dbName" Text :> "score-pairs" :> QueryParam "other_database" Text :> Get '[JSON] ScorePairs
                 :<|> "db" :> Capture "dbName" Text :> "impacts" :> Capture "collection" DM.CollectionName :> QueryParam "top-flows" Int :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] BatchImpactsRequest :> Post '[JSON] BatchImpactsResponse
+                :<|> "db" :> Capture "dbName" Text :> "impacts" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "top-flows" Int :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] BatchImpactsRequest :> Post '[JSON] BatchImpactsResponse
                 -- Database management endpoints
                 :<|> "db" :> Get '[JSON] DatabaseListResponse
                 -- Load/Unload/Delete endpoints
@@ -207,6 +209,8 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "licence" :> ReqBody '[JSON] Licence :> Put '[JSON] Licence
                 -- Which published database an uploaded database is, or null for none
                 :<|> "db" :> Capture "dbName" Text :> "release" :> ReqBody '[JSON] (Maybe Release) :> Put '[JSON] (Maybe Release)
+                -- The name an uploaded database is shown under; its slug stays
+                :<|> "db" :> Capture "dbName" Text :> "display-name" :> ReqBody '[JSON] DisplayName :> Put '[JSON] DisplayName
                 -- A database accepted in place of a release a packaged database requires
                 :<|> "db" :> Capture "dbName" Text :> "accept-substitution" :> ReqBody '[JSON] ReleaseSubstitution :> Post '[JSON] DatabaseSetupInfo
                 -- Upload endpoint (streamed octet-stream body; metadata in query params)
@@ -1145,17 +1149,20 @@ withScoringSlot :: DatabaseManager -> AppM a -> AppM a
 withScoringSlot dm = maybe id (\slots -> bracket_ (liftIO (waitQSem slots)) (liftIO (signalQSem slots))) (dmScoringSlots dm)
 
 {- | Top-level multi-activity batch impacts, a chunk of activities per solve,
-parallel characterization. Used by the Servant POST route and by
-API.BatchImpacts.
+parallel characterization. Used by the Servant POST routes and by
+API.BatchImpacts. Given a method of the collection, only that one is scored:
+characterization costs per method, so one category of a large database comes
+back several times faster than the whole collection.
 -}
 batchImpactsH ::
     Text ->
     DM.CollectionName ->
+    Maybe Text ->
     Maybe Int ->
     LongTermMode ->
     BatchImpactsRequest ->
     AppM BatchImpactsResponse
-batchImpactsH dbName collectionName topFlowsParam ltMode req = do
+batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
     -- Before any lookup, like the read-only guard: a request this instance
     -- will not run gets the same answer whether or not its names resolve.
     hosting <- asks aeHostingConfig
@@ -1164,10 +1171,17 @@ batchImpactsH dbName collectionName topFlowsParam ltMode req = do
     dbManager <- asks aeDbManager
     loaded@(db, sharedSolver) <- requireDatabaseByName dbName
     loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
-    collection <- case M.lookup (DM.unCollectionName collectionName) loadedCollections of
+    whole <- case M.lookup (DM.unCollectionName collectionName) loadedCollections of
         Just mc -> pure mc
         Nothing ->
             throwError err404{errBody = collectionNotLoadedBody (DM.unCollectionName collectionName) (M.keys loadedCollections)}
+    -- A scoring set read off one of its categories would be wrong without
+    -- saying so, so a single method comes back without any.
+    collection <- case methodParam of
+        Nothing -> pure whole
+        Just methodText -> do
+            method <- loadMethodInCollection collectionName methodText
+            pure whole{mcMethods = [method], mcScoringSets = []}
     let resolved =
             [ (pidText, Service.resolveScorable db pidText)
             | pidText <- birProcessIds req
@@ -1309,7 +1323,7 @@ computedQualityReportH dbName mCollection mLimit = do
                             <> " in one request."
                 }
     response <-
-        batchImpactsH dbName collection Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = M.keys entriesByPid, birParameterSets = []}
+        batchImpactsH dbName collection Nothing Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = M.keys entriesByPid, birParameterSets = []}
     -- The ids come from the catalogue itself, so nothing should be
     -- unresolvable – but a dropped entry would silently shrink the report,
     -- so any is worth a warning in the log.
@@ -1622,8 +1636,12 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 91: the @rows@ of a reference table, and the download of a
+(revision 93: the @rows@ of a reference table, and the download of a
 compartment mapping;
+revision 92: renaming an uploaded database, the name it is shown under and
+not its slug, at @PUT /db/{db}/display-name@;
+revision 91: the @substitutions@ a system model lists, each coproduct it
+credits against a process of the parent rather than divides;
 revision 90: the @added@ moment a database, a method collection or a
 reference table lists, when the engine made it;
 revision 89: the @setWetMasses@ an edit of an activity's exchanges takes,
@@ -1819,7 +1837,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 91
+currentWireVersion = 93
 
 getVersion :: AppM Value
 getVersion = do
@@ -2735,6 +2753,24 @@ getDatabaseComparison dbName otherDbParam limitParam = do
     (otherDb, _) <- requireDatabaseByName otherName
     pure $ maybe id Compare.limitComparison limitParam (Compare.compareDatabases (Compare.Sides db otherDb))
 
+{- | The pairs of 'getDatabaseComparison' without what differs inside them, each
+with what puts the other database's score per unit of the base one's product.
+No inventory is read out, so no more is asked than to score.
+-}
+getScorePairs :: Text -> Maybe Text -> AppM ScorePairs
+getScorePairs dbName otherDbParam = do
+    otherName <-
+        maybe
+            (throwError err400{errBody = "Missing required 'other_database' query parameter"})
+            pure
+            otherDbParam
+    when (otherName == dbName) $
+        throwError err400{errBody = "A database compared with itself says nothing; name another database"}
+    (db, _) <- requireDatabaseByName dbName
+    (otherDb, _) <- requireDatabaseByName otherName
+    units <- liftIO . getMergedUnitConfig =<< asks aeDbManager
+    pure (Compare.scorePairs units (Compare.Sides db otherDb))
+
 -- | What a caller asks a comparison of two method collections for.
 data MethodComparisonAsk = MethodComparisonAsk
     { mcaCollection :: !DM.CollectionName
@@ -3315,9 +3351,15 @@ catalogueOf dbName = do
     pure (catalogueEntries unitCfg db)
 
 postImpactsBatch :: Text -> DM.CollectionName -> Maybe Int -> Maybe Bool -> BatchImpactsRequest -> AppM BatchImpactsResponse
-postImpactsBatch dbName collectionName topFlowsParam mExcludeLT =
+postImpactsBatch dbName collectionName = scoreBatchUnder dbName collectionName Nothing
+
+postMethodImpactsBatch :: Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> BatchImpactsRequest -> AppM BatchImpactsResponse
+postMethodImpactsBatch dbName collectionName methodText = scoreBatchUnder dbName collectionName (Just methodText)
+
+scoreBatchUnder :: Text -> DM.CollectionName -> Maybe Text -> Maybe Int -> Maybe Bool -> BatchImpactsRequest -> AppM BatchImpactsResponse
+scoreBatchUnder dbName collectionName methodParam topFlowsParam mExcludeLT =
     countedEach Scoring dbName (map (ProcessKey . bieProcessId) . birResults)
-        . batchImpactsH dbName collectionName topFlowsParam (longTermModeFromExclude (fromMaybe False mExcludeLT))
+        . batchImpactsH dbName collectionName methodParam topFlowsParam (longTermModeFromExclude (fromMaybe False mExcludeLT))
 
 -- ---------------------------------------------------------------------------
 -- Servant server
@@ -3372,7 +3414,9 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getCatalogue
             :<|> getCatalogueFingerprint
             :<|> getDatabaseComparison
+            :<|> getScorePairs
             :<|> postImpactsBatch
+            :<|> postMethodImpactsBatch
             :<|> DBHandlers.getDatabases
             :<|> DBHandlers.loadDatabaseHandler
             :<|> DBHandlers.unloadDatabaseHandler
@@ -3395,6 +3439,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.documentFileHandler
             :<|> DBHandlers.setLicenceHandler
             :<|> DBHandlers.setReleaseHandler
+            :<|> DBHandlers.setDisplayNameHandler
             :<|> DBHandlers.acceptSubstitutionHandler
             :<|> DBHandlers.uploadDatabaseHandler
             :<|> DBHandlers.getDatabaseSetupHandler

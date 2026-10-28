@@ -122,6 +122,7 @@ module Database.Manager (
     setUploadLicence,
     SettingRefusal (..),
     setUploadRelease,
+    setUploadDisplayName,
     acceptSubstitution,
     getDatabaseSetupInfo,
     buildLoadedSetupInfo,
@@ -205,7 +206,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database.SystemModel (takenProcesses)
+import Database.SystemModel (ModelOnParent, takenProcesses)
 import GHC.Generics (Generic)
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath (addTrailingPathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (</>))
@@ -301,6 +302,7 @@ import Types (
     CrossDBLinkingStats (..),
     Database (..),
     DatabaseDocumentation (..),
+    DisplayName (..),
     ExchangeLocation (..),
     FileReading (..),
     FlowClosure (..),
@@ -310,7 +312,6 @@ import Types (
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
-    ModelException,
     ModelTitle (..),
     Modification (..),
     Permission (..),
@@ -2117,7 +2118,15 @@ writeUploadSetting manager dbName UploadSetting{..} = runExceptT $ do
     meta <- liftIO (UploadedDB.readUploadMeta uploadRoot) >>= maybe (throwE (SettingUnrecordable ("No readable meta.toml under " <> T.pack uploadRoot <> ": the " <> usNoun <> " of " <> dbName <> " would be lost at the next restart"))) pure
     liftIO $ do
         UploadedDB.writeUploadMeta uploadRoot (usMeta meta)
-        atomically $ modifyTVar' (dmAvailableDbs manager) (M.adjust usConfig dbName)
+        -- A staged and a loaded database each keep the config they were made
+        -- with, which MCP, the export and the setup read: all three move
+        -- together. A load still running publishes the config it started
+        -- with, so a setting written meanwhile reaches only the list until
+        -- the database is loaded again.
+        atomically $ do
+            modifyTVar' (dmAvailableDbs manager) (M.adjust usConfig dbName)
+            modifyTVar' (dmStagedDbs manager) (M.adjust (\s -> s{sdConfig = usConfig (sdConfig s)}) dbName)
+            modifyTVar' (dmLoadedDbs manager) (M.adjust (\l -> l{ldConfig = usConfig (ldConfig l)}) dbName)
   where
     inConfigurationFile :: DatabaseConfig -> Maybe Text
     inConfigurationFile config
@@ -2163,6 +2172,22 @@ setUploadRelease manager dbName release = do
     -- ones staged before this declaration are staged again when next asked.
     atomically $ modifyTVar' (dmStagedDbs manager) (M.filter (null . dcRequires . sdConfig))
     pure (release <$ written)
+
+{- | Rename an uploaded database: the name it is shown under, not its slug. A
+copy is named in its own meta.toml, so it is renamed apart from its source.
+-}
+setUploadDisplayName :: DatabaseManager -> Text -> DisplayName -> IO (Either SettingRefusal DisplayName)
+setUploadDisplayName manager dbName name =
+    (name <$)
+        <$> writeUploadSetting
+            manager
+            dbName
+            UploadSetting
+                { usNoun = "name"
+                , usHeldElsewhere = const Nothing
+                , usMeta = \meta -> meta{UploadedDB.umDisplayName = displayNameText name}
+                , usConfig = \c -> c{dcDisplayName = displayNameText name}
+                }
 
 {- | Accept a database in place of a release an uploaded database requires.
 Recorded like any setting; its staged links and its matrix cache are dropped,
@@ -3012,7 +3037,7 @@ parentOf configs config = case dcReading config of
 from the parent as now loaded: the parent's edits since the child was divided
 show in what a rule takes.
 -}
-systemModelOf :: DatabaseManager -> Text -> IO (Either Text (SystemModel, [(ModelException, [(UUID, Text)])]))
+systemModelOf :: DatabaseManager -> Text -> IO (Either Text ModelOnParent)
 systemModelOf manager dbName = do
     configs <- readTVarIO (dmAvailableDbs manager)
     case M.lookup dbName configs of
@@ -3021,7 +3046,7 @@ systemModelOf manager dbName = do
             (ByModel model, Just parentName) ->
                 getDatabase manager parentName <&> \case
                     Nothing -> Left ("the parent " <> parentName <> " of " <> dbName <> " is not loaded")
-                    Just parent -> either (Left . T.intercalate "; " . NE.toList) (Right . (,) model) (takenProcesses model (ldDatabase parent))
+                    Just parent -> either (Left . T.intercalate "; " . NE.toList) Right (takenProcesses model (ldDatabase parent))
             (ByModel _, Nothing) -> pure (Left (dbName <> " is divided by a system model, and none of its sources is a parent read under none"))
             (FromFiles _, _) -> pure (Left (dbName <> " is read from its files, not divided from a parent by a system model"))
 

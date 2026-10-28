@@ -14,12 +14,13 @@ import Test.Hspec
 import API.DatabaseHandlers (licenceRefusal)
 import API.Resources (Resource (..), resourceNeeds)
 import Config (DatabaseConfig (..), defaultConfig)
-import Database.Manager (CachePolicy (..), DatabaseManager, DatabaseStatus (..), SettingRefusal (..), addDatabase, databaseLicence, initDatabaseManager, listDatabases, setUploadLicence, setUploadRelease)
+import Database.Manager (CachePolicy (..), DatabaseManager, DatabaseStatus (..), LoadedDatabase (..), SettingRefusal (..), addDatabase, databaseLicence, getDatabase, initDatabaseManager, listDatabases, loadDatabase, setUploadDisplayName, setUploadLicence, setUploadRelease)
 import qualified Database.UploadedDatabase as UploadedDB
 import TestHelpers (membersOnly, withScratchDataDir)
 import Types (
     Acceptance (..),
     Attribution (..),
+    DisplayName (..),
     FileReading (..),
     GeographyPolicy (..),
     Licence (..),
@@ -33,6 +34,7 @@ import Types (
     licenceFromKeys,
     licenceView,
     lvPermissions,
+    mkDisplayName,
     parseSpdx,
     psEnforced,
     psPermission,
@@ -165,6 +167,37 @@ spec = do
                 addDatabase manager configured
                 setUploadRelease manager "configured" (Just release)
                     `shouldReturn` Left (SettingHeldElsewhere "configured is set in the configuration file, which is where its release is written")
+
+    describe "setUploadDisplayName" $ do
+        let name = DisplayName "Cheeses"
+
+        it "records the name of an upload where a restart reads it, and lists it" $
+            withUpload $ \manager home -> do
+                setUploadDisplayName manager "upload" name `shouldReturn` Right name
+                fmap UploadedDB.umDisplayName <$> UploadedDB.readUploadMeta home `shouldReturn` Just "Cheeses"
+                listed <- listDatabases manager
+                [(dsName s, dsDisplayName s) | s <- listed] `shouldMatchList` [("upload", "Cheeses"), ("copy", "configured")]
+
+        it "renames a loaded database, which keeps the settings it was loaded with" $
+            withUpload $ \manager _ -> do
+                loaded <- loadDatabase manager "upload"
+                either (expectationFailure . T.unpack) (const (pure ())) loaded
+                _ <- setUploadDisplayName manager "upload" name
+                _ <- setUploadRelease manager "upload" (Just (Release "sample" "1" Nothing))
+                config <- fmap ldConfig <$> getDatabase manager "upload"
+                fmap dcDisplayName config `shouldBe` Just "Cheeses"
+                fmap dcRelease config `shouldBe` Just (Just (Release "sample" "1" Nothing))
+
+        it "refuses to rename a configured database, which is the configuration file's" $
+            withScratchDataDir $ do
+                manager <- initDatabaseManager defaultConfig NoCache
+                addDatabase manager configured
+                setUploadDisplayName manager "configured" name
+                    `shouldReturn` Left (SettingHeldElsewhere "configured is set in the configuration file, which is where its name is written")
+
+        it "keeps a name without the spaces around it, and refuses one of spaces only" $ do
+            mkDisplayName "  Cheeses " `shouldBe` Just name
+            (A.decode "\" \"" :: Maybe DisplayName) `shouldBe` Nothing
 
     describe "licenceRefusal" $ do
         it "lets a database with no licence be downloaded" $

@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -52,6 +53,7 @@ module Service.Compare (
     compareActivities,
     compareDatabases,
     limitComparison,
+    scorePairs,
     changesPresent,
     applicableChanges,
 
@@ -93,8 +95,12 @@ import API.Types (
     LineChange (..),
     LineMatch (..),
     LineRole (..),
+    PairRefusal (..),
     PairedActivities (..),
     Quantity (..),
+    ScorePair (..),
+    ScorePairs (..),
+    SetApartPair (..),
     SummaryChange (..),
     Supplier (..),
     UncomparedLine (..),
@@ -144,6 +150,7 @@ import Types (
     processIdToRef,
     processIdToText,
  )
+import UnitConversion (UnitConfig, UnitDef (..), UnitReading (..), readUnit)
 
 -- | The two things compared, named so that swapping them shows at the call.
 data Sides a = Sides
@@ -754,7 +761,7 @@ compareDatabases dbs =
         }
   where
     paired :: Cascade ActivityMatch ProcessIn
-    paired = cascadeWith activityRung [minBound .. maxBound] (fmap processesOf dbs)
+    paired = pairProcesses dbs
     redated, changed :: [ChangedActivity]
     (redated, changed) =
         L.partition
@@ -786,6 +793,57 @@ compareDatabases dbs =
                 }
             | (match, candidates) <- cAmbiguous paired
             ]
+
+-- | The activities of two databases as the cascade pairs them, before any line is compared.
+pairProcesses :: Sides Database -> Cascade ActivityMatch ProcessIn
+pairProcesses dbs = cascadeWith activityRung [minBound .. maxBound] (fmap processesOf dbs)
+
+{- | Every pair of two databases with what turns a score of the other activity
+into one per unit of the base activity's reference product, or why nothing
+can. A score is per one unit of the reference product whatever amount the
+source writes, so only the two units count: a score per MJ times 3.6 is a
+score per kWh.
+-}
+scorePairs :: UnitConfig -> Sides Database -> ScorePairs
+scorePairs units dbs =
+    ScorePairs
+        { spsPairs = [ScorePair match (idOf base) (idOf other) (nameOf base) (locationOf base) scale | (match, Sides base other, Right scale) <- scaled]
+        , spsSetApart = [SetApartPair (idOf base) (idOf other) (nameOf base) (locationOf base) why | (_, Sides base other, Left why) <- scaled]
+        , spsUnpairedBaseCount = length (baseSide (cUnpaired paired))
+        , spsUnpairedOtherCount = length (otherSide (cUnpaired paired))
+        , spsAmbiguousCount = length (cAmbiguous paired)
+        }
+  where
+    paired :: Cascade ActivityMatch ProcessIn
+    paired = pairProcesses dbs
+    scaled :: [(ActivityMatch, Sides ProcessIn, Either PairRefusal Double)]
+    scaled = [(match, sides, perBaseUnit units sides) | (match, sides) <- cPairs paired]
+    idOf, nameOf, locationOf :: ProcessIn -> Text
+    idOf p = processIdToText (inDatabase p) (inProcessId p)
+    nameOf = activityName . inActivity
+    locationOf = activityLocation . inActivity
+
+-- | What a score of the other activity is multiplied by to be per one unit of the base one's reference product.
+perBaseUnit :: UnitConfig -> Sides ProcessIn -> Either PairRefusal Double
+perBaseUnit units sides = do
+    Sides baseUnit otherUnit <- traverse referenceUnit sides
+    Sides baseDef otherDef <- traverse definition (Sides baseUnit otherUnit)
+    if
+        | udDimension baseDef /= udDimension otherDef -> Left (DifferentMeasures baseUnit otherUnit)
+        | udFactor baseDef == 0 -> Left (ZeroFactor baseUnit)
+        | udFactor otherDef == 0 -> Left (ZeroFactor otherUnit)
+        | otherwise -> Right (udFactor baseDef / udFactor otherDef)
+  where
+    referenceUnit :: ProcessIn -> Either PairRefusal Text
+    referenceUnit p = do
+        reference <- maybe (Left NoReferenceProduct) Right (L.find exchangeIsReference (exchanges (inActivity p)))
+        maybe (Left UnregisteredUnit) (Right . unitName) (getUnitForExchange (dbUnits (inDatabase p)) reference)
+    definition :: Text -> Either PairRefusal UnitDef
+    definition unit = case readUnit units unit of
+        ReadExact def -> Right def
+        ReadRespelt _ def -> Right def
+        ReadAmbiguous{} -> Left (AmbiguousUnit unit)
+        ReadUnknown -> Left (UnknownUnit unit)
 
 -- | Keep the first @n@ entries of each list. The counts still cover them all.
 limitComparison :: Int -> DatabaseComparison -> DatabaseComparison
