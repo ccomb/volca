@@ -28,9 +28,9 @@
   Wire revision 90.
 - A reference table can be read row by row, as its CSV says it, loaded or not:
   `GET /flow-synonyms/{name}/rows`, `/units/{name}/rows` and
-  `/compartment-mappings/{name}/rows` give the header and every row, each
-  as wide as the header (a missing last cell, like the optional `kind` of a
-  compartment row, comes back empty). This is what lets the web interface
+  `/compartment-mappings/{name}/rows` give the header and every row, all
+  as wide as the widest of them (a missing last cell, like the optional `kind`
+  of a compartment row, comes back empty). This is what lets the web interface
   open a unit table or a compartment mapping and search it. A compartment
   mapping also downloads as its CSV
   (`GET /compartment-mappings/{name}/download`), as units and synonyms

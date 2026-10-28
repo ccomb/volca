@@ -59,9 +59,10 @@ spec = do
                 RefDataRowsResponse header rows <- runHandler (runApp env (refDataRowsHandler CompartmentMappings "Default compartment mapping")) >>= either (fail . show) pure
                 length header `shouldBe` 7
                 rows `shouldSatisfy` all ((== 7) . length)
-        it "end a short row in empty cells, and refuse a row wider than the header" $ do
+        it "end a short row in empty cells, and widen the header for a wider row" $ do
             fmap rdrRows (refDataRows "a,b,c\n1,2\n") `shouldBe` Right [["1", "2", ""]]
-            fmap rdrRows (refDataRows "a,b\n1,2,3\n") `shouldSatisfy` either (const True) (const False)
+            fmap (\r -> (rdrHeader r, rdrRows r)) (refDataRows "name1,name2\nfoo,bar,input\n")
+                `shouldBe` Right (["name1", "name2", ""], [["foo", "bar", "input"]])
     describe "An uploaded reference table" $
         -- The table is registered under the name the user typed and written
         -- under a slug of it: the delete must find the slug.

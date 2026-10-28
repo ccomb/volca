@@ -1781,19 +1781,23 @@ refDataRowsHandler kind name = do
     content <- refDataSource kind name
     either (\err -> throwError err422{errBody = BSL.fromStrict (T.encodeUtf8 err)}) pure (refDataRows content)
 
-{- | The header and rows of a reference CSV, each row as wide as the header. A
-short row ends in empty cells (the compartments' @kind@ column is optional); a
-row wider than its header is refused, as loading the table refuses it.
+{- | The header and rows of a reference CSV, all as wide as the widest of
+them: a short row ends in empty cells (the compartments' @kind@ column is
+optional), and a row wider than its header widens the header with empty
+titles, since the synonym and compartment loaders never compare a row to the
+header and take such a table.
 -}
 refDataRows :: BSL.ByteString -> Either Text RefDataRowsResponse
 refDataRows content =
-    either (Left . ("CSV parse error: " <>) . T.pack) (table . V.toList) (Csv.decode Csv.NoHeader content)
+    either (Left . ("CSV parse error: " <>) . T.pack) (Right . table . V.toList) (Csv.decode Csv.NoHeader content)
   where
-    table [] = Right (RefDataRowsResponse [] [])
-    table (header : rows) = RefDataRowsResponse header <$> traverse (fitTo (length header)) (zip [2 :: Int ..] rows)
-    fitTo width (line, cells)
-        | length cells > width = Left ("line " <> T.pack (show line) <> " has more cells than the header: " <> T.intercalate "," cells)
-        | otherwise = Right (cells <> replicate (width - length cells) "")
+    table :: [[Text]] -> RefDataRowsResponse
+    table [] = RefDataRowsResponse [] []
+    table (header : rows) = RefDataRowsResponse (fitTo header) (map fitTo rows)
+      where
+        width = maximum (map length (header : rows))
+        fitTo :: [Text] -> [Text]
+        fitTo cells = cells <> replicate (width - length cells) ""
 
 -- | The CSV a reference table was read from, the built-in one included.
 refDataSource :: RefDataKind -> Text -> AppM BSL.ByteString
