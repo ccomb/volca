@@ -53,7 +53,6 @@ module Service.Compare (
     compareActivities,
     compareDatabases,
     limitComparison,
-    pairProcesses,
     scorePairs,
     changesPresent,
     applicableChanges,
@@ -827,7 +826,7 @@ scorePairs units dbs =
 -- | What a score of the other activity is multiplied by to be per one unit of the base one's reference product.
 perBaseUnit :: UnitConfig -> Sides ProcessIn -> Either PairRefusal Double
 perBaseUnit units sides = do
-    Sides baseUnit otherUnit <- maybe (Left NoReferenceProduct) Right (traverse referenceUnit sides)
+    Sides baseUnit otherUnit <- traverse referenceUnit sides
     Sides baseDef otherDef <- traverse definition (Sides baseUnit otherUnit)
     if
         | udDimension baseDef /= udDimension otherDef -> Left (DifferentMeasures baseUnit otherUnit)
@@ -835,8 +834,10 @@ perBaseUnit units sides = do
         | udFactor otherDef == 0 -> Left (ZeroFactor otherUnit)
         | otherwise -> Right (udFactor baseDef / udFactor otherDef)
   where
-    referenceUnit :: ProcessIn -> Maybe Text
-    referenceUnit p = rpUnit <$> referenceProductOf (dbTechFlows (inDatabase p)) (dbUnits (inDatabase p)) (inActivity p)
+    referenceUnit :: ProcessIn -> Either PairRefusal Text
+    referenceUnit p = do
+        reference <- maybe (Left NoReferenceProduct) Right (L.find exchangeIsReference (exchanges (inActivity p)))
+        maybe (Left UnregisteredUnit) (Right . unitName) (getUnitForExchange (dbUnits (inDatabase p)) reference)
     definition :: Text -> Either PairRefusal UnitDef
     definition unit = case readUnit units unit of
         ReadExact def -> Right def

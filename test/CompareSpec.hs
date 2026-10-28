@@ -380,6 +380,10 @@ spec = describe "Service.Compare" $ do
             pairs <- scorePairsOf (producedIn kg) (producedIn nonsense)
             map sapReason (spsSetApart pairs) `shouldBe` [UnknownUnit "bushel of nonsense"]
 
+        it "sets apart a pair whose product names a unit its database does not register" $ do
+            pairs <- scorePairsOf (producedIn kg) (producedIn strayUnit)
+            map sapReason (spsSetApart pairs) `shouldBe` [UnregisteredUnit]
+
         it "counts the activities left without a pair" $ do
             pairs <- scorePairsOf (producedIn kg ++ [row 2 rye "rye production" []]) (producedIn kg)
             (length (spsPairs pairs), spsUnpairedBaseCount pairs, spsUnpairedOtherCount pairs) `shouldBe` (1, 1, 0)

@@ -303,6 +303,8 @@ data ScorePair = ScorePair
 data PairRefusal
     = -- | One side or both have no reference product, so its score is per nothing named.
       NoReferenceProduct
+    | -- | The reference product names a unit its own database does not register.
+      UnregisteredUnit
     | -- | The unit table does not know this unit.
       UnknownUnit {uuUnit :: !Text}
     | -- | The unit table holds several spellings this unit could be, differing by case.
