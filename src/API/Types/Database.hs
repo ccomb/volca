@@ -60,6 +60,14 @@ newtype SynonymGroupsResponse = SynonymGroupsResponse
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SynonymGroupsResponse)
 
+-- | A reference table as its CSV says it: the header, then rows as wide as it.
+data RefDataRowsResponse = RefDataRowsResponse
+    { rdrHeader :: [Text]
+    , rdrRows :: [[Text]]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped RefDataRowsResponse)
+
 -- | Database list response
 newtype DatabaseListResponse = DatabaseListResponse
     { dlrDatabases :: [DatabaseStatusAPI] -- All available databases

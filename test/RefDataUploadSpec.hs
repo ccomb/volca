@@ -14,8 +14,8 @@ import System.FilePath ((</>))
 import Test.Hspec
 import TestHelpers (withScratchDataDir)
 
-import API.DatabaseHandlers (RefDataKind (..), deleteRefData, downloadRefDataHandler, uploadRefData)
-import API.Types (BinaryContent (..), UploadChunk (..))
+import API.DatabaseHandlers (RefDataKind (..), deleteRefData, downloadRefDataHandler, refDataRows, refDataRowsHandler, uploadRefData)
+import API.Types (BinaryContent (..), RefDataRowsResponse (..), UploadChunk (..))
 import App.Env (AppEnv (..), runApp)
 import Config (defaultConfig)
 import Database.Manager (CachePolicy (..), initDatabaseManager)
@@ -46,6 +46,22 @@ spec = do
                 response <- runHandler (runApp env (downloadRefDataHandler UnitDefs "Default units")) >>= either (fail . show) pure
                 let BinaryContent csv = getResponse response
                 take 2 (BSL.lines csv) `shouldBe` ["name,dimension,factor", "kg,mass,1.0"]
+    describe "The rows of a reference table" $ do
+        it "are the built-in unit table, header apart" $
+            withScratchDataDir $ do
+                env <- envFor
+                RefDataRowsResponse header rows <- runHandler (runApp env (refDataRowsHandler UnitDefs "Default units")) >>= either (fail . show) pure
+                header `shouldBe` ["name", "dimension", "factor"]
+                take 1 rows `shouldBe` [["kg", "mass", "1.0"]]
+        it "are each as wide as the header, the built-in compartments' optional kind included" $
+            withScratchDataDir $ do
+                env <- envFor
+                RefDataRowsResponse header rows <- runHandler (runApp env (refDataRowsHandler CompartmentMappings "Default compartment mapping")) >>= either (fail . show) pure
+                length header `shouldBe` 7
+                rows `shouldSatisfy` all ((== 7) . length)
+        it "end a short row in empty cells, and refuse a row wider than the header" $ do
+            fmap rdrRows (refDataRows "a,b,c\n1,2\n") `shouldBe` Right [["1", "2", ""]]
+            fmap rdrRows (refDataRows "a,b\n1,2,3\n") `shouldSatisfy` either (const True) (const False)
     describe "An uploaded reference table" $
         -- The table is registered under the name the user typed and written
         -- under a slug of it: the delete must find the slug.

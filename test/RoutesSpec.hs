@@ -217,6 +217,8 @@ routeSpecs = do
                 , "/api/v1/methods"
                 , "/api/v1/units"
                 , "/api/v1/compartment-mappings"
+                , "/api/v1/units/Default%20units/rows"
+                , "/api/v1/compartment-mappings/Default%20compartment%20mapping/download"
                 ]
         mapM_
             ( \ep ->
