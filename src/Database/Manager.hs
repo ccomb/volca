@@ -2120,7 +2120,10 @@ writeUploadSetting manager dbName UploadSetting{..} = runExceptT $ do
     liftIO $ do
         UploadedDB.writeUploadMeta uploadRoot (usMeta meta)
         -- A staged and a loaded database each keep the config they were made
-        -- with, which MCP, the export and the setup read: all three move together.
+        -- with, which MCP, the export and the setup read: all three move
+        -- together. A load still running publishes the config it started
+        -- with, so a setting written meanwhile reaches only the list until
+        -- the database is loaded again.
         atomically $ do
             modifyTVar' (dmAvailableDbs manager) (M.adjust usConfig dbName)
             modifyTVar' (dmStagedDbs manager) (M.adjust (\s -> s{sdConfig = usConfig (sdConfig s)}) dbName)
