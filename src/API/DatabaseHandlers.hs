@@ -277,7 +277,7 @@ import qualified Database.Quality as Quality
 import Database.RelinkMapping (parseAliasMap)
 import Database.Requirements (ReleaseSubstitution)
 import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario, savedForExport)
-import Database.SystemModel (NamedSubstitution (..))
+import Database.SystemModel (ModelOnParent (..), NamedSubstitution (..))
 import Database.Upload (
     DatabaseFormat (..),
     UploadData (..),
@@ -649,17 +649,17 @@ so, like a parent not loaded.
 systemModelHandler :: Text -> AppM SystemModelAPI
 systemModelHandler dbName = do
     dbManager <- asks aeDbManager
-    (model, (taken, substitutions)) <- ioEither400 (systemModelOf dbManager dbName)
+    onParent <- ioEither400 (systemModelOf dbManager dbName)
     pure
         SystemModelAPI
-            { smaText = smText model
+            { smaText = smText (mopModel onParent)
             , smaExceptions =
                 [ ModelExceptionAPI
                     { meaKey = exKey ex
                     , meaReason = reasonText (exReason ex)
                     , meaProcesses = [TakenProcessAPI{tpaActivity = UUID.toText u, tpaName = name} | (u, name) <- processes]
                     }
-                | (ex, processes) <- taken
+                | (ex, processes) <- mopExceptions onParent
                 ]
             , smaSubstitutions =
                 [ ModelSubstitutionAPI
@@ -672,7 +672,7 @@ systemModelHandler dbName = do
                     , msaRatio = ratioValue (subRatio (nsRule ns))
                     , msaReason = reasonText (subReason (nsRule ns))
                     }
-                | ns <- substitutions
+                | ns <- mopSubstitutions onParent
                 ]
             }
 

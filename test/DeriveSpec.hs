@@ -40,6 +40,7 @@ import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
 import Database.Author (ExchangeEdit (..))
+import Database.Child (childOf)
 import Database.Edit (DeleteRequest (..), Derivation (..), deleteActivitiesInDB, deriveDatabase, editExchanges)
 import Database.ExportSupplier (noDependencies, unnamedWarnings)
 import Database.Loader (GapReport (..), countUnlinkedExchanges, gapReportForLoaded)
@@ -58,9 +59,12 @@ import Types (
     AllocationProperty (..),
     Database (..),
     Exchange (..),
+    ExchangeFormula (..),
     FileReading (..),
     GeographyPolicy (..),
     Licence (..),
+    Parameter (..),
+    ParameterDefinition (..),
     ProcessRef (..),
     Reading (..),
     StatedAmount (..),
@@ -72,7 +76,9 @@ import Types (
     exchangeIsReference,
     processRefText,
     toSimpleDatabase,
+    withFormula,
  )
+import UnitConversion (defaultUnitConfig)
 
 spec :: Spec
 spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
@@ -271,6 +277,18 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 child <- deriveWith manager (substitutingWhey parent (fst (dairyProducts parent)))
                 [exchangeAmount ex | a <- V.toList (dbActivities child), ex <- exchanges a, exchangeIsReference ex, named child "Whey" ex] `shouldBe` [3]
                 inputOf "Cow milk" child `shouldSatisfy` near [10]
+
+        it "keeps a name the substituted row carried as a parameter of the block, at the amount the parent stated" $
+            withSource wheyCSV $ \manager -> do
+                parent <- parentOf manager
+                model <- either (fail . show) pure (parseSystemModel (substitutingWhey parent (snd (dairyProducts parent))))
+                let nameWhey ex
+                        | named parent "Whey" ex && exchangeIsProductOutput ex = withFormula (Just ExchangeFormula{efName = Just "whey_out", efText = "3"}) ex
+                        | otherwise = ex
+                    namedParent = parent{dbActivities = V.map (\a -> a{exchanges = map nameWhey (exchanges a)}) (dbActivities parent)}
+                child <- either (fail . T.unpack) pure =<< childOf defaultUnitConfig model namedParent
+                [parameterDefinition p | a <- V.toList (dbActivities child), Just p <- [M.lookup "whey_out" (activityParameters a)]]
+                    `shouldBe` [CalculatedParameter "3" (Just 3)]
 
         it "is still substituted after a restart" $
             withSource wheyCSV $ \manager -> do

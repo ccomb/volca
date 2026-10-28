@@ -33,12 +33,16 @@ import Types (
     ExchangeFormula (..),
     ModelException (..),
     ModelSubstitution (..),
+    Parameter (..),
+    ParameterDefinition (..),
     ProcessRef (..),
     SimpleDatabase (..),
     SupplierClaim (..),
     SystemModel,
     TechRole (..),
+    exchangeAmount,
     exchangeFlowId,
+    exchangeFormula,
     exchangeIsProductOutput,
     exchangeUnitId,
     getUnitNameForExchange,
@@ -116,7 +120,22 @@ childOf unitConfig model parent = case resolveModel model (sdbActivities simple)
             _ -> Right ex
 
         alone :: [Exchange] -> Activity
-        alone lines' = act{exchanges = if not (M.null taken) && length (filter exchangeIsProductOutput lines') == 1 then map unshared lines' else lines'}
+        alone lines' =
+            act
+                { exchanges = if not (M.null taken) && length (filter exchangeIsProductOutput lines') == 1 then map unshared lines' else lines'
+                , activityParameters = M.union (activityParameters act) named
+                }
+
+        -- A name a substituted row carried, which other formulas of the block read: it keeps the amount the parent stated.
+        named :: M.Map Text Parameter
+        named =
+            M.fromList
+                [ (name, Parameter{parameterDefinition = CalculatedParameter text (Just (exchangeAmount ex)), parameterUnit = Just (unitOf ex), parameterDescription = ""})
+                | ex <- exchanges act
+                , exchangeIsProductOutput ex
+                , M.member (exchangeFlowId ex) taken
+                , Just ExchangeFormula{efName = Just name, efText = text} <- [exchangeFormula ex]
+                ]
 
         unshared :: Exchange -> Exchange
         unshared ex = case ex of
@@ -124,8 +143,8 @@ childOf unitConfig model parent = case resolveModel model (sdbActivities simple)
             _ -> ex
 
     {- The coproduct's row, now the displaced product avoided. Its formula
-    loses its name: the block would publish under it an amount of the
-    displaced product. -}
+    loses its name, which the block would otherwise publish over an amount of
+    the displaced product: the name stays a parameter of the block. -}
     avoided :: Substituted -> Exchange -> Exchange
     avoided sd ex = case displaced sd (scaleExchange (ratio sd) ex) of
         credited@TechnosphereExchange{} ->

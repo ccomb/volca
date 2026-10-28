@@ -205,7 +205,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database.SystemModel (NamedSubstitution, takenProcesses)
+import Database.SystemModel (ModelOnParent, takenProcesses)
 import GHC.Generics (Generic)
 import System.Directory (canonicalizePath, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath (addTrailingPathSeparator, splitDirectories, takeDirectory, takeExtension, takeFileName, (</>))
@@ -310,7 +310,6 @@ import Types (
     LinkBlocker (..),
     LocationFallback (..),
     LocationUnresolved (..),
-    ModelException,
     ModelTitle (..),
     Modification (..),
     Permission (..),
@@ -3012,7 +3011,7 @@ parentOf configs config = case dcReading config of
 from the parent as now loaded: the parent's edits since the child was divided
 show in what a rule takes.
 -}
-systemModelOf :: DatabaseManager -> Text -> IO (Either Text (SystemModel, ([(ModelException, [(UUID, Text)])], [NamedSubstitution])))
+systemModelOf :: DatabaseManager -> Text -> IO (Either Text ModelOnParent)
 systemModelOf manager dbName = do
     configs <- readTVarIO (dmAvailableDbs manager)
     case M.lookup dbName configs of
@@ -3021,7 +3020,7 @@ systemModelOf manager dbName = do
             (ByModel model, Just parentName) ->
                 getDatabase manager parentName <&> \case
                     Nothing -> Left ("the parent " <> parentName <> " of " <> dbName <> " is not loaded")
-                    Just parent -> either (Left . T.intercalate "; " . NE.toList) (Right . (,) model) (takenProcesses model (ldDatabase parent))
+                    Just parent -> either (Left . T.intercalate "; " . NE.toList) Right (takenProcesses model (ldDatabase parent))
             (ByModel _, Nothing) -> pure (Left (dbName <> " is divided by a system model, and none of its sources is a parent read under none"))
             (FromFiles _, _) -> pure (Left (dbName <> " is read from its files, not divided from a parent by a system model"))
 

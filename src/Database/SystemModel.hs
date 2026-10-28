@@ -40,6 +40,7 @@ module Database.SystemModel (
     Resolution (..),
     Substituted (..),
     NamedSubstitution (..),
+    ModelOnParent (..),
     takenProcesses,
     severalProducts,
     buys,
@@ -343,29 +344,38 @@ data NamedSubstitution = NamedSubstitution
     , nsReplacedProduct :: !Text
     }
 
-{- | Each exception of a model with the parent's processes it takes, by
-activity and name, and each substitution named: what a reader checks a rule
-against its reason with.
+{- | A model read against its parent: each exception with the parent's
+processes it takes, by activity and name, and each substitution named. What a
+reader checks a rule against its reason with.
 -}
-takenProcesses :: SystemModel -> Database -> Either (NonEmpty Text) ([(ModelException, [(UUID, Text)])], [NamedSubstitution])
+data ModelOnParent = ModelOnParent
+    { mopModel :: !SystemModel
+    , mopExceptions :: ![(ModelException, [(UUID, Text)])]
+    , mopSubstitutions :: ![NamedSubstitution]
+    }
+
+takenProcesses :: SystemModel -> Database -> Either (NonEmpty Text) ModelOnParent
 takenProcesses model parent = named <$> resolveModel model (sdbActivities simple)
   where
     simple :: SimpleDatabase
     simple = toSimpleDatabase parent
 
-    named :: Resolution -> ([(ModelException, [(UUID, Text)])], [NamedSubstitution])
+    named :: Resolution -> ModelOnParent
     named resolution =
-        ( [(ex, [(u, name) | u <- us, Just name <- [M.lookup u names]]) | (ex, us) <- rsTaken resolution]
-        , [ NamedSubstitution
-                { nsRule = sdRule sd
-                , nsBlock = activityName (sdBlock sd)
-                , nsCoproduct = flowName (sdCoproduct sd)
-                , nsReplaced = activityName (sdReplaced sd)
-                , nsReplacedProduct = flowName (sdReplacedProduct sd)
-                }
-          | sd <- rsSubstitutions resolution
-          ]
-        )
+        ModelOnParent
+            { mopModel = model
+            , mopExceptions = [(ex, [(u, name) | u <- us, Just name <- [M.lookup u names]]) | (ex, us) <- rsTaken resolution]
+            , mopSubstitutions =
+                [ NamedSubstitution
+                    { nsRule = sdRule sd
+                    , nsBlock = activityName (sdBlock sd)
+                    , nsCoproduct = flowName (sdCoproduct sd)
+                    , nsReplaced = activityName (sdReplaced sd)
+                    , nsReplacedProduct = flowName (sdReplacedProduct sd)
+                    }
+                | sd <- rsSubstitutions resolution
+                ]
+            }
 
     names :: M.Map UUID Text
     names = M.fromList [(activityId, activityName act) | ((activityId, _), act) <- M.toList (sdbActivities simple)]
