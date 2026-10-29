@@ -451,6 +451,66 @@ class ExchangeContribution:
 
 
 @dataclass
+class ProbableMiss:
+    """A flow a score read no factor for, although its method writes the same
+    substance elsewhere in the flow's medium.
+
+    A flow reads the factor of its own subcompartment, of its whole medium, or
+    of the one an ``if_absent`` row of the compartment table sends it to. Ammonia
+    emitted indoors scores nothing under a method that writes ammonia only for
+    urban and non-urban air, and that collection writes nothing for indoor air.
+    ``up_to`` is what the flow would add to the score at the largest of the
+    factors in ``written_at``, in the score's unit.
+    """
+
+    flow_id: str
+    flow_name: str
+    category: str
+    compartment: str | None
+    quantity: float
+    unit: str
+    written_at: list[str]
+    factor: float
+    up_to: float
+    up_to_share_pct: float
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ProbableMiss":
+        return cls(
+            flow_id=d["flowId"],
+            flow_name=d["flowName"],
+            category=d["category"],
+            compartment=d.get("compartment"),
+            quantity=d["quantity"],
+            unit=d["unit"],
+            written_at=list(d["writtenAt"]),
+            factor=d["factor"],
+            up_to=d["upTo"],
+            up_to_share_pct=d["upToSharePct"],
+        )
+
+
+@dataclass
+class ProbableMisses:
+    """The flows a score probably missed: the ten biggest able to move it by a
+    thousandth or more (all of them beside a zero score), and how many more.
+    ``withheld`` says why none is shown, when a database the score reads keeps
+    the amounts of its exchanges to itself."""
+
+    shown: list[ProbableMiss] = field(default_factory=list)
+    more: int = 0
+    withheld: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ProbableMisses":
+        return cls(
+            shown=[ProbableMiss.from_json(m) for m in d.get("shown", [])],
+            more=d.get("more", 0),
+            withheld=list(d.get("withheld", [])),
+        )
+
+
+@dataclass
 class LCIAResult:
     """LCIA score for one impact category on one activity.
 
@@ -488,6 +548,9 @@ class LCIAResult:
     asked with ``exchange_contributions=True`` (wire revision 70); they add up
     to the score. Empty otherwise, and when the database's licence keeps its
     detail or its inventory to itself."""
+    probable_misses: ProbableMisses | None = None
+    """The flows the score probably missed (wire revision 97); ``None`` in a
+    batch of activities, which does not look for them."""
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIAResult":
@@ -508,6 +571,7 @@ class LCIAResult:
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
             withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
             exchange_contributions=[ExchangeContribution.from_json(c) for c in d.get("exchangeContributions", [])],
+            probable_misses=ProbableMisses.from_json(d["probableMisses"]) if d.get("probableMisses") else None,
         )
 
 

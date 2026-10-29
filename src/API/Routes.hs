@@ -787,28 +787,34 @@ computeCategoryResult dbManager dbName collection db ls cutoffs activity topFlow
         Left err -> pure (Left err)
         Right score -> do
             contribsE <- licencedTopFlows dbManager collection method tables ls score topFlows
-            pure (fmap (result stats score functionalUnit) contribsE)
-  where
-    result :: MappingStats -> Double -> Text -> TopFlows -> LCIAResult
-    result stats score functionalUnit TopFlows{tfRows = topContributors, tfWithheld = withheld} =
-        LCIAResult
-            { lrMethodId = methodId method
-            , lrMethodName = methodName method
-            , lrCategory = methodCategory method
-            , lrDamageCategory = methodCategory method
-            , lrScore = score
-            , lrUnit = methodUnit method
-            , lrNormalizedScore = Nothing
-            , lrWeightedScore = Nothing
-            , lrMappedFlows = msTotal stats - msUnmatched stats
-            , lrFunctionalUnit = functionalUnit
-            , lrTopContributors = topContributors
-            , lrWithheld = Nothing
-            , lrWithheldDatabases = withheld
-            , lrCutoffInputs = cutoffShown cutoffs
-            , lrWithheldCutoffs = cutoffWithheld cutoffs
-            , lrExchangeContributions = []
-            }
+            -- A miss carries an amount of the inventory: read from the part the
+            -- licences let be detailed, and kept whole by a dependency keeping its amounts.
+            inventoryWithheld <- Impact.withheldDatabases dbManager ReadInventory sol
+            let misses
+                    | null inventoryWithheld = Service.missesShown mUnits score (Method.Mapping.probableMisses mFlows tables (SharedSolver.csInventory (Impact.lsShown ls)))
+                    | otherwise = Service.missesWithheld inventoryWithheld
+                result :: TopFlows -> LCIAResult
+                result TopFlows{tfRows = topContributors, tfWithheld = withheld} =
+                    LCIAResult
+                        { lrMethodId = methodId method
+                        , lrMethodName = methodName method
+                        , lrCategory = methodCategory method
+                        , lrDamageCategory = methodCategory method
+                        , lrScore = score
+                        , lrUnit = methodUnit method
+                        , lrNormalizedScore = Nothing
+                        , lrWeightedScore = Nothing
+                        , lrMappedFlows = msTotal stats - msUnmatched stats
+                        , lrFunctionalUnit = functionalUnit
+                        , lrTopContributors = topContributors
+                        , lrWithheld = Nothing
+                        , lrWithheldDatabases = withheld
+                        , lrCutoffInputs = cutoffShown cutoffs
+                        , lrWithheldCutoffs = cutoffWithheld cutoffs
+                        , lrExchangeContributions = []
+                        , lrProbableMisses = Just misses
+                        }
+            pure (fmap result contribsE)
 
 -- | The flows a score publishes, and the line of each dependency that keeps its detail.
 data TopFlows = TopFlows
@@ -931,6 +937,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                     , lrCutoffInputs = cutoffShown cutoffs
                     , lrWithheldCutoffs = cutoffWithheld cutoffs
                     , lrExchangeContributions = []
+                    , lrProbableMisses = Nothing
                     }
     resultsE <- sequence <$> traverse mkResultIO ctxs
     case resultsE of
@@ -1642,7 +1649,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 96: the row of a child's delivery sheet for one process, the
+(revision 97: the @probableMisses@ of a score, the flows it read no factor for
+although its method writes their substance elsewhere in their medium;
+revision 96: the row of a child's delivery sheet for one process, the
 parent's process it was cut from, its share and its rule, at
 @GET /db/{db}/activity/{processId}/division@;
 revision 95: the @usage@ clause of an own licence and of the terms a reader
@@ -1851,7 +1860,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 96
+currentWireVersion = 97
 
 getVersion :: AppM Value
 getVersion = do
@@ -2293,7 +2302,7 @@ activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam 
         result <- either scoringError pure resultE
         when (isNothing mSub) $ liftIO $ logLCIAResult result method
         licence <- DBHandlers.servedLicence dbName
-        pure (Service.withholdContributors dbName licence result)
+        pure (Service.withholdMisses dbName licence (Service.withholdContributors dbName licence result))
 
 getActivityLCIA :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> AppM LCIAResult
 getActivityLCIA dbName processIdText collectionName methodIdText topFlowsParam =

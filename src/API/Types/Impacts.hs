@@ -127,9 +127,39 @@ data LCIAResult = LCIAResult
     , lrCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
     , lrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     , lrExchangeContributions :: [ExchangeContribution] -- When asked: what each line of the activity adds to the score, largest first; empty otherwise, and when the licence keeps the detail or the inventory to itself
+    , lrProbableMisses :: Maybe ProbableMisses -- The flows the score read no factor for although the method writes their substance elsewhere in their medium; null in a batch of activities, which does not look for them
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped LCIAResult)
+
+{- | The flows a score probably missed, the biggest first. A flow reads the
+factor of its own subcompartment, of its whole medium, or of the one an
+@if_absent@ row sends it to; one whose substance the method writes only at
+other subcompartments scores nothing.
+-}
+data ProbableMisses = ProbableMisses
+    { pmsShown :: [ProbableMissEntry] -- The ten biggest, each able to move the score by a thousandth or more; all of them when the score is zero
+    , pmsMore :: Int -- How many more there are beyond those shown
+    , pmsWithheld :: [Text] -- Why none is shown: a database the score reads keeps the amounts of its exchanges to itself, and each miss carries one
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ProbableMisses)
+
+-- | One flow a score probably missed.
+data ProbableMissEntry = ProbableMissEntry
+    { pmeFlowId :: Text
+    , pmeFlowName :: Text
+    , pmeCategory :: Text -- Medium only (e.g. "air")
+    , pmeCompartment :: Maybe Text -- Sub-compartment (e.g. "indoor")
+    , pmeQuantity :: Double -- In the inventory, in the flow's unit
+    , pmeUnit :: Text
+    , pmeWrittenAt :: [Text] -- The subcompartments of the medium the method writes the substance at
+    , pmeFactor :: Double -- The largest of those factors, in the score's unit per unit of the flow
+    , pmeUpTo :: Double -- What the flow would add to the score at that factor, in the score's unit
+    , pmeUpToSharePct :: Double -- The same as a percentage of the score; 0 when the score is zero
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ProbableMissEntry)
 
 {- | What one line of an activity adds to its score: one more unit of the
 activity's product puts the line's amount in, and the line's supplier, or the
@@ -240,6 +270,10 @@ instance NFData LCIABatchResult
 instance NFData LCIAResult
 
 instance NFData ExchangeContribution
+
+instance NFData ProbableMisses
+
+instance NFData ProbableMissEntry
 
 instance NFData FlowContributionEntry
 

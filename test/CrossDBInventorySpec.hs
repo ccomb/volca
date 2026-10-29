@@ -238,6 +238,8 @@ spec = do
                     , mtUnitConfig = defaultUnitConfig
                     , mtResolution = M.empty
                     , mtJudged = S.empty
+                    , mtSiblingLines = M.empty
+                    , mtVocabulary = mempty
                     , mtBroadcast = M.empty
                     , mtRegionalActivityWeights = Nothing
                     }

@@ -72,6 +72,7 @@ lciaResult fu =
         , lrCutoffInputs = []
         , lrWithheldCutoffs = []
         , lrExchangeContributions = []
+        , lrProbableMisses = Nothing
         }
 
 -- | Build an entry against a single scoring set, with explicit total + indicators.

@@ -709,6 +709,16 @@ description r = case r of
         \method reaches this flow. Ask explain_cf for the full story on \
         \one flow.\n\
         \\n\
+        \'probable_misses' lists the flows the score read no factor for \
+        \although the method writes their substance elsewhere in their medium, \
+        \at a subcompartment the flow does not read, where the method's \
+        \collection writes nothing at the flow's own place. Each says where the \
+        \substance is written ('writtenAt') and 'upTo', what it would add at the largest of \
+        \those factors, in the score's unit. With include_diagnostics, \
+        \'characterized_share' sums quantities of every unit together (becquerels \
+        \beside kilograms) and is removed in the next minor release: read \
+        \'probable_misses' instead.\n\
+        \\n\
         \When the chain meets inputs no loaded database supplies, they count \
         \as zero and the answer opens with 'cutoff_notice' and lists them \
         \under 'cutoff_inputs', with 'withheld_cutoffs' counting those \
@@ -889,7 +899,9 @@ description r = case r of
         \because of mapping gaps, not because of underlying chemistry. Headline \
         \field is delta.relative_pct: the metric to drive down by adding \
         \synonym pairs to data/flows.csv or by regenerating the chem_synonyms \
-        \snapshot."
+        \snapshot. Each side carries 'probable_misses', as get_impacts does; its \
+        \'characterized_share' sums quantities of every unit together and is \
+        \removed in the next minor release."
     CompareActivities ->
         "LCA / ACV: compare two activities exchange by exchange: the lines one \
         \has and the other does not, and the lines whose amount or unit differ. \
