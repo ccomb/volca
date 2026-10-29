@@ -297,6 +297,7 @@ test-suite lca-tests
                      , CharacterizedFlowsSpec
                      , FactorNameKeySpec
                      , CrossSubcompartmentSpec
+                     , ProbableMissesSpec
                      , DuplicateFactorSpec
                      , SimaProScoringSpec
                      , ServerSpec

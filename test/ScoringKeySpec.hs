@@ -32,6 +32,7 @@ mkR name category score =
         , lrCutoffInputs = []
         , lrWithheldCutoffs = []
         , lrExchangeContributions = []
+        , lrProbableMisses = Nothing
         }
 
 -- | Minimal Method for score-resolution tests.

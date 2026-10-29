@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from volca.client import Client, VoLCAError, _candidate_wire_names, _Operation, _parse_spec, _resolve_wire_name
-from volca.types import ExchangeContribution, Method, ParameterValue
+from volca.types import ExchangeContribution, Method, ParameterValue, ProbableMiss, ProbableMisses
 
 _WATER_USE_ID = "00000000-0000-0000-0000-000000000002"
 
@@ -446,6 +446,35 @@ class TestDispatcher:
         result = client.get_impacts_batch("abc_def", collection="EF3.1", exchange_contributions=True)
         assert session.get.call_args[1]["params"] == {"exchange-contributions": "true"}
         assert result.results[0].exchange_contributions == [ExchangeContribution(position=2, contribution=0.4, share_pct=85.1)]
+
+    def test_get_impacts_reads_the_probable_misses(self, mocked_client, make_response):
+        client, session = mocked_client
+        miss = {
+            "flowId": "f",
+            "flowName": "Ammonia",
+            "category": "air",
+            "compartment": "indoor",
+            "quantity": 0.02,
+            "unit": "kg",
+            "writtenAt": ["non-urban", "urban"],
+            "factor": 3.02,
+            "upTo": 0.0604,
+            "upToSharePct": 12.4,
+        }
+        session.get.return_value = make_response(
+            {**_minimal_lcia_result(), "probableMisses": {"shown": [miss], "more": 2, "withheld": []}}
+        )
+        result = client.get_impacts("abc_def", method_id=_WATER_USE_ID, collection="EF3.1")
+        assert result.probable_misses == ProbableMisses(
+            shown=[ProbableMiss("f", "Ammonia", "air", "indoor", 0.02, "kg", ["non-urban", "urban"], 3.02, 0.0604, 12.4)],
+            more=2,
+        )
+
+    def test_probable_misses_not_looked_for_read_as_none(self, mocked_client, make_response):
+        client, session = mocked_client
+        session.get.return_value = make_response({**_minimal_lcia_result(), "probableMisses": None})
+        result = client.get_impacts("abc_def", method_id=_WATER_USE_ID, collection="EF3.1")
+        assert result.probable_misses is None
 
     def test_exchange_contributions_never_reach_an_engine_that_would_ignore_them(self, mocked_client):
         client, session = mocked_client

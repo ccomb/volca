@@ -14,7 +14,7 @@
   parameter that moves no process, or that a process computes by a formula,
   is refused, naming the process. The model's page lists the processes each
   parameter moves, and the delivery sheet names the parameters in the rule
-  of each process they moved (wire revision 97).
+  of each process they moved (wire revision 98).
 - The package of a database divided by a system model (`package: ro-crate`)
   is its delivery sheet. It holds the model file as its author wrote it, and
   `allocation.csv`, one row per process that comes from a block of the
@@ -43,6 +43,23 @@
   makes kilowatt hours and the other megajoules. A pair whose products are
   measured in different quantities, or in a unit no loaded table knows, is
   set apart with its reason rather than given a factor.
+- A score names the flows it probably missed: those it read no factor for
+  although its method writes the same substance elsewhere in their medium.
+  A flow reads the factor of its own subcompartment, of its whole medium, or
+  of the one an `if_absent` row sends it to, never a neighbour's: ammonia
+  emitted indoors scores nothing under a method that writes ammonia only for
+  urban and non-urban air. Each miss says where the method writes the
+  substance and what the flow would add at the largest of those factors, in
+  the score's unit and as a share of the score; the ten biggest able to move
+  the score by a thousandth are shown, and how many more there are. A place
+  the method's collection writes for other substances is the method's choice,
+  not a miss: water returned to the sea, which gives back no fresh water, is
+  not listed. The score of one activity carries them, over HTTP and in
+  `get_impacts`, `score_activity` and each side of `compare_impacts`; a batch
+  of activities does not look for them. A licence keeping the amounts of a
+  database's exchanges keeps the misses too, since each carries one. Wire
+  revision 97.
+
 - An edit of an activity can state the dry mass of its products: each is
   named by its flow and given the dry mass of one unit of it, in a unit of
   mass, or its dry mass is removed. This is what a dry mass exception of a
@@ -178,6 +195,15 @@
   now read it the same way. A database exported to SimaPro CSV, which gives
   sea water the CAS of water, scored 35 to 64 times higher in water use than
   the same database read from EcoSpold 1; the two now agree.
+
+### Deprecated
+
+- The `characterized_share` of `get_impacts` (with `include_diagnostics`) and
+  of `compare_impacts` adds up the quantities of every flow whatever their
+  unit, so a kilowatt-hour of nuclear electricity reads close to nothing
+  characterized in climate change, its becquerels of radon outweighing its
+  kilograms of carbon dioxide. It is removed in 0.17.0: read
+  `probable_misses` instead.
 
 ## [0.16.0] - 2026-10-25
 

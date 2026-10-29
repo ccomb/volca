@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 97** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 98** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -2425,6 +2425,44 @@ that lowers the score.
 | `contribution` | `float` | _required_ |
 | `share_pct` | `float` | _required_ |
 
+### `ProbableMiss`
+
+A flow a score read no factor for, although its method writes the same
+substance elsewhere in the flow's medium.
+
+A flow reads the factor of its own subcompartment, of its whole medium, or
+of the one an ``if_absent`` row of the compartment table sends it to. Ammonia
+emitted indoors scores nothing under a method that writes ammonia only for
+urban and non-urban air, and that collection writes nothing for indoor air.
+``up_to`` is what the flow would add to the score at the largest of the
+factors in ``written_at``, in the score's unit.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `flow_id` | `str` | _required_ |
+| `flow_name` | `str` | _required_ |
+| `category` | `str` | _required_ |
+| `compartment` | `str \| None` | _required_ |
+| `quantity` | `float` | _required_ |
+| `unit` | `str` | _required_ |
+| `written_at` | `list[str]` | _required_ |
+| `factor` | `float` | _required_ |
+| `up_to` | `float` | _required_ |
+| `up_to_share_pct` | `float` | _required_ |
+
+### `ProbableMisses`
+
+The flows a score probably missed: the ten biggest able to move it by a
+thousandth or more (all of them beside a zero score), and how many more.
+``withheld`` says why none is shown, when a database the score reads keeps
+the amounts of its exchanges to itself.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `shown` | `list[ProbableMiss]` | list() |
+| `more` | `int` | 0 |
+| `withheld` | `list[str]` | list() |
+
 ### `ExchangeFormula`
 
 What makes an exchange's amount follow the dataset's parameters.
@@ -3426,6 +3464,7 @@ much of it the source says the process produces.
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 | `exchange_contributions` | `list[ExchangeContribution]` | list() |
+| `probable_misses` | `ProbableMisses \| None` | None |
 
 ### `MappingStatus`
 

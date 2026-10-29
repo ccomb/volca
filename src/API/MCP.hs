@@ -56,7 +56,7 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, enc
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.List (find)
 import qualified Data.List as L
@@ -1497,6 +1497,8 @@ data ImpactsResult = ImpactsResult
     -- ^ The dependencies whose licence keeps the amounts of their exchanges.
     , irCutoffs :: !Cutoffs
     -- ^ The unsupplied inputs the solution counted as zero.
+    , irMisses :: ![Mapping.ProbableMiss]
+    -- ^ The flows the score probably missed, read from the detailed part.
     }
 
 {- | Run a fully resolved LCA request: solve inventory, map flows, score.
@@ -1599,6 +1601,7 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
             , irWithheld = withheld
             , irInventoryWithheld = inventoryWithheld
             , irCutoffs = cutoffs
+            , irMisses = Mapping.probableMisses mFlows tables inventory
             }
 
 {- | How much of an inventory's mass a score characterized: the flows it
@@ -1641,7 +1644,17 @@ diagnosticsOf dbName licence ir =
     outcome :: LCIAOutcome
     outcome = irOutcome ir
     kept :: [Text]
-    kept = [dbName | not (granted licence ReadInventory)] ++ irInventoryWithheld ir
+    kept = inventoryKeptBy dbName licence ir
+
+-- | The databases a score reads whose licence keeps the amounts of their exchanges, the one asked first.
+inventoryKeptBy :: Text -> Licence -> ImpactsResult -> [Text]
+inventoryKeptBy dbName licence ir = [dbName | not (granted licence ReadInventory)] ++ irInventoryWithheld ir
+
+-- | A score's probable misses as its licences let them be read: each carries an amount of the inventory.
+missesOf :: UnitDB -> Text -> Licence -> ImpactsResult -> ProbableMisses
+missesOf units dbName licence ir = case inventoryKeptBy dbName licence ir of
+    [] -> Service.missesShown units (loScore (irOutcome ir)) (irMisses ir)
+    kept -> Service.missesWithheld kept
 
 {- | Handler for the 'get_impacts' MCP tool (computes LCIA score).
 Historically named 'get_lcia' -- the MCP surface now uses 'impacts'
@@ -1692,6 +1705,7 @@ callGetImpacts dbManager mBaseUrl licence rid args =
                         , "functional_unit" .= functionalUnit
                         , "mapped_flows" .= (msTotal stats - msUnmatched stats)
                         , "has_negative_contributions" .= hasNeg
+                        , "probable_misses" .= missesOf mUnits dbName licence ir
                         , "top_flows"
                             .= [ object
                                     [ "flow_name" .= bfName f
@@ -1862,6 +1876,10 @@ callCompareImpacts dbManager rid args =
         reqB <- loadLcaRequest dbManager argsB
         irA <- runImpactsRequest dbManager argsA reqA
         irB <- runImpactsRequest dbManager argsB reqB
+        (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        let sideMisses req ir = (\licence -> missesOf mUnits (lrDbName req) (fromMaybe LicenceUnstated licence) ir) <$> DM.databaseLicence dbManager (lrDbName req)
+        missesA <- liftIO (sideMisses reqA irA)
+        missesB <- liftIO (sideMisses reqB irB)
         let topN = fromMaybe 10 (intArg "top_flows" args)
             scoreA = loScore (irOutcome irA)
             scoreB = loScore (irOutcome irB)
@@ -1910,8 +1928,8 @@ callCompareImpacts dbManager rid args =
         pure $
             toolSuccessJson rid $
                 object
-                    [ "a" .= sideJson reqA irA
-                    , "b" .= sideJson reqB irB
+                    [ "a" .= sideJson reqA irA missesA
+                    , "b" .= sideJson reqB irB missesB
                     , "delta"
                         .= object
                             [ "absolute" .= delta
@@ -1922,7 +1940,7 @@ callCompareImpacts dbManager rid args =
                     , "top_b_only_flows" .= bOnly
                     ]
   where
-    sideJson req ir =
+    sideJson req ir misses =
         let outcome = irOutcome ir
             characterizedShare =
                 if loInventoryAbsSum outcome > 0
@@ -1935,6 +1953,7 @@ callCompareImpacts dbManager rid args =
                 , "score" .= loScore outcome
                 , "unit" .= methodUnit (lrMethod req)
                 , "characterized_share" .= characterizedShare
+                , "probable_misses" .= misses
                 ]
                     -- The flows a dependency keeps are not in the alignment; its share is.
                     ++ ["withheld_databases" .= Service.withheldShares (loScore outcome) (irWithheld ir) | not (null (irWithheld ir))]
