@@ -13,7 +13,7 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 import UnitConversion (defaultUnitConfig)
 
-import Method.Mapping (MatchStrategy (..), MethodTables, Placing (..), ProbableMiss (..), Resolution (..), SiblingLines (..), buildMethodTables, methodVocabulary, fillBroadcastVector, missesWorthSaying, pmUpTo, probableMisses)
+import Method.Mapping (MatchStrategy (..), MethodTables, Placing (..), ProbableMiss (..), Resolution (..), SiblingLines (..), buildMethodTables, fillBroadcastVector, methodVocabulary, missesWorthSaying, pmUpTo, probableMisses)
 import Method.Types (Compartment (..), FlowDirection (..), MethodCF (..), Subcompartment (..))
 import Types (BioFlowDB, BiosphereFlow (..), Medium (..), Unit (..), UnitDB)
 import qualified Types as VT
