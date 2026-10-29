@@ -57,7 +57,7 @@ division =
         , dvModel = either (error . T.unpack) id (parseSystemModel modelText)
         , dvEngine = "0.16.1"
         , dvMade = Nothing
-        , dvTrace = [Traced{trProcess = (UUID.nil, UUID.nil), trParent = (UUID.nil, UUID.nil), trActivity = "Dairy", trProduct = "Whey, \"sweet\"", trShare = Just 23.4, trRule = Divided WetMass (Just (Reason "Dairies weigh their milk.")) []}]
+        , dvTrace = [Traced{trProcess = (UUID.nil, UUID.nil), trParent = (UUID.nil, UUID.nil), trActivity = "Dairy", trProduct = "Whey, \"sweet\"", trShare = Just 23.4, trRule = Divided WetMass (Just (Reason "Dairies weigh their milk.")) [], trParameters = []}]
         }
 
 -- | Every @\@id@ an entity of the graph refers to, the entities' own left out.

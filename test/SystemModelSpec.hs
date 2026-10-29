@@ -21,7 +21,7 @@ import Test.Hspec
 
 import Database.SystemModel (Resolution (..), Substituted (..), parseSystemModel, resolveModel)
 import TestHelpers (mkActivity, reference, techInput)
-import Types (Activity (..), AllocationProperty (..), Exchange (..), ModelSubstitution (..), SystemModel (..), TechRole (..), ratioValue)
+import Types (Activity (..), AllocationProperty (..), Exchange (..), ModelParameter (..), ModelSubstitution (..), SystemModel (..), TechRole (..), ratioValue)
 
 spec :: Spec
 spec = do
@@ -96,6 +96,17 @@ spec = do
             refusal (model ["default = \"price\""] <> substitution (uuidText cheese) (ref steel 9) "1") `shouldSatisfy` isInfixOf "not a process identifier"
             refusal (model ["default = \"price\""] <> T.replace "Whey feeds pigs." " " (substitution (ref cheese 2) (ref steel 9) "1")) `shouldSatisfy` isInfixOf "needs its reason"
 
+        it "reads a method parameter, its value written as an integer" $
+            fmap (map mpValue . smParameters) (parseSystemModel (model ["default = \"price\""] <> parameter "A" "1" "Cut-off.")) `shouldBe` Right [1]
+
+        it "refuses a method parameter without a name, a finite value or a reason" $ do
+            refusal (model ["default = \"price\""] <> parameter " " "1" "Cut-off.") `shouldSatisfy` isInfixOf "needs its name"
+            mapM_ (\v -> refusal (model ["default = \"price\""] <> parameter "A" v "Cut-off.") `shouldSatisfy` isInfixOf "needs a finite value") ["nan", "inf"]
+            refusal (model ["default = \"price\""] <> parameter "A" "1" " ") `shouldSatisfy` isInfixOf "needs its reason"
+
+        it "refuses a method parameter set twice, whatever its case" $
+            refusal (model ["default = \"price\""] <> parameter "A" "1" "Cut-off." <> parameter "a" "0" "Avoided burden.") `shouldSatisfy` isInfixOf "is set twice"
+
         it "resolves a coproduct of a block against a process of the parent" $
             fmap (map (activityName . sdReplaced) . rsSubstitutions) (substituting [(ref cheese 2, ref steel 9)]) `shouldBe` Right ["steel"]
 
@@ -147,6 +158,9 @@ model lines' = T.unlines (["name = \"Test\"", "version = \"1.0.0\"", "[allocatio
 substitution :: Text -> Text -> Text -> Text
 substitution coproduct replaces ratio =
     T.unlines ["[[substitutions]]", "coproduct = \"" <> coproduct <> "\"", "replaces = \"" <> replaces <> "\"", "ratio = " <> ratio, "reason = \"Whey feeds pigs.\""]
+
+parameter :: Text -> Text -> Text -> Text
+parameter name value why = T.unlines ["[[method_parameters]]", "name = \"" <> name <> "\"", "value = " <> value, "reason = \"" <> why <> "\""]
 
 -- | A process of the parent by its activity and the product numbered so.
 ref :: UUID -> Int -> Text

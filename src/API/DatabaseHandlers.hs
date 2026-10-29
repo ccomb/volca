@@ -156,6 +156,7 @@ import API.Types (
     GapReportAPI (..),
     LoadDatabaseResponse (..),
     ModelExceptionAPI (..),
+    ModelParameterAPI (..),
     ModelSubstitutionAPI (..),
     ParametersEditRequest (..),
     ParametersEditResponse (..),
@@ -314,6 +315,7 @@ import Types (
     GeographyPolicy (..),
     Licence (..),
     ModelException (..),
+    ModelParameter (..),
     ModelSubstitution (..),
     Modification,
     Permission (..),
@@ -684,6 +686,15 @@ systemModelHandler dbName = do
                     , msaReason = reasonText (subReason (nsRule ns))
                     }
                 | ns <- mopSubstitutions onParent
+                ]
+            , smaParameters =
+                [ ModelParameterAPI
+                    { mpaName = mpName mp
+                    , mpaValue = mpValue mp
+                    , mpaReason = reasonText (mpReason mp)
+                    , mpaProcesses = [TakenProcessAPI{tpaActivity = processRefText (uncurry ProcessRef k), tpaName = name} | (k, name) <- processes]
+                    }
+                | (mp, processes) <- mopParameters onParent
                 ]
             }
 

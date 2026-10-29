@@ -3,8 +3,8 @@
 
 {- | The file that says how a child is divided from its parent: a property
 for every block of several products, exceptions giving some of them another,
-and coproducts left out of the division for what they displace, each with its
-reason.
+coproducts left out of the division for what they displace, and parameters of
+the parent's processes taken at another value, each with its reason.
 
 @
 name = "Agribalyse 4.0, economic allocation"
@@ -24,11 +24,21 @@ coproduct = "\<activity\>_\<product\>"
 replaces = "\<activity\>_\<product\>"
 ratio = 23.3
 reason = "The biogas displaces natural gas of the same heating value."
+
+[[method_parameters]]
+name = "A"
+value = 1
+reason = "Cut-off: recycled material is credited neither on input nor at end of life."
 @
 
 A substitution names the coproduct by its block and its product, and the
 process it displaces the same way, since that process must be in the parent:
 a child is made from the parent and its model alone.
+
+A method parameter is an input parameter of the parent's processes: every
+process that declares it takes the value, and its amounts follow, before any
+block is divided. It is how a model makes a choice the parent wrote as data,
+such as the share of a recycling credit a process claims.
 
 The file is read strictly: a key it does not know is refused, since a rule
 written for a later release and skipped here would be a child its author did
@@ -37,6 +47,8 @@ not ask for.
 module Database.SystemModel (
     parseSystemModel,
     resolveModel,
+    onParent,
+    OnParent (..),
     Resolution (..),
     Substituted (..),
     NamedSubstitution (..),
@@ -46,16 +58,18 @@ module Database.SystemModel (
     Rule (..),
     traceOf,
     ruleText,
+    tracedRule,
     severalProducts,
     buys,
 ) where
 
-import Control.Monad (mfilter, unless)
+import Control.Monad (mfilter, unless, when)
+import Data.Bifunctor (first)
 import Data.Either (partitionEithers)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -64,16 +78,20 @@ import qualified Data.UUID as UUID
 import TOML (Decoder, TOMLError, Table, Value (..), decode, decodeWith, getArrayOf, getField, getFieldWith, renderTOMLError, tomlDecoder)
 
 import Config (KeySpec (..), getFieldOpt, getFieldOptWith, unknownKeys)
+import Parametric (Before (..), databaseParametersRead, describeParameterRefusal, restated)
 import Types (
     Activity (..),
     AllocationProperty,
     ClassificationFilter (..),
     ClassificationMatch (..),
-    Database,
+    Database (..),
     DeclaredShare (..),
     Exchange (..),
     ModelException (..),
+    ModelParameter (..),
     ModelSubstitution (..),
+    Parameter (..),
+    ParameterDefinition (..),
     ProcessRef (..),
     Ratio (..),
     Reason (..),
@@ -107,8 +125,12 @@ parseSystemModel text = do
         unknown -> Left ("the system model names keys nothing reads: " <> T.intercalate ", " unknown)
     model <- either (Left . renderTOMLError) Right (decodeWith (modelDecoder text) text)
     case [exReason ex | ex <- smExceptions model, exKey ex == smDefault model] of
-        [] -> pure model
+        [] -> pure ()
         Reason why : _ -> Left ("an exception divides under the default key, so it changes nothing: " <> why)
+    -- A formula reads a name without case, so A and a are one parameter.
+    case [name | (name, n) <- M.toList (M.fromListWith (+) [(T.toLower (mpName mp), 1 :: Int) | mp <- smParameters model]), n > 1] of
+        [] -> pure model
+        name : _ -> Left ("the method parameter " <> name <> " is set twice")
 
 modelKeys :: KeySpec
 modelKeys =
@@ -127,6 +149,7 @@ modelKeys =
                 ]
             )
         , ("substitutions", keys [plain "coproduct", plain "replaces", plain "ratio", plain "reason"])
+        , ("method_parameters", keys [plain "name", plain "value", plain "reason"])
         ]
   where
     keys = Accepts . M.fromList
@@ -139,6 +162,7 @@ modelDecoder text = do
     description <- getFieldOpt "description"
     (deflt, exceptions) <- getFieldWith allocation "allocation"
     substitutions <- fromMaybe [] <$> getFieldOptWith (getArrayOf substitution) "substitutions"
+    parameters <- fromMaybe [] <$> getFieldOptWith (getArrayOf parameter) "method_parameters"
     pure
         SystemModel
             { smName = name
@@ -147,6 +171,7 @@ modelDecoder text = do
             , smDefault = deflt
             , smExceptions = exceptions
             , smSubstitutions = substitutions
+            , smParameters = parameters
             , smText = text
             }
   where
@@ -161,13 +186,24 @@ modelDecoder text = do
             fail ("the substitution \"" <> T.unpack why <> "\" needs a ratio above zero, not " <> show ratio)
         pure ModelSubstitution{subCoproduct = coproduct, subReplaces = replaces, subRatio = Ratio ratio, subReason = reason}
 
-    -- TOML tells @2@ from @2.0@; a ratio is either.
+    parameter :: Decoder ModelParameter
+    parameter = do
+        name <- T.strip <$> getField "name"
+        when (T.null name) (fail "a method parameter needs its name")
+        why <- T.strip <$> getField "reason"
+        reason <- if T.null why then fail ("the method parameter " <> T.unpack name <> " needs its reason") else pure (Reason why)
+        value <- getFieldWith number "value"
+        when (isNaN value || isInfinite value) $
+            fail ("the method parameter " <> T.unpack name <> " needs a finite value, not " <> show value)
+        pure ModelParameter{mpName = name, mpValue = value, mpReason = reason}
+
+    -- TOML tells @2@ from @2.0@; a ratio or a value is either.
     number :: Decoder Double
     number =
         tomlDecoder >>= \case
             Integer n -> pure (fromInteger n)
             Float d -> pure d
-            other -> fail ("a ratio is a number, not " <> show other)
+            other -> fail ("not a number: " <> show other)
 
     processRef :: Decoder ProcessRef
     processRef = do
@@ -209,6 +245,94 @@ modelDecoder text = do
             Right (Types.ByProperty prop) -> pure prop
             Right _ -> fail ("a system model divides by price, dry mass or wet mass, not by " <> T.unpack raw)
             Left err -> fail (T.unpack err)
+
+{- | A model read against its parent: the parent's processes with the model's
+parameters set, keyed by activity and product as a load keys them, what the
+model then does to their blocks, and the processes each parameter moved. A
+model's page and its child read this one reading, so a rule one accepts the
+other does too.
+-}
+data OnParent = OnParent
+    { opProcesses :: !(M.Map (UUID, UUID) Activity)
+    , opResolution :: !Resolution
+    , opMoved :: ![(ModelParameter, [(UUID, UUID)])]
+    }
+
+onParent :: SystemModel -> Database -> Either (NonEmpty Text) OnParent
+onParent model parent = do
+    (processes, moved) <- setParameters model parent (sdbActivities (toSimpleDatabase parent))
+    resolution <- resolveModel model processes
+    pure OnParent{opProcesses = processes, opResolution = resolution, opMoved = moved}
+
+{- | The parent's processes with the model's parameters set, each restated as
+an edit of the parameter restates it, and the processes each parameter moved.
+A block kept whole is one process, a process of one product under the same
+activity another, each with its own parameters.
+
+Refused, naming the process, where a parameter would be skipped in silence: a
+process that computes it by a formula, or reads it from its database without
+declaring it. Refused too where a process gives no amount at the new value or
+would move the share it was cut to, and for a parameter that moves no process.
+-}
+setParameters :: SystemModel -> Database -> M.Map (UUID, UUID) Activity -> Either (NonEmpty Text) (M.Map (UUID, UUID) Activity, [(ModelParameter, [(UUID, UUID)])])
+setParameters model parent processes
+    | null (smParameters model) = Right (processes, [])
+    | otherwise = case NE.nonEmpty (concat refusals <> idle) of
+        Just problems -> Left problems
+        Nothing -> Right (M.union (M.fromList [(k, act) | (k, act, _) <- set]) processes, moved)
+  where
+    (refusals, set) = partitionEithers (mapMaybe (uncurry setOn) (M.toList processes))
+
+    moved :: [(ModelParameter, [(UUID, UUID)])]
+    moved = [(mp, [k | (k, _, mps) <- set, mp `elem` mps]) | mp <- smParameters model]
+
+    idle :: [Text]
+    idle = [said mp <> " moves no process of the parent: none declares it as an input that one of its amounts reads" | (mp, []) <- moved]
+
+    -- A process with every parameter it declares set, and those that moved one of its amounts.
+    setOn :: (UUID, UUID) -> Activity -> Maybe (Either [Text] ((UUID, UUID), Activity, [ModelParameter]))
+    setOn k act = case partitionEithers (mapMaybe (declared act) (smParameters model)) of
+        ([], []) -> Nothing
+        ([], found) -> Just $ do
+            asStated <- restate act []
+            stated <- restate act found
+            let moving = [mp | f@(mp, _) <- found, either (const True) (moves asStated) (restate act [f])]
+            pure (k, stated, if moves asStated stated then moving else [])
+        (problems, _) -> Just (Left problems)
+
+    -- Measured against the process restated as it is, so an amount its source rounded is not counted as moved.
+    moves :: Activity -> Activity -> Bool
+    moves before after = map exchangeAmount (exchanges before) /= map exchangeAmount (exchanges after)
+
+    restate :: Activity -> [(ModelParameter, Text)] -> Either [Text] Activity
+    restate act found = first (pure . describeParameterRefusal) (restated (Before parent act) parent act{activityParameters = foldr valued (activityParameters act) found})
+
+    -- Under the key as the process spells it: a second spelling would be a second parameter.
+    valued :: (ModelParameter, Text) -> M.Map Text Parameter -> M.Map Text Parameter
+    valued (mp, key) = M.adjust (\p -> p{parameterDefinition = InputParameter (mpValue mp) Nothing}) key
+
+    declared :: Activity -> ModelParameter -> Maybe (Either Text (ModelParameter, Text))
+    declared act mp = case [(key, parameterDefinition p) | (key, p) <- M.toList (activityParameters act), T.toLower key == name] of
+        (key, InputParameter{}) : _ -> Just (Right (mp, key))
+        (_, CalculatedParameter{}) : _ -> Just (Left (activityName act <> " computes " <> mpName mp <> " by a formula, which " <> said mp <> " would skip"))
+        []
+            | any ((== name) . T.toLower) (M.keys (databaseParametersRead act (dbParameters parent))) ->
+                Just (Left (activityName act <> " reads " <> mpName mp <> " from its database without declaring it, which " <> said mp <> " would skip"))
+            | otherwise -> Nothing
+      where
+        name = T.toLower (mpName mp)
+
+    said :: ModelParameter -> Text
+    said mp = "the method parameter " <> parameterText mp
+
+-- | A parameter as a model sets it: "A = 1 (why)".
+parameterText :: ModelParameter -> Text
+parameterText mp = mpName mp <> " = " <> valueText (mpValue mp) <> " \"" <> reasonText (mpReason mp) <> "\""
+  where
+    valueText :: Double -> Text
+    valueText v
+        | v == fromInteger (round v) = T.pack (show (round v :: Integer))
+        | otherwise = T.pack (show v)
 
 {- | What a model does to one parent: the property each block of several
 products is divided under, keyed by the block's activity, the blocks each
@@ -352,26 +476,29 @@ data NamedSubstitution = NamedSubstitution
     }
 
 {- | A model read against its parent: each exception with the parent's
-processes it takes, by activity and name, and each substitution named. What a
-reader checks a rule against its reason with.
+processes it takes, by activity and name, each substitution named, and each
+method parameter with the parent's processes it moved, by activity and
+product and name. What a reader checks a rule against its reason with.
 -}
 data ModelOnParent = ModelOnParent
     { mopModel :: !SystemModel
     , mopExceptions :: ![(ModelException, [(UUID, Text)])]
     , mopSubstitutions :: ![NamedSubstitution]
+    , mopParameters :: ![(ModelParameter, [((UUID, UUID), Text)])]
     }
 
 takenProcesses :: SystemModel -> Database -> Either (NonEmpty Text) ModelOnParent
-takenProcesses model parent = named <$> resolveModel model (sdbActivities simple)
+takenProcesses model parent = named <$> onParent model parent
   where
     simple :: SimpleDatabase
     simple = toSimpleDatabase parent
 
-    named :: Resolution -> ModelOnParent
-    named resolution =
+    named :: OnParent -> ModelOnParent
+    named reading =
         ModelOnParent
             { mopModel = model
             , mopExceptions = [(ex, [(u, name) | u <- us, Just name <- [M.lookup u names]]) | (ex, us) <- rsTaken resolution]
+            , mopParameters = [(mp, [(k, maybe "" activityName (M.lookup k (sdbActivities simple))) | k <- ks]) | (mp, ks) <- opMoved reading]
             , mopSubstitutions =
                 [ NamedSubstitution
                     { nsRule = sdRule sd
@@ -383,6 +510,8 @@ takenProcesses model parent = named <$> resolveModel model (sdbActivities simple
                 | sd <- rsSubstitutions resolution
                 ]
             }
+      where
+        resolution = opResolution reading
 
     names :: M.Map UUID Text
     names = M.fromList [(activityId, activityName act) | ((activityId, _), act) <- M.toList (sdbActivities simple)]
@@ -391,8 +520,8 @@ takenProcesses model parent = named <$> resolveModel model (sdbActivities simple
     flowName ex = maybe (UUID.toText (exchangeFlowId ex)) tfName (M.lookup (exchangeFlowId ex) (sdbTechFlows simple))
 
 {- | A process of a child, as its delivery sheet traces it back to the
-parent: the activity is the parent's, the product the row it keeps, and the
-parent's process it was cut from.
+parent: the activity is the parent's, the product the row it keeps, the
+parent's process it was cut from, and the method parameters that moved it.
 -}
 data Traced = Traced
     { trProcess :: !(UUID, UUID)
@@ -401,6 +530,7 @@ data Traced = Traced
     , trProduct :: !Text
     , trShare :: !(Maybe Double)
     , trRule :: !Rule
+    , trParameters :: ![ModelParameter]
     }
 
 -- | Why a process of a child carries the share it does.
@@ -413,6 +543,8 @@ data Rule
       Credited !(NonEmpty Reason)
     | -- | A share below 100 the source declared on a process of one product.
       DeclaredBySource
+    | -- | A process of one product the parent holds whole, which only method parameters moved.
+      AsTheParent
 
 ruleText :: Rule -> Text
 ruleText = \case
@@ -423,11 +555,16 @@ ruleText = \case
             <> foldMap (("; substitution: " <>) . reasonText) substitutions
     Credited reasons -> T.intercalate "; " (map (("substitution: " <>) . reasonText) (NE.toList reasons))
     DeclaredBySource -> "share declared by the source"
+    AsTheParent -> "as the parent has it"
 
-{- | Each process of a child that comes from a block of its parent, and each
-share below 100 the source declared on a process of one product. Any other process is
-the parent's as it stands. A block left whole is listed once, under its
-reference product.
+-- | The rule of a traced process, and each method parameter that moved it.
+tracedRule :: Traced -> Text
+tracedRule t = ruleText (trRule t) <> foldMap (("; parameter " <>) . parameterText) (trParameters t)
+
+{- | Each process of a child that comes from a block of its parent, each
+share below 100 the source declared on a process of one product, and each
+process a method parameter moved. Any other process is the parent's as it
+stands. A block left whole is listed once, under its reference product.
 
 A process comes from a block when its activity is the block's and its product
 one of the block's: a process of one product under the same activity is not
@@ -435,12 +572,21 @@ the block's.
 -}
 traceOf :: ModelOnParent -> Database -> Database -> [Traced]
 traceOf onParent parent child =
-    [ Traced{trProcess = k, trParent = parentKey k, trActivity = activityName act, trProduct = productName ref, trShare = share, trRule = rule}
+    [ Traced{trProcess = k, trParent = parentKey k, trActivity = activityName act, trProduct = productName ref, trShare = share, trRule = rule, trParameters = moving}
     | (k, act) <- M.toList (sdbActivities simple)
+    , let moving = M.findWithDefault [] (parentKey k) parametered
     , ref <- take 1 (filter exchangeIsReference (exchanges act))
-    , Just (share, rule) <- [ruled k act (exchangeDeclaredShare ref)]
+    , Just (share, rule) <- [orParametered moving (ruled k act (exchangeDeclaredShare ref))]
     ]
   where
+    orParametered :: [ModelParameter] -> Maybe (Maybe Double, Rule) -> Maybe (Maybe Double, Rule)
+    orParametered moving traced = case (traced, moving) of
+        (Nothing, _ : _) -> Just (Just 100, AsTheParent)
+        _ -> traced
+
+    parametered :: M.Map (UUID, UUID) [ModelParameter]
+    parametered = M.fromListWith (flip (<>)) [(k, [mp]) | (mp, ks) <- mopParameters onParent, (k, _) <- ks]
+
     simple :: SimpleDatabase
     simple = toSimpleDatabase child
 

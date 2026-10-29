@@ -6,7 +6,9 @@ rather than from the files.
 A parent keeps its processes of several products whole, every product row
 priced. Its child divides them under its model. Building the child from the
 parent as it stands, rather than from the files, is what carries the parent's
-edits over: a price changed on the parent changes the child's shares.
+edits over: a price changed on the parent changes the child's shares. The
+method parameters a model sets are set first, so a block is divided as its
+amounts stand at those values.
 -}
 module Database.Child (
     childOf,
@@ -22,7 +24,7 @@ import Data.UUID (UUID)
 import Database.Allocation (Allocating (..), allocate, describePropertyRefusal, propertyKeyRefusals)
 import Database.Loader (getReferenceProductUUID, linkWithinDatabaseByName)
 import Database.Rebuild (rebuildFromActivities)
-import Database.SystemModel (Resolution (..), Substituted (..), buys, resolveModel, severalProducts)
+import Database.SystemModel (OnParent (..), Resolution (..), Substituted (..), buys, onParent, severalProducts)
 import Progress (ProgressLevel (..), reportProgress)
 import Types (
     Activity (..),
@@ -56,7 +58,8 @@ import Types (
  )
 import UnitConversion (UnitConfig, convertUnit)
 
-{- | The parent's processes of several products divided by the model, each
+{- | The parent's processes, at the model's method parameters, those of
+several products divided by the model, each
 block under its own property, each piece keyed as a load keys it: the block's
 activity, the piece's product.
 
@@ -80,9 +83,9 @@ linked by name among themselves, for an input the parent left unlinked. An
 input the parent already linked keeps its supplier.
 -}
 childOf :: UnitConfig -> SystemModel -> Database -> IO (Either Text Database)
-childOf unitConfig model parent = case resolveModel model (sdbActivities simple) of
+childOf unitConfig model parent = case onParent model parent of
     Left problems -> pure (Left (T.intercalate "; " (NE.toList problems)))
-    Right resolution -> case M.traverseWithKey (substitute (rsSubstitutions resolution)) (sdbActivities simple) of
+    Right OnParent{opProcesses = parametered, opResolution = resolution} -> case M.traverseWithKey (substitute (rsSubstitutions resolution)) parametered of
         Left refusal -> pure (Left refusal)
         Right processes ->
             let whys = refused resolution processes

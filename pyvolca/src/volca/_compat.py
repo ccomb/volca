@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 96
-"""The newest wire revision this pyvolca understands (revision 96 added the
+KNOWN_WIRE = 97
+"""The newest wire revision this pyvolca understands (revision 97 added the
+``parameters`` of ``system_model()``, each method parameter a model sets with
+the processes of the parent it moves; revision 96 added the
 delivery-sheet row of one process of a child, read by the web interface and not
 by this client; revision 95 added the
 ``usage`` of a licence and of the terms to accept, the counting of computations

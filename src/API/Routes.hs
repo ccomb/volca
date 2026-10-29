@@ -56,7 +56,7 @@ import Database.Journal (noteFrom)
 import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), getDatabase, getMergedUnitConfig)
 import qualified Database.Manager as DM
 import Database.Requirements (ReleaseSubstitution)
-import Database.SystemModel (Traced (..), ruleText)
+import Database.SystemModel (Traced (..), tracedRule)
 import EcoSpold.Common (acrossCapabilities)
 import qualified Expr
 import GHC.Generics
@@ -1642,7 +1642,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 96: the row of a child's delivery sheet for one process, the
+(revision 97: the @parameters@ a system model sets, each with its value, its
+reason and the processes of the parent it moves, and the method parameters
+the row of a child's delivery sheet names in its rule;
+revision 96: the row of a child's delivery sheet for one process, the
 parent's process it was cut from, its share and its rule, at
 @GET /db/{db}/activity/{processId}/division@;
 revision 95: the @usage@ clause of an own licence and of the terms a reader
@@ -1851,7 +1854,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 96
+currentWireVersion = 97
 
 getVersion :: AppM Value
 getVersion = do
@@ -2018,7 +2021,7 @@ getProcessDivision dbName processId = counted Reading dbName (ProcessKey process
             , pdaParentProcessId = processRefText (uncurry ProcessRef (trParent traced))
             , pdaParentActivity = trActivity traced
             , pdaShare = trShare traced
-            , pdaRule = ruleText (trRule traced)
+            , pdaRule = tracedRule traced
             }
 
 getActivityFlows :: Text -> Text -> AppM [FlowSummary]
