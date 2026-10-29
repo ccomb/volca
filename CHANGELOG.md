@@ -4,6 +4,17 @@
 
 ### Added
 
+- A system model can set parameters of the parent's processes, under
+  `[[method_parameters]]`: a name, a value and a reason. Every process of the
+  parent that declares that input parameter takes the value in the child, and
+  its amounts follow, before any block is divided. It is how a child makes a
+  method choice its parent wrote as data: Agribalyse writes the recycling
+  formula of the Product Environmental Footprint into its packaging
+  processes, and `A = 1` takes every recycling credit away from them. A
+  parameter that moves no process, or that a process computes by a formula,
+  is refused, naming the process. The model's page lists the processes each
+  parameter moves, and the delivery sheet names the parameters in the rule
+  of each process they moved (wire revision 98).
 - The package of a database divided by a system model (`package: ro-crate`)
   is its delivery sheet. It holds the model file as its author wrote it, and
   `allocation.csv`, one row per process that comes from a block of the

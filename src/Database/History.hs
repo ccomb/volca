@@ -48,6 +48,7 @@ import Types (
     Database (..),
     ExchangeLocation (..),
     FileReading (..),
+    ModelParameter (..),
     Parameter (..),
     ParameterDefinition (..),
     Reading (..),
@@ -208,7 +209,13 @@ changesReport provenance lines' =
     reallocated reading = case reading of
         FromFiles ReadWhole -> "Multi-output processes are kept whole, not divided as the original divides them."
         FromFiles ReadDeclared -> "Multi-output processes are divided by the shares the original declares."
-        ByModel model -> "Multi-output processes are divided by the system model " <> smName model <> " " <> smVersion model <> ", not as the original divides them."
+        ByModel model ->
+            "Multi-output processes are divided by the system model "
+                <> smName model
+                <> " "
+                <> smVersion model
+                <> ", not as the original divides them."
+                <> (if null (smParameters model) then "" else " The model also sets parameters of the processes: " <> T.intercalate ", " (map mpName (smParameters model)) <> ".")
     section line =
         ["", "## " <> hlAt line <> ": " <> hlSummary line, "", "Reason: " <> maybe "No reason given" noteText (hlNote line)]
             <> (if null (hlDetails line) then [] else "" : map ("- " <>) (hlDetails line))

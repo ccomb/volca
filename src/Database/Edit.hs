@@ -328,8 +328,8 @@ dividedRefusal unitConfig reading srcName db = case reading of
     FromFiles ReadWhole
         | any keptWhole (dbActivities db) -> Nothing
         | otherwise -> Just ("none kept no process of several products whole in " <> srcName <> sameDatabase)
-    -- A substitution changes the blocks it takes, divided or not.
-    ByModel model | not (null (smSubstitutions model)) -> Nothing
+    -- A substitution changes the blocks it takes, divided or not; a method parameter the processes it moves.
+    ByModel model | not (null (smSubstitutions model)) || not (null (smParameters model)) -> Nothing
     _
         | divided > 0 -> Nothing
         | otherwise ->

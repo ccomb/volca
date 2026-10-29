@@ -54,7 +54,7 @@ import Data.Time.Format.ISO8601 (iso8601Show)
 import Numeric (showFFloat)
 
 import Config (DatabaseConfig (..))
-import Database.SystemModel (Traced (..), ruleText)
+import Database.SystemModel (Traced (..), tracedRule)
 import Database.Upload (DatabaseFormat (..), formatDisplayText)
 import Types (Attribution (..), Licence (..), LicenceKeys (..), OwnLicence (..), ProcessRef (..), Release (..), StandardLicence, StandardTerms (..), SystemModel (..), acceptanceAsked, countedDisclosure, licenceFromKeys, licenceUsage, permissionCode, processRefText, spdxId, standardTerms)
 import Zip (zipFiles)
@@ -166,8 +166,8 @@ traceCsv rows = T.concat (map line (header : map cells rows))
     header = ["process_id", "parent_process_id", "activity", "product", "share_percent", "rule"]
 
     cells :: Traced -> [Text]
-    cells Traced{..} =
-        [processRefText (uncurry ProcessRef trProcess), processRefText (uncurry ProcessRef trParent), trActivity, trProduct, maybe "" (\s -> T.pack (showFFloat Nothing s "")) trShare, ruleText trRule]
+    cells t@Traced{..} =
+        [processRefText (uncurry ProcessRef trProcess), processRefText (uncurry ProcessRef trParent), trActivity, trProduct, maybe "" (\s -> T.pack (showFFloat Nothing s "")) trShare, tracedRule t]
 
     line :: [Text] -> Text
     line fields = T.intercalate "," (map quoted fields) <> "\r\n"

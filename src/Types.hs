@@ -2551,7 +2551,8 @@ parseFileReading raw =
 {- | How a child is divided from its parent: one property for every block of
 several products, exceptions that give some of them another one, and
 coproducts left out of the division for what they displace, each with the
-reason it was made. The file it was written in is kept as written, since it is
+reason it was made, and parameters of the parent's processes it sets, each
+with its reason. The file it was written in is kept as written, since it is
 what a child's delivery cites.
 -}
 data SystemModel = SystemModel
@@ -2561,7 +2562,20 @@ data SystemModel = SystemModel
     , smDefault :: !AllocationProperty
     , smExceptions :: ![ModelException]
     , smSubstitutions :: ![ModelSubstitution]
+    , smParameters :: ![ModelParameter]
     , smText :: !Text
+    }
+    deriving (Show, Eq, Generic, NFData)
+
+{- | An input parameter of the parent's processes a child takes at another
+value: a method choice the parent writes as data, such as how much of a
+recycling credit a process claims. Every process that declares it takes the
+value.
+-}
+data ModelParameter = ModelParameter
+    { mpName :: !Text
+    , mpValue :: !Double -- Finite: only the decoder builds one
+    , mpReason :: !Reason
     }
     deriving (Show, Eq, Generic, NFData)
 

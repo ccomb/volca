@@ -386,13 +386,15 @@ data DeriveRequest = DeriveRequest
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeriveRequest)
 
 {- | A child's system model: its file as written, each exception with the
-processes of the parent it takes, and each substitution with the processes it
-names, so a reader can check a rule took what its reason says.
+processes of the parent it takes, each substitution with the processes it
+names, and each method parameter with the processes it moves, so a reader can
+check a rule took what its reason says.
 -}
 data SystemModelAPI = SystemModelAPI
     { smaText :: Text
     , smaExceptions :: [ModelExceptionAPI]
     , smaSubstitutions :: [ModelSubstitutionAPI]
+    , smaParameters :: [ModelParameterAPI]
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SystemModelAPI)
@@ -412,6 +414,19 @@ data TakenProcessAPI = TakenProcessAPI
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped TakenProcessAPI)
+
+{- | An input parameter of the parent's processes a model sets, its value, why,
+and the processes of the parent whose amounts it moves: by their process
+identifier, since a block and a process of one product may share an activity.
+-}
+data ModelParameterAPI = ModelParameterAPI
+    { mpaName :: Text
+    , mpaValue :: Double
+    , mpaReason :: Text
+    , mpaProcesses :: [TakenProcessAPI]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ModelParameterAPI)
 
 {- | A coproduct a model substitutes rather than divides, named: its block and
 product, the process of the parent it displaces and that process's product,
