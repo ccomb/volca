@@ -2916,6 +2916,13 @@ mkDisplayName = fmap DisplayName . mfilter (not . T.null) . Just . T.strip
 instance FromJSON DisplayName where
     parseJSON = withText "DisplayName" (maybe (fail "A database's name cannot be blank") pure . mkDisplayName)
 
+{- | A database's description as kept: without the spaces around it, nor the
+carriage returns meta.toml does not escape, and nothing when only spaces are
+left, so a blank description and none are one state.
+-}
+mkDescription :: Text -> Maybe Text
+mkDescription = mfilter (not . T.null) . Just . T.strip . T.filter (/= '\r')
+
 {- | How a database's data came to differ from the files it was read from: its
 own edits, kept in its journal, and a division of its multi-output blocks other
 than its source's. The two are independent, and a database with neither is

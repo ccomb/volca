@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 92** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 94** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1793,6 +1793,15 @@ Choose which data file a staged multi-file archive should use.
 ``path`` must be one of the ``availablePaths`` reported by
 `get_setup`, relative to the upload directory. Returns the
 updated ``DatabaseSetupInfo`` dict.
+
+##### `Client.set_description(description: str | None, db_name: str | None = None) -> str | None`
+
+Describe an uploaded database, or clear its description with None
+or a blank text.
+
+Returns the description kept, without the spaces around it, or None.
+Raises VoLCAError on an HTTP error: a 404 for an unknown database, a
+409 for one the configuration file declares. Needs wire revision 94.
 
 ##### `Client.set_display_name(name: str, db_name: str | None = None) -> str`
 

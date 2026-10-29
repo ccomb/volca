@@ -32,8 +32,11 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 92
-"""The newest wire revision this pyvolca understands (revision 92 added
+KNOWN_WIRE = 94
+"""The newest wire revision this pyvolca understands (revision 94 added
+``set_description()``, which describes an uploaded database or clears its
+description; revision 93 added the rows of a reference table, read by the web
+interface and not by this client; revision 92 added
 ``set_display_name()``, which renames an uploaded database; revision 91 added the
 ``substitutions`` of ``system_model()``, each coproduct a model credits against
 a process of the parent rather than divides; revision 90 added

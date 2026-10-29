@@ -47,6 +47,7 @@ module API.DatabaseHandlers (
     setLicenceHandler,
     setReleaseHandler,
     setDisplayNameHandler,
+    setDescriptionHandler,
     acceptSubstitutionHandler,
     licenceRefusal,
     refuseUnlessGranted,
@@ -268,6 +269,7 @@ import Database.Manager (
     removeMethodCollection,
     removeUnitDefs,
     setDataPath,
+    setUploadDescription,
     setUploadDisplayName,
     setUploadLicence,
     setUploadRelease,
@@ -327,6 +329,7 @@ import Types (
     getUnitNameForBioFlow,
     granted,
     isModified,
+    mkDescription,
     modelOf,
     modelTitle,
     processRefText,
@@ -1032,6 +1035,17 @@ setDisplayNameHandler dbName name = do
     dbManager <- asks aeDbManager
     liftIO (setUploadDisplayName dbManager dbName name) >>= either settingRefused pure
 
+{- | Describe an uploaded database, or clear its description with @null@ or a
+blank text, and answer with the description kept. 404 for a name the engine
+does not know, 409 for a database the configuration file declares, 500 for an
+upload whose meta.toml cannot be read.
+-}
+setDescriptionHandler :: Text -> Maybe Text -> AppM (Maybe Text)
+setDescriptionHandler dbName description = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    liftIO (setUploadDescription dbManager dbName (mkDescription =<< description)) >>= either settingRefused pure
+
 {- | Accept a database in place of a release an uploaded database requires,
 and answer with its setup as it now links. 404 for a name the engine does not
 know or a release it does not require, 409 for a database loaded with the
@@ -1268,7 +1282,7 @@ withStreamedUpload mName mDesc src k = do
     -- The read is lazy, so an uncapped (local/desktop) upload is never
     -- buffered whole; 'finally' guarantees the temp file is deleted even
     -- if the extract/detect continuation throws.
-    (liftIO (BSL.readFile tmpPath) >>= k name mDesc)
+    (liftIO (BSL.readFile tmpPath) >>= k name (mkDescription =<< mDesc))
         `finally` liftIO (removeQuietly tmpPath)
 
 -- | Why a streamed upload body was not kept.

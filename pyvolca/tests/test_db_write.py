@@ -745,6 +745,30 @@ class TestSetDisplayName:
         assert call[1]["json"] == "Cheeses"
 
 
+class TestSetDescription:
+    def test_a_description_travels_as_a_json_string(self, mocked_client):
+        from tests.conftest import _make_response
+
+        client, session = mocked_client
+        client._checked = True
+        client._server_wire = 94
+        session.put.return_value = _make_response("Pressed cheeses")
+        assert client.set_description("Pressed cheeses") == "Pressed cheeses"
+        call = session.put.call_args
+        assert call[0][0] == "http://test.local/api/v1/db/testdb/description"
+        assert call[1]["json"] == "Pressed cheeses"
+
+    def test_none_clears_it(self, mocked_client):
+        from tests.conftest import _make_response
+
+        client, session = mocked_client
+        client._checked = True
+        client._server_wire = 94
+        session.put.return_value = _make_response(None)
+        assert client.set_description(None) is None
+        assert session.put.call_args[1]["json"] is None
+
+
 # ---------------------------------------------------------------------------
 # set_release
 # ---------------------------------------------------------------------------

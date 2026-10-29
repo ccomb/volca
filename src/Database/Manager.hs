@@ -123,6 +123,7 @@ module Database.Manager (
     SettingRefusal (..),
     setUploadRelease,
     setUploadDisplayName,
+    setUploadDescription,
     acceptSubstitution,
     getDatabaseSetupInfo,
     buildLoadedSetupInfo,
@@ -2187,6 +2188,22 @@ setUploadDisplayName manager dbName name =
                 , usHeldElsewhere = const Nothing
                 , usMeta = \meta -> meta{UploadedDB.umDisplayName = displayNameText name}
                 , usConfig = \c -> c{dcDisplayName = displayNameText name}
+                }
+
+{- | Describe an uploaded database, or clear its description with 'Nothing'.
+A copy is described in its own meta.toml, apart from its source.
+-}
+setUploadDescription :: DatabaseManager -> Text -> Maybe Text -> IO (Either SettingRefusal (Maybe Text))
+setUploadDescription manager dbName description =
+    (description <$)
+        <$> writeUploadSetting
+            manager
+            dbName
+            UploadSetting
+                { usNoun = "description"
+                , usHeldElsewhere = const Nothing
+                , usMeta = \meta -> meta{UploadedDB.umDescription = description}
+                , usConfig = \c -> c{dcDescription = description}
                 }
 
 {- | Accept a database in place of a release an uploaded database requires.

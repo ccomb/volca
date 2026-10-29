@@ -1868,6 +1868,18 @@ class Client:
         target = self._db(db_name)
         return self._json(self._session.put(f"{self.base_url}/api/v1/db/{target}/display-name", json=name))
 
+    def set_description(self, description: str | None, db_name: str | None = None) -> str | None:
+        """Describe an uploaded database, or clear its description with None
+        or a blank text.
+
+        Returns the description kept, without the spaces around it, or None.
+        Raises VoLCAError on an HTTP error: a 404 for an unknown database, a
+        409 for one the configuration file declares. Needs wire revision 94.
+        """
+        self._require_wire(94, "set_description", engine_hint="0.16.1")
+        target = self._db(db_name)
+        return self._json(self._session.put(f"{self.base_url}/api/v1/db/{target}/description", json=description))
+
     def accept_substitution(self, release: dict, database: str, db_name: str | None = None) -> dict:
         """Accept ``database`` in place of a release a packaged database requires.
 

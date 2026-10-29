@@ -65,6 +65,12 @@
   mapping also downloads as its CSV
   (`GET /compartment-mappings/{name}/download`), as units and synonyms
   already did. Wire revision 93.
+- An uploaded database's description can be changed or removed, at
+  `PUT /db/{db}/description` with the new text as a JSON string, or `null` to
+  remove it, or `set_description()` in pyvolca. The spaces around it are
+  dropped, and a blank one counts as none, at the upload too. A database the
+  configuration file declares keeps the description written there. Wire
+  revision 94.
 
 ### Added
 
