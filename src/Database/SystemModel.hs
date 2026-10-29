@@ -279,25 +279,30 @@ setParameters model parent processes
     | null (smParameters model) = Right (processes, [])
     | otherwise = case NE.nonEmpty (concat refusals <> idle) of
         Just problems -> Left problems
-        Nothing -> Right (M.union (M.fromList [(k, act) | (k, act, _) <- set]) processes, moved)
+        Nothing -> Right (M.union (M.fromList [(psKey p, psProcess p) | p <- set]) processes, moved)
   where
     (refusals, set) = partitionEithers (mapMaybe (uncurry setOn) (M.toList processes))
 
     moved :: [(ModelParameter, [(UUID, UUID)])]
-    moved = [(mp, [k | (k, _, mps) <- set, mp `elem` mps]) | mp <- smParameters model]
+    moved = [(mp, [psKey p | p <- set, mp `elem` psMoving p]) | mp <- smParameters model]
 
     idle :: [Text]
-    idle = [said mp <> " moves no process of the parent: none declares it as an input that one of its amounts reads" | (mp, []) <- moved]
+    idle = [said mp <> " moves no process of the parent: " <> why mp | (mp, []) <- moved]
+
+    why :: ModelParameter -> Text
+    why mp
+        | any (\p -> mp `elem` psDeclaring p) set = "every process that declares it already has it at that value, or reads it in no amount"
+        | otherwise = "none declares it as an input parameter"
 
     -- A process with every parameter it declares set, and those that moved one of its amounts.
-    setOn :: (UUID, UUID) -> Activity -> Maybe (Either [Text] ((UUID, UUID), Activity, [ModelParameter]))
+    setOn :: (UUID, UUID) -> Activity -> Maybe (Either [Text] ParameterSet)
     setOn k act = case partitionEithers (mapMaybe (declared act) (smParameters model)) of
         ([], []) -> Nothing
         ([], found) -> Just $ do
             asStated <- restate act []
             stated <- restate act found
             let moving = [mp | f@(mp, _) <- found, either (const True) (moves asStated) (restate act [f])]
-            pure (k, stated, if moves asStated stated then moving else [])
+            pure ParameterSet{psKey = k, psProcess = stated, psDeclaring = map fst found, psMoving = if moves asStated stated then moving else []}
         (problems, _) -> Just (Left problems)
 
     -- Measured against the process restated as it is, so an amount its source rounded is not counted as moved.
@@ -307,20 +312,24 @@ setParameters model parent processes
     restate :: Activity -> [(ModelParameter, Text)] -> Either [Text] Activity
     restate act found = first (pure . describeParameterRefusal) (restated (Before parent act) parent act{activityParameters = foldr valued (activityParameters act) found})
 
-    -- Under the key as the process spells it: a second spelling would be a second parameter.
+    -- Under the key as the process spells it; a process spelling it twice is refused by 'declared'.
     valued :: (ModelParameter, Text) -> M.Map Text Parameter -> M.Map Text Parameter
     valued (mp, key) = M.adjust (\p -> p{parameterDefinition = InputParameter (mpValue mp) Nothing}) key
 
     declared :: Activity -> ModelParameter -> Maybe (Either Text (ModelParameter, Text))
-    declared act mp = case [(key, parameterDefinition p) | (key, p) <- M.toList (activityParameters act), T.toLower key == name] of
-        (key, InputParameter{}) : _ -> Just (Right (mp, key))
-        (_, CalculatedParameter{}) : _ -> Just (Left (activityName act <> " computes " <> mpName mp <> " by a formula, which " <> said mp <> " would skip"))
+    declared act mp = case spellings of
+        [(key, InputParameter{})] -> Just (Right (mp, key))
+        [(_, CalculatedParameter{})] -> Just (Left (activityName act <> " computes " <> mpName mp <> " by a formula, which " <> said mp <> " would skip"))
+        _ : _ : _ -> Just (Left (activityName act <> " spells " <> mpName mp <> " twice, as " <> T.intercalate " and " [key | (key, _) <- spellings] <> ", which " <> said mp <> " cannot tell apart"))
         []
-            | any ((== name) . T.toLower) (M.keys (databaseParametersRead act (dbParameters parent))) ->
+            -- Only a parent that defines the name can lend it: parse the formulas then, not for every process.
+            | any ((== name) . T.toLower) (M.keys (dbParameters parent))
+            , any ((== name) . T.toLower) (M.keys (databaseParametersRead act (dbParameters parent))) ->
                 Just (Left (activityName act <> " reads " <> mpName mp <> " from its database without declaring it, which " <> said mp <> " would skip"))
             | otherwise -> Nothing
       where
         name = T.toLower (mpName mp)
+        spellings = [(key, parameterDefinition p) | (key, p) <- M.toList (activityParameters act), T.toLower key == name]
 
     said :: ModelParameter -> Text
     said mp = "the method parameter " <> parameterText mp
@@ -338,6 +347,15 @@ parameterText mp = mpName mp <> " = " <> valueText (mpValue mp) <> " \"" <> reas
 products is divided under, keyed by the block's activity, the blocks each
 exception took, and each substitution with the processes it names.
 -}
+
+-- | A process of the parent with the model's parameters set: those it declares, and those that moved one of its amounts.
+data ParameterSet = ParameterSet
+    { psKey :: !(UUID, UUID)
+    , psProcess :: !Activity
+    , psDeclaring :: ![ModelParameter]
+    , psMoving :: ![ModelParameter]
+    }
+
 data Resolution = Resolution
     { rsKeys :: !(M.Map UUID AllocationProperty)
     , rsTaken :: ![(ModelException, [UUID])]

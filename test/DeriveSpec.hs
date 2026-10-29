@@ -379,18 +379,21 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                                    , ("Rejects", Just 0, "price, default key; parameter A = 1 \"Cut-off.\"")
                                    ]
 
-        it "refuses a parameter that moves no process, or one a process computes" $
+        it "refuses a parameter that moves no process, one a process computes, or one it spells twice" $
             withSource recyclingCSV $ \manager -> do
                 parent <- parentOf manager
                 let refusedBy p text = do
                         m <- either (fail . show) pure (parseSystemModel text)
                         fromLeft "" <$> childOf defaultUnitConfig m p
-                refusedBy parent (T.replace "name = \"A\"" "name = \"Z\"" (settingA "")) >>= (`shouldSatisfy` isInfixOf "moves no process of the parent")
-                let computed a
-                        | activityName a == "Carton end of life" = a{activityParameters = M.adjust (\p -> p{parameterDefinition = CalculatedParameter "0.1 * 2" (Just 0.2)}) "A" (activityParameters a)}
+                refusedBy parent (T.replace "name = \"A\"" "name = \"Z\"" (settingA "")) >>= (`shouldSatisfy` isInfixOf "moves no process of the parent: none declares it")
+                refusedBy parent (T.replace "value = 1" "value = 0.2" (settingA "")) >>= (`shouldSatisfy` isInfixOf "already has it at that value")
+                let onCarton f a
+                        | activityName a == "Carton end of life" = a{activityParameters = f (activityParameters a)}
                         | otherwise = a
-                refusedBy parent{dbActivities = V.map computed (dbActivities parent)} (settingA "")
+                refusedBy parent{dbActivities = V.map (onCarton (M.adjust (\p -> p{parameterDefinition = CalculatedParameter "0.1 * 2" (Just 0.2)}) "A")) (dbActivities parent)} (settingA "")
                     >>= (`shouldSatisfy` isInfixOf "Carton end of life computes A by a formula")
+                refusedBy parent{dbActivities = V.map (onCarton (\ps -> maybe ps (\p -> M.insert "a" p ps) (M.lookup "A" ps))) (dbActivities parent)} (settingA "")
+                    >>= (`shouldSatisfy` isInfixOf "Carton end of life spells A twice, as A and a")
 
         it "refuses a substitution of a row the parameter empties, on the model's page as in the child" $
             withSource recyclingCSV $ \manager -> do
