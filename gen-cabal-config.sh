@@ -96,6 +96,14 @@ EOF
 case "$LINK_MODE" in
     dynamic)
         # Shared linking (Linux, macOS, Docker, dev builds)
+        # A distro's libdmumps_seq.so names its own BLAS, LAPACK and gfortran
+        # runtime. The archives build-mumps.sh leaves when no distro MUMPS is
+        # found do not, so the link has to name them; without this, the
+        # executable fails to link with undefined dgemm_ / _gfortran_* symbols.
+        MUMPS_STATIC_DEPS=""
+        if [ -f "$MUMPS_LIB_DIR/libdmumps_seq.a" ] && [ ! -e "$MUMPS_LIB_DIR/libdmumps_seq.so" ]; then
+            MUMPS_STATIC_DEPS="  ghc-options: -optl-lopenblas -optl-lgfortran"
+        fi
         cat >> "$OUTPUT" << EOF
 optimization: 2
 
@@ -105,6 +113,7 @@ extra-include-dirs: $MUMPS_INCLUDE_DIR
 package volca
   optimization: $VOLCA_OPT_LEVEL
 $VOLCA_SPLIT_SECTIONS
+$MUMPS_STATIC_DEPS
 EOF
         ;;
 

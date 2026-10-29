@@ -114,6 +114,12 @@
 
 ### Fixed
 
+- `./build.sh` links on a glibc Linux without a distribution MUMPS. There
+  `build-mumps.sh` builds MUMPS from source as static archives, which, unlike a
+  distribution's shared library, do not bring the BLAS, LAPACK and gfortran
+  runtime they call, so the executable failed to link with undefined `dgemm_`
+  and `_gfortran_*` symbols. The link now names OpenBLAS and libgfortran when
+  only those archives are found, as the static builds already did.
 - A single EcoSpold 2 file (`.spold`) loads as a database. Sent as is, it used
   to be taken for EcoSpold 1 and refused; given as the path of a database, it
   was refused as an unsupported file; and in a folder, a name of one part
