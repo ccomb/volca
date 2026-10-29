@@ -589,7 +589,7 @@ one of the block's: a process of one product under the same activity is not
 the block's.
 -}
 traceOf :: ModelOnParent -> Database -> Database -> [Traced]
-traceOf onParent parent child =
+traceOf mop parent child =
     [ Traced{trProcess = k, trParent = parentKey k, trActivity = activityName act, trProduct = productName ref, trShare = share, trRule = rule, trParameters = moving}
     | (k, act) <- M.toList (sdbActivities simple)
     , let moving = M.findWithDefault [] (parentKey k) parametered
@@ -603,7 +603,7 @@ traceOf onParent parent child =
         _ -> traced
 
     parametered :: M.Map (UUID, UUID) [ModelParameter]
-    parametered = M.fromListWith (flip (<>)) [(k, [mp]) | (mp, ks) <- mopParameters onParent, (k, _) <- ks]
+    parametered = M.fromListWith (flip (<>)) [(k, [mp]) | (mp, ks) <- mopParameters mop, (k, _) <- ks]
 
     simple :: SimpleDatabase
     simple = toSimpleDatabase child
@@ -611,7 +611,7 @@ traceOf onParent parent child =
     ruled :: (UUID, UUID) -> Activity -> Maybe DeclaredShare -> Maybe (Maybe Double, Rule)
     ruled (activityId, productId) act declared
         | not (fromBlock activityId productId) = (\d -> (Just (dsPercent d), DeclaredBySource)) <$> mfilter ((< 100) . dsPercent) declared
-        | severalProducts act = Just (Nothing, KeptWhole (maybe (smDefault (mopModel onParent)) exKey exception))
+        | severalProducts act = Just (Nothing, KeptWhole (maybe (smDefault (mopModel mop)) exKey exception))
         | Just DeclaredShare{dsPercent = share, dsBy = Just prop} <- declared = Just (Just share, Divided prop (exReason <$> exception) substitutions)
         | otherwise = (\reasons -> (Just 100, Credited reasons)) <$> NE.nonEmpty substitutions
       where
@@ -642,10 +642,10 @@ traceOf onParent parent child =
 
     -- Two exceptions taking one block are refused when the model is read.
     exceptions :: M.Map UUID ModelException
-    exceptions = M.fromList [(u, ex) | (ex, taken) <- mopExceptions onParent, (u, _) <- taken]
+    exceptions = M.fromList [(u, ex) | (ex, taken) <- mopExceptions mop, (u, _) <- taken]
 
     substituted :: M.Map UUID [Reason]
-    substituted = M.fromListWith (flip (<>)) [(prActivity (subCoproduct (nsRule ns)), [subReason (nsRule ns)]) | ns <- mopSubstitutions onParent]
+    substituted = M.fromListWith (flip (<>)) [(prActivity (subCoproduct (nsRule ns)), [subReason (nsRule ns)]) | ns <- mopSubstitutions mop]
 
     productName :: Exchange -> Text
     productName ex = maybe (UUID.toText (exchangeFlowId ex)) tfName (M.lookup (exchangeFlowId ex) (sdbTechFlows simple))
