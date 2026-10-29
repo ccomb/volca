@@ -449,9 +449,11 @@ isOlcaPackage dir = doesFileExist (dir </> "openlca.json")
 readPackage :: FilePath -> IO (Either Text Package)
 readPackage dir = runExceptT $ do
     SchemaVersion version <- ExceptT (decodeFile (dir </> "openlca.json"))
-    -- Version 3 changed only how a process records its reviews, which this reader does not read.
-    unless (version `elem` [2, 3]) $
-        throwE ("openlca.json: schema version " <> T.pack (show version) <> ", where this reader knows versions 2 and 3")
+    -- Version 3 changed only how a process records its reviews, 4 only the fields of an EPD,
+    -- and 5 only added the analysis groups of a product system: none of them is read here,
+    -- so the documents of versions 2 to 5 read alike.
+    unless (version `elem` [2 .. 5]) $
+        throwE ("openlca.json: schema version " <> T.pack (show version) <> ", where this reader knows versions 2 to 5")
     groups <- ExceptT (decodeFolder (dir </> "unit_groups"))
     properties <- ExceptT (decodeFolder (dir </> "flow_properties"))
     flows <- ExceptT (decodeFolder (dir </> "flows"))

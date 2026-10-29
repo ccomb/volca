@@ -114,6 +114,11 @@
 
 ### Fixed
 
+- An openLCA package of schema version 4 or 5, which is what openLCA 2 writes
+  today, loads as a database. It used to be refused for its version alone:
+  version 4 changed only the fields of an EPD and version 5 only added the
+  analysis groups of a product system, neither of which the reader uses, so
+  their documents read as version 3's.
 - A single EcoSpold 2 file (`.spold`) loads as a database. Sent as is, it used
   to be taken for EcoSpold 1 and refused; given as the path of a database, it
   was refused as an unsupported file; and in a folder, a name of one part

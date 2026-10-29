@@ -5,6 +5,9 @@
 module OlcaSchemaPackageSpec (spec) where
 
 import Control.Monad ((>=>))
+import Data.Aeson (object, (.=))
+import qualified Data.Aeson as A
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -108,6 +111,17 @@ spec = describe "readPackage" $ do
         withPackage $ \dir -> do
             writeFile (dir </> "openlca.json") "{\"schemaVersion\": 2}"
             fmap (fmap (length . pkProcesses)) (readPackage dir) `shouldReturn` Right 15
+
+    it "reads a version 5 package, whose product systems may group their processes for analysis" $
+        withPackage $ \dir -> do
+            writeFile (dir </> "openlca.json") "{\"schemaVersion\": 5}"
+            let file = dir </> "product_systems" </> (UUID.toString (UUID.fromWords 0 0 0 501) <> ".json")
+                groups = [object ["name" .= ("Transport" :: T.Text), "color" .= ("#1f77b4" :: T.Text), "processes" .= [object ["@type" .= ("Process" :: T.Text), "@id" .= formulasJ]]]]
+            A.eitherDecodeFileStrict file >>= \case
+                Left why -> expectationFailure why
+                Right system -> A.encodeFile file (KM.insert "analysisGroups" (A.toJSON groups) (system :: A.Object))
+            fmap (fmap (map sdName . pkProductSystems)) (readPackage dir)
+                `shouldReturn` Right ["Widgets", "Widgets", "Lost line", "Wrong unit", "No process"]
 
     it "refuses a schema version it does not know" $
         withPackage $ \dir -> do
