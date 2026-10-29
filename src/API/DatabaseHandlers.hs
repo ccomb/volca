@@ -329,9 +329,9 @@ import Types (
     getUnitNameForBioFlow,
     granted,
     isModified,
-    mkDescription,
     modelOf,
     modelTitle,
+    nonBlankText,
     processRefText,
     ratioValue,
     readingKey,
@@ -1044,7 +1044,7 @@ setDescriptionHandler :: Text -> Maybe Text -> AppM (Maybe Text)
 setDescriptionHandler dbName description = do
     guardMutation
     dbManager <- asks aeDbManager
-    liftIO (setUploadDescription dbManager dbName (mkDescription =<< description)) >>= either settingRefused pure
+    liftIO (setUploadDescription dbManager dbName description) >>= either settingRefused pure
 
 {- | Accept a database in place of a release an uploaded database requires,
 and answer with its setup as it now links. 404 for a name the engine does not
@@ -1282,7 +1282,7 @@ withStreamedUpload mName mDesc src k = do
     -- The read is lazy, so an uncapped (local/desktop) upload is never
     -- buffered whole; 'finally' guarantees the temp file is deleted even
     -- if the extract/detect continuation throws.
-    (liftIO (BSL.readFile tmpPath) >>= k name (mkDescription =<< mDesc))
+    (liftIO (BSL.readFile tmpPath) >>= k name (nonBlankText =<< mDesc))
         `finally` liftIO (removeQuietly tmpPath)
 
 -- | Why a streamed upload body was not kept.

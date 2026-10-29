@@ -70,7 +70,9 @@
   remove it, or `set_description()` in pyvolca. The spaces around it are
   dropped, and a blank one counts as none, at the upload too. A database the
   configuration file declares keeps the description written there. Wire
-  revision 94.
+  revision 94. A carriage return in a setting written to an upload's meta.toml
+  (its name, description or licence text) is now escaped, so the file stays
+  valid TOML.
 
 ### Added
 

@@ -347,6 +347,7 @@ import Types (
     initializeRuntimeFields,
     modelOf,
     modelTitle,
+    nonBlankText,
     parseAllocationKey,
     readingKey,
     reasonsOf,
@@ -2190,11 +2191,12 @@ setUploadDisplayName manager dbName name =
                 , usConfig = \c -> c{dcDisplayName = displayNameText name}
                 }
 
-{- | Describe an uploaded database, or clear its description with 'Nothing'.
-A copy is described in its own meta.toml, apart from its source.
+{- | Describe an uploaded database, or clear its description with 'Nothing' or
+a blank text, and answer with the description kept. A copy is described in its
+own meta.toml, apart from its source.
 -}
 setUploadDescription :: DatabaseManager -> Text -> Maybe Text -> IO (Either SettingRefusal (Maybe Text))
-setUploadDescription manager dbName description =
+setUploadDescription manager dbName sent =
     (description <$)
         <$> writeUploadSetting
             manager
@@ -2205,6 +2207,8 @@ setUploadDescription manager dbName description =
                 , usMeta = \meta -> meta{UploadedDB.umDescription = description}
                 , usConfig = \c -> c{dcDescription = description}
                 }
+  where
+    description = nonBlankText =<< sent
 
 {- | Accept a database in place of a release an uploaded database requires.
 Recorded like any setting; its staged links and its matrix cache are dropped,

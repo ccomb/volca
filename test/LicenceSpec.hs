@@ -34,8 +34,8 @@ import Types (
     licenceFromKeys,
     licenceView,
     lvPermissions,
-    mkDescription,
     mkDisplayName,
+    nonBlankText,
     parseSpdx,
     psEnforced,
     psPermission,
@@ -201,7 +201,7 @@ spec = do
             (A.decode "\" \"" :: Maybe DisplayName) `shouldBe` Nothing
 
     describe "setUploadDescription" $ do
-        let description = Just "Pressed cheeses\nfrom the Jura, \"AOP\""
+        let description = Just "Pressed cheeses\r\nfrom the Jura, \"AOP\""
 
         it "records the description of an upload where a restart reads it, and lists it" $
             withUpload $ \manager home -> do
@@ -230,9 +230,11 @@ spec = do
                 setUploadDescription manager "configured" description
                     `shouldReturn` Left (SettingHeldElsewhere "configured is set in the configuration file, which is where its description is written")
 
-        it "keeps a description without the spaces around it, and none for spaces only" $ do
-            mkDescription "  Cheeses\r\n " `shouldBe` Just "Cheeses"
-            mkDescription " \r\n " `shouldBe` Nothing
+        it "keeps a description without the spaces around it, and none for spaces only" $
+            withUpload $ \manager _ -> do
+                setUploadDescription manager "upload" (Just "  Cheeses\r\n ") `shouldReturn` Right (Just "Cheeses")
+                setUploadDescription manager "upload" (Just " \r\n ") `shouldReturn` Right Nothing
+                nonBlankText "  Cheeses " `shouldBe` Just "Cheeses"
 
     describe "licenceRefusal" $ do
         it "lets a database with no licence be downloaded" $

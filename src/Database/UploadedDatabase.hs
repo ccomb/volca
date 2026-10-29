@@ -368,6 +368,7 @@ unescapeToml = T.pack . unescape . T.unpack
     unescape ('\\' : '"' : rest) = '"' : unescape rest
     unescape ('\\' : '\\' : rest) = '\\' : unescape rest
     unescape ('\\' : 'n' : rest) = '\n' : unescape rest
+    unescape ('\\' : 'r' : rest) = '\r' : unescape rest
     unescape (c : rest) = c : unescape rest
     unescape [] = []
 
@@ -469,6 +470,7 @@ formatMetaToml UploadMeta{..} =
         escape '"' = "\\\""
         escape '\\' = "\\\\"
         escape '\n' = "\\n"
+        escape '\r' = "\\r"
         escape c = T.singleton c
 
     formatToText EcoSpold2 = "ecospold2"
