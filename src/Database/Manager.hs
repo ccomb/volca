@@ -2996,11 +2996,6 @@ data Asked = Asked
 the collection, and what the request asked. Reads the journals along the
 databases' chains of sources and the collection's; 'basisOf' says the rest.
 -}
-
--- | What a solved score rests on: the databases its solution reached, the one asked first.
-solutionBasis :: DatabaseManager -> SharedSolver.CrossDBSolution -> CollectionName -> Asked -> IO ScoreBasis
-solutionBasis manager sol = scoreBasis manager (map SharedSolver.reachedName (NE.toList (SharedSolver.csScalings sol)))
-
 scoreBasis :: DatabaseManager -> [Text] -> CollectionName -> Asked -> IO ScoreBasis
 scoreBasis manager names (CollectionName collection) asked = do
     configs <- readTVarIO (dmAvailableDbs manager)
@@ -3024,6 +3019,10 @@ scoreBasis manager names (CollectionName collection) asked = do
     journalHasLines configs name = case M.lookup name configs of
         Nothing -> pure False
         Just config -> maybe (pure False) Journal.journalHasEntries =<< editHome config
+
+-- | What a solved score rests on: the databases its solution reached, the one asked first.
+solutionBasis :: DatabaseManager -> SharedSolver.CrossDBSolution -> CollectionName -> Asked -> IO ScoreBasis
+solutionBasis manager sol = scoreBasis manager (map SharedSolver.reachedName (NE.toList (SharedSolver.csScalings sol)))
 
 -- | The databases a score of one of this database's activities may read: itself, then its dependencies, loaded ones only.
 databasesRead :: DatabaseManager -> Text -> IO [Text]

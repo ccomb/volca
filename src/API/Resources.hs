@@ -740,7 +740,7 @@ description r = case r of
         \(no link, singular update) are returned in the entry; the sweep continues. \
         \Internally uses Sherman-Morrison rank-1 updates against the cached \
         \factorization (~4 ms per perturbation). V1: root DB only. 'basis' says \
-        \what the scores rest on, as get_impacts does: the root database alone."
+        \what the scores rest on, as get_impacts does."
             <> webUrlTip "sensitivity"
     GetReducedModel ->
         "LCA / ACV: the scores of an activity as a function of some input \

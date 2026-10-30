@@ -1768,19 +1768,17 @@ callComputeSensitivity dbManager mBaseUrl rid args =
                 Service.computeSensitivities db (ldSharedSolver ld) (raPid ra) perts
         (baselineX, perResults) <- liftShow eRes
         -- The scores below read the root's own scaling alone, so its cut-offs are the
-        -- ones they met, read under the licences the way the REST sensitivity reads them.
-        cutoffs <-
-            liftIO $
-                Impact.solutionCutoffs dbManager SeeDetailedScores $
-                    SharedSolver.CrossDBSolution (applyBiosphereMatrix db baselineX) (NE.singleton (SharedSolver.Reached dbName db baselineX)) IncludeLongTerm
+        -- ones they met, read under the licences the way the REST sensitivity reads them,
+        -- and the root's database the one they rest on.
+        let rootOnly = SharedSolver.CrossDBSolution (applyBiosphereMatrix db baselineX) (NE.singleton (SharedSolver.Reached dbName db baselineX)) IncludeLongTerm
+        cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores rootOnly)
+        basis <- liftIO (DM.solutionBasis dbManager rootOnly collection (DM.Asked [] []))
         -- This tool takes no long-term policy: it compares a baseline with
         -- perturbations of it, and both sides count the same flows.
         let scoreOf x = computeLCIAScoreAuto unitCfg mUnits mFlows IncludeLongTerm db x (applyBiosphereMatrix db x) hier tables
         baselineScore <- case scoreOf baselineX of
             Right s -> pure s
             Left e -> throwE ("baseline scoring failed: " <> e)
-        -- The scores read the root's database alone, so it is the one they rest on.
-        basis <- liftIO (DM.scoreBasis dbManager [dbName] collection (DM.Asked [] []))
         let webUrlPair = webUrlField mBaseUrl (sensitivityPath dbName (raText ra) collection <> "/" <> lrMethodIdText req)
             pertEntry (p, eitherX) =
                 let base =
