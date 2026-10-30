@@ -339,14 +339,18 @@ spec = describe "an openLCA package written from a database" $ do
                 (key, M.findWithDefault 0 co2 got) `shouldSatisfy` (near expected . snd)
             T.concat (warned parent) `shouldNotSatisfy` T.isInfixOf "no price or share weighs it"
 
-        it "follows a price an expert corrected in the parent" $ do
-            -- 51 on 1 kg of cheese against 49 on each of 3 kg of cream.
-            let factors = snd (factorsOf (dairy [cheese, cream (DeducedFromShare 49)]))
+        it "follows the prices an expert set in the parent, once every product has one" $ do
+            -- 51 EUR on 1 kg of cheese against 49 EUR on each of 3 kg of cream.
+            let factors = snd (factorsOf (dairy [productRow made 1 ReferenceProduct 51 (euros 51), cream (euros 49)]))
             map fst factors `shouldBe` [made, creamF]
             and (zipWith near (map snd factors) [51 / 198, 147 / 198]) `shouldBe` True
 
-        it "takes the declared shares when a price in euros stands beside a deduced one" $
-            snd (factorsOf (dairy [productRow made 1 ReferenceProduct 51 (StatedPrice (StatedAmount "EUR" 4)), cream (DeducedFromShare (49 / 3))])) `shouldBe` [(made, 0.51), (creamF, 0.49)]
+        it "takes the declared shares, and says why, when a price in euros stands beside a deduced one" $ do
+            let halfSet = dairy [productRow made 1 ReferenceProduct 51 (euros 4), cream (DeducedFromShare (49 / 3))]
+            snd (factorsOf halfSet) `shouldBe` [(made, 0.51), (creamF, 0.49)]
+            T.concat (warned halfSet) `shouldSatisfy` T.isInfixOf "weighed by the shares their products declare"
+            T.concat (warned halfSet) `shouldSatisfy` T.isInfixOf "maker: price: prices in"
+            T.concat (warned parent) `shouldNotSatisfy` T.isInfixOf "weighed by the shares their products declare"
 
         it "writes no factor, and says so, for a block with neither prices nor shares" $ do
             let unweighed = dairy [productRow made 1 ReferenceProduct 51 (DeducedFromShare 51), (cream (DeducedFromShare 1)){techShare = Nothing, techProperties = noProperties}]
@@ -359,6 +363,7 @@ spec = describe "an openLCA package written from a database" $ do
   where
     cheese = productRow made 1 ReferenceProduct 51 (DeducedFromShare 51)
     cream = productRow creamF 3 Coproduct 49
+    euros = StatedPrice . StatedAmount "EUR"
 
 -- | A product row of a block, with the share its source declares and its price.
 productRow :: UUID -> Double -> TechRole -> Double -> Price -> Exchange

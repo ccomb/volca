@@ -34,9 +34,10 @@ parameter, so both compute the same.
 
 A process the database keeps whole, a parent's block of several products,
 is written whole with an economic allocation factor per product: the shares
-the @price@ key gives it, else those its products declare. openLCA divides it
-by them, and so does the reader, which writes the pieces back one by one. A
-block with neither keeps every product whole, which is said.
+the @price@ key gives it, else those its products declare, which is said.
+openLCA divides it by them, and so does the reader, which writes the pieces
+back one by one. A block with neither keeps every product whole, which is
+said too.
 
 The product systems the database was read with are written back around
 their reference process, with the processes and links its lines' providers
@@ -50,7 +51,6 @@ module OlcaSchema.Writer (
     locationId,
 ) where
 
-import Control.Applicative ((<|>))
 import Crypto.Hash (Digest, MD5, hash)
 import Data.Aeson (KeyValue ((.=)))
 import Data.Aeson.Encoding (Encoding, Series, encodingToLazyByteString, list, pair, pairs)
@@ -74,7 +74,7 @@ import qualified Data.UUID.V5 as UUID5
 import Numeric (readHex)
 
 import qualified Data.IntMap.Strict as IM
-import Database.Allocation (isCoproduct, producerKeyOf, propertyKeyShares)
+import Database.Allocation (describePropertyRefusal, isCoproduct, producerKeyOf, propertyKeyShares, propertyShares)
 import qualified Database.ExportFormulas as EF
 import qualified Expr
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
@@ -185,14 +185,30 @@ data Line = Line
     , lnComment :: !(Maybe Text)
     }
 
--- | A process as written: its identifier, the activity, its lines, and the economic factor of each product of a block it keeps whole.
+-- | A process as written: its identifier, the activity, its lines, and how its products are weighed.
 data Written = Written
     { wrId :: !UUID
     , wrKey :: !(UUID, UUID)
     , wrActivity :: !Activity
     , wrLines :: ![Line]
-    , wrFactors :: ![(OutFlow, Double)]
+    , wrWeighing :: !Weighing
     }
+
+-- | The economic allocation factor of one product of a block.
+data Factor = Factor
+    { fcProduct :: !OutFlow
+    , fcValue :: !Double
+    }
+
+-- | How the products of a process are weighed in the package.
+data Weighing
+    = -- | One product, which openLCA reads whole, as it should.
+      OneProduct
+    | ByPrice ![Factor]
+    | -- | Why the prices cannot weigh the block, and the factors of the shares its products declare.
+      ByDeclaredShare !Text ![Factor]
+    | -- | Neither prices nor shares: openLCA reads every product with the whole inventory.
+      Unweighed
 
 -- | Why a line cannot be written, each naming it.
 data Refusal
@@ -256,20 +272,23 @@ processLines :: Context -> (UUID, UUID) -> Activity -> Either [Refusal] Written
 processLines cx key act = case partitionEithers lines' of
     ([], ok)
         | any isCoproduct products && length (nubOrd (map exchangeFlowId products)) < length products -> Left [SameProductTwice (activityName act)]
-        | otherwise -> Right Written{wrId = ilcdProcessUUID (cxShared cx) key, wrKey = key, wrActivity = act, wrLines = ok, wrFactors = factors}
+        | otherwise -> Right Written{wrId = ilcdProcessUUID (cxShared cx) key, wrKey = key, wrActivity = act, wrLines = ok, wrWeighing = weighing}
     (bad, _) -> Left bad
   where
     lines' = map (lineOf cx act) (exchanges act)
     products = filter exchangeIsProductOutput (exchanges act)
 
-    -- A process of one product is no block: openLCA reads it whole, as it should.
-    factors
-        | any isCoproduct products = maybe [] (\ss -> [(f, share / 100) | (ex, share) <- zip products ss, Just f <- [flowOf ex]]) shares
-        | otherwise = []
-    shares =
-        propertyKeyShares Price (cxUnits cx) (sdbUnits (cxDb cx)) products
-            -- A price in euros beside one deduced from a share cannot weigh the block; its declared shares still do.
-            <|> traverse (fmap dsPercent . exchangeDeclaredShare) products
+    weighing
+        | not (any isCoproduct products) = OneProduct
+        | Just shares <- propertyKeyShares Price (cxUnits cx) unitDB products = ByPrice (factored shares)
+        -- A price in euros an expert set beside prices deduced from shares cannot weigh the block until every product has one.
+        | Just shares <- traverse (fmap dsPercent . exchangeDeclaredShare) products = ByDeclaredShare whyNotPrices (factored shares)
+        | otherwise = Unweighed
+    unitDB = sdbUnits (cxDb cx)
+    factored shares = [Factor f (share / 100) | (ex, share) <- zip products shares, Just f <- [flowOf ex]]
+    whyNotPrices = case NE.nonEmpty products of
+        Just block | Left refusal <- propertyShares Price unitDB (cxUnits cx) block -> describePropertyRefusal Price refusal
+        _ -> "every product declares 0 %"
     flowOf ex = M.lookup (exchangeFlowId ex) (cxFlows cx)
 
 lineOf :: Context -> Activity -> Exchange -> Either Refusal Line
@@ -384,7 +403,8 @@ warnings cx processes = splitWarnings (cxDb cx) <> EF.formulaWarnings (cxFormula
         [] -> Nothing
         _ -> Just (tshow (length named) <> " " <> what <> foldMap ("\n  " <>) (take 10 named))
     kinds =
-        [ ("processes keep a product they did not allocate, and no price or share weighs it; openLCA reads it with the whole inventory:", [activityName (wrActivity w) | w <- processes, null (wrFactors w), any isCoproduct (exchanges (wrActivity w))])
+        [ ("processes keep a product they did not allocate, and no price or share weighs it; openLCA reads it with the whole inventory:", [activityName (wrActivity w) | w <- processes, Unweighed <- [wrWeighing w]])
+        , ("processes are weighed by the shares their products declare, since their prices cannot weigh them, and openLCA reads those as economic factors:", [activityName (wrActivity w) <> ": " <> why | w <- processes, ByDeclaredShare why _ <- [wrWeighing w]])
         , ("inputs name no supplier, and openLCA will link them to a producer of the package:", unlinkedProduced)
         , ("processes have a share formula, which openLCA has no place for, and are written at the share's value:", [activityName a | a <- acts, not (null (shareFormulas a))])
         , ("processes state an elementary flow against its compartment, written on its side with the same inventory:", S.toList (S.fromList against))
@@ -766,17 +786,20 @@ processDoc cx w =
             <> pair "exchanges" (list (uncurry (exchangeDoc cx)) numbered)
             <> "lastInternalId" .= length numbered
             <> parametersOf (M.toList (EF.peParameters ownFormulas))
-            <> factorsOf (wrFactors w)
+            <> factorsOf (wrWeighing w)
   where
     act = wrActivity w
     ownFormulas = EF.processExport (cxFormulas cx) (wrKey w)
     formulas = EF.peLines ownFormulas
     numbered = zip [1 :: Int ..] [(IM.lookup i formulas, ln) | (i, ln) <- zip [0 ..] (wrLines w)]
-    factorsOf :: [(OutFlow, Double)] -> Series
+    factorsOf :: Weighing -> Series
     factorsOf = \case
-        [] -> mempty
-        factors -> "defaultAllocationMethod" .= economic <> pair "allocationFactors" (list factorDoc factors)
-    factorDoc (flow, value) = pairs ("@type" .= ("AllocationFactor" :: Text) <> "allocationType" .= economic <> pair "product" (ref "Flow" (ofId flow) (ofName flow)) <> "value" .= value)
+        OneProduct -> mempty
+        Unweighed -> mempty
+        ByPrice factors -> economically factors
+        ByDeclaredShare _ factors -> economically factors
+    economically factors = "defaultAllocationMethod" .= economic <> pair "allocationFactors" (list factorDoc factors)
+    factorDoc f = pairs ("@type" .= ("AllocationFactor" :: Text) <> "allocationType" .= economic <> pair "product" (ref "Flow" (ofId (fcProduct f)) (ofName (fcProduct f))) <> "value" .= fcValue f)
     economic = "ECONOMIC_ALLOCATION" :: Text
     parametersOf :: [(Text, (Parameter, EF.Written))] -> Series
     parametersOf = \case
