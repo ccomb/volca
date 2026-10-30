@@ -6,7 +6,6 @@ module Database where
 
 import Data.Indexing (groupInOrder)
 import qualified Data.IntSet as IS
-import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Text (Text)
