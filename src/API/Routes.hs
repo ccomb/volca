@@ -1668,7 +1668,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 99: the @basis@ of a score, what it rests on: the engine, the
+(revision 100: the @database@ each line of a database's history was made on,
+its own or the parent a child is divided from, whose changes the child carries;
+revision 99: the @basis@ of a score, what it rests on: the engine, the
 databases read and how each differs from its release, the method collection,
 and what the request substituted and set;
 revision 98: the @parameters@ a system model sets, each with its value, its
@@ -1885,7 +1887,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 99
+currentWireVersion = 100
 
 getVersion :: AppM Value
 getVersion = do

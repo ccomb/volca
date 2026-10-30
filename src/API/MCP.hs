@@ -50,7 +50,7 @@ import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
 
 import qualified API.BatchImpacts as BI
-import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, historyLineToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
+import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, databaseHistoryToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
@@ -2088,7 +2088,7 @@ callDatabaseHistory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callDatabaseHistory dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     history <- ExceptT (databaseHistory dbManager dbName)
-    return $ toolSuccessJson rid (toJSON (map historyLineToAPI history))
+    return $ toolSuccessJson rid (toJSON (databaseHistoryToAPI dbName history))
 
 -- | Change the scenarios of a database, then answer the ones it holds.
 callScenarios :: DatabaseManager -> RequestId -> KeyMap Value -> (Text -> ExceptT Text IO ()) -> IO Value

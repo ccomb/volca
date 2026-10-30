@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 {- |
 Module      : Database.Edit
@@ -53,9 +54,10 @@ module Database.Edit (
     databaseProvenance,
 ) where
 
+import Control.Applicative ((<|>))
 import Control.Concurrent.STM (STM, atomically, modifyTVar', readTVar, readTVarIO)
 import Control.Exception (SomeException, try)
-import Control.Monad (when)
+import Control.Monad (forM, when)
 import qualified Data.IntSet as IS
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
@@ -87,7 +89,7 @@ import Database.Author (
     validateAuthored,
  )
 import Database.CrossLinking (buildIndexedDatabaseFromDB)
-import Database.History (HistoryLine, Provenance (..), describeJournal, namerFor)
+import Database.History (Carried (..), HistoryLine, Provenance (..), describeJournal, namerFor)
 import Database.Journal (
     Change (..),
     EditLine (..),
@@ -1202,19 +1204,30 @@ deleteActivitiesInDB manager dbName DeleteRequest{drName = nameP, drLocation = g
     removed count persisted warnings =
         DeleteOutcome{doRemoved = count, doPersisted = persisted, doWarnings = warnings}
 
-{- | A database's changes, oldest first, in its reader's words. A database read
-only from its configuration was never changed here, and has none.
+{- | A database's changes, in its reader's words: those of the parent it is
+divided from, then its own, each oldest first. A database read only from its
+configuration was never changed here, and has none of its own. A journal that
+cannot be read refuses the whole history rather than leave its lines out.
 -}
-databaseHistory :: DatabaseManager -> Text -> IO (Either Text [HistoryLine])
+databaseHistory :: DatabaseManager -> Text -> IO (Either Text (Carried DatabaseConfig))
 databaseHistory manager dbName = do
     configs <- readTVarIO (dmAvailableDbs manager)
     case M.lookup dbName configs of
         Nothing -> pure (Left ("Database not found: " <> dbName))
         Just config -> do
             loaded <- getDatabase manager dbName
-            editHome config >>= \case
-                Nothing -> pure (Right [])
-                Just home -> fmap (describeJournal (namerFor (ldDatabase <$> loaded))) <$> readJournal home
+            fromParent <- forM (parentOf configs config >>= (`M.lookup` configs)) $ \parent -> do
+                -- A child keys its pieces as its parent keys them, so it names the parent's lines when the parent is not loaded.
+                loadedParent <- getDatabase manager (dcName parent)
+                fmap (parent,) <$> historyOf (loadedParent <|> loaded) parent
+            own <- historyOf loaded config
+            pure (Carried <$> sequence fromParent <*> own)
+  where
+    historyOf :: Maybe LoadedDatabase -> DatabaseConfig -> IO (Either Text [HistoryLine])
+    historyOf loaded config =
+        editHome config >>= \case
+            Nothing -> pure (Right [])
+            Just home -> fmap (describeJournal (namerFor (ldDatabase <$> loaded))) <$> readJournal home
 
 -- | What a modified database's report cites as its original.
 databaseProvenance :: M.Map Text DatabaseConfig -> DatabaseConfig -> Provenance
