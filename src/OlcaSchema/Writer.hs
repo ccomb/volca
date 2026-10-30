@@ -32,6 +32,12 @@ engine reads it with the process's own values: a process that redefines a name
 some database formula it reads reaches gets that formula as its own
 parameter, so both compute the same.
 
+A process the database keeps whole, a parent's block of several products,
+is written whole with an economic allocation factor per product: the shares
+the @price@ key gives it, else those its products declare. openLCA divides it
+by them, and so does the reader, which writes the pieces back one by one. A
+block with neither keeps every product whole, which is said.
+
 The product systems the database was read with are written back around
 their reference process, with the processes and links its lines' providers
 reach, and their parameter sets carry the saved scenarios too, each once.
@@ -44,6 +50,7 @@ module OlcaSchema.Writer (
     locationId,
 ) where
 
+import Control.Applicative ((<|>))
 import Crypto.Hash (Digest, MD5, hash)
 import Data.Aeson (KeyValue ((.=)))
 import Data.Aeson.Encoding (Encoding, Series, encodingToLazyByteString, list, pair, pairs)
@@ -51,6 +58,7 @@ import qualified Data.Aeson.Key as K
 import Data.Bits ((.&.), (.|.))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.Containers.ListUtils (nubOrd)
 import Data.Either (lefts, partitionEithers, rights)
 import Data.Indexing (collisions)
 import Data.List (sortOn)
@@ -66,7 +74,7 @@ import qualified Data.UUID.V5 as UUID5
 import Numeric (readHex)
 
 import qualified Data.IntMap.Strict as IM
-import Database.Allocation (isCoproduct, producerKeyOf)
+import Database.Allocation (isCoproduct, producerKeyOf, propertyKeyShares)
 import qualified Database.ExportFormulas as EF
 import qualified Expr
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
@@ -83,7 +91,7 @@ serializeOlcaPackage :: UnitConfig -> M.Map Text [ScenarioValue] -> SimpleDataba
 serializeOlcaPackage units saved db = case (partitionEithers written, slashes) of
     (([], ok), []) ->
         let systems = productSystems cx saved ok
-         in Right (sortOn fst (documents cx ok <> swDocuments systems), warnings cx <> swWarnings systems)
+         in Right (sortOn fst (documents cx ok <> swDocuments systems), warnings cx ok <> swWarnings systems)
     ((bad, _), _) -> Left (describeRefusals (concat bad <> slashes))
   where
     cx = context units db
@@ -177,12 +185,13 @@ data Line = Line
     , lnComment :: !(Maybe Text)
     }
 
--- | A process as written: its identifier, the activity, and its lines.
+-- | A process as written: its identifier, the activity, its lines, and the economic factor of each product of a block it keeps whole.
 data Written = Written
     { wrId :: !UUID
     , wrKey :: !(UUID, UUID)
     , wrActivity :: !Activity
     , wrLines :: ![Line]
+    , wrFactors :: ![(OutFlow, Double)]
     }
 
 -- | Why a line cannot be written, each naming it.
@@ -193,7 +202,7 @@ data Refusal
     | TreatmentAbsent !Text
     | PositiveWasteReference !Text
     | NotFinite !Text
-    | KeptWhole !Text
+    | SameProductTwice !Text
 
 -- | Every line the package would carry wrong, named and grouped by why.
 describeRefusals :: [Refusal] -> Text
@@ -213,7 +222,7 @@ describeRefusals refusals =
         , ("waste inputs go to a treatment the database does not have, so their sign cannot be decided:", [n | TreatmentAbsent n <- refusals])
         , ("references are a positive output of a waste flow, which openLCA cannot make:", [n | PositiveWasteReference n <- refusals])
         , ("amounts are not finite:", [n | NotFinite n <- refusals])
-        , ("coproducts are of a process a parent database keeps whole, which openLCA would read with the whole inventory; export a child divided from it by a system model:", [n | KeptWhole n <- refusals])
+        , ("processes make the same product twice, which an allocation factor of openLCA cannot tell apart:", [n | SameProductTwice n <- refusals])
         ]
 
 -- | Every location code a process or a line states, with how often.
@@ -245,20 +254,28 @@ locationId code = fromMaybe UUID.nil (UUID.fromByteString (BL.fromStrict (BS.pac
 -- | A process's lines, or why some cannot be written.
 processLines :: Context -> (UUID, UUID) -> Activity -> Either [Refusal] Written
 processLines cx key act = case partitionEithers lines' of
-    ([], ok) -> Right Written{wrId = ilcdProcessUUID (cxShared cx) key, wrKey = key, wrActivity = act, wrLines = ok}
+    ([], ok)
+        | any isCoproduct products && length (nubOrd (map exchangeFlowId products)) < length products -> Left [SameProductTwice (activityName act)]
+        | otherwise -> Right Written{wrId = ilcdProcessUUID (cxShared cx) key, wrKey = key, wrActivity = act, wrLines = ok, wrFactors = factors}
     (bad, _) -> Left bad
   where
     lines' = map (lineOf cx act) (exchanges act)
+    products = filter exchangeIsProductOutput (exchanges act)
+
+    -- A process of one product is no block: openLCA reads it whole, as it should.
+    factors
+        | any isCoproduct products = maybe [] (\ss -> [(f, share / 100) | (ex, share) <- zip products ss, Just f <- [flowOf ex]]) shares
+        | otherwise = []
+    shares =
+        propertyKeyShares Price (cxUnits cx) (sdbUnits (cxDb cx)) products
+            -- A price in euros beside one deduced from a share cannot weigh the block; its declared shares still do.
+            <|> traverse (fmap dsPercent . exchangeDeclaredShare) products
+    flowOf ex = M.lookup (exchangeFlowId ex) (cxFlows cx)
 
 lineOf :: Context -> Activity -> Exchange -> Either Refusal Line
 lineOf cx act ex = do
     flow <- maybe (Left (NoFlow named)) Right (M.lookup (exchangeFlowId ex) (cxFlows cx))
     whenLeft (isNaN (exchangeAmount ex) || isInfinite (exchangeAmount ex)) (NotFinite named)
-    -- A coproduct left whole for want of a share, or by a key that could not
-    -- weigh its block, is a warning. One of a parent's process, whose shares
-    -- became deduced prices, was kept whole on purpose, and is written as
-    -- nothing true.
-    whenLeft (isCoproduct ex && any deducedPrice (exchanges act)) (KeptWhole named)
     conversion <- maybe (Left (OtherUnit named)) Right (inUnitOf flow)
     let amount = conversion * exchangeAmount ex
         -- The line written with the stored amount in the flow's unit, times a sign.
@@ -335,10 +352,6 @@ lineOf cx act ex = do
 
     whenLeft c r = if c then Left r else Right ()
 
-    deducedPrice line = case epPrice (exchangeProperties line) of
-        Just DeducedFromShare{} -> True
-        _ -> False
-
 {- | The category path the reader turns back into this compartment. The three
 media openLCA names get its own spelling; the others go under an emission
 level the reader reads them from.
@@ -358,22 +371,22 @@ categoryPath comp = T.intercalate "/" ("Elementary flows" : maybe [] levels comp
     subLevel = maybe [] pure
 
 {- | What the package says differently from the database: the products of one
-activity become processes of their own, a coproduct left unallocated is
-read with the whole inventory, an input naming no supplier is linked by
-openLCA to a producer of the package, and formulas are written as their
-values.
+activity become processes of their own, a block written without allocation
+factors is read with the whole inventory, an input naming no supplier is
+linked by openLCA to a producer of the package, and formulas are written as
+their values.
 -}
-warnings :: Context -> [Text]
-warnings cx = splitWarnings (cxDb cx) <> EF.formulaWarnings (cxFormulas cx) <> mapMaybe counted kinds
+warnings :: Context -> [Written] -> [Text]
+warnings cx processes = splitWarnings (cxDb cx) <> EF.formulaWarnings (cxFormulas cx) <> mapMaybe counted kinds
   where
     acts = M.elems (sdbActivities (cxDb cx))
     counted (what, named) = case named of
         [] -> Nothing
         _ -> Just (tshow (length named) <> " " <> what <> foldMap ("\n  " <>) (take 10 named))
     kinds =
-        [ ("processes keep a product they did not allocate; openLCA reads it with the whole inventory:", [activityName a | a <- acts, any isCoproduct (exchanges a)])
+        [ ("processes keep a product they did not allocate, and no price or share weighs it; openLCA reads it with the whole inventory:", [activityName (wrActivity w) | w <- processes, null (wrFactors w), any isCoproduct (exchanges (wrActivity w))])
         , ("inputs name no supplier, and openLCA will link them to a producer of the package:", unlinkedProduced)
-        , ("processes are split by a share formula, which openLCA has no place for, and written at the share's value:", [activityName a | a <- acts, not (null (shareFormulas a))])
+        , ("processes have a share formula, which openLCA has no place for, and are written at the share's value:", [activityName a | a <- acts, not (null (shareFormulas a))])
         , ("processes state an elementary flow against its compartment, written on its side with the same inventory:", S.toList (S.fromList against))
         , ("location codes differ from another only by case, one location to openLCA, and are written as it:", [code <> " as " <> written | (code, written) <- M.toList (cxPlaces cx), code /= written])
         ]
@@ -753,11 +766,18 @@ processDoc cx w =
             <> pair "exchanges" (list (uncurry (exchangeDoc cx)) numbered)
             <> "lastInternalId" .= length numbered
             <> parametersOf (M.toList (EF.peParameters ownFormulas))
+            <> factorsOf (wrFactors w)
   where
     act = wrActivity w
     ownFormulas = EF.processExport (cxFormulas cx) (wrKey w)
     formulas = EF.peLines ownFormulas
     numbered = zip [1 :: Int ..] [(IM.lookup i formulas, ln) | (i, ln) <- zip [0 ..] (wrLines w)]
+    factorsOf :: [(OutFlow, Double)] -> Series
+    factorsOf = \case
+        [] -> mempty
+        factors -> "defaultAllocationMethod" .= economic <> pair "allocationFactors" (list factorDoc factors)
+    factorDoc (flow, value) = pairs ("@type" .= ("AllocationFactor" :: Text) <> "allocationType" .= economic <> pair "product" (ref "Flow" (ofId flow) (ofName flow)) <> "value" .= value)
+    economic = "ECONOMIC_ALLOCATION" :: Text
     parametersOf :: [(Text, (Parameter, EF.Written))] -> Series
     parametersOf = \case
         [] -> mempty

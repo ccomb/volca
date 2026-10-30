@@ -321,9 +321,86 @@ spec = describe "an openLCA package written from a database" $ do
                 "maker · slag"
         it "an amount that is not finite" $
             refused (oneProcess [bio co2 (1 / 0) Emission]) "not finite"
-        it "a coproduct of a process a parent database keeps whole, its shares turned into prices" $ do
-            let shared ex = case ex of
-                    TechnosphereExchange{} -> ex{techShare = Just (DeclaredShare 50 Nothing Nothing), techProperties = noProperties{epPrice = Just (DeducedFromShare 25)}}
-                    _ -> ex
-                parent = oneProcess [TechnosphereExchange made 2 kg Coproduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
-            refused parent{sdbActivities = M.map (\a -> a{exchanges = map shared (exchanges a)}) (sdbActivities parent)} "a parent database keeps whole"
+        it "a block making one product twice, which openLCA's allocation factors cannot tell apart" $
+            refused (dairy [productRow made 1 ReferenceProduct 51 (DeducedFromShare 51), productRow made 3 Coproduct 49 (DeducedFromShare (49 / 3))]) "make the same product twice"
+
+    describe "a block a parent keeps whole" $ do
+        let parent = dairy [cheese, cream (DeducedFromShare (49 / 3))]
+            block = ilcdProcessUUID (sharedActivityUUIDs parent) (act, made)
+
+        it "is written whole, with an economic factor per product from the shares the price key gives" $
+            factorsOf parent `shouldBe` (Just (String "ECONOMIC_ALLOCATION"), [(made, 0.51), (creamF, 0.49)])
+
+        it "reads back into the inventories of the child divided by price, the cream bought from it included" $ do
+            back <- matrices =<< throughPackage parent
+            -- 10 kg of CO2 for the block: 51 % on 1 kg of cheese, 49 % on 3 kg of cream, and 1 kg of cream bought.
+            forM_ [((block, made), 5.1), ((block, creamF), 4.9 / 3), ((buyer, buttered), 4.9 / 3)] $ \(key, expected) -> do
+                got <- inventoryOf back key
+                (key, M.findWithDefault 0 co2 got) `shouldSatisfy` (near expected . snd)
+            T.concat (warned parent) `shouldNotSatisfy` T.isInfixOf "no price or share weighs it"
+
+        it "follows a price an expert corrected in the parent" $ do
+            -- 51 on 1 kg of cheese against 49 on each of 3 kg of cream.
+            let factors = snd (factorsOf (dairy [cheese, cream (DeducedFromShare 49)]))
+            map fst factors `shouldBe` [made, creamF]
+            and (zipWith near (map snd factors) [51 / 198, 147 / 198]) `shouldBe` True
+
+        it "takes the declared shares when a price in euros stands beside a deduced one" $
+            snd (factorsOf (dairy [productRow made 1 ReferenceProduct 51 (StatedPrice (StatedAmount "EUR" 4)), cream (DeducedFromShare (49 / 3))])) `shouldBe` [(made, 0.51), (creamF, 0.49)]
+
+        it "writes no factor, and says so, for a block with neither prices nor shares" $ do
+            let unweighed = dairy [productRow made 1 ReferenceProduct 51 (DeducedFromShare 51), (cream (DeducedFromShare 1)){techShare = Nothing, techProperties = noProperties}]
+            factorsOf unweighed `shouldBe` (Nothing, [])
+            T.concat (warned unweighed) `shouldSatisfy` T.isInfixOf "no price or share weighs it"
+
+        it "gives a coproduct that is a waste its factor too" $ do
+            let wasted = (dairy [cheese, cream (DeducedFromShare (49 / 3))]){sdbWasteFlows = M.singleton creamF (WasteFlow creamF "whey" kg M.empty Nothing Nothing)}
+            map fst (snd (factorsOf wasted)) `shouldBe` [made, creamF]
+  where
+    cheese = productRow made 1 ReferenceProduct 51 (DeducedFromShare 51)
+    cream = productRow creamF 3 Coproduct 49
+
+-- | A product row of a block, with the share its source declares and its price.
+productRow :: UUID -> Double -> TechRole -> Double -> Price -> Exchange
+productRow flow amount role share price =
+    TechnosphereExchange flow amount kg role Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare share Nothing Nothing)) M.empty noProperties{epPrice = Just price} Nothing
+
+creamF, buyer, buttered :: UUID
+creamF = UUID.fromWords 9 0 0 10
+buyer = UUID.fromWords 9 0 0 11
+buttered = UUID.fromWords 9 0 0 12
+
+{- | A dairy a parent keeps whole, making these products from 10 kg of CO2, and
+a buyer of 1 kg of its cream.
+-}
+dairy :: [Exchange] -> SimpleDatabase
+dairy products =
+    base
+        { sdbActivities =
+            M.fromList
+                [ ((act, made), whole{exchanges = products <> [bio co2 10 Emission]})
+                , ((buyer, buttered), whole{activityName = "buyer", exchanges = [TechnosphereExchange buttered 1 kg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing, TechnosphereExchange creamF 1 kg Input (Just act) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]})
+                ]
+        , sdbTechFlows = M.fromList [(f, TechnosphereFlow f name kg M.empty Nothing Nothing) | (f, name) <- [(made, "cheese"), (creamF, "cream"), (buttered, "butter")]]
+        }
+  where
+    base = oneProcess []
+    whole = M.findWithDefault (error "no maker") (act, made) (sdbActivities base)
+
+-- | The allocation method of the one block written, and its factors by product.
+factorsOf :: SimpleDatabase -> (Maybe Value, [(UUID, Double)])
+factorsOf sdb =
+    case [doc | (path, Object doc) <- written sdb, take 10 path == "processes/", KM.lookup "name" doc == Just (String "maker")] of
+        [doc] ->
+            ( KM.lookup "defaultAllocationMethod" doc
+            , [ (i, realToFrac v)
+              | Just (Array fs) <- [KM.lookup "allocationFactors" doc]
+              , Object f <- V.toList fs
+              , KM.lookup "allocationType" f == Just (String "ECONOMIC_ALLOCATION")
+              , Just (Object flow) <- [KM.lookup "product" f]
+              , Just (String t) <- [KM.lookup "@id" flow]
+              , Just i <- [UUID.fromText t]
+              , Just (Number v) <- [KM.lookup "value" f]
+              ]
+            )
+        docs -> error ("expected one block, found " <> show (length docs))
