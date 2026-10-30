@@ -56,7 +56,7 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, enc
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.List (find)
 import qualified Data.List as L
@@ -1499,6 +1499,8 @@ data ImpactsResult = ImpactsResult
     -- ^ The unsupplied inputs the solution counted as zero.
     , irMisses :: ![Mapping.ProbableMiss]
     -- ^ The flows the score probably missed, read from the detailed part.
+    , irBasis :: !ScoreBasis
+    -- ^ What the score rests on: the databases its solution reached, and what the request substituted and set.
     }
 
 {- | Run a fully resolved LCA request: solve inventory, map flows, score.
@@ -1518,6 +1520,7 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
         collection = lrCollection req
         ra = lrResolved req
     subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
+    values <- except (parseArrayArg "parameters" Nothing args :: Either Text [ParameterValue])
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
     solved <-
@@ -1543,6 +1546,7 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
         liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
     cutoffs <- liftIO (Impact.licencedCutoffs dbManager licenced)
     inventoryWithheld <- liftIO (Impact.withheldDatabases dbManager ReadInventory sol)
+    basis <- liftIO (DM.scoreBasis dbManager (map SharedSolver.reachedName (NE.toList (SharedSolver.csScalings sol))) collection subs [values | not (null values)])
     let inventory = SharedSolver.csInventory shown
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
@@ -1602,6 +1606,7 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
             , irInventoryWithheld = inventoryWithheld
             , irCutoffs = cutoffs
             , irMisses = Mapping.probableMisses mFlows tables inventory
+            , irBasis = basis
             }
 
 {- | How much of an inventory's mass a score characterized: the flows it
@@ -1706,6 +1711,7 @@ callGetImpacts dbManager mBaseUrl licence rid args =
                         , "mapped_flows" .= (msTotal stats - msUnmatched stats)
                         , "has_negative_contributions" .= hasNeg
                         , "probable_misses" .= missesOf mUnits dbName licence ir
+                        , "basis" .= irBasis ir
                         , "top_flows"
                             .= [ object
                                     [ "flow_name" .= bfName f
@@ -1954,6 +1960,7 @@ callCompareImpacts dbManager rid args =
                 , "unit" .= methodUnit (lrMethod req)
                 , "characterized_share" .= characterizedShare
                 , "probable_misses" .= misses
+                , "basis" .= irBasis ir
                 ]
                     -- The flows a dependency keeps are not in the alignment; its share is.
                     ++ ["withheld_databases" .= Service.withheldShares (loScore outcome) (irWithheld ir) | not (null (irWithheld ir))]

@@ -719,6 +719,12 @@ description r = case r of
         \beside kilograms) and is removed in the next minor release: read \
         \'probable_misses' instead.\n\
         \\n\
+        \'basis' says what the score rests on: the engine and its commit, each \
+        \database read with its release and whether it is a copy, edited, \
+        \allocated otherwise or patched, the method collection and whether it is \
+        \a modified copy, and the substitutions and parameter values sent. Quote \
+        \it with the number: two scores compare only on the same basis.\n\
+        \\n\
         \When the chain meets inputs no loaded database supplies, they count \
         \as zero and the answer opens with 'cutoff_notice' and lists them \
         \under 'cutoff_inputs', with 'withheld_cutoffs' counting those \
@@ -899,7 +905,7 @@ description r = case r of
         \because of mapping gaps, not because of underlying chemistry. Headline \
         \field is delta.relative_pct: the metric to drive down by adding \
         \synonym pairs to data/flows.csv or by regenerating the chem_synonyms \
-        \snapshot. Each side carries 'probable_misses', as get_impacts does; its \
+        \snapshot. Each side carries 'probable_misses' and 'basis', as get_impacts does; its \
         \'characterized_share' sums quantities of every unit together and is \
         \removed in the next minor release."
     CompareActivities ->
@@ -994,7 +1000,12 @@ description r = case r of
         \'withheldCutoffs' counting those inside a database whose licence \
         \keeps its detail to itself. With exchange_contributions, each score \
         \is split by the activity's own lines, for grouping them into stages \
-        \such as ingredients, transport or packaging."
+        \such as ingredients, transport or packaging. \
+        \'basis' says what the score rests on: the engine and its commit, each \
+        \database read with its release and whether it is a copy, edited, \
+        \allocated otherwise or patched, the method collection and whether it is \
+        \a modified copy, and the substitutions and parameter values sent. Quote \
+        \it with the number: two scores compare only on the same basis."
     ScoreActivities ->
         "LCA / ACV: rank N activities against one scoring set in one call. \
         \Returns a columnar JSON shape: {scoring_set, scoring_unit, \
@@ -1013,6 +1024,8 @@ description r = case r of
         \'columns' header reflects which shape was emitted). Per-method scores \
         \are NOT included: call score_activity on a specific process_id for \
         \that drill-down. Unresolved process IDs land in not_found / invalid. \
+        \'basis' says once what every score rests on, as score_activity does; \
+        \a row's parameter set is a position in its 'parameterSets'. \
         \\n\n\
         \The chosen scoring set must be unambiguous: pass scoring_sets: \
         \[\"<one>\"] when the collection has more than one scoring set \

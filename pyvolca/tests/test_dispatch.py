@@ -10,7 +10,17 @@ from __future__ import annotations
 import pytest
 
 from volca.client import Client, VoLCAError, _candidate_wire_names, _Operation, _parse_spec, _resolve_wire_name
-from volca.types import ExchangeContribution, Method, ParameterValue, ProbableMiss, ProbableMisses
+from volca.types import (
+    BasisDatabase,
+    BasisMethods,
+    ExchangeContribution,
+    Method,
+    ParameterValue,
+    ProbableMiss,
+    ProbableMisses,
+    ScoreBasis,
+    Substitution,
+)
 
 _WATER_USE_ID = "00000000-0000-0000-0000-000000000002"
 
@@ -475,6 +485,51 @@ class TestDispatcher:
         session.get.return_value = make_response({**_minimal_lcia_result(), "probableMisses": None})
         result = client.get_impacts("abc_def", method_id=_WATER_USE_ID, collection="EF3.1")
         assert result.probable_misses is None
+
+    def test_get_impacts_batch_reads_what_the_scores_rest_on(self, mocked_client, make_response):
+        client, session = mocked_client
+        basis = {
+            "engine": "0.16.0 (abc1234)",
+            "databases": [
+                {
+                    "name": "farm-copy",
+                    "release": {"name": "Farm data", "version": "3.2", "systemModel": None},
+                    "readsFilesOf": "farm",
+                    "edited": True,
+                    "reallocated": False,
+                    "patched": False,
+                }
+            ],
+            "methods": {"collection": "EF3.1-mine", "copyOf": "EF3.1", "modified": True},
+            "substitutions": [{"from": "a", "to": "b"}],
+            "parameterSets": [[{"process": None, "name": "yield", "value": 7.5}]],
+        }
+        session.get.return_value = make_response({
+            "results": [{**_minimal_lcia_result(), "basis": None}],
+            "availableNWsets": [],
+            "scoringResults": {},
+            "scoringUnits": {},
+            "scoringIndicators": {},
+            "basis": basis,
+        })
+        result = client.get_impacts_batch("abc_def", collection="EF3.1-mine")
+        assert result.results[0].basis is None
+        assert result.basis == ScoreBasis(
+            engine="0.16.0 (abc1234)",
+            databases=[
+                BasisDatabase(
+                    name="farm-copy",
+                    release={"name": "Farm data", "version": "3.2", "systemModel": None},
+                    reads_files_of="farm",
+                    edited=True,
+                    reallocated=False,
+                    patched=False,
+                )
+            ],
+            methods=BasisMethods(collection="EF3.1-mine", copy_of="EF3.1", modified=True),
+            substitutions=[Substitution(from_pid="a", to_pid="b")],
+            parameter_sets=[[ParameterValue(name="yield", value=7.5)]],
+        )
 
     def test_exchange_contributions_never_reach_an_engine_that_would_ignore_them(self, mocked_client):
         client, session = mocked_client

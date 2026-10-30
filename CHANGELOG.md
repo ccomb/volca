@@ -4,6 +4,20 @@
 
 ### Added
 
+- A score says what it rests on, once per answer: the engine's version and
+  commit; each database it read, the one asked first, with its release (for
+  a copy, the one it was copied from), the database whose files it reads,
+  and whether it is edited (a child divided from an edited parent is),
+  allocated otherwise or patched by its configuration; the method collection,
+  the one it was first copied from, and whether its factors or categories
+  differ from its files (the scoring sets a copy starts with are not a
+  difference); and the substitutions and parameter values the request sent.
+  A number quoted with it says whether it can be set beside another: two
+  scores of one product, one on a copy edited since, no longer show the same
+  basis. The score of one activity, of one method, each side of
+  `compare_impacts` and a batch carry it as `basis`; the databases of a
+  substituted score are the ones its chain reached, those of a batch the
+  dependencies. Wire revision 99.
 - A system model can set parameters of the parent's processes, under
   `[[method_parameters]]`: a name, a value and a reason. Every process of the
   parent that declares that input parameter takes the value in the child, and

@@ -12,13 +12,15 @@ module MCPColumnarSpec (spec) where
 
 import API.MCP.Columnar (dominantIndicatorCell, resolveSingleScoringSet, toColumnarBatch)
 import API.Types (
+    BasisMethods (..),
     BatchImpactsEntry (..),
     BatchImpactsResponse (..),
     LCIABatchResult (..),
     LCIAResult (..),
+    ScoreBasis (..),
     ScoringIndicator (..),
  )
-import Data.Aeson (Value (..), object, (.=))
+import Data.Aeson (Value (..), object, toJSON, (.=))
 import Data.Aeson.Key (fromText)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Map as M
@@ -73,6 +75,7 @@ lciaResult fu =
         , lrWithheldCutoffs = []
         , lrExchangeContributions = []
         , lrProbableMisses = Nothing
+        , lrBasis = Nothing
         }
 
 -- | Build an entry against a single scoring set, with explicit total + indicators.
@@ -101,11 +104,15 @@ mkEntry pid name fu setName total inds =
                 , lbrWithheld = []
                 , lbrCutoffInputs = []
                 , lbrWithheldCutoffs = []
+                , lbrBasis = Nothing
                 }
         }
 
 emptyBir :: BatchImpactsResponse
-emptyBir = BatchImpactsResponse{birResults = [], birNotFound = [], birInvalid = [], birUnscorable = []}
+emptyBir = BatchImpactsResponse{birResults = [], birNotFound = [], birInvalid = [], birUnscorable = [], birBasis = basis}
+
+basis :: ScoreBasis
+basis = ScoreBasis{sbEngine = "0.0 (test)", sbDatabases = [], sbMethods = BasisMethods{bmCollection = "EF31", bmCopyOf = Nothing, bmModified = False}, sbSubstitutions = [], sbParameterSets = []}
 
 -- ---------------------------------------------------------------------------
 -- Spec
@@ -147,6 +154,7 @@ spec = do
                     , birNotFound = []
                     , birInvalid = []
                     , birUnscorable = []
+                    , birBasis = basis
                     }
             Object km = toColumnarBatch False (Just "https://x") "ei" "EF31" pefSet bir
 
@@ -155,6 +163,9 @@ spec = do
             KM.lookup (fromText "scoring_unit") km `shouldBe` Just (String "µPts PEF")
             KM.lookup (fromText "not_found") km `shouldBe` Just (Array (V.fromList []))
             KM.lookup (fromText "invalid") km `shouldBe` Just (Array (V.fromList []))
+
+        it "says once what every score of the batch rests on" $
+            KM.lookup (fromText "basis") km `shouldBe` Just (toJSON basis)
 
         it "hoists functional_unit to top level when all rows share one" $
             KM.lookup (fromText "functional_unit") km `shouldBe` Just (String "1 m³ wood")
@@ -212,6 +223,7 @@ spec = do
                     , birNotFound = []
                     , birInvalid = []
                     , birUnscorable = []
+                    , birBasis = basis
                     }
             Object km = toColumnarBatch False (Just "https://x") "agri" "EF31" pefSet bir
 
@@ -253,6 +265,7 @@ spec = do
                     , birNotFound = []
                     , birInvalid = []
                     , birUnscorable = []
+                    , birBasis = basis
                     }
             Object km = toColumnarBatch True (Just "https://x") "ei" "EF31" pefSet bir
 
@@ -289,6 +302,7 @@ spec = do
                     , birNotFound = []
                     , birInvalid = []
                     , birUnscorable = []
+                    , birBasis = basis
                     }
             Object km = toColumnarBatch False Nothing "ei" "EF31" pefSet bir
 

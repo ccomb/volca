@@ -55,6 +55,9 @@ module Database.Manager (
     editHome,
     databaseModification,
     filesOwner,
+    scoreBasis,
+    basisOf,
+    databasesRead,
     scenariosHome,
 
     -- * Method Operations
@@ -200,7 +203,7 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToParamSchema, ToSchema (..), enum_, type_)
 import Data.Ord (Down (..))
 import qualified Data.Set as S
@@ -371,8 +374,9 @@ import qualified UnitConversion
 
 -- CrossDBLinkingStats is now in Types, re-exported from Database.Loader
 
-import API.Types (DepLoadResult (..))
-import Data.JournalFile (readEntries)
+import API.Types (BasisDatabase (..), BasisMethods (..), DepLoadResult (..), ParameterValue, ScoreBasis (..), Substitution)
+import Data.Containers.ListUtils (nubOrd)
+import Data.JournalFile (Entry (..), readEntries)
 import Database.Author (editingContext)
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
@@ -383,7 +387,7 @@ import qualified Database.Upload as Upload
 import qualified Database.UploadedDatabase as UploadedDB
 import Method.FlowResolver (ILCDFlowInfo)
 import qualified Method.FlowResolver as FlowResolver
-import Method.Journal (replayMethodJournal)
+import Method.Journal (MethodLine (..), changesScores, replayMethodJournal)
 import qualified Method.Parser
 import qualified Method.Parser.OlcaSchema as OlcaSchema
 import Method.ParserCSV (parseMethodCSVBytes, stripBOM)
@@ -2975,6 +2979,80 @@ databaseModification :: M.Map Text DatabaseConfig -> DatabaseConfig -> IO Modifi
 databaseModification configs config = do
     edited <- maybe (pure False) Journal.journalHasEntries =<< editHome config
     pure Modification{modificationEdited = edited, modificationReallocated = dcReading (filesOwner configs config) /= dcReading config}
+
+{- | What a score rests on: the databases it read, the database asked first,
+the collection, and what the request substituted and set. Reads the journals
+along the databases' chains of sources and the collection's; 'basisOf' says
+the rest.
+-}
+scoreBasis :: DatabaseManager -> [Text] -> CollectionName -> [Substitution] -> [[ParameterValue]] -> IO ScoreBasis
+scoreBasis manager names (CollectionName collection) substitutions parameterSets = do
+    configs <- readTVarIO (dmAvailableDbs manager)
+    methodConfigs <- readTVarIO (dmAvailableMethods manager)
+    journaled <- filterM (journalHasLines configs) (nubOrd (concatMap (sourceChain configs) names))
+    methodEdited <- case mcHome =<< M.lookup collection methodConfigs of
+        Nothing -> pure False
+        -- A journal that cannot be read refuses the collection's load, so it scores nothing to say so of.
+        Just home -> either (const True) (any (changesScores . mlOp . jeOp)) <$> readEntries home
+    let (databases, methods) = basisOf configs (S.fromList journaled) methodConfigs methodEdited names collection
+    pure
+        ScoreBasis
+            { sbEngine = T.pack (Version.version <> " (" <> Version.gitHash <> ")")
+            , sbDatabases = databases
+            , sbMethods = methods
+            , sbSubstitutions = substitutions
+            , sbParameterSets = parameterSets
+            }
+  where
+    journalHasLines configs name = case M.lookup name configs of
+        Nothing -> pure False
+        Just config -> maybe (pure False) Journal.journalHasEntries =<< editHome config
+
+-- | The databases a score of one of this database's activities may read: itself, then its dependencies, loaded ones only.
+databasesRead :: DatabaseManager -> Text -> IO [Text]
+databasesRead manager dbName = (dbName :) . (`dependencyNames` dbName) <$> readTVarIO (dmLoadedDbs manager)
+
+{- | The databases and the collection a score read, given the databases whose
+own journal records a change and whether the collection's journal changes a
+score. A name the engine no longer configures is left out, having no
+configuration to tell.
+-}
+basisOf :: M.Map Text DatabaseConfig -> S.Set Text -> M.Map Text MethodConfig -> Bool -> [Text] -> Text -> ([BasisDatabase], BasisMethods)
+basisOf configs journaled methodConfigs methodEdited names collection =
+    (map basisDatabase (mapMaybe (`M.lookup` configs) (nubOrd names)), methods)
+  where
+    basisDatabase config =
+        let owner = filesOwner configs config
+         in BasisDatabase
+                { bdName = dcName config
+                , bdRelease = listToMaybe (mapMaybe (dcRelease <=< (`M.lookup` configs)) (sourceChain configs (dcName config)))
+                , bdReadsFilesOf = if dcName owner == dcName config then Nothing else Just (dcName owner)
+                , bdEdited = editedAlong (M.size configs) config
+                , bdReallocated = dcReading owner /= dcReading config
+                , bdPatched = not (null (dcPatches config))
+                }
+    -- A child divides its parent as it stands in memory, edits and all, and
+    -- keeps no copy of the parent's journal; a copy copies the journal, and a
+    -- parent read again from the files reads none of it. Bounded by the
+    -- number of databases, so a cycle written by hand ends.
+    editedAlong :: Int -> DatabaseConfig -> Bool
+    editedAlong fuel current
+        | S.member (dcName current) journaled = True
+        | ByModel _ <- dcReading current, Just parent <- dcSource current >>= (`M.lookup` configs), fuel > 0 = editedAlong (fuel - 1) parent
+        | otherwise = False
+    methodConfig = M.lookup collection methodConfigs
+    methods =
+        BasisMethods
+            { bmCollection = collection
+            , bmCopyOf = if original == collection then Nothing else Just original
+            , bmModified = methodEdited || any (\c -> not (null (mcPatches c)) || not (null (mcGlobalMethods c))) methodConfig
+            }
+    -- Bounded by the number of collections, so a cycle written by hand ends.
+    original = go (M.size methodConfigs) collection
+    go :: Int -> Text -> Text
+    go fuel name = case mcSource =<< M.lookup name methodConfigs of
+        Just source | fuel > 0 -> go (fuel - 1) source
+        _ -> name
 
 {- | The database whose files this one reads, at the end of its chain of
 sources: itself, for one that owns its files.

@@ -20,6 +20,7 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.Foldable (toList)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -382,6 +383,30 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         let shown = [cutoff "main" name 1 1 noNameMatch | name <- ["A", "B", "C", "D", "E", "F", "G"]]
         cutoffNotice Cutoffs{cutoffShown = shown, cutoffWithheld = [WithheldCutoffs "dep" 1]}
             `shouldBe` Just "This result counts 8 inputs no loaded database supplies as zero: A (1.000 kg), B (1.000 kg), C (1.000 kg), D (1.000 kg), E (1.000 kg), 2 more, and 1 inside dep, whose licence keeps the detail to itself; each listed input says why no database supplies it, and the gap report has them all."
+
+    describe "what each score rests on, said once per answer" $ do
+        manager <- runIO withheldDependency
+        pid <- runIO (rootOf manager >>= \rootDb -> pidOf rootDb (actR, rFlow))
+        let namesOf = fmap (map bdName . sbDatabases)
+            keyedBasis = KM.member "basis"
+
+        it "names the database asked and the dependency its chain reached, above a panel's methods and not in them" $ do
+            panel <- ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing)
+            namesOf (lbrBasis panel) `shouldBe` Just ["main", "dep"]
+            map (isJust . lrBasis) (lbrResults panel) `shouldBe` [False]
+
+        it "gives it with the score of one method" $
+            (namesOf . lrBasis <$> ok manager (getActivityLCIA "main" pid coll methodText Nothing)) `shouldReturn` Just ["main", "dep"]
+
+        it "gives it to get_impacts, score_activity and score_activities, at the top only" $ do
+            impacts <- mcp manager "get_impacts" [("process_id", String pid)]
+            panel <- mcp manager "score_activity" [("process_id", String pid)]
+            batch <- mcp manager "score_activities" [("process_ids", Array (V.singleton (String pid)))]
+            map keyedBasis [impacts, panel, batch] `shouldBe` [True, True, True]
+            let perMethod = do
+                    Array results <- KM.lookup "results" panel
+                    pure [keyedBasis o | Object o <- toList results]
+            perMethod `shouldBe` Just [False]
 
     describe "the MCP tools" $ do
         (manager, db) <- runIO mainManager

@@ -9,6 +9,7 @@ module API.Types.Activity where
 import API.JsonOptions (Stripped (..), parseClosed)
 import API.Types.Authoring (ExchangeSelectorAPI)
 import API.Types.Common
+import Control.DeepSeq (NFData (..))
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
 import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
@@ -477,6 +478,24 @@ instance FromJSON Substitution where
             <$> o .: "from"
             <*> o .: "to"
             <*> (maybe AllConsumers OneEdge <$> o .:? "consumer")
+
+-- | As a request sends it: no @consumer@ for a global swap.
+instance ToJSON Substitution where
+    toJSON sub =
+        object $
+            ["from" .= subFrom sub, "to" .= subTo sub]
+                <> case subScope sub of
+                    OneEdge consumer -> ["consumer" .= consumer]
+                    AllConsumers -> []
+
+instance NFData Substitution where
+    rnf (Substitution old new scope) = rnf old `seq` rnf new `seq` rnf scope
+
+instance NFData SubstitutionScope where
+    rnf (OneEdge consumer) = rnf consumer
+    rnf AllConsumers = ()
+
+instance NFData ParameterValue
 
 -- | @from@/@to@ required; @consumer@ optional (omit for a global swap).
 instance ToSchema Substitution where

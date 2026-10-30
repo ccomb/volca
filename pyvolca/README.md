@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 98** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 99** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -2463,6 +2463,54 @@ the amounts of its exchanges to itself.
 | `more` | `int` | 0 |
 | `withheld` | `list[str]` | list() |
 
+### `ScoreBasis`
+
+What a score rests on (wire revision 99): the engine's version and
+commit, each database read (the one asked first), the method collection,
+and the substitutions and parameter values the request sent. Two scores
+compare only on the same basis.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `engine` | `str` | _required_ |
+| `databases` | `list[BasisDatabase]` | _required_ |
+| `methods` | `BasisMethods` | _required_ |
+| `substitutions` | `list['Substitution']` | list() |
+| `parameter_sets` | `list[list['ParameterValue']]` | list() |
+
+### `BasisDatabase`
+
+One database a score read, and how its data differ from its release.
+
+``release`` is the published database it is, its source's for a copy, in
+the shape `Client.set_release` takes; ``None`` when none is declared.
+``reads_files_of`` names the database whose files it reads, when that is
+another one. ``edited`` when its history holds a change, a child divided
+from an edited parent included; ``reallocated`` when its multi-output
+processes are divided otherwise than the original's; ``patched`` when its
+configuration patches exchanges as it loads.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `release` | `dict \| None` | _required_ |
+| `reads_files_of` | `str \| None` | _required_ |
+| `edited` | `bool` | _required_ |
+| `reallocated` | `bool` | _required_ |
+| `patched` | `bool` | _required_ |
+
+### `BasisMethods`
+
+The method collection a score read: ``copy_of`` names the collection it
+was first copied from, and ``modified`` says whether its factors or
+categories differ from its files.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `collection` | `str` | _required_ |
+| `copy_of` | `str \| None` | _required_ |
+| `modified` | `bool` | _required_ |
+
 ### `ExchangeFormula`
 
 What makes an exchange's amount follow the dataset's parameters.
@@ -2638,6 +2686,7 @@ partial result to inspect, not a failure.
 | `not_found` | `list[str]` | _required_ |
 | `invalid` | `list[str]` | _required_ |
 | `unscorable` | `list[str]` | _required_ |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `BioExchange`
 
@@ -3434,6 +3483,7 @@ it, a row no score reads among them, its ``category`` the row's label.
 | `withheld` | `list[str]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `LCIAResult`
 
@@ -3465,6 +3515,7 @@ much of it the source says the process produces.
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 | `exchange_contributions` | `list[ExchangeContribution]` | list() |
 | `probable_misses` | `ProbableMisses \| None` | None |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `MappingStatus`
 

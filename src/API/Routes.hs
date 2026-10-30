@@ -13,7 +13,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScorePairs, ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import Config (DatabaseConfig (..))
 import qualified Config
@@ -538,7 +538,21 @@ mkLCIABatchResult results evaluated scoringSets cutoffWaste cutoffs =
         , lbrCutoffWaste = cutoffWaste
         , lbrCutoffInputs = cutoffShown cutoffs
         , lbrWithheldCutoffs = cutoffWithheld cutoffs
+        , lbrBasis = Nothing
         }
+
+{- | What the score of one activity rests on: the databases its solution
+reached, which a substitution may take beyond the dependencies, and what the
+request substituted and set.
+-}
+activityBasis :: DatabaseManager -> DM.CollectionName -> SharedSolver.CrossDBSolution -> Maybe SubstitutionRequest -> IO ScoreBasis
+activityBasis dbManager collection sol mSub =
+    DM.scoreBasis
+        dbManager
+        (map reachedName (NE.toList (SharedSolver.csScalings sol)))
+        collection
+        (foldMap srSubstitutions mSub)
+        (filter (not . null) (map srParameters (maybeToList mSub)))
 
 -- | Per-category single-line log within a batch.
 logBatchCategory :: Int -> LCIAResult -> IO ()
@@ -813,6 +827,7 @@ computeCategoryResult dbManager dbName collection db ls cutoffs activity topFlow
                         , lrWithheldCutoffs = cutoffWithheld cutoffs
                         , lrExchangeContributions = []
                         , lrProbableMisses = Just misses
+                        , lrBasis = Nothing
                         }
             pure (fmap result contribsE)
 
@@ -938,6 +953,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                     , lrWithheldCutoffs = cutoffWithheld cutoffs
                     , lrExchangeContributions = []
                     , lrProbableMisses = Nothing
+                    , lrBasis = Nothing
                     }
     resultsE <- sequence <$> traverse mkResultIO ctxs
     case resultsE of
@@ -1023,7 +1039,8 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode scoreLines = 
                             <> T.unpack name
                             <> "': "
                             <> intercalate ", " [T.unpack k <> "=" <> showFFloat (Just 6) v "" | (k, v) <- M.toList scores]
-        pure (Service.withholdBatch dbName licence (mkLCIABatchResult results evaluated scoringSets (Service.buildCutoffWaste db activity) cutoffs))
+        basis <- liftIO (activityBasis dbManager collectionName sol mSub)
+        pure (Service.withholdBatch dbName licence (mkLCIABatchResult results evaluated scoringSets (Service.buildCutoffWaste db activity) cutoffs)){lbrBasis = Just basis}
 
 {- | What each line of a process adds to each method's score, by method, each
 line by its position. One more unit of the process's product puts each line's
@@ -1252,6 +1269,8 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
     -- identically. Unresolvable pids stay per-entry (birNotFound/birInvalid).
     entries <- either scoringError pure (sequence entriesE)
     t2 <- liftIO getCurrentTime
+    -- No substitution in a batch: what it may read is the dependencies.
+    basis <- liftIO (DM.databasesRead dbManager dbName >>= \names -> DM.scoreBasis dbManager names collectionName [] (birParameterSets req))
     liftIO $
         reportProgress Info $
             "[batch-impacts] "
@@ -1282,6 +1301,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
             , birNotFound = notFound
             , birInvalid = invalid
             , birUnscorable = unscorable
+            , birBasis = basis
             }
 
 {- | Computed quality checks over the whole catalogue: score every entry of a
@@ -1649,7 +1669,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 98: the @parameters@ a system model sets, each with its value, its
+(revision 99: the @basis@ of a score, what it rests on: the engine, the
+databases read and how each differs from its release, the method collection,
+and what the request substituted and set;
+revision 98: the @parameters@ a system model sets, each with its value, its
 reason and the processes of the parent it moves, and the method parameters
 the row of a child's delivery sheet names in its rule;
 revision 97: the @probableMisses@ of a score, the flows it read no factor for
@@ -1863,7 +1886,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 98
+currentWireVersion = 99
 
 getVersion :: AppM Value
 getVersion = do
@@ -2305,7 +2328,8 @@ activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam 
         result <- either scoringError pure resultE
         when (isNothing mSub) $ liftIO $ logLCIAResult result method
         licence <- DBHandlers.servedLicence dbName
-        pure (Service.withholdMisses dbName licence (Service.withholdContributors dbName licence result))
+        basis <- liftIO (activityBasis dbManager collectionName sol mSub)
+        pure (Service.withholdMisses dbName licence (Service.withholdContributors dbName licence result)){lrBasis = Just basis}
 
 getActivityLCIA :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> AppM LCIAResult
 getActivityLCIA dbName processIdText collectionName methodIdText topFlowsParam =

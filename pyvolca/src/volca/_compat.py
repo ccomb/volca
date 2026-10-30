@@ -32,8 +32,11 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 98
-"""The newest wire revision this pyvolca understands (revision 98 added the
+KNOWN_WIRE = 99
+"""The newest wire revision this pyvolca understands (revision 99 added the
+``basis`` of a score, what it rests on: the engine, the databases read and
+how each differs from its release, the method collection, and what the
+request substituted and set; revision 98 added the
 ``parameters`` of ``system_model()``, each method parameter a model sets with
 the processes of the parent it moves; revision 97 added the
 ``probable_misses`` of a score, the flows it read no factor for although its
