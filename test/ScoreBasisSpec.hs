@@ -5,10 +5,10 @@ module ScoreBasisSpec (spec) where
 
 import API.Types (BasisDatabase (..), BasisMethods (..))
 import Config (DatabaseConfig (..), MethodConfig (..), MethodOrigin (..), MethodPatch (..), MethodPatchMatch (..))
+import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
-import Data.Foldable (toList)
 import Database.Manager (BasisSources (..), basisOf, journalsCarried)
 import Method.Journal (MethodOp (..), changesScores)
 import Method.Types (ScoringSet (..), ScoringSetOrigin (..))

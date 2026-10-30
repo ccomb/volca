@@ -40,12 +40,12 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
+import Data.Foldable (toList)
 import Database.Author (ExchangeEdit (..))
 import Database.Child (childOf)
 import Database.Edit (DeleteRequest (..), Derivation (..), databaseHistory, deleteActivitiesInDB, deriveDatabase, editExchanges)
 import Database.ExportSupplier (noDependencies, unnamedWarnings)
 import Database.History (Carried (..), HistoryLine (..), Journal (..), Provenance (..), changesReport)
-import Data.Foldable (toList)
 import Database.Journal (noteFrom)
 import Database.Loader (GapReport (..), countUnlinkedExchanges, gapReportForLoaded)
 import Database.Manager (

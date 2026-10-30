@@ -198,6 +198,7 @@ import Data.Bitraversable (bitraverse)
 import Data.Char (toLower)
 import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
+import Data.Foldable (toList)
 import Data.Functor ((<&>))
 import Data.Indexing (uniqueIndex)
 import qualified Data.Indexing as Indexing
@@ -206,7 +207,6 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Foldable (toList)
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToParamSchema, ToSchema (..), enum_, type_)
 import Data.Ord (Down (..))

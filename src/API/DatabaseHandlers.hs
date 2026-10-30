@@ -187,6 +187,7 @@ import Control.Monad.Reader (asks)
 import Data.Aeson (Value)
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime, utctDay)
@@ -216,7 +217,6 @@ import Database.Edit (
 import Database.Export (parseExportFormat, parseMethodExportFormat, serializeDatabase, serializeMethodCollection)
 import Database.ExportSupplier (dependenciesOf)
 import Database.History (Carried, HistoryLine (..), Journal (..), Provenance (..), changesReport)
-import Data.Foldable (toList)
 import Database.Journal (Note, noteFrom, noteText)
 import qualified Database.Loader as Loader
 import Database.Manager (
