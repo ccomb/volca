@@ -152,7 +152,7 @@ familyCollections masterFlows table = do
         unknown = filter (not . (`M.member` facts) . fFlow) (ftFactors table)
         -- A family none of whose flows the master data defines has no factor left: its factors are all in 'Dropped'.
         families = nubOrd (map fFamily known)
-        byFamily = M.fromListWith (flip (<>)) [(fFamily f, [f]) | f <- known]
+        byFamily = groupInOrder [(fFamily f, f) | f <- known]
     collections <- traverse (collection facts byFamily) families
     Right (collections, Dropped (length unknown) (take 10 (nubOrd [describe (fFlow f) | f <- unknown])))
   where
@@ -161,7 +161,7 @@ familyCollections masterFlows table = do
     collection facts byFamily family = do
         let rows = M.findWithDefault [] family byFamily
             columns = nubOrd [(fCategory f, fIndicator f) | f <- rows]
-            byColumn = M.fromListWith (flip (<>)) [((fCategory f, fIndicator f), [f]) | f <- rows]
+            byColumn = groupInOrder [((fCategory f, fIndicator f), f) | f <- rows]
             names = columnNames columns
         case repeated names of
             [] -> Right ()
@@ -193,6 +193,13 @@ familyCollections masterFlows table = do
             , methodMethodology = Just family
             , methodFactors = mapMaybe (factor facts) rows
             }
+
+{- | The values of each key, in the order they come. Each is consed on its
+key's list and the lists reversed once: appending instead would copy the list
+at every value, which on a table of half a million factors takes a minute.
+-}
+groupInOrder :: (Ord k) => [(k, a)] -> M.Map k [a]
+groupInOrder kvs = M.map reverse (M.fromListWith (<>) [(k, [v]) | (k, v) <- kvs])
 
 columnNames :: [(Text, Text)] -> [Text]
 columnNames columns = [if heads category == 1 then category else category <> " / " <> indicator | (category, indicator) <- columns]
