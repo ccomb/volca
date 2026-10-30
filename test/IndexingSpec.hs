@@ -10,7 +10,7 @@ collision.
 -}
 module IndexingSpec (spec) where
 
-import Data.Indexing (collisions, repeated, uniqueIndex)
+import Data.Indexing (collisions, groupInOrder, repeated, uniqueIndex)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -38,6 +38,11 @@ spec = do
 
         it "ignores a key carried by a single row" $
             collisions [("a", 1 :: Int), ("b", 2 :: Int)] `shouldBe` ([] :: [(Text, NonEmpty Int)])
+
+    describe "groupInOrder" $ do
+        it "keeps each key's rows in the order they were read, whatever rows come between" $
+            groupInOrder [("a", 1 :: Int), ("b", 2), ("a", 3), ("b", 4), ("a", 5)]
+                `shouldBe` M.fromList [("a" :: Text, 1 :| [3, 5]), ("b", 2 :| [4])]
 
     describe "uniqueIndex" $ do
         it "indexes rows whose keys are all distinct" $

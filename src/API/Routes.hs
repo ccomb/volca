@@ -31,6 +31,7 @@ import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Char (isAscii, isControl)
 import Data.Foldable (asum)
+import Data.Indexing (groupInOrder)
 import Data.Int (Int32)
 import Data.List (intercalate, nub, partition, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -2529,7 +2530,7 @@ supplierAnswers frame@SupplierFrame{sfName = dbName, sfDatabase = db, sfSolver =
                                 ]
                         got <- solved depDb name depSolver 1 [p | (_, p, _) <- found]
                         pure [(s, SupplierAnswer conversion scores (map (const 0) pids)) | ((s, _, conversion), (scores, _)) <- zip found got]
-    concat <$> traverse (uncurry answersIn) (M.toList (M.fromListWith (flip (<>)) [(supplierDatabase dbName s, [s]) | s <- suppliers]))
+    concat <$> traverse (uncurry answersIn) (M.toList (NE.toList <$> groupInOrder [(supplierDatabase dbName s, s) | s <- suppliers]))
 
 -- | What one more unit of a supplier gives: the factor to the unit its lines state, its scores, and each moving process's scaling.
 data SupplierAnswer = SupplierAnswer

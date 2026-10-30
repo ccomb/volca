@@ -39,7 +39,7 @@ import qualified Data.UUID as UUID
 import GHC.Generics (Generic)
 import Text.Printf (printf)
 
-import Data.Indexing (uniqueIndex)
+import Data.Indexing (groupInOrder, uniqueIndex)
 import Database.Allocation (Allocating (..), SharedExchange (..), allocateWith, exchangeShares)
 import Database.Upload (DatabaseFormat (..), referenceConventionOf)
 import qualified Expr
@@ -712,7 +712,7 @@ shippedScenarios systems =
     sets = [(systemName system <> ": " <> parameterSetName set, set) | system <- systems, set <- systemSets system, not (null (parameterSetValues set))]
 
     scenarios :: M.Map Text (Either Text [ScenarioValue])
-    scenarios = M.mapWithKey scenario (M.fromListWith (flip (<>)) [(name, [set]) | (name, set) <- sets])
+    scenarios = M.mapWithKey scenario (NE.toList <$> groupInOrder sets)
 
     scenario :: Text -> [ParameterSet] -> Either Text [ScenarioValue]
     scenario name = \case

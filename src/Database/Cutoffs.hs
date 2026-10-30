@@ -16,6 +16,7 @@ module Database.Cutoffs (
 ) where
 
 import API.Types (CutoffInput (..), WithheldCutoffs (..))
+import Data.Indexing (groupInOrder)
 import Data.List (partition, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -144,7 +145,7 @@ cutoffsReached indexOf withheld scalings =
         { cutoffShown = cutoffInputsIn indexOf shown
         , cutoffWithheld =
             [ WithheldCutoffs{wcDatabase = name, wcCount = n}
-            | (name, part) <- M.toList (M.fromListWith (flip (++)) [(reachedName s, [s]) | s <- hidden])
+            | (name, part) <- M.toList (NE.toList <$> groupInOrder [(reachedName s, s) | s <- hidden])
             , let n = length (cutoffInputsIn indexOf part)
             , n > 0
             ]

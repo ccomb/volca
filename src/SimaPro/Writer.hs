@@ -86,6 +86,7 @@ module SimaPro.Writer (
 import Control.Applicative ((<|>))
 import qualified Data.ByteString as BS
 import Data.Either (lefts)
+import Data.Indexing (groupInOrder)
 import qualified Data.IntMap.Strict as IM
 import Data.List (find, sort, sortOn)
 import qualified Data.List.NonEmpty as NE
@@ -1175,7 +1176,7 @@ substanceRegistry SimpleDatabase{..} =
     mediumBlocks :: [Text]
     mediumBlocks = ["Raw materials", "Airborne emissions", "Waterborne emissions", "Emissions to soil"]
     byName :: [[BiosphereFlow]]
-    byName = M.elems (M.fromListWith (flip (<>)) [(normalizeName (bfName f), [f]) | f <- M.elems sdbBioFlows])
+    byName = map NE.toList (M.elems (groupInOrder [(normalizeName (bfName f), f) | f <- M.elems sdbBioFlows]))
     casOf :: BiosphereFlow -> Maybe Text
     casOf f = bfCAS f >>= nonEmptyCAS
     stating :: [([BiosphereFlow], [(BiosphereFlow, Text)])]
