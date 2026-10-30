@@ -74,6 +74,7 @@
       , OlcaSchema.Parser
       , Method.FlowResolver
       , Method.ParserCSV
+      , Method.ParserFactorTable
       , Method.ParserNW
       , Method.Types
       , SimaPro.Parser

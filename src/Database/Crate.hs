@@ -218,6 +218,7 @@ payloadOf name format = Payload{payloadFile = "payload/" <> T.unpack name <> ext
         SimaProCSV -> (".csv", "text/csv")
         BrightwayExcel -> (".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         OpenLcaImpactCategory -> (".json", "application/ld+json")
+        ColumnarCSV -> (".csv", "text/csv")
         OpenLcaPackage -> (".zip", "application/zip")
         UnknownFormat -> ("", "application/octet-stream")
 
