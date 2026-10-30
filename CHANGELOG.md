@@ -184,10 +184,12 @@
 ### Fixed
 
 - A SimaPro method file whose every line is padded with separators
-  (`Impact category;;;;;`), as IMPACT World+ publishes it, loads with its
-  categories, its name, its damage categories and its normalization and
-  weighting. It used to load empty and report success. A method file that
-  yields no impact category is now refused with a sentence that says so.
+  (`Impact category;;;;;`) loads with its categories, its name, its damage
+  categories and its normalization and weighting. It used to load empty and
+  report success. A method file that yields no impact category is now
+  refused with a sentence that says so, and a collection whose files partly
+  fail to parse names each failing file and its reason, not only their
+  number.
 - A child divided from an edited parent says so. Its data carry every change
   made on the parent, yet its history was empty, the list of databases said
   it was not edited, and the changes report of its package named the system
