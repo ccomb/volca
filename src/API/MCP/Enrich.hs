@@ -190,12 +190,13 @@ without a @functionalUnit@ are all passed through cleanly.
 slimLCIAPanel :: Value -> Value
 slimLCIAPanel = overObject (stripWebUrlFromEntries . hoistFunctionalUnit)
   where
-    stripWebUrlFromEntries = adjustKey resultsKey (overArray (overObject (KM.delete webUrlKey . KM.delete cutoffInputsKey . KM.delete withheldCutoffsKey)))
+    stripWebUrlFromEntries = adjustKey resultsKey (overArray (overObject (KM.delete webUrlKey . KM.delete cutoffInputsKey . KM.delete withheldCutoffsKey . KM.delete basisKey)))
 
-    -- Every method of a panel is read on one solution: its cut-offs stand once, beside the results.
-    cutoffInputsKey, withheldCutoffsKey :: Key.Key
+    -- Every method of a panel is read on one solution: its cut-offs and what it rests on stand once, beside the results.
+    cutoffInputsKey, withheldCutoffsKey, basisKey :: Key.Key
     cutoffInputsKey = fromText "cutoffInputs"
     withheldCutoffsKey = fromText "withheldCutoffs"
+    basisKey = fromText "basis"
 
 {- | Copy @results[0].functionalUnit@ to the top level of the panel and
 remove it from every entry. The value is constant across @results@ by

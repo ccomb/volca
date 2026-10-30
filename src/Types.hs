@@ -2970,7 +2970,7 @@ data Release = Release
     , releaseVersion :: !Text
     , releaseSystemModel :: !(Maybe Text)
     }
-    deriving (Show, Eq, Generic)
+    deriving (Show, Eq, Generic, NFData)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Release)
 
 {- | A release a computation read, on a database whose terms ask its

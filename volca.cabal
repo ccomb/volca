@@ -298,6 +298,7 @@ test-suite lca-tests
                      , FactorNameKeySpec
                      , CrossSubcompartmentSpec
                      , ProbableMissesSpec
+                     , ScoreBasisSpec
                      , DuplicateFactorSpec
                      , SimaProScoringSpec
                      , ServerSpec

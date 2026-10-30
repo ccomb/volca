@@ -36,6 +36,7 @@ module Method.Journal (
     -- * Applying it
     applyMethodOp,
     replayMethodJournal,
+    changesScores,
 
     -- * Shared with the planning of a change
     opName,
@@ -165,6 +166,26 @@ data MethodLine = MethodLine
     , mlKind :: LineKind
     }
     deriving (Eq, Show)
+
+{- | Whether a line changes what the collection scores. A scoring set only
+weighs the scores: a copy seeds one for each set its source configured, and
+is still the published method.
+-}
+changesScores :: MethodOp -> Bool
+changesScores = \case
+    SetFactor{} -> True
+    PatchFactors{} -> True
+    RestoreFactors{} -> True
+    SetGlobalMethods{} -> True
+    RemoveFactor{} -> True
+    AddFactor{} -> True
+    CreateScoringSet{} -> False
+    RemoveScoringSet{} -> False
+    AddCategory{} -> True
+    RenameCategory{} -> True
+    SetCategoryUnit{} -> True
+    RemoveCategory{} -> True
+    ChangeScoringSet{} -> True
 
 -- ---------------------------------------------------------------------------
 -- Applying it

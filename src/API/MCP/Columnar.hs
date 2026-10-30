@@ -131,6 +131,7 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
         , "rows" .= map entryRow (birResults bir)
         , "not_found" .= birNotFound bir
         , "invalid" .= birInvalid bir
+        , "basis" .= birBasis bir
         ]
             ++ topLevelFU
             ++ cutoffPairs

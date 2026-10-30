@@ -6,7 +6,7 @@
 module API.Types.Impacts where
 
 import API.JsonOptions (Stripped (..), parseClosed)
-import API.Types.Activity (ParameterAPI, ParameterValue)
+import API.Types.Activity (ParameterAPI, ParameterValue, Substitution)
 import API.Types.Common
 import API.Types.MethodComparison
 import Control.DeepSeq (NFData)
@@ -21,6 +21,7 @@ import Data.Text (Text)
 import Expr (Formula)
 import GHC.Generics
 import Types (
+    Release,
     UUID,
  )
 
@@ -128,6 +129,7 @@ data LCIAResult = LCIAResult
     , lrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     , lrExchangeContributions :: [ExchangeContribution] -- When asked: what each line of the activity adds to the score, largest first; empty otherwise, and when the licence keeps the detail or the inventory to itself
     , lrProbableMisses :: Maybe ProbableMisses -- The flows the score read no factor for although the method writes their substance elsewhere in their medium; null in a batch of activities, which does not look for them
+    , lrBasis :: Maybe ScoreBasis -- What the score rests on, when this result is the whole answer; null inside a collection's results or a batch, which carry it once above
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped LCIAResult)
@@ -160,6 +162,42 @@ data ProbableMissEntry = ProbableMissEntry
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ProbableMissEntry)
+
+{- | What a score rests on: the engine that computed it, the databases it read
+and how each differs from what was published, the method collection and
+whether it is the one published, and what the request changed. A score copied
+elsewhere keeps what says whether it can be set beside another.
+-}
+data ScoreBasis = ScoreBasis
+    { sbEngine :: Text -- The engine's version and the commit it was built from, as "0.16.1 (8ce3f331)"
+    , sbDatabases :: [BasisDatabase] -- The database asked first, then each other one the score read
+    , sbMethods :: BasisMethods
+    , sbSubstitutions :: [Substitution] -- The suppliers the request replaced, as it sent them
+    , sbParameterSets :: [[ParameterValue]] -- The parameter values the request set, one set per position; a single activity has at most one
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScoreBasis)
+
+-- | One database a score read, and how its data differs from what its publisher released.
+data BasisDatabase = BasisDatabase
+    { bdName :: Text
+    , bdRelease :: Maybe Release -- Its own, or for a copy the first one along the databases it was copied from; none when nobody declared one
+    , bdReadsFilesOf :: Maybe Text -- The database whose files it reads, when it is a copy or was divided from another
+    , bdEdited :: Bool -- Its journal records a change, or that of the parent a system model divided it from
+    , bdReallocated :: Bool -- Its processes are divided otherwise than the database whose files it reads
+    , bdPatched :: Bool -- Its configuration adjusts the amounts its files state
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped BasisDatabase)
+
+-- | The method collection a score read, and whether it is the one published.
+data BasisMethods = BasisMethods
+    { bmCollection :: Text
+    , bmCopyOf :: Maybe Text -- The collection at the start of its chain of copies, when it is a copy
+    , bmModified :: Bool -- Its factors or categories differ from its files: patches, unregionalized categories, or an edit
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped BasisMethods)
 
 {- | What one line of an activity adds to its score: one more unit of the
 activity's product puts the line's amount in, and the line's supplier, or the
@@ -275,6 +313,12 @@ instance NFData ProbableMisses
 
 instance NFData ProbableMissEntry
 
+instance NFData ScoreBasis
+
+instance NFData BasisDatabase
+
+instance NFData BasisMethods
+
 instance NFData FlowContributionEntry
 
 instance NFData ScoringIndicator
@@ -290,6 +334,8 @@ data BatchImpactsResponse = BatchImpactsResponse
     {- ^ Ids that resolve but name an activity the allocation gate refused; the
     quality report's @unallocated@ check says why for each
     -}
+    , birBasis :: ScoreBasis
+    -- ^ What every score of the batch rests on; each entry's parameter set is a position in its parameter sets
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped BatchImpactsResponse)
@@ -334,6 +380,8 @@ data LCIABatchResult = LCIABatchResult
     -- ^ The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them; each of 'lbrResults' carries the same list
     , lbrWithheldCutoffs :: [WithheldCutoffs]
     -- ^ The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
+    , lbrBasis :: Maybe ScoreBasis
+    -- ^ What the scores rest on, for one activity; null in each entry of a batch, which carries it once above
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped LCIABatchResult)

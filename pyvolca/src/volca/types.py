@@ -511,6 +511,83 @@ class ProbableMisses:
 
 
 @dataclass
+class BasisDatabase:
+    """One database a score read, and how its data differ from its release.
+
+    ``release`` is the published database it is, its source's for a copy, in
+    the shape :meth:`Client.set_release` takes; ``None`` when none is declared.
+    ``reads_files_of`` names the database whose files it reads, when that is
+    another one. ``edited`` when its history holds a change, a child divided
+    from an edited parent included; ``reallocated`` when its multi-output
+    processes are divided otherwise than the original's; ``patched`` when its
+    configuration patches exchanges as it loads.
+    """
+
+    name: str
+    release: dict | None
+    reads_files_of: str | None
+    edited: bool
+    reallocated: bool
+    patched: bool
+
+    @classmethod
+    def from_json(cls, d: dict) -> "BasisDatabase":
+        return cls(
+            name=d["name"],
+            release=d.get("release"),
+            reads_files_of=d.get("readsFilesOf"),
+            edited=d["edited"],
+            reallocated=d["reallocated"],
+            patched=d["patched"],
+        )
+
+
+@dataclass
+class BasisMethods:
+    """The method collection a score read: ``copy_of`` names the collection it
+    was first copied from, and ``modified`` says whether its factors or
+    categories differ from its files."""
+
+    collection: str
+    copy_of: str | None
+    modified: bool
+
+    @classmethod
+    def from_json(cls, d: dict) -> "BasisMethods":
+        return cls(collection=d["collection"], copy_of=d.get("copyOf"), modified=d["modified"])
+
+
+@dataclass
+class ScoreBasis:
+    """What a score rests on (wire revision 99): the engine's version and
+    commit, each database read (the one asked first), the method collection,
+    and the substitutions and parameter values the request sent. Two scores
+    compare only on the same basis."""
+
+    engine: str
+    databases: list[BasisDatabase]
+    methods: BasisMethods
+    substitutions: list["Substitution"] = field(default_factory=list)
+    parameter_sets: list[list["ParameterValue"]] = field(default_factory=list)
+
+    @classmethod
+    def from_json(cls, d: dict) -> "ScoreBasis":
+        return cls(
+            engine=d["engine"],
+            databases=[BasisDatabase.from_json(b) for b in d["databases"]],
+            methods=BasisMethods.from_json(d["methods"]),
+            substitutions=[Substitution(from_pid=x["from"], to_pid=x["to"], consumer=x.get("consumer")) for x in d.get("substitutions", [])],
+            parameter_sets=[
+                [ParameterValue(name=v["name"], value=v["value"], process=v.get("process")) for v in pset] for pset in d.get("parameterSets", [])
+            ],
+        )
+
+    @classmethod
+    def maybe(cls, d: dict | None) -> "ScoreBasis | None":
+        return cls.from_json(d) if d else None
+
+
+@dataclass
 class LCIAResult:
     """LCIA score for one impact category on one activity.
 
@@ -551,6 +628,9 @@ class LCIAResult:
     probable_misses: ProbableMisses | None = None
     """The flows the score probably missed (wire revision 97); ``None`` in a
     batch of activities, which does not look for them."""
+    basis: ScoreBasis | None = None
+    """What the score rests on (wire revision 99), on the score of one method;
+    ``None`` inside a collection's result, which says it once."""
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIAResult":
@@ -572,6 +652,7 @@ class LCIAResult:
             withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
             exchange_contributions=[ExchangeContribution.from_json(c) for c in d.get("exchangeContributions", [])],
             probable_misses=ProbableMisses.from_json(d["probableMisses"]) if d.get("probableMisses") else None,
+            basis=ScoreBasis.maybe(d.get("basis")),
         )
 
 
@@ -610,6 +691,9 @@ class LCIABatchResult:
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
     """How many such inputs sit inside each database whose licence keeps
     its detail to itself, the one asked included."""
+    basis: ScoreBasis | None = None
+    """What these scores rest on (wire revision 99); ``None`` for an activity
+    of a batch, which says it once in :attr:`BatchScores.basis`."""
 
     @classmethod
     def from_json(cls, d: dict) -> "LCIABatchResult":
@@ -631,6 +715,7 @@ class LCIABatchResult:
             withheld=d.get("withheld", []),
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
             withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
+            basis=ScoreBasis.maybe(d.get("basis")),
         )
 
 
@@ -728,6 +813,9 @@ class BatchScores:
     not_found: list[str]
     invalid: list[str]
     unscorable: list[str]
+    basis: ScoreBasis | None = None
+    """What every score of the batch rests on, said once (wire revision 99);
+    ``None`` from an older engine."""
 
     @classmethod
     def from_json(cls, d: dict) -> "BatchScores":
@@ -746,6 +834,7 @@ class BatchScores:
             not_found=d["notFound"],
             invalid=d["invalid"],
             unscorable=d.get("unscorable", []),
+            basis=ScoreBasis.maybe(d.get("basis")),
         )
 
 
