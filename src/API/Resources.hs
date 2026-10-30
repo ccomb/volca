@@ -1146,8 +1146,10 @@ description r = case r of
         "Every change made to a database of one's own, oldest first: when, \
         \what it changed in words (the activities added, rewritten or \
         \deleted, each exchange edited with its amount before and after, \
-        \the parameters changed), and the reason its author gave, or none. \
-        \A database the engine reads from its configuration has no changes."
+        \the parameters changed), the reason its author gave, or none, and \
+        \the 'database' it was made on. A child divided from a parent lists \
+        \the parent's changes first: its data carry them. A database the \
+        \engine reads from its configuration has no changes of its own."
     DatabaseParameters ->
         "The parameters of a database that every process's formulas read \
         \unless the process defines its own of the same name: each with its \

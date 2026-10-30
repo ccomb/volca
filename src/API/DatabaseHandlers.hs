@@ -37,7 +37,7 @@ module API.DatabaseHandlers (
     editExchangesHandler,
     editDatabaseParametersHandler,
     databaseHistoryHandler,
-    historyLineToAPI,
+    databaseHistoryToAPI,
     parametersReportToAPI,
     listScenariosHandler,
     saveScenarioHandler,
@@ -187,6 +187,7 @@ import Control.Monad.Reader (asks)
 import Data.Aeson (Value)
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
+import Data.Foldable (toList)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime, utctDay)
@@ -215,7 +216,7 @@ import Database.Edit (
  )
 import Database.Export (parseExportFormat, parseMethodExportFormat, serializeDatabase, serializeMethodCollection)
 import Database.ExportSupplier (dependenciesOf)
-import Database.History (HistoryLine (..), Provenance (..), changesReport)
+import Database.History (Carried, HistoryLine (..), Journal (..), Provenance (..), changesReport)
 import Database.Journal (Note, noteFrom, noteText)
 import qualified Database.Loader as Loader
 import Database.Manager (
@@ -419,14 +420,19 @@ databaseHistoryHandler dbName = do
     refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     liftIO (databaseHistory dbManager dbName) >>= \case
-        Right lines' -> pure (map historyLineToAPI lines')
+        Right carried -> pure (databaseHistoryToAPI carried)
         Left err -> do
             -- A database that is there with a journal the engine cannot read is the engine's failure, not the caller's.
             known <- M.member dbName <$> liftIO (readTVarIO (dmAvailableDbs dbManager))
             throwError (if known then err500 else err404){errBody = BSL.fromStrict (T.encodeUtf8 err)}
 
-historyLineToAPI :: HistoryLine -> DatabaseHistoryEntry
-historyLineToAPI line = DatabaseHistoryEntry (hlAt line) (noteText <$> hlNote line) (hlSummary line) (hlDetails line)
+-- | Each line of a database's history, with the database it was made on: its parent's, or its own.
+databaseHistoryToAPI :: Carried (Journal DatabaseConfig) -> [DatabaseHistoryEntry]
+databaseHistoryToAPI carried =
+    [ DatabaseHistoryEntry (hlAt line) (dcName (journalOf journal)) (noteText <$> hlNote line) (hlSummary line) (hlDetails line)
+    | journal <- toList carried
+    , line <- journalLines journal
+    ]
 
 {- | Supplier-gap report for a loaded or staged database: everything still
 unsupplied after internal resolution and cross-DB linking. The natural
@@ -966,8 +972,8 @@ crateInput manager ld fmt modification = do
     config :: DatabaseConfig
     config = ldConfig ld
 
-    changesOf :: Provenance -> [HistoryLine] -> Changes
-    changesOf provenance lines' = Changes (changesReport provenance lines') (pvOriginal provenance) (pvRelease provenance)
+    changesOf :: Provenance -> Carried (Journal DatabaseConfig) -> Changes
+    changesOf provenance carried = Changes (changesReport provenance (fmap dcDisplayName <$> carried)) (pvOriginal provenance) (pvRelease provenance)
 
     name :: Text
     name = dcName config

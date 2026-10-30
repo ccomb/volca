@@ -3314,13 +3314,17 @@ class Client:
     def database_history(self, *, db_name: str | None = None) -> list[dict]:
         """Every change made to the database, oldest first::
 
-            {"at": "2026-10-21T09:12:03Z", "note": "Measured on site",
+            {"at": "2026-10-21T09:12:03Z", "database": "my-farm",
+             "note": "Measured on site",
              "summary": "Edited \\"wheat production\\" (FR)",
              "details": ["Flow \\"Water\\": amount from 2.0 set to 1.5"]}
 
         ``note`` is the reason its author gave, ``None`` when they gave none.
-        A database the engine reads from its configuration has no changes.
-        Needs wire revision 79.
+        ``database`` is the database the change was made on: for a child, the
+        changes of the parent it is divided from come first, since its data
+        carry them (wire revision 100; absent from an older engine). A
+        database the engine reads from its configuration has no changes of
+        its own. Needs wire revision 79.
         """
         self._require_wire(79, "database_history", engine_hint="0.16.0")
         return self._call("get_database_history", db_name=self._db(db_name))

@@ -167,6 +167,14 @@
 
 ### Fixed
 
+- A child divided from an edited parent says so. Its data carry every change
+  made on the parent, yet its history was empty, the list of databases said
+  it was not edited, and the changes report of its package named the system
+  model alone. Now its history lists the parent's changes first, each line
+  saying the database it was made on (`database`); it reads as edited; and
+  its changes report gives the parent's changes under their own heading. A
+  copy of a child carries the parent's changes and its own copied ones, not
+  those made on the child since. Wire revision 100.
 - A single EcoSpold 2 file (`.spold`) loads as a database. Sent as is, it used
   to be taken for EcoSpold 1 and refused; given as the path of a database, it
   was refused as an unsupported file; and in a folder, a name of one part

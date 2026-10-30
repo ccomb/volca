@@ -5,10 +5,11 @@ module ScoreBasisSpec (spec) where
 
 import API.Types (BasisDatabase (..), BasisMethods (..))
 import Config (DatabaseConfig (..), MethodConfig (..), MethodOrigin (..), MethodPatch (..), MethodPatchMatch (..))
+import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
-import Database.Manager (BasisSources (..), basisOf)
+import Database.Manager (BasisSources (..), basisOf, journalsCarried)
 import Method.Journal (MethodOp (..), changesScores)
 import Method.Types (ScoringSet (..), ScoringSetOrigin (..))
 import Test.Hspec
@@ -62,18 +63,19 @@ release = Release{releaseName = "Farm data", releaseVersion = "3.2", releaseSyst
 model :: SystemModel
 model = SystemModel{smName = "mass", smVersion = "1", smDescription = Nothing, smDefault = DryMass, smExceptions = [], smSubstitutions = [], smParameters = [], smText = ""}
 
-declared, copy, child, parent :: DatabaseConfig
+declared, copy, child, parent, childCopy :: DatabaseConfig
 declared = (database "farm"){dcRelease = Just release}
 copy = (database "farm-copy"){dcSource = Just "farm"}
-child = (database "farm-child"){dcSource = Just "farm", dcReading = ByModel model}
 parent = (database "farm-parent"){dcSource = Just "farm", dcReading = FromFiles ReadWhole}
+child = (database "farm-child"){dcSource = Just "farm-parent", dcReading = ByModel model}
+childCopy = (database "farm-child-copy"){dcSource = Just "farm-child", dcReading = ByModel model}
 
 configs :: M.Map Text DatabaseConfig
-configs = M.fromList [(dcName c, c) | c <- [declared, copy, child, parent, database "power"]]
+configs = M.fromList [(dcName c, c) | c <- [declared, copy, child, parent, childCopy, database "power"]]
 
--- | The databases of a basis, read with the farm database's journal recording a change or not.
-databasesOf :: Bool -> [Text] -> [BasisDatabase]
-databasesOf farmEdited names = fst (basisOf (BasisSources configs (S.fromList ["farm" | farmEdited]) M.empty False) names "methods")
+-- | The databases of a basis, read with the journals of the databases named first recording a change.
+databasesOf :: [Text] -> [Text] -> [BasisDatabase]
+databasesOf journaled names = fst (basisOf (BasisSources configs (S.fromList journaled) M.empty False) names "methods")
 
 methodsOf :: M.Map Text MethodConfig -> Bool -> Text -> BasisMethods
 methodsOf methodConfigs edited name = snd (basisOf (BasisSources M.empty S.empty methodConfigs edited) [] name)
@@ -97,17 +99,26 @@ scoringSet =
 spec :: Spec
 spec = describe "what a score rests on" $ do
     it "names a copy's release from the database it was copied from, and whose files it reads" $
-        map (\d -> (bdName d, bdRelease d, bdReadsFilesOf d)) (databasesOf False ["farm-copy"])
+        map (\d -> (bdName d, bdRelease d, bdReadsFilesOf d)) (databasesOf [] ["farm-copy"])
             `shouldBe` [("farm-copy", Just release, Just "farm")]
 
     it "lists the database asked first, each one once, and leaves out a name nothing configures" $
-        map bdName (databasesOf False ["farm-copy", "power", "farm-copy", "gone"]) `shouldBe` ["farm-copy", "power"]
+        map bdName (databasesOf [] ["farm-copy", "power", "farm-copy", "gone"]) `shouldBe` ["farm-copy", "power"]
 
     it "says a child is edited when the parent it was divided from is, and divided otherwise" $
-        map (\d -> (bdEdited d, bdReallocated d)) (databasesOf True ["farm-child"]) `shouldBe` [(True, True)]
+        map (\d -> (bdEdited d, bdReallocated d)) (databasesOf ["farm-parent"] ["farm-child"]) `shouldBe` [(True, True)]
 
     it "says a parent read again from the files is not edited, its source's journal left behind" $
-        map bdEdited (databasesOf True ["farm-parent"]) `shouldBe` [False]
+        map bdEdited (databasesOf ["farm"] ["farm-parent"]) `shouldBe` [False]
+
+    it "says a copy of a child carries the parent's journal, not what the child was edited since" $ do
+        map bdEdited (databasesOf ["farm-child"] ["farm-child-copy"]) `shouldBe` [False]
+        map bdEdited (databasesOf ["farm-parent"] ["farm-child-copy"]) `shouldBe` [True]
+
+    it "reads the journals of the parent a database is divided from, then its own" $ do
+        let carried = map dcName . toList . journalsCarried configs
+        map carried [child, childCopy, copy, parent] `shouldBe` [["farm-parent", "farm-child"], ["farm-parent", "farm-child-copy"], ["farm-copy"], ["farm-parent"]]
+        map dcName (toList (journalsCarried (M.delete "farm-parent" configs) child)) `shouldBe` ["farm-child"]
 
     it "says a database whose configuration adjusts its amounts is patched" $ do
         let zeroed = ExchangePatch{xpDescription = Nothing, xpMatch = ExchangePatchMatch Nothing Nothing Nothing (Just "Diesel") Nothing, xpOp = SetValueTo 0}

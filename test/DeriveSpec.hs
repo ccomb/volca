@@ -40,15 +40,19 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
+import Data.Foldable (toList)
 import Database.Author (ExchangeEdit (..))
 import Database.Child (childOf)
-import Database.Edit (DeleteRequest (..), Derivation (..), deleteActivitiesInDB, deriveDatabase, editExchanges)
+import Database.Edit (DeleteRequest (..), Derivation (..), databaseHistory, deleteActivitiesInDB, deriveDatabase, editExchanges)
 import Database.ExportSupplier (noDependencies, unnamedWarnings)
+import Database.History (Carried (..), HistoryLine (..), Journal (..), Provenance (..), changesReport)
+import Database.Journal (noteFrom)
 import Database.Loader (GapReport (..), countUnlinkedExchanges, gapReportForLoaded)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
     LoadedDatabase (..),
+    databaseModification,
     getDatabase,
     initDatabaseManager,
     loadDatabase,
@@ -67,6 +71,7 @@ import Types (
     FileReading (..),
     GeographyPolicy (..),
     Licence (..),
+    Modification (..),
     Parameter (..),
     ParameterDefinition (..),
     ProcessRef (..),
@@ -296,6 +301,24 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 deriveChild manager >>= (`shouldSatisfy` repriced) . inputOf "Cow milk"
                 rebooted <- initDatabaseManager defaultConfig NoCache
                 loadedDb rebooted childName >>= (`shouldSatisfy` repriced) . inputOf "Cow milk"
+
+        it "says the price edited on the parent in the child's history and changes report, the child edited" $
+            withParent $ \manager -> do
+                parent <- loadedDb manager parentName
+                let (cheese, whey) = dairyProducts parent
+                    priced flow amount = SetProperty Price flow (Just (StatedAmount "EUR" amount))
+                edited <- editExchanges manager parentName (noteFrom "Prices 2026") (dairyActivity parent) [priced cheese 4, priced whey 1]
+                isRight edited `shouldBe` True
+                _ <- deriveChild manager
+                configs <- readTVarIO (dmAvailableDbs manager)
+                childConfig <- maybe (fail "no child") pure (M.lookup childName configs)
+                modificationEdited <$> databaseModification configs childConfig `shouldReturn` True
+                history <- either (fail . T.unpack) pure =<< databaseHistory manager childName
+                journalLines (carriedOwn history) `shouldBe` []
+                [(dcName (journalOf journal), map hlNote (journalLines journal)) | journal <- toList (carriedFromParent history)] `shouldBe` [(parentName, [noteFrom "Prices 2026"])]
+                let report = changesReport (Provenance childName "dairy" Nothing Nothing) (fmap dcName <$> history)
+                report `shouldSatisfy` isInfixOf ("Changes made on " <> parentName <> ", the parent this database is divided from")
+                report `shouldSatisfy` isInfixOf "Reason: Prices 2026"
 
     describe "a child substituting a coproduct" $ do
         it "leaves the whole block to the cheese, credited with the milk powder the whey displaces" $

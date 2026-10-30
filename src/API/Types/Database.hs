@@ -23,6 +23,8 @@ import Types (
 -- | One change made to a database, oldest first, in the words its reader uses.
 data DatabaseHistoryEntry = DatabaseHistoryEntry
     { dheAt :: Text
+    , dheDatabase :: Text
+    -- ^ The database the change was made on: this one, or the parent it is divided from
     , dheNote :: Maybe Text
     -- ^ Why, in its author's words; absent when they gave no reason
     , dheSummary :: Text
