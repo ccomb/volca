@@ -6,6 +6,8 @@ EcoSpold 2 master data, and written to columnar CSV that reads back the same.
 -}
 module FactorTableSpec (spec) where
 
+import Control.Monad (void)
+import Data.Bifunctor (bimap)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Data.Either (isLeft)
@@ -108,13 +110,43 @@ spec = do
             fmap snd (families standard) `shouldBe` Right (Dropped 1 ["Mystery (water/unspecified)"])
 
         it "reads the older label of the unit column, and sheets in any order" $ do
-            let renamed = [(n, if n == "Indicators" then (map CT ["Method", "Category", "Indicator", "Unit"] : drop 1 rows) else rows) | (n, rows) <- reverse standard]
+            let renamed = [(n, if n == "Indicators" then map CT ["Method", "Category", "Indicator", "Unit"] : drop 1 rows else rows) | (n, rows) <- reverse standard]
             fmap (map (map methodUnit . mcMethods . snd) . fst) (families renamed)
                 `shouldBe` fmap (map (map methodUnit . mcMethods . snd) . fst) (families standard)
 
         it "refuses a table whose columns are labelled otherwise, naming the label it lacks" $ do
             let older = [(n, if n == "CFs" then map CT ["Method", "Category", "Indicator", "Name", "Compartment", "Subcompartment", "CF 3.6"] : drop 1 rows else rows) | (n, rows) <- standard]
-            fmap (const ()) (families older) `shouldBe` Left "the CFs sheet has no column labelled CF"
+            void (families older) `shouldBe` Left "the CFs sheet has no column labelled CF"
+
+        it "leaves out a family none of whose flows the master data defines, counting its factors" $ do
+            let withStranger = [(n, if n == "CFs" then rows <> [cf "Other" "toxicity" "CTU" "Mystery" "soil" "agricultural" 3] else rows) | (n, rows) <- standard]
+            fmap (bimap (map fst) dropCount) (families withStranger) `shouldBe` Right (["IPCC", "EF"], 2)
+
+        it "refuses a row that gives no factor, rather than skip it" $ do
+            let textCF = [(n, if n == "CFs" then rows <> [map CT ["EF", "land use", "soil quality index", "Occupation, forest", "natural resource", "land", "n/a"]] else rows) | (n, rows) <- standard]
+            void (families textCF) `shouldBe` Left "1 rows of the CFs sheet give no factor: each needs a method, a flow name and a numeric CF"
+
+        it "refuses a table without a factor" $ do
+            let emptied = [(n, if n == "CFs" then take 1 rows else rows) | (n, rows) <- standard]
+            void (families emptied) `shouldBe` Left "the CFs sheet gives no factor"
+
+        it "refuses two columns under one label" $ do
+            let doubled = [(n, if n == "CFs" then (cfsLabels <> [CT "CF"]) : drop 1 rows else rows) | (n, rows) <- standard]
+            void (families doubled) `shouldBe` Left "the CFs sheet has two columns labelled CF"
+
+        it "refuses an indicator without a unit, naming it" $ do
+            let unitless = [(n, if n == "Indicators" then take 2 rows <> drop 3 rows else rows) | (n, rows) <- standard]
+            void (families unitless) `shouldBe` Left "the Indicators sheet gives no unit for IPCC / climate change / GWP20"
+
+        it "refuses an indicator given two units" $ do
+            let twoUnits = [(n, if n == "Indicators" then rows <> [indicator "IPCC" "climate change" "GWP20" "kg CO2"] else rows) | (n, rows) <- standard]
+            void (families twoUnits) `shouldBe` Left "the Indicators sheet gives IPCC / climate change / GWP20 several units: kg CO2, kg CO2-Eq"
+
+        it "takes a flow the master data lists twice alike as one, and refuses one listed with two units" $ do
+            let read' flows = void (familyCollections flows =<< readFactorTable =<< openWorkbook (buildWorkbook standard))
+            read' (master <> take 1 master) `shouldBe` Right ()
+            read' (master <> [MasterFlow "Carbon dioxide, fossil" "air" "unspecified" "g" (Just "000124-38-9")])
+                `shouldBe` Left "the master data gives these flows two units or CAS numbers: Carbon dioxide, fossil (air/unspecified)"
 
     describe "isFactorTable" $ do
         it "knows a workbook with a CFs and an Indicators sheet" $

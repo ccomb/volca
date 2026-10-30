@@ -192,6 +192,7 @@ import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
 import Data.Char (toLower)
 import Data.Foldable (toList)
+import Data.Indexing (repeated)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe, isJust)
 import Data.Time.Clock (getCurrentTime, utctDay)
@@ -1748,6 +1749,10 @@ uploadFactorTable dbManager uploadsDir name mDescription flowsFrom workbook = do
     (families, dropped) <- either (failWith err400) pure (familyCollections masterFlows =<< readFactorTable workbook)
     let named = [(name <> " · " <> family, collection) | (family, collection) <- families]
         dirOf collectionName = uploadsDir </> T.unpack (slugify collectionName)
+    -- Two families whose names differ only in punctuation would share one folder.
+    case repeated (map (slugify . fst) named) of
+        [] -> pure ()
+        clashing -> failWith err400 ("Several families of this table would be stored under the same folder: " <> T.intercalate ", " clashing <> ".")
     available <- liftIO (readTVarIO (dmAvailableMethods dbManager))
     taken <- liftIO $ filterM (\(n, _) -> (M.member n available ||) <$> System.Directory.doesPathExist (dirOf n)) named
     unless (null taken) $

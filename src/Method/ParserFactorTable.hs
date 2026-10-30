@@ -23,6 +23,8 @@ module Method.ParserFactorTable (
 ) where
 
 import Data.Containers.ListUtils (nubOrd)
+import Data.Indexing (repeated, uniqueIndex)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as S
@@ -64,31 +66,52 @@ data Dropped = Dropped
 isFactorTable :: Workbook -> Bool
 isFactorTable wb = all (`elem` sheetNames wb) ["CFs", "Indicators"]
 
+-- | The factors read so far, newest first, and the rows that gave none.
+data Rows = Rows ![Factor] !Int
+
+{- | Read both sheets. A row that is not empty yet gives no factor (no family,
+no flow name, a CF that is not a number) refuses the table rather than vanish
+from it, and so does an indicator the @Indicators@ sheet gives two units.
+-}
 readFactorTable :: Workbook -> Either Text FactorTable
 readFactorTable wb = do
-    factors <- foldLabelled wb "CFs" (map pure ["Method", "Category", "Indicator", "Name", "Compartment", "Subcompartment", "CF"]) addFactor []
-    units <- foldLabelled wb "Indicators" [["Method"], ["Category"], ["Indicator"], ["Indicator Unit", "Unit"]] addUnit M.empty
+    Rows factors unread <- foldLabelled wb "CFs" (map pure ["Method", "Category", "Indicator", "Name", "Compartment", "Subcompartment", "CF"]) addFactor (Rows [] 0)
+    case (unread, factors) of
+        (0, []) -> Left "the CFs sheet gives no factor"
+        (0, _) -> Right ()
+        _ -> Left (T.pack (show unread) <> " rows of the CFs sheet give no factor: each needs a method, a flow name and a numeric CF")
+    unitSets <- foldLabelled wb "Indicators" [["Method"], ["Category"], ["Indicator"], ["Indicator Unit", "Unit"]] addUnit M.empty
+    units <- case M.toList (M.filter ((> 1) . S.size) unitSets) of
+        [] -> Right (M.mapMaybe S.lookupMin unitSets)
+        ((family, category, ind), given) : _ -> Left ("the Indicators sheet gives " <> family <> " / " <> category <> " / " <> ind <> " several units: " <> T.intercalate ", " (S.toList given))
     Right FactorTable{ftFactors = reverse factors, ftUnits = units}
   where
-    addFactor acc cells = case cells of
+    addFactor acc@(Rows done unread) cells = case cells of
         [Just family, Just category, Just indicator, Just name, compartment, subcompartment, Just (CellNumber value)]
             | Just f <- cellText family
             , Just n <- cellText name ->
                 -- Built now: a pending row would keep its cells alive until the end of the sheet.
-                let !row = Factor f (text category) (text indicator) (n, textOr compartment, textOr subcompartment) value in row : acc
-        _ -> acc
+                let !row = Factor f (text category) (text indicator) (n, textOr compartment, textOr subcompartment) value in Rows (row : done) unread
+        _
+            | all null cells -> acc
+            | otherwise -> Rows done (unread + 1)
+    -- The sheet can repeat an indicator once per factor, so its rows collapse to the units they give.
     addUnit acc cells = case cells of
-        [Just family, category, indicator, unit] | Just f <- cellText family -> M.insert (f, textOr category, textOr indicator) (textOr unit) acc
+        [Just family, category, indicator, Just unit]
+            | Just f <- cellText family
+            , Just u <- cellText unit ->
+                M.insertWith S.union (f, textOr category, textOr indicator) (S.singleton u) acc
         _ -> acc
     text = fromMaybe "" . cellText
     textOr = maybe "" text
 
--- | Where a sheet's fold stands: before its label row, or reading under it.
-data Labelled a = Seeking | Reading ![Int] !a | Unlabelled ![Text]
+-- | Where a sheet's fold stands: before its label row, reading under it, or refused.
+data Labelled a = Seeking | Reading ![Int] !a | Refused !Text
 
 {- | Fold over the rows under a sheet's label row, each read at the columns its
 labels name, whatever their order. A label given several spellings takes the
-first the sheet uses; a label the sheet lacks refuses the sheet, naming it.
+first the sheet uses; a label the sheet lacks, or gives two columns, refuses
+the sheet, naming it.
 -}
 foldLabelled :: Workbook -> Text -> [[Text]] -> (a -> [Maybe CellValue] -> a) -> a -> Either Text a
 foldLabelled wb sheet labels step start = do
@@ -96,18 +119,22 @@ foldLabelled wb sheet labels step start = do
     case scan of
         Reading _ acc -> Right acc
         Seeking -> Left ("the " <> sheet <> " sheet is empty")
-        Unlabelled missing -> Left ("the " <> sheet <> " sheet has no column labelled " <> T.intercalate ", " missing)
+        Refused why -> Left ("the " <> sheet <> " sheet " <> why)
   where
     go Seeking row
         | M.null row = Seeking
         | otherwise =
-            let columns = M.fromList [(label, col) | (col, cell) <- M.toList row, Just label <- [cellText cell]]
-                found = [mapMaybe (`M.lookup` columns) spellings | spellings <- labels]
-             in case [T.intercalate " or " spellings | (spellings, []) <- zip labels found] of
-                    [] -> Reading [col | col : _ <- found] start
-                    missing -> Unlabelled missing
+            let wanted = concat labels
+                given = [(label, col) | (col, cell) <- M.toList row, Just label <- [cellText cell], label `elem` wanted]
+             in case uniqueIndex given of
+                    Left twice -> Refused ("has two columns labelled " <> T.intercalate ", " (NE.toList twice))
+                    Right columns ->
+                        let found = [mapMaybe (`M.lookup` columns) spellings | spellings <- labels]
+                         in case [T.intercalate " or " spellings | (spellings, []) <- zip labels found] of
+                                [] -> Reading [col | col : _ <- found] start
+                                missing -> Refused ("has no column labelled " <> T.intercalate ", " missing)
     go (Reading columns acc) row = Reading columns (step acc [M.lookup col row | col <- columns])
-    go unlabelled _ = unlabelled
+    go refused _ = refused
 
 {- | One collection per family, each paired with its family's name, and the
 factors left out because the master data defines no flow for them.
@@ -120,44 +147,48 @@ can be measured by several indicators.
 -}
 familyCollections :: [MasterFlow] -> FactorTable -> Either Text ([(Text, MethodCollection)], Dropped)
 familyCollections masterFlows table = do
-    collections <- traverse collection families
-    Right (collections, dropped)
+    facts <- flowFacts masterFlows
+    let known = filter ((`M.member` facts) . fFlow) (ftFactors table)
+        unknown = filter (not . (`M.member` facts) . fFlow) (ftFactors table)
+        -- A family none of whose flows the master data defines has no factor left: its factors are all in 'Dropped'.
+        families = nubOrd (map fFamily known)
+        byFamily = M.fromListWith (flip (<>)) [(fFamily f, [f]) | f <- known]
+    collections <- traverse (collection facts byFamily) families
+    Right (collections, Dropped (length unknown) (take 10 (nubOrd [describe (fFlow f) | f <- unknown])))
   where
-    facts = flowFacts masterFlows
-    known = filter ((`M.member` facts) . fFlow) (ftFactors table)
-    unknown = filter (not . (`M.member` facts) . fFlow) (ftFactors table)
-    dropped = Dropped (length unknown) (take 10 (nubOrd [describe (fFlow f) | f <- unknown]))
     describe (name, top, sub) = name <> " (" <> T.intercalate "/" (filter (not . T.null) [top, sub]) <> ")"
-    families = nubOrd (map fFamily (ftFactors table))
-    byFamily = M.fromListWith (flip (<>)) [(fFamily f, [f]) | f <- known]
 
-    collection family = do
+    collection facts byFamily family = do
         let rows = M.findWithDefault [] family byFamily
             columns = nubOrd [(fCategory f, fIndicator f) | f <- rows]
             byColumn = M.fromListWith (flip (<>)) [((fCategory f, fIndicator f), [f]) | f <- rows]
             names = columnNames columns
-        case repeatedNames names of
+        case repeated names of
             [] -> Right ()
             twice -> Left (family <> ": two columns would both be named " <> T.intercalate ", " twice)
+        units <- traverse (unitOf family) columns
         Right
             ( family
             , MethodCollection
                 { mcMethods =
-                    [ method family column name (M.findWithDefault [] column byColumn)
-                    | (column, name) <- zip columns names
+                    [ method facts family column name unit (M.findWithDefault [] column byColumn)
+                    | (column, name, unit) <- zip3 columns names units
                     ]
                 , mcScoringSets = []
                 , mcUnregionalized = []
                 }
             )
 
-    method family (category, indicator) name rows =
+    unitOf family (category, indicator) =
+        maybe (Left ("the Indicators sheet gives no unit for " <> family <> " / " <> category <> " / " <> indicator)) Right (M.lookup (family, category, indicator) (ftUnits table))
+
+    method facts family (category, indicator) name unit rows =
         Method
             { -- Written to CSV and read back, which derives its own identifiers.
               methodId = UUID.nil
             , methodName = name
             , methodDescription = Nothing
-            , methodUnit = M.findWithDefault "" (family, category, indicator) (ftUnits table)
+            , methodUnit = unit
             , methodCategory = category
             , methodMethodology = Just family
             , methodFactors = mapMaybe (factor facts) rows
@@ -169,20 +200,23 @@ columnNames columns = [if heads category == 1 then category else category <> " /
     counts = M.fromListWith (+) [(category, 1 :: Int) | (category, _) <- columns]
     heads category = M.findWithDefault 0 category counts
 
-repeatedNames :: [Text] -> [Text]
-repeatedNames names = M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(n, 1) | n <- names]))
-
 -- | What the master data adds to a factor: the flow's unit, and its CAS number.
 data FlowFacts = FlowFacts !Text !(Maybe Text)
+    deriving (Eq, Ord)
 
 {- | The facts of every flow the master data defines. A CAS number it gives to
 flows of several names is dropped: "Nitrogen" and "Nitrogen, organic bound"
 share one, and kept it would hand the factor of either to the other. The
 comparison is on the normalized number, so a padded @007440-43-9@ and a plain
 @7440-43-9@ are one.
+
+A flow listed twice alike is one flow; listed twice with another unit or CAS
+number, the table cannot say which its factor is written per, and is refused.
 -}
-flowFacts :: [MasterFlow] -> M.Map FlowKey FlowFacts
-flowFacts flows = M.fromList [(key f, FlowFacts (mfUnit f) (mfilterShared (cas f))) | f <- flows]
+flowFacts :: [MasterFlow] -> Either Text (M.Map FlowKey FlowFacts)
+flowFacts flows = case uniqueIndex (nubOrd [(key f, FlowFacts (mfUnit f) (mfilterShared (cas f))) | f <- flows]) of
+    Right facts -> Right facts
+    Left twice -> Left ("the master data gives these flows two units or CAS numbers: " <> T.intercalate ", " [n <> " (" <> top <> "/" <> sub <> ")" | (n, top, sub) <- NE.toList twice])
   where
     key f = (mfName f, mfCompartment f, mfSubcompartment f)
     cas f = nonEmptyCAS =<< mfCAS f
