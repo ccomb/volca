@@ -5058,11 +5058,11 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
         let dir = mfDirectory files
         -- Parse method files with flow enrichment
         xmlResults <- forM (mfXml files) $ \f ->
-            Method.Parser.parseMethodFileWithFlows flowInfo (dir </> f)
+            first (namedBy f) <$> Method.Parser.parseMethodFileWithFlows flowInfo (dir </> f)
         -- Split CSV files into SimaPro method exports and tabular CSVs
         csvResults <- forM (mfCsv files) $ \f -> do
             bytes <- stripBOM <$> BS.readFile (dir </> f)
-            pure $
+            pure . first (namedBy f) $
                 if isSimaProMethodCSV bytes
                     then fmap Left (parseSimaProMethodCSVBytes bytes)
                     else fmap Right (parseMethodCSVBytes bytes)
@@ -5074,7 +5074,7 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
             bytes <- BS.readFile (dir </> f)
             pure $
                 if OlcaSchema.isOlcaImpactCategoryJson bytes
-                    then Just (OlcaSchema.parseOlcaImpactCategoryBytes bytes)
+                    then Just (first (namedBy f) (OlcaSchema.parseOlcaImpactCategoryBytes bytes))
                     else Nothing
         let (xmlErrs, xmlMethods) = partitionEithers xmlResults
             (csvErrs, csvOks) = partitionEithers csvResults
@@ -5130,10 +5130,12 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
                     <> show (length (Method.Types.mcScoringSets collection))
                     <> " scoring set(s) read from the file's damage categories"
 
-    parseFailures :: ParsedMethodFiles -> Maybe String
-    parseFailures parsed
-        | null (pmfErrors parsed) = Nothing
-        | otherwise = Just ("  " <> show (length (pmfErrors parsed)) <> " method file(s) failed to parse")
+    -- One line per file, so a file refused beside others that load says why.
+    parseFailures :: ParsedMethodFiles -> [String]
+    parseFailures parsed = ["  Method file failed to parse: " <> err | err <- pmfErrors parsed]
+
+    namedBy :: FilePath -> String -> String
+    namedBy f err = f <> ": " <> err
 
 {- | Read one method of an openLCA package: its impact categories, and its
 normalization and weighting sets as scoring sets. A category the method names
