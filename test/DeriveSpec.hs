@@ -44,7 +44,8 @@ import Database.Author (ExchangeEdit (..))
 import Database.Child (childOf)
 import Database.Edit (DeleteRequest (..), Derivation (..), databaseHistory, deleteActivitiesInDB, deriveDatabase, editExchanges)
 import Database.ExportSupplier (noDependencies, unnamedWarnings)
-import Database.History (Carried (..), HistoryLine (..), Provenance (..), changesReport)
+import Database.History (Carried (..), HistoryLine (..), Journal (..), Provenance (..), changesReport)
+import Data.Foldable (toList)
 import Database.Journal (noteFrom)
 import Database.Loader (GapReport (..), countUnlinkedExchanges, gapReportForLoaded)
 import Database.Manager (
@@ -313,9 +314,9 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 childConfig <- maybe (fail "no child") pure (M.lookup childName configs)
                 modificationEdited <$> databaseModification configs childConfig `shouldReturn` True
                 history <- either (fail . T.unpack) pure =<< databaseHistory manager childName
-                carriedOwn history `shouldBe` []
-                [(dcName madeOn, map hlNote lines') | (madeOn, lines') <- maybe [] pure (carriedFromParent history)] `shouldBe` [(parentName, [noteFrom "Prices 2026"])]
-                let report = changesReport (Provenance childName "dairy" Nothing Nothing) (dcName <$> history)
+                journalLines (carriedOwn history) `shouldBe` []
+                [(dcName (journalOf journal), map hlNote (journalLines journal)) | journal <- toList (carriedFromParent history)] `shouldBe` [(parentName, [noteFrom "Prices 2026"])]
+                let report = changesReport (Provenance childName "dairy" Nothing Nothing) (fmap dcName <$> history)
                 report `shouldSatisfy` isInfixOf ("Changes made on " <> parentName <> ", the parent this database is divided from")
                 report `shouldSatisfy` isInfixOf "Reason: Prices 2026"
 

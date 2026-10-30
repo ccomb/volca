@@ -206,7 +206,8 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
+import Data.Foldable (toList)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToParamSchema, ToSchema (..), enum_, type_)
 import Data.Ord (Down (..))
 import qualified Data.Set as S
@@ -383,6 +384,7 @@ import Data.JournalFile (Entry (..), readEntries)
 import Database.Author (editingContext)
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
+import Database.History (Carried (..))
 import qualified Database.Journal as Journal
 import Database.Requirements (ReleaseSubstitution (..), RequiredRelease, acceptSubstitute, admission, admits, requiredDatabases, requiredReleases)
 import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirectory, listDirectoryRecursive)
@@ -2980,7 +2982,7 @@ files under its source's key, which is still not the files' own.
 -}
 databaseModification :: M.Map Text DatabaseConfig -> DatabaseConfig -> IO Modification
 databaseModification configs config = do
-    edited <- or <$> mapM (maybe (pure False) Journal.journalHasEntries <=< editHome) (journalsCarried configs config)
+    edited <- or <$> traverse (maybe (pure False) Journal.journalHasEntries <=< editHome) (journalsCarried configs config)
     pure Modification{modificationEdited = edited, modificationReallocated = dcReading (filesOwner configs config) /= dcReading config}
 
 -- | What a request substituted, and the parameter sets it scored at.
@@ -2997,7 +2999,7 @@ scoreBasis :: DatabaseManager -> [Text] -> CollectionName -> Asked -> IO ScoreBa
 scoreBasis manager names (CollectionName collection) asked = do
     configs <- readTVarIO (dmAvailableDbs manager)
     methodConfigs <- readTVarIO (dmAvailableMethods manager)
-    journaled <- filterM (journalHasLines configs) (nubOrd (map dcName (concatMap (journalsCarried configs) (mapMaybe (`M.lookup` configs) names))))
+    journaled <- filterM (journalHasLines configs) (nubOrd (map dcName (concatMap (toList . journalsCarried configs) (mapMaybe (`M.lookup` configs) names))))
     methodEdited <- case mcHome =<< M.lookup collection methodConfigs of
         Nothing -> pure False
         -- A journal that cannot be read refuses the collection's load, so it scores nothing to say so of.
@@ -3148,8 +3150,8 @@ refused while a child is loaded, so a loaded child carries all of it. A copy
 copies its source's journal, and a parent read again from the files reads none
 of its source's.
 -}
-journalsCarried :: M.Map Text DatabaseConfig -> DatabaseConfig -> [DatabaseConfig]
-journalsCarried configs config = mapMaybe (`M.lookup` configs) (maybeToList (parentOf configs config)) <> [config]
+journalsCarried :: M.Map Text DatabaseConfig -> DatabaseConfig -> Carried DatabaseConfig
+journalsCarried configs config = Carried (parentOf configs config >>= (`M.lookup` configs)) config
 
 {- | The parent a database is divided from: the nearest one up its chain of
 sources read under @none@, when the database itself is divided by a model.

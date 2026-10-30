@@ -52,7 +52,7 @@ spec = describe "Database.History" $ do
                        ]
 
     it "reports each change with its reason, or says it was given none" $ do
-        let report = changesReport Provenance{pvDatabase = "my bakery", pvOriginal = "bakery", pvRelease = Just (Release "Bakery data" "2025" Nothing), pvReallocated = Just (ByModel (modelDividingBy DryMass))} (Carried Nothing history)
+        let report = changesReport Provenance{pvDatabase = "my bakery", pvOriginal = "bakery", pvRelease = Just (Release "Bakery data" "2025" Nothing), pvReallocated = Just (ByModel (modelDividingBy DryMass))} (Carried Nothing (Journal "my bakery" history))
         T.lines report
             `shouldStartWith` [ "# Changes to my bakery"
                               , ""

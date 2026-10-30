@@ -2088,7 +2088,7 @@ callDatabaseHistory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callDatabaseHistory dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     history <- ExceptT (databaseHistory dbManager dbName)
-    return $ toolSuccessJson rid (toJSON (databaseHistoryToAPI dbName history))
+    return $ toolSuccessJson rid (toJSON (databaseHistoryToAPI history))
 
 -- | Change the scenarios of a database, then answer the ones it holds.
 callScenarios :: DatabaseManager -> RequestId -> KeyMap Value -> (Text -> ExceptT Text IO ()) -> IO Value

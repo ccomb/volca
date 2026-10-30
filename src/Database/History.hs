@@ -1,7 +1,6 @@
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TupleSections #-}
 
 {- | A database's journal as its reader reads it: what each change did, in
 words, with the reason its author gave. The same words make the history a
@@ -14,7 +13,7 @@ module Database.History (
     namerFor,
     describeJournal,
     Carried (..),
-    carriedLines,
+    Journal (..),
     Provenance (..),
     changesReport,
 ) where
@@ -75,21 +74,22 @@ data HistoryLine = HistoryLine
     }
     deriving (Eq, Show)
 
-{- | The changes a database's data carry: those made on the parent it is
-divided from, replayed before the division, then its own. A child keeps no copy
-of its parent's journal, yet its data hold every line of it.
+{- | What a database's data carry, in the order it applies: the parent it is
+divided from, replayed before the division, then the database itself. A child
+keeps no copy of its parent's journal, yet its data hold every line of it.
 -}
 data Carried a = Carried
-    { carriedFromParent :: Maybe (a, [HistoryLine])
-    , carriedOwn :: [HistoryLine]
+    { carriedFromParent :: Maybe a
+    , carriedOwn :: a
+    }
+    deriving (Eq, Show, Functor, Foldable, Traversable)
+
+-- | The lines of one journal, said, and the database they were made on.
+data Journal a = Journal
+    { journalOf :: a
+    , journalLines :: [HistoryLine]
     }
     deriving (Eq, Show, Functor)
-
--- | Each line in the order it applies, with the parent it was made on, if not the database itself.
-carriedLines :: Carried a -> [(Maybe a, HistoryLine)]
-carriedLines carried =
-    foldMap (\(parent, lines') -> map (Just parent,) lines') (carriedFromParent carried)
-        <> map (Nothing,) (carriedOwn carried)
 
 {- | How the history names what a change points at: by name where the database
 still holds it, by identifier where it does not, as for an activity deleted
@@ -214,7 +214,7 @@ data Provenance = Provenance
 was made from, that its publisher did not make these changes, and every change
 with its reason, oldest first.
 -}
-changesReport :: Provenance -> Carried Text -> Text
+changesReport :: Provenance -> Carried (Journal Text) -> Text
 changesReport provenance carried =
     T.unlines $
         [ "# Changes to " <> pvDatabase provenance
@@ -225,13 +225,13 @@ changesReport provenance carried =
         ]
             <> maybe [] (\key -> ["", reallocated key]) (pvReallocated provenance)
             <> foldMap fromParent (carriedFromParent carried)
-            <> concatMap section (carriedOwn carried)
+            <> concatMap section (journalLines (carriedOwn carried))
   where
-    fromParent (_, []) = []
-    fromParent (parent, lines') =
+    fromParent (Journal _ []) = []
+    fromParent (Journal parent lines') =
         ["", "Changes made on " <> parent <> ", the parent this database is divided from, which its data carry:"]
             <> concatMap section lines'
-            <> (if null (carriedOwn carried) then [] else ["", "Changes made on this database:"])
+            <> (if null (journalLines (carriedOwn carried)) then [] else ["", "Changes made on this database:"])
     reallocated reading = case reading of
         FromFiles ReadWhole -> "Multi-output processes are kept whole, not divided as the original divides them."
         FromFiles ReadDeclared -> "Multi-output processes are divided by the shares the original declares."

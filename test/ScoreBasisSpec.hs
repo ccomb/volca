@@ -8,6 +8,7 @@ import Config (DatabaseConfig (..), MethodConfig (..), MethodOrigin (..), Method
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
+import Data.Foldable (toList)
 import Database.Manager (BasisSources (..), basisOf, journalsCarried)
 import Method.Journal (MethodOp (..), changesScores)
 import Method.Types (ScoringSet (..), ScoringSetOrigin (..))
@@ -115,9 +116,9 @@ spec = describe "what a score rests on" $ do
         map bdEdited (databasesOf ["farm-parent"] ["farm-child-copy"]) `shouldBe` [True]
 
     it "reads the journals of the parent a database is divided from, then its own" $ do
-        let carried = map dcName . journalsCarried configs
+        let carried = map dcName . toList . journalsCarried configs
         map carried [child, childCopy, copy, parent] `shouldBe` [["farm-parent", "farm-child"], ["farm-parent", "farm-child-copy"], ["farm-copy"], ["farm-parent"]]
-        map dcName (journalsCarried (M.delete "farm-parent" configs) child) `shouldBe` ["farm-child"]
+        map dcName (toList (journalsCarried (M.delete "farm-parent" configs) child)) `shouldBe` ["farm-child"]
 
     it "says a database whose configuration adjusts its amounts is patched" $ do
         let zeroed = ExchangePatch{xpDescription = Nothing, xpMatch = ExchangePatchMatch Nothing Nothing Nothing (Just "Diesel") Nothing, xpOp = SetValueTo 0}
