@@ -8,7 +8,7 @@ import Config (DatabaseConfig (..), MethodConfig (..), MethodOrigin (..), Method
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
-import Database.Manager (basisOf)
+import Database.Manager (BasisSources (..), basisOf)
 import Method.Journal (MethodOp (..), changesScores)
 import Method.Types (ScoringSet (..), ScoringSetOrigin (..))
 import Test.Hspec
@@ -73,10 +73,10 @@ configs = M.fromList [(dcName c, c) | c <- [declared, copy, child, parent, datab
 
 -- | The databases of a basis, read with the farm database's journal recording a change or not.
 databasesOf :: Bool -> [Text] -> [BasisDatabase]
-databasesOf farmEdited names = fst (basisOf configs (S.fromList ["farm" | farmEdited]) M.empty False names "methods")
+databasesOf farmEdited names = fst (basisOf (BasisSources configs (S.fromList ["farm" | farmEdited]) M.empty False) names "methods")
 
 methodsOf :: M.Map Text MethodConfig -> Bool -> Text -> BasisMethods
-methodsOf methodConfigs edited name = snd (basisOf M.empty S.empty methodConfigs edited [] name)
+methodsOf methodConfigs edited name = snd (basisOf (BasisSources M.empty S.empty methodConfigs edited) [] name)
 
 scoringSet :: ScoringSet
 scoringSet =
@@ -112,7 +112,7 @@ spec = describe "what a score rests on" $ do
     it "says a database whose configuration adjusts its amounts is patched" $ do
         let zeroed = ExchangePatch{xpDescription = Nothing, xpMatch = ExchangePatchMatch Nothing Nothing Nothing (Just "Diesel") Nothing, xpOp = SetValueTo 0}
             patched = M.insert "farm" declared{dcPatches = [zeroed]} configs
-        map bdPatched (fst (basisOf patched S.empty M.empty False ["farm"] "methods")) `shouldBe` [True]
+        map bdPatched (fst (basisOf (BasisSources patched S.empty M.empty False) ["farm"] "methods")) `shouldBe` [True]
 
     it "names the collection at the start of a chain of copies" $ do
         let methods = M.fromList [("ef", collection "ef"), ("ef-mine", (collection "ef-mine"){mcSource = Just "ef"}), ("ef-mine-2", (collection "ef-mine-2"){mcSource = Just "ef-mine"})]

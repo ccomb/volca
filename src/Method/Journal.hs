@@ -173,9 +173,19 @@ is still the published method.
 -}
 changesScores :: MethodOp -> Bool
 changesScores = \case
-    CreateScoringSet _ -> False
-    RemoveScoringSet _ -> False
-    _ -> True
+    SetFactor{} -> True
+    PatchFactors{} -> True
+    RestoreFactors{} -> True
+    SetGlobalMethods{} -> True
+    RemoveFactor{} -> True
+    AddFactor{} -> True
+    CreateScoringSet{} -> False
+    RemoveScoringSet{} -> False
+    AddCategory{} -> True
+    RenameCategory{} -> True
+    SetCategoryUnit{} -> True
+    RemoveCategory{} -> True
+    ChangeScoringSet{} -> True
 
 -- ---------------------------------------------------------------------------
 -- Applying it

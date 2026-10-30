@@ -551,8 +551,7 @@ activityBasis dbManager collection sol mSub =
         dbManager
         (map reachedName (NE.toList (SharedSolver.csScalings sol)))
         collection
-        (foldMap srSubstitutions mSub)
-        (filter (not . null) (map srParameters (maybeToList mSub)))
+        (DM.Asked (foldMap srSubstitutions mSub) (filter (not . null) (map srParameters (maybeToList mSub))))
 
 -- | Per-category single-line log within a batch.
 logBatchCategory :: Int -> LCIAResult -> IO ()
@@ -1270,7 +1269,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
     entries <- either scoringError pure (sequence entriesE)
     t2 <- liftIO getCurrentTime
     -- No substitution in a batch: what it may read is the dependencies.
-    basis <- liftIO (DM.databasesRead dbManager dbName >>= \names -> DM.scoreBasis dbManager names collectionName [] (birParameterSets req))
+    basis <- liftIO (DM.databasesRead dbManager dbName >>= \names -> DM.scoreBasis dbManager names collectionName (DM.Asked [] (birParameterSets req)))
     liftIO $
         reportProgress Info $
             "[batch-impacts] "

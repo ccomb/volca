@@ -1546,7 +1546,7 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
         liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
     cutoffs <- liftIO (Impact.licencedCutoffs dbManager licenced)
     inventoryWithheld <- liftIO (Impact.withheldDatabases dbManager ReadInventory sol)
-    basis <- liftIO (DM.scoreBasis dbManager (map SharedSolver.reachedName (NE.toList (SharedSolver.csScalings sol))) collection subs [values | not (null values)])
+    basis <- liftIO (DM.scoreBasis dbManager (map SharedSolver.reachedName (NE.toList (SharedSolver.csScalings sol))) collection (DM.Asked subs [values | not (null values)]))
     let inventory = SharedSolver.csInventory shown
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method

@@ -55,7 +55,9 @@ module Database.Manager (
     editHome,
     databaseModification,
     filesOwner,
+    Asked (..),
     scoreBasis,
+    BasisSources (..),
     basisOf,
     databasesRead,
     scenariosHome,
@@ -885,9 +887,9 @@ not ask its computations to be counted is not counted: both are left out.
 -}
 releasesRead :: DatabaseManager -> Text -> IO [CountedRelease]
 releasesRead manager dbName = do
-    loaded <- readTVarIO (dmLoadedDbs manager)
+    names <- databasesRead manager dbName
     configs <- readTVarIO (dmAvailableDbs manager)
-    let read' = concatMap (sourceChain configs) (dbName : dependencyNames loaded dbName)
+    let read' = concatMap (sourceChain configs) names
         counted config = case licenceUsage (licenceOf configs config) of
             Counted disclosure -> (`CountedRelease` disclosure) <$> dcRelease config
             NotCounted -> Nothing
@@ -2980,13 +2982,18 @@ databaseModification configs config = do
     edited <- maybe (pure False) Journal.journalHasEntries =<< editHome config
     pure Modification{modificationEdited = edited, modificationReallocated = dcReading (filesOwner configs config) /= dcReading config}
 
+-- | What a request substituted, and the parameter sets it scored at.
+data Asked = Asked
+    { askedSubstitutions :: [Substitution]
+    , askedParameterSets :: [[ParameterValue]]
+    }
+
 {- | What a score rests on: the databases it read, the database asked first,
-the collection, and what the request substituted and set. Reads the journals
-along the databases' chains of sources and the collection's; 'basisOf' says
-the rest.
+the collection, and what the request asked. Reads the journals along the
+databases' chains of sources and the collection's; 'basisOf' says the rest.
 -}
-scoreBasis :: DatabaseManager -> [Text] -> CollectionName -> [Substitution] -> [[ParameterValue]] -> IO ScoreBasis
-scoreBasis manager names (CollectionName collection) substitutions parameterSets = do
+scoreBasis :: DatabaseManager -> [Text] -> CollectionName -> Asked -> IO ScoreBasis
+scoreBasis manager names (CollectionName collection) asked = do
     configs <- readTVarIO (dmAvailableDbs manager)
     methodConfigs <- readTVarIO (dmAvailableMethods manager)
     journaled <- filterM (journalHasLines configs) (nubOrd (concatMap (sourceChain configs) names))
@@ -2994,16 +3001,17 @@ scoreBasis manager names (CollectionName collection) substitutions parameterSets
         Nothing -> pure False
         -- A journal that cannot be read refuses the collection's load, so it scores nothing to say so of.
         Just home -> either (const True) (any (changesScores . mlOp . jeOp)) <$> readEntries home
-    let (databases, methods) = basisOf configs (S.fromList journaled) methodConfigs methodEdited names collection
+    let (databases, methods) = basisOf (BasisSources configs (S.fromList journaled) methodConfigs methodEdited) names collection
     pure
         ScoreBasis
             { sbEngine = T.pack (Version.version <> " (" <> Version.gitHash <> ")")
             , sbDatabases = databases
             , sbMethods = methods
-            , sbSubstitutions = substitutions
-            , sbParameterSets = parameterSets
+            , sbSubstitutions = askedSubstitutions asked
+            , sbParameterSets = askedParameterSets asked
             }
   where
+    journalHasLines :: M.Map Text DatabaseConfig -> Text -> IO Bool
     journalHasLines configs name = case M.lookup name configs of
         Nothing -> pure False
         Just config -> maybe (pure False) Journal.journalHasEntries =<< editHome config
@@ -3012,15 +3020,24 @@ scoreBasis manager names (CollectionName collection) substitutions parameterSets
 databasesRead :: DatabaseManager -> Text -> IO [Text]
 databasesRead manager dbName = (dbName :) . (`dependencyNames` dbName) <$> readTVarIO (dmLoadedDbs manager)
 
-{- | The databases and the collection a score read, given the databases whose
-own journal records a change and whether the collection's journal changes a
-score. A name the engine no longer configures is left out, having no
-configuration to tell.
+-- | What 'basisOf' reads: the configurations, and what the journals say.
+data BasisSources = BasisSources
+    { srcDatabases :: M.Map Text DatabaseConfig
+    , srcJournaled :: S.Set Text
+    -- ^ The databases whose own journal records a change.
+    , srcCollections :: M.Map Text MethodConfig
+    , srcCollectionEdited :: Bool
+    -- ^ Whether the collection's journal changes a score.
+    }
+
+{- | The databases and the collection a score read. A name the engine no
+longer configures is left out, having no configuration to tell.
 -}
-basisOf :: M.Map Text DatabaseConfig -> S.Set Text -> M.Map Text MethodConfig -> Bool -> [Text] -> Text -> ([BasisDatabase], BasisMethods)
-basisOf configs journaled methodConfigs methodEdited names collection =
+basisOf :: BasisSources -> [Text] -> Text -> ([BasisDatabase], BasisMethods)
+basisOf (BasisSources configs journaled methodConfigs methodEdited) names collection =
     (map basisDatabase (mapMaybe (`M.lookup` configs) (nubOrd names)), methods)
   where
+    basisDatabase :: DatabaseConfig -> BasisDatabase
     basisDatabase config =
         let owner = filesOwner configs config
          in BasisDatabase
@@ -3040,7 +3057,9 @@ basisOf configs journaled methodConfigs methodEdited names collection =
         | S.member (dcName current) journaled = True
         | ByModel _ <- dcReading current, Just parent <- dcSource current >>= (`M.lookup` configs), fuel > 0 = editedAlong (fuel - 1) parent
         | otherwise = False
+    methodConfig :: Maybe MethodConfig
     methodConfig = M.lookup collection methodConfigs
+    methods :: BasisMethods
     methods =
         BasisMethods
             { bmCollection = collection
@@ -3048,6 +3067,7 @@ basisOf configs journaled methodConfigs methodEdited names collection =
             , bmModified = methodEdited || any (\c -> not (null (mcPatches c)) || not (null (mcGlobalMethods c))) methodConfig
             }
     -- Bounded by the number of collections, so a cycle written by hand ends.
+    original :: Text
     original = go (M.size methodConfigs) collection
     go :: Int -> Text -> Text
     go fuel name = case mcSource =<< M.lookup name methodConfigs of
