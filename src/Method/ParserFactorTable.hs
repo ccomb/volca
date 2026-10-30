@@ -182,7 +182,7 @@ familyCollections masterFlows table = do
     unitOf family (category, indicator) =
         maybe (Left ("the Indicators sheet gives no unit for " <> family <> " / " <> category <> " / " <> indicator)) Right (M.lookup (family, category, indicator) (ftUnits table))
 
-    method facts family (category, indicator) name unit rows =
+    method facts family (category, _) name unit rows =
         Method
             { -- Written to CSV and read back, which derives its own identifiers.
               methodId = UUID.nil

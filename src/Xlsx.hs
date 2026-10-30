@@ -153,7 +153,7 @@ number.
 -}
 foldSheetXml :: Maybe (V.Vector Text) -> (a -> Row -> a) -> a -> BS.ByteString -> Either Text a
 foldSheetXml sharedStrings step start bytes =
-    first (\e -> "worksheet: " <> T.pack (show e)) (scAcc <$> SAX.fold open attribute (\s _ -> s) text close text initial bytes)
+    first (\e -> "worksheet: " <> T.pack (show e)) (scAcc <$> SAX.fold open attribute const text close text initial bytes)
   where
     initial = Scan{scAcc = start, scRow = M.empty, scTag = "", scColumn = Nothing, scType = Nothing, scText = Nothing, scCollecting = False}
     open s tag = case tag of
