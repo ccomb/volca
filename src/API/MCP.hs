@@ -78,7 +78,7 @@ import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, Terms (..), UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, readingKey, withheldSentence)
-import Usage (ProcessKey (..), UsageKind (..), UsageLog, Use (..), authorOf, readerOf, recordUse)
+import Usage (Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
 -- JSON-RPC 2.0 types
@@ -231,7 +231,7 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
                         respond $ jsonResponse (mcpSessionId st) $ rpcError noRequestId (-32700) (T.pack $ "Parse error: " ++ err)
                     Right rpcReq -> do
                         let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
-                        resp <- runCall (handleRpc (readerOf hdrs) (authorOf hdrs) dbManager presets mHosting mBaseUrl mName st rpcReq)
+                        resp <- runCall (handleRpc (callerOf hdrs) dbManager presets mHosting mBaseUrl mName st rpcReq)
                         forM_ mUsage $ \lg ->
                             noteToolCall dbManager (recordUse lg (usageLookup dbManager) (readerOf hdrs)) rpcReq resp
                         case resp of
@@ -283,12 +283,12 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
 -- RPC dispatch
 -- ---------------------------------------------------------------------------
 
-handleRpc :: Maybe Text -> Maybe Author -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpState -> RpcRequest -> IO (Maybe Value)
-handleRpc reader by dbManager presets mHosting mBaseUrl mName _st req = case rpcMethod req of
+handleRpc :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpState -> RpcRequest -> IO (Maybe Value)
+handleRpc caller dbManager presets mHosting mBaseUrl mName _st req = case rpcMethod req of
     "initialize" -> Just <$> handleInitialize mName req
     "notifications/initialized" -> return Nothing -- notification, no response
     "tools/list" -> return $ Just $ handleToolsList (hostingReadOnly mHosting) req
-    "tools/call" -> Just <$> handleToolsCall reader by dbManager presets mHosting mBaseUrl req
+    "tools/call" -> Just <$> handleToolsCall caller dbManager presets mHosting mBaseUrl req
     "ping" -> return $ Just $ rpcResult (answerId req) (object [])
     other ->
         return $
@@ -580,12 +580,12 @@ paramsToSchema ps =
 -- tools/call dispatch
 -- ---------------------------------------------------------------------------
 
-handleToolsCall :: Maybe Text -> Maybe Author -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RpcRequest -> IO Value
-handleToolsCall reader by dbManager presets mHosting mBaseUrl req = do
+handleToolsCall :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RpcRequest -> IO Value
+handleToolsCall caller dbManager presets mHosting mBaseUrl req = do
     let rid = answerId req
     case rpcParams req >>= parseCallParams of
         Nothing -> return $ rpcError rid (-32602) "Invalid params: expected {name, arguments}"
-        Just (toolName, args) -> callTool reader by dbManager presets mHosting mBaseUrl rid toolName args
+        Just (toolName, args) -> callTool caller dbManager presets mHosting mBaseUrl rid toolName args
 
 {- | Note in the usage log a tool call that answered, once for each process it
 was asked about in a database that holds it. Read from the call rather than
@@ -653,15 +653,15 @@ A read-only instance refuses the state-changing tools before dispatch. Which
 tools those are comes from the resource registry ('resourceMutates'), so a
 newly added mutating tool is covered here without touching this function.
 -}
-callTool :: Maybe Text -> Maybe Author -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> IO Value
-callTool _ _ _ _ mHosting _ rid name _
+callTool :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> IO Value
+callTool _ _ _ mHosting _ rid name _
     | isReadOnly (hostingReadOnly mHosting) && mutatingTool name =
         return $ toolError rid (readOnlyRefusalFor mHosting)
 -- A preset the instance does not carry is refused here rather than in each
 -- handler, so no tool can answer as if the caller had asked for no filter.
-callTool _ _ _ presets _ _ rid _ args
+callTool _ _ presets _ _ rid _ args
     | Left err <- presetFilters presets args = return $ toolError rid err
-callTool reader by dbManager presets mHosting mBaseUrl rid name args = do
+callTool caller@(Caller reader _) dbManager presets mHosting mBaseUrl rid name args = do
     terms <- DM.termsToAccept dbManager (databasesOfCall name args)
     accepted <- DM.acceptedTerms dbManager reader
     licences <- requestedLicences dbManager args
@@ -670,7 +670,7 @@ callTool reader by dbManager presets mHosting mBaseUrl rid name args = do
         (_, Just refusal) -> pure (toolError rid refusal)
         ([], Nothing) -> case R.fromMcpName name of
             Nothing -> pure (toolError rid ("Unknown tool: " <> name))
-            Just resource -> dispatchTool reader by dbManager presets mHosting mBaseUrl rid resource args (licenceOfDatabase licences)
+            Just resource -> dispatchTool caller dbManager presets mHosting mBaseUrl rid resource args (licenceOfDatabase licences)
 
 {- | The databases a call reads: those it names, and those its substitutions
 reach into. Loading or unloading one reads none of its data, and accepting its
@@ -738,8 +738,8 @@ answer to it. A call naming none reads none, so there is nothing to trim.
 licenceOfDatabase :: [NamedLicence] -> Licence
 licenceOfDatabase = maybe LicenceUnstated nlLicence . find ((== "database") . nlArgument)
 
-dispatchTool :: Maybe Text -> Maybe Author -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> R.Resource -> KeyMap Value -> Licence -> IO Value
-dispatchTool reader by dbManager presets mHosting mBaseUrl rid resource args licence = case resource of
+dispatchTool :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> R.Resource -> KeyMap Value -> Licence -> IO Value
+dispatchTool (Caller reader by) dbManager presets mHosting mBaseUrl rid resource args licence = case resource of
     R.ListDatabases -> callListDatabases dbManager rid
     R.AcceptTerms -> callAcceptTerms reader dbManager rid args
     R.LoadDatabase -> callLoadDatabase dbManager mHosting rid args

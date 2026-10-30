@@ -32,6 +32,7 @@ import Database.Manager (CachePolicy (..), DatabaseManager (..), addDatabase, ge
 import FlowContributionSpec (payloadOf, sampleConfig)
 import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..))
 import Types (BiosphereFlow (..))
+import Usage (anonymous)
 
 methodNamed :: Integer -> Text -> Text -> [MethodCF] -> Method
 methodNamed n name unit factors =
@@ -159,7 +160,7 @@ spec = describe "the factors of one flow" $ do
         manager <- loadedManager
         fid <- carbonDioxide manager
         reply <-
-            callTool Nothing Nothing manager [] Nothing (Just "http://ui") noRequestId "get_flow_factors" $
+            callTool anonymous manager [] Nothing (Just "http://ui") noRequestId "get_flow_factors" $
                 KM.fromList [("database", String "sample"), ("flow_id", String (UUID.toText fid)), ("collection", String "water-only")]
         payload <- maybe (fail ("unexpected reply: " <> show reply)) pure (payloadOf reply)
         (KM.lookup "web_url" payload, noFactorOf payload)

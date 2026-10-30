@@ -71,6 +71,7 @@ import Types (
     processIdToText,
  )
 import UnitConversion (defaultUnitConfig)
+import Usage (anonymous)
 
 spec :: Spec
 spec = describe "classification filter match mode" $ do
@@ -166,7 +167,7 @@ spec = describe "classification filter match mode" $ do
 
 tool :: DatabaseManager -> [ClassificationPreset] -> Text -> [(Key, Value)] -> IO Value
 tool manager presets name args =
-    callTool Nothing Nothing manager presets Nothing Nothing noRequestId name (KM.fromList (("database", String fixtureName) : args))
+    callTool anonymous manager presets Nothing Nothing noRequestId name (KM.fromList (("database", String fixtureName) : args))
 
 -- | A field of a tool reply's JSON payload, followed down the given keys.
 answerAt :: [Key] -> Value -> Maybe Value

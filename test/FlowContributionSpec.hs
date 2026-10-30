@@ -52,6 +52,7 @@ import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), addDatabase, initDatabaseManager, loadDatabase)
 import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
+import Usage (anonymous)
 
 -- | The factor and the contribution, in that order, as every surface reports them.
 type FactorAndContribution = (Double, Double)
@@ -192,7 +193,7 @@ mcpPayload :: Maybe Text -> Text -> [(Key, Value)] -> IO Object
 mcpPayload mBaseUrl tool extraArgs = do
     manager <- loadedManager
     reply <-
-        callTool Nothing Nothing manager [] Nothing mBaseUrl noRequestId tool $
+        callTool anonymous manager [] Nothing mBaseUrl noRequestId tool $
             KM.fromList $
                 [ ("database", String "sample")
                 , ("process_id", String productD)

@@ -31,6 +31,7 @@ import qualified API.Resources as R
 import API.Routes (getActivityComparison, getActivityInventory)
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..))
+import Data.JournalFile (Author (..))
 import qualified Database.Manager as DM
 import DependencyLicenceSpec (dependency, managerOn, root, rootPid)
 import Types (Acceptance (..), Attribution (..), CountedRelease (..), Disclosure (..), Licence (..), OwnLicence (..), Release (..), UsageCount (..), processIdToText, termsAsked)
@@ -110,6 +111,13 @@ callMcp manager lg reader tool args = do
 
 spec :: Spec
 spec = do
+    describe "who a change is signed by" $
+        it "is the account and its public name, and nobody when the name is missing or blank" $ do
+            authorOf [(readerHeader, "acc-1"), (authorHandleHeader, "ana")] `shouldBe` Just (Author "acc-1" "ana")
+            authorOf [(readerHeader, "acc-1"), (authorHandleHeader, "")] `shouldBe` Nothing
+            authorOf [(readerHeader, "acc-1")] `shouldBe` Nothing
+            authorOf [(authorHandleHeader, "ana")] `shouldBe` Nothing
+
     describe "the log's bookkeeping" $ do
         it "numbers lines from one and drops the oldest past the cap, saying how many" $ do
             let (d1, s1) = appendLine 2 lineNo emptyLog
