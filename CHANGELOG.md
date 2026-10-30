@@ -18,6 +18,22 @@
   `compare_impacts` and a batch carry it as `basis`; the databases of a
   substituted score are the ones its chain reached, those of a batch the
   dependencies. Wire revision 99.
+- A method collection can be uploaded as a workbook that lists one
+  characterization factor per row, under the labels `Method, Category,
+  Indicator, Name, Compartment, Subcompartment, CF`, with an `Indicators`
+  sheet giving each indicator its unit. It is the form in which methods are
+  published beside an EcoSpold 2 release. Each method family of the workbook
+  becomes a collection of its own, named after the upload and the family,
+  and saved as a columnar CSV; the workbook itself is not kept. The table
+  names a flow by name and compartment only, so the unit each factor is
+  written per, and the flow's CAS number, come from the master data
+  (`MasterData/ElementaryExchanges.xml`) of an EcoSpold 2 database already
+  uploaded: the only one there is, or the one named by `flows_from` on
+  `POST /method-collections/upload`. The answer lists the collections made,
+  with their number of factors, and the factors left out because the master
+  data has no flow of that name and compartment. A collection uploaded as a
+  columnar CSV now says so in its format, where it said nothing before
+  (wire revision 101).
 - A system model can set parameters of the parent's processes, under
   `[[method_parameters]]`: a name, a value and a reason. Every process of the
   parent that declares that input parameter takes the value in the child, and

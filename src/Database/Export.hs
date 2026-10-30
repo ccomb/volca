@@ -106,6 +106,8 @@ serializeDatabase units fmt saved dependencies db = fmap (fmap (linkWarnings <>)
     BrightwayExcel -> dependencies >>= \deps -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig{BE.wcDependencies = deps} sdb
     OpenLcaImpactCategory ->
         Left "openLCA JSON-LD export is not supported"
+    ColumnarCSV ->
+        Left "a columnar CSV holds methods, not a database"
     OpenLcaPackage -> first zipFiles <$> OLCA.serializeOlcaPackage units saved sdb
     UnknownFormat ->
         Left "cannot export to an unknown format"

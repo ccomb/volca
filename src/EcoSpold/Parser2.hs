@@ -2,10 +2,11 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile, parseUnitConversions) where
+module EcoSpold.Parser2 (streamParseActivityAndFlowsFromFile, parseUnitConversions, MasterFlow (..), parseElementaryExchanges) where
 
 import Amount (readAmount)
 import Control.Applicative ((<|>))
+import Control.Monad (mfilter)
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
 import Data.Containers.ListUtils (nubOrd)
@@ -1368,15 +1369,54 @@ parseUnitConversions files = do
         Right ((from, to), factor)
 
     side :: BS.ByteString -> XD.Node -> Either String Text
-    side element node = case filter english (named element node) of
-        found : _ -> Right (T.strip (T.concat [bsToText t | XD.Text t <- XD.contents found]))
-        [] -> Left ("unit conversion without an English " <> show element)
+    side element = maybe (Left ("unit conversion without an English " <> show element)) Right . englishText element
 
-    english :: XD.Node -> Bool
+{- | An elementary flow as the master data file @ElementaryExchanges.xml@
+describes it: what a table of characterization factors, which names its flows
+by name and compartment alone, is missing to be read as a method.
+-}
+data MasterFlow = MasterFlow
+    { mfName :: !Text
+    , mfCompartment :: !Text
+    , mfSubcompartment :: !Text
+    , mfUnit :: !Text
+    , mfCAS :: !(Maybe Text)
+    -- ^ As the file writes it, padding included; 'Nothing' when it states none.
+    }
+    deriving (Eq, Show)
+
+-- | Every @\<elementaryExchange\>@ of an @ElementaryExchanges.xml@, by its English names.
+parseElementaryExchanges :: BS.ByteString -> Either String [MasterFlow]
+parseElementaryExchanges bytes = do
+    root <- first show (XD.parse bytes)
+    traverse flow (named "elementaryExchange" root)
+  where
+    flow :: XD.Node -> Either String MasterFlow
+    flow node = do
+        name <- required "name" node
+        compartment <- maybe (Left (T.unpack name <> ": elementary exchange without a compartment")) Right (listToMaybe (named "compartment" node))
+        top <- required "compartment" compartment
+        unit <- required "unitName" node
+        Right
+            MasterFlow
+                { mfName = name
+                , mfCompartment = top
+                , mfSubcompartment = fromMaybe "" (englishText "subcompartment" compartment)
+                , mfUnit = unit
+                , mfCAS = mfilter (not . T.null) (T.strip . bsToText <$> lookup "casNumber" (XD.attributes node))
+                }
+    required element node = maybe (Left ("elementary exchange without an English " <> show element)) Right (englishText element node)
+
+-- | The stripped English text of the first child of that name.
+englishText :: BS.ByteString -> XD.Node -> Maybe Text
+englishText element node = case filter english (named element node) of
+    found : _ -> Just (T.strip (T.concat [bsToText t | XD.Text t <- XD.contents found]))
+    [] -> Nothing
+  where
     english = readableAsEnglish . maybe "" bsToText . lookup "xml:lang" . XD.attributes
 
-    named :: BS.ByteString -> XD.Node -> [XD.Node]
-    named element = filter ((`isElement` element) . XD.name) . XD.children
+named :: BS.ByteString -> XD.Node -> [XD.Node]
+named element = filter ((`isElement` element) . XD.name) . XD.children
 
 -- | Send what a reading had to say to the progress log, the one place it can go.
 reportReading :: FilePath -> ParsedDataset -> IO ()
