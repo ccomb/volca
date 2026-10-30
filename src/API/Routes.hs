@@ -547,9 +547,9 @@ request substituted and set.
 -}
 activityBasis :: DatabaseManager -> DM.CollectionName -> SharedSolver.CrossDBSolution -> Maybe SubstitutionRequest -> IO ScoreBasis
 activityBasis dbManager collection sol mSub =
-    DM.scoreBasis
+    DM.solutionBasis
         dbManager
-        (map reachedName (NE.toList (SharedSolver.csScalings sol)))
+        sol
         collection
         (DM.Asked (foldMap srSubstitutions mSub) (filter (not . null) (map srParameters (maybeToList mSub))))
 
@@ -1668,7 +1668,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 100: the @database@ each line of a database's history was made on,
+(revision 101: the @basis@ of a score on its contributing flows and activities
+and on the baseline of a sensitivity sweep;
+revision 100: the @database@ each line of a database's history was made on,
 its own or the parent a child is divided from, whose changes the child carries;
 revision 99: the @basis@ of a score, what it rests on: the engine, the
 databases read and how each differs from its release, the method collection,
@@ -1887,7 +1889,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 100
+currentWireVersion = 101
 
 getVersion :: AppM Value
 getVersion = do
@@ -2398,9 +2400,10 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
     perturbed <-
         liftIO $
             mapConcurrently (buildEntry baselineLcia) perResults
+    basis <- liftIO (activityBasis dbManager collectionName baselineSol Nothing)
     pure
         SensitivityResponse
-            { srBaseline = baselineLcia
+            { srBaseline = baselineLcia{lrBasis = Just basis}
             , srPerturbed = perturbed
             , srCutoffInputs = cutoffShown baselineCutoffs
             , srWithheldCutoffs = cutoffWithheld baselineCutoffs
@@ -2934,6 +2937,7 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
         ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
         cutoffs <- liftIO (Impact.licencedCutoffs dbManager ls)
         top <- liftIO (licencedTopFlows dbManager collectionName method tables ls score lim) >>= either scoringError pure
+        basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
         return
             ContributingFlowsResult
                 { cfrMethod = methodName method
@@ -2943,6 +2947,7 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
                 , cfrWithheldDatabases = tfWithheld top
                 , cfrCutoffInputs = cutoffShown cutoffs
                 , cfrWithheldCutoffs = cutoffWithheld cutoffs
+                , cfrBasis = basis
                 }
 
 getContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
@@ -2961,7 +2966,8 @@ getContributingActivities dbName processIdText collectionName methodIdText limit
                 >>= either scoringError pure
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
         cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
-        liftIO $ activitiesResult dbManager dbName Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs} lim (Impact.splitProcessParts withheld contributions)
+        basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
+        liftIO $ activitiesResult dbManager dbName Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs, hdBasis = basis} lim (Impact.splitProcessParts withheld contributions)
 
 -- | What a list of contributions answers for, as the answer names it.
 data Heading = Heading
@@ -2969,6 +2975,8 @@ data Heading = Heading
     , hdUnit :: Text
     , hdCutoffs :: Cutoffs
     -- ^ The cut-offs of the solution the list is read from
+    , hdBasis :: ScoreBasis
+    -- ^ What the score the list adds up to rests on
     }
 
 {- | The biggest contributing activities of a score, from every activity's
@@ -2996,6 +3004,7 @@ activitiesResult dbManager dbName heading lim Impact.ProcessParts{Impact.ppShown
             , carWithheldDatabases = Service.withheldShares score withheld
             , carCutoffInputs = cutoffShown (hdCutoffs heading)
             , carWithheldCutoffs = cutoffWithheld (hdCutoffs heading)
+            , carBasis = hdBasis heading
             }
   where
     score :: Double
@@ -3032,8 +3041,9 @@ withActivityAndScore ScoreQuery{sqDbName = dbName, sqCollection = collectionName
         solutionWithDeps dbName db sharedSolver pid
             >>= liftIO . Impact.withLongTermPolicy dbManager (longTermModeFromExclude (fromMaybe False mExcludeLT))
     cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
+    basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
     liftIO (k Score.Source{srcManager = dbManager, srcDbName = dbName, srcDatabase = db, srcCollection = collectionName} rs sol)
-        >>= either refused (pure . (,) (scoreHeading rs cutoffs))
+        >>= either refused (pure . (,) (scoreHeading rs cutoffs basis))
   where
     refused :: Score.ScoreRefusal -> AppM b
     refused = \case
@@ -3044,8 +3054,8 @@ withActivityAndScore ScoreQuery{sqDbName = dbName, sqCollection = collectionName
     utf8Body :: Text -> BSL.ByteString
     utf8Body = BSL.fromStrict . T.encodeUtf8
 
-scoreHeading :: Score.ResolvedScore -> Cutoffs -> Heading
-scoreHeading rs cutoffs = Heading{hdName = Score.scoreTitle rs, hdUnit = Score.scoreUnit rs, hdCutoffs = cutoffs}
+scoreHeading :: Score.ResolvedScore -> Cutoffs -> ScoreBasis -> Heading
+scoreHeading rs cutoffs basis = Heading{hdName = Score.scoreTitle rs, hdUnit = Score.scoreUnit rs, hdCutoffs = cutoffs, hdBasis = basis}
 
 getScoreContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
 getScoreContributingActivities dbName processIdText collectionName setName scoreName limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
@@ -3088,6 +3098,7 @@ getScoreContributingFlows dbName processIdText collectionName setName scoreName 
             , cfrWithheldDatabases = Service.withheldShares total withheld
             , cfrCutoffInputs = cutoffShown (hdCutoffs heading)
             , cfrWithheldCutoffs = cutoffWithheld (hdCutoffs heading)
+            , cfrBasis = hdBasis heading
             }
 
 getFlowDetail :: Text -> Text -> AppM FlowDetail

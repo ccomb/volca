@@ -2669,6 +2669,9 @@ class ContributingFlows:
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
     """How many such inputs sit inside each database whose licence keeps
     its detail to itself, the one asked included."""
+    basis: ScoreBasis | None = None
+    """What the score these flows add up to rests on (wire revision 101);
+    ``None`` from an older engine."""
 
     @classmethod
     def from_json(cls, d: dict) -> "ContributingFlows":
@@ -2680,6 +2683,7 @@ class ContributingFlows:
             withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
             withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
+            basis=ScoreBasis.maybe(d.get("basis")),
         )
 
 
@@ -2703,6 +2707,9 @@ class ContributingActivities:
     withheld_cutoffs: list[WithheldCutoffs] = field(default_factory=list)
     """How many such inputs sit inside each database whose licence keeps
     its detail to itself, the one asked included."""
+    basis: ScoreBasis | None = None
+    """What the score these activities add up to rests on (wire revision
+    101); ``None`` from an older engine."""
 
     @classmethod
     def from_json(cls, d: dict) -> "ContributingActivities":
@@ -2714,6 +2721,7 @@ class ContributingActivities:
             withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
             withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
+            basis=ScoreBasis.maybe(d.get("basis")),
         )
 
 

@@ -18,6 +18,10 @@
   `compare_impacts` and a batch carry it as `basis`; the databases of a
   substituted score are the ones its chain reached, those of a batch the
   dependencies. Wire revision 99.
+- The flows and the activities a score breaks down into, by impact category
+  or by single score, and the baseline of a sensitivity sweep say what their
+  score rests on, as `basis`, so a share quoted alone keeps it. Wire
+  revision 101.
 - A system model can set parameters of the parent's processes, under
   `[[method_parameters]]`: a name, a value and a reason. Every process of the
   parent that declares that input parameter takes the value in the child, and

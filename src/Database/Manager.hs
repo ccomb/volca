@@ -58,6 +58,7 @@ module Database.Manager (
     filesOwner,
     Asked (..),
     scoreBasis,
+    solutionBasis,
     BasisSources (..),
     basisOf,
     databasesRead,
@@ -2995,6 +2996,11 @@ data Asked = Asked
 the collection, and what the request asked. Reads the journals along the
 databases' chains of sources and the collection's; 'basisOf' says the rest.
 -}
+
+-- | What a solved score rests on: the databases its solution reached, the one asked first.
+solutionBasis :: DatabaseManager -> SharedSolver.CrossDBSolution -> CollectionName -> Asked -> IO ScoreBasis
+solutionBasis manager sol = scoreBasis manager (map SharedSolver.reachedName (NE.toList (SharedSolver.csScalings sol)))
+
 scoreBasis :: DatabaseManager -> [Text] -> CollectionName -> Asked -> IO ScoreBasis
 scoreBasis manager names (CollectionName collection) asked = do
     configs <- readTVarIO (dmAvailableDbs manager)

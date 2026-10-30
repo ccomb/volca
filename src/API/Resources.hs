@@ -739,7 +739,8 @@ description r = case r of
         \perturbation with the new score and deltaImpact. Per-perturbation errors \
         \(no link, singular update) are returned in the entry; the sweep continues. \
         \Internally uses Sherman-Morrison rank-1 updates against the cached \
-        \factorization (~4 ms per perturbation). V1: root DB only."
+        \factorization (~4 ms per perturbation). V1: root DB only. 'basis' says \
+        \what the scores rest on, as get_impacts does: the root database alone."
             <> webUrlTip "sensitivity"
     GetReducedModel ->
         "LCA / ACV: the scores of an activity as a function of some input \
@@ -838,7 +839,8 @@ description r = case r of
         \drive my climate change score?'. Each flow carries 'match_kind': how \
         \its factor was found, in the rung names documented on explain_cf; null \
         \means no factor in the method reaches this flow. Ask explain_cf \
-        \for the full story on one flow."
+        \for the full story on one flow. 'basis' says what the score rests on, \
+        \as get_impacts does."
             <> webUrlTip "contributing-flows"
     GetContributingActivities ->
         "LCA / ACV: identify which upstream activities contribute most to a \
@@ -846,7 +848,8 @@ description r = case r of
         \score?' Uses exact matrix-based computation, valid even for cyclic supply \
         \chains. Each contributing activity carries a 'web_url' deep link to its \
         \page in the VoLCA web UI: render these as clickable markdown links when \
-        \presenting results to a human so they can drill into a specific supplier."
+        \presenting results to a human so they can drill into a specific supplier. \
+        \'basis' says what the score rests on, as get_impacts does."
     GetScoreContributingFlows ->
         "LCA / ACV: identify which elementary flows contribute most to one \
         \score of a scoring set (a single score weighing every indicator of a \
@@ -855,7 +858,8 @@ description r = case r of
         \weighted sum of its contributions to each indicator, so the \
         \contributions add up to the score score_activity reports. 'cf_value' \
         \is what one unit of the flow adds to the score. A score that is not a \
-        \weighted sum of its indicators has no such split and is refused."
+        \weighted sum of its indicators has no such split and is refused. \
+        \'basis' says what the score rests on, as get_impacts does."
             <> webUrlTip "contributing-flows"
     GetScoreContributingActivities ->
         "LCA / ACV: identify which upstream activities contribute most to one \
@@ -866,7 +870,8 @@ description r = case r of
         \activity carries a 'web_url' deep link to its page in the VoLCA web \
         \UI: render these as clickable markdown links when presenting results \
         \to a human. A score that is not a weighted sum of its indicators has \
-        \no such split and is refused."
+        \no such split and is refused. 'basis' says what the score rests on, as \
+        \get_impacts does."
     ListGeographies ->
         "LCA / ACV: list all geography codes present in a database, with display \
         \names and parent regions. Use the 'geo' value as the geography filter in \
