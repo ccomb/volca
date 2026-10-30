@@ -120,6 +120,17 @@
 
 ### Changed
 
+- A parent database exports to an openLCA package. Each process of several
+  products it keeps whole is written whole, with an economic allocation
+  factor per product: the shares the `price` key gives, so prices an expert
+  set in the parent are in the package once every product of the block has
+  one. Until then, as when a price in euros stands beside prices deduced from
+  shares, the process is written with the shares its products declare, and
+  the export names it with the reason. openLCA divides the process by them. Read back, the package gives the
+  inventories of the child divided by price. Before, the export was refused.
+  A process that makes one product twice is refused, since openLCA keys a
+  factor by its product.
+
 - The usage log counts a computation only when the terms of use of the
   database it read ask for it. Before, every database that declared its
   release was counted, without its readers being told. An own licence now
