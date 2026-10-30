@@ -135,7 +135,7 @@ mutatingHandlers =
     , ("save-scenario", run (saveScenarioHandler "nope" "high salt" (ScenarioSaveRequest [])))
     , ("drop-scenario", run (dropScenarioHandler "nope" "high salt"))
     , ("set-data-path", run (setDataPathHandler "nope" Null))
-    , ("upload-method", run (uploadMethodHandler (Just "nope") Nothing (source [])))
+    , ("upload-method", run (uploadMethodHandler (Just "nope") Nothing Nothing (source [])))
     , ("delete-method", run (deleteMethodHandler "nope"))
     , ("load-method", run (loadMethodCollectionHandler "nope"))
     , ("unload-method", run (unloadMethodCollectionHandler "nope"))

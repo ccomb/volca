@@ -4514,6 +4514,7 @@ discoverCandidatePaths dbConfig = do
                 Upload.OpenLcaImpactCategory -> "openLCA JSON-LD"
                 Upload.OpenLcaPackage -> "openLCA package"
                 Upload.BrightwayExcel -> "Brightway Excel"
+                Upload.ColumnarCSV -> "Columnar CSV"
                 Upload.UnknownFormat -> "Unknown"
         return PathCandidate{pcPath = T.pack rel, pcFormat = label, pcFileCount = count}
   where
