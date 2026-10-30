@@ -86,7 +86,7 @@ isError _ = False
 call :: Text -> IO Value
 call name = do
     manager <- initDatabaseManager defaultConfig NoCache
-    callTool Nothing manager [] Nothing Nothing noRequestId name (KM.singleton "database" (String "no-such-db"))
+    callTool Nothing Nothing manager [] Nothing Nothing noRequestId name (KM.singleton "database" (String "no-such-db"))
 
 {- | Call the edit tool with one line named. An edit that names nothing is
 refused before the database is even looked up, which would mask the refusal a
@@ -95,7 +95,7 @@ test is actually about.
 callEdit :: IO Value
 callEdit = do
     manager <- initDatabaseManager defaultConfig NoCache
-    callTool Nothing manager [] Nothing Nothing noRequestId "edit_exchanges" $
+    callTool Nothing Nothing manager [] Nothing Nothing noRequestId "edit_exchanges" $
         KM.fromList
             [ ("database", String "no-such-db")
             , ("process_id", String "a_b")
@@ -137,7 +137,7 @@ callOnSampleWith name extraArgs = do
     manager <- initDatabaseManager defaultConfig NoCache
     addDatabase manager sampleConfig
     loadDatabase manager "sample" >>= either (expectationFailure . T.unpack) (const (pure ()))
-    callTool Nothing manager [] Nothing Nothing noRequestId name $
+    callTool Nothing Nothing manager [] Nothing Nothing noRequestId name $
         KM.fromList (("database", String "sample") : extraArgs)
 
 -- | The flow names of the exchanges a get_activity reply carries.
@@ -195,7 +195,7 @@ spec = describe "MCP database load/unload tools" $ do
 
         it "the registry does not declare still meets the preset check first" $ do
             manager <- initDatabaseManager defaultConfig NoCache
-            resp <- callTool Nothing manager [] Nothing Nothing noRequestId "no_such_tool" (KM.singleton "preset" (String "transformed"))
+            resp <- callTool Nothing Nothing manager [] Nothing Nothing noRequestId "no_such_tool" (KM.singleton "preset" (String "transformed"))
             isError resp `shouldBe` True
             resultText resp `shouldSatisfy` maybe False ("transformed" `T.isInfixOf`)
 
@@ -211,7 +211,7 @@ spec = describe "MCP database load/unload tools" $ do
         it "copy a collection, change a factor of the copy and read it back in its history" $
             withScratchDataDir $ do
                 manager <- initDatabaseManager defaultConfig NoCache
-                let tool name = callTool Nothing manager [] Nothing Nothing noRequestId name . KM.fromList
+                let tool name = callTool Nothing Nothing manager [] Nothing Nothing noRequestId name . KM.fromList
                 copied <- tool "copy_method_collection" [("collection", String "plain-indicators"), ("new_name", String "copy")]
                 isError copied `shouldBe` False
                 collection <- getMethodCollection manager "copy"
@@ -242,7 +242,7 @@ spec = describe "MCP database load/unload tools" $ do
         it "list a method held by two collections once in each, named with its collection" $
             withScratchDataDir $ do
                 manager <- initDatabaseManager defaultConfig NoCache
-                let tool name = callTool Nothing manager [] Nothing Nothing noRequestId name . KM.fromList
+                let tool name = callTool Nothing Nothing manager [] Nothing Nothing noRequestId name . KM.fromList
                 _ <- tool "copy_method_collection" [("collection", String "plain-indicators"), ("new_name", String "copy")]
                 listed <- tool "list_methods" []
                 resultText listed `shouldSatisfy` maybe False (\t -> all (`T.isInfixOf` t) ["\"collection\":\"copy\"", "\"collection\":\"plain-indicators\""])
@@ -250,7 +250,7 @@ spec = describe "MCP database load/unload tools" $ do
         it "add a category to a copy, answering with its identifier, and refuse an argument they do not know" $
             withScratchDataDir $ do
                 manager <- initDatabaseManager defaultConfig NoCache
-                let tool name = callTool Nothing manager [] Nothing Nothing noRequestId name . KM.fromList
+                let tool name = callTool Nothing Nothing manager [] Nothing Nothing noRequestId name . KM.fromList
                 _ <- tool "copy_method_collection" [("collection", String "plain-indicators"), ("new_name", String "copy")]
                 added <- tool "edit_method_categories" [("collection", String "copy"), ("op", String "add"), ("name", String "A category of my own"), ("unit", String "kg")]
                 isError added `shouldBe` False
@@ -262,7 +262,7 @@ spec = describe "MCP database load/unload tools" $ do
         it "create a scoring set on a copy, which list_scoring_sets reads back as rows summed into its single score" $
             withScratchDataDir $ do
                 manager <- initDatabaseManager defaultConfig NoCache
-                let tool name = callTool Nothing manager [] Nothing Nothing noRequestId name . KM.fromList
+                let tool name = callTool Nothing Nothing manager [] Nothing Nothing noRequestId name . KM.fromList
                 _ <- tool "copy_method_collection" [("collection", String "plain-indicators"), ("new_name", String "copy")]
                 collection <- getMethodCollection manager "copy"
                 case [methodId m | m <- maybe [] mcMethods collection, methodName m == "Methane"] of
@@ -371,7 +371,7 @@ spec = describe "MCP database load/unload tools" $ do
                     }
             callWithPreset name = do
                 manager <- initDatabaseManager defaultConfig NoCache
-                callTool Nothing manager [configured] Nothing Nothing noRequestId name $
+                callTool Nothing Nothing manager [configured] Nothing Nothing noRequestId name $
                     KM.fromList
                         [ ("database", String "no-such-db")
                         , ("process_id", String "no-such-pid")
@@ -398,7 +398,7 @@ spec = describe "MCP database load/unload tools" $ do
                     manager <- initDatabaseManager defaultConfig NoCache
                     addDatabase manager sampleConfig
                     loadDatabase manager "sample" >>= either (expectationFailure . T.unpack) (const (pure ()))
-                    callTool Nothing manager [configured] Nothing Nothing noRequestId name $
+                    callTool Nothing Nothing manager [configured] Nothing Nothing noRequestId name $
                         KM.fromList $
                             [ ("database", String "sample")
                             , ("process_id", String "aa000001-0000-0000-0000-000000000000")

@@ -177,6 +177,7 @@ runEither handler = do
                 , aeDataVersion = Nothing
                 , aeUsageLog = Nothing
                 , aeReader = Nothing
+                , aeAuthor = Nothing
                 }
     runHandler (runApp env handler)
 
@@ -191,7 +192,7 @@ mcpPayload :: Maybe Text -> Text -> [(Key, Value)] -> IO Object
 mcpPayload mBaseUrl tool extraArgs = do
     manager <- loadedManager
     reply <-
-        callTool Nothing manager [] Nothing mBaseUrl noRequestId tool $
+        callTool Nothing Nothing manager [] Nothing mBaseUrl noRequestId tool $
             KM.fromList $
                 [ ("database", String "sample")
                 , ("process_id", String productD)

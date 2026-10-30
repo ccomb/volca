@@ -85,6 +85,7 @@ runLogged manager lg reader handler = either (Left . errHTTPCode) Right <$> runH
             , aeDataVersion = Nothing
             , aeUsageLog = Just lg
             , aeReader = reader
+            , aeAuthor = Nothing
             }
 
 -- | One tools/call on @\/mcp@, with the headers given.

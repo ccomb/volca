@@ -188,6 +188,7 @@ import Data.Aeson (Value)
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
 import Data.Foldable (toList)
+import Data.JournalFile (Author (..))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime, utctDay)
@@ -429,7 +430,7 @@ databaseHistoryHandler dbName = do
 -- | Each line of a database's history, with the database it was made on: its parent's, or its own.
 databaseHistoryToAPI :: Carried (Journal DatabaseConfig) -> [DatabaseHistoryEntry]
 databaseHistoryToAPI carried =
-    [ DatabaseHistoryEntry (hlAt line) (dcName (journalOf journal)) (noteText <$> hlNote line) (hlSummary line) (hlDetails line)
+    [ DatabaseHistoryEntry (hlAt line) (dcName (journalOf journal)) (authorHandle <$> hlBy line) (noteText <$> hlNote line) (hlSummary line) (hlDetails line)
     | journal <- toList carried
     , line <- journalLines journal
     ]
@@ -719,6 +720,7 @@ deleteActivitiesHandler :: Text -> DeleteSelectionRequest -> AppM DeleteSelectio
 deleteActivitiesHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
+    by <- asks aeAuthor
     let classFilters =
             [ ClassificationFilter{clfSystem = dcfSystem f, clfValue = dcfValue f, clfMatch = if dcfExact f then MatchExact else MatchContains}
             | f <- dsqClassifications req
@@ -733,6 +735,7 @@ deleteActivitiesHandler dbName req = do
             deleteActivitiesInDB
                 dbManager
                 dbName
+                by
                 DeleteRequest
                     { drName = nonBlank (dsqName req)
                     , drLocation = nonBlank (dsqLocation req)
@@ -780,8 +783,9 @@ runWrite :: Text -> Maybe Note -> WriteVerb -> [ActivityInput] -> AppM ActivityW
 runWrite dbName note verb inputs = do
     guardMutation
     dbManager <- asks aeDbManager
+    by <- asks aeAuthor
     authored <- either (writeErr err400 . T.intercalate "\n") pure (toAuthoredActivities inputs)
-    outcome <- liftIO (writeActivities dbManager dbName note verb authored)
+    outcome <- liftIO (writeActivities dbManager dbName by note verb authored)
     case outcome of
         Left refusal -> writeErr (statusFor refusal) (refusalMessage refusal)
         Right report ->
@@ -803,8 +807,9 @@ editExchangesHandler :: Text -> Text -> ExchangeEditRequest -> AppM ExchangeEdit
 editExchangesHandler dbName processId req = do
     guardMutation
     dbManager <- asks aeDbManager
+    by <- asks aeAuthor
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toExchangeEdits req)
-    outcome <- liftIO (editExchanges dbManager dbName (eerNote req >>= noteFrom) processId edits)
+    outcome <- liftIO (editExchanges dbManager dbName by (eerNote req >>= noteFrom) processId edits)
     either refuseWrite (pure . editReportToAPI) outcome
 
 {- | What an edit answers, on every surface that offers one, so an assistant
@@ -833,8 +838,9 @@ editDatabaseParametersHandler :: Text -> ParametersEditRequest -> AppM Parameter
 editDatabaseParametersHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
+    by <- asks aeAuthor
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toParameterEdits req)
-    outcome <- liftIO (editDatabaseParameters dbManager dbName (pqNote req >>= noteFrom) edits)
+    outcome <- liftIO (editDatabaseParameters dbManager dbName by (pqNote req >>= noteFrom) edits)
     either refuseWrite (pure . parametersReportToAPI) outcome
 
 parametersReportToAPI :: ParametersReport -> ParametersEditResponse
@@ -858,7 +864,8 @@ saveScenarioHandler :: Text -> Text -> ScenarioSaveRequest -> AppM [ScenarioAPI]
 saveScenarioHandler dbName name req = do
     guardMutation
     dbManager <- asks aeDbManager
-    either refuseWrite pure =<< liftIO (saveScenario dbManager dbName (ScenarioName name) (ssrParameters req))
+    by <- asks aeAuthor
+    either refuseWrite pure =<< liftIO (saveScenario dbManager dbName by (ScenarioName name) (ssrParameters req))
     listScenariosHandler dbName
 
 -- | Drop a saved scenario, and answer the scenarios left.
@@ -866,7 +873,8 @@ dropScenarioHandler :: Text -> Text -> AppM [ScenarioAPI]
 dropScenarioHandler dbName name = do
     guardMutation
     dbManager <- asks aeDbManager
-    either refuseWrite pure =<< liftIO (dropScenario dbManager dbName (ScenarioName name))
+    by <- asks aeAuthor
+    either refuseWrite pure =<< liftIO (dropScenario dbManager dbName by (ScenarioName name))
     listScenariosHandler dbName
 
 -- | A refused write, answered with its status and its message.

@@ -189,7 +189,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
         it "keeps the coproduct links when another process of the parent is deleted" $
             withParent $ \manager -> do
                 parent <- loadedDb manager parentName
-                deleted <- deleteActivitiesInDB manager parentName (deleteIds [processOf parent "Creamery"])
+                deleted <- deleteActivitiesInDB manager parentName Nothing (deleteIds [processOf parent "Creamery"])
                 isRight deleted `shouldBe` True
                 loadedDb manager parentName >>= (`shouldBe` [True]) . wheyLinks
 
@@ -264,7 +264,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 parent <- loadedDb manager parentName
                 let (cheese, whey) = dairyProducts parent
                     dried flow amount = SetProperty DryMass flow (Just (StatedAmount "kg" amount))
-                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [dried cheese 0.6, dried whey 0.065]
+                edited <- editExchanges manager parentName Nothing Nothing (dairyActivity parent) [dried cheese 0.6, dried whey 0.065]
                 isRight edited `shouldBe` True
                 child <- deriveWith manager (exceptionTaking "dry mass" (dairyActivity parent))
                 -- 1 kg at 0.6 kg dry beside 3 kg at 0.065: 0.6 / 0.795 and 0.195 / 0.795 of the milk.
@@ -274,7 +274,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
             withParent $ \manager -> do
                 parent <- loadedDb manager parentName
                 let (cheese, _) = dairyProducts parent
-                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [SetProperty WetMass cheese (Just (StatedAmount "kg" 2))]
+                edited <- editExchanges manager parentName Nothing Nothing (dairyActivity parent) [SetProperty WetMass cheese (Just (StatedAmount "kg" 2))]
                 isRight edited `shouldBe` True
                 child <- deriveWith manager (exceptionTaking "wet mass" (dairyActivity parent))
                 -- 1 unit of cheese stated at 2 kg beside 3 kg of whey: 2 / 5 and 3 / 5 of the milk.
@@ -286,7 +286,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 parent <- loadedDb manager parentName
                 let (cheese, _) = dairyProducts parent
                 -- The child would keep the old shares until loaded again.
-                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [SetProperty Price cheese (Just (StatedAmount "EUR" 4))]
+                edited <- editExchanges manager parentName Nothing Nothing (dairyActivity parent) [SetProperty Price cheese (Just (StatedAmount "EUR" 4))]
                 isRight edited `shouldBe` False
 
         it "follows a price edited on the parent, and still does after a restart" $
@@ -294,7 +294,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 parent <- loadedDb manager parentName
                 let (cheese, whey) = dairyProducts parent
                     priced flow amount = SetProperty Price flow (Just (StatedAmount "EUR" amount))
-                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [priced cheese 4, priced whey 1]
+                edited <- editExchanges manager parentName Nothing Nothing (dairyActivity parent) [priced cheese 4, priced whey 1]
                 isRight edited `shouldBe` True
                 -- 1 kg at 4 beside 3 kg at 1: 4 / 7 and 3 / 7 of the milk.
                 let repriced = near [40 / 7, 30 / 7]
@@ -307,7 +307,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 parent <- loadedDb manager parentName
                 let (cheese, whey) = dairyProducts parent
                     priced flow amount = SetProperty Price flow (Just (StatedAmount "EUR" amount))
-                edited <- editExchanges manager parentName (noteFrom "Prices 2026") (dairyActivity parent) [priced cheese 4, priced whey 1]
+                edited <- editExchanges manager parentName Nothing (noteFrom "Prices 2026") (dairyActivity parent) [priced cheese 4, priced whey 1]
                 isRight edited `shouldBe` True
                 _ <- deriveChild manager
                 configs <- readTVarIO (dmAvailableDbs manager)

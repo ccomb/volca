@@ -105,6 +105,7 @@ run manager =
             , aeDataVersion = Nothing
             , aeUsageLog = Nothing
             , aeReader = Nothing
+            , aeAuthor = Nothing
             }
 
 -- | Ask the route about carbon dioxide, failing the test on an error status.
@@ -158,7 +159,7 @@ spec = describe "the factors of one flow" $ do
         manager <- loadedManager
         fid <- carbonDioxide manager
         reply <-
-            callTool Nothing manager [] Nothing (Just "http://ui") noRequestId "get_flow_factors" $
+            callTool Nothing Nothing manager [] Nothing (Just "http://ui") noRequestId "get_flow_factors" $
                 KM.fromList [("database", String "sample"), ("flow_id", String (UUID.toText fid)), ("collection", String "water-only")]
         payload <- maybe (fail ("unexpected reply: " <> show reply)) pure (payloadOf reply)
         (KM.lookup "web_url" payload, noFactorOf payload)

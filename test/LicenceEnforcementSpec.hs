@@ -45,7 +45,7 @@ inventoryKept = own [ReadInventory, Download]
 -- | Call an MCP tool on product D of the sample database.
 callOn :: DatabaseManager -> Text -> [(Key, Value)] -> IO Value
 callOn manager tool extraArgs =
-    callTool Nothing manager [] Nothing Nothing noRequestId tool $
+    callTool Nothing Nothing manager [] Nothing Nothing noRequestId tool $
         KM.fromList $
             [ ("database", String "sample")
             , ("process_id", String productD)
@@ -84,6 +84,7 @@ statusOf manager handler =
             , aeDataVersion = Nothing
             , aeUsageLog = Nothing
             , aeReader = Nothing
+            , aeAuthor = Nothing
             }
 
 spec :: Spec

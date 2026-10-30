@@ -1668,7 +1668,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 100: the @database@ each line of a database's history was made on,
+(revision 102: the @by@ of each line of a database's or a method collection's
+history, the public name of the account that made it;
+revision 100: the @database@ each line of a database's history was made on,
 its own or the parent a child is divided from, whose changes the child carries;
 revision 99: the @basis@ of a score, what it rests on: the engine, the
 databases read and how each differs from its release, the method collection,
@@ -1887,7 +1889,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 100
+currentWireVersion = 102
 
 getVersion :: AppM Value
 getVersion = do
@@ -2813,11 +2815,12 @@ postApplyChanges dbName processIdText query = do
     (db, _) <- requireDatabaseByName dbName
     process <- either throwServiceError pure (Compare.resolveProcess db processIdText)
     dbManager <- asks aeDbManager
+    by <- asks aeAuthor
     ctx <- liftIO (authorContext dbManager db)
     case Compare.applicableChanges ctx process query of
         (applied, []) -> pure applied
         (applied, edits) ->
-            liftIO (editExchanges dbManager dbName (cqNote query >>= noteFrom) processIdText edits)
+            liftIO (editExchanges dbManager dbName by (cqNote query >>= noteFrom) processIdText edits)
                 >>= either DBHandlers.refuseWrite (const (pure applied))
 
 getDatabaseComparison :: Text -> Maybe Text -> Maybe Int -> AppM DatabaseComparison

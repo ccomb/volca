@@ -4,6 +4,13 @@
 
 ### Added
 
+- Each change made to a database, a method collection or the scenarios of a
+  database is signed with the account that made it, when the server in front
+  of the engine names one: the history of a database and of a collection
+  gives its public name (`by`), and the changes report of an export says
+  "By: @name" under each change. The journal keeps the account and the name
+  it signed with that day. The desktop, and a server run on its own, sign
+  nothing, and the lines written before are left unsigned. Wire revision 102.
 - A score says what it rests on, once per answer: the engine's version and
   commit; each database it read, the one asked first, with its release (for
   a copy, the one it was copied from), the database whose files it reads,

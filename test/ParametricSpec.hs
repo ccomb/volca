@@ -295,7 +295,7 @@ spec = describe "a database at other values of its parameters" $ do
         kept [ReadInventory] `shouldBe` [True, True]
         kept [SeeDetailedScores] `shouldBe` [True, True]
         reply <-
-            callTool Nothing manager [] Nothing Nothing noRequestId "score_activity" . KM.fromList $
+            callTool Nothing Nothing manager [] Nothing Nothing noRequestId "score_activity" . KM.fromList $
                 [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("exchange_contributions", Bool True)]
         let split' = \case
                 Object r | Just (Array a) <- KM.lookup "exchangeContributions" r -> not (null a)
@@ -310,7 +310,7 @@ spec = describe "a database at other values of its parameters" $ do
             names = [ParameterName (Just (processIdText (aBread, pBread))) "mix_de", ParameterName Nothing "hydration"]
         model <- answer manager (postReducedModel "bakery" loaf (CollectionName "model") Nothing (ReducedModelRequest names))
         reply <-
-            callTool Nothing manager [] Nothing Nothing noRequestId "get_reduced_model" . KM.fromList $
+            callTool Nothing Nothing manager [] Nothing Nothing noRequestId "get_reduced_model" . KM.fromList $
                 [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("parameters", toJSON names)]
         (Object <$> payloadOf reply) `shouldBe` Just (toJSON model)
 
@@ -695,6 +695,7 @@ envOf manager =
         , aeDataVersion = Nothing
         , aeUsageLog = Nothing
         , aeReader = Nothing
+        , aeAuthor = Nothing
         }
 
 -- | Run a handler, failing the test on an error status.

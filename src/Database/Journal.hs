@@ -98,7 +98,7 @@ import Data.Word (Word64)
 import System.Directory (doesFileExist, getFileSize)
 import System.FilePath ((</>))
 
-import Data.JournalFile (Entry (..), JournalVocabulary (..), appendEntry, journalPath, readEntries)
+import Data.JournalFile (Author, Entry (..), JournalVocabulary (..), appendEntry, journalPath, readEntries)
 
 import Database.Author (
     ActivityText (..),
@@ -206,7 +206,7 @@ data JournalOp
 {- | Record an edit. Appends one line and closes the file before returning, so
 an edit is on disk by the time its caller answers.
 -}
-appendEvent :: FilePath -> Change -> IO (Either Text ())
+appendEvent :: FilePath -> Maybe Author -> Change -> IO (Either Text ())
 appendEvent = appendEntry
 
 -- | Read a database's journal. A database with no journal has made no edits.
