@@ -47,11 +47,12 @@ gapIndexMoved db moved (GapIndex before) = GapIndex (M.union fresh (M.withoutKey
 indexedByConsumer :: Database -> [GapEdge] -> GapIndex
 indexedByConsumer db edges =
     GapIndex $
-        M.map reverse . M.fromListWith (++) $
-            [ (pid, [e])
-            | e <- edges
-            , Just pid <- [M.lookup (gapConsumerAct e, gapConsumerProd e) (dbProcessIdLookup db)]
-            ]
+        NE.toList
+            <$> groupInOrder
+                [ (pid, e)
+                | e <- edges
+                , Just pid <- [M.lookup (gapConsumerAct e, gapConsumerProd e) (dbProcessIdLookup db)]
+                ]
 
 -- | The cut-offs of a result: named where the licence shows them, counted where it does not.
 data Cutoffs = Cutoffs
