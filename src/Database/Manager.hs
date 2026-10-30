@@ -200,7 +200,7 @@ import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
 import Data.Foldable (toList)
 import Data.Functor ((<&>))
-import Data.Indexing (uniqueIndex)
+import Data.Indexing (groupInOrder, uniqueIndex)
 import qualified Data.Indexing as Indexing
 import Data.List (find, intercalate, isPrefixOf, nub, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty)
@@ -4323,7 +4323,7 @@ rankMissingProducts blocked dangling =
             blocked
             (M.fromList [(SupplierRequest name Nothing LocationNone, UnresolvedProduct (M.singleton NoNameMatch cnt)) | (name, cnt) <- M.toList dangling])
     byProduct :: Map Text (NonEmpty (SupplierRequest, UnresolvedProduct))
-    byProduct = M.fromListWith (flip (<>)) [(srProduct request, pure entry) | entry@(request, _) <- M.toList requests]
+    byProduct = groupInOrder [(srProduct request, entry) | entry@(request, _) <- M.toList requests]
     productDemands :: MissingProduct -> Int
     productDemands (MissingProduct entries) = sum (upDemands . snd <$> entries)
 
@@ -4338,7 +4338,7 @@ missingSuppliersOf (MissingProduct entries) =
     concatMap rowsOf (sortOn (Down . sum . fmap (upDemands . snd)) (M.elems byActivity))
   where
     byActivity :: Map (Maybe Text) (NonEmpty (SupplierRequest, UnresolvedProduct))
-    byActivity = M.fromListWith (flip (<>)) [(srActivity request, pure entry) | entry@(request, _) <- NE.toList entries]
+    byActivity = groupInOrder [(srActivity request, entry) | entry@(request, _) <- NE.toList entries]
 
     rowsOf :: NonEmpty (SupplierRequest, UnresolvedProduct) -> [MissingSupplier]
     rowsOf requests =

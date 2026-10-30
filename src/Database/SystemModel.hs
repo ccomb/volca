@@ -66,6 +66,7 @@ module Database.SystemModel (
 import Control.Monad (mfilter, unless, when)
 import Data.Bifunctor (first)
 import Data.Either (partitionEithers)
+import Data.Indexing (groupInOrder)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -415,7 +416,7 @@ resolveModel model parent = case NE.nonEmpty (concatMap problemsOf taken <> over
     overlaps :: [Text]
     overlaps =
         [ activityName (blocks M.! u) <> " is taken by two exceptions: " <> T.intercalate " and " (map quoted exs)
-        | (u, exs) <- M.toList (M.fromListWith (flip (<>)) [(u, [ex]) | (ex, us) <- taken, u <- S.toList (S.fromList us)])
+        | (u, exs) <- M.toList (NE.toList <$> groupInOrder [(u, ex) | (ex, us) <- taken, u <- S.toList (S.fromList us)])
         , length exs > 1
         ]
 
@@ -458,7 +459,7 @@ resolveModel model parent = case NE.nonEmpty (concatMap problemsOf taken <> over
     twice :: [Text]
     twice =
         [ processRefText ref <> " is taken by two substitutions: " <> T.intercalate " and " (map said ss)
-        | (ref, ss) <- M.toList (M.fromListWith (flip (<>)) [(subCoproduct s, [s]) | s <- smSubstitutions model])
+        | (ref, ss) <- M.toList (NE.toList <$> groupInOrder [(subCoproduct s, s) | s <- smSubstitutions model])
         , length ss > 1
         ]
 
@@ -603,7 +604,7 @@ traceOf mop parent child =
         _ -> traced
 
     parametered :: M.Map (UUID, UUID) [ModelParameter]
-    parametered = M.fromListWith (flip (<>)) [(k, [mp]) | (mp, ks) <- mopParameters mop, (k, _) <- ks]
+    parametered = NE.toList <$> groupInOrder [(k, mp) | (mp, ks) <- mopParameters mop, (k, _) <- ks]
 
     simple :: SimpleDatabase
     simple = toSimpleDatabase child
@@ -645,7 +646,7 @@ traceOf mop parent child =
     exceptions = M.fromList [(u, ex) | (ex, taken) <- mopExceptions mop, (u, _) <- taken]
 
     substituted :: M.Map UUID [Reason]
-    substituted = M.fromListWith (flip (<>)) [(prActivity (subCoproduct (nsRule ns)), [subReason (nsRule ns)]) | ns <- mopSubstitutions mop]
+    substituted = NE.toList <$> groupInOrder [(prActivity (subCoproduct (nsRule ns)), subReason (nsRule ns)) | ns <- mopSubstitutions mop]
 
     productName :: Exchange -> Text
     productName ex = maybe (UUID.toText (exchangeFlowId ex)) tfName (M.lookup (exchangeFlowId ex) (sdbTechFlows simple))

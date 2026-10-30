@@ -60,7 +60,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (mfilter)
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (partitionEithers)
-import Data.Indexing (collisions, repeated)
+import Data.Indexing (collisions, groupInOrder, repeated)
 import Data.List (find, findIndex, partition)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -205,7 +205,7 @@ groupLevels blocks = (M.map fst levels, concatMap snd (M.elems levels))
     levels =
         M.mapWithKey
             (\group -> parameterLevel ("group '" <> group <> "'"))
-            (M.fromListWith (flip (++)) [(group, [table]) | RawActivity{raParameters = Just (SharedGroup group, table)} <- blocks])
+            (NE.toList <$> groupInOrder [(group, table) | RawActivity{raParameters = Just (SharedGroup group, table)} <- blocks])
 
 -- | The calculated parameters given whose formula gives no value in the levels given, with why: a formula reading them gets none either.
 valueless :: Text -> [ParamLevel] -> [ParamRow] -> [Text]

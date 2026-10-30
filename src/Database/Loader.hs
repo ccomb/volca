@@ -119,6 +119,7 @@ import qualified Data.ByteString as BS
 import Data.Char (toLower)
 import Data.Containers.ListUtils (nubOrdOn)
 import Data.Either (lefts, partitionEithers, rights)
+import Data.Indexing (groupInOrder)
 import Data.List (intercalate, sort, sortBy, sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
@@ -312,7 +313,7 @@ harvestOf entries =
         , hvBioFlows = MS.fromListWith mergeBioFlows [(bfId f, f) | f <- bios]
         , hvWasteFlows = MS.fromListWith mergeWasteFlows [(wfId f, f) | f <- wastes]
         , hvUnits = MS.fromListWith namedOverPlaceholder [(unitId u, u) | u <- units]
-        , hvDatasetNumbers = MS.fromListWith (flip (<>)) [(pdDatasetNumber parsed, key NE.:| []) | (key, parsed) <- entries, pdDatasetNumber parsed /= 0]
+        , hvDatasetNumbers = groupInOrder [(pdDatasetNumber parsed, key) | (key, parsed) <- entries, pdDatasetNumber parsed /= 0]
         , hvRawFlows = length techs + length bios + length wastes
         , hvRawUnits = length units
         , hvUnitNames = MS.fromListWith S.union [(unitId u, S.singleton (unitName u)) | u <- units, not (isPlaceholderUnit u)]
@@ -2604,15 +2605,15 @@ gapEdgesWith hasProducer db links stats =
     covered = crossDBCoveredCounts links
     surplus (site, es) = drop (M.findWithDefault 0 site covered) es
     bySite =
-        M.fromListWith
-            (flip (<>))
-            [ (exchangeDemandSite (actUUID, prodUUID) ex, [edge])
-            | ((actUUID, prodUUID), act) <- M.toList (sdbActivities db)
-            , ex <- exchanges act
-            , isSupplierDemand ex
-            , not (hasProducer ex)
-            , Just edge <- [mkGapEdge db stats actUUID prodUUID ex]
-            ]
+        NE.toList
+            <$> groupInOrder
+                [ (exchangeDemandSite (actUUID, prodUUID) ex, edge)
+                | ((actUUID, prodUUID), act) <- M.toList (sdbActivities db)
+                , ex <- exchanges act
+                , isSupplierDemand ex
+                , not (hasProducer ex)
+                , Just edge <- [mkGapEdge db stats actUUID prodUUID ex]
+                ]
 
 {- | Describe one unsupplied demand. Biosphere exchanges are never demands
 ('isSupplierDemand'), hence 'Nothing'. A missing flow entry doesn't hide the
@@ -2675,10 +2676,7 @@ gapEntries :: SimpleDatabase -> [GapEdge] -> [GapEntry]
 gapEntries db edges =
     sortOn (Down . geEdges) (map entry (M.toList byKey))
   where
-    byKey =
-        M.fromListWith
-            (flip (<>))
-            [((gapFlowName e, gapSupplierActivity e, gapLocation e, gapUnit e), [e]) | e <- edges]
+    byKey = NE.toList <$> groupInOrder [((gapFlowName e, gapSupplierActivity e, gapLocation e, gapUnit e), e) | e <- edges]
     reasonRank r = case r of
         GapBlocked _ -> 0 :: Int
         GapDanglingIdentity -> 1
