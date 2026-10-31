@@ -28,6 +28,8 @@ module Method.Scoring (
     freshName,
     linearTerms,
     counted,
+    weighs,
+    readingNotice,
 ) where
 
 import Control.Applicative ((<|>))
@@ -335,6 +337,28 @@ reads a set with normalization switched off.
 -}
 counted :: M.Map Text Double -> M.Map Text Double -> Text -> Bool
 counted norm weight v = M.member v weight && (M.null norm || M.member v norm)
+
+{- | Whether a set's scores rest on value choices: it normalizes, or it weighs
+a category otherwise than by one. A variable without a weight counts for
+nothing, so every score carries weights, and weights of one alone only add
+categories up, as damages in one unit are. Weights of one over categories in
+different units weigh them all the same and are not caught.
+-}
+weighs :: ScoringSet -> Bool
+weighs set = not (M.null (ssNormalization set)) || any (/= 1) (ssWeighting set)
+
+{- | What a ranking or a comparison under these sets must say: that the sets
+which weigh do not support a comparison disclosed to the public (ISO 14044).
+-}
+readingNotice :: [ScoringSet] -> Maybe Text
+readingNotice sets = case [ssName s | s <- sets, weighs s] of
+    [] -> Nothing
+    names ->
+        Just
+            ( "The scores of "
+                <> T.intercalate ", " names
+                <> " weigh impact categories by value choices; ISO 14044 does not allow a weighted score in a comparison disclosed to the public: compare category by category for that."
+            )
 
 {- | The terms of a formula that is a sum of the given variables times
 constant coefficients, in the order the formula names them; 'Nothing' for

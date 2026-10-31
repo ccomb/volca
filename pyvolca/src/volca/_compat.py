@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 102
-"""The newest wire revision this pyvolca understands (revision 102 added the
+KNOWN_WIRE = 103
+"""The newest wire revision this pyvolca understands (revision 103 added the
+``weighs`` of a scoring set and the ``reading_notice`` of a batch scored
+under one that weighs; revision 102 added the
 ``basis`` of a score to its contributing flows and activities and to the
 baseline of a sensitivity sweep; revision 101 added the
 ``flows_from`` of ``upload_method_collection()``, the EcoSpold 2 database whose

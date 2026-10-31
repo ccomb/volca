@@ -1030,7 +1030,9 @@ description r = case r of
         \are NOT included: call score_activity on a specific process_id for \
         \that drill-down. Unresolved process IDs land in not_found / invalid. \
         \'basis' says once what every score rests on, as score_activity does; \
-        \a row's parameter set is a position in its 'parameterSets'. \
+        \a row's parameter set is a position in its 'parameterSets'. Under a \
+        \set that weighs (list_scoring_sets), 'reading_notice' says the ranking \
+        \rests on value choices: quote it with any comparison drawn from it. \
         \\n\n\
         \The chosen scoring set must be unambiguous: pass scoring_sets: \
         \[\"<one>\"] when the collection has more than one scoring set \
@@ -1053,7 +1055,10 @@ description r = case r of
         \formulas; and the same set read as 'rows' (each a label, the \
         \categories it groups with their coefficient or a formula, its \
         \normalization and weight) with 'sum_of_rows', the scores that add \
-        \up the rows, which a new row joins. Use the returned set names as \
+        \up the rows, which a new row joins. 'weighs' says the set's scores \
+        \rest on value choices (a normalization, or a weight other than one): \
+        \ISO 14044 does not allow them in a comparison disclosed to the \
+        \public. Use the returned set names as \
         \keys when interpreting score_activity / score_activities responses, \
         \and the rows' variables when changing a set with edit_scoring_sets."
     GetGapReport ->

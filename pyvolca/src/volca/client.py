@@ -1566,8 +1566,10 @@ class Client:
         ``formula`` that is no such sum), its ``normalization`` (the
         string ``"Infinity"`` for a row a file counts as zero) and
         ``weight``; its ``scores``, each with its ``formula`` and whether it
-        is the ``sumOfRows`` a new row joins; and the ``variables`` a formula
-        can read, each with the category it reads or the label of its row.
+        is the ``sumOfRows`` a new row joins; the ``variables`` a formula
+        can read, each with the category it reads or the label of its row;
+        and whether it ``weighs``, its scores resting on a normalization or
+        weights other than one (wire revision 103).
 
         Needs an engine speaking wire revision 45.
         """

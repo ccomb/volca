@@ -28,6 +28,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
+import Method.Scoring (readingNotice, weighs)
 import Method.Types (ScoringSet (..), ScoringSetOrigin (..))
 import Test.Hspec
 
@@ -109,7 +110,7 @@ mkEntry pid name fu setName total inds =
         }
 
 emptyBir :: BatchImpactsResponse
-emptyBir = BatchImpactsResponse{birResults = [], birNotFound = [], birInvalid = [], birUnscorable = [], birBasis = basis}
+emptyBir = BatchImpactsResponse{birResults = [], birNotFound = [], birInvalid = [], birUnscorable = [], birBasis = basis, birReadingNotice = Nothing}
 
 basis :: ScoreBasis
 basis = ScoreBasis{sbEngine = "0.0 (test)", sbDatabases = [], sbMethods = BasisMethods{bmCollection = "EF31", bmCopyOf = Nothing, bmModified = False}, sbSubstitutions = [], sbParameterSets = []}
@@ -144,6 +145,23 @@ spec = do
                 Left msg -> T.isPrefixOf "score_activities accepts at most one scoring set" msg `shouldBe` True
                 Right _ -> expectationFailure "expected Left"
 
+    describe "what a weighted ranking says" $ do
+        -- Damages added up in one unit, each at one: no value choice.
+        let summed = pefSet{ssName = "Damages", ssWeighting = M.fromList [("acd", 1), ("cch", 1)]}
+            normalized = summed{ssName = "Normalized", ssNormalization = M.fromList [("acd", 2), ("cch", 3)]}
+            halved = summed{ssName = "Halved", ssWeighting = M.fromList [("acd", 0.5), ("cch", 1)]}
+            noticeOf set = case toColumnarBatch False Nothing "ei" "EF31" set emptyBir of
+                Object km -> KM.lookup (fromText "reading_notice") km
+                _ -> Nothing
+        it "takes a normalization or a weight other than one for a value choice" $
+            map weighs [normalized, halved, summed] `shouldBe` [True, True, False]
+        it "names the sets that weigh, and says nothing when none does" $ do
+            fmap (T.isInfixOf "Normalized, Halved") (readingNotice [normalized, summed, halved]) `shouldBe` Just True
+            readingNotice [summed] `shouldBe` Nothing
+        it "heads a ranking under a set that weighs, and only then" $ do
+            noticeOf halved `shouldBe` String <$> readingNotice [halved]
+            noticeOf summed `shouldBe` Nothing
+
     describe "toColumnarBatch (homogeneous FU)" $ do
         let bir =
                 BatchImpactsResponse
@@ -155,6 +173,7 @@ spec = do
                     , birInvalid = []
                     , birUnscorable = []
                     , birBasis = basis
+                    , birReadingNotice = Nothing
                     }
             Object km = toColumnarBatch False (Just "https://x") "ei" "EF31" pefSet bir
 
@@ -224,6 +243,7 @@ spec = do
                     , birInvalid = []
                     , birUnscorable = []
                     , birBasis = basis
+                    , birReadingNotice = Nothing
                     }
             Object km = toColumnarBatch False (Just "https://x") "agri" "EF31" pefSet bir
 
@@ -266,6 +286,7 @@ spec = do
                     , birInvalid = []
                     , birUnscorable = []
                     , birBasis = basis
+                    , birReadingNotice = Nothing
                     }
             Object km = toColumnarBatch True (Just "https://x") "ei" "EF31" pefSet bir
 
@@ -303,6 +324,7 @@ spec = do
                     , birInvalid = []
                     , birUnscorable = []
                     , birBasis = basis
+                    , birReadingNotice = Nothing
                     }
             Object km = toColumnarBatch False Nothing "ei" "EF31" pefSet bir
 

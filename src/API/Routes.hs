@@ -70,7 +70,7 @@ import qualified Matrix
 import qualified Method.Explain as Explain
 import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), Resolution (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
-import Method.Scoring (ScoringRow (..), rowsOf)
+import Method.Scoring (ScoringRow (..), readingNotice, rowsOf)
 import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, legacyReadings, legacySet, legacySetNames)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
 import qualified Method.Types as MT
@@ -1302,6 +1302,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
             , birInvalid = invalid
             , birUnscorable = unscorable
             , birBasis = basis
+            , birReadingNotice = readingNotice (mcScoringSets collection)
             }
 
 {- | Computed quality checks over the whole catalogue: score every entry of a
@@ -1669,7 +1670,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 102: the @basis@ of a score on its contributing flows and activities
+(revision 103: the @weighs@ of a scoring set, whether its scores rest on
+value choices, and the @readingNotice@ of a batch scored under one that does;
+revision 102: the @basis@ of a score on its contributing flows and activities
 and on the baseline of a sensitivity sweep;
 revision 101: the @flows_from@ of an uploaded workbook of factors, the EcoSpold 2
 database whose master data gives it its units and CAS numbers;
@@ -1892,7 +1895,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 102
+currentWireVersion = 103
 
 getVersion :: AppM Value
 getVersion = do

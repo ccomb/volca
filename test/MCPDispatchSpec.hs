@@ -271,12 +271,12 @@ spec = describe "MCP database load/unload tools" $ do
                         created <- tool "edit_scoring_sets" [("collection", String "copy"), ("op", String "create"), ("set", String "Mine"), ("rows", Array (pure row))]
                         isError created `shouldBe` False
                         listed <- tool "list_scoring_sets" [("collection", String "copy")]
-                        resultText listed `shouldSatisfy` maybe False (\t -> all (`T.isInfixOf` t) ["\"rows\"", "\"Gas\"", "\"sum_of_rows\":[\"Single score\"]"])
+                        resultText listed `shouldSatisfy` maybe False (\t -> all (`T.isInfixOf` t) ["\"rows\"", "\"Gas\"", "\"sum_of_rows\":[\"Single score\"]", "\"weighs\":false"])
                         -- A file writing a normalization of 0 is read as a divisor of infinity.
                         let zeroed set = set{ssNormalization = M.singleton "gas" (1 / 0)}
                         atomically (modifyTVar' (dmLoadedMethods manager) (M.adjust (\c -> c{mcScoringSets = map zeroed (mcScoringSets c)}) "copy"))
                         infinite <- tool "list_scoring_sets" [("collection", String "copy")]
-                        resultText infinite `shouldSatisfy` maybe False ("\"normalization\":{\"gas\":\"Infinity\"}" `T.isInfixOf`)
+                        resultText infinite `shouldSatisfy` maybe False (\t -> all (`T.isInfixOf` t) ["\"normalization\":{\"gas\":\"Infinity\"}", "\"weighs\":true"])
                     found -> expectationFailure ("expected one Methane category, found " <> show (length found))
 
     describe "gap-report tool" $ do

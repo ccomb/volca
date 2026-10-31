@@ -41,6 +41,7 @@ import Data.Maybe (isJust, mapMaybe, maybeToList)
 import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Method.Scoring (readingNotice)
 import Method.Types (ScoringSet (..))
 
 -- ---------------------------------------------------------------------------
@@ -133,6 +134,7 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
         , "invalid" .= birInvalid bir
         , "basis" .= birBasis bir
         ]
+            ++ ["reading_notice" .= notice | Just notice <- [readingNotice [ss]]]
             ++ topLevelFU
             ++ cutoffPairs
   where

@@ -2980,4 +2980,5 @@ callListScoringSets dbManager rid args = do
                 , "display_multiplier" .= ssDisplayMultiplier ss
                 , "rows" .= ssaRows guided
                 , "sum_of_rows" .= [scoName score | score <- ssaScores guided, scoSumOfRows score]
+                , "weighs" .= ssaWeighs guided
                 ]
