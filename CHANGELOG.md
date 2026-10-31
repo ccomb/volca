@@ -16,7 +16,7 @@
   it, a collection already known is not downloaded again (409), a server
   that cannot be reached answers 502 and a file other than the one expected
   answers 422. pyvolca: `available_method_collections()` and
-  `install_method_collection(name)`. Wire revision 102.
+  `install_method_collection(name)`. Wire revision 102 (data version 13).
 - A score says what it rests on, once per answer: the engine's version and
   commit; each database it read, the one asked first, with its release (for
   a copy, the one it was copied from), the database whose files it reads,

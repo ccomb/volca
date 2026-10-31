@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -29,6 +30,7 @@ import Network.HTTP.Client (BodyReader, HttpException (..), HttpExceptionContent
 import Network.HTTP.Client.TLS (newTlsManagerWith, tlsManagerSettings)
 import Network.HTTP.Types (Status (..), hUserAgent)
 import System.IO (Handle, IOMode (WriteMode), withBinaryFile)
+import System.Timeout (timeout)
 import TOML (DecodeTOML (..), Decoder, decodeWith, getArrayOf, getField, getFieldOpt, getFieldWith, renderTOMLError)
 import Types (StandardLicence, parseSpdx)
 import qualified Version
@@ -86,18 +88,18 @@ data FetchFailure
     deriving (Show, Eq)
 
 {- | Download the file of an entry into a path the caller owns and removes,
-following no redirect, and stopping one byte past the size the catalogue
-states, so a wrong server cannot fill the disk.
+following no redirect, stopping one byte past the size the catalogue states,
+so a wrong server cannot fill the disk, and giving up on a server that stops
+sending, so it cannot hold the request open.
 -}
 fetchEntry :: CatalogEntry -> FilePath -> IO (Either FetchFailure ())
 fetchEntry entry path = do
-    manager <- newTlsManagerWith tlsManagerSettings{managerResponseTimeout = responseTimeoutMicro 60000000}
-    request <- parseRequest (T.unpack (ceUrl entry))
-    received <-
-        try $
-            withBinaryFile path WriteMode $ \h ->
-                withResponse (asked request) manager $
-                    copyAtMost h . responseBody
+    manager <- newTlsManagerWith tlsManagerSettings{managerResponseTimeout = responseTimeoutMicro silence}
+    received <- try $ do
+        request <- parseRequest (T.unpack (ceUrl entry))
+        withBinaryFile path WriteMode $ \h ->
+            withResponse (asked request) manager $
+                copyAtMost h . responseBody
     case received of
         Left (e :: HttpException) -> pure (Left (Unreachable (ceUrl entry <> " could not be downloaded: " <> why e)))
         Right (Left failure) -> pure (Left failure)
@@ -109,6 +111,7 @@ fetchEntry entry path = do
                     else Left (NotAsCatalogued ("the file received has SHA-256 " <> digest <> ", the catalogue states " <> ceSha256 entry))
   where
     expected = ceSize entry
+    silence = 60000000
 
     -- Some file servers refuse a request that does not say what sends it.
     asked :: Request -> Request
@@ -129,8 +132,11 @@ fetchEntry entry path = do
     copyAtMost :: Handle -> BodyReader -> IO (Either FetchFailure ())
     copyAtMost h body = go 0
       where
-        go !n = do
-            chunk <- brRead body
+        go !n =
+            timeout silence (brRead body) >>= \case
+                Nothing -> pure (Left (Unreachable (ceUrl entry <> " could not be downloaded: the server stopped sending.")))
+                Just chunk -> next n chunk
+        next n chunk = do
             let n' = n + BS.length chunk
             if
                 | BS.null chunk -> pure (if n == expected then Right () else Left (sizeMismatch (T.pack (show n))))

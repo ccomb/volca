@@ -2,7 +2,7 @@
 
 module MethodCatalogSpec (spec) where
 
-import Data.Char (isHexDigit)
+import Data.Char (isHexDigit, isUpper)
 import Data.List (nub)
 import qualified Data.Text as T
 import Test.Hspec
@@ -32,7 +32,7 @@ spec = describe "Method catalogue" $ do
                 entries `shouldNotBe` []
                 let names = map ceName entries
                 nub names `shouldBe` names
-                mapM_ (\e -> (T.length (ceSha256 e), T.all isHexDigit (ceSha256 e)) `shouldBe` (64, True)) entries
+                mapM_ (\e -> (T.length (ceSha256 e), T.all (\c -> isHexDigit c && not (isUpper c)) (ceSha256 e)) `shouldBe` (64, True)) entries
                 mapM_ (\e -> ceSize e `shouldSatisfy` (> 0)) entries
 
     it "reads a licence as its SPDX identifier, and none as unstated" $ do
