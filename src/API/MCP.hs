@@ -1547,7 +1547,7 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
         liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
     cutoffs <- liftIO (Impact.licencedCutoffs dbManager licenced)
     inventoryWithheld <- liftIO (Impact.withheldDatabases dbManager ReadInventory sol)
-    basis <- liftIO (DM.scoreBasis dbManager (map SharedSolver.reachedName (NE.toList (SharedSolver.csScalings sol))) collection (DM.Asked subs [values | not (null values)]))
+    basis <- liftIO (DM.solutionBasis dbManager sol collection (DM.Asked subs [values | not (null values)]))
     let inventory = SharedSolver.csInventory shown
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
@@ -1769,11 +1769,11 @@ callComputeSensitivity dbManager mBaseUrl rid args =
                 Service.computeSensitivities db (ldSharedSolver ld) (raPid ra) perts
         (baselineX, perResults) <- liftShow eRes
         -- The scores below read the root's own scaling alone, so its cut-offs are the
-        -- ones they met, read under the licences the way the REST sensitivity reads them.
-        cutoffs <-
-            liftIO $
-                Impact.solutionCutoffs dbManager SeeDetailedScores $
-                    SharedSolver.CrossDBSolution (applyBiosphereMatrix db baselineX) (NE.singleton (SharedSolver.Reached dbName db baselineX)) IncludeLongTerm
+        -- ones they met, read under the licences the way the REST sensitivity reads them,
+        -- and the root's database the one they rest on.
+        let rootOnly = SharedSolver.CrossDBSolution (applyBiosphereMatrix db baselineX) (NE.singleton (SharedSolver.Reached dbName db baselineX)) IncludeLongTerm
+        cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores rootOnly)
+        basis <- liftIO (DM.solutionBasis dbManager rootOnly collection (DM.Asked [] []))
         -- This tool takes no long-term policy: it compares a baseline with
         -- perturbations of it, and both sides count the same flows.
         let scoreOf x = computeLCIAScoreAuto unitCfg mUnits mFlows IncludeLongTerm db x (applyBiosphereMatrix db x) hier tables
@@ -1810,6 +1810,7 @@ callComputeSensitivity dbManager mBaseUrl rid args =
                     , "category" .= methodCategory method
                     , "unit" .= methodUnit method
                     , "baseline_score" .= baselineScore
+                    , "basis" .= basis
                     , "perturbed" .= map pertEntry perResults
                     ]
                         ++ cutoffFields cutoffs
@@ -2560,6 +2561,7 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
                     , "unit" .= methodUnit method
                     , "total_score" .= score
                     , "has_negative_contributions" .= hasNeg
+                    , "basis" .= irBasis ir
                     , "top_flows"
                         .= [ object
                                 [ "flow_name" .= bfName f
@@ -2607,6 +2609,7 @@ callGetContributingActivities dbManager mBaseUrl rid args =
         contributions <- ExceptT (Impact.processContributionsOf dbManager collection method tables sol)
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
         cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
+        basis <- liftIO (DM.solutionBasis dbManager sol collection (DM.Asked [] []))
         let view = ImpactsView{ivCollection = lrCollection req, ivFragment = "contributing-activities/" <> lrMethodIdText req}
             ProcessLines{plScore = score, plTop = top, plWithheld = withheldLines} = processLines lim (Impact.splitProcessParts withheld contributions)
         rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl view mUnits score) top
@@ -2617,6 +2620,7 @@ callGetContributingActivities dbManager mBaseUrl rid args =
                     , "unit" .= methodUnit method
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . snd) top
+                    , "basis" .= basis
                     , "processes" .= rows
                     ]
                         ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
@@ -2631,6 +2635,7 @@ data ScoreRequest = ScoreRequest
     , scrSolution :: !SharedSolver.CrossDBSolution
     , scrCutoffs :: !Cutoffs
     -- ^ The unsupplied inputs the solution counted as zero.
+    , scrBasis :: !ScoreBasis
     }
 
 -- | The two ways a score is broken down, as the web UI names its tabs.
@@ -2662,6 +2667,7 @@ loadScoreRequest dbManager args = do
                 pid
     sol <- liftIO (Impact.withLongTermPolicy dbManager (longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))) solved)
     cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
+    basis <- liftIO (DM.solutionBasis dbManager sol (DM.CollectionName collName) (DM.Asked [] []))
     pure
         ScoreRequest
             { scrSource = Source{srcManager = dbManager, srcDbName = dbName, srcDatabase = ldDatabase ld, srcCollection = DM.CollectionName collName}
@@ -2670,6 +2676,7 @@ loadScoreRequest dbManager args = do
             , scrScore = rs
             , scrSolution = sol
             , scrCutoffs = cutoffs
+            , scrBasis = basis
             }
 
 -- | Where the web UI shows this breakdown: the tab and the score its fragment names.
@@ -2699,6 +2706,7 @@ callGetScoreContributingFlows dbManager mBaseUrl rid args =
                     , "unit" .= Score.scoreUnit (scrScore req)
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . fcContribution) contribs
+                    , "basis" .= scrBasis req
                     , "top_flows"
                         .= [ object
                                 [ "flow_name" .= bfName f
@@ -2733,6 +2741,7 @@ callGetScoreContributingActivities dbManager mBaseUrl rid args =
                     , "unit" .= Score.scoreUnit (scrScore req)
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . snd) top
+                    , "basis" .= scrBasis req
                     , "processes" .= rows
                     ]
                         ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]

@@ -34,6 +34,9 @@ spec = describe "Builtin" $ do
             (\m -> fmap (concatMap factorClashes) (parseMethodCSVBytes (BL.toStrict (builtinMethodContent m))) `shouldBe` Right [])
             builtinMethods
 
+    it "carries the method catalogue byte for byte" $
+        BL.readFile "data/method-catalog.toml" >>= (builtinMethodCatalog `shouldBe`)
+
     it "carries the geographies byte for byte" $
         BL.readFile "data/geographies.csv" >>= (builtinGeographies `shouldBe`)
 

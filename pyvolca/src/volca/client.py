@@ -1083,6 +1083,7 @@ class Client:
         name: str,
         description: str | None,
         action: str,
+        extra_params: dict | None = None,
     ) -> dict:
         """POST an octet-stream upload; metadata travels in query params.
 
@@ -1096,7 +1097,7 @@ class Client:
         extraction failure) raises VoLCAError, whether the engine answers it
         with an HTTP error or, before wire revision 51, in-band.
         """
-        params: dict = {"name": name}
+        params: dict = {"name": name, **(extra_params or {})}
         if description:
             params["description"] = description
         headers = {"Content-Type": "application/octet-stream"}
@@ -1660,7 +1661,7 @@ class Client:
 
         Each entry gives its ``line``, when it was written (``at``), the public
         name of the account that wrote it (``by``, ``None`` when the engine was
-        not told; wire revision 102), its
+        not told; wire revision 104), its
         ``kind`` (``change``, ``undo`` or ``configuration``, for what a copy
         took from its source's configuration), the line it ``undoes``, whether
         it is ``inEffect``, and the ``change`` it made. A collection the
@@ -3322,7 +3323,7 @@ class Client:
              "details": ["Flow \\"Water\\": amount from 2.0 set to 1.5"]}
 
         ``by`` is the public name of the account that made it, ``None`` when
-        the engine was not told, as on the desktop (wire revision 102).
+        the engine was not told, as on the desktop (wire revision 104).
         ``note`` is the reason its author gave, ``None`` when they gave none.
         ``database`` is the database the change was made on: for a child, the
         changes of the parent it is divided from come first, since its data
@@ -3614,25 +3615,70 @@ class Client:
         self._methods_cache.clear()
         return self._require_success(payload, "delete_method_collection")
 
+    def available_method_collections(self) -> list[dict]:
+        """The method collections the engine offers to download and load in one
+        step (wire revision 103).
+
+        Each entry carries ``name``, ``publisher``, ``version``, ``licence``
+        (an SPDX identifier, absent when the file states none), ``sourceUrl``,
+        ``size`` in bytes, ``description``, and ``installed``, true when the
+        engine already knows a collection of that name.
+        """
+        self._require_wire(103, "available_method_collections()", engine_hint="0.16.1")
+        return self._json(
+            self._session.get(f"{self.base_url}/api/v1/method-collections/available")
+        )
+
+    def install_method_collection(self, name: str) -> dict:
+        """Download a collection :meth:`available_method_collections` offers,
+        check it is the file the engine expects, then store and load it under
+        that name (wire revision 103).
+
+        Refused when the engine is read-only, when it already knows a collection
+        of that name, when the file is larger than the plan's upload limit, and
+        when the file received differs from the one expected.
+        """
+        self._require_wire(103, "install_method_collection()", engine_hint="0.16.1")
+        payload = self._json(
+            self._session.post(
+                f"{self.base_url}/api/v1/method-collections/available/"
+                f"{urllib.parse.quote(name, safe='')}/install"
+            )
+        )
+        self._methods_cache.clear()
+        return self._require_success(payload, "install_method_collection")
+
     def upload_method_collection(
         self,
         source: str | Path | bytes,
         name: str,
         *,
         description: str | None = None,
+        flows_from: str | None = None,
     ) -> dict:
-        """Upload an ILCD method file as a staged method collection.
+        """Upload a method file as a staged method collection.
 
         ``source`` is a path to the method archive (or its raw ``bytes``).
         Same streamed-body + query-param shape as :meth:`upload_database`;
         returns the ``UploadResponse`` dict and raises VoLCAError on rejection.
+
+        A workbook of characterization factors, one per row (``Method,
+        Category, Indicator, Name, Compartment, Subcompartment, CF``), becomes
+        one collection per method family, listed under ``families``; the
+        factors left out are under ``dropped``. Its flows take their units and
+        CAS numbers from the EcoSpold 2 master data of an uploaded database:
+        ``flows_from`` names it, and may be left out when only one database
+        has master data (wire revision 101).
         """
+        if flows_from is not None:
+            self._require_wire(101, "upload_method_collection(flows_from=...)", engine_hint="0.16.1")
         return self._upload(
             "/api/v1/method-collections/upload",
             source,
             name,
             description,
             "upload_method_collection",
+            {"flows_from": flows_from} if flows_from is not None else None,
         )
 
     def export_method_collection(self, name: str, fmt: str = "simapro") -> bytes:

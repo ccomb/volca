@@ -60,7 +60,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Containers.ListUtils (nubOrd)
 import Data.Either (lefts, partitionEithers, rights)
-import Data.Indexing (collisions)
+import Data.Indexing (collisions, groupInOrder)
 import Data.List (sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -509,7 +509,7 @@ productSystems cx saved written =
     byId = M.fromList [(wrId w, w) | w <- written]
 
     rowsOf :: M.Map UUID [UUID]
-    rowsOf = M.fromListWith (flip (<>)) [(fst (wrKey w), [wrId w]) | w <- written]
+    rowsOf = NE.toList <$> groupInOrder [(fst (wrKey w), wrId w) | w <- written]
 
     held :: [Either Unheld Carried]
     held =
@@ -536,7 +536,7 @@ productSystems cx saved written =
     homes = M.union (M.map Just namedAfter) (M.mapWithKey elsewhere (M.difference saved namedAfter))
 
     placed :: M.Map UUID [ParameterSet]
-    placed = M.fromListWith (flip (<>)) [(systemId (hoSystem h), [hoSet h]) | Just h <- M.elems homes]
+    placed = NE.toList <$> groupInOrder [(systemId (hoSystem h), hoSet h) | Just h <- M.elems homes]
 
     -- The saved scenarios named after a system, the longest name first.
     namedAfter :: M.Map Text Home

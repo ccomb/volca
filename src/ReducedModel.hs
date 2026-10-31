@@ -17,7 +17,9 @@ module ReducedModel (
     maxEntries,
 ) where
 
+import Data.Indexing (groupInOrder)
 import Data.Int (Int32)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
@@ -86,7 +88,7 @@ column unitConfig db = columnOf
                 }
 
     linksOf :: M.Map (UUID, UUID) [CrossDBLink]
-    linksOf = M.fromListWith (flip (<>)) [((cdlConsumerActUUID link, cdlConsumerProdUUID link), [link]) | link <- dbCrossDBLinks db]
+    linksOf = NE.toList <$> groupInOrder [((cdlConsumerActUUID link, cdlConsumerProdUUID link), link) | link <- dbCrossDBLinks db]
 
     entry :: LineRow row -> Entry
     entry (LineRow n ex _ factor) = Entry (Just n) factor (exchangeAmount ex) (efText <$> exchangeFormula ex)

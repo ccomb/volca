@@ -58,6 +58,7 @@ module Database.Manager (
     filesOwner,
     Asked (..),
     scoreBasis,
+    solutionBasis,
     BasisSources (..),
     basisOf,
     databasesRead,
@@ -200,7 +201,7 @@ import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
 import Data.Foldable (toList)
 import Data.Functor ((<&>))
-import Data.Indexing (uniqueIndex)
+import Data.Indexing (groupInOrder, uniqueIndex)
 import qualified Data.Indexing as Indexing
 import Data.List (find, intercalate, isPrefixOf, nub, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty)
@@ -3019,6 +3020,10 @@ scoreBasis manager names (CollectionName collection) asked = do
         Nothing -> pure False
         Just config -> maybe (pure False) Journal.journalHasEntries =<< editHome config
 
+-- | What a solved score rests on: the databases its solution reached, the one asked first.
+solutionBasis :: DatabaseManager -> SharedSolver.CrossDBSolution -> CollectionName -> Asked -> IO ScoreBasis
+solutionBasis manager sol = scoreBasis manager (map SharedSolver.reachedName (NE.toList (SharedSolver.csScalings sol)))
+
 -- | The databases a score of one of this database's activities may read: itself, then its dependencies, loaded ones only.
 databasesRead :: DatabaseManager -> Text -> IO [Text]
 databasesRead manager dbName = (dbName :) . (`dependencyNames` dbName) <$> readTVarIO (dmLoadedDbs manager)
@@ -4323,7 +4328,7 @@ rankMissingProducts blocked dangling =
             blocked
             (M.fromList [(SupplierRequest name Nothing LocationNone, UnresolvedProduct (M.singleton NoNameMatch cnt)) | (name, cnt) <- M.toList dangling])
     byProduct :: Map Text (NonEmpty (SupplierRequest, UnresolvedProduct))
-    byProduct = M.fromListWith (flip (<>)) [(srProduct request, pure entry) | entry@(request, _) <- M.toList requests]
+    byProduct = groupInOrder [(srProduct request, entry) | entry@(request, _) <- M.toList requests]
     productDemands :: MissingProduct -> Int
     productDemands (MissingProduct entries) = sum (upDemands . snd <$> entries)
 
@@ -4338,7 +4343,7 @@ missingSuppliersOf (MissingProduct entries) =
     concatMap rowsOf (sortOn (Down . sum . fmap (upDemands . snd)) (M.elems byActivity))
   where
     byActivity :: Map (Maybe Text) (NonEmpty (SupplierRequest, UnresolvedProduct))
-    byActivity = M.fromListWith (flip (<>)) [(srActivity request, pure entry) | entry@(request, _) <- NE.toList entries]
+    byActivity = groupInOrder [(srActivity request, entry) | entry@(request, _) <- NE.toList entries]
 
     rowsOf :: NonEmpty (SupplierRequest, UnresolvedProduct) -> [MissingSupplier]
     rowsOf requests =
@@ -4514,6 +4519,7 @@ discoverCandidatePaths dbConfig = do
                 Upload.OpenLcaImpactCategory -> "openLCA JSON-LD"
                 Upload.OpenLcaPackage -> "openLCA package"
                 Upload.BrightwayExcel -> "Brightway Excel"
+                Upload.ColumnarCSV -> "Columnar CSV"
                 Upload.UnknownFormat -> "Unknown"
         return PathCandidate{pcPath = T.pack rel, pcFormat = label, pcFileCount = count}
   where
@@ -5057,11 +5063,11 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
         let dir = mfDirectory files
         -- Parse method files with flow enrichment
         xmlResults <- forM (mfXml files) $ \f ->
-            Method.Parser.parseMethodFileWithFlows flowInfo (dir </> f)
+            first (namedBy f) <$> Method.Parser.parseMethodFileWithFlows flowInfo (dir </> f)
         -- Split CSV files into SimaPro method exports and tabular CSVs
         csvResults <- forM (mfCsv files) $ \f -> do
             bytes <- stripBOM <$> BS.readFile (dir </> f)
-            pure $
+            pure . first (namedBy f) $
                 if isSimaProMethodCSV bytes
                     then fmap Left (parseSimaProMethodCSVBytes bytes)
                     else fmap Right (parseMethodCSVBytes bytes)
@@ -5073,7 +5079,7 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
             bytes <- BS.readFile (dir </> f)
             pure $
                 if OlcaSchema.isOlcaImpactCategoryJson bytes
-                    then Just (OlcaSchema.parseOlcaImpactCategoryBytes bytes)
+                    then Just (first (namedBy f) (OlcaSchema.parseOlcaImpactCategoryBytes bytes))
                     else Nothing
         let (xmlErrs, xmlMethods) = partitionEithers xmlResults
             (csvErrs, csvOks) = partitionEithers csvResults
@@ -5129,10 +5135,12 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
                     <> show (length (Method.Types.mcScoringSets collection))
                     <> " scoring set(s) read from the file's damage categories"
 
-    parseFailures :: ParsedMethodFiles -> Maybe String
-    parseFailures parsed
-        | null (pmfErrors parsed) = Nothing
-        | otherwise = Just ("  " <> show (length (pmfErrors parsed)) <> " method file(s) failed to parse")
+    -- One line per file, so a file refused beside others that load says why.
+    parseFailures :: ParsedMethodFiles -> [String]
+    parseFailures parsed = ["  Method file failed to parse: " <> err | err <- pmfErrors parsed]
+
+    namedBy :: FilePath -> String -> String
+    namedBy f err = f <> ": " <> err
 
 {- | Read one method of an openLCA package: its impact categories, and its
 normalization and weighting sets as scoring sets. A category the method names

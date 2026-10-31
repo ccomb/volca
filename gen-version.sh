@@ -51,6 +51,9 @@ geographiesCsv = "$(b64 data/geographies.csv)"
 
 plainIndicatorsCsv :: String
 plainIndicatorsCsv = "$(b64 data/methods/plain-indicators.csv)"
+
+methodCatalogToml :: String
+methodCatalogToml = "$(b64 data/method-catalog.toml)"
 EOF
 
 echo "Generated src/Builtin/Literals.hs (data version $DATA_VERSION)"

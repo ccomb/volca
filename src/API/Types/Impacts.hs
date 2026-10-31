@@ -48,6 +48,26 @@ data MethodCollectionListResponse = MethodCollectionListResponse
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped MethodCollectionListResponse)
 
+{- | A method collection the engine offers to download and load in one step.
+The name is the collection's once installed.
+-}
+data AvailableMethodCollection = AvailableMethodCollection
+    { amcName :: Text
+    , amcPublisher :: Text
+    , amcVersion :: Text
+    , amcLicence :: Maybe Text
+    -- ^ Its SPDX identifier; absent when the file states none.
+    , amcSourceUrl :: Text
+    -- ^ The page its publisher describes it on.
+    , amcSize :: Int
+    -- ^ The bytes a download takes.
+    , amcDescription :: Text
+    , amcInstalled :: Bool
+    -- ^ The engine already knows a collection of that name.
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped AvailableMethodCollection)
+
 -- | Method collection status for API responses
 data MethodCollectionStatusAPI = MethodCollectionStatusAPI
     { mcaName :: Text -- Internal identifier
@@ -220,6 +240,7 @@ data ContributingFlowsResult = ContributingFlowsResult
     , cfrWithheldDatabases :: [WithheldShare] -- Dependencies whose licence keeps their detail: their flows are not among the top flows, their part is one line each
     , cfrCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
     , cfrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
+    , cfrBasis :: ScoreBasis -- What the score these flows add up to rests on
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingFlowsResult)
@@ -245,6 +266,7 @@ data ContributingActivitiesResult = ContributingActivitiesResult
     , carWithheldDatabases :: [WithheldShare] -- Dependencies whose licence keeps their detail: their processes are not listed, their part is one line each
     , carCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
     , carWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
+    , carBasis :: ScoreBasis -- What the score these activities add up to rests on
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingActivitiesResult)

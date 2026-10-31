@@ -554,6 +554,27 @@ data UploadResponse = UploadResponse
     , uprMessage :: Text
     , uprSlug :: Maybe Text -- Generated slug (if successful)
     , uprFormat :: Maybe Text -- Detected format (if successful)
+    , uprFamilies :: [UploadedFamily]
+    -- ^ The collections a table of factors was split into, one per method family; empty for any other upload.
+    , uprDropped :: Maybe DroppedFactors
+    -- ^ The factors of that table left out; 'Nothing' for any other upload.
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped UploadResponse)
+
+-- | One method family of an uploaded table of factors, saved as a collection of its own.
+data UploadedFamily = UploadedFamily
+    { ufName :: Text
+    , ufSlug :: Text
+    , ufFactors :: Int
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped UploadedFamily)
+
+-- | Factors left out of an uploaded table because no flow of the master data carries their name and compartment.
+data DroppedFactors = DroppedFactors
+    { dfCount :: Int
+    , dfExamples :: [Text]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped DroppedFactors)

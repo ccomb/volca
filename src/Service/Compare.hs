@@ -68,6 +68,7 @@ module Service.Compare (
 
 import Control.Monad (mfilter)
 import Data.Foldable (asum)
+import Data.Indexing (groupInOrder)
 import Data.List (mapAccumL)
 import qualified Data.List as L
 import Data.List.NonEmpty (NonEmpty (..))
@@ -1014,7 +1015,7 @@ several :: Sides (NonEmpty a) -> Bool
 several (Sides b o) = NE.length b > 1 || NE.length o > 1
 
 indexBy :: (Ord k) => (a -> Maybe k) -> [a] -> M.Map k (NonEmpty a)
-indexBy keyOf xs = M.fromListWith (flip (<>)) [(k, x :| []) | x <- xs, Just k <- [keyOf x]]
+indexBy keyOf xs = groupInOrder [(k, x) | x <- xs, Just k <- [keyOf x]]
 
 {- | A name without case and without its trailing @ {GEO}@, which some releases write and some do not.
 SimaPro follows a product's geography with @ U@ or @ S@, the kind of process it comes

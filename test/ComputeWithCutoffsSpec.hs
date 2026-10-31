@@ -409,6 +409,28 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
                     pure [keyedBasis o | Object o <- toList results]
             perMethod `shouldBe` Just [False]
 
+        it "gives it with the flows and activities a score breaks down into, and the baseline of a sweep" $ do
+            flows <- ok manager (getContributingFlows "main" pid coll methodText Nothing Nothing)
+            activities <- ok manager (getContributingActivities "main" pid coll methodText Nothing Nothing)
+            scoreFlows <- ok manager (getScoreContributingFlows "main" pid coll "Single" "total" Nothing Nothing)
+            scoreActivities <- ok manager (getScoreContributingActivities "main" pid coll "Single" "total" Nothing Nothing)
+            sweep <- ok manager (postActivitySensitivity "main" pid coll methodText (SensitivityRequest []))
+            map (map bdName . sbDatabases) [cfrBasis flows, carBasis activities, cfrBasis scoreFlows, carBasis scoreActivities]
+                `shouldBe` replicate 4 ["main", "dep"]
+            namesOf (lrBasis (srBaseline sweep)) `shouldBe` Just ["main", "dep"]
+
+        it "gives it to the MCP contribution tools and to a sweep" $ do
+            let score = [("scoring_set", String "Single"), ("score", String "total")]
+            payloads <-
+                sequence
+                    [ mcp manager "get_contributing_flows" [("process_id", String pid)]
+                    , mcp manager "get_contributing_activities" [("process_id", String pid)]
+                    , mcp manager "get_score_contributing_flows" (("process_id", String pid) : score)
+                    , mcp manager "get_score_contributing_activities" (("process_id", String pid) : score)
+                    , mcp manager "compute_sensitivity" [("process_id", String pid), ("perturbations", Array V.empty)]
+                    ]
+            map keyedBasis payloads `shouldBe` replicate 5 True
+
     describe "the MCP tools" $ do
         (manager, db) <- runIO mainManager
         pidR <- runIO (pidOf db (actR, rFlow))

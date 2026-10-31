@@ -10,7 +10,20 @@
   gives its public name (`by`), and the changes report of an export says
   "By: @name" under each change. The journal keeps the account and the name
   it signed with that day. The desktop, and a server run on its own, sign
-  nothing, and the lines written before are left unsigned. Wire revision 102.
+  nothing, and the lines written before are left unsigned. Wire revision 104.
+- An engine offers method collections to download and load in one step.
+  `GET /method-collections/available` lists them, each with its publisher,
+  version, licence, size and whether the engine already knows a collection of
+  that name; `POST /method-collections/available/{name}/install` downloads
+  one, keeps it only when its size and SHA-256 are the ones the engine
+  expects, stores it as an upload of that name and loads it. The catalogue
+  ships in `data/method-catalog.toml`: Environmental Footprint 3.1 and the
+  expert, midpoint and footprint versions of IMPACT World+ 2.2.1. A
+  read-only engine refuses the install, the plan's upload limit applies to
+  it, a collection already known is not downloaded again (409), a server
+  that cannot be reached answers 502 and a file other than the one expected
+  answers 422. pyvolca: `available_method_collections()` and
+  `install_method_collection(name)`. Wire revision 103 (data version 13).
 - A score says what it rests on, once per answer: the engine's version and
   commit; each database it read, the one asked first, with its release (for
   a copy, the one it was copied from), the database whose files it reads,
@@ -25,6 +38,26 @@
   `compare_impacts` and a batch carry it as `basis`; the databases of a
   substituted score are the ones its chain reached, those of a batch the
   dependencies. Wire revision 99.
+- The flows and the activities a score breaks down into, by impact category
+  or by single score, and the baseline of a sensitivity sweep say what their
+  score rests on, as `basis`, so a share quoted alone keeps it. Wire
+  revision 102.
+- A method collection can be uploaded as a workbook that lists one
+  characterization factor per row, under the labels `Method, Category,
+  Indicator, Name, Compartment, Subcompartment, CF`, with an `Indicators`
+  sheet giving each indicator its unit. It is the form in which methods are
+  published beside an EcoSpold 2 release. Each method family of the workbook
+  becomes a collection of its own, named after the upload and the family,
+  and saved as a columnar CSV; the workbook itself is not kept. The table
+  names a flow by name and compartment only, so the unit each factor is
+  written per, and the flow's CAS number, come from the master data
+  (`MasterData/ElementaryExchanges.xml`) of an EcoSpold 2 database already
+  uploaded: the only one there is, or the one named by `flows_from` on
+  `POST /method-collections/upload`. The answer lists the collections made,
+  with their number of factors, and the factors left out because the master
+  data has no flow of that name and compartment. A collection uploaded as a
+  columnar CSV now says so in its format, where it said nothing before
+  (wire revision 101).
 - A system model can set parameters of the parent's processes, under
   `[[method_parameters]]`: a name, a value and a reason. Every process of the
   parent that declares that input parameter takes the value in the child, and
@@ -174,6 +207,13 @@
 
 ### Fixed
 
+- A SimaPro method file whose every line is padded with separators
+  (`Impact category;;;;;`) loads with its categories, its name, its damage
+  categories and its normalization and weighting. It used to load empty and
+  report success. A method file that yields no impact category is now
+  refused with a sentence that says so, and a collection whose files partly
+  fail to parse names each failing file and its reason, not only their
+  number.
 - A child divided from an edited parent says so. Its data carry every change
   made on the parent, yet its history was empty, the list of databases said
   it was not edited, and the changes report of its package named the system

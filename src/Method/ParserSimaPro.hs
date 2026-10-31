@@ -54,8 +54,10 @@ parseSimaProMethodCSVBytes raw =
         lns = BS8.lines utf8
         cfg = parseConfig lns
         methodologyName = parseMethodName cfg lns
-        result = foldl' (step cfg) (initState methodologyName) lns
-     in Right (finalize result)
+        parsed = finalize (foldl' (step cfg) (initState methodologyName) lns)
+     in if null (smfMethods parsed)
+            then Left "no impact category found: the file has no \"Impact category\" section"
+            else Right parsed
 
 {- | Detect whether bytes are a SimaPro method CSV export.
 Checks for a banner on line 1 (@{SimaPro …}@, or the tool that wrote the file
@@ -132,59 +134,60 @@ step cfg st line = case psStage st of
         | Just m <- detectMarker stripped -> st{psStage = stageFor m}
         | otherwise -> st
     NeedCatLine
-        | isBlank line -> st
+        | blank -> st
         | otherwise ->
             let (name, unit) = parseNameUnit cfg line
              in st{psStage = NeedSubstances name unit}
     NeedSubstances name unit
-        | isBlank line -> st
+        | blank -> st
         | stripped == "Substances" -> st{psStage = ReadingCFs (CatAccum name unit [])}
         | otherwise -> st
     ReadingCFs acc
-        | isBlank line -> finishCat acc st{psStage = BetweenSections}
+        | blank -> finishCat acc st{psStage = BetweenSections}
         | stripped == "End" -> finishCat acc st{psStage = BetweenSections}
         | Just m <- detectMarker stripped -> finishCat acc st{psStage = stageFor m}
         | Just cf <- parseCFRow cfg line -> st{psStage = ReadingCFs (consCF cf acc)}
         | otherwise -> st
     NeedDcLine
-        | isBlank line -> st
+        | blank -> st
         | otherwise ->
             let (name, unit) = parseNameUnit cfg line
              in st{psStage = NeedDcImpacts name unit}
     NeedDcImpacts name unit
-        | isBlank line -> st
+        | blank -> st
         | stripped == "Impact categories" -> st{psStage = ReadingDcImpacts (DamageAccum name unit [])}
         | otherwise -> st
     ReadingDcImpacts acc
-        | isBlank line -> finishDamage acc st{psStage = BetweenSections}
+        | blank -> finishDamage acc st{psStage = BetweenSections}
         | stripped == "End" -> finishDamage acc st{psStage = BetweenSections}
         | Just m <- detectMarker stripped -> finishDamage acc st{psStage = stageFor m}
         | Just nv <- parseNameValue cfg line -> st{psStage = ReadingDcImpacts (consImpact nv acc)}
         | otherwise -> st
     NeedNWName
-        | isBlank line -> st
+        | blank -> st
         | otherwise -> st{psStage = NeedNWSection (NWAccum (decodeBS stripped) M.empty M.empty)}
     NeedNWSection acc
-        | isBlank line -> st
+        | blank -> st
         | stripped == "Normalization" -> st{psStage = ReadingNorm acc}
         | stripped == "Weighting" -> st{psStage = ReadingWeight acc}
         | stripped == "End" -> finishNW acc st{psStage = BetweenSections}
         | Just m <- detectMarker stripped -> finishNW acc st{psStage = stageFor m}
         | otherwise -> st
     ReadingNorm acc
-        | isBlank line -> st{psStage = NeedNWSection acc}
+        | blank -> st{psStage = NeedNWSection acc}
         | stripped == "Weighting" -> st{psStage = ReadingWeight acc}
         | stripped == "End" -> finishNW acc st{psStage = BetweenSections}
         | Just (n, v) <- parseNameValue cfg line -> st{psStage = ReadingNorm (insertNorm n v acc)}
         | otherwise -> st
     ReadingWeight acc
-        | isBlank line -> st{psStage = NeedNWSection acc}
+        | blank -> st{psStage = NeedNWSection acc}
         | stripped == "End" -> finishNW acc st{psStage = BetweenSections}
         | Just m <- detectMarker stripped -> finishNW acc st{psStage = stageFor m}
         | Just (n, v) <- parseNameValue cfg line -> st{psStage = ReadingWeight (insertWeight n v acc)}
         | otherwise -> st
   where
-    stripped = BS8.strip line
+    stripped = trimLine cfg line
+    blank = BS.null stripped
 
 {- | Append the completed category. A header with zero CF rows still emits an
 empty 'Method': a category can be declared before its factors are added, and
@@ -369,16 +372,20 @@ parseConfig = foldl' go defaultConfig
         | otherwise = cfg
 
 parseMethodName :: SimaProConfig -> [BS.ByteString] -> Text
-parseMethodName _cfg = go False
+parseMethodName cfg = go False . map (trimLine cfg)
   where
     go _ [] = "SimaPro Method"
-    go True (l : _) = decodeBS (BS8.strip l)
+    go True (l : _) = decodeBS l
     go False (l : ls)
-        | BS8.strip l == "Name" = go True ls
+        | l == "Name" = go True ls
         | otherwise = go False ls
 
-isBlank :: BS.ByteString -> Bool
-isBlank = BS.null . BS8.strip
+{- | A line without its surrounding blanks nor its trailing separators: some
+exporters pad every line to the widest row (@Impact category;;;;;@), which
+would otherwise hide every marker and every blank line.
+-}
+trimLine :: SimaProConfig -> BS.ByteString -> BS.ByteString
+trimLine cfg = BS8.strip . BS8.dropWhileEnd (== spDelimiter cfg) . BS8.strip
 
 direction :: BS.ByteString -> FlowDirection
 direction comp

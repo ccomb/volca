@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 102** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 104** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -574,6 +574,16 @@ wire revision 60.
 (`database_history`) and in the changes report its export
 carries. Needs wire revision 79.
 
+##### `Client.available_method_collections()`
+
+The method collections the engine offers to download and load in one
+step (wire revision 103).
+
+Each entry carries ``name``, ``publisher``, ``version``, ``licence``
+(an SPDX identifier, absent when the file states none), ``sourceUrl``,
+``size`` in bytes, ``description``, and ``installed``, true when the
+engine already knows a collection of that name.
+
 ##### `Client.call(operation_id: str, **kwargs) -> Any`
 
 Escape hatch: call any OpenAPI operation by operationId.
@@ -779,7 +789,7 @@ Every change made to the database, oldest first::
      "details": ["Flow \"Water\": amount from 2.0 set to 1.5"]}
 
 ``by`` is the public name of the account that made it, ``None`` when
-the engine was not told, as on the desktop (wire revision 102).
+the engine was not told, as on the desktop (wire revision 104).
 ``note`` is the reason its author gave, ``None`` when they gave none.
 ``database`` is the database the change was made on: for a child, the
 changes of the parent it is divided from come first, since its data
@@ -1396,6 +1406,16 @@ Return server build metadata: version, git hash/tag, build target.
 Uses a direct HTTP call: ``/api/v1/version`` has no operationId
 since it predates the Resources ADT.
 
+##### `Client.install_method_collection(name: str) -> dict`
+
+Download a collection `available_method_collections` offers,
+check it is the file the engine expects, then store and load it under
+that name (wire revision 103).
+
+Refused when the engine is read-only, when it already knows a collection
+of that name, when the file is larger than the plan's upload limit, and
+when the file received differs from the one expected.
+
 ##### `Client.licences()`
 
 The standard licences a database can be published under.
@@ -1473,7 +1493,7 @@ The journal of a collection, one entry per line.
 
 Each entry gives its ``line``, when it was written (``at``), the public
 name of the account that wrote it (``by``, ``None`` when the engine was
-not told; wire revision 102), its
+not told; wire revision 104), its
 ``kind`` (``change``, ``undo`` or ``configuration``, for what a copy
 took from its source's configuration), the line it ``undoes``, whether
 it is ``inEffect``, and the ``change`` it made. A collection the
@@ -1986,13 +2006,21 @@ dependencies with `add_dependency`, and call
 Raises VoLCAError on any rejection (uploads disabled on the plan, size
 cap exceeded, unreadable archive).
 
-##### `Client.upload_method_collection(source: str | Path | bytes, name: str, *, description: str | None = None) -> dict`
+##### `Client.upload_method_collection(source: str | Path | bytes, name: str, *, description: str | None = None, flows_from: str | None = None) -> dict`
 
-Upload an ILCD method file as a staged method collection.
+Upload a method file as a staged method collection.
 
 ``source`` is a path to the method archive (or its raw ``bytes``).
 Same streamed-body + query-param shape as `upload_database`;
 returns the ``UploadResponse`` dict and raises VoLCAError on rejection.
+
+A workbook of characterization factors, one per row (``Method,
+Category, Indicator, Name, Compartment, Subcompartment, CF``), becomes
+one collection per method family, listed under ``families``; the
+factors left out are under ``dropped``. Its flows take their units and
+CAS numbers from the EcoSpold 2 master data of an uploaded database:
+``flows_from`` names it, and may be left out when only one database
+has master data (wire revision 101).
 
 ##### `Client.upload_reference_data(kind: RefDataKind, source: str | Path | bytes, name: str, *, description: str | None = None) -> dict`
 
@@ -2971,6 +2999,7 @@ reports no total, so pyvolca cannot derive ``has_more``. Pass a generous
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `ContributingFlows`
 
@@ -2990,6 +3019,7 @@ flows were truncated. If you need exhaustive coverage, pass a generous
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `DatabaseComparison`
 
