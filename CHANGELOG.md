@@ -18,6 +18,10 @@
   `compare_impacts` and a batch carry it as `basis`; the databases of a
   substituted score are the ones its chain reached, those of a batch the
   dependencies. Wire revision 99.
+- The flows and the activities a score breaks down into, by impact category
+  or by single score, and the baseline of a sensitivity sweep say what their
+  score rests on, as `basis`, so a share quoted alone keeps it. Wire
+  revision 102.
 - A method collection can be uploaded as a workbook that lists one
   characterization factor per row, under the labels `Method, Category,
   Indicator, Name, Compartment, Subcompartment, CF`, with an `Indicators`
