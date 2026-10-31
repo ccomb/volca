@@ -58,6 +58,7 @@ import SynonymDB (emptySynonymDB)
 import TestHelpers (kgUnit, linkDatabases, mkActivity, mkTechFlow, reference, techInput, units)
 import Types
 import UnitConversion (defaultUnitConfig)
+import Usage (anonymous)
 
 u :: String -> UUID
 u suffix = read ("00000000-0000-0000-0000-0000000002" <> suffix)
@@ -272,7 +273,7 @@ metByRInputs = Just [(String "M", Number 2, 6500000)]
 mcp :: DM.DatabaseManager -> Text -> [(Key, Value)] -> IO Object
 mcp manager tool args = do
     reply <-
-        callTool Nothing manager [] Nothing Nothing noRequestId tool $
+        callTool anonymous manager [] Nothing Nothing noRequestId tool $
             KM.fromList ([("database", String "main"), ("collection", String collection), ("method_id", String methodText)] ++ args)
     maybe (fail ("unexpected " <> T.unpack tool <> " reply: " <> show reply)) pure (payloadOf reply)
 
@@ -471,7 +472,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
 
         it "give each side of compare_impacts its own list" $ do
             reply <-
-                callTool Nothing manager [] Nothing Nothing noRequestId "compare_impacts" $
+                callTool anonymous manager [] Nothing Nothing noRequestId "compare_impacts" $
                     KM.fromList
                         [ ("database_a", String "main")
                         , ("process_id_a", String pidR)

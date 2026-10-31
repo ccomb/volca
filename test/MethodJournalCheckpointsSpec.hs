@@ -60,7 +60,7 @@ theFactor name method = case named name method of
     found -> fail ("expected one " <> T.unpack name <> ", found " <> show (length found))
 
 edited :: DatabaseManager -> Text -> FactorEdit -> IO ()
-edited manager collection edit = editMethodFactors manager collection edit >>= either (expectationFailure . T.unpack . refusalText) (const (pure ()))
+edited manager collection edit = editMethodFactors manager collection Nothing edit >>= either (expectationFailure . T.unpack . refusalText) (const (pure ()))
 
 ammoniaRows :: [Text]
 ammoniaRows = ["turpentine;soil;;kg;8.399", "turpentine;soil;;kg;1.1619", "Ammonia;air;7664-41-7;kg;3.0"]
@@ -100,8 +100,8 @@ spec = describe "what a method collection's journal promises" $ do
             edited manager "copy" (Add (methodId cadmium) fossil{mcfFlowRef = UUID.fromWords 0 0 0 7, mcfFlowName = "Cadmium, ion"})
             edited manager "copy" (Patch (MethodPatch Nothing (byPrefix "Cadmium") (ScaleBy 2)))
             edited manager "copy" (Patch (MethodPatch Nothing (byPrefix "Methane") (SetValueTo 3)))
-            _ <- undoMethodEdit manager "copy" Nothing
-            _ <- undoMethodEdit manager "copy" Nothing
+            _ <- undoMethodEdit manager "copy" Nothing Nothing
+            _ <- undoMethodEdit manager "copy" Nothing Nothing
             inMemory <- getMethodCollection manager "copy"
             fresh <- initDatabaseManager defaultConfig NoCache
             _ <- loadMethodCollection fresh "copy"
@@ -142,7 +142,7 @@ spec = describe "what a method collection's journal promises" $ do
             twin <- case named "turpentine" ecotox of
                 f : _ -> pure f
                 [] -> fail "no turpentine"
-            refused <- editMethodFactors manager "ecotox" (SetValue (at ecotox twin) 2)
+            refused <- editMethodFactors manager "ecotox" Nothing (SetValue (at ecotox twin) 2)
             either (T.unpack . refusalText) (const "changed") refused `shouldContain` "turpentine"
             either (T.unpack . refusalText) (const "changed") refused `shouldContain` "identically"
 

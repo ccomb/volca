@@ -66,7 +66,7 @@ factorsOf :: MethodCollection -> [MethodCF]
 factorsOf = concatMap methodFactors . mcMethods
 
 line :: MethodOp -> Entry MethodLine
-line op = Entry "2026-10-02T09:00:00Z" (MethodLine op Change)
+line op = Entry "2026-10-02T09:00:00Z" Nothing (MethodLine op Change)
 
 ammoniaPatch :: MethodPatch
 ammoniaPatch = MethodPatch Nothing (MethodPatchMatch Nothing (Just "Ammonia") Nothing Nothing Nothing) (ScaleBy 2)
@@ -223,7 +223,7 @@ spec = describe "a method collection's journal" $ do
                 , ChangeScoringSet "Single" (RemovedScore "S") (SetText ScoreOf "S" (Just "a") Nothing :| [])
                 ]
             kinds = cycle [Change, Undoing 1, TakenFromConfiguration]
-            entries = zipWith (\op kind -> Entry "t" (MethodLine op kind)) ops kinds
+            entries = zipWith (\op kind -> Entry "t" Nothing (MethodLine op kind)) ops kinds
          in mapM_ (\e -> decodeStrict (BL.toStrict (encode e)) `shouldBe` Just e) entries
 
     it "refuses a change that removes and still writes a value, or sets and writes none" $ do

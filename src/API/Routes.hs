@@ -1671,7 +1671,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 103: the method collections an engine offers to download, at
+(revision 104: the @by@ of each line of a database's or a method collection's
+history, the public name of the account that made it;
+revision 103: the method collections an engine offers to download, at
 @method-collections/available@, and the route that installs one of them and
 loads it;
 revision 102: the @basis@ of a score on its contributing flows and activities
@@ -1897,7 +1899,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 103
+currentWireVersion = 104
 
 getVersion :: AppM Value
 getVersion = do
@@ -2824,11 +2826,12 @@ postApplyChanges dbName processIdText query = do
     (db, _) <- requireDatabaseByName dbName
     process <- either throwServiceError pure (Compare.resolveProcess db processIdText)
     dbManager <- asks aeDbManager
+    by <- asks aeAuthor
     ctx <- liftIO (authorContext dbManager db)
     case Compare.applicableChanges ctx process query of
         (applied, []) -> pure applied
         (applied, edits) ->
-            liftIO (editExchanges dbManager dbName (cqNote query >>= noteFrom) processIdText edits)
+            liftIO (editExchanges dbManager dbName by (cqNote query >>= noteFrom) processIdText edits)
                 >>= either DBHandlers.refuseWrite (const (pure applied))
 
 getDatabaseComparison :: Text -> Maybe Text -> Maybe Int -> AppM DatabaseComparison

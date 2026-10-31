@@ -51,6 +51,7 @@ envWith hc = do
             , aeDataVersion = Nothing
             , aeUsageLog = Nothing
             , aeReader = Nothing
+            , aeAuthor = Nothing
             }
 
 -- | The status and body a handler failed with, or 'Nothing' when it answered 200.

@@ -25,7 +25,7 @@ import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 
-import Data.JournalFile (Entry (..))
+import Data.JournalFile (Author (..), Entry (..))
 import Database.Author (
     ActivityText (..),
     AuthoredActivity (..),
@@ -65,9 +65,10 @@ import Types (
     propertyName,
  )
 
--- | One change, said: when, why, what in a sentence, and each line it touched.
+-- | One change, said: when, by whom, why, what in a sentence, and each line it touched.
 data HistoryLine = HistoryLine
     { hlAt :: Text
+    , hlBy :: Maybe Author
     , hlNote :: Maybe Note
     , hlSummary :: Text
     , hlDetails :: [Text]
@@ -120,7 +121,7 @@ describeJournal namer = map line
   where
     line event =
         let (summary, details) = describeOp namer (changeOp (jeOp event))
-         in HistoryLine (jeAt event) (changeNote (jeOp event)) summary details
+         in HistoryLine (jeAt event) (jeBy event) (changeNote (jeOp event)) summary details
 
 describeOp :: Namer -> JournalOp -> (Text, [Text])
 describeOp namer = \case
@@ -243,7 +244,9 @@ changesReport provenance carried =
                 <> ", not as the original divides them."
                 <> (if null (smParameters model) then "" else " The model also sets parameters of the processes: " <> T.intercalate ", " (map mpName (smParameters model)) <> ".")
     section line =
-        ["", "## " <> hlAt line <> ": " <> hlSummary line, "", "Reason: " <> maybe "No reason given" noteText (hlNote line)]
+        ["", "## " <> hlAt line <> ": " <> hlSummary line, ""]
+            <> maybe [] (\by -> ["By: @" <> authorHandle by]) (hlBy line)
+            <> ["Reason: " <> maybe "No reason given" noteText (hlNote line)]
             <> (if null (hlDetails line) then [] else "" : map ("- " <>) (hlDetails line))
     releaseTitle release = T.unwords ([releaseName release, releaseVersion release] <> maybe [] pure (releaseSystemModel release))
 

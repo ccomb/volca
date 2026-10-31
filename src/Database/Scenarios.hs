@@ -48,7 +48,7 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 
 import API.Types (ParameterValue (..), ScenarioAPI (..))
-import Data.JournalFile (Entry (..), JournalVocabulary (..), appendEntry, readEntries)
+import Data.JournalFile (Author, Entry (..), JournalVocabulary (..), appendEntry, readEntries)
 import Database.Edit (WriteRefusal (..))
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), editHome, getDatabase, scenariosHome)
 import OlcaSchema.Parser (shippedScenarios)
@@ -170,8 +170,8 @@ scoring request would refuse the values, under the name of a scenario the
 database ships that no saved one holds, and on a database read from the
 configuration, where a scenario would be lost at the next restart.
 -}
-saveScenario :: DatabaseManager -> Text -> ScenarioName -> [ParameterValue] -> IO (Either WriteRefusal ())
-saveScenario manager dbName (ScenarioName name) values
+saveScenario :: DatabaseManager -> Text -> Maybe Author -> ScenarioName -> [ParameterValue] -> IO (Either WriteRefusal ())
+saveScenario manager dbName by (ScenarioName name) values
     | T.null (T.strip name) = pure (Left (Malformed ["A scenario needs a name."]))
     | T.strip name /= name = pure (Left (Malformed ["The scenario name '" <> name <> "' starts or ends with a space."]))
     | null values = pure (Left (Malformed ["The scenario '" <> name <> "' sets no parameter: the defaults need no scenario."]))
@@ -181,13 +181,13 @@ saveScenario manager dbName (ScenarioName name) values
             then pure (Left (Malformed ["The scenario '" <> name <> "' ships with the database: save under another name."]))
             else case scenarioProblem db values of
                 Just problem -> pure (Left (Malformed [problem]))
-                Nothing -> first WriteFailed <$> appendEntry home (Saved name values)
+                Nothing -> first WriteFailed <$> appendEntry home by (Saved name values)
 
 -- | Drop a saved scenario. Refused for a name that holds none, and for one the database ships.
-dropScenario :: DatabaseManager -> Text -> ScenarioName -> IO (Either WriteRefusal ())
-dropScenario manager dbName (ScenarioName name) = withScenarios manager dbName $ \db home saved ->
+dropScenario :: DatabaseManager -> Text -> Maybe Author -> ScenarioName -> IO (Either WriteRefusal ())
+dropScenario manager dbName by (ScenarioName name) = withScenarios manager dbName $ \db home saved ->
     if M.member name saved
-        then first WriteFailed <$> appendEntry home (Dropped name)
+        then first WriteFailed <$> appendEntry home by (Dropped name)
         else
             pure . Left $
                 if M.member name (shipped db)

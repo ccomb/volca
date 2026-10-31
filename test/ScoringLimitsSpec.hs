@@ -101,6 +101,7 @@ spec = do
                         , aeDataVersion = Nothing
                         , aeUsageLog = Nothing
                         , aeReader = Nothing
+                        , aeAuthor = Nothing
                         }
             res <-
                 runHandler . runApp env $

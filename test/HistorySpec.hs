@@ -6,7 +6,7 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Data.JournalFile (Entry (..))
+import Data.JournalFile (Author (..), Entry (..))
 import Database.Author (AuthoredActivity (..), ExchangeEdit (..), ExchangeSelector (..))
 import Database.History
 import Database.Journal (Change (..), EditLine (..), JournalOp (..), ParameterLine (..), Prior (..), noteFrom)
@@ -35,10 +35,10 @@ history :: [HistoryLine]
 history =
     describeJournal
         (namerFor Nothing)
-        [ Entry "2026-10-01" (Change Nothing (Created [bread] ["a_b"]))
-        , Entry "2026-10-02" (Change (noteFrom "Measured on site") (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3) 1 (Prior [1.2]), EditLine (RemoveExchange (SelectInput "c_d")) 1 PriorUnknown, EditLine (SetProperty Price flowId (Just (StatedAmount "EUR2005" 0.42))) 1 (Prior []), EditLine (SetProperty Price flowId Nothing) 1 (Prior [])]))
-        , Entry "2026-10-03" (Change Nothing (ParametersEdited [ParameterLine "distance" (Just (value 90)) (Prior (Just (value 120))), ParameterLine "new" (Just (value 1)) (Prior Nothing)]))
-        , Entry "2026-10-04" (Change Nothing (Deleted ["a_b"]))
+        [ Entry "2026-10-01" Nothing (Change Nothing (Created [bread] ["a_b"]))
+        , Entry "2026-10-02" (Just (Author "acc-1" "ana")) (Change (noteFrom "Measured on site") (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3) 1 (Prior [1.2]), EditLine (RemoveExchange (SelectInput "c_d")) 1 PriorUnknown, EditLine (SetProperty Price flowId (Just (StatedAmount "EUR2005" 0.42))) 1 (Prior []), EditLine (SetProperty Price flowId Nothing) 1 (Prior [])]))
+        , Entry "2026-10-03" Nothing (Change Nothing (ParametersEdited [ParameterLine "distance" (Just (value 90)) (Prior (Just (value 120))), ParameterLine "new" (Just (value 1)) (Prior Nothing)]))
+        , Entry "2026-10-04" Nothing (Change Nothing (Deleted ["a_b"]))
         ]
 
 spec :: Spec
@@ -51,7 +51,7 @@ spec = describe "Database.History" $ do
                        , ("Deleted 1 activity", ["\"a_b\""])
                        ]
 
-    it "reports each change with its reason, or says it was given none" $ do
+    it "reports each change with who made it when known, and its reason or that it was given none" $ do
         let report = changesReport Provenance{pvDatabase = "my bakery", pvOriginal = "bakery", pvRelease = Just (Release "Bakery data" "2025" Nothing), pvReallocated = Just (ByModel (modelDividingBy DryMass))} (Carried Nothing (Journal "my bakery" history))
         T.lines report
             `shouldStartWith` [ "# Changes to my bakery"
@@ -70,5 +70,6 @@ spec = describe "Database.History" $ do
                               , ""
                               , "## 2026-10-02: Edited \"a_b\""
                               , ""
+                              , "By: @ana"
                               , "Reason: Measured on site"
                               ]

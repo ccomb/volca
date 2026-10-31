@@ -107,7 +107,7 @@ spec = do
         it "writes a reason only when one is given" $ do
             noteFrom "   " `shouldBe` Nothing
             noteFrom "" `shouldBe` Nothing
-            Just (toJSON (Entry "now" (Change (noteFrom " Measured on site ") (Deleted []))))
+            Just (toJSON (Entry "now" Nothing (Change (noteFrom " Measured on site ") (Deleted []))))
                 `shouldBe` decodeStrict "{\"v\":1,\"at\":\"now\",\"op\":\"delete\",\"targets\":[],\"note\":\"Measured on site\"}"
 
         it "reads back every event it writes" $
@@ -299,7 +299,7 @@ spec = do
 -- ---------------------------------------------------------------------------
 
 event :: JournalOp -> JournalEvent
-event = Entry "2026-08-03T09:12:41Z" . Change Nothing
+event = Entry "2026-08-03T09:12:41Z" Nothing . Change Nothing
 
 -- | An inventory edit written before the amounts it replaced were kept.
 edited :: Text -> [(ExchangeEdit, Int)] -> JournalOp
@@ -317,7 +317,7 @@ failsWith :: Text -> Either Text a -> Bool
 failsWith needle = either (isInfixOf needle) (const False)
 
 appendOrFail :: FilePath -> Change -> IO ()
-appendOrFail home op = appendEvent home op >>= either (fail . show) pure
+appendOrFail home op = appendEvent home Nothing op >>= either (fail . show) pure
 
 {- | Run a check against a journal file written verbatim, so a line this
 engine would never write can still be read.
@@ -475,8 +475,8 @@ richEvents =
     , event repriced
     , event dryMassed
     , event wetMassed
-    , Entry "2026-10-21T10:00:00Z" (Change (noteFrom "Measured on site") rememberedEdit)
-    , Entry "2026-10-21T10:05:00Z" (Change Nothing rememberedParameters)
+    , Entry "2026-10-21T10:00:00Z" Nothing (Change (noteFrom "Measured on site") rememberedEdit)
+    , Entry "2026-10-21T10:05:00Z" Nothing (Change Nothing rememberedParameters)
     ]
 
 -- | An inventory edit keeping the amounts it replaced, one per line matched.

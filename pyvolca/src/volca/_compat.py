@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 103
-"""The newest wire revision this pyvolca understands (revision 103 added
+KNOWN_WIRE = 104
+"""The newest wire revision this pyvolca understands (revision 104 added the
+public name ``by`` of the account that made each change of a database's or a
+collection's history; revision 103 added
 ``available_method_collections()`` and ``install_method_collection()``, the
 method collections an engine offers to download and the call that installs
 and loads one; revision 102 added the
