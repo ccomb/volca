@@ -35,6 +35,7 @@ import API.DatabaseHandlers (
     editExchangesHandler,
     finalizeDatabaseHandler,
     getDatabases,
+    installMethodCollectionHandler,
     loadDatabaseHandler,
     loadRefData,
     relinkDatabaseHandler,
@@ -136,6 +137,7 @@ mutatingHandlers =
     , ("drop-scenario", run (dropScenarioHandler "nope" "high salt"))
     , ("set-data-path", run (setDataPathHandler "nope" Null))
     , ("upload-method", run (uploadMethodHandler (Just "nope") Nothing Nothing (source [])))
+    , ("install-method", run (installMethodCollectionHandler "nope"))
     , ("delete-method", run (deleteMethodHandler "nope"))
     , ("load-method", run (loadMethodCollectionHandler "nope"))
     , ("unload-method", run (unloadMethodCollectionHandler "nope"))
