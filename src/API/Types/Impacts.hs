@@ -240,6 +240,7 @@ data ContributingFlowsResult = ContributingFlowsResult
     , cfrWithheldDatabases :: [WithheldShare] -- Dependencies whose licence keeps their detail: their flows are not among the top flows, their part is one line each
     , cfrCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
     , cfrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
+    , cfrBasis :: ScoreBasis -- What the score these flows add up to rests on
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingFlowsResult)
@@ -265,6 +266,7 @@ data ContributingActivitiesResult = ContributingActivitiesResult
     , carWithheldDatabases :: [WithheldShare] -- Dependencies whose licence keeps their detail: their processes are not listed, their part is one line each
     , carCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
     , carWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
+    , carBasis :: ScoreBasis -- What the score these activities add up to rests on
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingActivitiesResult)

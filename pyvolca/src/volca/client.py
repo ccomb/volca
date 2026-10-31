@@ -3613,14 +3613,14 @@ class Client:
 
     def available_method_collections(self) -> list[dict]:
         """The method collections the engine offers to download and load in one
-        step (wire revision 102).
+        step (wire revision 103).
 
         Each entry carries ``name``, ``publisher``, ``version``, ``licence``
         (an SPDX identifier, absent when the file states none), ``sourceUrl``,
         ``size`` in bytes, ``description``, and ``installed``, true when the
         engine already knows a collection of that name.
         """
-        self._require_wire(102, "available_method_collections()", engine_hint="0.16.1")
+        self._require_wire(103, "available_method_collections()", engine_hint="0.16.1")
         return self._json(
             self._session.get(f"{self.base_url}/api/v1/method-collections/available")
         )
@@ -3628,13 +3628,13 @@ class Client:
     def install_method_collection(self, name: str) -> dict:
         """Download a collection :meth:`available_method_collections` offers,
         check it is the file the engine expects, then store and load it under
-        that name (wire revision 102).
+        that name (wire revision 103).
 
         Refused when the engine is read-only, when it already knows a collection
         of that name, when the file is larger than the plan's upload limit, and
         when the file received differs from the one expected.
         """
-        self._require_wire(102, "install_method_collection()", engine_hint="0.16.1")
+        self._require_wire(103, "install_method_collection()", engine_hint="0.16.1")
         payload = self._json(
             self._session.post(
                 f"{self.base_url}/api/v1/method-collections/available/"

@@ -71,7 +71,7 @@ class TestMethodCollections:
 
     def test_available_lists_the_catalogue(self, mocked_client):
         client, session = mocked_client
-        client._server_wire = 102
+        client._server_wire = 103
         client._checked = True
         _resp(session.get, [{"name": "IMPACT World+ 2.2.1 Expert", "installed": False}])
         out = client.available_method_collections()
@@ -80,7 +80,7 @@ class TestMethodCollections:
 
     def test_install_quotes_the_name_and_checks_success(self, mocked_client):
         client, session = mocked_client
-        client._server_wire = 102
+        client._server_wire = 103
         client._checked = True
         _resp(session.post, {"success": True, "message": "Installed and loaded method: IMPACT World+ 2.2.1 Expert"})
         client.install_method_collection("IMPACT World+ 2.2.1 Expert")
@@ -90,7 +90,7 @@ class TestMethodCollections:
 
     def test_install_refused_by_an_older_engine(self, mocked_client):
         client, session = mocked_client
-        client._server_wire = 101
+        client._server_wire = 102
         client._checked = True
         with pytest.raises(VoLCAError, match="install_method_collection"):
             client.install_method_collection("IMPACT World+ 2.2.1 Expert")

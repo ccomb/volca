@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 102** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 103** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -577,7 +577,7 @@ carries. Needs wire revision 79.
 ##### `Client.available_method_collections()`
 
 The method collections the engine offers to download and load in one
-step (wire revision 102).
+step (wire revision 103).
 
 Each entry carries ``name``, ``publisher``, ``version``, ``licence``
 (an SPDX identifier, absent when the file states none), ``sourceUrl``,
@@ -1408,7 +1408,7 @@ since it predates the Resources ADT.
 
 Download a collection `available_method_collections` offers,
 check it is the file the engine expects, then store and load it under
-that name (wire revision 102).
+that name (wire revision 103).
 
 Refused when the engine is read-only, when it already knows a collection
 of that name, when the file is larger than the plan's upload limit, and
@@ -2995,6 +2995,7 @@ reports no total, so pyvolca cannot derive ``has_more``. Pass a generous
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `ContributingFlows`
 
@@ -3014,6 +3015,7 @@ flows were truncated. If you need exhaustive coverage, pass a generous
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `DatabaseComparison`
 
