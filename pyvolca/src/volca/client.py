@@ -1083,6 +1083,7 @@ class Client:
         name: str,
         description: str | None,
         action: str,
+        extra_params: dict | None = None,
     ) -> dict:
         """POST an octet-stream upload; metadata travels in query params.
 
@@ -1096,7 +1097,7 @@ class Client:
         extraction failure) raises VoLCAError, whether the engine answers it
         with an HTTP error or, before wire revision 51, in-band.
         """
-        params: dict = {"name": name}
+        params: dict = {"name": name, **(extra_params or {})}
         if description:
             params["description"] = description
         headers = {"Content-Type": "application/octet-stream"}
@@ -3616,19 +3617,31 @@ class Client:
         name: str,
         *,
         description: str | None = None,
+        flows_from: str | None = None,
     ) -> dict:
-        """Upload an ILCD method file as a staged method collection.
+        """Upload a method file as a staged method collection.
 
         ``source`` is a path to the method archive (or its raw ``bytes``).
         Same streamed-body + query-param shape as :meth:`upload_database`;
         returns the ``UploadResponse`` dict and raises VoLCAError on rejection.
+
+        A workbook of characterization factors, one per row (``Method,
+        Category, Indicator, Name, Compartment, Subcompartment, CF``), becomes
+        one collection per method family, listed under ``families``; the
+        factors left out are under ``dropped``. Its flows take their units and
+        CAS numbers from the EcoSpold 2 master data of an uploaded database:
+        ``flows_from`` names it, and may be left out when only one database
+        has master data (wire revision 101).
         """
+        if flows_from is not None:
+            self._require_wire(101, "upload_method_collection(flows_from=...)", engine_hint="0.16.1")
         return self._upload(
             "/api/v1/method-collections/upload",
             source,
             name,
             description,
             "upload_method_collection",
+            {"flows_from": flows_from} if flows_from is not None else None,
         )
 
     def export_method_collection(self, name: str, fmt: str = "simapro") -> bytes:

@@ -417,6 +417,7 @@ parseFormat "ilcd" = Just ILCDProcess
 parseFormat "openlca-jsonld" = Just OpenLcaImpactCategory
 parseFormat "openlca-package" = Just OpenLcaPackage
 parseFormat "brightway-excel" = Just BrightwayExcel
+parseFormat "columnar-csv" = Just ColumnarCSV
 parseFormat _ = Just UnknownFormat
 
 -- | Format meta.toml content
@@ -482,6 +483,7 @@ formatMetaToml UploadMeta{..} =
     formatToText OpenLcaImpactCategory = "openlca-jsonld"
     formatToText OpenLcaPackage = "openlca-package"
     formatToText BrightwayExcel = "brightway-excel"
+    formatToText ColumnarCSV = "columnar-csv"
     formatToText UnknownFormat = "unknown"
 
 -- | Scan a directory for subdirectories with meta.toml

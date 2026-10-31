@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 101** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 102** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1982,13 +1982,21 @@ dependencies with `add_dependency`, and call
 Raises VoLCAError on any rejection (uploads disabled on the plan, size
 cap exceeded, unreadable archive).
 
-##### `Client.upload_method_collection(source: str | Path | bytes, name: str, *, description: str | None = None) -> dict`
+##### `Client.upload_method_collection(source: str | Path | bytes, name: str, *, description: str | None = None, flows_from: str | None = None) -> dict`
 
-Upload an ILCD method file as a staged method collection.
+Upload a method file as a staged method collection.
 
 ``source`` is a path to the method archive (or its raw ``bytes``).
 Same streamed-body + query-param shape as `upload_database`;
 returns the ``UploadResponse`` dict and raises VoLCAError on rejection.
+
+A workbook of characterization factors, one per row (``Method,
+Category, Indicator, Name, Compartment, Subcompartment, CF``), becomes
+one collection per method family, listed under ``families``; the
+factors left out are under ``dropped``. Its flows take their units and
+CAS numbers from the EcoSpold 2 master data of an uploaded database:
+``flows_from`` names it, and may be left out when only one database
+has master data (wire revision 101).
 
 ##### `Client.upload_reference_data(kind: RefDataKind, source: str | Path | bytes, name: str, *, description: str | None = None) -> dict`
 

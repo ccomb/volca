@@ -27,6 +27,18 @@
 # it to `s` and delete exactly what's under test. Keep the law spelled out.
 - ignore: {name: "Monoid law, right identity", within: LoaderSpec}
 
+# `fromListWith (flip (<>))` keeps a key's rows in the order read by appending
+# each at the end of the list, which copies the list at every row: a key with
+# half a million rows took a minute. `groupInOrder` gives the same order in one
+# pass.
+- error: {lhs: "Data.Map.fromListWith (flip (<>))", rhs: "Data.Indexing.groupInOrder", name: "Use groupInOrder"}
+- error: {lhs: "Data.Map.fromListWith (flip (++))", rhs: "Data.Indexing.groupInOrder", name: "Use groupInOrder"}
+- error: {lhs: "Data.Map.Strict.fromListWith (flip (<>))", rhs: "Data.Indexing.groupInOrder", name: "Use groupInOrder"}
+- error: {lhs: "Data.Map.Strict.fromListWith (flip (++))", rhs: "Data.Indexing.groupInOrder", name: "Use groupInOrder"}
+# A cut-off's demands add up to a sum, a set and at most three reasons, not a
+# list that grows: `flip` only keeps the first reason read first.
+- ignore: {name: "Use groupInOrder", within: Database.Cutoffs.cutoffInputsIn}
+
 # ---------------------------------------------------------------------------
 # A key read out of a file can repeat
 # ---------------------------------------------------------------------------
@@ -35,7 +47,7 @@
 # asserts that its key determines its value, so where the key comes out of a
 # file - which nothing makes a primary key - one of three answers has to be
 # chosen and said: refuse (`Data.Indexing.uniqueIndex`), keep all
-# (`fromListWith` towards a `NonEmpty`), or reconcile.
+# (`Data.Indexing.groupInOrder`), or reconcile.
 #
 # The restriction is scoped to the modules listed below: the parsers of the five
 # formats the engine reads, the tables it ships, and the two that index a
@@ -74,6 +86,7 @@
       , OlcaSchema.Parser
       , Method.FlowResolver
       , Method.ParserCSV
+      , Method.ParserFactorTable
       , Method.ParserNW
       , Method.Types
       , SimaPro.Parser

@@ -145,6 +145,8 @@ library
                      , SimaPro.Parser
                      , SimaPro.Writer
                      , BrightwayExcel.Parser
+                     , Xlsx
+                     , Method.ParserFactorTable
                      , BrightwayExcel.Writer
                      , Expr
                      , Parametric
@@ -262,6 +264,7 @@ test-suite lca-tests
   hs-source-dirs:      test
   main-is:             Spec.hs
   other-modules:       TestHelpers
+                     , TestWorkbook
                      , UsageSpec
                      , HistorySpec
                      , GoldenData
@@ -404,6 +407,7 @@ test-suite lca-tests
                      , LicensesSpec
                      , GeographiesSpec
                      , MethodUploadSpec
+                     , FactorTableSpec
                      , MethodWriterCSVSpec
                      , MethodWriterILCDSpec
                      , MethodWriterOlcaSchemaSpec

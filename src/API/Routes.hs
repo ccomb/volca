@@ -31,6 +31,7 @@ import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Char (isAscii, isControl)
 import Data.Foldable (asum)
+import Data.Indexing (groupInOrder)
 import Data.Int (Int32)
 import Data.List (intercalate, nub, partition, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -232,7 +233,7 @@ type LCAAPI =
                 :<|> "method-collections" :> Capture "name" Text :> "load" :> Post '[JSON] ActivateResponse
                 :<|> "method-collections" :> Capture "name" Text :> "unload" :> Post '[JSON] ActivateResponse
                 :<|> "method-collections" :> Capture "name" Text :> Delete '[JSON] ActivateResponse
-                :<|> "method-collections" :> "upload" :> QueryParam "name" Text :> QueryParam "description" Text :> StreamBody NoFraming OctetStream (SourceIO UploadChunk) :> Post '[JSON] UploadResponse
+                :<|> "method-collections" :> "upload" :> QueryParam "name" Text :> QueryParam "description" Text :> QueryParam "flows_from" Text :> StreamBody NoFraming OctetStream (SourceIO UploadChunk) :> Post '[JSON] UploadResponse
                 -- Export a loaded method collection as raw bytes (SimaPro CSV);
                 -- projection warnings travel percent-encoded in a response header
                 :<|> "method-collections" :> Capture "name" Text :> "export" :> ReqBody '[JSON] ExportRequest :> Post '[OctetStream] (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
@@ -1668,8 +1669,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 101: the @basis@ of a score on its contributing flows and activities
+(revision 102: the @basis@ of a score on its contributing flows and activities
 and on the baseline of a sensitivity sweep;
+revision 101: the @flows_from@ of an uploaded workbook of factors, the EcoSpold 2
+database whose master data gives it its units and CAS numbers;
 revision 100: the @database@ each line of a database's history was made on,
 its own or the parent a child is divided from, whose changes the child carries;
 revision 99: the @basis@ of a score, what it rests on: the engine, the
@@ -1889,7 +1892,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 101
+currentWireVersion = 102
 
 getVersion :: AppM Value
 getVersion = do
@@ -2532,7 +2535,7 @@ supplierAnswers frame@SupplierFrame{sfName = dbName, sfDatabase = db, sfSolver =
                                 ]
                         got <- solved depDb name depSolver 1 [p | (_, p, _) <- found]
                         pure [(s, SupplierAnswer conversion scores (map (const 0) pids)) | ((s, _, conversion), (scores, _)) <- zip found got]
-    concat <$> traverse (uncurry answersIn) (M.toList (M.fromListWith (flip (<>)) [(supplierDatabase dbName s, [s]) | s <- suppliers]))
+    concat <$> traverse (uncurry answersIn) (M.toList (NE.toList <$> groupInOrder [(supplierDatabase dbName s, s) | s <- suppliers]))
 
 -- | What one more unit of a supplier gives: the factor to the unit its lines state, its scores, and each moving process's scaling.
 data SupplierAnswer = SupplierAnswer
