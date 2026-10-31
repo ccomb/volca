@@ -147,6 +147,7 @@ library
                      , BrightwayExcel.Parser
                      , Xlsx
                      , Method.ParserFactorTable
+                     , Method.Catalog
                      , BrightwayExcel.Writer
                      , Expr
                      , Parametric
@@ -211,6 +212,7 @@ library
                      , process
                      , cassava
                      , http-client
+                     , http-client-tls
                      , haskeline
                      , megaparsec
                      , unicode-transforms
@@ -408,6 +410,7 @@ test-suite lca-tests
                      , GeographiesSpec
                      , MethodUploadSpec
                      , FactorTableSpec
+                     , MethodCatalogSpec
                      , MethodWriterCSVSpec
                      , MethodWriterILCDSpec
                      , MethodWriterOlcaSchemaSpec

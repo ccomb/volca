@@ -48,6 +48,26 @@ data MethodCollectionListResponse = MethodCollectionListResponse
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped MethodCollectionListResponse)
 
+{- | A method collection the engine offers to download and load in one step.
+The name is the collection's once installed.
+-}
+data AvailableMethodCollection = AvailableMethodCollection
+    { amcName :: Text
+    , amcPublisher :: Text
+    , amcVersion :: Text
+    , amcLicence :: Maybe Text
+    -- ^ Its SPDX identifier; absent when the file states none.
+    , amcSourceUrl :: Text
+    -- ^ The page its publisher describes it on.
+    , amcSize :: Int
+    -- ^ The bytes a download takes.
+    , amcDescription :: Text
+    , amcInstalled :: Bool
+    -- ^ The engine already knows a collection of that name.
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped AvailableMethodCollection)
+
 -- | Method collection status for API responses
 data MethodCollectionStatusAPI = MethodCollectionStatusAPI
     { mcaName :: Text -- Internal identifier

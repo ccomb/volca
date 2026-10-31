@@ -56,6 +56,8 @@ module API.DatabaseHandlers (
     encodeExportWarnings,
     uploadDatabaseHandler,
     uploadMethodHandler,
+    availableMethodCollectionsHandler,
+    installMethodCollectionHandler,
     deleteMethodHandler,
 
     -- * Setup Page Handlers
@@ -104,7 +106,7 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Csv as Csv
-import Data.List (isPrefixOf, unsnoc)
+import Data.List (find, isPrefixOf, unsnoc)
 import qualified Data.Map as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -112,7 +114,7 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
 import Data.Word (Word64)
 import Network.HTTP.Types.URI (urlEncode)
-import Servant (Header, Headers, ServerError, SourceIO, addHeader, err400, err403, err404, err409, err413, err422, err500, errBody, throwError)
+import Servant (Header, Headers, ServerError, SourceIO, addHeader, err400, err403, err404, err409, err413, err422, err500, err502, errBody, throwError)
 import qualified Servant.Types.SourceT as S
 import qualified System.Directory
 import System.FilePath (takeDirectory, takeExtension, (</>))
@@ -131,6 +133,7 @@ import API.Types (
     ActivityInput (..),
     ActivityWriteRequest (..),
     ActivityWriteResponse (..),
+    AvailableMethodCollection (..),
     BinaryContent (..),
     BridgeGroupAPI (..),
     BridgedFlowAPI (..),
@@ -231,6 +234,7 @@ import Database.Manager (
     DatabaseStatus (..),
     DependencyEdit (..),
     LoadedDatabase (..),
+    MethodCollectionStatus (..),
     RefDataStatus (..),
     RelativeDataPath (..),
     RelinkResult (..),
@@ -259,10 +263,12 @@ import Database.Manager (
     listCompartmentMappings,
     listDatabases,
     listFlowSynonyms,
+    listMethodCollections,
     listUnitDefs,
     loadCompartmentMappings,
     loadDatabase,
     loadFlowSynonyms,
+    loadMethodCollection,
     loadOlcaPackageMethod,
     loadUnitDefs,
     madeFrom,
@@ -309,6 +315,7 @@ import Database.Upload (
  )
 import qualified Database.UploadedDatabase as UploadedDB
 import EcoSpold.Parser2 (parseElementaryExchanges)
+import Method.Catalog (CatalogEntry (..), FetchFailure (..), fetchEntry, methodCatalog)
 import qualified Method.Coverage as Coverage
 import qualified Method.Explain as Explain
 import Method.Mapping (BuildProvenance (..), CF (..), CFUnit (..), provenanceStrategyText, strategyToText)
@@ -351,6 +358,7 @@ import Types (
     ratioValue,
     readingKey,
     reasonText,
+    spdxId,
     unresolvedCount,
     withheldSentence,
  )
@@ -1646,6 +1654,66 @@ uploadMethodHandler mName mDesc flowsFrom src =
                             liftIO (removeTreeQuietly uploadDir)
                             failWith err400 "flows_from applies to a table of characterization factors only, and this upload holds none."
                         uploadMethodFiles dbManager uploadDir name mDescription uploadResult
+
+-- | The method collections the catalogue offers, each saying whether the engine already knows it.
+availableMethodCollectionsHandler :: AppM [AvailableMethodCollection]
+availableMethodCollectionsHandler = do
+    entries <- either (failWith err500) pure methodCatalog
+    known <- knownMethodCollections
+    pure
+        [ AvailableMethodCollection
+            { amcName = ceName e
+            , amcPublisher = cePublisher e
+            , amcVersion = ceVersion e
+            , amcLicence = spdxId <$> ceLicence e
+            , amcSourceUrl = ceSourceUrl e
+            , amcSize = ceSize e
+            , amcDescription = ceDescription e
+            , amcInstalled = ceName e `elem` known
+            }
+        | e <- entries
+        ]
+
+{- | Download a method collection of the catalogue, keep it only if it is the
+file the catalogue states, then store and load it as an upload of that name.
+A collection the engine already knows under that name, uploaded or
+configured, is not downloaded again. The plan's upload cap applies, as to a
+file sent.
+-}
+installMethodCollectionHandler :: Text -> AppM ActivateResponse
+installMethodCollectionHandler name = do
+    guardMutation
+    entries <- either (failWith err500) pure methodCatalog
+    entry <- maybe (failWith err404 ("The catalogue offers no method collection named " <> name <> ".")) pure (find ((== name) . ceName) entries)
+    known <- knownMethodCollections
+    when (name `elem` known) $ failWith err409 ("A method collection named " <> name <> " is already installed.")
+    mCap <- asks aeHostingConfig >>= either (failWith err403) pure . uploadSizeCap
+    forM_ mCap $ \cap -> when (ceSize entry > cap) (uncurry failWith (rejectionAnswer (TooLarge cap)))
+    dbManager <- asks aeDbManager
+    tmpPath <- liftIO $ do
+        tmpDir <- System.Directory.getTemporaryDirectory
+        (path, h) <- openBinaryTempFile tmpDir "volca-method-.bin"
+        hClose h
+        pure path
+    ( do
+            liftIO (fetchEntry entry tmpPath) >>= either (uncurry failWith . fetchAnswer) pure
+            bytes <- liftIO (BSL.readFile tmpPath)
+            uploadsDir <- liftIO UploadedDB.getMethodUploadsDir
+            let description = Just (ceDescription entry)
+            uploaded <- liftIO $ handleUpload uploadsDir (UploadData name description bytes) (\_ -> pure ())
+            uploadResult <- either (failWith err400) pure uploaded
+            void (uploadMethodFiles dbManager (uploadsDir </> T.unpack (urSlug uploadResult)) name description uploadResult)
+            ioEither400 (loadMethodCollection dbManager name)
+        )
+        `finally` liftIO (removeQuietly tmpPath)
+    pure (ActivateResponse True ("Installed and loaded method: " <> name) Nothing)
+  where
+    fetchAnswer :: FetchFailure -> (ServerError, Text)
+    fetchAnswer (Unreachable why) = (err502, why)
+    fetchAnswer (NotAsCatalogued why) = (err422, why)
+
+knownMethodCollections :: AppM [Text]
+knownMethodCollections = asks aeDbManager >>= liftIO . fmap (map mcsName) . listMethodCollections
 
 {- | Upload a method collection as its files: ILCD, openLCA, SimaPro or
 columnar CSV, read again at each activation.

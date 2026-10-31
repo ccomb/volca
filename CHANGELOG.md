@@ -4,6 +4,19 @@
 
 ### Added
 
+- An engine offers method collections to download and load in one step.
+  `GET /method-collections/available` lists them, each with its publisher,
+  version, licence, size and whether the engine already knows a collection of
+  that name; `POST /method-collections/available/{name}/install` downloads
+  one, keeps it only when its size and SHA-256 are the ones the engine
+  expects, stores it as an upload of that name and loads it. The catalogue
+  ships in `data/method-catalog.toml`: Environmental Footprint 3.1 and the
+  expert, midpoint and footprint versions of IMPACT World+ 2.2.1. A
+  read-only engine refuses the install, the plan's upload limit applies to
+  it, a collection already known is not downloaded again (409), a server
+  that cannot be reached answers 502 and a file other than the one expected
+  answers 422. pyvolca: `available_method_collections()` and
+  `install_method_collection(name)`. Wire revision 102.
 - A score says what it rests on, once per answer: the engine's version and
   commit; each database it read, the one asked first, with its release (for
   a copy, the one it was copied from), the database whose files it reads,
