@@ -42,6 +42,15 @@
   or by single score, and the baseline of a sensitivity sweep say what their
   score rests on, as `basis`, so a share quoted alone keeps it. Wire
   revision 102.
+- A scoring set says whether its scores rest on value choices, as `weighs`:
+  a score takes a category otherwise than once (its weight, its coefficient
+  or that of the row it reads), adds up normalized categories, or is no
+  sum. A normalized category scored alone, or damages in one unit added at
+  one, does not. A ranking under a set that
+  weighs, `score_activities` and a batch score, says once that ISO 14044
+  does not allow such a score in a comparison disclosed to the public, as
+  `reading_notice`; it is still given. Weights of one over categories in
+  different units are not caught. Wire revision 105.
 - A method collection can be uploaded as a workbook that lists one
   characterization factor per row, under the labels `Method, Category,
   Indicator, Name, Compartment, Subcompartment, CF`, with an `Indicators`

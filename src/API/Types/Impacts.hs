@@ -358,6 +358,8 @@ data BatchImpactsResponse = BatchImpactsResponse
     -}
     , birBasis :: ScoreBasis
     -- ^ What every score of the batch rests on; each entry's parameter set is a position in its parameter sets
+    , birReadingNotice :: Maybe Text
+    -- ^ Said when a scoring set of the batch weighs: its scores rank no comparison disclosed to the public
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped BatchImpactsResponse)

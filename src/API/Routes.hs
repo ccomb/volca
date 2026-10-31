@@ -70,7 +70,7 @@ import qualified Matrix
 import qualified Method.Explain as Explain
 import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), Resolution (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
-import Method.Scoring (ScoringRow (..), rowsOf)
+import Method.Scoring (ScoringRow (..), readingNotice, rowsOf)
 import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, legacyReadings, legacySet, legacySetNames)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringEvaluation (..), ScoringSet (..), computeFormulaScores)
 import qualified Method.Types as MT
@@ -1304,6 +1304,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
             , birInvalid = invalid
             , birUnscorable = unscorable
             , birBasis = basis
+            , birReadingNotice = readingNotice (mcScoringSets collection)
             }
 
 {- | Computed quality checks over the whole catalogue: score every entry of a
@@ -1671,7 +1672,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 104: the @by@ of each line of a database's or a method collection's
+(revision 105: the @weighs@ of a scoring set, whether its scores rest on
+value choices, and the @readingNotice@ of a batch scored under one that does;
+revision 104: the @by@ of each line of a database's or a method collection's
 history, the public name of the account that made it;
 revision 103: the method collections an engine offers to download, at
 @method-collections/available@, and the route that installs one of them and
@@ -1899,7 +1902,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 104
+currentWireVersion = 105
 
 getVersion :: AppM Value
 getVersion = do

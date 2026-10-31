@@ -408,6 +408,8 @@ data ScoringSetAPI = ScoringSetAPI
     , ssaScores :: [ScoreAPI]
     , ssaVariables :: M.Map Text Text
     -- ^ every name a formula of the set can read → the category it reads, or the label of the row it computes
+    , ssaWeighs :: Bool
+    -- ^ Its scores rest on value choices (see 'Method.Scoring.weighs'): no ground for a comparison disclosed to the public
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ScoringSetAPI)
