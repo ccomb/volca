@@ -1569,7 +1569,7 @@ class Client:
         is the ``sumOfRows`` a new row joins; the ``variables`` a formula
         can read, each with the category it reads or the label of its row;
         and whether it ``weighs``, a score taking a category otherwise than
-        once or adding up normalized categories (wire revision 103).
+        once or adding up normalized categories (wire revision 105).
 
         Needs an engine speaking wire revision 45.
         """
@@ -1661,7 +1661,9 @@ class Client:
     def method_history(self, collection: str) -> list[dict]:
         """The journal of a collection, one entry per line.
 
-        Each entry gives its ``line``, when it was written (``at``), its
+        Each entry gives its ``line``, when it was written (``at``), the public
+        name of the account that wrote it (``by``, ``None`` when the engine was
+        not told; wire revision 104), its
         ``kind`` (``change``, ``undo`` or ``configuration``, for what a copy
         took from its source's configuration), the line it ``undoes``, whether
         it is ``inEffect``, and the ``change`` it made. A collection the
@@ -3317,11 +3319,13 @@ class Client:
     def database_history(self, *, db_name: str | None = None) -> list[dict]:
         """Every change made to the database, oldest first::
 
-            {"at": "2026-10-21T09:12:03Z", "database": "my-farm",
+            {"at": "2026-10-21T09:12:03Z", "database": "my-farm", "by": "ana",
              "note": "Measured on site",
              "summary": "Edited \\"wheat production\\" (FR)",
              "details": ["Flow \\"Water\\": amount from 2.0 set to 1.5"]}
 
+        ``by`` is the public name of the account that made it, ``None`` when
+        the engine was not told, as on the desktop (wire revision 104).
         ``note`` is the reason its author gave, ``None`` when they gave none.
         ``database`` is the database the change was made on: for a child, the
         changes of the parent it is divided from come first, since its data
@@ -3612,6 +3616,39 @@ class Client:
         )
         self._methods_cache.clear()
         return self._require_success(payload, "delete_method_collection")
+
+    def available_method_collections(self) -> list[dict]:
+        """The method collections the engine offers to download and load in one
+        step (wire revision 103).
+
+        Each entry carries ``name``, ``publisher``, ``version``, ``licence``
+        (an SPDX identifier, absent when the file states none), ``sourceUrl``,
+        ``size`` in bytes, ``description``, and ``installed``, true when the
+        engine already knows a collection of that name.
+        """
+        self._require_wire(103, "available_method_collections()", engine_hint="0.16.1")
+        return self._json(
+            self._session.get(f"{self.base_url}/api/v1/method-collections/available")
+        )
+
+    def install_method_collection(self, name: str) -> dict:
+        """Download a collection :meth:`available_method_collections` offers,
+        check it is the file the engine expects, then store and load it under
+        that name (wire revision 103).
+
+        Refused when the engine is read-only, when it already knows a collection
+        of that name, when the file is larger than the plan's upload limit, and
+        when the file received differs from the one expected.
+        """
+        self._require_wire(103, "install_method_collection()", engine_hint="0.16.1")
+        payload = self._json(
+            self._session.post(
+                f"{self.base_url}/api/v1/method-collections/available/"
+                f"{urllib.parse.quote(name, safe='')}/install"
+            )
+        )
+        self._methods_cache.clear()
+        return self._require_success(payload, "install_method_collection")
 
     def upload_method_collection(
         self,

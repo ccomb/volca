@@ -819,7 +819,7 @@ class BatchScores:
     reading_notice: str | None = None
     """Said when a scoring set of the batch weighs categories by value choices:
     ISO 14044 does not allow its scores in a comparison disclosed to the
-    public (wire revision 103); ``None`` otherwise or from an older engine."""
+    public (wire revision 105); ``None`` otherwise or from an older engine."""
 
     @classmethod
     def from_json(cls, d: dict) -> "BatchScores":

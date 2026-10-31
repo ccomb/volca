@@ -229,6 +229,8 @@ instance ToSchema HistoryKindAPI where
 data MethodHistoryEntry = MethodHistoryEntry
     { mheLine :: Int
     , mheAt :: Text
+    , mheBy :: Maybe Text
+    -- ^ the public name of the account that made it; absent when the engine was not told
     , mheKind :: HistoryKindAPI
     , mheUndoes :: Maybe Int
     -- ^ the line this one undoes, for an undo

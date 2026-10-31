@@ -55,6 +55,7 @@ import API.Types (
 import App.Env (AppEnv (..), runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Control.Exception (bracket_)
+import Data.JournalFile (Author (..))
 import Database (buildDatabaseWithMatrices)
 import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), databaseModification, getDatabase, initDatabaseManager)
 import Database.Upload (DatabaseFormat (..))
@@ -452,6 +453,14 @@ documentingSpec = describe "documenting the changes made to a database" $ do
                     , (Nothing, ["Flow \"Carbon dioxide\": amount from 3.0 set to 4.0"])
                     ]
 
+    it "signs each change with the account the server in front named, and leaves it unsigned otherwise" $
+        withWritableDb $ \env -> do
+            let signed = env{aeAuthor = Just (Author "acc-1" "ana")}
+            void (edit signed "authored" supplierPid (setCo2 3 (Just "Measured on site")))
+            void (edit env "authored" supplierPid (setCo2 4 Nothing))
+            fmap (map dheBy) <$> runHandler (runApp env (databaseHistoryHandler "authored"))
+                `shouldReturn` Right [Just "ana", Nothing]
+
     it "prices a product, keeping the price on the activity and the change in the history" $
         withWritableDb $ \env -> do
             let milkPrice = StatedAmount "EUR2005" 0.42
@@ -561,6 +570,7 @@ withDb build mkConfig act =
                     , aeDataVersion = Nothing
                     , aeUsageLog = Nothing
                     , aeReader = Nothing
+                    , aeAuthor = Nothing
                     }
   where
     triplesOf db = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]

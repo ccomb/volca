@@ -53,6 +53,7 @@ import Impact (LicencedSolution (..), WithheldPart (..), partitionByLicence, sco
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..))
 import qualified SharedSolver as SS
 import Types
+import Usage (anonymous)
 
 import CrossDBRegionalLCIAFixture (actUUID, kgUnit, linkAt, mkDB, mkUUID, prodUUID, testFlow)
 import DependencyFlowClosureSpec (install)
@@ -175,7 +176,7 @@ managerOn rootDb depDb licence = do
 
 callOn :: DM.DatabaseManager -> Text -> [(Key, Value)] -> IO Value
 callOn manager tool extraArgs =
-    callTool Nothing manager [] Nothing Nothing noRequestId tool $
+    callTool anonymous manager [] Nothing Nothing noRequestId tool $
         KM.fromList $
             [ ("database", String "root")
             , ("process_id", String rootPid)
@@ -230,6 +231,7 @@ runIn manager handler = either (Left . errHTTPCode) Right <$> runHandler (runApp
             , aeDataVersion = Nothing
             , aeUsageLog = Nothing
             , aeReader = Nothing
+            , aeAuthor = Nothing
             }
 
 supplyChain :: DM.DatabaseManager -> IO (Either Int SupplyChainResponse)

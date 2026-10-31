@@ -30,6 +30,7 @@ import Config (DatabaseConfig (..))
 import Database.Manager (DatabaseManager, addDatabase)
 import FlowContributionSpec (collectionName, managerUnder, methodIdText, payloadOf, productD, sampleConfig)
 import Types (Acceptance (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..))
+import Usage (anonymous)
 
 own :: [Permission] -> Licence
 own refused = LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired, ownAcceptance = NoAcceptance}
@@ -45,7 +46,7 @@ inventoryKept = own [ReadInventory, Download]
 -- | Call an MCP tool on product D of the sample database.
 callOn :: DatabaseManager -> Text -> [(Key, Value)] -> IO Value
 callOn manager tool extraArgs =
-    callTool Nothing manager [] Nothing Nothing noRequestId tool $
+    callTool anonymous manager [] Nothing Nothing noRequestId tool $
         KM.fromList $
             [ ("database", String "sample")
             , ("process_id", String productD)
@@ -84,6 +85,7 @@ statusOf manager handler =
             , aeDataVersion = Nothing
             , aeUsageLog = Nothing
             , aeReader = Nothing
+            , aeAuthor = Nothing
             }
 
 spec :: Spec

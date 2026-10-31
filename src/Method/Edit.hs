@@ -42,7 +42,7 @@ import System.FilePath ((</>))
 
 import Builtin (builtinMethodName)
 import Config (MethodConfig (..), MethodOrigin (..), methodFiles)
-import Data.JournalFile (Entry (..), appendEntry, journalPath, readEntries)
+import Data.JournalFile (Author, Entry (..), appendEntry, journalPath, readEntries)
 import Database.Manager (
     CollectionName (..),
     DatabaseManager (..),
@@ -136,7 +136,7 @@ recordMethodCopy home copy seed = do
             CopiedJournal from -> liftIO $ do
                 exists <- doesFileExist from
                 when exists (copyFile from (journalPath home))
-            SeedLines ops -> mapM_ (\op -> ExceptT (appendEntry home (MethodLine op TakenFromConfiguration))) ops
+            SeedLines ops -> mapM_ (\op -> ExceptT (appendEntry home Nothing (MethodLine op TakenFromConfiguration))) ops
         dataPath <- liftIO (traverse makeAbsolute (methodFiles (mcOrigin copy)))
         liftIO $
             UploadedDB.writeUploadMeta
@@ -200,21 +200,21 @@ data EditOutcome = EditOutcome
     deriving (Eq, Show)
 
 -- | Change the factors of a loaded collection of one's own.
-editMethodFactors :: DatabaseManager -> Text -> FactorEdit -> IO (Either MethodEditRefusal EditOutcome)
-editMethodFactors manager name edit = editWith manager name (`planEdit` edit)
+editMethodFactors :: DatabaseManager -> Text -> Maybe Author -> FactorEdit -> IO (Either MethodEditRefusal EditOutcome)
+editMethodFactors manager name by edit = editWith manager name by (`planEdit` edit)
 
 {- | Change a category of a loaded collection of one's own, as a factor is
 changed. A new category's identifier is drawn here, so that planning stays
 pure and the line records it: a replay gives it back the same one.
 -}
-editMethodCategories :: DatabaseManager -> Text -> CategoryEdit -> IO (Either MethodEditRefusal EditOutcome)
-editMethodCategories manager name edit = do
+editMethodCategories :: DatabaseManager -> Text -> Maybe Author -> CategoryEdit -> IO (Either MethodEditRefusal EditOutcome)
+editMethodCategories manager name by edit = do
     fresh <- nextRandom
-    editWith manager name (\collection -> planCategoryEdit fresh collection edit)
+    editWith manager name by (\collection -> planCategoryEdit fresh collection edit)
 
 -- | A change to one of a collection's scoring sets, recorded as one line.
-editScoringSets :: DatabaseManager -> Text -> ScoringEdit -> IO (Either MethodEditRefusal EditOutcome)
-editScoringSets manager name edit = editWith manager name (`planScoringEdit` edit)
+editScoringSets :: DatabaseManager -> Text -> Maybe Author -> ScoringEdit -> IO (Either MethodEditRefusal EditOutcome)
+editScoringSets manager name by edit = editWith manager name by (`planScoringEdit` edit)
 
 {- | Change a loaded collection of one's own, and record the change where a
 later load finds it again.
@@ -226,13 +226,13 @@ result in and drop what was built from the old one. A crash before the append
 leaves nothing; after it, the next load replays the line, which is the answer
 the caller was given.
 -}
-editWith :: DatabaseManager -> Text -> (MethodCollection -> Either Text (MethodOp, EditEffect)) -> IO (Either MethodEditRefusal EditOutcome)
-editWith manager name plan = withMVar (dmMethodEditLock manager) $ \() -> runExceptT $ do
+editWith :: DatabaseManager -> Text -> Maybe Author -> (MethodCollection -> Either Text (MethodOp, EditEffect)) -> IO (Either MethodEditRefusal EditOutcome)
+editWith manager name by plan = withMVar (dmMethodEditLock manager) $ \() -> runExceptT $ do
     (home, collection) <- ExceptT (editable manager name)
     entries <- ExceptT (first EditRefused <$> readEntries home)
     (op, effect) <- except (first EditRefused (plan collection))
     changed <- except (first EditRefused (applyMethodOp collection op))
-    line <- ExceptT (commitLine manager name home entries (MethodLine op Change) changed)
+    line <- ExceptT (commitLine manager name home by entries (MethodLine op Change) changed)
     pure (EditOutcome line effect (opCategory op))
 
 -- | The home and the collection in use of a collection one may change.
@@ -253,9 +253,9 @@ load replays the line. The number is counted from the lines read under the
 lock: 'appendEntry' drops a torn tail exactly as 'readEntries' does, so the
 two agree.
 -}
-commitLine :: DatabaseManager -> Text -> FilePath -> [Entry MethodLine] -> MethodLine -> MethodCollection -> IO (Either MethodEditRefusal Int)
-commitLine manager name home before line changed =
-    appendEntry home line >>= \case
+commitLine :: DatabaseManager -> Text -> FilePath -> Maybe Author -> [Entry MethodLine] -> MethodLine -> MethodCollection -> IO (Either MethodEditRefusal Int)
+commitLine manager name home by before line changed =
+    appendEntry home by line >>= \case
         Left err -> pure (Left (EditRefused err))
         Right () -> do
             atomically $ modifyTVar' (dmLoadedMethods manager) (M.adjust (const changed) name)
@@ -265,8 +265,8 @@ commitLine manager name home before line changed =
 {- | Undo a line by writing its inverse. The journal never loses a line, so an
 undo is a change like any other and can itself be undone, by naming its line.
 -}
-undoMethodEdit :: DatabaseManager -> Text -> Maybe Int -> IO (Either MethodEditRefusal EditOutcome)
-undoMethodEdit manager name requested = withMVar (dmMethodEditLock manager) $ \() -> runExceptT $ do
+undoMethodEdit :: DatabaseManager -> Text -> Maybe Author -> Maybe Int -> IO (Either MethodEditRefusal EditOutcome)
+undoMethodEdit manager name by requested = withMVar (dmMethodEditLock manager) $ \() -> runExceptT $ do
     (home, collection) <- ExceptT (editable manager name)
     entries <- ExceptT (first EditRefused <$> readEntries home)
     target <- except (first EditRefused (undoTarget (map jeOp entries) requested))
@@ -277,7 +277,7 @@ undoMethodEdit manager name requested = withMVar (dmMethodEditLock manager) $ \(
             UndoWith op -> pure op
             UndoSelector patch -> RestoreFactors . restoreOf patch <$> ExceptT (stateBefore manager name target entries)
     changed <- except (first blocked (applyMethodOp collection inverse))
-    line <- ExceptT (commitLine manager name home entries (MethodLine inverse (Undoing target)) changed)
+    line <- ExceptT (commitLine manager name home by entries (MethodLine inverse (Undoing target)) changed)
     pure (EditOutcome line (undoEffect inverse) (opCategory inverse))
 
 -- | What line @k@ of a journal did; 'undoTarget' has already said it exists.
@@ -304,6 +304,7 @@ stateBefore manager name target entries = do
 data HistoryLine = HistoryLine
     { hlLine :: Int
     , hlAt :: Text
+    , hlBy :: Maybe Author
     , hlOp :: MethodOp
     , hlKind :: LineKind
     , hlInEffect :: Bool
@@ -324,6 +325,6 @@ methodHistory manager name = do
   where
     describe :: [Entry MethodLine] -> [HistoryLine]
     describe entries =
-        [ HistoryLine i (jeAt e) (mlOp (jeOp e)) (mlKind (jeOp e)) effective
+        [ HistoryLine i (jeAt e) (jeBy e) (mlOp (jeOp e)) (mlKind (jeOp e)) effective
         | (i, e, effective) <- zip3 [1 ..] entries (inEffect (map jeOp entries))
         ]

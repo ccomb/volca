@@ -4,6 +4,26 @@
 
 ### Added
 
+- Each change made to a database, a method collection or the scenarios of a
+  database is signed with the account that made it, when the server in front
+  of the engine names one: the history of a database and of a collection
+  gives its public name (`by`), and the changes report of an export says
+  "By: @name" under each change. The journal keeps the account and the name
+  it signed with that day. The desktop, and a server run on its own, sign
+  nothing, and the lines written before are left unsigned. Wire revision 104.
+- An engine offers method collections to download and load in one step.
+  `GET /method-collections/available` lists them, each with its publisher,
+  version, licence, size and whether the engine already knows a collection of
+  that name; `POST /method-collections/available/{name}/install` downloads
+  one, keeps it only when its size and SHA-256 are the ones the engine
+  expects, stores it as an upload of that name and loads it. The catalogue
+  ships in `data/method-catalog.toml`: Environmental Footprint 3.1 and the
+  expert, midpoint and footprint versions of IMPACT World+ 2.2.1. A
+  read-only engine refuses the install, the plan's upload limit applies to
+  it, a collection already known is not downloaded again (409), a server
+  that cannot be reached answers 502 and a file other than the one expected
+  answers 422. pyvolca: `available_method_collections()` and
+  `install_method_collection(name)`. Wire revision 103 (data version 13).
 - A score says what it rests on, once per answer: the engine's version and
   commit; each database it read, the one asked first, with its release (for
   a copy, the one it was copied from), the database whose files it reads,
@@ -30,7 +50,7 @@
   weighs, `score_activities` and a batch score, says once that ISO 14044
   does not allow such a score in a comparison disclosed to the public, as
   `reading_notice`; it is still given. Weights of one over categories in
-  different units are not caught. Wire revision 103.
+  different units are not caught. Wire revision 105.
 - A method collection can be uploaded as a workbook that lists one
   characterization factor per row, under the labels `Method, Category,
   Indicator, Name, Compartment, Subcompartment, CF`, with an `Indicators`
@@ -196,6 +216,13 @@
 
 ### Fixed
 
+- A SimaPro method file whose every line is padded with separators
+  (`Impact category;;;;;`) loads with its categories, its name, its damage
+  categories and its normalization and weighting. It used to load empty and
+  report success. A method file that yields no impact category is now
+  refused with a sentence that says so, and a collection whose files partly
+  fail to parse names each failing file and its reason, not only their
+  number.
 - A child divided from an edited parent says so. Its data carry every change
   made on the parent, yet its history was empty, the list of databases said
   it was not edited, and the changes report of its package named the system

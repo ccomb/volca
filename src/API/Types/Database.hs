@@ -25,6 +25,8 @@ data DatabaseHistoryEntry = DatabaseHistoryEntry
     { dheAt :: Text
     , dheDatabase :: Text
     -- ^ The database the change was made on: this one, or the parent it is divided from
+    , dheBy :: Maybe Text
+    -- ^ The public name of the account that made it; absent when the engine was not told
     , dheNote :: Maybe Text
     -- ^ Why, in its author's words; absent when they gave no reason
     , dheSummary :: Text

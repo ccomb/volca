@@ -41,6 +41,7 @@ runExport dbName fmt = do
                 , aeDataVersion = Nothing
                 , aeUsageLog = Nothing
                 , aeReader = Nothing
+                , aeAuthor = Nothing
                 }
     runHandler (runApp env (exportDatabaseHandler dbName (DatabaseExportRequest fmt Nothing)))
 

@@ -35,6 +35,7 @@ import API.DatabaseHandlers (
     editExchangesHandler,
     finalizeDatabaseHandler,
     getDatabases,
+    installMethodCollectionHandler,
     loadDatabaseHandler,
     loadRefData,
     relinkDatabaseHandler,
@@ -72,6 +73,7 @@ import Config (HostingConfig (..), ReadOnly (..), defaultConfig, hostingReadOnly
 import Database.Manager (CachePolicy (..), initDatabaseManager)
 import Servant (ServerError (..), runHandler)
 import Servant.Types.SourceT (source)
+import Usage (anonymous)
 
 -- | Hosting config differing only in its read-only stance.
 hosting :: Bool -> HostingConfig
@@ -105,6 +107,7 @@ envWith hc = do
             , aeDataVersion = Nothing
             , aeUsageLog = Nothing
             , aeReader = Nothing
+            , aeAuthor = Nothing
             }
 
 -- | The HTTP status a handler failed with, or 'Nothing' when it succeeded.
@@ -136,6 +139,7 @@ mutatingHandlers =
     , ("drop-scenario", run (dropScenarioHandler "nope" "high salt"))
     , ("set-data-path", run (setDataPathHandler "nope" Null))
     , ("upload-method", run (uploadMethodHandler (Just "nope") Nothing Nothing (source [])))
+    , ("install-method", run (installMethodCollectionHandler "nope"))
     , ("delete-method", run (deleteMethodHandler "nope"))
     , ("load-method", run (loadMethodCollectionHandler "nope"))
     , ("unload-method", run (unloadMethodCollectionHandler "nope"))
@@ -266,7 +270,7 @@ spec = do
         it "refuse the state-changing tools" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             let call name =
-                    callTool Nothing manager [] (Just (hosting True)) Nothing noRequestId name $
+                    callTool anonymous manager [] (Just (hosting True)) Nothing noRequestId name $
                         KM.singleton "database" (String "nope")
             loadResp <- call "load_database"
             unloadResp <- call "unload_database"
@@ -276,20 +280,20 @@ spec = do
         it "refuse with the operator's words when configured" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             resp <-
-                callTool Nothing manager [] (Just ((hosting True){hcReadOnlyMessage = "Ask the operator."})) Nothing noRequestId "load_database" $
+                callTool anonymous manager [] (Just ((hosting True){hcReadOnlyMessage = "Ask the operator."})) Nothing noRequestId "load_database" $
                     KM.singleton "database" (String "nope")
             isToolError resp `shouldBe` True
             toolText resp `shouldBe` Just "Ask the operator."
 
         it "refuse a name the registry does not declare as unknown, not as read-only" $ do
             manager <- initDatabaseManager defaultConfig NoCache
-            resp <- callTool Nothing manager [] (Just (hosting True)) Nothing noRequestId "no_such_tool" KM.empty
+            resp <- callTool anonymous manager [] (Just (hosting True)) Nothing noRequestId "no_such_tool" KM.empty
             isToolError resp `shouldBe` True
             toolText resp `shouldBe` Just "Unknown tool: no_such_tool"
 
         it "still answer a read-only tool" $ do
             manager <- initDatabaseManager defaultConfig NoCache
-            listed <- callTool Nothing manager [] (Just (hosting True)) Nothing noRequestId "list_databases" KM.empty
+            listed <- callTool anonymous manager [] (Just (hosting True)) Nothing noRequestId "list_databases" KM.empty
             isToolError listed `shouldBe` False
 
         it "hide the state-changing tools from tools/list" $ do

@@ -99,7 +99,7 @@ spec = describe "changing a method collection of one's own" $ do
     it "sets a factor, records one line, and a reload gives the same collection" $
         withScratchDataDir $ do
             (manager, category, methane) <- copyWithMethane
-            outcome <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 27)
+            outcome <- editMethodFactors manager "copy" Nothing (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 27)
             fmap eoLine outcome `shouldBe` Right 1
             fmap (eeBefore . eoEffect) outcome `shouldBe` Right (Just 1.0)
             edited <- getMethodCollection manager "copy"
@@ -111,14 +111,14 @@ spec = describe "changing a method collection of one's own" $ do
     it "refuses a configured collection, and says to copy it" $
         withScratchDataDir $ do
             manager <- initDatabaseManager defaultConfig NoCache
-            refused <- editMethodFactors manager "plain-indicators" (Patch anyPatch)
+            refused <- editMethodFactors manager "plain-indicators" Nothing (Patch anyPatch)
             void refused `shouldBe` Left (NotEditable "plain-indicators")
 
     it "refuses a collection that is not loaded, and writes nothing" $
         withScratchDataDir $ do
             (manager, category, methane) <- copyWithMethane
             _ <- unloadMethodCollection manager "copy"
-            refused <- editMethodFactors manager "copy" (Remove (FactorTarget category (mcfFlowRef methane) Nothing Nothing))
+            refused <- editMethodFactors manager "copy" Nothing (Remove (FactorTarget category (mcfFlowRef methane) Nothing Nothing))
             void refused `shouldBe` Left (CollectionNotLoaded "copy")
             home <- (</> "copy") <$> getMethodUploadsDir
             doesFileExist (journalPath home) `shouldReturn` False
@@ -129,7 +129,7 @@ spec = describe "changing a method collection of one's own" $ do
             (manager, category, methane) <- copyWithMethane
             let key c = ("db", CollectionName c, category)
             atomically $ modifyTVar' (dmMethodIndexCache manager) (M.insert (key "copy") emptyIndex . M.insert (key "plain-indicators") emptyIndex)
-            _ <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 2)
+            _ <- editMethodFactors manager "copy" Nothing (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 2)
             M.keys <$> readTVarIO (dmMethodIndexCache manager) `shouldReturn` [key "plain-indicators"]
 
     it "never caches what was built from a factor a change has since replaced" $
@@ -137,7 +137,7 @@ spec = describe "changing a method collection of one's own" $ do
             (manager, category, methane) <- copyWithMethane
             let methaneOf = maybe [] (filter ((== category) . methodId) . mcMethods)
             [before] <- methaneOf <$> getMethodCollection manager "copy"
-            _ <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 2)
+            _ <- editMethodFactors manager "copy" Nothing (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 2)
             _ <- mapMethodToIndexCached manager "db" (CollectionName "copy") before
             M.keys <$> readTVarIO (dmMethodIndexCache manager) `shouldReturn` []
             [after] <- methaneOf <$> getMethodCollection manager "copy"
@@ -159,29 +159,29 @@ spec = describe "changing a method collection of one's own" $ do
             (manager, category, methane) <- copyWithMethane
             start <- getMethodCollection manager "copy"
             let at v = FactorTarget category (mcfFlowRef methane) Nothing (Just v)
-            _ <- editMethodFactors manager "copy" (SetValue (at 1) 2)
-            _ <- editMethodFactors manager "copy" (Remove (at 2))
-            _ <- editMethodFactors manager "copy" (Patch anyPatch)
-            replicateM_ 3 (undoMethodEdit manager "copy" Nothing >>= either (expectationFailure . show) (const (pure ())))
+            _ <- editMethodFactors manager "copy" Nothing (SetValue (at 1) 2)
+            _ <- editMethodFactors manager "copy" Nothing (Remove (at 2))
+            _ <- editMethodFactors manager "copy" Nothing (Patch anyPatch)
+            replicateM_ 3 (undoMethodEdit manager "copy" Nothing Nothing >>= either (expectationFailure . show) (const (pure ())))
             getMethodCollection manager "copy" `shouldReturn` start
             fmap length <$> methodHistory manager "copy" `shouldReturn` Right 6
-            void <$> undoMethodEdit manager "copy" Nothing `shouldReturn` Left (EditRefused "there is no change left to undo")
+            void <$> undoMethodEdit manager "copy" Nothing Nothing `shouldReturn` Left (EditRefused "there is no change left to undo")
 
     it "redoes an undone change when asked for its undo line" $
         withScratchDataDir $ do
             (manager, category, methane) <- copyWithMethane
-            _ <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 5)
+            _ <- editMethodFactors manager "copy" Nothing (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 5)
             edited <- getMethodCollection manager "copy"
-            _ <- undoMethodEdit manager "copy" Nothing
-            _ <- undoMethodEdit manager "copy" (Just 2)
+            _ <- undoMethodEdit manager "copy" Nothing Nothing
+            _ <- undoMethodEdit manager "copy" Nothing (Just 2)
             getMethodCollection manager "copy" `shouldReturn` edited
 
     it "refuses to undo a selector one of whose factors a later line changed, and writes nothing" $
         withScratchDataDir $ do
             (manager, category, methane) <- copyWithMethane
-            _ <- editMethodFactors manager "copy" (Patch anyPatch)
-            _ <- editMethodFactors manager "copy" (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 9)
-            refused <- undoMethodEdit manager "copy" (Just 1)
+            _ <- editMethodFactors manager "copy" Nothing (Patch anyPatch)
+            _ <- editMethodFactors manager "copy" Nothing (SetValue (FactorTarget category (mcfFlowRef methane) Nothing Nothing) 9)
+            refused <- undoMethodEdit manager "copy" Nothing (Just 1)
             either (T.unpack . refusalText) (const "undone") refused `shouldContain` "Methane, fossil"
             fmap length <$> methodHistory manager "copy" `shouldReturn` Right 2
 
@@ -189,9 +189,9 @@ spec = describe "changing a method collection of one's own" $ do
         withScratchDataDir $ do
             (manager, category, methane) <- copyWithMethane
             let at = FactorTarget category (mcfFlowRef methane) Nothing Nothing
-            _ <- editMethodFactors manager "copy" (SetValue at 2)
-            _ <- editMethodFactors manager "copy" (SetValue at 3)
-            refused <- undoMethodEdit manager "copy" (Just 1)
+            _ <- editMethodFactors manager "copy" Nothing (SetValue at 2)
+            _ <- editMethodFactors manager "copy" Nothing (SetValue at 3)
+            refused <- undoMethodEdit manager "copy" Nothing (Just 1)
             either (T.unpack . refusalText) (const "undone") refused `shouldContain` "undo line 2 first"
             fmap length <$> methodHistory manager "copy" `shouldReturn` Right 2
 
@@ -203,7 +203,7 @@ spec = describe "changing a method collection of one's own" $ do
     it "adds a category, answers with its identifier, and keeps it across a reload" $
         withScratchDataDir $ do
             (manager, _, _) <- copyWithMethane
-            added <- editMethodCategories manager "copy" (NewCategory (CategoryDraft "A category of my own" "kg" Nothing Nothing))
+            added <- editMethodCategories manager "copy" Nothing (NewCategory (CategoryDraft "A category of my own" "kg" Nothing Nothing))
             category <- either (fail . show) (maybe (fail "no category in the answer") pure . eoCategory) added
             before <- getMethodCollection manager "copy"
             _ <- unloadMethodCollection manager "copy"
@@ -215,10 +215,10 @@ spec = describe "changing a method collection of one's own" $ do
     it "refuses to undo the addition of a category a later line added a factor to, naming that line" $
         withScratchDataDir $ do
             (manager, _, methane) <- copyWithMethane
-            added <- editMethodCategories manager "copy" (NewCategory (CategoryDraft "A category of my own" "kg" Nothing Nothing))
+            added <- editMethodCategories manager "copy" Nothing (NewCategory (CategoryDraft "A category of my own" "kg" Nothing Nothing))
             category <- either (fail . show) (maybe (fail "no category in the answer") pure . eoCategory) added
-            _ <- editMethodFactors manager "copy" (Add category methane)
-            refused <- undoMethodEdit manager "copy" (Just 1)
+            _ <- editMethodFactors manager "copy" Nothing (Add category methane)
+            refused <- undoMethodEdit manager "copy" Nothing (Just 1)
             either (T.unpack . refusalText) (const "undone") refused `shouldContain` "undo line 2 first"
             fmap length <$> methodHistory manager "copy" `shouldReturn` Right 2
 
@@ -227,9 +227,9 @@ spec = describe "changing a method collection of one's own" $ do
             (manager, methaneCategory, _) <- copyWithMethane
             start <- getMethodCollection manager "copy"
             water <- categoryNamed start "Water used"
-            created <- editScoringSets manager "copy" (NewSet "Mine" Nothing [RowDraft "Gas" Nothing ((methaneCategory, 1) :| []) (Just 2) (Just 0.5)])
+            created <- editScoringSets manager "copy" Nothing (NewSet "Mine" Nothing [RowDraft "Gas" Nothing ((methaneCategory, 1) :| []) (Just 2) (Just 0.5)])
             fmap eoLine created `shouldBe` Right 1
-            added <- editScoringSets manager "copy" (AddRow "Mine" (RowDraft "Water" Nothing ((water, 1) :| []) (Just 4) (Just 0.25)))
+            added <- editScoringSets manager "copy" Nothing (AddRow "Mine" (RowDraft "Water" Nothing ((water, 1) :| []) (Just 4) (Just 0.25)))
             fmap eoLine added `shouldBe` Right 2
             edited <- getMethodCollection manager "copy"
             back <- reloaded manager
@@ -239,14 +239,14 @@ spec = describe "changing a method collection of one's own" $ do
     it "removes a set a SimaPro file translates, reloads, and undoes it back to what a replay reads" $
         withScratchDataDir $ do
             manager <- simaPro
-            changed <- editScoringSets manager "copy" (ChangeMultiplier "Test NW set" (Just 1000))
+            changed <- editScoringSets manager "copy" Nothing (ChangeMultiplier "Test NW set" (Just 1000))
             fmap eoLine changed `shouldBe` Right 2
-            removed <- editScoringSets manager "copy" (DeleteSet "Test NW set")
+            removed <- editScoringSets manager "copy" Nothing (DeleteSet "Test NW set")
             fmap eoLine removed `shouldBe` Right 3
             withoutSet <- getMethodCollection manager "copy"
             reloaded manager `shouldReturn` withoutSet
             fmap (map ssName . mcScoringSets) withoutSet `shouldBe` Just ["Mine"]
-            undone <- undoMethodEdit manager "copy" (Just 3)
+            undone <- undoMethodEdit manager "copy" Nothing (Just 3)
             fmap eoLine undone `shouldBe` Right 4
             restored <- getMethodCollection manager "copy"
             reloaded manager `shouldReturn` restored
@@ -257,7 +257,7 @@ spec = describe "changing a method collection of one's own" $ do
             manager <- simaPro
             start <- getMethodCollection manager "copy"
             water <- categoryNamed start "Water use"
-            added <- editScoringSets manager "copy" (AddRow "Mine" (RowDraft "Water" Nothing ((water, 1) :| []) Nothing (Just 1)))
+            added <- editScoringSets manager "copy" Nothing (AddRow "Mine" (RowDraft "Water" Nothing ((water, 1) :| []) Nothing (Just 1)))
             fmap eoLine added `shouldBe` Right 2
 
     it "changes and removes a set holding a normalization its file writes as zero, and loads it back" $
@@ -272,17 +272,17 @@ spec = describe "changing a method collection of one's own" $ do
                 variable <- case [srVariable r | set <- maybe [] mcScoringSets start, ssName set == "Test NW set", r <- rowsOf set, srLabel r == "Water use"] of
                     [v] -> pure v
                     found -> fail ("expected one row Water use, found " <> show found)
-                changed <- editScoringSets manager "copy" (ChangeRow "Test NW set" variable (RowDraft "Water use" Nothing ((water, 1) :| []) (Just 2) (Just 0.0851)))
+                changed <- editScoringSets manager "copy" Nothing (ChangeRow "Test NW set" variable (RowDraft "Water use" Nothing ((water, 1) :| []) (Just 2) (Just 0.0851)))
                 fmap eoLine changed `shouldBe` Right 2
                 edited <- getMethodCollection manager "copy"
                 reloaded manager `shouldReturn` edited
-                undone <- undoMethodEdit manager "copy" (Just 2)
+                undone <- undoMethodEdit manager "copy" Nothing (Just 2)
                 fmap eoLine undone `shouldBe` Right 3
                 restored <- getMethodCollection manager "copy"
                 reloaded manager `shouldReturn` restored
                 fmap (map ssNormalization . filter ((== "Test NW set") . ssName) . mcScoringSets) restored
                     `shouldBe` fmap (map ssNormalization . filter ((== "Test NW set") . ssName) . mcScoringSets) start
-                removed <- editScoringSets manager "copy" (DeleteSet "Test NW set")
+                removed <- editScoringSets manager "copy" Nothing (DeleteSet "Test NW set")
                 fmap eoLine removed `shouldBe` Right 4
                 withoutSet <- getMethodCollection manager "copy"
                 reloaded manager `shouldReturn` withoutSet
@@ -293,8 +293,8 @@ spec = describe "changing a method collection of one's own" $ do
             start <- getMethodCollection manager "copy"
             water <- categoryNamed start "Water used"
             co2 <- categoryNamed start "Fossil CO2"
-            _ <- editScoringSets manager "copy" (NewSet "Mine" Nothing [RowDraft "Gas" Nothing ((methane, 1) :| []) Nothing (Just 1)])
-            _ <- editScoringSets manager "copy" (AddRow "Mine" (RowDraft "Water" Nothing ((water, 1) :| []) Nothing (Just 1)))
-            _ <- editScoringSets manager "copy" (AddRow "Mine" (RowDraft "Carbon" Nothing ((co2, 1) :| []) Nothing (Just 1)))
-            refused <- undoMethodEdit manager "copy" (Just 2)
+            _ <- editScoringSets manager "copy" Nothing (NewSet "Mine" Nothing [RowDraft "Gas" Nothing ((methane, 1) :| []) Nothing (Just 1)])
+            _ <- editScoringSets manager "copy" Nothing (AddRow "Mine" (RowDraft "Water" Nothing ((water, 1) :| []) Nothing (Just 1)))
+            _ <- editScoringSets manager "copy" Nothing (AddRow "Mine" (RowDraft "Carbon" Nothing ((co2, 1) :| []) Nothing (Just 1)))
+            refused <- undoMethodEdit manager "copy" Nothing (Just 2)
             either (T.unpack . refusalText) (const "undone") refused `shouldContain` "undo line 3 first"

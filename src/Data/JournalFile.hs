@@ -21,6 +21,7 @@ warning. A line that fails to parse anywhere else refuses the whole journal.
 -}
 module Data.JournalFile (
     Entry (..),
+    Author (..),
     JournalVocabulary (..),
     journalPath,
     appendEntry,
@@ -38,6 +39,7 @@ import Data.Aeson (
     object,
     withObject,
     (.:),
+    (.:?),
     (.=),
  )
 import Data.Aeson.Types (Pair, Parser, parseEither)
@@ -64,14 +66,32 @@ import System.IO (
 
 import Progress (ProgressLevel (..), reportProgress)
 
-{- | One line of a journal: what was done, and when. The timestamp is
-provenance for whoever reads the file; a replay never looks at it.
+{- | One line of a journal: what was done, when, and by whom when that is
+known. The time and the author are provenance for whoever reads the file; a
+replay never looks at them.
 -}
 data Entry op = Entry
     { jeAt :: Text
+    , jeBy :: Maybe Author
     , jeOp :: op
     }
     deriving (Eq, Show)
+
+{- | Who made a change: the account, which never changes, and the public name
+it signed with that day, which may. An engine on its own (the desktop, a local
+server) knows neither, and its lines have no author.
+-}
+data Author = Author
+    { authorAccount :: Text
+    , authorHandle :: Text
+    }
+    deriving (Eq, Show)
+
+instance ToJSON Author where
+    toJSON a = object ["account" .= authorAccount a, "handle" .= authorHandle a]
+
+instance FromJSON Author where
+    parseJSON = withObject "author" $ \o -> Author <$> o .: "account" <*> o .: "handle"
 
 {- | What the lines of one kind of journal say, and the version of those
 words. Each vocabulary is versioned on its own: a database's journal and a
@@ -81,7 +101,7 @@ class JournalVocabulary op where
     -- | The version this engine writes for this vocabulary, and the only one it reads.
     vocabularyVersion :: Proxy op -> Int
 
-    -- | The fields of one line besides @v@ and @at@.
+    -- | The fields of one line besides @v@, @at@ and @by@.
     opFields :: op -> [Pair]
 
     -- | Read those fields back.
@@ -90,7 +110,9 @@ class JournalVocabulary op where
 instance (JournalVocabulary op) => ToJSON (Entry op) where
     toJSON entry =
         object $
-            ["v" .= vocabularyVersion (Proxy :: Proxy op), "at" .= jeAt entry] <> opFields (jeOp entry)
+            ["v" .= vocabularyVersion (Proxy :: Proxy op), "at" .= jeAt entry]
+                <> maybe [] (\by -> ["by" .= by]) (jeBy entry)
+                <> opFields (jeOp entry)
 
 instance (JournalVocabulary op) => FromJSON (Entry op) where
     parseJSON = withObject "journal entry" $ \o -> do
@@ -103,7 +125,7 @@ instance (JournalVocabulary op) => FromJSON (Entry op) where
                         <> show (version :: Int)
                         <> ", but this engine reads version "
                         <> show expected
-            else Entry <$> o .: "at" <*> parseOp o
+            else Entry <$> o .: "at" <*> o .:? "by" <*> parseOp o
 
 -- | A journal, given the directory it lives in.
 journalPath :: FilePath -> FilePath
@@ -116,10 +138,10 @@ Stamps the line with the current time, which is why this takes the operation
 rather than a whole entry: when it happened is the journal's business, not its
 caller's.
 -}
-appendEntry :: (JournalVocabulary op) => FilePath -> op -> IO (Either Text ())
-appendEntry home op = do
+appendEntry :: (JournalVocabulary op) => FilePath -> Maybe Author -> op -> IO (Either Text ())
+appendEntry home by op = do
     now <- getCurrentTime
-    let entry = Entry{jeAt = T.pack (iso8601Show now), jeOp = op}
+    let entry = Entry{jeAt = T.pack (iso8601Show now), jeBy = by, jeOp = op}
     written <- try $ do
         createDirectoryIfMissing True home
         withFile (journalPath home) ReadWriteMode $ \handle -> do

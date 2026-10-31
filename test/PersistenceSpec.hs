@@ -185,7 +185,7 @@ spec = describe "persisting an edit" $ do
                 manager <- initDatabaseManager defaultConfig NoCache
                 db <- buildTwoActivityFixture
                 install manager "configured" db (configuredConfig "configured")
-                r <- mutateUploadedDatabase manager "configured" dropSecond
+                r <- mutateUploadedDatabase manager "configured" Nothing dropSecond
                 case r of
                     Left err -> expectationFailure ("mutateUploadedDatabase: " <> show err)
                     Right outcome -> do
@@ -201,7 +201,7 @@ spec = describe "persisting an edit" $ do
                 db <- buildTwoActivityFixture
                 install manager "busy" db (configuredConfig "busy")
                 atomically $ modifyTVar' (dmStagingDbs manager) (Set.insert "busy")
-                r <- mutateUploadedDatabase manager "busy" dropSecond
+                r <- mutateUploadedDatabase manager "busy" Nothing dropSecond
                 void r `shouldSatisfy` failsWith "already in progress"
 
         it "refuses while another loaded database depends on this one" $
@@ -210,7 +210,7 @@ spec = describe "persisting an edit" $ do
                 db <- buildTwoActivityFixture
                 install manager "background" db (configuredConfig "background")
                 install manager "foreground" db{dbDependsOn = ["background"]} (configuredConfig "foreground")
-                r <- mutateUploadedDatabase manager "background" dropSecond
+                r <- mutateUploadedDatabase manager "background" Nothing dropSecond
                 void r `shouldSatisfy` failsWith "still required by"
 
 -- ---------------------------------------------------------------------------
@@ -285,7 +285,7 @@ processKeysOf manager dbName = do
 -- | Delete the first process, through the request path a client uses.
 deleteFirst :: DatabaseManager -> Text -> [Text] -> IO DeleteOutcome
 deleteFirst manager dbName keys = do
-    r <- deleteActivitiesInDB manager dbName (deleteIds [head' keys])
+    r <- deleteActivitiesInDB manager dbName Nothing (deleteIds [head' keys])
     either (fail . T.unpack) pure r
 
 -- | Unload, load again, and say which processes came back.
