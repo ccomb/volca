@@ -10,3 +10,6 @@ CHANGELOG.md merge=union
 *.bat text eol=crlf
 *.nsh text eol=crlf
 *.nsi text eol=crlf
+
+# Published with CRLF and padded lines; the reader is tested on those bytes.
+test/data/simapro_method_padded.csv -text
