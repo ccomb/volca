@@ -338,14 +338,29 @@ reads a set with normalization switched off.
 counted :: M.Map Text Double -> M.Map Text Double -> Text -> Bool
 counted norm weight v = M.member v weight && (M.null norm || M.member v norm)
 
-{- | Whether a set's scores rest on value choices: it normalizes, or it weighs
-a category otherwise than by one. A variable without a weight counts for
-nothing, so every score carries weights, and weights of one alone only add
-categories up, as damages in one unit are. Weights of one over categories in
-different units weigh them all the same and are not caught.
+{- | Whether a set's scores rest on value choices: a score takes a category
+otherwise than once, through its weight, its own coefficient or that of the
+row it reads, or adds up categories it normalizes, or is no sum at all. A
+variable without a weight counts for nothing, so only the variables a score
+counts are read; a normalized category scored alone, or damages in one unit
+added at one, weigh nothing. Categories of different units added at one are
+weighed all the same and are not caught.
 -}
 weighs :: ScoringSet -> Bool
-weighs set = not (M.null (ssNormalization set)) || any (/= 1) (ssWeighting set)
+weighs set = any scoreWeighs (ssScores set)
+  where
+    names = M.keys (ssVariables set) <> M.keys (ssComputed set)
+    scoreWeighs formula = case linearTerms names formula of
+        Nothing -> True
+        Just ts ->
+            let live = [(v, c * w) | (v, c) <- ts, Just w <- [M.lookup v (ssWeighting set)], w /= 0]
+             in any ((/= 1) . snd) live
+                    || (length live > 1 && any ((`M.member` ssNormalization set) . fst) live)
+                    || any (rowWeighs . fst) live
+    -- A row that groups its categories at other coefficients than one, or by a formula.
+    rowWeighs v = case M.lookup v (ssComputed set) of
+        Nothing -> False
+        Just formula -> maybe True (any ((/= 1) . snd)) (linearTerms (M.keys (ssVariables set)) formula)
 
 {- | What a ranking or a comparison under these sets must say: that the sets
 which weigh do not support a comparison disclosed to the public (ISO 14044).

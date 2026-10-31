@@ -276,7 +276,7 @@ spec = describe "MCP database load/unload tools" $ do
                         let zeroed set = set{ssNormalization = M.singleton "gas" (1 / 0)}
                         atomically (modifyTVar' (dmLoadedMethods manager) (M.adjust (\c -> c{mcScoringSets = map zeroed (mcScoringSets c)}) "copy"))
                         infinite <- tool "list_scoring_sets" [("collection", String "copy")]
-                        resultText infinite `shouldSatisfy` maybe False (\t -> all (`T.isInfixOf` t) ["\"normalization\":{\"gas\":\"Infinity\"}", "\"weighs\":true"])
+                        resultText infinite `shouldSatisfy` maybe False (\t -> all (`T.isInfixOf` t) ["\"normalization\":{\"gas\":\"Infinity\"}", "\"weighs\":false"])
                     found -> expectationFailure ("expected one Methane category, found " <> show (length found))
 
     describe "gap-report tool" $ do

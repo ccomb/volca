@@ -1056,7 +1056,8 @@ description r = case r of
         \categories it groups with their coefficient or a formula, its \
         \normalization and weight) with 'sum_of_rows', the scores that add \
         \up the rows, which a new row joins. 'weighs' says the set's scores \
-        \rest on value choices (a normalization, or a weight other than one): \
+        \rest on value choices (a category weighed or counted otherwise than \
+        \once, or normalized categories added up): \
         \ISO 14044 does not allow them in a comparison disclosed to the \
         \public. Use the returned set names as \
         \keys when interpreting score_activity / score_activities responses, \

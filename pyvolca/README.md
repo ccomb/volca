@@ -1703,8 +1703,8 @@ string ``"Infinity"`` for a row a file counts as zero) and
 ``weight``; its ``scores``, each with its ``formula`` and whether it
 is the ``sumOfRows`` a new row joins; the ``variables`` a formula
 can read, each with the category it reads or the label of its row;
-and whether it ``weighs``, its scores resting on a normalization or
-weights other than one (wire revision 103).
+and whether it ``weighs``, a score taking a category otherwise than
+once or adding up normalized categories (wire revision 103).
 
 Needs an engine speaking wire revision 45.
 

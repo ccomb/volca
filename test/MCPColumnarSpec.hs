@@ -150,11 +150,15 @@ spec = do
         let summed = pefSet{ssName = "Damages", ssWeighting = M.fromList [("acd", 1), ("cch", 1)]}
             normalized = summed{ssName = "Normalized", ssNormalization = M.fromList [("acd", 2), ("cch", 3)]}
             halved = summed{ssName = "Halved", ssWeighting = M.fromList [("acd", 0.5), ("cch", 1)]}
+            -- One normalized category scored alone adds nothing up.
+            alone = normalized{ssName = "Alone", ssScores = M.fromList [("acd_n", "acd")]}
+            coefficient = summed{ssName = "Coefficient", ssScores = M.fromList [("total", "0.5 * acd + cch")]}
+            grouped = summed{ssName = "Grouped", ssComputed = M.fromList [("g", "2 * acd + cch")], ssWeighting = M.fromList [("g", 1)], ssScores = M.fromList [("total", "g")]}
             noticeOf set = case toColumnarBatch False Nothing "ei" "EF31" set emptyBir of
                 Object km -> KM.lookup (fromText "reading_notice") km
                 _ -> Nothing
-        it "takes a normalization or a weight other than one for a value choice" $
-            map weighs [normalized, halved, summed] `shouldBe` [True, True, False]
+        it "takes a category counted otherwise than once, or normalized categories added up, for a value choice" $
+            map weighs [normalized, halved, coefficient, grouped, summed, alone] `shouldBe` [True, True, True, True, False, False]
         it "names the sets that weigh, and says nothing when none does" $ do
             fmap (T.isInfixOf "Normalized, Halved") (readingNotice [normalized, summed, halved]) `shouldBe` Just True
             readingNotice [summed] `shouldBe` Nothing
