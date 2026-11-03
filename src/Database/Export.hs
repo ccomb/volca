@@ -84,8 +84,8 @@ one 'toSimpleDatabase' conversion and keeps them from drifting apart.
 
 The dependencies are the suppliers its inputs buy from the databases it
 depends on ('Database.ExportSupplier.dependenciesOf'). SimaPro and Brightway
-name them on the rows buying from them; ILCD and EcoSpold 1, which cannot,
-refuse them. Only those four read them, so only they fail when the suppliers
+name them on the rows buying from them, ILCD writes the place each states,
+and EcoSpold 1, which cannot, refuses them. Only those four read them, so only they fail when the suppliers
 could not be worked out: the formats pointing at a supplier export all the
 same, under the names the source gave. Before any writer, each input a dependency supplies is
 written under that supplier's product and identity ('namedAfterLinks').
