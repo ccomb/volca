@@ -170,6 +170,8 @@ ton-mile,mass*length,1.609344
 pkm,length*count,1.0
 person*km,length*count,1.0
 p*km,length*count,1.0
+p.km,length*count,1.0
+p⋅km,length*count,1.0
 personkm,length*count,1.0
 passenger*km,length*count,1.0
 passenger-km,length*count,1.0

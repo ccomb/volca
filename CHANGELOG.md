@@ -208,9 +208,9 @@
 ### Fixed
 
 - A passenger transport counted in `p*km`, the spelling openLCA gives the
-  person-kilometre, reads its unit. The unit table held `pkm` and
-  `person*km`, not `p*km`, so such a quantity converted to nothing else.
-  Data version 14.
+  person-kilometre, or in `p.km` or `p⋅km`, reads its unit, as `t.km` and
+  `t⋅km` already did for freight. The unit table held `pkm` and `person*km`
+  only, so such a quantity converted to nothing else. Data version 14.
 - A SimaPro method file whose every line is padded with separators
   (`Impact category;;;;;`) loads with its categories, its name, its damage
   categories and its normalization and weighting. It used to load empty and

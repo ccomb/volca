@@ -433,11 +433,13 @@ spec = do
             readUnit cfg "Item(s)" `shouldSatisfy` exact
             lookupUnitDef cfg "Item(s)" `shouldBe` lookupUnitDef cfg "p"
 
-        it "reads the person-kilometre openLCA writes" $ do
-            -- openLCA names its passenger transport unit p*km.
+        it "reads the person-kilometre written as a product" $ do
+            -- openLCA names its passenger transport unit p*km; the dot and the
+            -- SI's middle dot are the other two ways the table writes a product.
             cfg <- loadFullUnitConfig
-            readUnit cfg "p*km" `shouldSatisfy` exact
-            lookupUnitDef cfg "p*km" `shouldBe` lookupUnitDef cfg "pkm"
+            let spellings = ["p*km", "p.km", "p⋅km"]
+            mapM_ ((`shouldSatisfy` exact) . readUnit cfg) spellings
+            map (lookupUnitDef cfg) spellings `shouldBe` map (const (lookupUnitDef cfg "pkm")) spellings
 
         it "holds the superscript spelling of a power beside the digit one" $ do
             cfg <- loadFullUnitConfig
