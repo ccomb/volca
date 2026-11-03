@@ -433,6 +433,12 @@ spec = do
             readUnit cfg "Item(s)" `shouldSatisfy` exact
             lookupUnitDef cfg "Item(s)" `shouldBe` lookupUnitDef cfg "p"
 
+        it "reads the person-kilometre openLCA writes" $ do
+            -- openLCA names its passenger transport unit p*km.
+            cfg <- loadFullUnitConfig
+            readUnit cfg "p*km" `shouldSatisfy` exact
+            lookupUnitDef cfg "p*km" `shouldBe` lookupUnitDef cfg "pkm"
+
         it "holds the superscript spelling of a power beside the digit one" $ do
             cfg <- loadFullUnitConfig
             let powers =
