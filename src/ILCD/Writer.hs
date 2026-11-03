@@ -92,7 +92,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.FilePath (joinPath, splitDirectories, (</>))
 
 import Amount (readAmount)
-import Database.ExportSupplier (Dependencies, Maker (..), boughtShared, clashing, makerOf, noDependencies)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, makerOf, noDependencies)
 import EcoSpold.Common (showFFloatTrim)
 import Types
 import Zip (zipFiles)
@@ -104,7 +104,7 @@ import Zip (zipFiles)
 -- | What an export knows beyond the database itself.
 newtype WriteOptions = WriteOptions
     { woDependencies :: Dependencies
-    -- ^ What the inputs buy from the databases this one depends on, which ILCD cannot name.
+    -- ^ Who supplies the inputs bought from the databases this one depends on: each is written under its product and its place.
     }
 
 -- | An export of the database alone.
@@ -190,14 +190,15 @@ ilcdFiles opts db = sortOn fst (processes ++ flows ++ flowProps ++ unitGroups)
         , let dsUUID = ilcdProcessUUID shared pair
         ]
 
-    {- An input of a product several processes of the package make states where
-    its maker is, which is the one thing the reader tells makers apart by;
-    'checkILCDSuppliers' has made sure no two of them are at one place. -}
+    {- An input of a product several processes make, in the package or in a
+    dependency, states where its maker is, which is the one thing the reader
+    tells makers apart by; 'checkILCDSuppliers' has made sure no two of them
+    are at one place. -}
     placed :: (UUID, UUID) -> Int -> Exchange -> Exchange
     placed pair i ex = case maker pair (i, ex) of
         OneOfMakers m -> atLocation (activityLocation m) ex
         SoleMaker _ -> ex
-        InDependency _ -> ex
+        InDependency e -> atLocation (elLocation e) ex
         Dangling _ -> ex
         NoLink -> ex
     atLocation loc = \case
@@ -355,21 +356,27 @@ writeILCDArchive opts db = checkILCDExportable db >> checkILCDSuppliers opts db 
 {- | Guard an ILCD export against inputs whose supplier a re-import would not find.
 
 An ILCD exchange names a flow and, at most, a location: never the process
-making it. A supplier in another database, or a link to a process the package
-does not hold, therefore cannot be written at all. Within the package, a product two processes make is told apart by the
-location its input states, so two of its makers at one place, or one at none,
-cannot be either.
+making it. A reader finds the supplier by that product and that place, in the
+package or in the databases loaded beside it. So a supplier of a dependency is
+written under its product and its place, and refused when it states no place,
+when that database makes the product at that place more than once, or when a
+process of the package makes it too, since the reader looks there first. A link
+to a process neither the package nor a dependency holds cannot be written at
+all. Within the package, two makers of a product at one place, or one at none,
+cannot be told apart either.
 -}
 checkILCDSuppliers :: WriteOptions -> SimpleDatabase -> Either Text ()
 checkILCDSuppliers opts db =
-    case (outside, indistinct) of
-        ((consumer, product') : _, _) ->
+    case (unfound, indistinct) of
+        ((consumer, product', why) : _, _) ->
             Left $
                 "ILCD export cannot name the supplier of \""
                     <> product'
                     <> "\" bought by \""
                     <> consumer
-                    <> "\": it is not in the exported database, and ILCD names a flow, never the process making it. "
+                    <> "\": "
+                    <> why
+                    <> ", and ILCD names a product and a place, never the process making it. "
                     <> "EcoSpold 2 and openLCA point at the supplier itself."
         ([], (product', why) : _) ->
             Left $
@@ -381,19 +388,26 @@ checkILCDSuppliers opts db =
         ([], []) -> Right ()
   where
     flowName flow = maybe "?" tfName (M.lookup flow (sdbTechFlows db))
-    outside =
-        [ (activityName act, flowName (techFlowId ex))
+    unfound =
+        [ (activityName act, flowName (techFlowId ex), why)
         | (pair, act) <- M.toList (sdbActivities db)
         , (i, ex@TechnosphereExchange{}) <- zip [0 ..] (exchanges act)
-        , isOutside (maker pair (i, ex))
+        , Just why <- [unwritable ex (maker pair (i, ex))]
         ]
     maker = makerOf (woDependencies opts) db
-    isOutside = \case
-        InDependency _ -> True
-        Dangling _ -> True
-        SoleMaker _ -> False
-        OneOfMakers _ -> False
-        NoLink -> False
+    -- The reader links an input to a process of the package making its flow, whatever place it states.
+    packageMakers = M.fromList [(exchangeFlowId r, a) | a <- M.elems (sdbActivities db), r <- exchanges a, exchangeIsReference r]
+    unwritable ex = \case
+        InDependency e
+            | Just own <- M.lookup (techFlowId ex) packageMakers ->
+                Just ("its supplier \"" <> elActivity e <> "\" in " <> elDatabase e <> " makes a product that \"" <> activityName own <> "\" of the package also makes, and a reader links it there")
+            | T.null (T.strip (elLocation e)) -> Just ("its supplier \"" <> elActivity e <> "\" in " <> elDatabase e <> " states no location")
+            | twin : _ <- elTwins e -> Just (elDatabase e <> " makes it at " <> elLocation e <> " in both \"" <> elActivity e <> "\" and \"" <> twin <> "\"")
+            | otherwise -> Nothing
+        Dangling _ -> Just "it is neither in the exported database nor in a database loaded beside it"
+        SoleMaker _ -> Nothing
+        OneOfMakers _ -> Nothing
+        NoLink -> Nothing
     indistinct =
         [ (flowName flow, why)
         | (flow, makers) <- boughtShared db
