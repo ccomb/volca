@@ -564,7 +564,7 @@ data ProcState = ProcState
     , psClassifications :: !(M.Map Text Text)
     , psPendingClassName :: !Text
     , psInClass :: !Bool
-    , psProcessType :: !Text -- ILCD <processType> element text (empty when absent)
+    , psProcessType :: !Text -- ILCD <typeOfDataSet>, or the <processType> of older exports (empty when absent)
     , psTimeStamp :: !Text -- <common:timeStamp> text (empty when absent)
     , psCitation :: !(Maybe Text)
     -- ^ The section the open citation of a source dataset belongs to.

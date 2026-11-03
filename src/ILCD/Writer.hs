@@ -23,7 +23,10 @@ Determinism is the contract:
   @write (parse (write d)) == write d@ holds byte-for-byte.
 
 Every file is valid against the ILCD 1.1 schemas (@test-data/ilcd-schemas@),
-which the tests check.
+which the tests check, but for two limits the schema sets and the data may
+exceed: a text over 500 characters (a name, a line's comment) and a CAS number
+whose registry part has seven digits are written whole, an invalid field being
+better than a part of the data lost.
 
 What round-trips: process UUID, name, location, classifications, the type of
 dataset where it is one the format lists,
@@ -566,8 +569,8 @@ ilcdProcessTypes =
     , "Avoided product system"
     ]
 
-{- | Native-type display label, across all source formats (the value carried
-into @<processType>@). 'Nothing' when no native type is set.
+{- | Native-type display label, across all source formats (the value
+'processTypeBlock' writes when ILCD lists it). 'Nothing' when no native type is set.
 -}
 nativeTypeLabel :: Maybe NativeActivityType -> Maybe Text
 nativeTypeLabel nt = case nt of
