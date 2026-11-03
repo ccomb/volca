@@ -9,8 +9,9 @@
   that supplier states, which is what a reader loading the package beside
   that database finds it by. The export still refuses an input whose
   supplier states no place, one whose database makes that product at that
-  place in two activities (both are named), and a link to a process that
-  neither the package nor a loaded dependency holds.
+  place in two activities (both are named), one whose product a process of
+  the package also makes (a reader would link the input to that process), and
+  a link to a process that neither the package nor a loaded dependency holds.
 - Each change made to a database, a method collection or the scenarios of a
   database is signed with the account that made it, when the server in front
   of the engine names one: the history of a database and of a collection

@@ -104,6 +104,10 @@ spec = do
             ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "" PositiveReference []))} (fixture "BR")
                 `shouldSatisfy` isLeft
 
+        it "refuses a supplier of a dependency whose product a process of the package also makes, naming it" $
+            ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = dependencies} (makingPower (fixture "BR"))
+                `shouldSatisfy` either ("power station" `T.isInfixOf`) (const False)
+
         it "refuses an input linked to a process neither it nor a dependency holds" $
             ILCD.writeILCDArchive ILCD.defaultWriteOptions (linkedPower marketU (fixture "BR")) `shouldSatisfy` isLeft
 
@@ -224,6 +228,10 @@ twoPlaces = backgroundDb{sdbActivities = M.insert (marketCHU, powerU) (activity 
 -- | A background whose power plant makes power in TR beside the market.
 withPlant :: SimpleDatabase -> SimpleDatabase
 withPlant db = db{sdbActivities = M.insert (marketCHU, powerU) (activity "power plant" "TR" [reference powerU]) (sdbActivities db)}
+
+-- | A power station of the package makes the power the mill buys elsewhere.
+makingPower :: SimpleDatabase -> SimpleDatabase
+makingPower db = db{sdbActivities = M.insert (marketCHU, powerU) (activity "power station" "TR" [reference powerU]) (sdbActivities db)}
 
 -- | The mill's power linked to this process.
 linkedPower :: UUID -> SimpleDatabase -> SimpleDatabase

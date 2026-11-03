@@ -359,7 +359,8 @@ An ILCD exchange names a flow and, at most, a location: never the process
 making it. A reader finds the supplier by that product and that place, in the
 package or in the databases loaded beside it. So a supplier of a dependency is
 written under its product and its place, and refused when it states no place,
-or when that database makes the product at that place more than once. A link
+when that database makes the product at that place more than once, or when a
+process of the package makes it too, since the reader looks there first. A link
 to a process neither the package nor a dependency holds cannot be written at
 all. Within the package, two makers of a product at one place, or one at none,
 cannot be told apart either.
@@ -391,11 +392,15 @@ checkILCDSuppliers opts db =
         [ (activityName act, flowName (techFlowId ex), why)
         | (pair, act) <- M.toList (sdbActivities db)
         , (i, ex@TechnosphereExchange{}) <- zip [0 ..] (exchanges act)
-        , Just why <- [unwritable (maker pair (i, ex))]
+        , Just why <- [unwritable ex (maker pair (i, ex))]
         ]
     maker = makerOf (woDependencies opts) db
-    unwritable = \case
+    -- The reader links an input to a process of the package making its flow, whatever place it states.
+    packageMakers = M.fromList [(exchangeFlowId r, a) | a <- M.elems (sdbActivities db), r <- exchanges a, exchangeIsReference r]
+    unwritable ex = \case
         InDependency e
+            | Just own <- M.lookup (techFlowId ex) packageMakers ->
+                Just ("its supplier \"" <> elActivity e <> "\" in " <> elDatabase e <> " makes a product that \"" <> activityName own <> "\" of the package also makes, and a reader links it there")
             | T.null (T.strip (elLocation e)) -> Just ("its supplier \"" <> elActivity e <> "\" in " <> elDatabase e <> " states no location")
             | twin : _ <- elTwins e -> Just (elDatabase e <> " makes it at " <> elLocation e <> " in both \"" <> elActivity e <> "\" and \"" <> twin <> "\"")
             | otherwise -> Nothing
