@@ -19,17 +19,21 @@ Determinism is the contract:
 
 * every Map/Set-derived list is sorted by key before emission;
 * every 'Double' is formatted through one fixed formatter ('formatDouble');
-* the timestamp is the activity's own last revision, and the only volatile
-  field, the generator string, is /omitted/ entirely unless a caller passes
-  one explicitly via 'WriteOptions'. We never inject @now@, so
+* the timestamp is the activity's own last revision. We never inject @now@, so
   @write (parse (write d)) == write d@ holds byte-for-byte.
 
-What round-trips: process UUID, name, location, classifications, processType,
+Every file is valid against the ILCD 1.1 schemas (@test-data/ilcd-schemas@),
+which the tests check.
+
+What round-trips: process UUID, name, location, classifications, the type of
+dataset where it is one the format lists,
 every exchange (flow ref, direction, amount, location, per-exchange comment), the
 exchanged flows (names, CAS, biosphere compartment, flow type, the flow→unit
 reference) and the unit catalog. These are exactly the fields "ILCD.Parser" reads back;
 fields the parser drops (activity description, synonyms, params, pedigree)
-are not representable in this ILCD profile and are not emitted.
+are not representable in this ILCD profile and are not emitted. Neither is the
+type another format gives its datasets (SimaPro's \"Unit process\", an EcoSpold
+activity type): ILCD's @typeOfDataSet@ takes only its own five values.
 
 The declared allocation fractions are the exception: the parser now reads
 them, and this writer does not yet write them back, so a block exported here
@@ -69,6 +73,7 @@ module ILCD.Writer (
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.Char (isDigit)
 import Data.Either (lefts)
 import Data.Indexing (repeated)
 import Data.List (sortOn)
@@ -93,19 +98,15 @@ import Zip (zipFiles)
 -- Options
 --------------------------------------------------------------------------------
 
-{- | Knobs that pin or omit volatile metadata. Defaults omit everything
-volatile, so a write→parse→write round-trip is byte-stable.
--}
-data WriteOptions = WriteOptions
-    { woGenerator :: Maybe Text
-    -- ^ Pinned generator / tool-version string. 'Nothing' omits it.
-    , woDependencies :: Dependencies
+-- | What an export knows beyond the database itself.
+newtype WriteOptions = WriteOptions
+    { woDependencies :: Dependencies
     -- ^ What the inputs buy from the databases this one depends on, which ILCD cannot name.
     }
 
--- | Omit all volatile metadata. The right default for reproducible exports.
+-- | An export of the database alone.
 defaultWriteOptions :: WriteOptions
-defaultWriteOptions = WriteOptions{woGenerator = Nothing, woDependencies = noDependencies}
+defaultWriteOptions = WriteOptions{woDependencies = noDependencies}
 
 --------------------------------------------------------------------------------
 -- Process dataset identity
@@ -181,7 +182,7 @@ ilcdFiles opts db = sortOn fst (processes ++ flows ++ flowProps ++ unitGroups)
     maker = makerOf (woDependencies opts) db
 
     processes =
-        [ ("processes/" <> uuidStr dsUUID <> ".xml", render (processXML opts dsUUID act{exchanges = zipWith (placed pair) [0 ..] (exchanges act)}))
+        [ ("processes/" <> uuidStr dsUUID <> ".xml", render (processXML dsUUID act{exchanges = zipWith (placed pair) [0 ..] (exchanges act)}))
         | (pair, act) <- M.toAscList (sdbActivities db)
         , let dsUUID = ilcdProcessUUID shared pair
         ]
@@ -442,10 +443,10 @@ several products may share. The reference exchange gets @dataSetInternalID@
 matching @referenceToReferenceFlow@; remaining exchanges follow in their list
 order, so the parser reads them back in the same order it would re-serialize.
 -}
-processXML :: WriteOptions -> UUID -> Activity -> [Text]
-processXML opts dsUUID act =
+processXML :: UUID -> Activity -> [Text]
+processXML dsUUID act =
     [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-    , "<processDataSet xmlns=\"http://lca.jrc.it/ILCD/Process\" xmlns:common=\"http://lca.jrc.it/ILCD/Common\">"
+    , "<processDataSet xmlns=\"http://lca.jrc.it/ILCD/Process\" xmlns:common=\"http://lca.jrc.it/ILCD/Common\" version=\"" <> formatVersion <> "\">"
     , "  <processInformation>"
     , "    <dataSetInformation>"
     , elem' "common:UUID" (uuidText dsUUID)
@@ -455,15 +456,17 @@ processXML opts dsUUID act =
     ]
         ++ classificationBlock (activityClassification act)
         ++ [ "    </dataSetInformation>"
-           , attrOnly "geography" [("location", activityLocation act)]
            , "    <quantitativeReference>"
            , elem' "referenceToReferenceFlow" (T.pack (show refIdx))
            , "    </quantitativeReference>"
+           , "    <geography>"
+           , attrOnly "locationOfOperationSupplyOrProduction" [("location", activityLocation act)]
+           , "    </geography>"
            ]
         ++ [ "  </processInformation>"
            ]
         ++ processTypeBlock (activityNativeType act)
-        ++ administrativeBlock opts (activityDates act)
+        ++ administrativeBlock (activityDates act)
         ++ ["  <exchanges>"]
         ++ concatMap (uncurry exchangeXML) indexedExchanges
         ++ [ "  </exchanges>"
@@ -485,14 +488,18 @@ exchangeXML :: Int -> Exchange -> [Text]
 exchangeXML i ex =
     [ "    <exchange dataSetInternalID=\"" <> T.pack (show i) <> "\">"
     , attrOnly "referenceToFlowDataSet" [("refObjectId", uuidText (exchangeFlowId ex)), ("type", "flow data set")]
-    , elem' "exchangeDirection" direction
-    , elem' "resultingAmount" (formatDouble (exchangeAmount ex))
     ]
         ++ locationBlock (exchangeLocation ex)
+        ++ [ elem' "exchangeDirection" direction
+           , -- The schema requires the mean; with no parameters written, the result is the same number.
+             elem' "meanAmount" amount
+           , elem' "resultingAmount" amount
+           ]
         ++ commentBlock (exchangeComment ex)
         ++ ["    </exchange>"]
   where
     direction = if exchangeIsInput ex then "Input" else "Output"
+    amount = formatDouble (exchangeAmount ex)
 
 {- | Per-exchange @<location>@, which the parser reads back into the exchange's
 location field. Omitted when empty – the common case, since ILCD geography lives
@@ -506,7 +513,7 @@ locationBlock loc
 -- | Per-exchange comment, English-tagged to match the parser's preference.
 commentBlock :: Maybe Text -> [Text]
 commentBlock Nothing = []
-commentBlock (Just c) = [attrElem "common:generalComment" [("xml:lang", "en")] c]
+commentBlock (Just c) = [attrElem "generalComment" [("xml:lang", "en")] c]
 
 {- | Classification block. Each classification system becomes one
 @<common:classification name="...">@ with one @<common:class>@ per
@@ -528,23 +535,36 @@ classificationBlock cls
                ]
             ++ ["        </common:classification>"]
 
-{- | ILCD @<processType>@, nested where the parser expects it. @<processType>@
-is free text, so a foreign native-type label (SimaPro @Type@, ecospold
-@activityType@) is carried through rather than dropped. Omitted when no native
-type is set or its label is empty.
+{- | ILCD @<typeOfDataSet>@, where the parser reads it back. The schema lists five
+values; another format's label (SimaPro @Type@, an EcoSpold @activityType@) is
+none of them and is left out rather than written where it does not belong.
 -}
 processTypeBlock :: Maybe NativeActivityType -> [Text]
 processTypeBlock nt = case nativeTypeLabel nt of
     Just label
-        | not (T.null label) ->
+        | label `elem` ilcdProcessTypes ->
             [ "  <modellingAndValidation>"
             , "    <LCIMethodAndAllocation>"
-            , elem' "processType" label
+            , elem' "typeOfDataSet" label
             , "    </LCIMethodAndAllocation>"
             , "  </modellingAndValidation>"
             ]
     Just _ -> []
     Nothing -> []
+
+-- | The version of the ILCD format every dataset root states, as the schemas require.
+formatVersion :: Text
+formatVersion = "1.1"
+
+-- | The values of the schema's @TypeOfProcessValues@.
+ilcdProcessTypes :: [Text]
+ilcdProcessTypes =
+    [ "Unit process, single operation"
+    , "Unit process, black box"
+    , "LCI result"
+    , "Partly terminated system"
+    , "Avoided product system"
+    ]
 
 {- | Native-type display label, across all source formats (the value carried
 into @<processType>@). 'Nothing' when no native type is set.
@@ -556,25 +576,21 @@ nativeTypeLabel nt = case nt of
     Just (EcoSpoldActivityType{eatLabel = label}) -> Just label
     Nothing -> Nothing
 
-{- | @<administrativeInformation>@: the pinned generator string, when there is
-one, and the day the dataset was last saved, the one date this format has a
-place for. Omitted when it would hold neither.
+{- | @<administrativeInformation>@: the day the dataset was last saved, the one
+date this format has a place for. Omitted when there is none.
 -}
-administrativeBlock :: WriteOptions -> DatasetDates -> [Text]
-administrativeBlock opts dates = case generator ++ dataEntry of
-    [] -> []
-    inner -> ["  <administrativeInformation>"] ++ inner ++ ["  </administrativeInformation>"]
-  where
-    generator :: [Text]
-    generator =
-        foldMap
-            (\g -> ["    <dataGenerator>", elem' "common:referenceToDataGenerator" g, "    </dataGenerator>"])
-            (woGenerator opts)
-    dataEntry :: [Text]
-    dataEntry =
-        foldMap
-            (\d -> ["    <dataEntryBy>", elem' "common:timeStamp" (isoDateTime d), "    </dataEntryBy>"])
-            (datesLastRevised dates)
+administrativeBlock :: DatasetDates -> [Text]
+administrativeBlock dates =
+    foldMap
+        ( \d ->
+            [ "  <administrativeInformation>"
+            , "    <dataEntryBy>"
+            , elem' "common:timeStamp" (isoDateTime d)
+            , "    </dataEntryBy>"
+            , "  </administrativeInformation>"
+            ]
+        )
+        (datesLastRevised dates)
 
 --------------------------------------------------------------------------------
 -- Flow XML
@@ -587,7 +603,7 @@ carry their compartment categories; CAS round-trips when present.
 flowXML :: FlowKind -> UUID -> [Text]
 flowXML fk unitRef =
     [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-    , "<flowDataSet xmlns=\"http://lca.jrc.it/ILCD/Flow\" xmlns:common=\"http://lca.jrc.it/ILCD/Common\">"
+    , "<flowDataSet xmlns=\"http://lca.jrc.it/ILCD/Flow\" xmlns:common=\"http://lca.jrc.it/ILCD/Common\" version=\"" <> formatVersion <> "\">"
     , "  <flowInformation>"
     , "    <dataSetInformation>"
     , elem' "common:UUID" (uuidText (flowKindId fk))
@@ -632,7 +648,23 @@ casBlock :: Maybe Text -> [Text]
 casBlock Nothing = []
 casBlock (Just cas)
     | T.null cas = []
-    | otherwise = [elem' "CASNumber" cas]
+    | otherwise = [elem' "CASNumber" (schemaCAS cas)]
+
+{- | A CAS number as the schema spells it, its registry number zero-padded to six
+digits (@000124-38-9@); the reader strips the zeros again. A number that does not
+fit, such as a seven-digit registry number the 2012 schema predates, is written
+as it is: an invalid field is better than a characterisation lost.
+-}
+schemaCAS :: Text -> Text
+schemaCAS cas = case T.splitOn "-" cas of
+    [registry, group, check]
+        | not (T.null registry)
+        , T.length registry <= 6
+        , T.length group == 2
+        , T.length check == 1
+        , T.all isDigit (registry <> group <> check) ->
+            T.justifyRight 6 '0' registry <> "-" <> group <> "-" <> check
+    _ -> cas
 
 {- | Emit the biosphere @elementaryFlowCategorization@. We reverse the parser's
 'parseCompartment': level 0 is "Emissions"/"Resources", level 1 names the
@@ -671,7 +703,7 @@ compartmentBlock (Just (Compartment medium sub)) =
 flowPropertyXML :: Unit -> [Text]
 flowPropertyXML u =
     [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-    , "<flowPropertyDataSet xmlns=\"http://lca.jrc.it/ILCD/FlowProperty\" xmlns:common=\"http://lca.jrc.it/ILCD/Common\">"
+    , "<flowPropertyDataSet xmlns=\"http://lca.jrc.it/ILCD/FlowProperty\" xmlns:common=\"http://lca.jrc.it/ILCD/Common\" version=\"" <> formatVersion <> "\">"
     , "  <flowPropertiesInformation>"
     , "    <dataSetInformation>"
     , elem' "common:UUID" (uuidText (unitId u))
@@ -691,7 +723,7 @@ flowPropertyXML u =
 unitGroupXML :: Unit -> [Text]
 unitGroupXML u =
     [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-    , "<unitGroupDataSet xmlns=\"http://lca.jrc.it/ILCD/UnitGroup\" xmlns:common=\"http://lca.jrc.it/ILCD/Common\">"
+    , "<unitGroupDataSet xmlns=\"http://lca.jrc.it/ILCD/UnitGroup\" xmlns:common=\"http://lca.jrc.it/ILCD/Common\" version=\"" <> formatVersion <> "\">"
     , "  <unitGroupInformation>"
     , "    <dataSetInformation>"
     , elem' "common:UUID" (uuidText (unitId u))
