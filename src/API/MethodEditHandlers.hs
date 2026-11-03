@@ -68,7 +68,7 @@ import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), 
 import Method.EditPlan (EditEffect (..))
 import Method.Journal (Exact (..), LineKind (..), MethodOp (..))
 import Method.Patch (describePatch)
-import Method.Scoring (RowTerms (..), ScoringGesture (..), ScoringRow (..), rowsOf, sumOfRows)
+import Method.Scoring (RowTerms (..), ScoringGesture (..), ScoringRow (..), rowsOf, sumOfRows, weighs)
 import Method.Types (Compartment (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Service.CompareMethods (factorSide)
 import Types (addedText)
@@ -146,6 +146,7 @@ scoringSetAPI collection set =
         , ssaRows = map row (rowsOf set)
         , ssaScores = [ScoreAPI name formula (sumOfRows set name) | (name, formula) <- M.toList (ssScores set)]
         , ssaVariables = ssVariables set <> M.mapWithKey (\v _ -> M.findWithDefault v v (ssLabels set)) (ssComputed set)
+        , ssaWeighs = weighs set
         }
   where
     row :: ScoringRow -> ScoringRowAPI

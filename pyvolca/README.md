@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 104** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 105** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1725,8 +1725,10 @@ with its ``methodId`` and ``coefficient``, or ``RowWritten`` with a
 ``formula`` that is no such sum), its ``normalization`` (the
 string ``"Infinity"`` for a row a file counts as zero) and
 ``weight``; its ``scores``, each with its ``formula`` and whether it
-is the ``sumOfRows`` a new row joins; and the ``variables`` a formula
-can read, each with the category it reads or the label of its row.
+is the ``sumOfRows`` a new row joins; the ``variables`` a formula
+can read, each with the category it reads or the label of its row;
+and whether it ``weighs``, a score taking a category otherwise than
+once or adding up normalized categories (wire revision 105).
 
 Needs an engine speaking wire revision 45.
 
@@ -2723,6 +2725,7 @@ partial result to inspect, not a failure.
 | `invalid` | `list[str]` | _required_ |
 | `unscorable` | `list[str]` | _required_ |
 | `basis` | `ScoreBasis \| None` | None |
+| `reading_notice` | `str \| None` | None |
 
 ### `BioExchange`
 

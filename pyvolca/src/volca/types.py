@@ -816,6 +816,10 @@ class BatchScores:
     basis: ScoreBasis | None = None
     """What every score of the batch rests on, said once (wire revision 99);
     ``None`` from an older engine."""
+    reading_notice: str | None = None
+    """Said when a scoring set of the batch weighs categories by value choices:
+    ISO 14044 does not allow its scores in a comparison disclosed to the
+    public (wire revision 105); ``None`` otherwise or from an older engine."""
 
     @classmethod
     def from_json(cls, d: dict) -> "BatchScores":
@@ -835,6 +839,7 @@ class BatchScores:
             invalid=d["invalid"],
             unscorable=d.get("unscorable", []),
             basis=ScoreBasis.maybe(d.get("basis")),
+            reading_notice=d.get("readingNotice"),
         )
 
 

@@ -256,6 +256,8 @@ spec = describe "a contributing flow's factor and contribution" $ do
         whole <- runOk (postImpactsBatch "sample" (CollectionName collectionName) Nothing Nothing (BatchImpactsRequest [productD] []))
         one <- runOk (postMethodImpactsBatch "sample" (CollectionName collectionName) methodIdText Nothing Nothing (BatchImpactsRequest [productD] []))
         (scoringSets whole, scoringSets one) `shouldBe` ([["Single"]], [[]])
+        -- Its weight of 2 is a value choice; the batch under one method ranks no single score.
+        (fmap ("Single" `T.isInfixOf`) (birReadingNotice whole), birReadingNotice one) `shouldBe` (Just True, Nothing)
 
     it "are refused for a method the collection does not hold" $ do
         status <- runStatus (postMethodImpactsBatch "sample" (CollectionName collectionName) (UUID.toText UUID.nil) Nothing Nothing (BatchImpactsRequest [productD] []))
