@@ -224,6 +224,10 @@
 
 ### Fixed
 
+- A passenger transport counted in `p*km`, the spelling openLCA gives the
+  person-kilometre, or in `p.km` or `p⋅km`, reads its unit, as `t.km` and
+  `t⋅km` already did for freight. The unit table held `pkm` and `person*km`
+  only, so such a quantity converted to nothing else. Data version 14.
 - An ILCD export is valid against the ILCD 1.1 schemas. Every dataset said
   no format version, a process gave its location in a form the schema does
   not have and before its reference flow, a line had no mean amount, wrote
