@@ -957,7 +957,7 @@ data NativeActivityType
       SimaProProcessType
         { sptLabel :: !Text
         }
-    | -- | ILCD @\<processType@ XML element value.
+    | -- | ILCD @\<typeOfDataSet\>@ value.
       ILCDProcessType
         { iptLabel :: !Text
         }
@@ -1225,7 +1225,7 @@ data Activity = Activity
     , activityUnit :: !Text -- Reference unit
     , exchanges :: ![Exchange] -- List of exchanges
     , activityParameters :: !(M.Map Text Parameter) -- The named numbers the dataset's formulas read, by name
-    , activityNativeType :: !(Maybe NativeActivityType) -- Source-format-native activity type (ecospold @activityType, SimaPro Type, ILCD processType); Nothing when source format lacks the field
+    , activityNativeType :: !(Maybe NativeActivityType) -- Source-format-native activity type (ecospold @activityType, SimaPro Type, ILCD typeOfDataSet); Nothing when source format lacks the field
     , activityNativeId :: !(Maybe NativeProcessId) -- Source dataset block this activity was read from: what the SimaPro parser mints the activity UUID from, and what its writer writes back. Nothing when the source format lacks the field
     , activityFormulaCheck :: !(Maybe FormulaCheck) -- Outcome of the mathematicalRelation consistency check; Nothing when the dataset has no formulas or the format has none
     , activityDates :: !DatasetDates -- The days the dataset says it was written on

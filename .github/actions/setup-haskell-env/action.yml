@@ -28,6 +28,7 @@ runs:
           mingw-w64-ucrt-x86_64-openblas
           mingw-w64-ucrt-x86_64-cmake
           mingw-w64-ucrt-x86_64-make
+          mingw-w64-ucrt-x86_64-libxml2
           ${{ inputs.install-upx == 'true' && 'mingw-w64-ucrt-x86_64-python' || '' }}
           ${{ inputs.install-upx == 'true' && 'mingw-w64-ucrt-x86_64-upx' || '' }}
           make python git curl tar
@@ -85,6 +86,7 @@ runs:
           zstd-dev zstd-static \
           xz-dev xz-static \
           github-cli \
+          libxml2-utils \
           ${{ inputs.install-upx == 'true' && 'upx' || '' }}
 
     # Ordering invariant, the macOS mirror of the Alpine one above: this brings

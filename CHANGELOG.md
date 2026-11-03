@@ -207,6 +207,16 @@
 
 ### Fixed
 
+- An ILCD export is valid against the ILCD 1.1 schemas. Every dataset said
+  no format version, a process gave its location in a form the schema does
+  not have and before its reference flow, a line had no mean amount, wrote
+  its location after its amount and its comment in the wrong namespace, a
+  CAS number was not padded to six digits (`000124-38-9`), and a process type
+  went in a field that does not exist. Tools that check the schema refused
+  these packages. The type of dataset is now written as
+  `typeOfDataSet`, and read from there, which is where ILCD packages made
+  elsewhere give it; a type from another format, which none of ILCD's five
+  values names, is left out. Packages written before still read the same.
 - A SimaPro method file whose every line is padded with separators
   (`Impact category;;;;;`) loads with its categories, its name, its damage
   categories and its normalization and weighting. It used to load empty and
