@@ -201,7 +201,7 @@ data ActivitySummary = ActivitySummary
     , prsAllocationFormula :: Maybe Text -- Raw SimaPro allocation formula; Nothing if purely numeric
     , prsAllocationBy :: Maybe AllocationProperty -- The property a child's system model divided this block by; Nothing when the share is the one its source declared
     , prsMassAllocationPercent :: Maybe Double -- What the share would be if the key were the product's mass (%, 0..100), to be read beside the declared one; Nothing outside a block's own product list, on a block of one product or one whose source declares no share, and when its products are not all stated in a mass
-    , prsNativeType :: Maybe NativeActivityType -- Source-native activity type (ecospold @activityType, SimaPro Type, ILCD processType); Nothing when source lacks the field
+    , prsNativeType :: Maybe NativeActivityType -- Source-native activity type (ecospold @activityType, SimaPro Type, ILCD typeOfDataSet); Nothing when source lacks the field
     , prsBlock :: Text
     {- ^ The source block this process came out of, as a name to compare and
     never to read: the coproducts of one block carry the same one and nothing

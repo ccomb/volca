@@ -35,7 +35,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Database.Allocation (producerKeyOf)
-import Database.CrossLinking (IndexedDatabase, SupplierEntry (..), findSupplierByActivityProduct)
+import Database.CrossLinking (IndexedDatabase (..), SupplierEntry (..), findSupplierByActivityProduct, normalizeText)
 import Types
 
 -- | A supplier in another database, as a writer names it.
@@ -44,6 +44,11 @@ data Elsewhere = Elsewhere
     , elActivity :: !Text
     , elLocation :: !Text
     , elReferenceSign :: !ReferenceSign
+    , elTwins :: ![Text]
+    {- ^ The other activities of that database making the same product at the
+    same place: a format that names a product and a place alone cannot tell
+    the supplier from them.
+    -}
     }
     deriving (Eq, Show)
 
@@ -79,11 +84,18 @@ dependenciesOf indexed db = do
     elsewhere :: ((UUID, UUID, Int), CrossDBLink) -> Either Text ((UUID, UUID, Int), Elsewhere)
     elsewhere (key@(act, prod, _), l) =
         case findSupplierByActivityProduct (maybe [] pure (M.lookup source indexed)) supplier of
-            ((e, _) : _) -> Right (key, Elsewhere source (seActivityName e) (seLocation e) (seRefSign e))
+            ((e, _) : _) -> Right (key, Elsewhere source (seActivityName e) (seLocation e) (seRefSign e) (twinsOf e))
             [] -> Left (refusal act prod ("its supplier in " <> source <> " is not loaded"))
       where
         source = cdlSourceDatabase l
         supplier = linkSupplier l
+        twinsOf e =
+            [ seActivityName t
+            | Just idb <- [M.lookup source indexed]
+            , t <- M.findWithDefault [] (normalizeText (seProductName e)) (idbByProductName idb)
+            , seLocation t == seLocation e
+            , seActivityUUID t /= seActivityUUID e
+            ]
 
     refusal :: UUID -> UUID -> Text -> Text
     refusal act prod why =

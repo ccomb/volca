@@ -135,11 +135,11 @@ spec = describe "Database.Export dispatcher" $ do
         it "exports to the formats that name or point at a supplier, two lines in MJ and kWh on one supplier included" $ do
             linked <- linkedSpinning
             let deps = Right (suppliers [(1, grid), (2, grid)])
-            forM_ [SimaProCSV, EcoSpold2, BrightwayExcel, OpenLcaPackage] $ \fmt ->
+            forM_ [SimaProCSV, EcoSpold2, BrightwayExcel, OpenLcaPackage, ILCDProcess] $ \fmt ->
                 case serializeDatabase energyUnits fmt M.empty deps linked of
                     Left err -> expectationFailure (show fmt <> ": " <> T.unpack err)
                     Right _ -> pure ()
-            forM_ [EcoSpold1, ILCDProcess] $ \fmt -> serializeDatabase energyUnits fmt M.empty deps linked `shouldSatisfy` isLeft
+            serializeDatabase energyUnits EcoSpold1 M.empty deps linked `shouldSatisfy` isLeft
             let simapro = fmap (BLC.unpack . fst) (serializeDatabase energyUnits SimaProCSV M.empty deps linked)
             fromRight "" simapro `shouldSatisfy` isInfixOf "Electricity, medium voltage, at grid {RER}| Electricity, medium voltage, at grid |"
             fromRight "" simapro `shouldSatisfy` (not . isInfixOf "market group for electricity")
@@ -265,7 +265,7 @@ spinning =
         ]
 
 grid :: Elsewhere
-grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = PositiveReference}
+grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = PositiveReference, elTwins = []}
 
 -- | The suppliers of the spinning lines at these positions.
 suppliers :: [(Int, Elsewhere)] -> Dependencies

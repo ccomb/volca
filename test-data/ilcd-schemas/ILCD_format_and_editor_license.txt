@@ -1,0 +1,118 @@
+Copyright (c) 2011, European Commission
+All rights reserved.
+
+**********
+Preceding, not legally binding explanations:
+These license conditions guarantee to everybody a free access to and use of 
+the ILCD Format and ILCD Editor in LCA studies, for documenting own data sets, 
+for implementation into software or deriving such, etc. They help to avoid 
+misuse such as selling these cost free tools or misusing them in inappropriate 
+advertisements for derived software or data sets or studies. They hence 
+guarantee to you as user of the ILCD Format, Editor or derived tools, or of 
+ILCD-formatted data sets that you are properly informed what you get under 
+the name "ILCD". At the same time the license conditions protect the related 
+interests of the European Commission and development partners. They also ask 
+that proper reference is made when the source code of the ILCD Format or 
+Editor is used for other tools. Follows below the legally binding license text.
+**********
+
+
+SCOPE
+This license refers to the ILCD Format and the ILCD Editor 
+(both also referred to as "software"), developed by the European 
+Commission, Directorate-General Joint Research Centre, Institute for 
+Environment and Sustainability (JRC-IES), European Platform on Life 
+Cycle Assessment (EP-LCA) in Italy together with the Karlsruhe Institut of Technology 
+(KIT), Institut fuer Angewandte Informatik (IAI) in Germany.
+
+Redistribution, use and modification of the ILCD Format and of the ILCD 
+Editor in source and executable form is permitted, provided that all 
+the following conditions are met that refer to the respective activity. 
+These conditions also analogously apply to the redistribution, use and 
+modification of previously redistributed or modified variants of the ILCD 
+Format and of the Editor:
+
+* Redistribution of modified or unmodified source code must retain the above 
+  copyright notice and this license text.
+
+* Redistribution of modified or unmodified executables must reproduce the 
+  above copyright notice and this license text in the documentation and/or 
+  other materials provided with the redistribution.
+
+* Modified versions of the software may be developed without limitations and 
+  distributed commercially or non-commercially. The original or only 
+  insignificantly modified versions of this software may however only be 
+  (re)distributed free of charge, license fee, or similar. In case of 
+  development of modified versions, reference must also be given in a clearly 
+  visible form and place to the work of the developers of the original software 
+  as follows: "This product includes portions of the ILCD Format and/or 
+  the ILCD Editor, created by the European Commmission's JRC-IES, European 
+  Platform on Life Cycle Assessment together with the KIT, IAI. Copyright 
+  (C) 2011, European Commission. All Rights Reserved." 
+
+* Neither the name "ILCD", nor that of any of the above named developers
+  of the software nor any name derivations or otherwise confusingly similar 
+  expressions may however be used to endorse or promote products derived from 
+  this software without specific prior written permission (see also (1), (2)). 
+
+
+The following paragraph applies to newly created data sets 
+and their relation to the ILCD Format:
+
+* The creator and/or distributor of newly created ILCD-formatted process data sets 
+  must strictly avoid to give the impression, that the data set is endorsed by the 
+  European Commission or its bodies or that it meets certain qualty criteria other 
+  than being ILCD-formatted, unless this is explicitely permitted by JRC-IES, based 
+  on yet to be developed requirements. If the newly developed, ILCD-formatted process 
+  data set meets the requirements set forth in the "ILCD Data Network - entry-level 
+  requirements" or one of the "ILCD compliance" variants as specified in the 
+  document "ILCD Data Network - Compliance rules and entry-level requirements" 
+  (accessible via http://lct.jrc.ec.europa.eu, it may be promoted as being 
+  compliant to the respective requirements.
+
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDER AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE 
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL 
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER 
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, 
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE, 
+REDISTRIBUTION OR MODIFICATION OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
+POSSIBILITY OF SUCH DAMAGE.
+
+Furthermore the "Important legal notice" of the European Commission as 
+presently found at http://www.europa.eu/geninfo/legal_notices_en.htm fully 
+applies. In case of contradictions with this license text or unclarities 
+that "Important legal notice" is binding, rendering invalid any possibly 
+deviating conditions set forth in this license, while the not affected 
+conditions still apply.
+
+
+---------------
+(1) The use of the name "ILCD-formatted" will usually be granted upon request if the 
+    derived product is fully compatible with the original ILCD schema files, e.g. if 
+    being a software it imports and expeorts valid ILCD formatted data sets. 
+    This condition is also fulfilled if - as foreseen in the ILCD Format - additional namespaces 
+    are defined and used together with the ILCD namespace, creating an extended ILCD Format variant, 
+    that still provides ILCD valid data sets. Moreover, files created with a derived version shall be 
+    importable into, editible, and exported from the ILCD Editor.
+(2) Format conversion between the ILCD Format and another data set format may only be 
+    promoted as offering a conversion function in reference to or from the ILCD Format 
+    if they meet at least one of the following two sets of conditions in ADDITION to 
+    the ones laid out in (1) above: 
+   -(I) all information is transferred without loss of information AND is assigned in 
+    the receiving format to the semantically appropriate format fields in the technically correct way, 
+    i.e. meeting the field content definitions, field types, enumerated entries (if any), etc. with the not accordingly 
+    assignable information being kept togehter with the resulting data set in fields of a separate namespace or 
+    by another mechanism foreseen by the receiving format (or as a separate document if such should not be foreseen) OR 
+   -(II) the conversio software is meeting the above conditions of (2)(I) for at least all the 
+    data set inventory information ("Inputs and Outputs") plus for half of all mappable or convertable 
+    information items/fields AND is generating a case-specific and detailed list for the user of not 
+    or only partly convertable information and not sufficiently matching field or object 
+    assignments. In case only set (2)(II) is met, the promotion has to inform the potential 
+    user about the limited convertion functionality by using clear formulations such 
+    as "partly converts to/from the ILCD Format" and the intended reference 
+    has to be in principle confirmed by EC's JRC-IES, EPLCA beforehand and in written form. 

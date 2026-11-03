@@ -4,6 +4,14 @@
 
 ### Added
 
+- A database that buys from the databases it depends on exports to ILCD.
+  Each such input is written under its supplier's product and the place
+  that supplier states, which is what a reader loading the package beside
+  that database finds it by. The export still refuses an input whose
+  supplier states no place, one whose database makes that product at that
+  place in two activities (both are named), one whose product a process of
+  the package also makes (a reader would link the input to that process), and
+  a link to a process that neither the package nor a loaded dependency holds.
 - Each change made to a database, a method collection or the scenarios of a
   database is signed with the account that made it, when the server in front
   of the engine names one: the history of a database and of a collection
@@ -211,6 +219,16 @@
   person-kilometre, or in `p.km` or `p⋅km`, reads its unit, as `t.km` and
   `t⋅km` already did for freight. The unit table held `pkm` and `person*km`
   only, so such a quantity converted to nothing else. Data version 14.
+- An ILCD export is valid against the ILCD 1.1 schemas. Every dataset said
+  no format version, a process gave its location in a form the schema does
+  not have and before its reference flow, a line had no mean amount, wrote
+  its location after its amount and its comment in the wrong namespace, a
+  CAS number was not padded to six digits (`000124-38-9`), and a process type
+  went in a field that does not exist. Tools that check the schema refused
+  these packages. The type of dataset is now written as
+  `typeOfDataSet`, and read from there, which is where ILCD packages made
+  elsewhere give it; a type from another format, which none of ILCD's five
+  values names, is left out. Packages written before still read the same.
 - A SimaPro method file whose every line is padded with separators
   (`Impact category;;;;;`) loads with its categories, its name, its damage
   categories and its normalization and weighting. It used to load empty and
