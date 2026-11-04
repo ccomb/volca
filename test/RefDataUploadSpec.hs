@@ -35,6 +35,7 @@ envFor = do
             , aeDataVersion = Nothing
             , aeUsageLog = Nothing
             , aeReader = Nothing
+            , aeAuthor = Nothing
             }
 
 spec :: Spec

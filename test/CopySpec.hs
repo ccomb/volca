@@ -246,27 +246,27 @@ scenariosSpec = describe "saved scenarios" $ do
         refusal = fmap (either refusalMessage (const ""))
 
     it "saves, replaces and drops a scenario by its name" $ withCopy $ \manager -> do
-        refusal (saveScenario manager "mine" "high salt" [salted 0.02]) `shouldReturn` ""
-        refusal (saveScenario manager "mine" "low salt" [salted 0.005]) `shouldReturn` ""
-        refusal (saveScenario manager "mine" "high salt" [salted 0.03]) `shouldReturn` ""
+        refusal (saveScenario manager "mine" Nothing "high salt" [salted 0.02]) `shouldReturn` ""
+        refusal (saveScenario manager "mine" Nothing "low salt" [salted 0.005]) `shouldReturn` ""
+        refusal (saveScenario manager "mine" Nothing "high salt" [salted 0.03]) `shouldReturn` ""
         listed manager "mine" `shouldReturn` [("high salt", [0.03], Nothing), ("low salt", [0.005], Nothing)]
-        refusal (dropScenario manager "mine" "low salt") `shouldReturn` ""
+        refusal (dropScenario manager "mine" Nothing "low salt") `shouldReturn` ""
         listed manager "mine" `shouldReturn` [("high salt", [0.03], Nothing)]
 
     it "refuses what it could not apply, naming why" $ withCopy $ \manager -> do
-        refusal (dropScenario manager "mine" "low salt") `shouldReturn` "Not in this database: scenario 'low salt'"
-        refusal (saveScenario manager "mine" "typo" [ParameterValue Nothing "salt_kgg" 1]) >>= (`shouldSatisfy` ("salt_kgg" `isInfixOf`))
-        refusal (saveScenario manager "mine" " " [salted 1]) `shouldReturn` "A scenario needs a name."
-        refusal (saveScenario manager "mine" "high salt " [salted 1]) >>= (`shouldSatisfy` ("starts or ends with a space" `isInfixOf`))
-        refusal (saveScenario manager "mine" "empty" []) >>= (`shouldSatisfy` ("sets no parameter" `isInfixOf`))
+        refusal (dropScenario manager "mine" Nothing "low salt") `shouldReturn` "Not in this database: scenario 'low salt'"
+        refusal (saveScenario manager "mine" Nothing "typo" [ParameterValue Nothing "salt_kgg" 1]) >>= (`shouldSatisfy` ("salt_kgg" `isInfixOf`))
+        refusal (saveScenario manager "mine" Nothing " " [salted 1]) `shouldReturn` "A scenario needs a name."
+        refusal (saveScenario manager "mine" Nothing "high salt " [salted 1]) >>= (`shouldSatisfy` ("starts or ends with a space" `isInfixOf`))
+        refusal (saveScenario manager "mine" Nothing "empty" []) >>= (`shouldSatisfy` ("sets no parameter" `isInfixOf`))
         listed manager "mine" `shouldReturn` []
 
     it "refuses a database read from the configuration, which holds none" $ withCopy $ \manager -> do
-        refusal (saveScenario manager "source" "high salt" [salted 0.02]) >>= (`shouldSatisfy` ("Copy it" `isInfixOf`))
+        refusal (saveScenario manager "source" Nothing "high salt" [salted 0.02]) >>= (`shouldSatisfy` ("Copy it" `isInfixOf`))
         listed manager "source" `shouldReturn` []
 
     it "says which scenarios an edit of the database has made stale" $ withCopy $ \manager -> do
-        refusal (saveScenario manager "mine" "high salt" [salted 0.02]) `shouldReturn` ""
+        refusal (saveScenario manager "mine" Nothing "high salt" [salted 0.02]) `shouldReturn` ""
         atomically $ modifyTVar' (dmLoadedDbs manager) (M.adjust (\l -> l{ldDatabase = (ldDatabase l){dbParameters = M.empty}}) "mine")
         map (\(name, _, problem) -> (name, isJust problem)) <$> listed manager "mine" `shouldReturn` [("high salt", True)]
 
@@ -305,16 +305,16 @@ scenariosSpec = describe "saved scenarios" $ do
             dbProductSystems (decodeEx (encode db{dbProductSystems = shipped})) `shouldBe` shipped
 
         it "are neither replaced nor dropped" $ withShipped $ \manager -> do
-            refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.02]) >>= (`shouldSatisfy` ("ships with the database" `isInfixOf`))
-            refusal (dropScenario manager "mine" "Plant: high salt") >>= (`shouldSatisfy` ("comes back at the next load" `isInfixOf`))
+            refusal (saveScenario manager "mine" Nothing "Plant: high salt" [salted 0.02]) >>= (`shouldSatisfy` ("ships with the database" `isInfixOf`))
+            refusal (dropScenario manager "mine" Nothing "Plant: high salt") >>= (`shouldSatisfy` ("comes back at the next load" `isInfixOf`))
 
         it "give way to a scenario saved under their name, which stays replaceable and droppable" $ withCopy $ \manager -> do
-            refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.02]) `shouldReturn` ""
+            refusal (saveScenario manager "mine" Nothing "Plant: high salt" [salted 0.02]) `shouldReturn` ""
             atomically $ modifyTVar' (dmLoadedDbs manager) (M.map (\l -> l{ldDatabase = (ldDatabase l){dbProductSystems = shipped}}))
             filter (\(name, _, _) -> name == "Plant: high salt") <$> listing manager "mine" `shouldReturn` [("Plant: high salt", False, [Nothing])]
-            refusal (saveScenario manager "mine" "Plant: high salt" [salted 0.03]) `shouldReturn` ""
+            refusal (saveScenario manager "mine" Nothing "Plant: high salt" [salted 0.03]) `shouldReturn` ""
             filter (\(name, _, _) -> name == "Plant: high salt") <$> listed manager "mine" `shouldReturn` [("Plant: high salt", [0.03], Nothing)]
-            refusal (dropScenario manager "mine" "Plant: high salt") `shouldReturn` ""
+            refusal (dropScenario manager "mine" Nothing "Plant: high salt") `shouldReturn` ""
             filter (\(name, _, _) -> name == "Plant: high salt") <$> listing manager "mine" `shouldReturn` [("Plant: high salt", True, [Nothing])]
 
     it "gives an export the saved scenarios by activity, the shipped ones and those with a problem left out" $ do
@@ -330,10 +330,10 @@ scenariosSpec = describe "saved scenarios" $ do
             `shouldBe` (M.fromList [("own", [ScenarioValue (Just (mkUUID 101)) "salt_kg" 1, ScenarioValue Nothing "salt_kg" 0.02])], ["stale: no salt_kg"])
 
     it "goes along with a copy of its database" $ withCopy $ \manager -> do
-        refusal (saveScenario manager "mine" "high salt" [salted 0.02]) `shouldReturn` ""
+        refusal (saveScenario manager "mine" Nothing "high salt" [salted 0.02]) `shouldReturn` ""
         copyDatabase manager "mine" "yours" `shouldReturn` Right ()
         listed manager "yours" `shouldReturn` [("high salt", [0.02], Nothing)]
-        refusal (dropScenario manager "yours" "high salt") `shouldReturn` ""
+        refusal (dropScenario manager "yours" Nothing "high salt") `shouldReturn` ""
         listed manager "mine" `shouldReturn` [("high salt", [0.02], Nothing)]
 
 -- ---------------------------------------------------------------------------

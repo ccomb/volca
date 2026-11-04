@@ -68,6 +68,7 @@ import Data.Either (isRight, lefts)
 import Data.Function (on)
 import Data.Functor.Identity (Identity (..))
 import Data.Graph (SCC (..), stronglyConnComp)
+import Data.Indexing (groupInOrder)
 import Data.List (findIndex)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -1652,7 +1653,7 @@ settling :: Dialect -> M.Map Text Double -> [(Text, Text)] -> (M.Map Text Double
 settling dialect known calculated = foldl' step (known, ambiguous, []) (stronglyConnComp graph)
   where
     declared :: M.Map Text (NonEmpty (Text, Text))
-    declared = M.fromListWith (flip (<>)) [(T.toLower name, (name, formula) :| []) | (name, formula) <- calculated]
+    declared = groupInOrder [(T.toLower name, (name, formula)) | (name, formula) <- calculated]
 
     byKey :: M.Map Text (Text, Text)
     byKey = M.mapMaybe sole declared

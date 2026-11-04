@@ -75,6 +75,11 @@ module Method.Mapping (
     lookupCFForFlow,
     lookupEntryForFlow,
     characterizedFlowIds,
+    SiblingLines (..),
+    ProbableMiss (..),
+    pmUpTo,
+    probableMisses,
+    missesWorthSaying,
     cascadeTrail,
     lookupCascadeEntry,
     RungId (..),
@@ -901,6 +906,8 @@ data MethodTables = MethodTables
     the method's collection never writes the key's subcompartment. Keys are
     case-folded ('foldSub').
     -}
+    , mtVocabulary :: !MethodVocabulary
+    -- ^ The places the method's whole collection writes factors at.
     , mtCompartmentMap :: !CompartmentMap
     {- ^ Compartment-normalization rules (e.g. @"Emissions to air" → "air"@).
     Applied to both CF compartments at build time and database flow
@@ -951,6 +958,13 @@ data MethodTables = MethodTables
     database loaded since) and still takes the cascade. Only the keys are
     kept: the records themselves would outlive their database's unload.
     Empty until the fill.
+    -}
+    , mtSiblingLines :: M.Map UUID SiblingLines
+    {- ^ The flows the cascade found no factor for whose substance the method
+    writes in their medium at other subcompartments, where a flow never reads
+    (see 'probableMisses'). Filled alongside 'mtBroadcast' and left lazy: every
+    uncharacterized flow's name is normalized once, the first time a score asks,
+    not at every warmup.
     -}
     , mtBroadcast :: !(M.Map UUID Double)
     {- ^ Pre-multiplied broadcast CFs: flow UUID → effective CF (CF value × flow→CF unit conversion).
@@ -1754,12 +1768,14 @@ buildMethodTables (Placing cmap vocabulary) unitConfig energyDensities mappings 
                     , Just loc <- [mcfConsumerLocation cf]
                     ]
         , mtIfAbsent = ifAbsent
+        , mtVocabulary = vocabulary
         , mtCompartmentMap = cmap
         , mtEnergyPrice = energyPriceOf cmap mappings
         , mtEnergyDensities = energyDensities
         , mtUnitConfig = unitConfig
         , mtResolution = M.empty -- filled alongside 'mtBroadcast'
         , mtJudged = S.empty -- filled alongside 'mtBroadcast'
+        , mtSiblingLines = M.empty -- filled alongside 'mtBroadcast'
         , mtBroadcast = M.empty -- fill via 'fillBroadcastVector' to enable the fast path
         , mtRegionalActivityWeights = Nothing -- fill via 'fillRegionalActivityWeights' for regional fast path
         }
@@ -2063,6 +2079,7 @@ fillBroadcastVector unitConfig unitDB flowDB tables =
         { mtBroadcast = M.map fst resolved
         , mtResolution = M.map snd resolved
         , mtJudged = M.keysSet flowDB
+        , mtSiblingLines = M.mapMaybe (siblingLines unitConfig unitDB tables) (M.difference flowDB resolved)
         }
   where
     resolved = M.mapMaybeWithKey buildEntry flowDB
@@ -3851,6 +3868,100 @@ characterizedFlowIds tables bioFlows =
         | (fid, flow) <- M.toList bioFlows
         , isJust (lookupCFForFlow tables fid (Just flow))
         ]
+
+{- | Where a method writes the substance of a flow it gives no factor, in the
+flow's medium at other subcompartments: the flow reads its own subcompartment,
+its medium's line and an @if_absent@ row, never a sibling's, so ammonia emitted
+indoors scores nothing under a method that writes ammonia only for urban and
+non-urban air.
+
+Only where the method's collection writes nothing at the flow's own place, which
+is where an @if_absent@ row would send the flow to a line. A collection writing
+that place for other substances has heard of it, and leaving this one out there
+is its choice: water returned to the sea, which gives back no fresh water.
+-}
+data SiblingLines = SiblingLines
+    { slWrittenAt :: ![Subcompartment]
+    , slFactor :: !Double
+    -- ^ The largest of those factors, per unit of the flow, in the score's unit.
+    }
+
+-- | An inventory flow a score probably missed, by the lines of its substance it does not read.
+data ProbableMiss = ProbableMiss
+    { pmFlow :: !BiosphereFlow
+    , pmQuantity :: !Double
+    , pmLines :: !SiblingLines
+    }
+
+-- | What the flow would add to the score at the largest factor its substance is written with.
+pmUpTo :: ProbableMiss -> Double
+pmUpTo m = pmQuantity m * slFactor (pmLines m)
+
+{- | The flows of an inventory its score probably missed, the biggest first. A
+flow the tables were filled without (a what-if substitution into a database
+loaded since) is not looked at.
+-}
+probableMisses :: BioFlowDB -> MethodTables -> Inventory -> [ProbableMiss]
+probableMisses flowDB tables inventory =
+    sortOn
+        (Down . abs . pmUpTo)
+        [ ProbableMiss{pmFlow = flow, pmQuantity = qty, pmLines = sl}
+        | (fid, (qty, sl)) <- M.toList (M.intersectionWith (,) inventory (mtSiblingLines tables))
+        , qty /= 0
+        , Just flow <- [M.lookup fid flowDB]
+        ]
+
+{- | The lines of a flow's substance it does not read, for a flow the cascade
+found no factor for. A line is the substance's when it bears the flow's name,
+or its CAS where the method lets a CAS stand for one substance ('mtCasCF'):
+water, whose one CAS covers flows a method tells apart, is never a candidate.
+A flow a regionalized table holds is characterized, and has none.
+-}
+siblingLines :: UnitConfig -> UnitDB -> MethodTables -> BiosphereFlow -> Maybe SiblingLines
+siblingLines unitConfig unitDB tables flow
+    | placeKnown || regional = Nothing
+    | f : fs <- map snd found =
+        Just
+            SiblingLines
+                { slWrittenAt = S.toAscList (S.fromList (map fst found))
+                , slFactor = foldl' (\a b -> if abs b > abs a then b else a) f fs
+                }
+    | otherwise = Nothing
+  where
+    (med, own) = flowMediumSub (mtCompartmentMap tables) flow
+    readings = map snd (subReadings (mtIfAbsent tables) med own)
+    cas = maybeToList (bfCAS flow >>= SR.casKey)
+    name = SR.NormName (normalizeName (bfName flow))
+
+    placeKnown = let MethodVocabulary spoken = mtVocabulary tables in S.member (med, foldSub own) spoken
+
+    regional =
+        maybe False ((== bfId flow) . fst . fst) (M.lookupGE (bfId flow, Location T.empty) (mtRegionalizedCF tables))
+            || any (`M.member` mtRegionalCasCF tables) [(c, med, sub) | c <- cas, sub <- readings]
+
+    written =
+        [(sub, teCF e) | ((_, _, sub), e) <- atMedium (name, med) (mtExactCF tables)]
+            ++ [(sub, teCF e) | c <- cas, ((_, _, sub), Just e) <- atMedium (c, med) (mtCasCF tables)]
+    found =
+        [ (sub, f)
+        | (sub, cf) <- written
+        , sub `notElem` readings
+        , let f = convertAndMultiply unitConfig unitDB (mtEnergyDensities tables) (Just flow) cf 1
+        , f /= 0
+        ]
+
+    -- Every key of a table naming one substance in one medium.
+    atMedium :: (Ord k) => (k, MediumKey) -> M.Map (k, MediumKey, Subcompartment) v -> [((k, MediumKey, Subcompartment), v)]
+    atMedium at = M.toList . M.takeWhileAntitone (\(k, m, _) -> (k, m) == at) . M.dropWhileAntitone (\(k, m, _) -> (k, m) < at)
+
+{- | The probable misses worth saying beside a score: those that could move it
+by a thousandth or more. A zero score keeps them all, since any of them could
+be what it lacks.
+-}
+missesWorthSaying :: Double -> [ProbableMiss] -> [ProbableMiss]
+missesWorthSaying score
+    | score == 0 = id
+    | otherwise = filter (\m -> abs (pmUpTo m) >= abs score / 1000)
 
 {- | Find the top-N method CFs that most resemble a database flow.
 

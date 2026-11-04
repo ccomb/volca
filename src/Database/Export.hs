@@ -84,8 +84,8 @@ one 'toSimpleDatabase' conversion and keeps them from drifting apart.
 
 The dependencies are the suppliers its inputs buy from the databases it
 depends on ('Database.ExportSupplier.dependenciesOf'). SimaPro and Brightway
-name them on the rows buying from them; ILCD and EcoSpold 1, which cannot,
-refuse them. Only those four read them, so only they fail when the suppliers
+name them on the rows buying from them, ILCD writes the place each states,
+and EcoSpold 1, which cannot, refuses them. Only those four read them, so only they fail when the suppliers
 could not be worked out: the formats pointing at a supplier export all the
 same, under the names the source gave. Before any writer, each input a dependency supplies is
 written under that supplier's product and identity ('namedAfterLinks').
@@ -106,6 +106,8 @@ serializeDatabase units fmt saved dependencies db = fmap (fmap (linkWarnings <>)
     BrightwayExcel -> dependencies >>= \deps -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig{BE.wcDependencies = deps} sdb
     OpenLcaImpactCategory ->
         Left "openLCA JSON-LD export is not supported"
+    ColumnarCSV ->
+        Left "a columnar CSV holds methods, not a database"
     OpenLcaPackage -> first zipFiles <$> OLCA.serializeOlcaPackage units saved sdb
     UnknownFormat ->
         Left "cannot export to an unknown format"

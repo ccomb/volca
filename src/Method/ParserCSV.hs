@@ -36,6 +36,7 @@ One CSV file → multiple 'Method' values (one per column).
 -}
 module Method.ParserCSV (
     parseMethodCSVBytes,
+    isLabelRow,
     knownTops,
     stripBOM,
 ) where
@@ -55,6 +56,7 @@ import Data.Word (Word8)
 
 import Method.CSV (detectDelimiter, parseDouble, splitRow)
 import Method.Types
+import Types (Medium (InventoryIndicator), mediumText)
 
 -- | Pure parser, exported for testing.
 parseMethodCSVBytes :: BS.ByteString -> Either String [Method]
@@ -221,7 +223,7 @@ pathCompartment top s q
 would not read back.
 -}
 knownTops :: [Text]
-knownTops = ["air", "water", "soil", "natural resource", "land occupation", "land transformation"]
+knownTops = ["air", "water", "soil", "natural resource", "land occupation", "land transformation", mediumText InventoryIndicator]
 
 -- | Keyword match for the legacy prose forms.
 legacyCompartment :: Text -> Maybe Compartment

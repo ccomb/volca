@@ -709,6 +709,22 @@ description r = case r of
         \method reaches this flow. Ask explain_cf for the full story on \
         \one flow.\n\
         \\n\
+        \'probable_misses' lists the flows the score read no factor for \
+        \although the method writes their substance elsewhere in their medium, \
+        \at a subcompartment the flow does not read, where the method's \
+        \collection writes nothing at the flow's own place. Each says where the \
+        \substance is written ('writtenAt') and 'upTo', what it would add at the largest of \
+        \those factors, in the score's unit. With include_diagnostics, \
+        \'characterized_share' sums quantities of every unit together (becquerels \
+        \beside kilograms) and is removed in the next minor release: read \
+        \'probable_misses' instead.\n\
+        \\n\
+        \'basis' says what the score rests on: the engine and its commit, each \
+        \database read with its release and whether it is a copy, edited, \
+        \allocated otherwise or patched, the method collection and whether it is \
+        \a modified copy, and the substitutions and parameter values sent. Quote \
+        \it with the number: two scores compare only on the same basis.\n\
+        \\n\
         \When the chain meets inputs no loaded database supplies, they count \
         \as zero and the answer opens with 'cutoff_notice' and lists them \
         \under 'cutoff_inputs', with 'withheld_cutoffs' counting those \
@@ -723,7 +739,8 @@ description r = case r of
         \perturbation with the new score and deltaImpact. Per-perturbation errors \
         \(no link, singular update) are returned in the entry; the sweep continues. \
         \Internally uses Sherman-Morrison rank-1 updates against the cached \
-        \factorization (~4 ms per perturbation). V1: root DB only."
+        \factorization (~4 ms per perturbation). V1: root DB only. 'basis' says \
+        \what the scores rest on, as get_impacts does."
             <> webUrlTip "sensitivity"
     GetReducedModel ->
         "LCA / ACV: the scores of an activity as a function of some input \
@@ -822,7 +839,8 @@ description r = case r of
         \drive my climate change score?'. Each flow carries 'match_kind': how \
         \its factor was found, in the rung names documented on explain_cf; null \
         \means no factor in the method reaches this flow. Ask explain_cf \
-        \for the full story on one flow."
+        \for the full story on one flow. 'basis' says what the score rests on, \
+        \as get_impacts does."
             <> webUrlTip "contributing-flows"
     GetContributingActivities ->
         "LCA / ACV: identify which upstream activities contribute most to a \
@@ -830,7 +848,8 @@ description r = case r of
         \score?' Uses exact matrix-based computation, valid even for cyclic supply \
         \chains. Each contributing activity carries a 'web_url' deep link to its \
         \page in the VoLCA web UI: render these as clickable markdown links when \
-        \presenting results to a human so they can drill into a specific supplier."
+        \presenting results to a human so they can drill into a specific supplier. \
+        \'basis' says what the score rests on, as get_impacts does."
     GetScoreContributingFlows ->
         "LCA / ACV: identify which elementary flows contribute most to one \
         \score of a scoring set (a single score weighing every indicator of a \
@@ -839,7 +858,8 @@ description r = case r of
         \weighted sum of its contributions to each indicator, so the \
         \contributions add up to the score score_activity reports. 'cf_value' \
         \is what one unit of the flow adds to the score. A score that is not a \
-        \weighted sum of its indicators has no such split and is refused."
+        \weighted sum of its indicators has no such split and is refused. \
+        \'basis' says what the score rests on, as get_impacts does."
             <> webUrlTip "contributing-flows"
     GetScoreContributingActivities ->
         "LCA / ACV: identify which upstream activities contribute most to one \
@@ -850,7 +870,8 @@ description r = case r of
         \activity carries a 'web_url' deep link to its page in the VoLCA web \
         \UI: render these as clickable markdown links when presenting results \
         \to a human. A score that is not a weighted sum of its indicators has \
-        \no such split and is refused."
+        \no such split and is refused. 'basis' says what the score rests on, as \
+        \get_impacts does."
     ListGeographies ->
         "LCA / ACV: list all geography codes present in a database, with display \
         \names and parent regions. Use the 'geo' value as the geography filter in \
@@ -889,7 +910,9 @@ description r = case r of
         \because of mapping gaps, not because of underlying chemistry. Headline \
         \field is delta.relative_pct: the metric to drive down by adding \
         \synonym pairs to data/flows.csv or by regenerating the chem_synonyms \
-        \snapshot."
+        \snapshot. Each side carries 'probable_misses' and 'basis', as get_impacts does; its \
+        \'characterized_share' sums quantities of every unit together and is \
+        \removed in the next minor release."
     CompareActivities ->
         "LCA / ACV: compare two activities exchange by exchange: the lines one \
         \has and the other does not, and the lines whose amount or unit differ. \
@@ -982,7 +1005,12 @@ description r = case r of
         \'withheldCutoffs' counting those inside a database whose licence \
         \keeps its detail to itself. With exchange_contributions, each score \
         \is split by the activity's own lines, for grouping them into stages \
-        \such as ingredients, transport or packaging."
+        \such as ingredients, transport or packaging. \
+        \'basis' says what the score rests on: the engine and its commit, each \
+        \database read with its release and whether it is a copy, edited, \
+        \allocated otherwise or patched, the method collection and whether it is \
+        \a modified copy, and the substitutions and parameter values sent. Quote \
+        \it with the number: two scores compare only on the same basis."
     ScoreActivities ->
         "LCA / ACV: rank N activities against one scoring set in one call. \
         \Returns a columnar JSON shape: {scoring_set, scoring_unit, \
@@ -1001,6 +1029,10 @@ description r = case r of
         \'columns' header reflects which shape was emitted). Per-method scores \
         \are NOT included: call score_activity on a specific process_id for \
         \that drill-down. Unresolved process IDs land in not_found / invalid. \
+        \'basis' says once what every score rests on, as score_activity does; \
+        \a row's parameter set is a position in its 'parameterSets'. Under a \
+        \set that weighs (list_scoring_sets), 'reading_notice' says the ranking \
+        \rests on value choices: quote it with any comparison drawn from it. \
         \\n\n\
         \The chosen scoring set must be unambiguous: pass scoring_sets: \
         \[\"<one>\"] when the collection has more than one scoring set \
@@ -1023,7 +1055,11 @@ description r = case r of
         \formulas; and the same set read as 'rows' (each a label, the \
         \categories it groups with their coefficient or a formula, its \
         \normalization and weight) with 'sum_of_rows', the scores that add \
-        \up the rows, which a new row joins. Use the returned set names as \
+        \up the rows, which a new row joins. 'weighs' says the set's scores \
+        \rest on value choices (a category weighed or counted otherwise than \
+        \once, or normalized categories added up): \
+        \ISO 14044 does not allow them in a comparison disclosed to the \
+        \public. Use the returned set names as \
         \keys when interpreting score_activity / score_activities responses, \
         \and the rows' variables when changing a set with edit_scoring_sets."
     GetGapReport ->
@@ -1121,8 +1157,10 @@ description r = case r of
         "Every change made to a database of one's own, oldest first: when, \
         \what it changed in words (the activities added, rewritten or \
         \deleted, each exchange edited with its amount before and after, \
-        \the parameters changed), and the reason its author gave, or none. \
-        \A database the engine reads from its configuration has no changes."
+        \the parameters changed), the reason its author gave, or none, and \
+        \the 'database' it was made on. A child divided from a parent lists \
+        \the parent's changes first: its data carry them. A database the \
+        \engine reads from its configuration has no changes of its own."
     DatabaseParameters ->
         "The parameters of a database that every process's formulas read \
         \unless the process defines its own of the same name: each with its \

@@ -1063,6 +1063,29 @@ spec = do
                         Nothing -> expectationFailure "Climate change not found"
                     M.lookup "Acidification" (nwWeighting nw) `shouldBe` Just 0.062
 
+        it "reads a file whose every line is padded with separators" $ do
+            csv <- BS.readFile "test/data/simapro_method_padded.csv"
+            case parseSimaProMethodCSVBytes csv of
+                Left err -> expectationFailure $ "Parse failed: " ++ err
+                Right coll -> do
+                    map methodName (smfMethods coll)
+                        `shouldBe` ["Climate change, short term", "Water scarcity"]
+                    map methodMethodology (smfMethods coll)
+                        `shouldBe` [Just "Padded Method 1.0", Just "Padded Method 1.0"]
+                    map mcfValue (concatMap methodFactors (smfMethods coll))
+                        `shouldBe` [1, 81.2, 42.95]
+                    map dcImpacts (smfDamages coll)
+                        `shouldBe` [[("Climate change, short term", 1.0)]]
+                    map nwName (smfNWSets coll) `shouldBe` ["Padded set (test values)"]
+                    map (M.lookup "Human health" . nwWeighting) (smfNWSets coll)
+                        `shouldBe` [Just 5401.459854]
+
+        it "refuses a file that yields no impact category" $ do
+            let csv = "{SimaPro 9.6}\r\n{methods}\r\n{CSV separator: Semicolon}\r\n\r\nMethod\r\n\r\nName\r\nEmpty\r\n"
+            case parseSimaProMethodCSVBytes csv of
+                Left err -> err `shouldContain` "no impact category"
+                Right _ -> expectationFailure "Should have refused a file without categories"
+
     describe "Standalone NW CSV Parser" $ do
         it "parses normalization and weighting factors from CSV" $ do
             csv <- BS.readFile "test/data/normweighting.csv"

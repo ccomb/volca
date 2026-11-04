@@ -957,7 +957,7 @@ data NativeActivityType
       SimaProProcessType
         { sptLabel :: !Text
         }
-    | -- | ILCD @\<processType@ XML element value.
+    | -- | ILCD @\<typeOfDataSet\>@ value.
       ILCDProcessType
         { iptLabel :: !Text
         }
@@ -1225,7 +1225,7 @@ data Activity = Activity
     , activityUnit :: !Text -- Reference unit
     , exchanges :: ![Exchange] -- List of exchanges
     , activityParameters :: !(M.Map Text Parameter) -- The named numbers the dataset's formulas read, by name
-    , activityNativeType :: !(Maybe NativeActivityType) -- Source-format-native activity type (ecospold @activityType, SimaPro Type, ILCD processType); Nothing when source format lacks the field
+    , activityNativeType :: !(Maybe NativeActivityType) -- Source-format-native activity type (ecospold @activityType, SimaPro Type, ILCD typeOfDataSet); Nothing when source format lacks the field
     , activityNativeId :: !(Maybe NativeProcessId) -- Source dataset block this activity was read from: what the SimaPro parser mints the activity UUID from, and what its writer writes back. Nothing when the source format lacks the field
     , activityFormulaCheck :: !(Maybe FormulaCheck) -- Outcome of the mathematicalRelation consistency check; Nothing when the dataset has no formulas or the format has none
     , activityDates :: !DatasetDates -- The days the dataset says it was written on
@@ -2551,7 +2551,8 @@ parseFileReading raw =
 {- | How a child is divided from its parent: one property for every block of
 several products, exceptions that give some of them another one, and
 coproducts left out of the division for what they displace, each with the
-reason it was made. The file it was written in is kept as written, since it is
+reason it was made, and parameters of the parent's processes it sets, each
+with its reason. The file it was written in is kept as written, since it is
 what a child's delivery cites.
 -}
 data SystemModel = SystemModel
@@ -2561,7 +2562,20 @@ data SystemModel = SystemModel
     , smDefault :: !AllocationProperty
     , smExceptions :: ![ModelException]
     , smSubstitutions :: ![ModelSubstitution]
+    , smParameters :: ![ModelParameter]
     , smText :: !Text
+    }
+    deriving (Show, Eq, Generic, NFData)
+
+{- | An input parameter of the parent's processes a child takes at another
+value: a method choice the parent writes as data, such as how much of a
+recycling credit a process claims. Every process that declares it takes the
+value.
+-}
+data ModelParameter = ModelParameter
+    { mpName :: !Text
+    , mpValue :: !Double -- Finite: only the decoder builds one
+    , mpReason :: !Reason
     }
     deriving (Show, Eq, Generic, NFData)
 
@@ -2956,7 +2970,7 @@ data Release = Release
     , releaseVersion :: !Text
     , releaseSystemModel :: !(Maybe Text)
     }
-    deriving (Show, Eq, Generic)
+    deriving (Show, Eq, Generic, NFData)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Release)
 
 {- | A release a computation read, on a database whose terms ask its

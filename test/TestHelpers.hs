@@ -298,6 +298,7 @@ modelDividingBy prop =
         , smDefault = prop
         , smExceptions = []
         , smSubstitutions = []
+        , smParameters = []
         , smText = "name = \"every block by " <> propertyName prop <> "\"\nversion = \"1.0.0\"\n\n[allocation]\ndefault = \"" <> propertyName prop <> "\"\n"
         }
 

@@ -50,14 +50,15 @@ import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
 
 import qualified API.BatchImpacts as BI
-import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, historyLineToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
+import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, databaseHistoryToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ScoreAPI (..), ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
+import Data.JournalFile (Author)
 import Data.List (find)
 import qualified Data.List as L
 import qualified Data.Set as Set
@@ -77,7 +78,7 @@ import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, Terms (..), UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, readingKey, withheldSentence)
-import Usage (ProcessKey (..), UsageKind (..), UsageLog, Use (..), readerOf, recordUse)
+import Usage (Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
 -- JSON-RPC 2.0 types
@@ -230,7 +231,7 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
                         respond $ jsonResponse (mcpSessionId st) $ rpcError noRequestId (-32700) (T.pack $ "Parse error: " ++ err)
                     Right rpcReq -> do
                         let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
-                        resp <- runCall (handleRpc (readerOf hdrs) dbManager presets mHosting mBaseUrl mName st rpcReq)
+                        resp <- runCall (handleRpc (callerOf hdrs) dbManager presets mHosting mBaseUrl mName st rpcReq)
                         forM_ mUsage $ \lg ->
                             noteToolCall dbManager (recordUse lg (usageLookup dbManager) (readerOf hdrs)) rpcReq resp
                         case resp of
@@ -282,12 +283,12 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
 -- RPC dispatch
 -- ---------------------------------------------------------------------------
 
-handleRpc :: Maybe Text -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpState -> RpcRequest -> IO (Maybe Value)
-handleRpc reader dbManager presets mHosting mBaseUrl mName _st req = case rpcMethod req of
+handleRpc :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpState -> RpcRequest -> IO (Maybe Value)
+handleRpc caller dbManager presets mHosting mBaseUrl mName _st req = case rpcMethod req of
     "initialize" -> Just <$> handleInitialize mName req
     "notifications/initialized" -> return Nothing -- notification, no response
     "tools/list" -> return $ Just $ handleToolsList (hostingReadOnly mHosting) req
-    "tools/call" -> Just <$> handleToolsCall reader dbManager presets mHosting mBaseUrl req
+    "tools/call" -> Just <$> handleToolsCall caller dbManager presets mHosting mBaseUrl req
     "ping" -> return $ Just $ rpcResult (answerId req) (object [])
     other ->
         return $
@@ -579,12 +580,12 @@ paramsToSchema ps =
 -- tools/call dispatch
 -- ---------------------------------------------------------------------------
 
-handleToolsCall :: Maybe Text -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RpcRequest -> IO Value
-handleToolsCall reader dbManager presets mHosting mBaseUrl req = do
+handleToolsCall :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RpcRequest -> IO Value
+handleToolsCall caller dbManager presets mHosting mBaseUrl req = do
     let rid = answerId req
     case rpcParams req >>= parseCallParams of
         Nothing -> return $ rpcError rid (-32602) "Invalid params: expected {name, arguments}"
-        Just (toolName, args) -> callTool reader dbManager presets mHosting mBaseUrl rid toolName args
+        Just (toolName, args) -> callTool caller dbManager presets mHosting mBaseUrl rid toolName args
 
 {- | Note in the usage log a tool call that answered, once for each process it
 was asked about in a database that holds it. Read from the call rather than
@@ -652,7 +653,7 @@ A read-only instance refuses the state-changing tools before dispatch. Which
 tools those are comes from the resource registry ('resourceMutates'), so a
 newly added mutating tool is covered here without touching this function.
 -}
-callTool :: Maybe Text -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> IO Value
+callTool :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> Text -> KeyMap Value -> IO Value
 callTool _ _ _ mHosting _ rid name _
     | isReadOnly (hostingReadOnly mHosting) && mutatingTool name =
         return $ toolError rid (readOnlyRefusalFor mHosting)
@@ -660,7 +661,7 @@ callTool _ _ _ mHosting _ rid name _
 -- handler, so no tool can answer as if the caller had asked for no filter.
 callTool _ _ presets _ _ rid _ args
     | Left err <- presetFilters presets args = return $ toolError rid err
-callTool reader dbManager presets mHosting mBaseUrl rid name args = do
+callTool caller@(Caller reader _) dbManager presets mHosting mBaseUrl rid name args = do
     terms <- DM.termsToAccept dbManager (databasesOfCall name args)
     accepted <- DM.acceptedTerms dbManager reader
     licences <- requestedLicences dbManager args
@@ -669,7 +670,7 @@ callTool reader dbManager presets mHosting mBaseUrl rid name args = do
         (_, Just refusal) -> pure (toolError rid refusal)
         ([], Nothing) -> case R.fromMcpName name of
             Nothing -> pure (toolError rid ("Unknown tool: " <> name))
-            Just resource -> dispatchTool reader dbManager presets mHosting mBaseUrl rid resource args (licenceOfDatabase licences)
+            Just resource -> dispatchTool caller dbManager presets mHosting mBaseUrl rid resource args (licenceOfDatabase licences)
 
 {- | The databases a call reads: those it names, and those its substitutions
 reach into. Loading or unloading one reads none of its data, and accepting its
@@ -737,8 +738,8 @@ answer to it. A call naming none reads none, so there is nothing to trim.
 licenceOfDatabase :: [NamedLicence] -> Licence
 licenceOfDatabase = maybe LicenceUnstated nlLicence . find ((== "database") . nlArgument)
 
-dispatchTool :: Maybe Text -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> R.Resource -> KeyMap Value -> Licence -> IO Value
-dispatchTool reader dbManager presets mHosting mBaseUrl rid resource args licence = case resource of
+dispatchTool :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> R.Resource -> KeyMap Value -> Licence -> IO Value
+dispatchTool (Caller reader by) dbManager presets mHosting mBaseUrl rid resource args licence = case resource of
     R.ListDatabases -> callListDatabases dbManager rid
     R.AcceptTerms -> callAcceptTerms reader dbManager rid args
     R.LoadDatabase -> callLoadDatabase dbManager mHosting rid args
@@ -782,23 +783,23 @@ dispatchTool reader dbManager presets mHosting mBaseUrl rid resource args licenc
     R.GetQualityReport -> callGetQualityReport dbManager rid args
     R.GetComputedQualityReport -> callGetComputedQualityReport dbManager mHosting rid args
     R.GetCoverageReport -> callGetCoverageReport dbManager rid args
-    R.EditExchanges -> callEditExchanges dbManager rid args
+    R.EditExchanges -> callEditExchanges dbManager by rid args
     R.DatabaseHistory -> callDatabaseHistory dbManager rid args
     R.DatabaseParameters -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
-    R.EditDatabaseParameters -> callEditDatabaseParameters dbManager rid args
+    R.EditDatabaseParameters -> callEditDatabaseParameters dbManager by rid args
     R.ListScenarios -> callScenarios dbManager rid args (\_ -> pure ())
     R.SaveScenario -> callScenarios dbManager rid args $ \dbName -> do
         scenario <- except (requireText "name" args)
         values <- except (parseArrayArg "parameters" Nothing args)
-        ExceptT (first refusalMessage <$> saveScenario dbManager dbName (ScenarioName scenario) values)
+        ExceptT (first refusalMessage <$> saveScenario dbManager dbName by (ScenarioName scenario) values)
     R.DropScenario -> callScenarios dbManager rid args $ \dbName -> do
         scenario <- except (requireText "name" args)
-        ExceptT (first refusalMessage <$> dropScenario dbManager dbName (ScenarioName scenario))
+        ExceptT (first refusalMessage <$> dropScenario dbManager dbName by (ScenarioName scenario))
     R.CopyMethodCollection -> callCopyMethodCollection dbManager rid args
-    R.EditMethodFactors -> callEditMethodFactors dbManager rid args
-    R.EditMethodCategories -> callEditMethodCategories dbManager rid args
-    R.EditMethodScoringSets -> callEditScoringSets dbManager rid args
-    R.UndoMethodEdit -> callUndoMethodEdit dbManager rid args
+    R.EditMethodFactors -> callEditMethodFactors dbManager by rid args
+    R.EditMethodCategories -> callEditMethodCategories dbManager by rid args
+    R.EditMethodScoringSets -> callEditScoringSets dbManager by rid args
+    R.UndoMethodEdit -> callUndoMethodEdit dbManager by rid args
     R.GetMethodHistory -> callGetMethodHistory dbManager rid args
     R.SearchMethodFlows -> callSearchMethodFlows dbManager rid args
 
@@ -1497,6 +1498,10 @@ data ImpactsResult = ImpactsResult
     -- ^ The dependencies whose licence keeps the amounts of their exchanges.
     , irCutoffs :: !Cutoffs
     -- ^ The unsupplied inputs the solution counted as zero.
+    , irMisses :: ![Mapping.ProbableMiss]
+    -- ^ The flows the score probably missed, read from the detailed part.
+    , irBasis :: !ScoreBasis
+    -- ^ What the score rests on: the databases its solution reached, and what the request substituted and set.
     }
 
 {- | Run a fully resolved LCA request: solve inventory, map flows, score.
@@ -1516,6 +1521,7 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
         collection = lrCollection req
         ra = lrResolved req
     subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
+    values <- except (parseArrayArg "parameters" Nothing args :: Either Text [ParameterValue])
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
     solved <-
@@ -1541,6 +1547,7 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
         liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
     cutoffs <- liftIO (Impact.licencedCutoffs dbManager licenced)
     inventoryWithheld <- liftIO (Impact.withheldDatabases dbManager ReadInventory sol)
+    basis <- liftIO (DM.solutionBasis dbManager sol collection (DM.Asked subs [values | not (null values)]))
     let inventory = SharedSolver.csInventory shown
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
@@ -1599,6 +1606,8 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
             , irWithheld = withheld
             , irInventoryWithheld = inventoryWithheld
             , irCutoffs = cutoffs
+            , irMisses = Mapping.probableMisses mFlows tables inventory
+            , irBasis = basis
             }
 
 {- | How much of an inventory's mass a score characterized: the flows it
@@ -1641,7 +1650,17 @@ diagnosticsOf dbName licence ir =
     outcome :: LCIAOutcome
     outcome = irOutcome ir
     kept :: [Text]
-    kept = [dbName | not (granted licence ReadInventory)] ++ irInventoryWithheld ir
+    kept = inventoryKeptBy dbName licence ir
+
+-- | The databases a score reads whose licence keeps the amounts of their exchanges, the one asked first.
+inventoryKeptBy :: Text -> Licence -> ImpactsResult -> [Text]
+inventoryKeptBy dbName licence ir = [dbName | not (granted licence ReadInventory)] ++ irInventoryWithheld ir
+
+-- | A score's probable misses as its licences let them be read: each carries an amount of the inventory.
+missesOf :: UnitDB -> Text -> Licence -> ImpactsResult -> ProbableMisses
+missesOf units dbName licence ir = case inventoryKeptBy dbName licence ir of
+    [] -> Service.missesShown units (loScore (irOutcome ir)) (irMisses ir)
+    kept -> Service.missesWithheld kept
 
 {- | Handler for the 'get_impacts' MCP tool (computes LCIA score).
 Historically named 'get_lcia' -- the MCP surface now uses 'impacts'
@@ -1692,6 +1711,8 @@ callGetImpacts dbManager mBaseUrl licence rid args =
                         , "functional_unit" .= functionalUnit
                         , "mapped_flows" .= (msTotal stats - msUnmatched stats)
                         , "has_negative_contributions" .= hasNeg
+                        , "probable_misses" .= missesOf mUnits dbName licence ir
+                        , "basis" .= irBasis ir
                         , "top_flows"
                             .= [ object
                                     [ "flow_name" .= bfName f
@@ -1748,11 +1769,11 @@ callComputeSensitivity dbManager mBaseUrl rid args =
                 Service.computeSensitivities db (ldSharedSolver ld) (raPid ra) perts
         (baselineX, perResults) <- liftShow eRes
         -- The scores below read the root's own scaling alone, so its cut-offs are the
-        -- ones they met, read under the licences the way the REST sensitivity reads them.
-        cutoffs <-
-            liftIO $
-                Impact.solutionCutoffs dbManager SeeDetailedScores $
-                    SharedSolver.CrossDBSolution (applyBiosphereMatrix db baselineX) (NE.singleton (SharedSolver.Reached dbName db baselineX)) IncludeLongTerm
+        -- ones they met, read under the licences the way the REST sensitivity reads them,
+        -- and the root's database the one they rest on.
+        let rootOnly = SharedSolver.CrossDBSolution (applyBiosphereMatrix db baselineX) (NE.singleton (SharedSolver.Reached dbName db baselineX)) IncludeLongTerm
+        cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores rootOnly)
+        basis <- liftIO (DM.solutionBasis dbManager rootOnly collection (DM.Asked [] []))
         -- This tool takes no long-term policy: it compares a baseline with
         -- perturbations of it, and both sides count the same flows.
         let scoreOf x = computeLCIAScoreAuto unitCfg mUnits mFlows IncludeLongTerm db x (applyBiosphereMatrix db x) hier tables
@@ -1789,6 +1810,7 @@ callComputeSensitivity dbManager mBaseUrl rid args =
                     , "category" .= methodCategory method
                     , "unit" .= methodUnit method
                     , "baseline_score" .= baselineScore
+                    , "basis" .= basis
                     , "perturbed" .= map pertEntry perResults
                     ]
                         ++ cutoffFields cutoffs
@@ -1862,6 +1884,10 @@ callCompareImpacts dbManager rid args =
         reqB <- loadLcaRequest dbManager argsB
         irA <- runImpactsRequest dbManager argsA reqA
         irB <- runImpactsRequest dbManager argsB reqB
+        (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+        let sideMisses req ir = (\licence -> missesOf mUnits (lrDbName req) (fromMaybe LicenceUnstated licence) ir) <$> DM.databaseLicence dbManager (lrDbName req)
+        missesA <- liftIO (sideMisses reqA irA)
+        missesB <- liftIO (sideMisses reqB irB)
         let topN = fromMaybe 10 (intArg "top_flows" args)
             scoreA = loScore (irOutcome irA)
             scoreB = loScore (irOutcome irB)
@@ -1910,8 +1936,8 @@ callCompareImpacts dbManager rid args =
         pure $
             toolSuccessJson rid $
                 object
-                    [ "a" .= sideJson reqA irA
-                    , "b" .= sideJson reqB irB
+                    [ "a" .= sideJson reqA irA missesA
+                    , "b" .= sideJson reqB irB missesB
                     , "delta"
                         .= object
                             [ "absolute" .= delta
@@ -1922,7 +1948,7 @@ callCompareImpacts dbManager rid args =
                     , "top_b_only_flows" .= bOnly
                     ]
   where
-    sideJson req ir =
+    sideJson req ir misses =
         let outcome = irOutcome ir
             characterizedShare =
                 if loInventoryAbsSum outcome > 0
@@ -1935,6 +1961,8 @@ callCompareImpacts dbManager rid args =
                 , "score" .= loScore outcome
                 , "unit" .= methodUnit (lrMethod req)
                 , "characterized_share" .= characterizedShare
+                , "probable_misses" .= misses
+                , "basis" .= irBasis ir
                 ]
                     -- The flows a dependency keeps are not in the alignment; its share is.
                     ++ ["withheld_databases" .= Service.withheldShares (loScore outcome) (irWithheld ir) | not (null (irWithheld ir))]
@@ -2017,8 +2045,8 @@ Every list defaults to empty: an assistant that only removes a line should not
 have to state four empty arrays to say so. An edit that ends up naming nothing
 is refused by the domain, so the leniency costs no silence.
 -}
-callEditExchanges :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
-callEditExchanges dbManager rid args = runTool rid $ do
+callEditExchanges :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
+callEditExchanges dbManager by rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     processId <- except (requireText "process_id" args)
     request <-
@@ -2040,7 +2068,7 @@ callEditExchanges dbManager rid args = runTool rid $ do
                 <*> parseArrayArg "remove_parameters" Nothing args
                 <*> optionalText "note" args
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))
-    report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName (eerNote request >>= noteFrom) processId edits)
+    report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName by (eerNote request >>= noteFrom) processId edits)
     return $ toolSuccessJson rid (toJSON (editReportToAPI report))
   where
     -- Absent leaves the description as it is; an empty list clears it.
@@ -2050,19 +2078,19 @@ callEditExchanges dbManager rid args = runTool rid $ do
         Just Null -> Right Nothing
         Just _ -> Just <$> parseArrayArg "set_description" Nothing args
 
-callEditDatabaseParameters :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
-callEditDatabaseParameters dbManager rid args = runTool rid $ do
+callEditDatabaseParameters :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
+callEditDatabaseParameters dbManager by rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     request <- except (ParametersEditRequest <$> parseArrayArg "set_parameters" Nothing args <*> parseArrayArg "remove_parameters" Nothing args <*> optionalText "note" args)
     edits <- except (first (T.intercalate "\n") (toParameterEdits request))
-    report <- ExceptT (first refusalMessage <$> editDatabaseParameters dbManager dbName (pqNote request >>= noteFrom) edits)
+    report <- ExceptT (first refusalMessage <$> editDatabaseParameters dbManager dbName by (pqNote request >>= noteFrom) edits)
     return $ toolSuccessJson rid (toJSON (parametersReportToAPI report))
 
 callDatabaseHistory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callDatabaseHistory dbManager rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     history <- ExceptT (databaseHistory dbManager dbName)
-    return $ toolSuccessJson rid (toJSON (map historyLineToAPI history))
+    return $ toolSuccessJson rid (toJSON (databaseHistoryToAPI history))
 
 -- | Change the scenarios of a database, then answer the ones it holds.
 callScenarios :: DatabaseManager -> RequestId -> KeyMap Value -> (Text -> ExceptT Text IO ()) -> IO Value
@@ -2083,33 +2111,33 @@ callCopyMethodCollection dbManager rid args = runTool rid $ do
 asks for is refused or taken exactly as a person's is. The arguments are the
 request's fields in snake case.
 -}
-callEditMethodFactors :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
-callEditMethodFactors dbManager rid args = runTool rid $ do
+callEditMethodFactors :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
+callEditMethodFactors dbManager by rid args = runTool rid $ do
     (collection, request) <- except (editArguments names args)
     edit <- except (toFactorEdit request)
-    outcome <- ExceptT (first refusalText <$> editMethodFactors dbManager collection edit)
+    outcome <- ExceptT (first refusalText <$> editMethodFactors dbManager collection by edit)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
   where
     names :: [(Key, Key)]
     names = [("op", "op"), ("method_id", "methodId"), ("flow_id", "flowId"), ("location", "location"), ("value", "value"), ("new_value", "newValue"), ("scale", "scale"), ("match", "match"), ("factor", "factor")]
 
 -- | Read through the request the HTTP endpoint reads, as 'callEditMethodFactors' does.
-callEditMethodCategories :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
-callEditMethodCategories dbManager rid args = runTool rid $ do
+callEditMethodCategories :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
+callEditMethodCategories dbManager by rid args = runTool rid $ do
     (collection, request) <- except (editArguments names args)
     edit <- except (toCategoryEdit request)
-    outcome <- ExceptT (first refusalText <$> editMethodCategories dbManager collection edit)
+    outcome <- ExceptT (first refusalText <$> editMethodCategories dbManager collection by edit)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
   where
     names :: [(Key, Key)]
     names = [("op", "op"), ("method_id", "methodId"), ("name", "name"), ("unit", "unit"), ("impact_category", "impactCategory"), ("methodology", "methodology")]
 
 -- | Read through the request the HTTP endpoint reads, as 'callEditMethodFactors' does.
-callEditScoringSets :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
-callEditScoringSets dbManager rid args = runTool rid $ do
+callEditScoringSets :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
+callEditScoringSets dbManager by rid args = runTool rid $ do
     (collection, request) <- except (editArguments names args)
     edit <- except (toScoringEdit request)
-    outcome <- ExceptT (first refusalText <$> editScoringSets dbManager collection edit)
+    outcome <- ExceptT (first refusalText <$> editScoringSets dbManager collection by edit)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
   where
     names :: [(Key, Key)]
@@ -2126,11 +2154,11 @@ editArguments names args = do
     request <- first T.pack (parseEither parseJSON (Object (KM.fromList [(camel, v) | (snake, camel) <- names, Just v <- [KM.lookup snake args]])))
     pure (collection, request)
 
-callUndoMethodEdit :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
-callUndoMethodEdit dbManager rid args = runTool rid $ do
+callUndoMethodEdit :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
+callUndoMethodEdit dbManager by rid args = runTool rid $ do
     collection <- except (requireText "collection" args)
     line <- except (optionalWhole "line" args)
-    outcome <- ExceptT (first refusalText <$> undoMethodEdit dbManager collection line)
+    outcome <- ExceptT (first refusalText <$> undoMethodEdit dbManager collection by line)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
 
 callGetMethodHistory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
@@ -2533,6 +2561,7 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
                     , "unit" .= methodUnit method
                     , "total_score" .= score
                     , "has_negative_contributions" .= hasNeg
+                    , "basis" .= irBasis ir
                     , "top_flows"
                         .= [ object
                                 [ "flow_name" .= bfName f
@@ -2580,6 +2609,7 @@ callGetContributingActivities dbManager mBaseUrl rid args =
         contributions <- ExceptT (Impact.processContributionsOf dbManager collection method tables sol)
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
         cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
+        basis <- liftIO (DM.solutionBasis dbManager sol collection (DM.Asked [] []))
         let view = ImpactsView{ivCollection = lrCollection req, ivFragment = "contributing-activities/" <> lrMethodIdText req}
             ProcessLines{plScore = score, plTop = top, plWithheld = withheldLines} = processLines lim (Impact.splitProcessParts withheld contributions)
         rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl view mUnits score) top
@@ -2590,6 +2620,7 @@ callGetContributingActivities dbManager mBaseUrl rid args =
                     , "unit" .= methodUnit method
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . snd) top
+                    , "basis" .= basis
                     , "processes" .= rows
                     ]
                         ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
@@ -2604,6 +2635,7 @@ data ScoreRequest = ScoreRequest
     , scrSolution :: !SharedSolver.CrossDBSolution
     , scrCutoffs :: !Cutoffs
     -- ^ The unsupplied inputs the solution counted as zero.
+    , scrBasis :: !ScoreBasis
     }
 
 -- | The two ways a score is broken down, as the web UI names its tabs.
@@ -2635,6 +2667,7 @@ loadScoreRequest dbManager args = do
                 pid
     sol <- liftIO (Impact.withLongTermPolicy dbManager (longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))) solved)
     cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
+    basis <- liftIO (DM.solutionBasis dbManager sol (DM.CollectionName collName) (DM.Asked [] []))
     pure
         ScoreRequest
             { scrSource = Source{srcManager = dbManager, srcDbName = dbName, srcDatabase = ldDatabase ld, srcCollection = DM.CollectionName collName}
@@ -2643,6 +2676,7 @@ loadScoreRequest dbManager args = do
             , scrScore = rs
             , scrSolution = sol
             , scrCutoffs = cutoffs
+            , scrBasis = basis
             }
 
 -- | Where the web UI shows this breakdown: the tab and the score its fragment names.
@@ -2672,6 +2706,7 @@ callGetScoreContributingFlows dbManager mBaseUrl rid args =
                     , "unit" .= Score.scoreUnit (scrScore req)
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . fcContribution) contribs
+                    , "basis" .= scrBasis req
                     , "top_flows"
                         .= [ object
                                 [ "flow_name" .= bfName f
@@ -2706,6 +2741,7 @@ callGetScoreContributingActivities dbManager mBaseUrl rid args =
                     , "unit" .= Score.scoreUnit (scrScore req)
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . snd) top
+                    , "basis" .= scrBasis req
                     , "processes" .= rows
                     ]
                         ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
@@ -2945,4 +2981,5 @@ callListScoringSets dbManager rid args = do
                 , "display_multiplier" .= ssDisplayMultiplier ss
                 , "rows" .= ssaRows guided
                 , "sum_of_rows" .= [scoName score | score <- ssaScores guided, scoSumOfRows score]
+                , "weighs" .= ssaWeighs guided
                 ]

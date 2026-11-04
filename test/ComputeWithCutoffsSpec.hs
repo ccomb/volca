@@ -20,6 +20,7 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.Foldable (toList)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -57,6 +58,7 @@ import SynonymDB (emptySynonymDB)
 import TestHelpers (kgUnit, linkDatabases, mkActivity, mkTechFlow, reference, techInput, units)
 import Types
 import UnitConversion (defaultUnitConfig)
+import Usage (anonymous)
 
 u :: String -> UUID
 u suffix = read ("00000000-0000-0000-0000-0000000002" <> suffix)
@@ -271,7 +273,7 @@ metByRInputs = Just [(String "M", Number 2, 6500000)]
 mcp :: DM.DatabaseManager -> Text -> [(Key, Value)] -> IO Object
 mcp manager tool args = do
     reply <-
-        callTool Nothing manager [] Nothing Nothing noRequestId tool $
+        callTool anonymous manager [] Nothing Nothing noRequestId tool $
             KM.fromList ([("database", String "main"), ("collection", String collection), ("method_id", String methodText)] ++ args)
     maybe (fail ("unexpected " <> T.unpack tool <> " reply: " <> show reply)) pure (payloadOf reply)
 
@@ -383,6 +385,52 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         cutoffNotice Cutoffs{cutoffShown = shown, cutoffWithheld = [WithheldCutoffs "dep" 1]}
             `shouldBe` Just "This result counts 8 inputs no loaded database supplies as zero: A (1.000 kg), B (1.000 kg), C (1.000 kg), D (1.000 kg), E (1.000 kg), 2 more, and 1 inside dep, whose licence keeps the detail to itself; each listed input says why no database supplies it, and the gap report has them all."
 
+    describe "what each score rests on, said once per answer" $ do
+        manager <- runIO withheldDependency
+        pid <- runIO (rootOf manager >>= \rootDb -> pidOf rootDb (actR, rFlow))
+        let namesOf = fmap (map bdName . sbDatabases)
+            keyedBasis = KM.member "basis"
+
+        it "names the database asked and the dependency its chain reached, above a panel's methods and not in them" $ do
+            panel <- ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing)
+            namesOf (lbrBasis panel) `shouldBe` Just ["main", "dep"]
+            map (isJust . lrBasis) (lbrResults panel) `shouldBe` [False]
+
+        it "gives it with the score of one method" $
+            (namesOf . lrBasis <$> ok manager (getActivityLCIA "main" pid coll methodText Nothing)) `shouldReturn` Just ["main", "dep"]
+
+        it "gives it to get_impacts, score_activity and score_activities, at the top only" $ do
+            impacts <- mcp manager "get_impacts" [("process_id", String pid)]
+            panel <- mcp manager "score_activity" [("process_id", String pid)]
+            batch <- mcp manager "score_activities" [("process_ids", Array (V.singleton (String pid)))]
+            map keyedBasis [impacts, panel, batch] `shouldBe` [True, True, True]
+            let perMethod = do
+                    Array results <- KM.lookup "results" panel
+                    pure [keyedBasis o | Object o <- toList results]
+            perMethod `shouldBe` Just [False]
+
+        it "gives it with the flows and activities a score breaks down into, and the baseline of a sweep" $ do
+            flows <- ok manager (getContributingFlows "main" pid coll methodText Nothing Nothing)
+            activities <- ok manager (getContributingActivities "main" pid coll methodText Nothing Nothing)
+            scoreFlows <- ok manager (getScoreContributingFlows "main" pid coll "Single" "total" Nothing Nothing)
+            scoreActivities <- ok manager (getScoreContributingActivities "main" pid coll "Single" "total" Nothing Nothing)
+            sweep <- ok manager (postActivitySensitivity "main" pid coll methodText (SensitivityRequest []))
+            map (map bdName . sbDatabases) [cfrBasis flows, carBasis activities, cfrBasis scoreFlows, carBasis scoreActivities]
+                `shouldBe` replicate 4 ["main", "dep"]
+            namesOf (lrBasis (srBaseline sweep)) `shouldBe` Just ["main", "dep"]
+
+        it "gives it to the MCP contribution tools and to a sweep" $ do
+            let score = [("scoring_set", String "Single"), ("score", String "total")]
+            payloads <-
+                sequence
+                    [ mcp manager "get_contributing_flows" [("process_id", String pid)]
+                    , mcp manager "get_contributing_activities" [("process_id", String pid)]
+                    , mcp manager "get_score_contributing_flows" (("process_id", String pid) : score)
+                    , mcp manager "get_score_contributing_activities" (("process_id", String pid) : score)
+                    , mcp manager "compute_sensitivity" [("process_id", String pid), ("perturbations", Array V.empty)]
+                    ]
+            map keyedBasis payloads `shouldBe` replicate 5 True
+
     describe "the MCP tools" $ do
         (manager, db) <- runIO mainManager
         pidR <- runIO (pidOf db (actR, rFlow))
@@ -424,7 +472,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
 
         it "give each side of compare_impacts its own list" $ do
             reply <-
-                callTool Nothing manager [] Nothing Nothing noRequestId "compare_impacts" $
+                callTool anonymous manager [] Nothing Nothing noRequestId "compare_impacts" $
                     KM.fromList
                         [ ("database_a", String "main")
                         , ("process_id_a", String pidR)

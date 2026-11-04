@@ -162,6 +162,20 @@ class TestScoreActivities:
         )
         result = client.score_activities(["p1", "p2"], collection="methods")
         assert [(s.product_amount, s.product_unit) for s in result.results] == [(-1.0, "m3"), (None, None)]
+        assert result.reading_notice is None
+
+    def test_reads_what_a_weighted_ranking_says(self, mocked_client, make_response):
+        client, session = mocked_client
+        notice = "The scores of EF 3.1 weigh impact categories by value choices"
+        session.post.return_value = make_response(
+            {
+                "results": [{"processId": "p1", "activityName": "Wheat", "impacts": _batch(1.0)}],
+                "notFound": [],
+                "invalid": [],
+                "readingNotice": notice,
+            }
+        )
+        assert client.score_activities(["p1"], collection="methods").reading_notice == notice
 
     def test_scores_each_process_at_each_parameter_set(self, mocked_client, make_response):
         client, session = mocked_client

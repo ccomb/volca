@@ -39,7 +39,7 @@ import qualified Data.UUID as UUID
 import GHC.Generics (Generic)
 import Text.Printf (printf)
 
-import Data.Indexing (uniqueIndex)
+import Data.Indexing (groupInOrder, uniqueIndex)
 import Database.Allocation (Allocating (..), SharedExchange (..), allocateWith, exchangeShares)
 import Database.Upload (DatabaseFormat (..), referenceConventionOf)
 import qualified Expr
@@ -447,7 +447,7 @@ oneLinePerProduct lines' = zipWith renumbered [0 ..] [merged ln | ln <- lines', 
     isProduct ln = offers (P.flType (lnFlow ln)) (P.rxSide (lnRaw ln))
 
     byFlow :: M.Map UUID (NE.NonEmpty Line)
-    byFlow = M.fromListWith (<>) [(P.flId (lnFlow ln), NE.singleton ln) | ln <- reverse lines', isProduct ln]
+    byFlow = groupInOrder [(P.flId (lnFlow ln), ln) | ln <- lines', isProduct ln]
 
     isFirst :: Line -> Bool
     isFirst ln = (lnAt . NE.head <$> M.lookup (P.flId (lnFlow ln)) byFlow) == Just (lnAt ln)
@@ -712,7 +712,7 @@ shippedScenarios systems =
     sets = [(systemName system <> ": " <> parameterSetName set, set) | system <- systems, set <- systemSets system, not (null (parameterSetValues set))]
 
     scenarios :: M.Map Text (Either Text [ScenarioValue])
-    scenarios = M.mapWithKey scenario (M.fromListWith (flip (<>)) [(name, [set]) | (name, set) <- sets])
+    scenarios = M.mapWithKey scenario (NE.toList <$> groupInOrder sets)
 
     scenario :: Text -> [ParameterSet] -> Either Text [ScenarioValue]
     scenario name = \case
@@ -892,7 +892,7 @@ first ten named.
 describeNotices :: [Notice] -> [Text]
 describeNotices notices =
     [ T.pack (show (length details)) <> " " <> title <> foldMap ("\n  " <>) (take 10 (concat details))
-    | (title, details) <- M.toList (M.fromListWith (<>) [(t, [maybeToList d]) | (t, d) <- map headline (reverse notices)])
+    | (title, details) <- M.toList (groupInOrder [(t, maybeToList d) | (t, d) <- map headline notices])
     ]
   where
     headline :: Notice -> (Text, Maybe Text)

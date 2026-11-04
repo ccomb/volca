@@ -4,6 +4,88 @@
 
 ### Added
 
+- A database that buys from the databases it depends on exports to ILCD.
+  Each such input is written under its supplier's product and the place
+  that supplier states, which is what a reader loading the package beside
+  that database finds it by. The export still refuses an input whose
+  supplier states no place, one whose database makes that product at that
+  place in two activities (both are named), one whose product a process of
+  the package also makes (a reader would link the input to that process), and
+  a link to a process that neither the package nor a loaded dependency holds.
+- Each change made to a database, a method collection or the scenarios of a
+  database is signed with the account that made it, when the server in front
+  of the engine names one: the history of a database and of a collection
+  gives its public name (`by`), and the changes report of an export says
+  "By: @name" under each change. The journal keeps the account and the name
+  it signed with that day. The desktop, and a server run on its own, sign
+  nothing, and the lines written before are left unsigned. Wire revision 104.
+- An engine offers method collections to download and load in one step.
+  `GET /method-collections/available` lists them, each with its publisher,
+  version, licence, size and whether the engine already knows a collection of
+  that name; `POST /method-collections/available/{name}/install` downloads
+  one, keeps it only when its size and SHA-256 are the ones the engine
+  expects, stores it as an upload of that name and loads it. The catalogue
+  ships in `data/method-catalog.toml`: Environmental Footprint 3.1 and the
+  expert, midpoint and footprint versions of IMPACT World+ 2.2.1. A
+  read-only engine refuses the install, the plan's upload limit applies to
+  it, a collection already known is not downloaded again (409), a server
+  that cannot be reached answers 502 and a file other than the one expected
+  answers 422. pyvolca: `available_method_collections()` and
+  `install_method_collection(name)`. Wire revision 103 (data version 13).
+- A score says what it rests on, once per answer: the engine's version and
+  commit; each database it read, the one asked first, with its release (for
+  a copy, the one it was copied from), the database whose files it reads,
+  and whether it is edited (a child divided from an edited parent is),
+  allocated otherwise or patched by its configuration; the method collection,
+  the one it was first copied from, and whether its factors or categories
+  differ from its files (the scoring sets a copy starts with are not a
+  difference); and the substitutions and parameter values the request sent.
+  A number quoted with it says whether it can be set beside another: two
+  scores of one product, one on a copy edited since, no longer show the same
+  basis. The score of one activity, of one method, each side of
+  `compare_impacts` and a batch carry it as `basis`; the databases of a
+  substituted score are the ones its chain reached, those of a batch the
+  dependencies. Wire revision 99.
+- The flows and the activities a score breaks down into, by impact category
+  or by single score, and the baseline of a sensitivity sweep say what their
+  score rests on, as `basis`, so a share quoted alone keeps it. Wire
+  revision 102.
+- A scoring set says whether its scores rest on value choices, as `weighs`:
+  a score takes a category otherwise than once (its weight, its coefficient
+  or that of the row it reads), adds up normalized categories, or is no
+  sum. A normalized category scored alone, or damages in one unit added at
+  one, does not. A ranking under a set that
+  weighs, `score_activities` and a batch score, says once that ISO 14044
+  does not allow such a score in a comparison disclosed to the public, as
+  `reading_notice`; it is still given. Weights of one over categories in
+  different units are not caught. Wire revision 105.
+- A method collection can be uploaded as a workbook that lists one
+  characterization factor per row, under the labels `Method, Category,
+  Indicator, Name, Compartment, Subcompartment, CF`, with an `Indicators`
+  sheet giving each indicator its unit. It is the form in which methods are
+  published beside an EcoSpold 2 release. Each method family of the workbook
+  becomes a collection of its own, named after the upload and the family,
+  and saved as a columnar CSV; the workbook itself is not kept. The table
+  names a flow by name and compartment only, so the unit each factor is
+  written per, and the flow's CAS number, come from the master data
+  (`MasterData/ElementaryExchanges.xml`) of an EcoSpold 2 database already
+  uploaded: the only one there is, or the one named by `flows_from` on
+  `POST /method-collections/upload`. The answer lists the collections made,
+  with their number of factors, and the factors left out because the master
+  data has no flow of that name and compartment. A collection uploaded as a
+  columnar CSV now says so in its format, where it said nothing before
+  (wire revision 101).
+- A system model can set parameters of the parent's processes, under
+  `[[method_parameters]]`: a name, a value and a reason. Every process of the
+  parent that declares that input parameter takes the value in the child, and
+  its amounts follow, before any block is divided. It is how a child makes a
+  method choice its parent wrote as data: Agribalyse writes the recycling
+  formula of the Product Environmental Footprint into its packaging
+  processes, and `A = 1` takes every recycling credit away from them. A
+  parameter that moves no process, or that a process computes by a formula,
+  is refused, naming the process. The model's page lists the processes each
+  parameter moves, and the delivery sheet names the parameters in the rule
+  of each process they moved (wire revision 98).
 - The package of a database divided by a system model (`package: ro-crate`)
   is its delivery sheet. It holds the model file as its author wrote it, and
   `allocation.csv`, one row per process that comes from a block of the
@@ -32,6 +114,23 @@
   makes kilowatt hours and the other megajoules. A pair whose products are
   measured in different quantities, or in a unit no loaded table knows, is
   set apart with its reason rather than given a factor.
+- A score names the flows it probably missed: those it read no factor for
+  although its method writes the same substance elsewhere in their medium.
+  A flow reads the factor of its own subcompartment, of its whole medium, or
+  of the one an `if_absent` row sends it to, never a neighbour's: ammonia
+  emitted indoors scores nothing under a method that writes ammonia only for
+  urban and non-urban air. Each miss says where the method writes the
+  substance and what the flow would add at the largest of those factors, in
+  the score's unit and as a share of the score; the ten biggest able to move
+  the score by a thousandth are shown, and how many more there are. A place
+  the method's collection writes for other substances is the method's choice,
+  not a miss: water returned to the sea, which gives back no fresh water, is
+  not listed. The score of one activity carries them, over HTTP and in
+  `get_impacts`, `score_activity` and each side of `compare_impacts`; a batch
+  of activities does not look for them. A licence keeping the amounts of a
+  database's exchanges keeps the misses too, since each carries one. Wire
+  revision 97.
+
 - An edit of an activity can state the dry mass of its products: each is
   named by its flow and given the dry mass of one unit of it, in a unit of
   mass, or its dry mass is removed. This is what a dry mass exception of a
@@ -92,6 +191,17 @@
 
 ### Changed
 
+- A parent database exports to an openLCA package. Each process of several
+  products it keeps whole is written whole, with an economic allocation
+  factor per product: the shares the `price` key gives, so prices an expert
+  set in the parent are in the package once every product of the block has
+  one. Until then, as when a price in euros stands beside prices deduced from
+  shares, the process is written with the shares its products declare, and
+  the export names it with the reason. openLCA divides the process by them. Read back, the package gives the
+  inventories of the child divided by price. Before, the export was refused.
+  A process that makes one product twice is refused, since openLCA keys a
+  factor by its product.
+
 - The usage log counts a computation only when the terms of use of the
   database it read ask for it. Before, every database that declared its
   release was counted, without its readers being told. An own licence now
@@ -120,6 +230,35 @@
   runtime they call, so the executable failed to link with undefined `dgemm_`
   and `_gfortran_*` symbols. The link now names OpenBLAS and libgfortran when
   only those archives are found, as the static builds already did.
+- A passenger transport counted in `p*km`, the spelling openLCA gives the
+  person-kilometre, or in `p.km` or `p⋅km`, reads its unit, as `t.km` and
+  `t⋅km` already did for freight. The unit table held `pkm` and `person*km`
+  only, so such a quantity converted to nothing else. Data version 14.
+- An ILCD export is valid against the ILCD 1.1 schemas. Every dataset said
+  no format version, a process gave its location in a form the schema does
+  not have and before its reference flow, a line had no mean amount, wrote
+  its location after its amount and its comment in the wrong namespace, a
+  CAS number was not padded to six digits (`000124-38-9`), and a process type
+  went in a field that does not exist. Tools that check the schema refused
+  these packages. The type of dataset is now written as
+  `typeOfDataSet`, and read from there, which is where ILCD packages made
+  elsewhere give it; a type from another format, which none of ILCD's five
+  values names, is left out. Packages written before still read the same.
+- A SimaPro method file whose every line is padded with separators
+  (`Impact category;;;;;`) loads with its categories, its name, its damage
+  categories and its normalization and weighting. It used to load empty and
+  report success. A method file that yields no impact category is now
+  refused with a sentence that says so, and a collection whose files partly
+  fail to parse names each failing file and its reason, not only their
+  number.
+- A child divided from an edited parent says so. Its data carry every change
+  made on the parent, yet its history was empty, the list of databases said
+  it was not edited, and the changes report of its package named the system
+  model alone. Now its history lists the parent's changes first, each line
+  saying the database it was made on (`database`); it reads as edited; and
+  its changes report gives the parent's changes under their own heading. A
+  copy of a child carries the parent's changes and its own copied ones, not
+  those made on the child since. Wire revision 100.
 - A single EcoSpold 2 file (`.spold`) loads as a database. Sent as is, it used
   to be taken for EcoSpold 1 and refused; given as the path of a database, it
   was refused as an unsupported file; and in a folder, a name of one part
@@ -173,6 +312,15 @@
   now read it the same way. A database exported to SimaPro CSV, which gives
   sea water the CAS of water, scored 35 to 64 times higher in water use than
   the same database read from EcoSpold 1; the two now agree.
+
+### Deprecated
+
+- The `characterized_share` of `get_impacts` (with `include_diagnostics`) and
+  of `compare_impacts` adds up the quantities of every flow whatever their
+  unit, so a kilowatt-hour of nuclear electricity reads close to nothing
+  characterized in climate change, its becquerels of radon outweighing its
+  kilograms of carbon dioxide. It is removed in 0.17.0: read
+  `probable_misses` instead.
 
 ## [0.16.0] - 2026-10-25
 

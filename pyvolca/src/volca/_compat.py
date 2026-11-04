@@ -32,8 +32,28 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 96
-"""The newest wire revision this pyvolca understands (revision 96 added the
+KNOWN_WIRE = 105
+"""The newest wire revision this pyvolca understands (revision 105 added the
+``weighs`` of a scoring set and the ``reading_notice`` of a batch scored
+under one that weighs; revision 104 added the
+public name ``by`` of the account that made each change of a database's or a
+collection's history; revision 103 added
+``available_method_collections()`` and ``install_method_collection()``, the
+method collections an engine offers to download and the call that installs
+and loads one; revision 102 added the
+``basis`` of a score to its contributing flows and activities and to the
+baseline of a sensitivity sweep; revision 101 added the
+``flows_from`` of ``upload_method_collection()``, the EcoSpold 2 database whose
+master data gives a workbook of factors its units and CAS numbers; revision 100 added the
+``database`` each line of a database's history was made on, its own or the
+parent a child is divided from; revision 99 added the
+``basis`` of a score, what it rests on: the engine, the databases read and
+how each differs from its release, the method collection, and what the
+request substituted and set; revision 98 added the
+``parameters`` of ``system_model()``, each method parameter a model sets with
+the processes of the parent it moves; revision 97 added the
+``probable_misses`` of a score, the flows it read no factor for although its
+method writes their substance elsewhere in their medium; revision 96 added the
 delivery-sheet row of one process of a child, read by the web interface and not
 by this client; revision 95 added the
 ``usage`` of a licence and of the terms to accept, the counting of computations

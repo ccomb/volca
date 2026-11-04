@@ -17,6 +17,7 @@ module Builtin (
     builtinMethodName,
     builtinMethodDescription,
     builtinMethodContent,
+    builtinMethodCatalog,
     DataVersion (..),
     builtinDataVersion,
 ) where
@@ -73,6 +74,10 @@ builtinMethodDescription BuiltinPlainIndicators = "Raw physical quantities count
 
 builtinMethodContent :: BuiltinMethod -> BL.ByteString
 builtinMethodContent BuiltinPlainIndicators = decode L.plainIndicatorsCsv
+
+-- | The method collections an engine offers to download, as @data/method-catalog.toml@ states them.
+builtinMethodCatalog :: BL.ByteString
+builtinMethodCatalog = decode L.methodCatalogToml
 
 decode :: String -> BL.ByteString
 decode = BL.fromStrict . B64.decodeLenient . BC.pack

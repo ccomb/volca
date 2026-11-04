@@ -26,6 +26,7 @@ module Database.MatrixBuild (
 import Control.Applicative ((<|>))
 import Data.Bifunctor (first)
 import Data.Foldable (fold)
+import Data.Indexing (groupInOrder)
 import Data.Int (Int32)
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -64,7 +65,7 @@ buildInterningTables activityMap =
           -- products of the block it came out of: an allocated activity is
           -- written once per coproduct, and 'M.fromList' would have kept
           -- whichever row came last.
-          itActivityUUIDIndex = M.fromListWith (flip (<>)) [(actUUID, pid :| []) | (pid, (actUUID, _), _) <- indexed]
+          itActivityUUIDIndex = groupInOrder [(actUUID, pid) | (pid, (actUUID, _), _) <- indexed]
         , itActivities = V.fromList [act | (_, _, act) <- indexed]
         , itActivityCount = fromIntegral (length indexed)
         }

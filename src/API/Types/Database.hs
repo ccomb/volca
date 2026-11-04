@@ -23,6 +23,10 @@ import Types (
 -- | One change made to a database, oldest first, in the words its reader uses.
 data DatabaseHistoryEntry = DatabaseHistoryEntry
     { dheAt :: Text
+    , dheDatabase :: Text
+    -- ^ The database the change was made on: this one, or the parent it is divided from
+    , dheBy :: Maybe Text
+    -- ^ The public name of the account that made it; absent when the engine was not told
     , dheNote :: Maybe Text
     -- ^ Why, in its author's words; absent when they gave no reason
     , dheSummary :: Text
@@ -386,13 +390,15 @@ data DeriveRequest = DeriveRequest
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeriveRequest)
 
 {- | A child's system model: its file as written, each exception with the
-processes of the parent it takes, and each substitution with the processes it
-names, so a reader can check a rule took what its reason says.
+processes of the parent it takes, each substitution with the processes it
+names, and each method parameter with the processes it moves, so a reader can
+check a rule took what its reason says.
 -}
 data SystemModelAPI = SystemModelAPI
     { smaText :: Text
     , smaExceptions :: [ModelExceptionAPI]
     , smaSubstitutions :: [ModelSubstitutionAPI]
+    , smaParameters :: [ModelParameterAPI]
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SystemModelAPI)
@@ -412,6 +418,19 @@ data TakenProcessAPI = TakenProcessAPI
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped TakenProcessAPI)
+
+{- | An input parameter of the parent's processes a model sets, its value, why,
+and the processes of the parent whose amounts it moves: by their process
+identifier, since a block and a process of one product may share an activity.
+-}
+data ModelParameterAPI = ModelParameterAPI
+    { mpaName :: Text
+    , mpaValue :: Double
+    , mpaReason :: Text
+    , mpaProcesses :: [TakenProcessAPI]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ModelParameterAPI)
 
 {- | A coproduct a model substitutes rather than divides, named: its block and
 product, the process of the parent it displaces and that process's product,
@@ -535,6 +554,27 @@ data UploadResponse = UploadResponse
     , uprMessage :: Text
     , uprSlug :: Maybe Text -- Generated slug (if successful)
     , uprFormat :: Maybe Text -- Detected format (if successful)
+    , uprFamilies :: [UploadedFamily]
+    -- ^ The collections a table of factors was split into, one per method family; empty for any other upload.
+    , uprDropped :: Maybe DroppedFactors
+    -- ^ The factors of that table left out; 'Nothing' for any other upload.
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped UploadResponse)
+
+-- | One method family of an uploaded table of factors, saved as a collection of its own.
+data UploadedFamily = UploadedFamily
+    { ufName :: Text
+    , ufSlug :: Text
+    , ufFactors :: Int
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped UploadedFamily)
+
+-- | Factors left out of an uploaded table because no flow of the master data carries their name and compartment.
+data DroppedFactors = DroppedFactors
+    { dfCount :: Int
+    , dfExamples :: [Text]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped DroppedFactors)

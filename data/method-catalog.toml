@@ -1,0 +1,47 @@
+# Method collections an engine offers to download and load in one step. Each
+# file is checked against its size and SHA-256 before it is read, so a moved or
+# changed file is refused rather than loaded as something else. The name is
+# also the name of the collection once installed.
+
+[[collection]]
+name = "Environmental Footprint 3.1 (JRC)"
+publisher = "European Commission, Joint Research Centre"
+version = "3.1"
+source_url = "https://eplca.jrc.ec.europa.eu/LCDN/developerEF.xhtml"
+url = "https://app.volca.run/preloaded/EF-v3.1.zip"
+size = 206912900
+sha256 = "18763515dd93fabaa7f46b019de30cd521b2036a75a348e5824eeec2225afb27"
+description = "The Environmental Footprint 3.1 impact assessment method, as the JRC publishes it in ILCD format."
+
+[[collection]]
+name = "IMPACT World+ 2.2.1 Expert"
+publisher = "CIRAIG"
+version = "2.2.1"
+licence = "CC-BY-SA-4.0"
+source_url = "https://zenodo.org/records/18892673"
+url = "https://zenodo.org/api/records/18892673/files/impact_world_plus_2.2.1_expert_version_simapro.csv/content"
+size = 28141636
+sha256 = "1f138ef1bae49a40a172d33f0de9aed244c2e67c0483526437f46f1124c03932"
+description = "IMPACT World+ 2.2.1, expert version: midpoint and damage categories with their short- and long-term parts. Agez, Muller, Greffe, Loog, Bulle et al., CIRAIG, CC BY-SA 4.0."
+
+[[collection]]
+name = "IMPACT World+ 2.2.1 Midpoint"
+publisher = "CIRAIG"
+version = "2.2.1"
+licence = "CC-BY-SA-4.0"
+source_url = "https://zenodo.org/records/18892673"
+url = "https://zenodo.org/api/records/18892673/files/impact_world_plus_2.2.1_midpoint_version_simapro.csv/content"
+size = 26526957
+sha256 = "7eb4cba0fecd22603b722a60feb6b122bc5d65b44393735095dd63dbdf0f2c13"
+description = "IMPACT World+ 2.2.1, midpoint version. Agez, Muller, Greffe, Loog, Bulle et al., CIRAIG, CC BY-SA 4.0."
+
+[[collection]]
+name = "IMPACT World+ 2.2.1 Footprint"
+publisher = "CIRAIG"
+version = "2.2.1"
+licence = "CC-BY-SA-4.0"
+source_url = "https://zenodo.org/records/18892673"
+url = "https://zenodo.org/api/records/18892673/files/impact_world_plus_2.2.1_footprint_version_simapro.csv/content"
+size = 22958973
+sha256 = "408c98fb7251de868fa06c60750faffb55ec4dc6755f456e1bc856afa2acce65"
+description = "IMPACT World+ 2.2.1, footprint version: carbon, water and energy footprints, with the remaining damage to human health and ecosystem quality. Agez, Muller, Greffe, Loog, Bulle et al., CIRAIG, CC BY-SA 4.0."

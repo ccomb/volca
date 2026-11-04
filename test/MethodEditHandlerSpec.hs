@@ -39,6 +39,7 @@ env = do
             , aeDataVersion = Nothing
             , aeUsageLog = Nothing
             , aeReader = Nothing
+            , aeAuthor = Nothing
             }
 
 call :: AppEnv -> AppM a -> IO (Either ServerError a)

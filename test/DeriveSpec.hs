@@ -28,6 +28,7 @@ import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Data.ByteString.Char8 as BS
 import Data.Either (fromLeft, isRight)
 import Data.List (sort, sortOn)
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (isJust, isNothing)
 import Data.Text (Text, isInfixOf)
@@ -39,22 +40,26 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
+import Data.Foldable (toList)
 import Database.Author (ExchangeEdit (..))
 import Database.Child (childOf)
-import Database.Edit (DeleteRequest (..), Derivation (..), deleteActivitiesInDB, deriveDatabase, editExchanges)
+import Database.Edit (DeleteRequest (..), Derivation (..), databaseHistory, deleteActivitiesInDB, deriveDatabase, editExchanges)
 import Database.ExportSupplier (noDependencies, unnamedWarnings)
+import Database.History (Carried (..), HistoryLine (..), Journal (..), Provenance (..), changesReport)
+import Database.Journal (noteFrom)
 import Database.Loader (GapReport (..), countUnlinkedExchanges, gapReportForLoaded)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
     LoadedDatabase (..),
+    databaseModification,
     getDatabase,
     initDatabaseManager,
     loadDatabase,
     processTraced,
     unloadDatabase,
  )
-import Database.SystemModel (Traced (..), parseSystemModel, ruleText, takenProcesses, traceOf)
+import Database.SystemModel (Traced (..), parseSystemModel, takenProcesses, traceOf, tracedRule)
 import Database.Upload (DatabaseFormat (..))
 import TestHelpers (modelDividingBy, withScratchDataDir, withinTolerance)
 import Types (
@@ -66,6 +71,7 @@ import Types (
     FileReading (..),
     GeographyPolicy (..),
     Licence (..),
+    Modification (..),
     Parameter (..),
     ParameterDefinition (..),
     ProcessRef (..),
@@ -183,7 +189,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
         it "keeps the coproduct links when another process of the parent is deleted" $
             withParent $ \manager -> do
                 parent <- loadedDb manager parentName
-                deleted <- deleteActivitiesInDB manager parentName (deleteIds [processOf parent "Creamery"])
+                deleted <- deleteActivitiesInDB manager parentName Nothing (deleteIds [processOf parent "Creamery"])
                 isRight deleted `shouldBe` True
                 loadedDb manager parentName >>= (`shouldBe` [True]) . wheyLinks
 
@@ -258,7 +264,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 parent <- loadedDb manager parentName
                 let (cheese, whey) = dairyProducts parent
                     dried flow amount = SetProperty DryMass flow (Just (StatedAmount "kg" amount))
-                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [dried cheese 0.6, dried whey 0.065]
+                edited <- editExchanges manager parentName Nothing Nothing (dairyActivity parent) [dried cheese 0.6, dried whey 0.065]
                 isRight edited `shouldBe` True
                 child <- deriveWith manager (exceptionTaking "dry mass" (dairyActivity parent))
                 -- 1 kg at 0.6 kg dry beside 3 kg at 0.065: 0.6 / 0.795 and 0.195 / 0.795 of the milk.
@@ -268,7 +274,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
             withParent $ \manager -> do
                 parent <- loadedDb manager parentName
                 let (cheese, _) = dairyProducts parent
-                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [SetProperty WetMass cheese (Just (StatedAmount "kg" 2))]
+                edited <- editExchanges manager parentName Nothing Nothing (dairyActivity parent) [SetProperty WetMass cheese (Just (StatedAmount "kg" 2))]
                 isRight edited `shouldBe` True
                 child <- deriveWith manager (exceptionTaking "wet mass" (dairyActivity parent))
                 -- 1 unit of cheese stated at 2 kg beside 3 kg of whey: 2 / 5 and 3 / 5 of the milk.
@@ -280,7 +286,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 parent <- loadedDb manager parentName
                 let (cheese, _) = dairyProducts parent
                 -- The child would keep the old shares until loaded again.
-                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [SetProperty Price cheese (Just (StatedAmount "EUR" 4))]
+                edited <- editExchanges manager parentName Nothing Nothing (dairyActivity parent) [SetProperty Price cheese (Just (StatedAmount "EUR" 4))]
                 isRight edited `shouldBe` False
 
         it "follows a price edited on the parent, and still does after a restart" $
@@ -288,13 +294,31 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 parent <- loadedDb manager parentName
                 let (cheese, whey) = dairyProducts parent
                     priced flow amount = SetProperty Price flow (Just (StatedAmount "EUR" amount))
-                edited <- editExchanges manager parentName Nothing (dairyActivity parent) [priced cheese 4, priced whey 1]
+                edited <- editExchanges manager parentName Nothing Nothing (dairyActivity parent) [priced cheese 4, priced whey 1]
                 isRight edited `shouldBe` True
                 -- 1 kg at 4 beside 3 kg at 1: 4 / 7 and 3 / 7 of the milk.
                 let repriced = near [40 / 7, 30 / 7]
                 deriveChild manager >>= (`shouldSatisfy` repriced) . inputOf "Cow milk"
                 rebooted <- initDatabaseManager defaultConfig NoCache
                 loadedDb rebooted childName >>= (`shouldSatisfy` repriced) . inputOf "Cow milk"
+
+        it "says the price edited on the parent in the child's history and changes report, the child edited" $
+            withParent $ \manager -> do
+                parent <- loadedDb manager parentName
+                let (cheese, whey) = dairyProducts parent
+                    priced flow amount = SetProperty Price flow (Just (StatedAmount "EUR" amount))
+                edited <- editExchanges manager parentName Nothing (noteFrom "Prices 2026") (dairyActivity parent) [priced cheese 4, priced whey 1]
+                isRight edited `shouldBe` True
+                _ <- deriveChild manager
+                configs <- readTVarIO (dmAvailableDbs manager)
+                childConfig <- maybe (fail "no child") pure (M.lookup childName configs)
+                modificationEdited <$> databaseModification configs childConfig `shouldReturn` True
+                history <- either (fail . T.unpack) pure =<< databaseHistory manager childName
+                journalLines (carriedOwn history) `shouldBe` []
+                [(dcName (journalOf journal), map hlNote (journalLines journal)) | journal <- toList (carriedFromParent history)] `shouldBe` [(parentName, [noteFrom "Prices 2026"])]
+                let report = changesReport (Provenance childName "dairy" Nothing Nothing) (fmap dcName <$> history)
+                report `shouldSatisfy` isInfixOf ("Changes made on " <> parentName <> ", the parent this database is divided from")
+                report `shouldSatisfy` isInfixOf "Reason: Prices 2026"
 
     describe "a child substituting a coproduct" $ do
         it "leaves the whole block to the cheese, credited with the milk powder the whey displaces" $
@@ -351,6 +375,63 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 _ <- deriveWith manager (substitutingWhey parent (snd (dairyProducts parent)))
                 rebooted <- initDatabaseManager defaultConfig NoCache
                 loadedDb rebooted childName >>= (`shouldSatisfy` near [0.75]) . avoidedOf "Milk powder"
+
+    describe "a child setting a method parameter" $ do
+        it "takes the recycling credit away at A = 1, and leaves the parent as it was" $
+            withSource recyclingCSV $ \manager -> do
+                parent <- parentOf manager
+                child <- deriveWith manager (settingA "")
+                -- (1 - A) * R2 at A = 0.2 and R2 = 0.7: 0.56 kg recycled, as much virgin carton avoided.
+                linesOf "Carton recycling" parent `shouldSatisfy` near [0.56]
+                avoidedOf "Virgin carton" parent `shouldSatisfy` near [0.56]
+                linesOf "Carton recycling" child `shouldSatisfy` near [0]
+                avoidedOf "Virgin carton" child `shouldSatisfy` near [0]
+                linesOf "Landfill" child `shouldSatisfy` near [0.3]
+                [parameterDefinition p | a <- V.toList (dbActivities child), activityName a == "Carton end of life", Just p <- [M.lookup "A" (activityParameters a)]]
+                    `shouldBe` [InputParameter 1 Nothing]
+
+        it "traces each process the parameter moved, the pieces of the block it moved too" $
+            withSource recyclingCSV $ \manager -> do
+                parent <- parentOf manager
+                let model = settingA ""
+                child <- deriveWith manager model
+                traced model parent child
+                    -- At A = 1 the rejects weigh nothing, so the bale carries the whole sorting.
+                    `shouldReturn` [ ("Bale", Just 100, "price, default key; parameter A = 1 \"Cut-off.\"")
+                                   , ("Carton waste", Just 100, "as the parent has it; parameter A = 1 \"Cut-off.\"")
+                                   , ("Rejects", Just 0, "price, default key; parameter A = 1 \"Cut-off.\"")
+                                   ]
+
+        it "refuses a parameter that moves no process, one a process computes, or one it spells twice" $
+            withSource recyclingCSV $ \manager -> do
+                parent <- parentOf manager
+                let refusedBy p text = do
+                        m <- either (fail . show) pure (parseSystemModel text)
+                        fromLeft "" <$> childOf defaultUnitConfig m p
+                refusedBy parent (T.replace "name = \"A\"" "name = \"Z\"" (settingA "")) >>= (`shouldSatisfy` isInfixOf "moves no process of the parent: none declares it")
+                refusedBy parent (T.replace "value = 1" "value = 0.2" (settingA "")) >>= (`shouldSatisfy` isInfixOf "already has it at that value")
+                let onCarton f a
+                        | activityName a == "Carton end of life" = a{activityParameters = f (activityParameters a)}
+                        | otherwise = a
+                refusedBy parent{dbActivities = V.map (onCarton (M.adjust (\p -> p{parameterDefinition = CalculatedParameter "0.1 * 2" (Just 0.2)}) "A")) (dbActivities parent)} (settingA "")
+                    >>= (`shouldSatisfy` isInfixOf "Carton end of life computes A by a formula")
+                refusedBy parent{dbActivities = V.map (onCarton (\ps -> maybe ps (\p -> M.insert "a" p ps) (M.lookup "A" ps))) (dbActivities parent)} (settingA "")
+                    >>= (`shouldSatisfy` isInfixOf "Carton end of life spells A twice, as A and a")
+
+        it "refuses a substitution of a row the parameter empties, on the model's page as in the child" $
+            withSource recyclingCSV $ \manager -> do
+                parent <- parentOf manager
+                let text = settingA (substitutingRejects parent)
+                model <- either (fail . show) pure (parseSystemModel text)
+                either (T.intercalate "; " . NE.toList) (const "") (takenProcesses model parent) `shouldSatisfy` isInfixOf "displaces nothing"
+                childOf defaultUnitConfig model parent >>= (`shouldSatisfy` isInfixOf "displaces nothing") . fromLeft ""
+
+        it "is still set after a restart" $
+            withSource recyclingCSV $ \manager -> do
+                _ <- parentOf manager
+                _ <- deriveWith manager (settingA "")
+                rebooted <- initDatabaseManager defaultConfig NoCache
+                loadedDb rebooted childName >>= (`shouldSatisfy` near [0]) . linesOf "Carton recycling"
 
 {- | The milk behind each product of the block, ordered by the product's own
 amount, which is what tells the 1 kg of cheese from the 3 kg of whey.
@@ -508,12 +589,46 @@ substitutingWhey parent product =
         , "reason = \"Whey replaces milk powder in pig feed, by its solids.\""
         ]
 
+-- | A model pricing every block and setting A to 1, with these lines after.
+settingA :: Text -> Text
+settingA rest =
+    T.unlines
+        [ "name = \"Cut-off\""
+        , "version = \"1.0.0\""
+        , "[allocation]"
+        , "default = \"price\""
+        , "[[method_parameters]]"
+        , "name = \"A\""
+        , "value = 1"
+        , "reason = \"Cut-off.\""
+        ]
+        <> rest
+
+-- | A substitution of the sorting block's rejects, which A = 1 empties, by virgin carton.
+substitutingRejects :: Database -> Text
+substitutingRejects parent =
+    T.unlines
+        [ "[[substitutions]]"
+        , "coproduct = \"" <> T.takeWhile (/= '_') (processOf parent "Sorting") <> "_" <> UUID.toText (rejectsOf parent) <> "\""
+        , "replaces = \"" <> processOf parent "Virgin carton plant" <> "\""
+        , "ratio = 1"
+        , "reason = \"Rejects replace carton.\""
+        ]
+
+-- | The rejects of the sorting block, by product.
+rejectsOf :: Database -> UUID.UUID
+rejectsOf db = head [exchangeFlowId ex | a <- V.toList (dbActivities db), activityName a == "Sorting", ex <- exchanges a, exchangeIsProductOutput ex, named db "Rejects" ex]
+
+-- | The amounts of every line of this flow the database's processes buy.
+linesOf :: Text -> Database -> [Double]
+linesOf flowName db = [exchangeAmount ex | a <- V.toList (dbActivities db), ex <- exchanges a, not (exchangeIsProductOutput ex), not (isAvoided ex), named db flowName ex]
+
 -- | The child's trace back to its parent under the model of this text: product, share and rule, by product.
 traced :: Text -> Database -> Database -> IO [(Text, Maybe Double, Text)]
 traced text parent child = do
     model <- either (fail . show) pure (parseSystemModel text)
     onParent <- either (fail . show) pure (takenProcesses model parent)
-    pure (sortOn (\(product, _, _) -> product) [(trProduct t, trShare t, ruleText (trRule t)) | t <- traceOf onParent parent child])
+    pure (sortOn (\(product, _, _) -> product) [(trProduct t, trShare t, tracedRule t) | t <- traceOf onParent parent child])
 
 {- | The parent's process each traced piece names, by product: the products
 that process makes in the parent, so a piece of a block names the whole block
@@ -641,6 +756,48 @@ steamCSV =
     simaProBlocks
         [ ("Nitric acid plant", ["Products", "Nitric acid;kg;1;80;not defined;chemicals;", "Steam;MJ;5;20;not defined;energy;", "", "Materials/fuels", "Ammonia;kg;0.3;Undefined;0;0;0;"])
         , ("Dryer", ["Products", "Dried grain;kg;1;100;not defined;material;", "", "Materials/fuels", "Steam;MJ;2;Undefined;0;0;0;"])
+        ]
+
+{- | A carton end of life writing the recycling formula as Agribalyse does,
+its credit and its recycling read through A, a plant making the virgin carton
+it credits, and a sorting block whose rejects A empties at 1.
+-}
+recyclingCSV :: BS.ByteString
+recyclingCSV =
+    simaProBlocks
+        [
+            ( "Carton end of life"
+            ,
+                [ "Products"
+                , "Carton waste;kg;1;100;not defined;material;"
+                , ""
+                , "Avoided products"
+                , "Virgin carton;kg;(1-A)*R2;Undefined;0;0;0;"
+                , ""
+                , "Materials/fuels"
+                , "Carton recycling;kg;(1-A)*R2;Undefined;0;0;0;"
+                , "Landfill;kg;1-R2;Undefined;0;0;0;"
+                , ""
+                , "Input parameters"
+                , "A;0.2;Undefined;1;0;0;No;"
+                , "R2;0.7;Undefined;1;0;0;No;"
+                ]
+            )
+        , ("Virgin carton plant", ["Products", "Virgin carton;kg;1;100;not defined;material;", "", "Materials/fuels", "Wood;kg;2;Undefined;0;0;0;"])
+        ,
+            ( "Sorting"
+            ,
+                [ "Products"
+                , "Bale;kg;1;50;not defined;material;"
+                , "Rejects;kg;(1-A)*2;50;not defined;material;"
+                , ""
+                , "Materials/fuels"
+                , "Carton waste;kg;3;Undefined;0;0;0;"
+                , ""
+                , "Input parameters"
+                , "A;0.2;Undefined;1;0;0;No;"
+                ]
+            )
         ]
 
 -- | One SimaPro process block, wrapped in the header its parser expects.

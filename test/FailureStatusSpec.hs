@@ -51,6 +51,7 @@ envWith hc = do
             , aeDataVersion = Nothing
             , aeUsageLog = Nothing
             , aeReader = Nothing
+            , aeAuthor = Nothing
             }
 
 -- | The status and body a handler failed with, or 'Nothing' when it answered 200.
@@ -67,7 +68,7 @@ failing =
     , ("finalize", (`failure` finalizeDatabaseHandler "nope"))
     , ("upload", (`failure` uploadDatabaseHandler (Just "nope") Nothing (source [])))
     , ("upload without a name", (`failure` uploadDatabaseHandler Nothing Nothing (source [])))
-    , ("upload-method", (`failure` uploadMethodHandler (Just "nope") Nothing (source [])))
+    , ("upload-method", (`failure` uploadMethodHandler (Just "nope") Nothing Nothing (source [])))
     , ("load-method", (`failure` loadMethodCollectionHandler "nope"))
     , ("unload-method", (`failure` unloadMethodCollectionHandler "nope"))
     , ("delete-method", (`failure` deleteMethodHandler "nope"))

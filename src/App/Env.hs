@@ -19,6 +19,7 @@ import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, ReaderT (..), asks)
 import Data.Foldable (for_)
+import Data.JournalFile (Author)
 import Data.Text (Text)
 import Database.Manager (DatabaseManager, LoadedDatabase (..), getDatabase, releasesRead)
 import Servant (Handler, ServerError)
@@ -38,6 +39,8 @@ data AppEnv = AppEnv
     -- ^ Where computations are noted, when the configuration keeps a usage log
     , aeReader :: !(Maybe Text)
     -- ^ Whoever the request in hand was made for, as the server in front of the engine named them
+    , aeAuthor :: !(Maybe Author)
+    -- ^ Who signs the changes the request in hand makes, as the same server named them
     }
 
 newtype AppM a = AppM {unAppM :: ReaderT AppEnv Handler a}
