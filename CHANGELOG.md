@@ -224,6 +224,12 @@
 
 ### Fixed
 
+- `./build.sh` links on a glibc Linux without a distribution MUMPS. There
+  `build-mumps.sh` builds MUMPS from source as static archives, which, unlike a
+  distribution's shared library, do not bring the BLAS, LAPACK and gfortran
+  runtime they call, so the executable failed to link with undefined `dgemm_`
+  and `_gfortran_*` symbols. The link now names OpenBLAS and libgfortran when
+  only those archives are found, as the static builds already did.
 - A passenger transport counted in `p*km`, the spelling openLCA gives the
   person-kilometre, or in `p.km` or `p⋅km`, reads its unit, as `t.km` and
   `t⋅km` already did for freight. The unit table held `pkm` and `person*km`
