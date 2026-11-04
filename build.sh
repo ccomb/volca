@@ -372,7 +372,7 @@ if [[ "$MUMPS_FOUND" != "true" ]]; then
         BLAS_FLAGS="-L${OPENBLAS_PREFIX}/lib -lopenblas"
         export CPPFLAGS="-I${OPENBLAS_PREFIX}/include ${CPPFLAGS:-}"
     else
-        BLAS_FLAGS="-llapack -lblas"
+        BLAS_FLAGS="-lopenblas"
     fi
     MUMPS_VERSION="$MUMPS_VERSION" \
     OUTPUT_DIR="$LOCAL_MUMPS_DIR" \
