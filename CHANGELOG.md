@@ -224,6 +224,11 @@
 
 ### Fixed
 
+- An openLCA package of schema version 4 or 5, which is what openLCA 2 writes
+  today, loads as a database. It used to be refused for its version alone:
+  version 4 changed only the fields of an EPD and version 5 only added the
+  analysis groups of a product system, neither of which the reader uses, so
+  their documents read as version 3's.
 - `./build.sh` links on a glibc Linux without a distribution MUMPS. There
   `build-mumps.sh` builds MUMPS from source as static archives, which, unlike a
   distribution's shared library, do not bring the BLAS, LAPACK and gfortran
