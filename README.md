@@ -1071,6 +1071,12 @@ Tests cover matrix construction (sign convention), inventory calculation (golden
 
 ---
 
+## Contributors
+
+VoLCA is written by Christophe Combelles, with contributions from:
+
+- [Michiel De Backker](https://github.com/backkem): reading openLCA packages of schema versions 4 and 5, and linking a MUMPS built from source.
+
 ## License & third-party software
 
 VoLCA is licensed under the **Apache License 2.0** – see [LICENSE](LICENSE).
