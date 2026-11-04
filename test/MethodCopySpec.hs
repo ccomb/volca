@@ -158,9 +158,9 @@ spec = describe "copying a method collection" $ do
                 category <-
                     maybe (fail "no Ecotoxicity category") (pure . Method.Types.methodId) $
                         find ((== "Ecotoxicity") . Method.Types.methodName) (maybe [] Method.Types.mcMethods collection)
-                _ <- editMethodCategories manager "mine" (Rename category "Ecotoxicity, total")
+                _ <- editMethodCategories manager "mine" Nothing (Rename category "Ecotoxicity, total")
                 renamed <- getMethodCollection manager "mine"
                 fmap (concatMap (M.elems . ssVariables) . Method.Types.mcScoringSets) renamed `shouldBe` Just ["Ecotoxicity, total"]
                 fmap Method.Types.mcUnregionalized renamed `shouldBe` Just ["Ecotoxicity, total"]
-                _ <- undoMethodEdit manager "mine" Nothing
+                _ <- undoMethodEdit manager "mine" Nothing Nothing
                 getMethodCollection manager "mine" `shouldReturn` collection

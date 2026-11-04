@@ -24,10 +24,13 @@ Three properties are pinned, exactly as for the SimaPro/Brightway writers:
 module ILCDWriterSpec (spec) where
 
 import Codec.Archive.Zip (ZipOption (OptDestination), extractFilesFromArchive, toArchive)
+import Control.Exception (IOException, try)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (isLeft, isRight)
 import Data.List (isPrefixOf, sort)
 import qualified Data.Map.Strict as M
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -51,7 +54,13 @@ import ILCD.Writer (
     writeILCDDatabase,
  )
 import Matrix (computeInventoryMatrix)
+import System.Directory (createDirectoryIfMissing, makeAbsolute)
+import System.Environment (getEnvironment)
+import System.Exit (ExitCode (..))
+import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Process (proc, readCreateProcessWithExitCode)
+import qualified System.Process as P
 import Test.Hspec
 import Types
 import UnitConversion (defaultUnitConfig)
@@ -79,6 +88,55 @@ roundTrip db = withSystemTempDirectory "ilcd-writer-spec" $ \dir -> do
     case r of
         Left err -> error ("round-trip parse failed: " <> T.unpack err)
         Right db' -> pure db'
+
+{- | What @xmllint@ says against the ILCD schemas of each written file, nothing
+when every one is valid. Missing @xmllint@ is a failure, not a skip: the check
+is the only thing that keeps the writer inside the format.
+-}
+schemaErrors :: [(FilePath, BS.ByteString)] -> IO String
+schemaErrors files = withSystemTempDirectory "ilcd-schema-spec" $ \dir -> do
+    mapM_ (\(rel, bytes) -> createDirectoryIfMissing True (takeDirectory (dir </> rel)) >> BS.writeFile (dir </> rel) bytes) files
+    schemas <- makeAbsolute "test-data/ilcd-schemas"
+    env <- getEnvironment
+    concat <$> mapM (validate env schemas dir) (M.toList byKind)
+  where
+    byKind :: M.Map FilePath [FilePath]
+    byKind = M.fromListWith (++) [(takeDirectory rel, [rel]) | (rel, _) <- files]
+    validate :: [(String, String)] -> FilePath -> FilePath -> (FilePath, [FilePath]) -> IO String
+    validate env schemas dir (kind, rels) = do
+        let xsd = schemas </> fromMaybe ("unknown kind " <> kind) (lookup kind schemaOf)
+            run = (proc "xmllint" (["--nonet", "--noout", "--schema", xsd] ++ map (dir </>) rels)){P.env = Just (("XML_CATALOG_FILES", schemas </> "catalog.xml") : env)}
+        r <- try (readCreateProcessWithExitCode run "") :: IO (Either IOException (ExitCode, String, String))
+        pure $ case r of
+            Left e -> "xmllint could not run (install libxml2's xmllint): " <> show e
+            Right (ExitSuccess, _, _) -> ""
+            Right (ExitFailure _, _, err) -> err
+    schemaOf :: [(FilePath, FilePath)]
+    schemaOf =
+        [ ("processes", "ILCD_ProcessDataSet.xsd")
+        , ("flows", "ILCD_FlowDataSet.xsd")
+        , ("flowproperties", "ILCD_FlowPropertyDataSet.xsd")
+        , ("unitgroups", "ILCD_UnitGroupDataSet.xsd")
+        ]
+
+{- | The fixture with every field the writer has a place for filled in: a
+type of dataset, a revision date, and a location and a comment on each line.
+-}
+everyField :: SimpleDatabase -> SimpleDatabase
+everyField db = db{sdbActivities = M.map filled (sdbActivities db)}
+  where
+    filled :: Activity -> Activity
+    filled a =
+        a
+            { activityNativeType = Just (ILCDProcessType "Unit process, black box")
+            , activityDates = noDates{datesLastRevised = Just (fromGregorian 2024 9 6)}
+            , exchanges = map located (exchanges a)
+            }
+    located :: Exchange -> Exchange
+    located ex = case ex of
+        TechnosphereExchange{} -> ex{techLocation = LocationCode "FR", techComment = Just "a line's comment"}
+        BiosphereExchange{} -> ex{bioLocation = LocationCode "FR", bioComment = Just "a line's comment"}
+        WasteExchange{} -> ex{waLocation = LocationCode "FR", waComment = Just "a line's comment"}
 
 -- | Unwrap the guard-returning archive writer for a fixture known to be exportable.
 archiveOrFail :: WriteOptions -> SimpleDatabase -> BL.ByteString
@@ -289,6 +347,25 @@ spec = describe "ILCD.Writer round-trip" $ do
             `shouldMatchList` [ "flows/" <> UUID.toString fProdU <> ".xml"
                               , "flows/" <> UUID.toString fEmitU <> ".xml"
                               ]
+
+    describe "the ILCD 1.1 schemas" $ do
+        it "accept every file of a package that fills each field the writer has" $ do
+            db <- everyField <$> loadFixture
+            schemaErrors (ilcdFiles defaultWriteOptions db) >>= (`shouldBe` "")
+
+        it "accept a multi-output activity split into several processes" $
+            schemaErrors (ilcdFiles defaultWriteOptions multiOutputDb) >>= (`shouldBe` "")
+
+        it "read back the type of dataset written where the schema puts it" $ do
+            db' <- roundTrip . everyField =<< loadFixture
+            map (nativeLabel . activityNativeType) (M.elems (sdbActivities db'))
+                `shouldSatisfy` all (== Just "Unit process, black box")
+
+        it "leave out a type the format does not list" $ do
+            db <- loadFixture
+            let simaPro = db{sdbActivities = M.map (\a -> a{activityNativeType = Just (SimaProProcessType "Unit process")}) (sdbActivities db)}
+            db' <- roundTrip simaPro
+            map activityNativeType (M.elems (sdbActivities db')) `shouldSatisfy` all (== Nothing)
 
     it "emits one process file per activity" $ do
         db <- loadFixture

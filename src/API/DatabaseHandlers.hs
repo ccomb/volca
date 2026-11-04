@@ -37,7 +37,7 @@ module API.DatabaseHandlers (
     editExchangesHandler,
     editDatabaseParametersHandler,
     databaseHistoryHandler,
-    historyLineToAPI,
+    databaseHistoryToAPI,
     parametersReportToAPI,
     listScenariosHandler,
     saveScenarioHandler,
@@ -56,6 +56,8 @@ module API.DatabaseHandlers (
     encodeExportWarnings,
     uploadDatabaseHandler,
     uploadMethodHandler,
+    availableMethodCollectionsHandler,
+    installMethodCollectionHandler,
     deleteMethodHandler,
 
     -- * Setup Page Handlers
@@ -89,6 +91,7 @@ module API.DatabaseHandlers (
     loadQuotaRefusal,
     simpleAction,
     formatToText,
+    chooseMasterData,
     uploadSizeCap,
     uploadBodyCeiling,
     streamToTempFile,
@@ -97,13 +100,13 @@ module API.DatabaseHandlers (
 
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, try)
-import Control.Monad (mfilter, void, when)
+import Control.Monad (filterM, forM_, mfilter, unless, void, when)
 import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Csv as Csv
-import Data.List (isPrefixOf, unsnoc)
+import Data.List (find, isPrefixOf, unsnoc)
 import qualified Data.Map as M
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -111,10 +114,10 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as T
 import Data.Word (Word64)
 import Network.HTTP.Types.URI (urlEncode)
-import Servant (Header, Headers, ServerError, SourceIO, addHeader, err400, err403, err404, err409, err413, err422, err500, errBody, throwError)
+import Servant (Header, Headers, ServerError, SourceIO, addHeader, err400, err403, err404, err409, err413, err422, err500, err502, errBody, throwError)
 import qualified Servant.Types.SourceT as S
 import qualified System.Directory
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO (hClose, openBinaryTempFile)
 
 -- Flow synonyms
@@ -130,6 +133,7 @@ import API.Types (
     ActivityInput (..),
     ActivityWriteRequest (..),
     ActivityWriteResponse (..),
+    AvailableMethodCollection (..),
     BinaryContent (..),
     BridgeGroupAPI (..),
     BridgedFlowAPI (..),
@@ -144,6 +148,7 @@ import API.Types (
     DeleteSelectionRequest (..),
     DeleteSelectionResponse (..),
     DeriveRequest (..),
+    DroppedFactors (..),
     ExchangeEditRequest (..),
     ExchangeEditResponse (..),
     ExplainCFResult (..),
@@ -156,6 +161,7 @@ import API.Types (
     GapReportAPI (..),
     LoadDatabaseResponse (..),
     ModelExceptionAPI (..),
+    ModelParameterAPI (..),
     ModelSubstitutionAPI (..),
     ParametersEditRequest (..),
     ParametersEditResponse (..),
@@ -175,6 +181,7 @@ import API.Types (
     TakenProcessAPI (..),
     UploadChunk (..),
     UploadResponse (..),
+    UploadedFamily (..),
     toAuthoredActivities,
     toExchangeEdits,
     toParameterEdits,
@@ -186,8 +193,12 @@ import Control.Monad.Reader (asks)
 import Data.Aeson (Value)
 import qualified Data.Aeson as A
 import qualified Data.Aeson.KeyMap as KM
+import Data.Char (toLower)
+import Data.Foldable (toList)
+import Data.Indexing (repeated)
+import Data.JournalFile (Author (..))
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Time.Clock (getCurrentTime, utctDay)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
@@ -214,7 +225,7 @@ import Database.Edit (
  )
 import Database.Export (parseExportFormat, parseMethodExportFormat, serializeDatabase, serializeMethodCollection)
 import Database.ExportSupplier (dependenciesOf)
-import Database.History (HistoryLine (..), Provenance (..), changesReport)
+import Database.History (Carried, HistoryLine (..), Journal (..), Provenance (..), changesReport)
 import Database.Journal (Note, noteFrom, noteText)
 import qualified Database.Loader as Loader
 import Database.Manager (
@@ -224,6 +235,7 @@ import Database.Manager (
     DatabaseStatus (..),
     DependencyEdit (..),
     LoadedDatabase (..),
+    MethodCollectionStatus (..),
     RefDataStatus (..),
     RelativeDataPath (..),
     RelinkResult (..),
@@ -252,10 +264,12 @@ import Database.Manager (
     listCompartmentMappings,
     listDatabases,
     listFlowSynonyms,
+    listMethodCollections,
     listUnitDefs,
     loadCompartmentMappings,
     loadDatabase,
     loadFlowSynonyms,
+    loadMethodCollection,
     loadOlcaPackageMethod,
     loadUnitDefs,
     madeFrom,
@@ -297,13 +311,20 @@ import Database.Upload (
     formatDisplayText,
     handleUpload,
     isOlcaMethodPackage,
+    listDirectoryRecursive,
+    slugify,
  )
 import qualified Database.UploadedDatabase as UploadedDB
+import EcoSpold.Parser2 (parseElementaryExchanges)
+import Method.Catalog (CatalogEntry (..), FetchFailure (..), fetchEntry, methodCatalog)
 import qualified Method.Coverage as Coverage
 import qualified Method.Explain as Explain
 import Method.Mapping (BuildProvenance (..), CF (..), CFUnit (..), provenanceStrategyText, strategyToText)
-import Method.Types (Method (..), MethodCF (..))
+import Method.ParserFactorTable (Dropped (..), familyCollections, isFactorTable, readFactorTable)
+import Method.Types (Method (..), MethodCF (..), MethodCollection (mcMethods))
+import Method.WriterCSV (serializeColumnarMethodCSV)
 import Types (
+    AddedAt,
     BiosphereFlow (..),
     BlockerReason (..),
     ClassificationFilter (..),
@@ -314,6 +335,7 @@ import Types (
     GeographyPolicy (..),
     Licence (..),
     ModelException (..),
+    ModelParameter (..),
     ModelSubstitution (..),
     Modification,
     Permission (..),
@@ -337,9 +359,11 @@ import Types (
     ratioValue,
     readingKey,
     reasonText,
+    spdxId,
     unresolvedCount,
     withheldSentence,
  )
+import Xlsx (Workbook, openWorkbook)
 
 -- | List all databases
 getDatabases :: AppM DatabaseListResponse
@@ -417,14 +441,19 @@ databaseHistoryHandler dbName = do
     refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     liftIO (databaseHistory dbManager dbName) >>= \case
-        Right lines' -> pure (map historyLineToAPI lines')
+        Right carried -> pure (databaseHistoryToAPI carried)
         Left err -> do
             -- A database that is there with a journal the engine cannot read is the engine's failure, not the caller's.
             known <- M.member dbName <$> liftIO (readTVarIO (dmAvailableDbs dbManager))
             throwError (if known then err500 else err404){errBody = BSL.fromStrict (T.encodeUtf8 err)}
 
-historyLineToAPI :: HistoryLine -> DatabaseHistoryEntry
-historyLineToAPI line = DatabaseHistoryEntry (hlAt line) (noteText <$> hlNote line) (hlSummary line) (hlDetails line)
+-- | Each line of a database's history, with the database it was made on: its parent's, or its own.
+databaseHistoryToAPI :: Carried (Journal DatabaseConfig) -> [DatabaseHistoryEntry]
+databaseHistoryToAPI carried =
+    [ DatabaseHistoryEntry (hlAt line) (dcName (journalOf journal)) (authorHandle <$> hlBy line) (noteText <$> hlNote line) (hlSummary line) (hlDetails line)
+    | journal <- toList carried
+    , line <- journalLines journal
+    ]
 
 {- | Supplier-gap report for a loaded or staged database: everything still
 unsupplied after internal resolution and cross-DB linking. The natural
@@ -685,6 +714,15 @@ systemModelHandler dbName = do
                     }
                 | ns <- mopSubstitutions onParent
                 ]
+            , smaParameters =
+                [ ModelParameterAPI
+                    { mpaName = mpName mp
+                    , mpaValue = mpValue mp
+                    , mpaReason = reasonText (mpReason mp)
+                    , mpaProcesses = [TakenProcessAPI{tpaActivity = processRefText (uncurry ProcessRef k), tpaName = name} | (k, name) <- processes]
+                    }
+                | (mp, processes) <- mopParameters onParent
+                ]
             }
 
 -- | Delete an uploaded database (move to trash)
@@ -702,6 +740,7 @@ deleteActivitiesHandler :: Text -> DeleteSelectionRequest -> AppM DeleteSelectio
 deleteActivitiesHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
+    by <- asks aeAuthor
     let classFilters =
             [ ClassificationFilter{clfSystem = dcfSystem f, clfValue = dcfValue f, clfMatch = if dcfExact f then MatchExact else MatchContains}
             | f <- dsqClassifications req
@@ -716,6 +755,7 @@ deleteActivitiesHandler dbName req = do
             deleteActivitiesInDB
                 dbManager
                 dbName
+                by
                 DeleteRequest
                     { drName = nonBlank (dsqName req)
                     , drLocation = nonBlank (dsqLocation req)
@@ -763,8 +803,9 @@ runWrite :: Text -> Maybe Note -> WriteVerb -> [ActivityInput] -> AppM ActivityW
 runWrite dbName note verb inputs = do
     guardMutation
     dbManager <- asks aeDbManager
+    by <- asks aeAuthor
     authored <- either (writeErr err400 . T.intercalate "\n") pure (toAuthoredActivities inputs)
-    outcome <- liftIO (writeActivities dbManager dbName note verb authored)
+    outcome <- liftIO (writeActivities dbManager dbName by note verb authored)
     case outcome of
         Left refusal -> writeErr (statusFor refusal) (refusalMessage refusal)
         Right report ->
@@ -786,8 +827,9 @@ editExchangesHandler :: Text -> Text -> ExchangeEditRequest -> AppM ExchangeEdit
 editExchangesHandler dbName processId req = do
     guardMutation
     dbManager <- asks aeDbManager
+    by <- asks aeAuthor
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toExchangeEdits req)
-    outcome <- liftIO (editExchanges dbManager dbName (eerNote req >>= noteFrom) processId edits)
+    outcome <- liftIO (editExchanges dbManager dbName by (eerNote req >>= noteFrom) processId edits)
     either refuseWrite (pure . editReportToAPI) outcome
 
 {- | What an edit answers, on every surface that offers one, so an assistant
@@ -816,8 +858,9 @@ editDatabaseParametersHandler :: Text -> ParametersEditRequest -> AppM Parameter
 editDatabaseParametersHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
+    by <- asks aeAuthor
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toParameterEdits req)
-    outcome <- liftIO (editDatabaseParameters dbManager dbName (pqNote req >>= noteFrom) edits)
+    outcome <- liftIO (editDatabaseParameters dbManager dbName by (pqNote req >>= noteFrom) edits)
     either refuseWrite (pure . parametersReportToAPI) outcome
 
 parametersReportToAPI :: ParametersReport -> ParametersEditResponse
@@ -841,7 +884,8 @@ saveScenarioHandler :: Text -> Text -> ScenarioSaveRequest -> AppM [ScenarioAPI]
 saveScenarioHandler dbName name req = do
     guardMutation
     dbManager <- asks aeDbManager
-    either refuseWrite pure =<< liftIO (saveScenario dbManager dbName (ScenarioName name) (ssrParameters req))
+    by <- asks aeAuthor
+    either refuseWrite pure =<< liftIO (saveScenario dbManager dbName by (ScenarioName name) (ssrParameters req))
     listScenariosHandler dbName
 
 -- | Drop a saved scenario, and answer the scenarios left.
@@ -849,7 +893,8 @@ dropScenarioHandler :: Text -> Text -> AppM [ScenarioAPI]
 dropScenarioHandler dbName name = do
     guardMutation
     dbManager <- asks aeDbManager
-    either refuseWrite pure =<< liftIO (dropScenario dbManager dbName (ScenarioName name))
+    by <- asks aeAuthor
+    either refuseWrite pure =<< liftIO (dropScenario dbManager dbName by (ScenarioName name))
     listScenariosHandler dbName
 
 -- | A refused write, answered with its status and its message.
@@ -917,6 +962,7 @@ exportDatabaseHandler dbName req = do
         ILCDProcess -> notKept
         OpenLcaImpactCategory -> notKept
         BrightwayExcel -> notKept
+        ColumnarCSV -> notKept
         UnknownFormat -> notKept
       where
         notKept :: [Text]
@@ -955,8 +1001,8 @@ crateInput manager ld fmt modification = do
     config :: DatabaseConfig
     config = ldConfig ld
 
-    changesOf :: Provenance -> [HistoryLine] -> Changes
-    changesOf provenance lines' = Changes (changesReport provenance lines') (pvOriginal provenance) (pvRelease provenance)
+    changesOf :: Provenance -> Carried (Journal DatabaseConfig) -> Changes
+    changesOf provenance carried = Changes (changesReport provenance (fmap dcDisplayName <$> carried)) (pvOriginal provenance) (pvRelease provenance)
 
     name :: Text
     name = dcName config
@@ -1431,6 +1477,8 @@ uploadDatabaseHandler mName mDesc src = do
                         "Database uploaded successfully"
                         (Just $ urSlug uploadResult)
                         (Just $ formatToText $ urFormat uploadResult)
+                        []
+                        Nothing
 
 -- | Convert DatabaseManager.DatabaseStatus to API.DatabaseStatusAPI
 convertDbStatus :: DatabaseStatus -> DatabaseStatusAPI
@@ -1515,6 +1563,7 @@ formatToText ILCDProcess = "ilcd"
 formatToText OpenLcaImpactCategory = "openlca-jsonld"
 formatToText OpenLcaPackage = "openlca-package"
 formatToText BrightwayExcel = "brightway-excel"
+formatToText ColumnarCSV = "columnar-csv"
 formatToText UnknownFormat = "unknown"
 
 --------------------------------------------------------------------------------
@@ -1588,8 +1637,8 @@ finalizeDatabaseHandler dbName = do
 {- | Upload a new method collection
 Same flow as database upload but creates MethodConfig entry
 -}
-uploadMethodHandler :: Maybe Text -> Maybe Text -> SourceIO UploadChunk -> AppM UploadResponse
-uploadMethodHandler mName mDesc src =
+uploadMethodHandler :: Maybe Text -> Maybe Text -> Maybe Text -> SourceIO UploadChunk -> AppM UploadResponse
+uploadMethodHandler mName mDesc flowsFrom src =
     withStreamedUpload mName mDesc src $ \name mDescription zipBytes -> do
         dbManager <- asks aeDbManager
         let uploadData =
@@ -1604,68 +1653,233 @@ uploadMethodHandler mName mDesc src =
             Left err -> failWith err400 err
             Right uploadResult -> do
                 let uploadDir = uploadsDir </> T.unpack (urSlug uploadResult)
+                factorTable <- liftIO (findFactorTable uploadDir)
+                case factorTable of
+                    -- The table is read once, into collections of their own, and then let go.
+                    Just workbook -> uploadFactorTable dbManager uploadsDir name mDescription flowsFrom workbook `finally` liftIO (removeTreeQuietly uploadDir)
+                    Nothing -> do
+                        when (isJust flowsFrom) $ do
+                            liftIO (removeTreeQuietly uploadDir)
+                            failWith err400 "flows_from applies to a table of characterization factors only, and this upload holds none."
+                        uploadMethodFiles dbManager uploadDir name mDescription uploadResult
 
-                -- Find the actual method XML directory (e.g. ILCD/lciamethods/)
-                methodDir <- liftIO $ findMethodDirectory uploadDir
-                -- Format comes from the method directory, not from the database
-                -- detector: companion spreadsheets shipped alongside a method
-                -- package would otherwise read as a Brightway Excel inventory.
-                methodFormat <- liftIO $ detectMethodFormat methodDir
-                -- An upload names no method, so a package of several is refused here rather than at activation.
-                package <- liftIO $ isOlcaMethodPackage methodDir
-                when package $
-                    liftIO (loadOlcaPackageMethod Nothing methodDir) >>= \case
-                        Right _ -> pure ()
-                        Left err -> do
-                            liftIO $ void (try (System.Directory.removeDirectoryRecursive uploadDir) :: IO (Either SomeException ()))
-                            failWith err400 ("An uploaded openLCA package must hold one method: " <> err <> ". Export that method alone from openLCA.")
+-- | The method collections the catalogue offers, each saying whether the engine already knows it.
+availableMethodCollectionsHandler :: AppM [AvailableMethodCollection]
+availableMethodCollectionsHandler = do
+    entries <- either (failWith err500) pure methodCatalog
+    known <- knownMethodCollections
+    pure
+        [ AvailableMethodCollection
+            { amcName = ceName e
+            , amcPublisher = cePublisher e
+            , amcVersion = ceVersion e
+            , amcLicence = spdxId <$> ceLicence e
+            , amcSourceUrl = ceSourceUrl e
+            , amcSize = ceSize e
+            , amcDescription = ceDescription e
+            , amcInstalled = ceName e `elem` known
+            }
+        | e <- entries
+        ]
 
-                added <- liftIO addedNow
-                -- Create meta.toml (store path relative to upload dir)
-                let meta =
-                        UploadedDB.UploadMeta
-                            { UploadedDB.umVersion = UploadedDB.metaVersion
-                            , UploadedDB.umDisplayName = name
-                            , UploadedDB.umDescription = mDescription
-                            , UploadedDB.umFormat = methodFormat
-                            , UploadedDB.umDataPath = makeRelative uploadDir methodDir
-                            , UploadedDB.umDepends = []
-                            , UploadedDB.umSource = Nothing
-                            , UploadedDB.umReading = FromFiles ReadDeclared
-                            , UploadedDB.umBuiltIn = Nothing
-                            , UploadedDB.umLicence = LicenceUnstated
-                            , UploadedDB.umRelease = Nothing
-                            , UploadedDB.umRequires = []
-                            , UploadedDB.umPackageMethod = Nothing
-                            , UploadedDB.umAdded = Just added
-                            }
-                liftIO $ UploadedDB.writeUploadMeta uploadDir meta
+{- | Download a method collection of the catalogue, keep it only if it is the
+file the catalogue states, then store and load it as an upload of that name.
+A collection the engine already knows under that name, uploaded or
+configured, is not downloaded again. The plan's upload cap applies, as to a
+file sent.
+-}
+installMethodCollectionHandler :: Text -> AppM ActivateResponse
+installMethodCollectionHandler name = do
+    guardMutation
+    entries <- either (failWith err500) pure methodCatalog
+    entry <- maybe (failWith err404 ("The catalogue offers no method collection named " <> name <> ".")) pure (find ((== name) . ceName) entries)
+    known <- knownMethodCollections
+    when (name `elem` known) $ failWith err409 ("A method collection named " <> name <> " is already installed.")
+    mCap <- asks aeHostingConfig >>= either (failWith err403) pure . uploadSizeCap
+    forM_ mCap $ \cap -> when (ceSize entry > cap) (uncurry failWith (rejectionAnswer (TooLarge cap)))
+    dbManager <- asks aeDbManager
+    tmpPath <- liftIO $ do
+        tmpDir <- System.Directory.getTemporaryDirectory
+        (path, h) <- openBinaryTempFile tmpDir "volca-method-.bin"
+        hClose h
+        pure path
+    ( do
+            liftIO (fetchEntry entry tmpPath) >>= either (uncurry failWith . fetchAnswer) pure
+            bytes <- liftIO (BSL.readFile tmpPath)
+            uploadsDir <- liftIO UploadedDB.getMethodUploadsDir
+            let description = Just (ceDescription entry)
+            uploaded <- liftIO $ handleUpload uploadsDir (UploadData name description bytes) (\_ -> pure ())
+            uploadResult <- either (failWith err400) pure uploaded
+            void (uploadMethodFiles dbManager (uploadsDir </> T.unpack (urSlug uploadResult)) name description uploadResult)
+            ioEither400 (loadMethodCollection dbManager name)
+        )
+        `finally` liftIO (removeQuietly tmpPath)
+    pure (ActivateResponse True ("Installed and loaded method: " <> name) Nothing)
+  where
+    fetchAnswer :: FetchFailure -> (ServerError, Text)
+    fetchAnswer (Unreachable why) = (err502, why)
+    fetchAnswer (NotAsCatalogued why) = (err422, why)
 
-                -- Create MethodConfig and add to manager
-                let mc =
-                        MethodConfig
-                            { mcName = name
-                            , mcOrigin = MethodFromFile methodDir
-                            , mcActive = False
-                            , mcDefault = False
-                            , mcHome = Just uploadDir
-                            , mcSource = Nothing
-                            , mcDescription = mDescription
-                            , mcAdded = Just added
-                            , mcFormat = detectedFormatLabel methodFormat
-                            , mcScoringSets = []
-                            , mcGlobalMethods = []
-                            , mcPatches = []
-                            , mcPackageMethod = Nothing
-                            }
-                liftIO $ addMethodCollection dbManager mc
+knownMethodCollections :: AppM [Text]
+knownMethodCollections = asks aeDbManager >>= liftIO . fmap (map mcsName) . listMethodCollections
 
-                return $
-                    UploadResponse
-                        True
-                        "Method uploaded successfully"
-                        (Just $ urSlug uploadResult)
-                        (Just $ formatToText $ urFormat uploadResult)
+{- | Upload a method collection as its files: ILCD, openLCA, SimaPro or
+columnar CSV, read again at each activation.
+-}
+uploadMethodFiles :: DatabaseManager -> FilePath -> Text -> Maybe Text -> UploadResult -> AppM UploadResponse
+uploadMethodFiles dbManager uploadDir name mDescription uploadResult = do
+    -- Find the actual method XML directory (e.g. ILCD/lciamethods/)
+    methodDir <- liftIO $ findMethodDirectory uploadDir
+    -- Format comes from the method directory, not from the database
+    -- detector: companion spreadsheets shipped alongside a method
+    -- package would otherwise read as a Brightway Excel inventory.
+    methodFormat <- liftIO $ detectMethodFormat methodDir
+    -- An upload names no method, so a package of several is refused here rather than at activation.
+    package <- liftIO $ isOlcaMethodPackage methodDir
+    when package $
+        liftIO (loadOlcaPackageMethod Nothing methodDir) >>= \case
+            Right _ -> pure ()
+            Left err -> do
+                liftIO (removeTreeQuietly uploadDir)
+                failWith err400 ("An uploaded openLCA package must hold one method: " <> err <> ". Export that method alone from openLCA.")
+
+    added <- liftIO addedNow
+    liftIO $ registerUploadedMethod dbManager name mDescription methodFormat uploadDir methodDir added
+    return $
+        UploadResponse
+            True
+            "Method uploaded successfully"
+            (Just $ urSlug uploadResult)
+            (Just $ formatToText $ urFormat uploadResult)
+            []
+            Nothing
+
+{- | Record a method collection uploaded into a directory of its own: its
+meta.toml, so a restart finds it again, and its place among the collections,
+inactive.
+-}
+registerUploadedMethod :: DatabaseManager -> Text -> Maybe Text -> DatabaseFormat -> FilePath -> FilePath -> AddedAt -> IO ()
+registerUploadedMethod dbManager name mDescription methodFormat uploadDir methodDir added = do
+    UploadedDB.writeUploadMeta
+        uploadDir
+        UploadedDB.UploadMeta
+            { UploadedDB.umVersion = UploadedDB.metaVersion
+            , UploadedDB.umDisplayName = name
+            , UploadedDB.umDescription = mDescription
+            , UploadedDB.umFormat = methodFormat
+            , UploadedDB.umDataPath = makeRelative uploadDir methodDir
+            , UploadedDB.umDepends = []
+            , UploadedDB.umSource = Nothing
+            , UploadedDB.umReading = FromFiles ReadDeclared
+            , UploadedDB.umBuiltIn = Nothing
+            , UploadedDB.umLicence = LicenceUnstated
+            , UploadedDB.umRelease = Nothing
+            , UploadedDB.umRequires = []
+            , UploadedDB.umPackageMethod = Nothing
+            , UploadedDB.umAdded = Just added
+            }
+    addMethodCollection
+        dbManager
+        MethodConfig
+            { mcName = name
+            , mcOrigin = MethodFromFile methodDir
+            , mcActive = False
+            , mcDefault = False
+            , mcHome = Just uploadDir
+            , mcSource = Nothing
+            , mcDescription = mDescription
+            , mcAdded = Just added
+            , mcFormat = detectedFormatLabel methodFormat
+            , mcScoringSets = []
+            , mcGlobalMethods = []
+            , mcPatches = []
+            , mcPackageMethod = Nothing
+            }
+
+-- | The first workbook of the upload that is a table of characterization factors.
+findFactorTable :: FilePath -> IO (Maybe Workbook)
+findFactorTable uploadDir = do
+    files <- listDirectoryRecursive uploadDir
+    firstFactorTable [f | f <- files, map toLower (takeExtension f) == ".xlsx"]
+  where
+    firstFactorTable [] = pure Nothing
+    firstFactorTable (f : rest) = do
+        workbook <- openWorkbook <$> BSL.readFile f
+        case workbook of
+            Right wb | isFactorTable wb -> pure (Just wb)
+            _ -> firstFactorTable rest
+
+{- | Upload a table of characterization factors: each method family it holds
+becomes a columnar CSV collection of its own, named "<name> · <family>". The
+units and CAS numbers of its flows come from the EcoSpold 2 master data of a
+database ('chooseMasterData'). Nothing is written unless every family can be.
+-}
+uploadFactorTable :: DatabaseManager -> FilePath -> Text -> Maybe Text -> Maybe Text -> Workbook -> AppM UploadResponse
+uploadFactorTable dbManager uploadsDir name mDescription flowsFrom workbook = do
+    databases <- liftIO (readTVarIO (dmAvailableDbs dbManager))
+    candidates <- liftIO $ traverse (\(db, cfg) -> (,) db <$> masterDataOf cfg) (M.toList databases)
+    masterPath <- either (failWith err400) pure (chooseMasterData flowsFrom candidates)
+    masterFlows <-
+        liftIO (BS.readFile masterPath)
+            >>= either (\e -> failWith err400 (T.pack masterPath <> ": " <> T.pack e)) pure . parseElementaryExchanges
+    (families, dropped) <- either (failWith err400) pure (familyCollections masterFlows =<< readFactorTable workbook)
+    let named = [(name <> " · " <> family, collection) | (family, collection) <- families]
+        dirOf collectionName = uploadsDir </> T.unpack (slugify collectionName)
+    -- Two families whose names differ only in punctuation would share one folder.
+    case repeated (map (slugify . fst) named) of
+        [] -> pure ()
+        clashing -> failWith err400 ("Several families of this table would be stored under the same folder: " <> T.intercalate ", " clashing <> ".")
+    available <- liftIO (readTVarIO (dmAvailableMethods dbManager))
+    taken <- liftIO $ filterM (\(n, _) -> (M.member n available ||) <$> System.Directory.doesPathExist (dirOf n)) named
+    unless (null taken) $
+        failWith err409 ("These collections already exist: " <> T.intercalate ", " (map fst taken) <> ". Delete them, or upload under another name.")
+    written <- either (failWith err400) pure (traverse (\(n, c) -> (,,) n c . fst <$> serializeColumnarMethodCSV c) named)
+    added <- liftIO addedNow
+    liftIO $ forM_ written $ \(n, _, bytes) -> do
+        let dir = dirOf n
+        System.Directory.createDirectoryIfMissing True dir
+        BS.writeFile (dir </> "methods.csv") bytes
+        registerUploadedMethod dbManager n mDescription ColumnarCSV dir dir added
+    pure
+        UploadResponse
+            { uprSuccess = True
+            , uprMessage = "Method families uploaded successfully"
+            , uprSlug = Nothing
+            , uprFormat = Just (formatToText ColumnarCSV)
+            , uprFamilies = [UploadedFamily n (slugify n) (sum (map (length . methodFactors) (mcMethods c))) | (n, c, _) <- written]
+            , uprDropped = Just (DroppedFactors (dropCount dropped) (dropExamples dropped))
+            }
+
+{- | Where a database keeps its EcoSpold 2 master data, if it does: in a
+@MasterData@ directory within the directory it names, or beside it.
+-}
+masterDataOf :: DatabaseConfig -> IO (Maybe FilePath)
+masterDataOf cfg = firstExisting [dir </> "MasterData" </> "ElementaryExchanges.xml" | dir <- [dcPath cfg, takeDirectory (dcPath cfg)]]
+  where
+    firstExisting [] = pure Nothing
+    firstExisting (p : rest) = System.Directory.doesFileExist p >>= \found -> if found then pure (Just p) else firstExisting rest
+
+{- | The master data a table of factors takes its units and CAS numbers from:
+that of the database named, or, when none is, of the only database that has
+one.
+-}
+chooseMasterData :: Maybe Text -> [(Text, Maybe FilePath)] -> Either Text FilePath
+chooseMasterData flowsFrom candidates = case flowsFrom of
+    Just db -> case lookup db candidates of
+        Nothing -> Left ("No database is named " <> db <> "." <> offered)
+        Just Nothing -> Left (db <> " has no EcoSpold 2 master data (MasterData/ElementaryExchanges.xml)." <> offered)
+        Just (Just path) -> Right path
+    Nothing -> case withMasterData of
+        [(_, path)] -> Right path
+        [] -> Left "A table of characterization factors takes the units and CAS numbers of its flows from the master data of an EcoSpold 2 database. Upload the EcoSpold 2 release this table was made for first."
+        _ -> Left ("Several databases have EcoSpold 2 master data. Name the one this table was made for with flows_from." <> offered)
+  where
+    withMasterData = [(db, path) | (db, Just path) <- candidates]
+    offered = if null withMasterData then "" else " Databases with EcoSpold 2 master data: " <> T.intercalate ", " (map fst withMasterData) <> "."
+
+-- | Remove a directory and what it holds, whatever is left of it.
+removeTreeQuietly :: FilePath -> IO ()
+removeTreeQuietly p = void (try (System.Directory.removeDirectoryRecursive p) :: IO (Either SomeException ()))
 
 -- | Delete an uploaded method collection
 deleteMethodHandler :: Text -> AppM ActivateResponse
@@ -1806,7 +2020,7 @@ uploadRefData kind mName mDesc src =
                     , rdAdded = Just added
                     }
         liftIO $ addFn dbManager rd
-        return $ UploadResponse True "Uploaded successfully" (Just slug) Nothing
+        return $ UploadResponse True "Uploaded successfully" (Just slug) Nothing [] Nothing
   where
     quote t = "\"" <> T.replace "\"" "\\\"" t <> "\""
 

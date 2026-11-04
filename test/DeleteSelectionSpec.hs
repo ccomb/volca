@@ -241,6 +241,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 deleteActivitiesInDB
                     manager
                     "edit-me"
+                    Nothing
                     emptyDelete{drClassifications = [ClassificationFilter{clfSystem = "category", clfValue = "food", clfMatch = MatchContains}], drKeep = [foodA]}
             case r of
                 Left err -> expectationFailure ("deleteActivitiesInDB failed: " <> show err)
@@ -261,6 +262,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 deleteActivitiesInDB
                     manager
                     "edit-me-2"
+                    Nothing
                     emptyDelete{drClassifications = [ClassificationFilter{clfSystem = "category", clfValue = "food", clfMatch = MatchContains}], drKeep = ["not-a-real-process-id"]}
             case r of
                 Left _ -> pure ()
@@ -268,7 +270,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
 
         it "fails when the database is not loaded" $ do
             manager <- initDatabaseManager defaultConfig NoCache
-            r <- deleteActivitiesInDB manager "ghost" emptyDelete
+            r <- deleteActivitiesInDB manager "ghost" Nothing emptyDelete
             fmap doRemoved r `shouldBe` Left "Database not loaded: ghost"
 
         it "refuses to delete while a loaded database depends on it" $ do
@@ -284,6 +286,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 deleteActivitiesInDB
                     manager
                     "base"
+                    Nothing
                     emptyDelete{drClassifications = [ClassificationFilter{clfSystem = "category", clfValue = "food", clfMatch = MatchContains}]}
             case r of
                 Left err -> err `shouldSatisfy` isInfixOf "still required by"
@@ -295,7 +298,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
             db <- buildOrFail (classifiedDB 1000)
             installLoaded manager "by-ids" db
             let foodA = processIdToText db (pidFor2 db (mkUUID 1001) (mkUUID 1001))
-            r <- deleteActivitiesInDB manager "by-ids" emptyDelete{drIds = Just [foodA]}
+            r <- deleteActivitiesInDB manager "by-ids" Nothing emptyDelete{drIds = Just [foodA]}
             case r of
                 Left err -> expectationFailure ("deleteActivitiesInDB failed: " <> show err)
                 Right deleted -> do
@@ -315,6 +318,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 deleteActivitiesInDB
                     manager
                     "by-ids-2"
+                    Nothing
                     emptyDelete{drIds = Just [foodA], drClassifications = [ClassificationFilter{clfSystem = "category", clfValue = "food", clfMatch = MatchContains}]}
             case r of
                 Left err -> err `shouldSatisfy` isInfixOf "cannot be combined"
@@ -324,7 +328,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             db <- buildOrFail (classifiedDB 1200)
             installLoaded manager "by-ids-3" db
-            r <- deleteActivitiesInDB manager "by-ids-3" emptyDelete{drIds = Just ["not-a-real-process-id"]}
+            r <- deleteActivitiesInDB manager "by-ids-3" Nothing emptyDelete{drIds = Just ["not-a-real-process-id"]}
             case r of
                 Left err -> err `shouldSatisfy` isInfixOf "Unknown process id"
                 Right _ -> expectationFailure "expected unknown id to fail"
@@ -334,7 +338,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
             db <- buildOrFail (classifiedDB 1300)
             installLoaded manager "by-ids-4" db
             let foodA = processIdToText db (pidFor2 db (mkUUID 1301) (mkUUID 1301))
-            r <- deleteActivitiesInDB manager "by-ids-4" emptyDelete{drIds = Just [foodA], drExactName = True}
+            r <- deleteActivitiesInDB manager "by-ids-4" Nothing emptyDelete{drIds = Just [foodA], drExactName = True}
             case r of
                 Left err -> err `shouldSatisfy` isInfixOf "cannot be combined"
                 Right _ -> expectationFailure "expected ids+exact to be refused"
@@ -350,6 +354,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 deleteActivitiesInDB
                     manager
                     "by-ids-5"
+                    Nothing
                     emptyDelete{drIds = Just [foodA, foodB], drKeep = [foodA], drExtra = [energ]}
             case r of
                 Left err -> expectationFailure ("deleteActivitiesInDB failed: " <> show err)
@@ -366,7 +371,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
             db <- buildOrFail (classifiedDB 1500)
             installLoaded manager "by-ids-6" db
             let foodA = processIdToText db (pidFor2 db (mkUUID 1501) (mkUUID 1501))
-            r <- deleteActivitiesInDB manager "by-ids-6" emptyDelete{drIds = Just [], drExtra = [foodA]}
+            r <- deleteActivitiesInDB manager "by-ids-6" Nothing emptyDelete{drIds = Just [], drExtra = [foodA]}
             case r of
                 Left err -> expectationFailure ("deleteActivitiesInDB failed: " <> show err)
                 Right deleted -> doRemoved deleted `shouldBe` 1

@@ -54,7 +54,14 @@ module Database.Manager (
     removeDatabase,
     editHome,
     databaseModification,
+    journalsCarried,
     filesOwner,
+    Asked (..),
+    scoreBasis,
+    solutionBasis,
+    BasisSources (..),
+    basisOf,
+    databasesRead,
     scenariosHome,
 
     -- * Method Operations
@@ -192,15 +199,16 @@ import Data.Bitraversable (bitraverse)
 import Data.Char (toLower)
 import qualified Data.Csv as Csv
 import Data.Either (fromRight, lefts, partitionEithers, rights)
+import Data.Foldable (toList)
 import Data.Functor ((<&>))
-import Data.Indexing (uniqueIndex)
+import Data.Indexing (groupInOrder, uniqueIndex)
 import qualified Data.Indexing as Indexing
 import Data.List (find, intercalate, isPrefixOf, nub, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToParamSchema, ToSchema (..), enum_, type_)
 import Data.Ord (Down (..))
 import qualified Data.Set as S
@@ -371,11 +379,13 @@ import qualified UnitConversion
 
 -- CrossDBLinkingStats is now in Types, re-exported from Database.Loader
 
-import API.Types (DepLoadResult (..))
-import Data.JournalFile (readEntries)
+import API.Types (BasisDatabase (..), BasisMethods (..), DepLoadResult (..), ParameterValue, ScoreBasis (..), Substitution)
+import Data.Containers.ListUtils (nubOrd)
+import Data.JournalFile (Entry (..), readEntries)
 import Database.Author (editingContext)
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
 import qualified Database.CrossLinking as CrossLinking
+import Database.History (Carried (..))
 import qualified Database.Journal as Journal
 import Database.Requirements (ReleaseSubstitution (..), RequiredRelease, acceptSubstitute, admission, admits, requiredDatabases, requiredReleases)
 import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirectory, listDirectoryRecursive)
@@ -383,7 +393,7 @@ import qualified Database.Upload as Upload
 import qualified Database.UploadedDatabase as UploadedDB
 import Method.FlowResolver (ILCDFlowInfo)
 import qualified Method.FlowResolver as FlowResolver
-import Method.Journal (replayMethodJournal)
+import Method.Journal (MethodLine (..), changesScores, replayMethodJournal)
 import qualified Method.Parser
 import qualified Method.Parser.OlcaSchema as OlcaSchema
 import Method.ParserCSV (parseMethodCSVBytes, stripBOM)
@@ -881,9 +891,9 @@ not ask its computations to be counted is not counted: both are left out.
 -}
 releasesRead :: DatabaseManager -> Text -> IO [CountedRelease]
 releasesRead manager dbName = do
-    loaded <- readTVarIO (dmLoadedDbs manager)
+    names <- databasesRead manager dbName
     configs <- readTVarIO (dmAvailableDbs manager)
-    let read' = concatMap (sourceChain configs) (dbName : dependencyNames loaded dbName)
+    let read' = concatMap (sourceChain configs) names
         counted config = case licenceUsage (licenceOf configs config) of
             Counted disclosure -> (`CountedRelease` disclosure) <$> dcRelease config
             NotCounted -> Nothing
@@ -2966,15 +2976,102 @@ editHome dbConfig
         uploadsDir <- UploadedDB.getDatabaseUploadsDir
         pure (Just (uploadsDir </> T.unpack (dcName dbConfig)))
 
-{- | How a database's data differs from the files it reads: its journal, and a
-division other than that of the database owning the files, found at the end of
-its chain of sources. A copy of a re-divided database reads its files under its
-source's key, which is still not the files' own.
+{- | How a database's data differs from the files it reads: the journals it
+carries, and a division other than that of the database owning the files, found
+at the end of its chain of sources. A copy of a re-divided database reads its
+files under its source's key, which is still not the files' own.
 -}
 databaseModification :: M.Map Text DatabaseConfig -> DatabaseConfig -> IO Modification
 databaseModification configs config = do
-    edited <- maybe (pure False) Journal.journalHasEntries =<< editHome config
+    edited <- or <$> traverse (maybe (pure False) Journal.journalHasEntries <=< editHome) (journalsCarried configs config)
     pure Modification{modificationEdited = edited, modificationReallocated = dcReading (filesOwner configs config) /= dcReading config}
+
+-- | What a request substituted, and the parameter sets it scored at.
+data Asked = Asked
+    { askedSubstitutions :: [Substitution]
+    , askedParameterSets :: [[ParameterValue]]
+    }
+
+{- | What a score rests on: the databases it read, the database asked first,
+the collection, and what the request asked. Reads the journals along the
+databases' chains of sources and the collection's; 'basisOf' says the rest.
+-}
+scoreBasis :: DatabaseManager -> [Text] -> CollectionName -> Asked -> IO ScoreBasis
+scoreBasis manager names (CollectionName collection) asked = do
+    configs <- readTVarIO (dmAvailableDbs manager)
+    methodConfigs <- readTVarIO (dmAvailableMethods manager)
+    journaled <- filterM (journalHasLines configs) (nubOrd (map dcName (concatMap (toList . journalsCarried configs) (mapMaybe (`M.lookup` configs) names))))
+    methodEdited <- case mcHome =<< M.lookup collection methodConfigs of
+        Nothing -> pure False
+        -- A journal that cannot be read refuses the collection's load, so it scores nothing to say so of.
+        Just home -> either (const True) (any (changesScores . mlOp . jeOp)) <$> readEntries home
+    let (databases, methods) = basisOf (BasisSources configs (S.fromList journaled) methodConfigs methodEdited) names collection
+    pure
+        ScoreBasis
+            { sbEngine = T.pack (Version.version <> " (" <> Version.gitHash <> ")")
+            , sbDatabases = databases
+            , sbMethods = methods
+            , sbSubstitutions = askedSubstitutions asked
+            , sbParameterSets = askedParameterSets asked
+            }
+  where
+    journalHasLines :: M.Map Text DatabaseConfig -> Text -> IO Bool
+    journalHasLines configs name = case M.lookup name configs of
+        Nothing -> pure False
+        Just config -> maybe (pure False) Journal.journalHasEntries =<< editHome config
+
+-- | What a solved score rests on: the databases its solution reached, the one asked first.
+solutionBasis :: DatabaseManager -> SharedSolver.CrossDBSolution -> CollectionName -> Asked -> IO ScoreBasis
+solutionBasis manager sol = scoreBasis manager (map SharedSolver.reachedName (NE.toList (SharedSolver.csScalings sol)))
+
+-- | The databases a score of one of this database's activities may read: itself, then its dependencies, loaded ones only.
+databasesRead :: DatabaseManager -> Text -> IO [Text]
+databasesRead manager dbName = (dbName :) . (`dependencyNames` dbName) <$> readTVarIO (dmLoadedDbs manager)
+
+-- | What 'basisOf' reads: the configurations, and what the journals say.
+data BasisSources = BasisSources
+    { srcDatabases :: M.Map Text DatabaseConfig
+    , srcJournaled :: S.Set Text
+    -- ^ The databases whose own journal records a change.
+    , srcCollections :: M.Map Text MethodConfig
+    , srcCollectionEdited :: Bool
+    -- ^ Whether the collection's journal changes a score.
+    }
+
+{- | The databases and the collection a score read. A name the engine no
+longer configures is left out, having no configuration to tell.
+-}
+basisOf :: BasisSources -> [Text] -> Text -> ([BasisDatabase], BasisMethods)
+basisOf (BasisSources configs journaled methodConfigs methodEdited) names collection =
+    (map basisDatabase (mapMaybe (`M.lookup` configs) (nubOrd names)), methods)
+  where
+    basisDatabase :: DatabaseConfig -> BasisDatabase
+    basisDatabase config =
+        let owner = filesOwner configs config
+         in BasisDatabase
+                { bdName = dcName config
+                , bdRelease = listToMaybe (mapMaybe (dcRelease <=< (`M.lookup` configs)) (sourceChain configs (dcName config)))
+                , bdReadsFilesOf = if dcName owner == dcName config then Nothing else Just (dcName owner)
+                , bdEdited = any ((`S.member` journaled) . dcName) (journalsCarried configs config)
+                , bdReallocated = dcReading owner /= dcReading config
+                , bdPatched = not (null (dcPatches config))
+                }
+    methodConfig :: Maybe MethodConfig
+    methodConfig = M.lookup collection methodConfigs
+    methods :: BasisMethods
+    methods =
+        BasisMethods
+            { bmCollection = collection
+            , bmCopyOf = if original == collection then Nothing else Just original
+            , bmModified = methodEdited || any (\c -> not (null (mcPatches c)) || not (null (mcGlobalMethods c))) methodConfig
+            }
+    -- Bounded by the number of collections, so a cycle written by hand ends.
+    original :: Text
+    original = go (M.size methodConfigs) collection
+    go :: Int -> Text -> Text
+    go fuel name = case mcSource =<< M.lookup name methodConfigs of
+        Just source | fuel > 0 -> go (fuel - 1) source
+        _ -> name
 
 {- | The database whose files this one reads, at the end of its chain of
 sources: itself, for one that owns its files.
@@ -3050,6 +3147,16 @@ withRuntime dbName synonymDB rebuilt = do
     clearCachedSolver dbName
     solver <- solverFor dbName db
     pure (db, solver)
+
+{- | The databases whose journals a database's data carry: the parent it is
+divided from, then itself. A child divides its parent as the engine holds it,
+journal replayed, and keeps no copy of that journal; an edit of the parent is
+refused while a child is loaded, so a loaded child carries all of it. A copy
+copies its source's journal, and a parent read again from the files reads none
+of its source's.
+-}
+journalsCarried :: M.Map Text DatabaseConfig -> DatabaseConfig -> Carried DatabaseConfig
+journalsCarried configs config = Carried (parentOf configs config >>= (`M.lookup` configs)) config
 
 {- | The parent a database is divided from: the nearest one up its chain of
 sources read under @none@, when the database itself is divided by a model.
@@ -4221,7 +4328,7 @@ rankMissingProducts blocked dangling =
             blocked
             (M.fromList [(SupplierRequest name Nothing LocationNone, UnresolvedProduct (M.singleton NoNameMatch cnt)) | (name, cnt) <- M.toList dangling])
     byProduct :: Map Text (NonEmpty (SupplierRequest, UnresolvedProduct))
-    byProduct = M.fromListWith (flip (<>)) [(srProduct request, pure entry) | entry@(request, _) <- M.toList requests]
+    byProduct = groupInOrder [(srProduct request, entry) | entry@(request, _) <- M.toList requests]
     productDemands :: MissingProduct -> Int
     productDemands (MissingProduct entries) = sum (upDemands . snd <$> entries)
 
@@ -4236,7 +4343,7 @@ missingSuppliersOf (MissingProduct entries) =
     concatMap rowsOf (sortOn (Down . sum . fmap (upDemands . snd)) (M.elems byActivity))
   where
     byActivity :: Map (Maybe Text) (NonEmpty (SupplierRequest, UnresolvedProduct))
-    byActivity = M.fromListWith (flip (<>)) [(srActivity request, pure entry) | entry@(request, _) <- NE.toList entries]
+    byActivity = groupInOrder [(srActivity request, entry) | entry@(request, _) <- NE.toList entries]
 
     rowsOf :: NonEmpty (SupplierRequest, UnresolvedProduct) -> [MissingSupplier]
     rowsOf requests =
@@ -4412,6 +4519,7 @@ discoverCandidatePaths dbConfig = do
                 Upload.OpenLcaImpactCategory -> "openLCA JSON-LD"
                 Upload.OpenLcaPackage -> "openLCA package"
                 Upload.BrightwayExcel -> "Brightway Excel"
+                Upload.ColumnarCSV -> "Columnar CSV"
                 Upload.UnknownFormat -> "Unknown"
         return PathCandidate{pcPath = T.pack rel, pcFormat = label, pcFileCount = count}
   where
@@ -4955,11 +5063,11 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
         let dir = mfDirectory files
         -- Parse method files with flow enrichment
         xmlResults <- forM (mfXml files) $ \f ->
-            Method.Parser.parseMethodFileWithFlows flowInfo (dir </> f)
+            first (namedBy f) <$> Method.Parser.parseMethodFileWithFlows flowInfo (dir </> f)
         -- Split CSV files into SimaPro method exports and tabular CSVs
         csvResults <- forM (mfCsv files) $ \f -> do
             bytes <- stripBOM <$> BS.readFile (dir </> f)
-            pure $
+            pure . first (namedBy f) $
                 if isSimaProMethodCSV bytes
                     then fmap Left (parseSimaProMethodCSVBytes bytes)
                     else fmap Right (parseMethodCSVBytes bytes)
@@ -4971,7 +5079,7 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
             bytes <- BS.readFile (dir </> f)
             pure $
                 if OlcaSchema.isOlcaImpactCategoryJson bytes
-                    then Just (OlcaSchema.parseOlcaImpactCategoryBytes bytes)
+                    then Just (first (namedBy f) (OlcaSchema.parseOlcaImpactCategoryBytes bytes))
                     else Nothing
         let (xmlErrs, xmlMethods) = partitionEithers xmlResults
             (csvErrs, csvOks) = partitionEithers csvResults
@@ -5027,10 +5135,12 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
                     <> show (length (Method.Types.mcScoringSets collection))
                     <> " scoring set(s) read from the file's damage categories"
 
-    parseFailures :: ParsedMethodFiles -> Maybe String
-    parseFailures parsed
-        | null (pmfErrors parsed) = Nothing
-        | otherwise = Just ("  " <> show (length (pmfErrors parsed)) <> " method file(s) failed to parse")
+    -- One line per file, so a file refused beside others that load says why.
+    parseFailures :: ParsedMethodFiles -> [String]
+    parseFailures parsed = ["  Method file failed to parse: " <> err | err <- pmfErrors parsed]
+
+    namedBy :: FilePath -> String -> String
+    namedBy f err = f <> ": " <> err
 
 {- | Read one method of an openLCA package: its impact categories, and its
 normalization and weighting sets as scoring sets. A category the method names

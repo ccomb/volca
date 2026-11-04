@@ -139,6 +139,8 @@ spec = do
                     , lrCutoffInputs = []
                     , lrWithheldCutoffs = []
                     , lrExchangeContributions = []
+                    , lrProbableMisses = Nothing
+                    , lrBasis = Nothing
                     }
             keysOf bs = case decodeBS bs of
                 Just (Object o) -> KM.keys o

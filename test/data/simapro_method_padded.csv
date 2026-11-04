@@ -1,0 +1,48 @@
+{SimaPro 9.6};;;;;
+{methods};;;;;
+{CSV separator: Semicolon};;;;;
+{Decimal separator: .};;;;;
+;;;;;
+Method;;;;;
+;;;;;
+Name;;;;;
+Padded Method 1.0;;;;;
+;;;;;
+Version;;;;;
+1;0;0;;;
+;;;;;
+Impact category;;;;;
+Climate change, short term;kg CO2 eq;;;;
+;;;;;
+Substances;;;;;
+Air;(unspecified);Carbon dioxide, fossil;124-38-9;1;kg
+Air;(unspecified);Methane, fossil;74-82-8;81.2;kg
+;;;;;
+End;;;;;
+;;;;;
+Impact category;;;;;
+Water scarcity;m3 world eq;;;;
+;;;;;
+Substances;;;;;
+Raw;(unspecified);Water, unspecified natural origin;7732-18-5;42.95;m3
+;;;;;
+End;;;;;
+;;;;;
+Damage category;;;;;
+Human health;DALY;;;;
+;;;;;
+Impact categories;;;;;
+Climate change, short term;1.00E+00;;;;
+;;;;;
+End;;;;;
+;;;;;
+Normalization-Weighting set;;;;;
+Padded set (test values);;;;;
+;;;;;
+Normalization;;;;;
+Human health;1.37E+01;;;;
+;;;;;
+Weighting;;;;;
+Human health;5401.459854;;;;
+;;;;;
+End;;;;;

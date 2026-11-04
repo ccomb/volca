@@ -171,6 +171,7 @@ runBare dbm hosting action = do
                 , aeDataVersion = Nothing
                 , aeUsageLog = Nothing
                 , aeReader = Nothing
+                , aeAuthor = Nothing
                 }
     res <- Servant.runHandler (runApp env action)
     case res of

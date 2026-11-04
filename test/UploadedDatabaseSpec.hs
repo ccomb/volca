@@ -201,7 +201,7 @@ spec = do
                     let meta = baseMeta{umFormat = fmt}
                     fmap umFormat (parseMetaToml (formatMetaToml meta)) `shouldBe` Just fmt
                 )
-                [EcoSpold2, EcoSpold1, SimaProCSV, ILCDProcess, OpenLcaImpactCategory, OpenLcaPackage, UnknownFormat]
+                [EcoSpold2, EcoSpold1, SimaProCSV, ILCDProcess, OpenLcaImpactCategory, OpenLcaPackage, ColumnarCSV, UnknownFormat]
 
         it "round-trips a path with spaces" $ do
             let meta = baseMeta{umDataPath = "my data/sub dir"}

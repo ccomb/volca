@@ -52,6 +52,7 @@ import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), addDatabase, initDatabaseManager, loadDatabase)
 import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
+import Usage (anonymous)
 
 -- | The factor and the contribution, in that order, as every surface reports them.
 type FactorAndContribution = (Double, Double)
@@ -177,6 +178,7 @@ runEither handler = do
                 , aeDataVersion = Nothing
                 , aeUsageLog = Nothing
                 , aeReader = Nothing
+                , aeAuthor = Nothing
                 }
     runHandler (runApp env handler)
 
@@ -191,7 +193,7 @@ mcpPayload :: Maybe Text -> Text -> [(Key, Value)] -> IO Object
 mcpPayload mBaseUrl tool extraArgs = do
     manager <- loadedManager
     reply <-
-        callTool Nothing manager [] Nothing mBaseUrl noRequestId tool $
+        callTool anonymous manager [] Nothing mBaseUrl noRequestId tool $
             KM.fromList $
                 [ ("database", String "sample")
                 , ("process_id", String productD)
@@ -254,6 +256,8 @@ spec = describe "a contributing flow's factor and contribution" $ do
         whole <- runOk (postImpactsBatch "sample" (CollectionName collectionName) Nothing Nothing (BatchImpactsRequest [productD] []))
         one <- runOk (postMethodImpactsBatch "sample" (CollectionName collectionName) methodIdText Nothing Nothing (BatchImpactsRequest [productD] []))
         (scoringSets whole, scoringSets one) `shouldBe` ([["Single"]], [[]])
+        -- Its weight of 2 is a value choice; the batch under one method ranks no single score.
+        (fmap ("Single" `T.isInfixOf`) (birReadingNotice whole), birReadingNotice one) `shouldBe` (Just True, Nothing)
 
     it "are refused for a method the collection does not hold" $ do
         status <- runStatus (postMethodImpactsBatch "sample" (CollectionName collectionName) (UUID.toText UUID.nil) Nothing Nothing (BatchImpactsRequest [productD] []))

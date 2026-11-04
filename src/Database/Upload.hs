@@ -45,6 +45,7 @@ import Control.Monad (filterM, forM)
 import Data.Aeson (FromJSON (..), ToJSON (..), withText)
 import qualified Data.Aeson as A
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum, toLower)
 import Data.List (isPrefixOf, isSuffixOf, sortOn)
@@ -58,10 +59,12 @@ import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileE
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeExtension, (</>))
+import System.IO (IOMode (ReadMode), withFile)
 import System.Info (os)
 import System.Process (readProcessWithExitCode)
 
 import qualified Method.Parser.OlcaSchema as OlcaSchema
+import Method.ParserCSV (isLabelRow)
 import qualified OlcaSchema.Package as OlcaPackage
 import Types (ReferenceConvention (..))
 
@@ -74,6 +77,7 @@ data DatabaseFormat
     | OpenLcaImpactCategory -- openLCA JSON-LD: a single ImpactCategory document, a method
     | OpenLcaPackage -- openLCA JSON-LD package: a whole database, with openlca.json at its root
     | BrightwayExcel -- Brightway Excel (.xlsx) inventory format
+    | ColumnarCSV -- A method table: one row per flow, one column per impact category
     | UnknownFormat -- Could not detect format
     deriving (Show, Eq, Generic)
 
@@ -85,6 +89,7 @@ instance ToJSON DatabaseFormat where
     toJSON OpenLcaImpactCategory = A.String "openLCA JSON-LD"
     toJSON OpenLcaPackage = A.String "openLCA package"
     toJSON BrightwayExcel = A.String "Brightway Excel"
+    toJSON ColumnarCSV = A.String "Columnar CSV"
     toJSON UnknownFormat = A.String ""
 
 {- | How a format writes a treatment, which is how its reader reads a line
@@ -99,6 +104,7 @@ referenceConventionOf = \case
     OpenLcaPackage -> SignedReferences
     OpenLcaImpactCategory -> SignedReferences
     BrightwayExcel -> SignedReferences
+    ColumnarCSV -> SignedReferences
     UnknownFormat -> SignedReferences
 
 -- | Human-readable label for a format, straight from the 'ToJSON' instance above.
@@ -124,6 +130,7 @@ instance FromJSON DatabaseFormat where
         "openLCA JSON-LD" -> pure OpenLcaImpactCategory
         "openLCA package" -> pure OpenLcaPackage
         "Brightway Excel" -> pure BrightwayExcel
+        "Columnar CSV" -> pure ColumnarCSV
         _ -> pure UnknownFormat
 
 -- | Progress event for upload/loading operations
@@ -647,6 +654,7 @@ detectMethodFormat dir = do
                 , -- Content-checked, like the two above: a stray spreadsheet
                   -- export next to the method files is not a SimaPro method.
                   (SimaProCSV, checkForSimaProCSV (withExt ".csv"))
+                , (ColumnarCSV, anyM isColumnarMethodCSV (withExt ".csv"))
                 ]
   where
     -- No fallback guess: an unrecognized directory stays UnknownFormat.
@@ -728,6 +736,17 @@ isOlcaJsonFile f = do
         Left (_ :: SomeException) -> return False
         Right content -> return $ OlcaSchema.isOlcaImpactCategoryJson content
 
+{- | Whether a CSV file is a method table: a @substance;compartment@ label row
+under its few header rows. Only the head of the file is read, since such a
+table runs to tens of megabytes.
+-}
+isColumnarMethodCSV :: FilePath -> IO Bool
+isColumnarMethodCSV f = do
+    result <- try (withFile f ReadMode (`BS.hGetSome` 65536))
+    pure $ case result of
+        Left (_ :: SomeException) -> False
+        Right start -> any isLabelRow (take 4 (filter (\l -> not (BS.null l || BS8.isPrefixOf "#" l)) (BS8.lines start)))
+
 -- | Count data files based on format
 countDataFiles :: FilePath -> DatabaseFormat -> IO Int
 countDataFiles d format = do
@@ -741,6 +760,7 @@ countDataFiles d format = do
     isDataFile OpenLcaImpactCategory f = ".json" `isSuffixOf` map toLower f
     isDataFile OpenLcaPackage f = ".json" `isSuffixOf` map toLower f
     isDataFile BrightwayExcel f = ".xlsx" `isSuffixOf` map toLower f
+    isDataFile ColumnarCSV f = ".csv" `isSuffixOf` map toLower f
     isDataFile UnknownFormat _ = True
 
 -- | Recursively list all files in a directory

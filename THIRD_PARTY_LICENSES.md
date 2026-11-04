@@ -95,6 +95,7 @@ build when this table and `volca.cabal` disagree.
 | filepath | BSD-3-Clause | bundled with GHC |
 | haskeline | BSD-3-Clause | <https://hackage.haskell.org/package/haskeline> |
 | http-client | MIT | <https://hackage.haskell.org/package/http-client> |
+| http-client-tls | MIT | <https://hackage.haskell.org/package/http-client-tls> |
 | http-media | MIT | <https://hackage.haskell.org/package/http-media> |
 | http-types | BSD-3-Clause | <https://hackage.haskell.org/package/http-types> |
 | insert-ordered-containers | BSD-3-Clause | <https://hackage.haskell.org/package/insert-ordered-containers> |

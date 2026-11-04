@@ -5,7 +5,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, selectorAPI, subAnchorRef, unresolvedFlowName)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProbableMissEntry (..), ProbableMisses (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, selectorAPI, subAnchorRef, unresolvedFlowName)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
@@ -40,6 +40,8 @@ import Impact (PartScore (..))
 import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, processScaling, toList)
 import qualified Matrix.Export as MatrixExport
 import Method.Mapping (LongTermMode (..))
+import qualified Method.Mapping as Mapping
+import Method.Types (Subcompartment (..))
 import Parametric (Check (..), Setting (..), checkFormula, databaseParametersRead)
 import qualified Progress
 import qualified Search.BM25 as BM25
@@ -1333,6 +1335,46 @@ withholdContributors dbName licence result
     | granted licence SeeDetailedScores = result
     | otherwise = result{lrTopContributors = [], lrWithheldDatabases = [], lrWithheld = Just (withheldSentence dbName SeeDetailedScores)}
 
+{- | A score's probable misses under its database's licence: a miss carries an
+amount of the inventory, so a licence keeping those keeps the misses.
+-}
+withholdMisses :: Text -> Licence -> LCIAResult -> LCIAResult
+withholdMisses dbName licence result
+    | granted licence ReadInventory = result
+    | otherwise = result{lrProbableMisses = withheldToo <$> lrProbableMisses result}
+  where
+    -- The database asked comes first, before the dependencies already keeping theirs.
+    withheldToo misses = missesWithheld (dbName : pmsWithheld misses)
+
+-- | The probable misses of a score as a reply carries them: the ten biggest worth saying.
+missesShown :: UnitDB -> Double -> [Mapping.ProbableMiss] -> ProbableMisses
+missesShown units score misses =
+    ProbableMisses
+        { pmsShown = map entry shown
+        , pmsMore = length rest
+        , pmsWithheld = []
+        }
+  where
+    (shown, rest) = splitAt 10 (Mapping.missesWorthSaying score misses)
+    entry m =
+        let flow = Mapping.pmFlow m
+         in ProbableMissEntry
+                { pmeFlowId = UUID.toText (bfId flow)
+                , pmeFlowName = bfName flow
+                , pmeCategory = bfCompartmentName flow
+                , pmeCompartment = bfCompartmentSub flow
+                , pmeQuantity = Mapping.pmQuantity m
+                , pmeUnit = getUnitNameForBioFlow units flow
+                , pmeWrittenAt = [sub | Subcompartment sub <- Mapping.slWrittenAt (Mapping.pmLines m)]
+                , pmeFactor = Mapping.slFactor (Mapping.pmLines m)
+                , pmeUpTo = Mapping.pmUpTo m
+                , pmeUpToSharePct = if score /= 0 then Mapping.pmUpTo m / score * 100 else 0
+                }
+
+-- | No probable miss shown, the databases named keeping the amounts of their exchanges.
+missesWithheld :: [Text] -> ProbableMisses
+missesWithheld names = ProbableMisses{pmsShown = [], pmsMore = 0, pmsWithheld = [withheldSentence name ReadInventory | name <- names]}
+
 {- | The line each dependency that keeps its detail is answered as, its share
 taken of the score its part belongs to.
 -}
@@ -1355,7 +1397,7 @@ it gives the line's amount.
 withholdBatch :: Text -> Licence -> LCIABatchResult -> LCIABatchResult
 withholdBatch dbName licence batch =
     batch
-        { lbrResults = map (withholdLines . withholdContributors dbName licence) (lbrResults batch)
+        { lbrResults = map (withholdLines . withholdMisses dbName licence . withholdContributors dbName licence) (lbrResults batch)
         , lbrCutoffWaste = if amountsShown then lbrCutoffWaste batch else []
         , lbrWithheld = [withheldSentence dbName p | p <- [SeeDetailedScores, ReadInventory], not (granted licence p)]
         }

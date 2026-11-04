@@ -33,8 +33,12 @@ import Control.DeepSeq (NFData)
 import Control.Monad (unless)
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Containers.ListUtils (nubOrd)
+import Data.Indexing (groupInOrder)
 import Data.List (find, partition, sort)
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
+import Data.Semigroup (Max (..), Min (..), sconcat)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -98,22 +102,23 @@ Values a rounding apart are one factor.
 factorClashes :: Method -> [Text]
 factorClashes m =
     [ "\"" <> methodName m <> "\" gives " <> spelled names <> " factors from " <> num low <> " to " <> num high <> at place <> others <> "; a flow matched by its name gets only one"
-    | (_, (names, place, low, high) : more) <- M.toList (M.fromListWith (flip (<>)) clashes)
+    | (_, (names, place, low, high) :| more) <- M.toList (groupInOrder clashes)
     , let others = if null more then "" else " and at " <> num (length more) <> " other place(s)"
     ]
   where
-    clashes :: [(Text, [([Text], Text, Double, Double)])]
+    clashes :: [(Text, ([Text], Text, Double, Double))]
     clashes =
-        [ (key, [(nubOrd names, place, low, high)])
-        | ((key, place, _, _), (names, low, high)) <- M.toList byPlace
+        [ (key, (nubOrd (NE.toList (mcfFlowName <$> cfs)), place, low, high))
+        | ((key, place, _, _), cfs) <- M.toList byPlace
+        , let low = getMin (sconcat (Min . mcfValue <$> cfs))
+              high = getMax (sconcat (Max . mcfValue <$> cfs))
         , abs (high - low) > 1e-5 * max (abs low) (abs high)
         ]
     -- Keyed on the name the matcher reads, so two spellings of one flow clash too.
-    byPlace :: M.Map (Text, Text, Text, Maybe Text) ([Text], Double, Double)
+    byPlace :: M.Map (Text, Text, Text, Maybe Text) (NonEmpty MethodCF)
     byPlace =
-        M.fromListWith
-            (\(n2, l2, h2) (n1, l1, h1) -> (n1 <> n2, min l1 l2, max h1 h2))
-            [ ((normalizeNameKeepUnit (mcfFlowName cf), placeOf (mcfCompartment cf), mcfUnit cf, mcfConsumerLocation cf), ([mcfFlowName cf], mcfValue cf, mcfValue cf))
+        groupInOrder
+            [ ((normalizeNameKeepUnit (mcfFlowName cf), placeOf (mcfCompartment cf), mcfUnit cf, mcfConsumerLocation cf), cf)
             | cf <- methodFactors m
             ]
     placeOf :: Maybe Compartment -> Text

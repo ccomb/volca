@@ -62,7 +62,7 @@ data ILCDProcessRaw = ILCDProcessRaw
     , iprRefFlowIdx :: !Int -- dataSetInternalID of reference exchange
     , iprExchanges :: ![ILCDExchangeRaw]
     , iprClassifications :: !(M.Map Text Text)
-    , iprProcessType :: !Text -- ILCD <processType> element value (e.g. "Unit process, single operation"); "" when absent
+    , iprProcessType :: !Text -- ILCD <typeOfDataSet> value (e.g. "Unit process, single operation"); "" when absent
     , iprLastRevised :: !(Either Text (Maybe Day)) -- dataEntryBy/timeStamp, the last time the dataset was saved; Left when it is not a date
     , iprDocumentation :: ![DocSection] -- the source datasets it cites, one section per role
     }
@@ -564,7 +564,7 @@ data ProcState = ProcState
     , psClassifications :: !(M.Map Text Text)
     , psPendingClassName :: !Text
     , psInClass :: !Bool
-    , psProcessType :: !Text -- ILCD <processType> element text (empty when absent)
+    , psProcessType :: !Text -- ILCD <typeOfDataSet>, or the <processType> of older exports (empty when absent)
     , psTimeStamp :: !Text -- <common:timeStamp> text (empty when absent)
     , psCitation :: !(Maybe Text)
     -- ^ The section the open citation of a source dataset belongs to.
@@ -733,10 +733,10 @@ parseProcessXML bytes =
                     }
         | isElement tag "classification" =
             s{psPendingClassName = "", psTextAccum = []}
-        | isElement tag "processType" && not (psInExchange s) && T.null (psProcessType s) =
-            -- ILCD <processType> lives at <modellingAndValidation><LCIMethodAndAllocation><processType>.
-            -- Guard psInExchange just in case a future ILCD revision reuses the tag name
-            -- elsewhere; first occurrence wins to be deterministic.
+        | (isElement tag "typeOfDataSet" || isElement tag "processType") && not (psInExchange s) && T.null (psProcessType s) =
+            -- The schema's <modellingAndValidation><LCIMethodAndAllocation><typeOfDataSet>;
+            -- <processType> is what packages this engine wrote before it followed the schema.
+            -- A dataset states one type, so the first is the one.
             s{psProcessType = accum s, psTextAccum = []}
         | isElement tag "timeStamp" && not (psInExchange s) =
             s{psTimeStamp = accum s, psTextAccum = []}

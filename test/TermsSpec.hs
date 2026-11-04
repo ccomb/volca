@@ -34,6 +34,7 @@ import API.Terms (acceptedFromCookie, databasesNamed, termsMiddleware)
 import DependencyLicenceSpec (climate, collection, dependency, managerOn, root, rootPid)
 import qualified Method.Types as M
 import Types
+import Usage (Caller (..))
 
 termsOf :: Text -> Licence
 termsOf text = LicenceOwn OwnLicence{ownText = text, ownRefused = S.empty, ownAttribution = AttributionRequired, ownAcceptance = AcceptanceAsked NotCounted}
@@ -168,7 +169,7 @@ spec = do
     describe "the MCP tools" $ do
         let asked = termsOf "Terms of the dependency"
             callOn manager reader tool =
-                callTool reader manager [] Nothing Nothing noRequestId tool $
+                callTool (Caller reader Nothing) manager [] Nothing Nothing noRequestId tool $
                     KM.fromList
                         [ ("database", String "root")
                         , ("process_id", String rootPid)
@@ -199,7 +200,7 @@ spec = do
 
         it "refuse to accept the terms of a database the engine does not know" $ do
             manager <- managerOn root dependency asked
-            reply <- callTool (Just "ana") manager [] Nothing Nothing noRequestId "accept_terms" (KM.fromList [("database", String "roto")])
+            reply <- callTool (Caller (Just "ana") Nothing) manager [] Nothing Nothing noRequestId "accept_terms" (KM.fromList [("database", String "roto")])
             errorText reply `shouldBe` Just "Database not found: roto"
 
         it "answer as before when nothing asks terms" $ do

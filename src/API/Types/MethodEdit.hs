@@ -229,6 +229,8 @@ instance ToSchema HistoryKindAPI where
 data MethodHistoryEntry = MethodHistoryEntry
     { mheLine :: Int
     , mheAt :: Text
+    , mheBy :: Maybe Text
+    -- ^ the public name of the account that made it; absent when the engine was not told
     , mheKind :: HistoryKindAPI
     , mheUndoes :: Maybe Int
     -- ^ the line this one undoes, for an undo
@@ -406,6 +408,8 @@ data ScoringSetAPI = ScoringSetAPI
     , ssaScores :: [ScoreAPI]
     , ssaVariables :: M.Map Text Text
     -- ^ every name a formula of the set can read → the category it reads, or the label of the row it computes
+    , ssaWeighs :: Bool
+    -- ^ Its scores rest on value choices (see 'Method.Scoring.weighs'): no ground for a comparison disclosed to the public
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ScoringSetAPI)

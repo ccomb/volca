@@ -628,6 +628,8 @@ With `usage_log = true` under `[server]`, the engine keeps one line for each com
 
 The lines live in memory. `GET /api/v1/usage?after=N` returns those numbered after `N` (a page at a time, `more` saying whether others wait) with the `boot` they belong to; each start of the engine draws a new one and numbers from 1 again. `DELETE /api/v1/usage?boot=B&through=N` forgets the lines a collector kept, and is refused with 409 for a `boot` from another start. A read-only engine answers both, since the log is not its data, and neither keeps the engine from going idle. When nobody collects, the oldest lines go past 100,000 and the engine says how many. The engine trusts the header as sent: the server in front of it decides who a reader is, and is the one to strip the header from what callers send.
 
+A change to a database, a method collection or the scenarios of a database is signed the same way, whether or not the usage log is on: with `Volca-Reader` and `Volca-Author-Handle` (the account's public name) both sent, the journal line keeps `"by": {"account", "handle"}`, the history returns the name as `by`, and an export's `CHANGES.md` says `By: @name`. Without either, the line is unsigned. The server in front strips both headers from what callers send.
+
 The routes under `method/{methodId}` take an optional `?collection=`. A method's UUID derives from its name, so two collections can carry the same one; without `collection`, such a UUID is refused with a 409 naming the collections to choose from.
 
 Per-exchange data on inventory and impact responses includes `exComment` – the free-text comment (`generalComment` / `<comment>`) attached to each exchange in the source dataset, when present.

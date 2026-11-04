@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.0** speaks wire formats **2 to 96** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.0** speaks wire formats **2 to 105** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -574,6 +574,16 @@ wire revision 60.
 (`database_history`) and in the changes report its export
 carries. Needs wire revision 79.
 
+##### `Client.available_method_collections()`
+
+The method collections the engine offers to download and load in one
+step (wire revision 103).
+
+Each entry carries ``name``, ``publisher``, ``version``, ``licence``
+(an SPDX identifier, absent when the file states none), ``sourceUrl``,
+``size`` in bytes, ``description``, and ``installed``, true when the
+engine already knows a collection of that name.
+
 ##### `Client.call(operation_id: str, **kwargs) -> Any`
 
 Escape hatch: call any OpenAPI operation by operationId.
@@ -773,13 +783,19 @@ undone whole with `undo_method_edit`.
 
 Every change made to the database, oldest first::
 
-    {"at": "2026-10-21T09:12:03Z", "note": "Measured on site",
+    {"at": "2026-10-21T09:12:03Z", "database": "my-farm", "by": "ana",
+     "note": "Measured on site",
      "summary": "Edited \"wheat production\" (FR)",
      "details": ["Flow \"Water\": amount from 2.0 set to 1.5"]}
 
+``by`` is the public name of the account that made it, ``None`` when
+the engine was not told, as on the desktop (wire revision 104).
 ``note`` is the reason its author gave, ``None`` when they gave none.
-A database the engine reads from its configuration has no changes.
-Needs wire revision 79.
+``database`` is the database the change was made on: for a child, the
+changes of the parent it is divided from come first, since its data
+carry them (wire revision 100; absent from an older engine). A
+database the engine reads from its configuration has no changes of
+its own. Needs wire revision 79.
 
 ##### `Client.database_parameters(*, db_name: str | None = None) -> list[Parameter]`
 
@@ -1390,6 +1406,16 @@ Return server build metadata: version, git hash/tag, build target.
 Uses a direct HTTP call: ``/api/v1/version`` has no operationId
 since it predates the Resources ADT.
 
+##### `Client.install_method_collection(name: str) -> dict`
+
+Download a collection `available_method_collections` offers,
+check it is the file the engine expects, then store and load it under
+that name (wire revision 103).
+
+Refused when the engine is read-only, when it already knows a collection
+of that name, when the file is larger than the plan's upload limit, and
+when the file received differs from the one expected.
+
 ##### `Client.licences()`
 
 The standard licences a database can be published under.
@@ -1465,7 +1491,9 @@ Load a staged reference-data set of ``kind`` into memory.
 
 The journal of a collection, one entry per line.
 
-Each entry gives its ``line``, when it was written (``at``), its
+Each entry gives its ``line``, when it was written (``at``), the public
+name of the account that wrote it (``by``, ``None`` when the engine was
+not told; wire revision 104), its
 ``kind`` (``change``, ``undo`` or ``configuration``, for what a copy
 took from its source's configuration), the line it ``undoes``, whether
 it is ``inEffect``, and the ``change`` it made. A collection the
@@ -1697,8 +1725,10 @@ with its ``methodId`` and ``coefficient``, or ``RowWritten`` with a
 ``formula`` that is no such sum), its ``normalization`` (the
 string ``"Infinity"`` for a row a file counts as zero) and
 ``weight``; its ``scores``, each with its ``formula`` and whether it
-is the ``sumOfRows`` a new row joins; and the ``variables`` a formula
-can read, each with the category it reads or the label of its row.
+is the ``sumOfRows`` a new row joins; the ``variables`` a formula
+can read, each with the category it reads or the label of its row;
+and whether it ``weighs``, a score taking a category otherwise than
+once or adding up normalized categories (wire revision 105).
 
 Needs an engine speaking wire revision 45.
 
@@ -1978,13 +2008,21 @@ dependencies with `add_dependency`, and call
 Raises VoLCAError on any rejection (uploads disabled on the plan, size
 cap exceeded, unreadable archive).
 
-##### `Client.upload_method_collection(source: str | Path | bytes, name: str, *, description: str | None = None) -> dict`
+##### `Client.upload_method_collection(source: str | Path | bytes, name: str, *, description: str | None = None, flows_from: str | None = None) -> dict`
 
-Upload an ILCD method file as a staged method collection.
+Upload a method file as a staged method collection.
 
 ``source`` is a path to the method archive (or its raw ``bytes``).
 Same streamed-body + query-param shape as `upload_database`;
 returns the ``UploadResponse`` dict and raises VoLCAError on rejection.
+
+A workbook of characterization factors, one per row (``Method,
+Category, Indicator, Name, Compartment, Subcompartment, CF``), becomes
+one collection per method family, listed under ``families``; the
+factors left out are under ``dropped``. Its flows take their units and
+CAS numbers from the EcoSpold 2 master data of an uploaded database:
+``flows_from`` names it, and may be left out when only one database
+has master data (wire revision 101).
 
 ##### `Client.upload_reference_data(kind: RefDataKind, source: str | Path | bytes, name: str, *, description: str | None = None) -> dict`
 
@@ -2425,6 +2463,92 @@ that lowers the score.
 | `contribution` | `float` | _required_ |
 | `share_pct` | `float` | _required_ |
 
+### `ProbableMiss`
+
+A flow a score read no factor for, although its method writes the same
+substance elsewhere in the flow's medium.
+
+A flow reads the factor of its own subcompartment, of its whole medium, or
+of the one an ``if_absent`` row of the compartment table sends it to. Ammonia
+emitted indoors scores nothing under a method that writes ammonia only for
+urban and non-urban air, and that collection writes nothing for indoor air.
+``up_to`` is what the flow would add to the score at the largest of the
+factors in ``written_at``, in the score's unit.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `flow_id` | `str` | _required_ |
+| `flow_name` | `str` | _required_ |
+| `category` | `str` | _required_ |
+| `compartment` | `str \| None` | _required_ |
+| `quantity` | `float` | _required_ |
+| `unit` | `str` | _required_ |
+| `written_at` | `list[str]` | _required_ |
+| `factor` | `float` | _required_ |
+| `up_to` | `float` | _required_ |
+| `up_to_share_pct` | `float` | _required_ |
+
+### `ProbableMisses`
+
+The flows a score probably missed: the ten biggest able to move it by a
+thousandth or more (all of them beside a zero score), and how many more.
+``withheld`` says why none is shown, when a database the score reads keeps
+the amounts of its exchanges to itself.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `shown` | `list[ProbableMiss]` | list() |
+| `more` | `int` | 0 |
+| `withheld` | `list[str]` | list() |
+
+### `ScoreBasis`
+
+What a score rests on (wire revision 99): the engine's version and
+commit, each database read (the one asked first), the method collection,
+and the substitutions and parameter values the request sent. Two scores
+compare only on the same basis.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `engine` | `str` | _required_ |
+| `databases` | `list[BasisDatabase]` | _required_ |
+| `methods` | `BasisMethods` | _required_ |
+| `substitutions` | `list['Substitution']` | list() |
+| `parameter_sets` | `list[list['ParameterValue']]` | list() |
+
+### `BasisDatabase`
+
+One database a score read, and how its data differ from its release.
+
+``release`` is the published database it is, its source's for a copy, in
+the shape `Client.set_release` takes; ``None`` when none is declared.
+``reads_files_of`` names the database whose files it reads, when that is
+another one. ``edited`` when its history holds a change, a child divided
+from an edited parent included; ``reallocated`` when its multi-output
+processes are divided otherwise than the original's; ``patched`` when its
+configuration patches exchanges as it loads.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `release` | `dict \| None` | _required_ |
+| `reads_files_of` | `str \| None` | _required_ |
+| `edited` | `bool` | _required_ |
+| `reallocated` | `bool` | _required_ |
+| `patched` | `bool` | _required_ |
+
+### `BasisMethods`
+
+The method collection a score read: ``copy_of`` names the collection it
+was first copied from, and ``modified`` says whether its factors or
+categories differ from its files.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `collection` | `str` | _required_ |
+| `copy_of` | `str \| None` | _required_ |
+| `modified` | `bool` | _required_ |
+
 ### `ExchangeFormula`
 
 What makes an exchange's amount follow the dataset's parameters.
@@ -2600,6 +2724,8 @@ partial result to inspect, not a failure.
 | `not_found` | `list[str]` | _required_ |
 | `invalid` | `list[str]` | _required_ |
 | `unscorable` | `list[str]` | _required_ |
+| `basis` | `ScoreBasis \| None` | None |
+| `reading_notice` | `str \| None` | None |
 
 ### `BioExchange`
 
@@ -2876,6 +3002,7 @@ reports no total, so pyvolca cannot derive ``has_more``. Pass a generous
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `ContributingFlows`
 
@@ -2895,6 +3022,7 @@ flows were truncated. If you need exhaustive coverage, pass a generous
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `DatabaseComparison`
 
@@ -3396,6 +3524,7 @@ it, a row no score reads among them, its ``category`` the row's label.
 | `withheld` | `list[str]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `LCIAResult`
 
@@ -3426,6 +3555,8 @@ much of it the source says the process produces.
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 | `exchange_contributions` | `list[ExchangeContribution]` | list() |
+| `probable_misses` | `ProbableMisses \| None` | None |
+| `basis` | `ScoreBasis \| None` | None |
 
 ### `MappingStatus`
 

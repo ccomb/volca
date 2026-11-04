@@ -69,6 +69,7 @@ import Control.Monad (mfilter)
 import qualified Data.ByteString.Lazy as BL
 import Data.Csv (FromNamedRecord (..), (.:))
 import qualified Data.Csv as Csv
+import Data.Indexing (groupInOrder)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
@@ -212,7 +213,7 @@ buildAliasMap rows =
   where
     speaksForName row = isNothing (arSourceProcess row) || atSupplier (arTarget row) /= NoSupplier
     keyed :: (Ord k) => [(k, AliasTarget)] -> M.Map k (NE.NonEmpty AliasTarget)
-    keyed pairs = M.fromListWith (\new old -> NE.nub (old <> new)) [(k, pure t) | (k, t) <- pairs]
+    keyed pairs = NE.nub <$> groupInOrder pairs
 
 {- | Read a relink mapping. One with no row (header only) would relink as a
 silent no-op, so it is refused.

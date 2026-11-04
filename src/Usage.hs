@@ -34,6 +34,11 @@ module Usage (
     recordUse,
     readerHeader,
     readerOf,
+    authorHandleHeader,
+    authorOf,
+    Caller (..),
+    callerOf,
+    anonymous,
     readUsage,
     forgetUsage,
     LogState (..),
@@ -46,7 +51,7 @@ module Usage (
 ) where
 
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO, stateTVar)
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, mfilter, when)
 import Data.Aeson (FromJSON (..), ToJSON (..), withText)
 import qualified Data.Foldable as F
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
@@ -64,6 +69,7 @@ import Network.HTTP.Types (HeaderName, RequestHeaders)
 import Servant (FromHttpApiData, ToHttpApiData)
 
 import API.JsonOptions (Stripped (..))
+import Data.JournalFile (Author (..))
 import Progress (ProgressLevel (..), reportProgress)
 import Types (CountedRelease (..), Release, codeSchema, parseCode)
 
@@ -219,6 +225,30 @@ readerHeader = "Volca-Reader"
 
 readerOf :: RequestHeaders -> Maybe Text
 readerOf = fmap TE.decodeUtf8Lenient . lookup readerHeader
+
+{- | The request header carrying the public name of the account 'readerHeader'
+names, for the journal to sign a change with. Like the reader, the server in
+front of the engine vouches for it.
+-}
+authorHandleHeader :: HeaderName
+authorHandleHeader = "Volca-Author-Handle"
+
+-- | Who a change is signed by: an account and its public name, or nobody when either is missing or blank.
+authorOf :: RequestHeaders -> Maybe Author
+authorOf headers = Author <$> readerOf headers <*> mfilter (not . T.null) (TE.decodeUtf8Lenient <$> lookup authorHandleHeader headers)
+
+-- | Who the server in front of the engine says sent a request: the reader it counts, and the author a change is signed by.
+data Caller = Caller
+    { callerReader :: Maybe Text
+    , callerAuthor :: Maybe Author
+    }
+
+callerOf :: RequestHeaders -> Caller
+callerOf headers = Caller (readerOf headers) (authorOf headers)
+
+-- | A request no server in front of the engine named, as on the desktop.
+anonymous :: Caller
+anonymous = Caller Nothing Nothing
 
 -- | What the engine knows of the database and the process a computation ran on.
 data Lookup = Lookup

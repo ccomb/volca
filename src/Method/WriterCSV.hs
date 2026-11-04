@@ -106,9 +106,9 @@ tableRows ms =
     ]
   where
     columns = zipWith const [0 :: Int ..] ms
+    -- Each value put at the head of its cell and the cells reversed once, since appending would copy the cell at every value.
     grouped =
-        M.fromListWith
-            (M.unionWith (flip (<>)))
+        M.map (M.map reverse) . M.fromListWith (M.unionWith (<>)) $
             [ (rowKey cf, M.singleton col [mcfValue cf])
             | (col, m) <- zip [0 ..] ms
             , cf <- methodFactors m

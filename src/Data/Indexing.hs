@@ -11,13 +11,16 @@ needs one of these instead:
   they disagreed on. For a message that has to name both.
 * 'repeated' answers the yes-or-no version: which keys appear more than once.
 
-Keeping all the rows instead of refusing is 'Data.Map.fromListWith', which needs
-no help from here; pass @flip (<>)@ to keep them in the order they were read.
+Keeping all the rows instead of refusing is 'groupInOrder'. Not
+@'Data.Map.fromListWith' (flip (<>))@: that appends each row at the end of its
+key's list, copying the list every time, and a key carrying half a million rows
+then takes a minute to group.
 -}
 module Data.Indexing (
     repeated,
     collisions,
     uniqueIndex,
+    groupInOrder,
 ) where
 
 import Data.List.NonEmpty (NonEmpty (..))
@@ -34,7 +37,7 @@ the order the rows were given.
 collisions :: (Ord k) => [(k, v)] -> [(k, NonEmpty v)]
 collisions kvs =
     [ (k, vs)
-    | (k, vs) <- M.toList (M.fromListWith (flip (<>)) [(k, v :| []) | (k, v) <- kvs])
+    | (k, vs) <- M.toList (groupInOrder kvs)
     , NE.length vs > 1
     ]
 
@@ -46,3 +49,9 @@ uniqueIndex :: (Ord k) => [(k, v)] -> Either (NonEmpty k) (M.Map k v)
 uniqueIndex kvs = case repeated (map fst kvs) of
     [] -> Right (M.fromList kvs)
     (k : ks) -> Left (k :| ks)
+
+{- | Every row each key carries, in the order the rows were given. Each row is
+put at the head of its key's list and each list reversed once.
+-}
+groupInOrder :: (Ord k) => [(k, v)] -> M.Map k (NonEmpty v)
+groupInOrder kvs = M.map NE.reverse (M.fromListWith (<>) [(k, v :| []) | (k, v) <- kvs])

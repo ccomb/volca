@@ -53,7 +53,7 @@ spec = do
 
         it "refuses a supplier of a dependency stating no location" $
             SP.serializeSimaProCSV
-                SP.defaultWriterConfig{SP.wcDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "" PositiveReference))}
+                SP.defaultWriterConfig{SP.wcDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "" PositiveReference []))}
                 (fixture "IN")
                 `shouldSatisfy` isLeft
 
@@ -90,10 +90,35 @@ spec = do
         it "refuses two makers of one product at one place" $
             ILCD.writeILCDArchive ILCD.defaultWriteOptions (fixture "IN") `shouldSatisfy` isLeft
 
-        it "refuses a supplier in a dependency, which it cannot name" $
-            ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = dependencies} (fixture "BR") `shouldSatisfy` isLeft
+        -- The mill is in TR, where the background also makes power: only the written place sends it to CH.
+        it "brings an input back to its supplier in a dependency, by the product and the place it is written with" $ do
+            db <- ilcdRoundTripWith (Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power, CH" "CH" PositiveReference []))) (fixture "BR")
+            (_, stats) <- fixActivityLinksWithCrossDB [buildIndexedDatabase "background" emptySynonymDB twoPlaces] emptySynonymDB defaultUnitConfig locationHierarchy GeoGlobal db
+            [(cdlSupplierActUUID l, cdlCoefficient l) | l <- cdlLinks stats] `shouldBe` [(marketCHU, 2.0)]
 
-    describe "dependenciesOf" $
+        it "refuses a supplier of a dependency that makes its product at its place twice, naming both" $
+            ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "TR" PositiveReference ["power plant"]))} (fixture "BR")
+                `shouldSatisfy` either (\why -> all (`T.isInfixOf` why) ["power market", "power plant"]) (const False)
+
+        it "refuses a supplier of a dependency stating no location" $
+            ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "" PositiveReference []))} (fixture "BR")
+                `shouldSatisfy` isLeft
+
+        it "refuses a supplier of a dependency whose product a process of the package also makes, naming it" $
+            ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = dependencies} (makingPower (fixture "BR"))
+                `shouldSatisfy` either ("power station" `T.isInfixOf`) (const False)
+
+        it "refuses an input linked to a process neither it nor a dependency holds" $
+            ILCD.writeILCDArchive ILCD.defaultWriteOptions (linkedPower marketU (fixture "BR")) `shouldSatisfy` isLeft
+
+    describe "dependenciesOf" $ do
+        it "names the other activities of the dependency making the product at the supplier's place" $ do
+            let background = buildIndexedDatabase "background" emptySynonymDB (withPlant backgroundDb)
+            (linked, stats) <- fixActivityLinksWithCrossDB [background] emptySynonymDB defaultUnitConfig locationHierarchy GeoGlobal (fixture "BR")
+            built <- either (fail . T.unpack) pure =<< buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty ReadDeclared []) linked
+            Dependencies found <- either (fail . T.unpack) pure (dependenciesOf (M.singleton "background" background) built{dbCrossDBLinks = cdlLinks stats})
+            map elTwins (M.elems found) `shouldSatisfy` (`elem` [[["power plant"]], [["power market"]]])
+
         it "finds the input the engine linked, at its place among the exported exchanges" $ do
             let background = buildIndexedDatabase "background" emptySynonymDB backgroundDb
             (linked, stats) <- fixActivityLinksWithCrossDB [background] emptySynonymDB defaultUnitConfig locationHierarchy GeoGlobal (fixture "BR")
@@ -106,7 +131,7 @@ spec = do
               , Just consumer <- [M.lookup (act, prod) (sdbActivities exported)]
               , ex <- take 1 (drop i (exchanges consumer))
               ]
-                `shouldBe` [(Elsewhere "background" "power market" "TR" PositiveReference, "power")]
+                `shouldBe` [(Elsewhere "background" "power market" "TR" PositiveReference [], "power")]
             out <- simaPro (Dependencies found) exported
             rowsUnder out "Materials/fuels"
                 `shouldSatisfy` any ("power {TR}| power market |;" `T.isPrefixOf`)
@@ -132,8 +157,11 @@ loadBrightway db = withSystemTempFile "export-supplier.xlsx" $ \path h -> do
     either (fail . T.unpack) pure =<< loadDatabase defaultUnitConfig path
 
 ilcdRoundTrip :: SimpleDatabase -> IO SimpleDatabase
-ilcdRoundTrip db = withSystemTempDirectory "export-supplier-ilcd" $ \dir -> do
-    _ <- either (fail . T.unpack) pure =<< ILCD.writeILCDDatabase ILCD.defaultWriteOptions dir db
+ilcdRoundTrip = ilcdRoundTripWith noDependencies
+
+ilcdRoundTripWith :: Dependencies -> SimpleDatabase -> IO SimpleDatabase
+ilcdRoundTripWith deps db = withSystemTempDirectory "export-supplier-ilcd" $ \dir -> do
+    _ <- either (fail . T.unpack) pure =<< ILCD.writeILCDDatabase ILCD.defaultWriteOptions{ILCD.woDependencies = deps} dir db
     either (fail . T.unpack) pure =<< parseILCDDirectory defaultUnitConfig ReadDeclared dir
 
 -- | The name of the activity a gin buys its seed from, once read back.
@@ -172,7 +200,7 @@ rowsUnder out header = go (map (T.dropWhileEnd (== '\r')) (T.lines (TE.decodeUtf
 
 -- | The mill's power, bought from an activity of a database it depends on.
 dependencies :: Dependencies
-dependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "TR" PositiveReference))
+dependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "TR" PositiveReference []))
 
 {- | Two farms making one product, « seed », farm A in IN and farm B at the
 place given; each gin buys its seed from one of them, and the mill buys
@@ -192,6 +220,22 @@ fixture farmBAt =
 -- | The database the mill's power comes from.
 backgroundDb :: SimpleDatabase
 backgroundDb = simple [((marketU, powerU), activity "power market" "TR" [reference powerU])] [(powerU, "power")]
+
+-- | A background making power in TR and in CH.
+twoPlaces :: SimpleDatabase
+twoPlaces = backgroundDb{sdbActivities = M.insert (marketCHU, powerU) (activity "power, CH" "CH" [reference powerU]) (sdbActivities backgroundDb)}
+
+-- | A background whose power plant makes power in TR beside the market.
+withPlant :: SimpleDatabase -> SimpleDatabase
+withPlant db = db{sdbActivities = M.insert (marketCHU, powerU) (activity "power plant" "TR" [reference powerU]) (sdbActivities db)}
+
+-- | A power station of the package makes the power the mill buys elsewhere.
+makingPower :: SimpleDatabase -> SimpleDatabase
+makingPower db = db{sdbActivities = M.insert (marketCHU, powerU) (activity "power station" "TR" [reference powerU]) (sdbActivities db)}
+
+-- | The mill's power linked to this process.
+linkedPower :: UUID -> SimpleDatabase -> SimpleDatabase
+linkedPower supplier db = db{sdbActivities = M.adjust (\a -> a{exchanges = [if exchangeFlowId ex == powerU then ex{techActivityLinkId = Just supplier} else ex | ex <- exchanges a]}) (millU, yarnU) (sdbActivities db)}
 
 -- | The two farms alone, whose seed nobody in the file buys.
 farmsOnly :: SimpleDatabase -> SimpleDatabase
@@ -236,13 +280,14 @@ input flow link = TechnosphereExchange flow 2.0 kgU Input link ClaimByProduct ""
 testUUID :: Word32 -> UUID
 testUUID n = UUID.fromWords n 0x4000 0x8000 1
 
-farmAU, farmBU, ginAU, ginBU, millU, marketU, seedU, fibreAU, fibreBU, yarnU, powerU, kgU :: UUID
+farmAU, farmBU, ginAU, ginBU, millU, marketU, marketCHU, seedU, fibreAU, fibreBU, yarnU, powerU, kgU :: UUID
 farmAU = testUUID 0x10
 farmBU = testUUID 0x11
 ginAU = testUUID 0x12
 ginBU = testUUID 0x13
 millU = testUUID 0x14
 marketU = testUUID 0x15
+marketCHU = testUUID 0x16
 seedU = testUUID 0xa0
 fibreAU = testUUID 0xa1
 fibreBU = testUUID 0xa2
