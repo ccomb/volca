@@ -323,6 +323,54 @@ spec = do
                 Characterized m _ -> cmRung m `shouldBe` RungMediumDefault
                 other -> expectationFailure ("expected the freshwater factor to apply, got " <> show other)
 
+        describe "a resource with no line at its own subcompartment" $ do
+            -- An ILCD or JSON-LD method writes "unspecified" as one
+            -- subcompartment; a resource filed "in water" or "land" reads its
+            -- name's line there, and says where it read it.
+            let resourceLine name sub v = (cfLine name sub "kg" v){mcfCompartment = Just (Compartment "natural resource" sub "")}
+                inWater = flowIn 30 "Water, unspecified natural origin" VT.NaturalResource (Just "in water")
+                resolutionOf flow lines' = ceResolution (explainOf defaultUnitConfig (tablesFor M.empty [(l, Just (Resolution flow ByName)) | l <- lines'] [flow]) flow)
+
+            it "reads the line its name has at unspecified" $ do
+                let explained = explainOf defaultUnitConfig (tablesFor M.empty [(resourceLine "Water, unspecified natural origin" "unspecified" 99, Just (Resolution inWater ByName))] [inWater]) inWater
+                case ceResolution explained of
+                    Characterized m _ -> do
+                        cmRung m `shouldBe` RungResourceUnspecified
+                        cfValue (cmCF m) `shouldBe` 99
+                    other -> expectationFailure ("expected the unspecified line, got " <> show other)
+                renderResolution (ceResolution explained) `shouldSatisfy` any ("\"unspecified\"" `T.isInfixOf`)
+
+            it "reads its own line first, a zero included" $
+                case resolutionOf inWater [resourceLine "Water, unspecified natural origin" "in water" 0, resourceLine "Water, unspecified natural origin" "unspecified" 99] of
+                    Characterized m _ -> do
+                        cmRung m `shouldBe` RungExactName
+                        cfValue (cmCF m) `shouldBe` 0
+                    other -> expectationFailure ("expected its own zero, got " <> show other)
+
+            it "reads the line for the whole medium before the one at unspecified" $
+                case resolutionOf inWater [resourceLine "Water, unspecified natural origin" "" 1, resourceLine "Water, unspecified natural origin" "unspecified" 99] of
+                    Characterized m _ -> cmRung m `shouldBe` RungMediumDefault
+                    other -> expectationFailure ("expected the line for the whole medium, got " <> show other)
+
+            it "leaves an emission without the line at unspecified" $ do
+                let urban = flowIn 31 "Zinc" Air (Just "urban air close to ground")
+                resolutionOf urban [cfLine "Zinc" "unspecified" "kg" 5] `shouldBe` Uncharacterized
+
+            it "lends no base substance's line at unspecified to a region-suffixed name" $ do
+                -- Two guesses stacked: the base name and the place.
+                let river = flowIn 32 "Water, river, CH" VT.NaturalResource (Just "in water")
+                    base = flowIn 33 "Water, river" VT.NaturalResource (Just "unspecified")
+                    tables = tablesFor M.empty [(resourceLine "Water, river" "unspecified" 99, Just (Resolution base ByName))] [river, base]
+                ceResolution (explainOf defaultUnitConfig tables river) `shouldBe` Uncharacterized
+
+            it "lends no CAS line at unspecified to another name" $ do
+                let cas = Just "7553-56-2"
+                    asked = (flowIn 34 "Iodine" VT.NaturalResource (Just "in water")){bfCAS = cas}
+                    named = (flowIn 35 "Iodine, in brine" VT.NaturalResource (Just "unspecified")){bfCAS = cas}
+                    line = (resourceLine "Iodine, in brine" "unspecified" 3){mcfCAS = cas}
+                    tables = tablesFor M.empty [(line, Just (Resolution named ByCAS))] [asked, named]
+                ceResolution (explainOf defaultUnitConfig tables asked) `shouldBe` Uncharacterized
+
         it "marks a rung the flow cannot use as not applicable" $ do
             -- No CAS on the flow, so the CAS bridge is not a miss: it never ran.
             let flow = flowIn 4 "Nitrous oxide" Air Nothing

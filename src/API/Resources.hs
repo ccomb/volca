@@ -798,7 +798,8 @@ description r = case r of
         \match), 'compartment_default' (the line the method writes for the \
         \whole compartment), 'if_absent' (the method writes nothing for this \
         \flow's subcompartment, and a row of the compartment table sends it to \
-        \another one), 'cas_number' (a factor for the same substance by CAS), \
+        \another one), 'resource_unspecified' (a resource whose subcompartment \
+        \has no line reads the one its name has at unspecified), 'cas_number' (a factor for the same substance by CAS), \
         \'region_base_name' (the base substance, the name's \
         \region suffix being untagged by the method), 'energy_content' (what \
         \the method charges for a unit of energy, or failing that its factor \

@@ -2208,7 +2208,7 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
             regionalCasFor flow = do
                 casNo <- bfCAS flow >>= SR.casKey
                 let (medium, sub) = flowMediumSub cmap flow
-                located <- asum [M.lookup (casNo, medium, at) regionalCas | (_, at) <- subReadings (mtIfAbsent tables) medium sub]
+                located <- asum [M.lookup (casNo, medium, at) regionalCas | (_, at) <- writtenReadings (mtIfAbsent tables) medium sub]
                 if M.null located then Nothing else Just located
          in V.map lookupRow bioFlows
 
@@ -2882,6 +2882,7 @@ data RungId
     | RungExactName
     | RungMediumDefault
     | RungIfAbsent
+    | RungResourceUnspecified
     | RungCasBridge
     | RungRegionBase
     | RungEnergyResource
@@ -2916,8 +2917,9 @@ one winner per base name, which for a sibling unit variant is dimensionally
 wrong and zeroes on conversion; a right-unit factor beats a wrong-unit one.
 Then the flow's name at each place 'subReadings' lets it read, one rung per
 place: its own subcompartment, the line written for the whole medium, the one
-an @if_absent@ row sends it to. UUID/name misses then fall back to the flow's own
-CAS, read at the same places, so every flow sharing a CAS in a compartment is
+an @if_absent@ row sends it to, a resource's @unspecified@ line. UUID/name
+misses then fall back to the flow's own CAS, read at the three places an author
+wrote ('writtenReadings'), so every flow sharing a CAS in a compartment is
 characterized, not just the one a CF resolved to at build time. The parametric
 rungs (region-stripped base name, energy content, ore grade) come last: they
 only fire when every direct lookup misses.
@@ -2934,6 +2936,7 @@ cascadeTrail tables flowDB fid =
         , (RungExactName, plain (nameAt ownSub))
         , (RungMediumDefault, plain (nameAt mediumWide))
         , (RungIfAbsent, maybe RungNotApplicable (plain . nameAt) redirected)
+        , (RungResourceUnspecified, maybe RungNotApplicable (plain . nameAt) resourceUnspecified)
         , (RungCasBridge, casOutcome)
         , (RungRegionBase, regionOutcome)
         , (RungEnergyResource, energyOutcome)
@@ -2944,12 +2947,17 @@ cascadeTrail tables flowDB fid =
         (baseMed, ownSub) = flowMediumSub (mtCompartmentMap tables) flow
         readings = subReadings (mtIfAbsent tables) baseMed ownSub
         redirected = listToMaybe [sub | (SubIfAbsent, sub) <- readings]
+        resourceUnspecified = listToMaybe [sub | (SubResourceUnspecified, sub) <- readings]
 
         nameAt sub = M.lookup (name, baseMed, sub) (mtExactCF tables)
 
-        -- The first place the flow may read that the table answers.
-        firstReading :: (Subcompartment -> Maybe a) -> Maybe a
-        firstReading look = asum [look sub | (_, sub) <- readings]
+        -- The first of these places that the table answers.
+        firstAt :: [(SubReading, Subcompartment)] -> (Subcompartment -> Maybe a) -> Maybe a
+        firstAt places look = asum [look sub | (_, sub) <- places]
+
+        -- Another name's factor is read only where an author wrote it.
+        firstWritten :: (Subcompartment -> Maybe a) -> Maybe a
+        firstWritten = firstAt (writtenReadings (mtIfAbsent tables) baseMed ownSub)
 
         -- 'mtUnitVariantCF' is empty for every method whose factor lines
         -- carry no unit suffix – the common case – and 'M.lookup' is strict
@@ -2960,11 +2968,11 @@ cascadeTrail tables flowDB fid =
             | M.null (mtUnitVariantCF tables) = RungNotApplicable
             | otherwise =
                 let kname = SR.NormName (normalizeNameKeepUnit (bfName flow))
-                 in plain (firstReading (\sub -> M.lookup (kname, baseMed, sub) (mtUnitVariantCF tables)))
+                 in plain (firstAt readings (\sub -> M.lookup (kname, baseMed, sub) (mtUnitVariantCF tables)))
 
         casOutcome = case bfCAS flow >>= SR.casKey of
             Nothing -> RungNotApplicable
-            Just casNo -> plain (join (firstReading (\sub -> M.lookup (casNo, baseMed, sub) (mtCasCF tables))))
+            Just casNo -> plain (join (firstWritten (\sub -> M.lookup (casNo, baseMed, sub) (mtCasCF tables))))
 
         -- A SimaPro region-suffixed flow ("Ammonia, FR") whose region the method
         -- doesn't tag falls back to the base substance's CF: an unregionalized CF
@@ -3019,8 +3027,8 @@ cascadeTrail tables flowDB fid =
             nativePerUnit <- convertUnit (mtUnitConfig tables) unit (edNativeUnit content) 1
             pure entry{teCF = CF (value / nativePerUnit / edValue content) (CFUnit (edTargetUnit content))}
 
-        -- Another name's factor, read at the places this flow may read.
-        resourceCF rname = firstReading (\sub -> M.lookup (rname, baseMed, sub) (mtExactCF tables))
+        -- Another name's factor, read at the places an author wrote.
+        resourceCF rname = firstWritten (\sub -> M.lookup (rname, baseMed, sub) (mtExactCF tables))
 
         -- An ecoinvent metal-ore resource flow ("Copper, 0.99% in sulfide, Cu 0.36%
         -- …, in ground", "Gold, Au 7.1E-4%, in ore") carries no CAS and matches no CF
@@ -3074,11 +3082,15 @@ data SubReading
       SubMediumWide
     | -- | Another one, by an @if_absent@ row of the compartment table.
       SubIfAbsent
+    | {- | A natural resource's @unspecified@ line, read by the flow's own name
+      only ('subReadings').
+      -}
+      SubResourceUnspecified
     deriving (Eq, Ord, Show)
 
-{- | The places a flow at @(medium, sub)@ may read a factor, in the order it
-tries them. These are the only three, and each is written somewhere a method or
-database author can read:
+{- | The places a flow at @(medium, sub)@ may read a factor that an author
+wrote for it, in the order it tries them. There are three, and each is written
+somewhere a method or database author can read:
 
   * its own subcompartment;
   * the substance's line for the whole medium, a line written with no
@@ -3096,14 +3108,38 @@ outside it. The SimaPro export of EF 3.1 and its ILCD package both leave
 groundwater unwritten; only the second has no line for the whole medium, so
 only there does a groundwater flow reach the row that sends it to fresh water.
 
-Nothing else: no subcompartment is guessed from another, and no factor is
+The rungs that lend a flow another name's factor (CAS, region base name)
+read these three only: their lookup is already a guess about the substance,
+and it is never made at a place the engine guessed as well.
+-}
+writtenReadings :: M.Map (MediumKey, Subcompartment) Subcompartment -> MediumKey -> Subcompartment -> [(SubReading, Subcompartment)]
+writtenReadings inForce medium sub =
+    (SubOwn, sub)
+        : [(SubMediumWide, mediumWide) | sub /= mediumWide]
+        ++ [(SubIfAbsent, target) | Just target <- [M.lookup (medium, foldSub sub) inForce]]
+
+{- | Every place a flow may read a factor by its own name: the three
+'writtenReadings', then, for a natural resource, its substance's line at
+@unspecified@ in the same medium.
+
+An emission's subcompartment changes what the emission does (air at altitude,
+groundwater against a river), so a method that writes nothing there has said
+so. A resource's subcompartment says where a flow list files it (in water,
+land), not a different damage: Ecological Scarcity 2021 for openLCA writes
+@Water, unspecified natural origin@ and @Occupation, tropical rain forest@ at
+@unspecified@ only, and counts them for a database that files them in water
+and on land. A line the method writes at the resource's own place, zero
+included, still comes first.
+
+Nothing else: no emission reads another subcompartment, and no factor is
 borrowed across subcompartments because a substance happens to have one.
 -}
 subReadings :: M.Map (MediumKey, Subcompartment) Subcompartment -> MediumKey -> Subcompartment -> [(SubReading, Subcompartment)]
 subReadings inForce medium sub =
-    (SubOwn, sub)
-        : [(SubMediumWide, mediumWide) | sub /= mediumWide]
-        ++ [(SubIfAbsent, target) | Just target <- [M.lookup (medium, foldSub sub) inForce]]
+    writtenReadings inForce medium sub
+        ++ [(SubResourceUnspecified, unspec) | medium == Just NaturalResource, foldSub sub /= unspec]
+  where
+    unspec = Subcompartment (T.pack "unspecified")
 
 {- | The places a method's collection writes factors at: every
 (medium, subcompartment) its lines name, case-folded. An @if_absent@ row holds
@@ -3929,7 +3965,10 @@ siblingLines unitConfig unitDB tables flow
     | otherwise = Nothing
   where
     (med, own) = flowMediumSub (mtCompartmentMap tables) flow
-    readings = map snd (subReadings (mtIfAbsent tables) med own)
+    -- The flow reads a line of its own name at every place, a CAS line only
+    -- where an author wrote it: the same split as the cascade's.
+    byName = map snd (subReadings (mtIfAbsent tables) med own)
+    byCas = map snd (writtenReadings (mtIfAbsent tables) med own)
     cas = maybeToList (bfCAS flow >>= SR.casKey)
     name = SR.NormName (normalizeName (bfName flow))
 
@@ -3937,15 +3976,14 @@ siblingLines unitConfig unitDB tables flow
 
     regional =
         maybe False ((== bfId flow) . fst . fst) (M.lookupGE (bfId flow, Location T.empty) (mtRegionalizedCF tables))
-            || any (`M.member` mtRegionalCasCF tables) [(c, med, sub) | c <- cas, sub <- readings]
+            || any (`M.member` mtRegionalCasCF tables) [(c, med, sub) | c <- cas, sub <- byCas]
 
     written =
-        [(sub, teCF e) | ((_, _, sub), e) <- atMedium (name, med) (mtExactCF tables)]
-            ++ [(sub, teCF e) | c <- cas, ((_, _, sub), Just e) <- atMedium (c, med) (mtCasCF tables)]
+        [(sub, teCF e) | ((_, _, sub), e) <- atMedium (name, med) (mtExactCF tables), sub `notElem` byName]
+            ++ [(sub, teCF e) | c <- cas, ((_, _, sub), Just e) <- atMedium (c, med) (mtCasCF tables), sub `notElem` byCas]
     found =
         [ (sub, f)
         | (sub, cf) <- written
-        , sub `notElem` readings
         , let f = convertAndMultiply unitConfig unitDB (mtEnergyDensities tables) (Just flow) cf 1
         , f /= 0
         ]
