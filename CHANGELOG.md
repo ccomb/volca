@@ -40,6 +40,12 @@
   publishes it, which names it "Xylenes, unspecified" where EcoSpold 1
   databases write "Xylene". POP into water, of which xylene is the largest
   part, read about half the published score (data version 15).
+- "Radioactive species, unspecified" is no longer read as "Radioactive
+  species, other beta emitters". Nothing said the two were one substance,
+  and a method that gives only the second a factor charged it to the first:
+  Ecological Scarcity 2021 scored radioactive substances into air about 3 %
+  above what openLCA publishes, and agrees once the two are kept apart
+  (data version 15).
 
 ### Changed
 
