@@ -32,6 +32,10 @@
 - A method collection holding noise factors, or factors on the economic,
   waste or social media, exports as columnar CSV. The export refused them,
   since the CSV reader named only some of the media.
+- An ILCD export writes a line in the unit of its flow. An ILCD exchange has
+  no unit of its own, so a line asking 0.0157 kWh of a product made in MJ was
+  reread as 0.0157 MJ, 3.6 times too little. The amount is now converted, and
+  a unit that does not convert to its flow's is refused.
 
 ### Changed
 

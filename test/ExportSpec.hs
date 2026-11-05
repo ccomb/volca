@@ -26,6 +26,7 @@ import qualified Database as DB
 import Database.Export (MethodExportFormat (..), namedAfterLinks, serializeDatabase, serializeMethodCollection)
 import Database.ExportSupplier (Dependencies (..), Elsewhere (..), noDependencies)
 import Database.Upload (DatabaseFormat (..))
+import qualified ILCD.Writer as ILCD
 import qualified Method.Types as MT
 import Types
 import UnitConversion (UnitConfig, buildFromCSV, defaultUnitConfig)
@@ -150,6 +151,14 @@ spec = describe "Database.Export dispatcher" $ do
             fromRight "" simapro `shouldSatisfy` isInfixOf "Electricity, medium voltage, at grid {RER}| Electricity, medium voltage, at grid |"
             fromRight "" simapro `shouldSatisfy` (not . isInfixOf "market group for electricity")
 
+        it "puts a line in kWh of a flow in MJ in MJ for ILCD, whose exchanges have only their flow's unit" $
+            fmap marketLines (ILCD.inFlowUnits energyUnits spinning) `shouldBe` Right [(33.336, mjU), (3.6, mjU)]
+
+        it "refuses for ILCD a line whose unit does not convert to its flow's" $ do
+            let inKg ex = if exchangeUnitId ex == kwhU then ex{techUnitId = kgU} else ex
+                weighed = spinning{sdbActivities = M.map (\act -> act{exchanges = map inKg (exchanges act)}) (sdbActivities spinning)}
+            fmap marketLines (ILCD.inFlowUnits energyUnits weighed) `shouldSatisfy` isLeft
+
 {- | One activity: a reference product and a single biosphere emission whose
 compartment is @comp@ (air for the all-formats case, "raw" for the guard case).
 -}
@@ -269,6 +278,10 @@ spinning =
         [ TechnosphereFlow spinProd "yarn" kgU M.empty Nothing Nothing
         , TechnosphereFlow marketFlow "market group for electricity, medium voltage" mjU M.empty Nothing Nothing
         ]
+
+-- | The amount and unit of each line of the market flow, in order.
+marketLines :: SimpleDatabase -> [(Double, UUID.UUID)]
+marketLines db = [(exchangeAmount ex, exchangeUnitId ex) | act <- M.elems (sdbActivities db), ex <- exchanges act, exchangeFlowId ex == marketFlow]
 
 grid :: Elsewhere
 grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = PositiveReference, elTwins = []}
