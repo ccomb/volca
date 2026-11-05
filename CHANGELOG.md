@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- A database relinked with a mapping keeps the links that mapping made. They
+  used to drop without a word at the next relink, which an edit, the reload
+  of a dependency and a restart all run: one process added to a copy of a
+  database of 70 000 such links left it with 1 500, and every score that
+  went through the others counted nothing for them. The mapping now stays in
+  force until another mapping relink replaces it. A database with a home
+  (uploaded, or a copy) keeps it there as `relink.csv`, read again at every
+  load, and a copy takes its source's. A kept mapping that no longer reads
+  under the unit table is reported, and the database loads without it.
 - In the supply chain of a process whose reference amount is not 1, the
   entries reached in a database it depends on were stated for one unit of
   the process, while the others were stated for its reference amount. All of

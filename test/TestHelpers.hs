@@ -318,4 +318,5 @@ install manager name db = do
                     { DM.ldDatabase = db
                     , DM.ldSharedSolver = solver
                     , DM.ldConfig = dbConfigFor name
+                    , DM.ldSupplierMapping = Nothing
                     }

@@ -556,7 +556,7 @@ withDb build mkConfig act =
             db <- build
             solver <- createSharedSolver "authored" (triplesOf db) (fromIntegral (dbActivityCount db))
             let config = mkConfig "authored" dataDir
-                loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = config}
+                loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = config, ldSupplierMapping = Nothing}
             atomically $ do
                 modifyTVar' (dmLoadedDbs dbm) (M.insert "authored" loaded)
                 modifyTVar' (dmAvailableDbs dbm) (M.insert "authored" config)

@@ -67,6 +67,9 @@ module Database.RelinkMapping (
     parseAliasCSV,
     buildAliasMap,
     parseAliasMap,
+    SupplierMapping (..),
+    readSupplierMapping,
+    mappingAliases,
 ) where
 
 import Control.Applicative ((<|>))
@@ -80,11 +83,12 @@ import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
 import qualified UnitConversion as UC
 
-import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), Direction (..), UnitBridge (..))
+import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), Direction (..), UnitBridge (..), emptyAliasMap)
 import Types (ProcessRef, parseProcessRef, processRefText)
 
 {- | One row of the alias mapping, validated: the keys it applies under (at
@@ -247,3 +251,20 @@ parseAliasMap units bytes = do
     if M.null (amByProcess m) && M.null (amByName m)
         then Left "mapping file contains no row with a source"
         else Right m
+
+{- | The mapping a database was last relinked with: the file as it was sent,
+kept so it can be written to the database's home and read again under the
+unit table of a later load, and the aliases it reads to now.
+-}
+data SupplierMapping = SupplierMapping
+    { smCsv :: !Text
+    , smAliases :: !AliasMap
+    }
+    deriving (Show, Eq)
+
+readSupplierMapping :: UC.UnitConfig -> Text -> Either Text SupplierMapping
+readSupplierMapping units csv = SupplierMapping csv <$> parseAliasMap units (BL.fromStrict (TE.encodeUtf8 csv))
+
+-- | The aliases a database relinks with: none until a mapping was applied.
+mappingAliases :: Maybe SupplierMapping -> AliasMap
+mappingAliases = maybe emptyAliasMap smAliases

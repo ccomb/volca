@@ -56,7 +56,9 @@ module Database.Edit (
 import Control.Applicative ((<|>))
 import Control.Concurrent.STM (STM, atomically, modifyTVar', readTVar, readTVarIO)
 import Control.Exception (SomeException, try)
-import Control.Monad (when)
+import Control.Monad (forM_, when)
+import qualified Data.ByteString as BS
+import qualified Data.Text.Encoding as TE
 import qualified Data.IntSet as IS
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
@@ -124,10 +126,12 @@ import Database.Manager (
     removeDatabase,
     scenariosHome,
     solverFor,
+    supplierMappingPath,
     unloadDatabase,
     withReservedName,
  )
 import Database.Rebuild (processKey, resolveProcess)
+import Database.RelinkMapping (SupplierMapping (..))
 import Database.SystemModel (parseSystemModel, severalProducts)
 import Database.Upload (DatabaseFormat (..), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
@@ -487,6 +491,7 @@ registerCopy manager slug loaded = do
                         { ldDatabase = copiedDb
                         , ldSharedSolver = solver
                         , ldConfig = newConfig
+                        , ldSupplierMapping = ldSupplierMapping src
                         }
                 indexedDb = buildIndexedDatabaseFromDB slug synonymDB copiedDb
             atomically $ do
@@ -525,6 +530,9 @@ recordCopy slug added src = do
         sourcePath <- makeAbsolute (dcPath config)
         hasJournal <- doesFileExist srcJournal
         when hasJournal $ copyFile srcJournal (journalPath home)
+        -- The mapping the source was relinked with, so a load of the copy links as the source does.
+        forM_ (ldSupplierMapping src) $ \mapping ->
+            BS.writeFile (supplierMappingPath home) (TE.encodeUtf8 (smCsv mapping))
         let srcScenarios = journalPath (scenariosHome (uploadsDir </> T.unpack (dcName config)))
         hasScenarios <- doesFileExist srcScenarios
         when hasScenarios $ do

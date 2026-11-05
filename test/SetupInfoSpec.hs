@@ -191,7 +191,7 @@ installLoaded manager name db = do
     let triples = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
         config = stubConfig{dcName = name, dcDisplayName = name}
     solver <- createSharedSolver name triples (fromIntegral (dbActivityCount db))
-    let loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = config}
+    let loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = config, ldSupplierMapping = Nothing}
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.insert name loaded)
         modifyTVar' (dmAvailableDbs manager) (M.insert name config)

@@ -300,7 +300,7 @@ loadedFixture = do
             fixtureName
             [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
             (fromIntegral (dbActivityCount db))
-    let loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = fixtureConfig}
+    let loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = fixtureConfig, ldSupplierMapping = Nothing}
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.insert fixtureName loaded)
         modifyTVar' (dmAvailableDbs manager) (M.insert fixtureName fixtureConfig)

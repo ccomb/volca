@@ -419,6 +419,7 @@ installLoaded manager name db = do
                 { ldDatabase = db
                 , ldSharedSolver = solver
                 , ldConfig = mkConfig name
+                , ldSupplierMapping = Nothing
                 }
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.insert name loaded)
