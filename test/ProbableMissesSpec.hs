@@ -94,6 +94,15 @@ spec = describe "probableMisses" $ do
             renamed = (flowAt 3 "Ammonia, as N" Air (Just "indoor")){bfCAS = Just "7664-41-7"}
         map pmUpTo (missesOf (buildMethodTables mempty defaultUnitConfig M.empty cfs) [(renamed, 0.02)]) `shouldBe` [0.02 * 3.02]
 
+    it "names a resource whose CAS line the method writes only at unspecified" $ do
+        -- The resource reads a line of its own name there, not a CAS line:
+        -- the score misses it, so the miss is named.
+        let cas = Just "7553-56-2"
+            named = (flowAt 2 "Iodine, in brine" NaturalResource (Just "unspecified")){bfCAS = cas}
+            asked = (flowAt 3 "Iodine" NaturalResource (Just "in water")){bfCAS = cas}
+            cfs = [((line "Iodine, in brine" "natural resource" "unspecified" 3.0){mcfCAS = cas}, Just (Resolution named ByCAS))]
+        map pmUpTo (missesOf (buildMethodTables mempty defaultUnitConfig M.empty cfs) [(asked, 1)]) `shouldBe` [3.0]
+
     it "names nothing through a CAS the method tells apart by name" $ do
         -- Two values for one CAS at one place: the CAS stands for no single substance.
         let cfs =

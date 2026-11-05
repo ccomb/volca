@@ -159,6 +159,22 @@ spec = do
                 comp = Compartment "water" "unspecified" ""
             fmap bfId (findFlowByNameComp mempty byName "water" (Just comp)) `shouldBe` Just fidUnspec
 
+        it "gives a resource row written at unspecified to the resource filed in water" $ do
+            -- The flow reads that line by its name, so the row is attached to it.
+            fid <- nextRandom
+            let inWater = mkFlow fid "water, unspecified natural origin" NaturalResource (Just "in water")
+                comp = Compartment "natural resource" "unspecified" ""
+            fmap bfId (findFlowByNameComp mempty (FlowsByName (M.singleton "water unspecified natural origin" [inWater])) "water, unspecified natural origin" (Just comp)) `shouldBe` Just fid
+
+        it "gives a resource row written at unspecified to the flow at unspecified first" $ do
+            fidInWater <- nextRandom
+            fidUnspec <- nextRandom
+            let inWater = mkFlow fidInWater "water, unspecified natural origin" NaturalResource (Just "in water")
+                unspec = mkFlow fidUnspec "water, unspecified natural origin" NaturalResource (Just "unspecified")
+                byName = FlowsByName $ M.singleton "water unspecified natural origin" [inWater, unspec]
+                comp = Compartment "natural resource" "unspecified" ""
+            fmap bfId (findFlowByNameComp mempty byName "water, unspecified natural origin" (Just comp)) `shouldBe` Just fidUnspec
+
         it "answers nothing when no candidate is in the stated medium" $ do
             -- A row for an emission to air does not describe a water flow of
             -- the same name, so the name matcher has found nothing and the

@@ -46,6 +46,15 @@
   Ecological Scarcity 2021 scored radioactive substances into air about 3 %
   above what openLCA publishes, and agrees once the two are kept apart
   (data version 15).
+- A natural resource that a method writes only at `unspecified` now counts
+  when a database files it elsewhere in the same medium. Ecological Scarcity
+  2021 as published for openLCA writes "Water, unspecified natural origin"
+  and "Occupation, tropical rain forest" at `unspecified` alone; a database
+  that files them "in water" and on "land" scored them nothing, so a tropical
+  wood lost all of its land use and evaporated water came out about 12 %
+  below the published scores. A line the method writes at the resource's own
+  place still comes first, and emissions are unchanged. `explain-cf` names
+  the new step `resource_unspecified`.
 
 ### Changed
 
