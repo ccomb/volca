@@ -1179,7 +1179,7 @@ substanceRegistry SimpleDatabase{..} =
         }
   where
     mediumBlocks :: [Text]
-    mediumBlocks = ["Raw materials", "Airborne emissions", "Waterborne emissions", "Emissions to soil"]
+    mediumBlocks = ["Raw materials", "Airborne emissions", "Waterborne emissions", "Emissions to soil", "Non material emissions"]
     byName :: [[BiosphereFlow]]
     byName = map NE.toList (M.elems (groupInOrder [(normalizeName (bfName f), f) | f <- M.elems sdbBioFlows]))
     casOf :: BiosphereFlow -> Maybe Text
@@ -1208,13 +1208,13 @@ substanceRegistry SimpleDatabase{..} =
         Just Water -> "Waterborne emissions"
         Just Soil -> "Emissions to soil"
         Just Air -> "Airborne emissions"
+        Just Immaterial -> "Non material emissions"
         -- No block of the registry is theirs, and the trailing "Final waste
         -- flows" block is read as a process section, so they go with air.
         Just Waste -> "Airborne emissions"
         Just InventoryIndicator -> "Airborne emissions"
         Just Economic -> "Airborne emissions"
         Just Social -> "Airborne emissions"
-        Just Immaterial -> "Airborne emissions"
         -- Where 'bioSection' files an emission of a flow stating no compartment.
         Nothing -> "Airborne emissions"
 
