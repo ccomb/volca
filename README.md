@@ -380,18 +380,21 @@ A flow reads a factor at these places, in this order, and nowhere else:
    whose reader keys it there. In an ILCD package, a JSON-LD package or this
    engine's CSV format, `unspecified` names one subcompartment like any other;
 3. the place an `if_absent` row sends it to;
-4. for a natural resource only, the line its own name has at `unspecified`.
+4. for a natural resource only, the line its own name, or a synonym of it,
+   has at `unspecified`.
 
 The fourth place exists because a resource's subcompartment says where a flow
 list files it, not a different damage. Ecological Scarcity 2021 as published
 for openLCA writes `Water, unspecified natural origin` and
 `Occupation, tropical rain forest` at `unspecified` only, and counts them for a
 database that files them `in water` and on `land`. An emission's subcompartment
-does change what it does, so an emission never reads it. Only the steps that
-look the flow up by its own name read the fourth place. The steps that lend it
-another name's factor (its CAS, the base substance of a region-suffixed name)
-read the first three, the places an author wrote: they never take a guessed
-place on top of a borrowed name.
+does change what it does, so an emission never reads it. Only a line that
+names the flow itself, by its name or a synonym `data/flows.csv` writes,
+reaches the fourth place. A line that lends it another name's factor (one
+sharing its CAS number, a proxy edge, the base substance of a region-suffixed
+name) reaches the first three, the places an author wrote: never a guessed
+place on top of a borrowed name. The same rule decides which database flow a
+method line is attached to.
 
 A flow that states no subcompartment is an `unspecified` emission. The engine
 borrows no factor across subcompartments beyond these places: a method that

@@ -285,6 +285,15 @@ spec = do
         it "returns Nothing for unknown CAS" $
             fmap bfId (findFlowByCAS mempty (FlowsByCAS M.empty) "co2" "000-00-0" Nothing) `shouldBe` Nothing
 
+        it "attaches no resource row written at unspecified to a flow of another name filed in water" $ do
+            -- The flow reads that line only by its own name, so a row found by
+            -- its CAS would be counted matched and read by nothing.
+            fid <- nextRandom
+            let iodine = mkFlow fid "Iodine" NaturalResource (Just "in water")
+                byCAS = FlowsByCAS $ M.singleton "7553-56-2" [iodine]
+                comp = Compartment "natural resource" "unspecified" ""
+            fmap bfId (findFlowByCAS mempty byCAS "Iodine, in brine" "7553-56-2" (Just comp)) `shouldBe` Nothing
+
         -- The index is keyed canonically; a method whose parser kept the
         -- source's zero-padding still has to reach the same flow, or its
         -- factor goes silently missing.
