@@ -105,6 +105,12 @@ spec = describe "Database.Export dispatcher" $ do
             (\ex -> (techAmount ex, techUnitId ex, isNothing (techFormula ex))) (lineAt 1 sdb) `shouldBe` (16.668, kgU, True)
             said `shouldSatisfy` any (T.isInfixOf "formula")
 
+        it "is written converted when a relink row stated a ratio between units the table reads as one" $ do
+            -- 0.599 MJ of cold per MJ of heat: the link asks 1 / 0.599 MJ of the supplier per MJ written.
+            let (sdb, said) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, grid)]) [linkAt 1 gridAct (1 / 0.599) "MJ"] spinning
+            (\ex -> (round (techAmount ex * 1e6) :: Integer, techUnitId ex, isNothing (techFormula ex))) (lineAt 1 sdb) `shouldBe` (55652755, mjU, True)
+            said `shouldSatisfy` any (T.isInfixOf "formula")
+
         it "changes sign, and says its formula is dropped, when the format reads a line sent to a treatment the other way" $ do
             let treatment = grid{elReferenceSign = NegativeReference}
                 (positive, said) = namedAfterLinks energyUnits PositiveReferences (suppliers [(1, treatment)]) [linkAt 1 gridAct 1 "MJ"] spinning
