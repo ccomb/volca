@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.16.1] - 2026-11-05
 
 ### Added
 
@@ -189,6 +189,11 @@
   (its name, description or licence text) is now escaped, so the file stays
   valid TOML.
 
+- Comparing two databases now also lists the activities that say the same
+  thing in both, each with the activity it was paired with and how the pair
+  was found, so a script can follow every activity of one database to its
+  counterpart in the other, not only those that changed. Wire revision 86.
+
 ### Changed
 
 - A parent database exports to an openLCA package. Each process of several
@@ -214,13 +219,6 @@
   is asked again. A usage line now lists its `counted` releases, each with
   its `disclosure`. `reads` still lists the same releases alone, until 0.17.
   Wire revision 95.
-
-### Added
-
-- Comparing two databases now also lists the activities that say the same
-  thing in both, each with the activity it was paired with and how the pair
-  was found, so a script can follow every activity of one database to its
-  counterpart in the other, not only those that changed. Wire revision 86.
 
 ### Fixed
 
