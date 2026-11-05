@@ -2069,18 +2069,28 @@ getPathTo db solver pidText target = do
 
 {- | Where a supply-chain collection stands.
 
-At the root the root row is left out of its own chain, quantities are scaled by
-the root's reference amount, process ids stay bare, and depth counts from zero.
-In a dependency database nothing is excluded, the scaling that arrives is
-already physical, ids are qualified with @db::@, and depth continues from the
+At the root the root row is left out of its own chain, process ids stay bare,
+and depth counts from zero. In a dependency database nothing is excluded, ids
+are qualified with @db::@, and depth continues from the
 level that reached it. The two are one fact, so they travel as one value: as
 four separate parameters they admitted sixteen combinations, of which the code
 only ever built these two.
 -}
 data WalkLevel
     = RootLevel {rlRoot :: !ProcessId}
-    | -- | The matrix columns the dependency is bought at, each one deeper than the process buying it.
-      DepLevel {dlEntered :: !(IM.IntMap Int)}
+    | {- | The matrix columns the dependency is bought at, each one deeper than the process buying it,
+      and the root's reference amount, which every level's quantities are stated for.
+      -}
+      DepLevel {dlEntered :: !(IM.IntMap Int), dlRootAmount :: !Double}
+
+{- | What a level's quantities are stated for: the root's reference amount, at
+every level. A scaling is per unit of the root's reference product, so a root
+written for 10 000 kg reads its whole chain, in its own database and in its
+dependencies alike, ten thousand times what one kilogram takes.
+-}
+rootAmount :: Database -> WalkLevel -> Double
+rootAmount db RootLevel{rlRoot = r} = referenceMagnitude (dbActivities db V.! fromIntegral r)
+rootAmount _ DepLevel{dlRootAmount = amount} = amount
 
 -- | Every process's depth in the chain, from where a level is entered.
 levelDepths :: IM.IntMap [Int] -> WalkLevel -> IM.IntMap Int
@@ -2252,11 +2262,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
         mRootPid = case level of
             RootLevel{rlRoot = r} -> Just r
             DepLevel{} -> Nothing
-        -- A root chain is stated per the root's reference product; a dep level
-        -- receives a scaling that is already physical.
-        quantityMult = case level of
-            RootLevel{rlRoot = r} -> referenceMagnitude (dbActivities db V.! fromIntegral r)
-            DepLevel{} -> 1.0
+        quantityMult = rootAmount db level
         n = U.length supplyVec
 
         allEntries =
@@ -2578,7 +2584,7 @@ walkDepLevels unitCfg geographies depLookup consumer extras scf depth visited
                     }
                 | (name, demands) <- M.toList (accumulateDepDemandsWith (coDb consumer) extras (coScaling consumer))
                 ]
-        results <- mapM (resolveOneDep unitCfg geographies depLookup scf depth visited) calls
+        results <- mapM (resolveOneDep unitCfg geographies depLookup scf (rootAmount (coDb consumer) (coLevel consumer)) depth visited) calls
         pure $ case lefts results of
             (err : _) -> Left err
             [] -> Right (mconcat (rights results))
@@ -2592,13 +2598,15 @@ resolveOneDep ::
     Geographies ->
     SharedSolver.DepSolverLookup ->
     SupplyChainFilter ->
+    -- | the root's reference amount, which quantities are stated for
+    Double ->
     -- | levels of dependency crossed, bounding the recursion
     Int ->
     -- | visited
     S.Set Text ->
     DepCall ->
     IO (Either ServiceError Collected)
-resolveOneDep unitCfg geographies depLookup scf depth visited call
+resolveOneDep unitCfg geographies depLookup scf statedFor depth visited call
     | depDbName `S.member` visited = pure (Right mempty)
     | otherwise = do
         mDep <- depLookup depDbName
@@ -2607,7 +2615,7 @@ resolveOneDep unitCfg geographies depLookup scf depth visited call
             Just (depDb, depSolver) -> case depDemandsToVector unitCfg depDbName depDb (dcDemands call) of
                 Left err -> pure (Left (MatrixError err))
                 Right demandVec -> do
-                    let level = DepLevel (enteredAt depDb)
+                    let level = DepLevel (enteredAt depDb) statedFor
                     depScaling <- solveWithSharedSolver depSolver demandVec
                     let local =
                             collectSupplyChainEntries

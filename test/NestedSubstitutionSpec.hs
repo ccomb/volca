@@ -14,6 +14,8 @@ module NestedSubstitutionSpec (spec) where
 import API.Types (RootDb (..), Substitution (..), SubstitutionScope (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import qualified Data.Vector as V
+import qualified Data.Vector.Mutable as MV
 import qualified Data.Vector.Unboxed as U
 import Database.Cutoffs (gapIndexOf)
 import Matrix (buildDemandVector)
@@ -277,24 +279,6 @@ spec = do
                 pid = 0
                 demandVec = buildDemandVector root pid
             scaling <- solveWithSharedSolver rootSolver =<< either (fail . show) pure demandVec
-            let scf =
-                    SupplyChainFilter
-                        { scfCore =
-                            ActivityFilterCore
-                                { afcName = Nothing
-                                , afcLocation = Nothing
-                                , afcProduct = Nothing
-                                , afcClassifications = []
-                                , afcLimit = Nothing
-                                , afcOffset = Nothing
-                                , afcSort = Nothing
-                                , afcOrder = Nothing
-                                }
-                        , scfMaxDepth = Nothing
-                        , scfMinQuantity = Nothing
-                        , scfEdges = EntriesOnly
-                        , scfWithheld = mempty
-                        }
             eResp <-
                 buildSupplyChainFromScalingVectorCrossDB
                     defaultUnitConfig
@@ -306,7 +290,7 @@ spec = do
                     pid
                     scaling
                     []
-                    scf
+                    everything
             case eResp of
                 Left e -> expectationFailure ("supply-chain CrossDB failed: " <> show e)
                 Right resp -> do
@@ -322,6 +306,62 @@ spec = do
                     length depEntries `shouldSatisfy` (> 0)
                     -- Dep entries must carry the "dep::" qualifier.
                     mapM_ (\e -> sceProcessId e `shouldSatisfy` T.isPrefixOf "dep::") depEntries
+
+        it "states every entry for the root's reference amount, in a dependency too" $ do
+            -- The same root written for 10 kg instead of 1, with the same inputs:
+            -- what it buys from the dependency is the same, as the line says. A
+            -- link's demand is read per unit of the root's reference product, so
+            -- it must be stated back for the 10 kg. Only the dependency's entries
+            -- are compared: they come from the links, while the root's own come
+            -- from a matrix this test does not rebuild.
+            rootRaw <- loadSampleDatabase "SAMPLE.min3"
+            dep <- loadSampleDatabase "SAMPLE.min3"
+            let root = linkDatabases rootRaw dep "dep" 0.1
+                pid = 0
+                tenfold = root{dbActivities = V.modify (\v -> MV.modify v writtenForTen (fromIntegral pid)) (dbActivities root)}
+                writtenForTen act = act{exchanges = map (\ex -> if exchangeIsReference ex then ex{techAmount = 10 * techAmount ex} else ex) (exchanges act)}
+            rootSolver <- mkSolverFromDb root "root"
+            depSolver <- mkSolverFromDb dep "dep"
+            scaling <- solveWithSharedSolver rootSolver =<< either (fail . show) pure (buildDemandVector root pid)
+            let chain db =
+                    either (fail . show) (pure . M.fromList . map (\e -> (sceProcessId e, sceQuantity e)) . scrSupplyChain)
+                        =<< buildSupplyChainFromScalingVectorCrossDB
+                            defaultUnitConfig
+                            shippedGeographies
+                            (mkDepLookupFromMap (M.singleton "dep" (dep, depSolver)))
+                            (\_ d -> pure (gapIndexOf d))
+                            db
+                            "root"
+                            pid
+                            scaling
+                            []
+                            everything
+            one <- chain root
+            ten <- chain tenfold
+            let fromDep = M.map (\q -> round (q * 1e6) :: Integer) . M.filterWithKey (\k _ -> "dep::" `T.isPrefixOf` k)
+            fromDep one `shouldSatisfy` (not . null)
+            fromDep ten `shouldBe` fromDep one
+
+-- | A supply-chain filter that keeps every entry.
+everything :: SupplyChainFilter
+everything =
+    SupplyChainFilter
+        { scfCore =
+            ActivityFilterCore
+                { afcName = Nothing
+                , afcLocation = Nothing
+                , afcProduct = Nothing
+                , afcClassifications = []
+                , afcLimit = Nothing
+                , afcOffset = Nothing
+                , afcSort = Nothing
+                , afcOrder = Nothing
+                }
+        , scfMaxDepth = Nothing
+        , scfMinQuantity = Nothing
+        , scfEdges = EntriesOnly
+        , scfWithheld = mempty
+        }
 
 -- | Build a fresh 'SharedSolver' from a database's technosphere triples.
 mkSolver :: Database -> T.Text -> IO SharedSolver
