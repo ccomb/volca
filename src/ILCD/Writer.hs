@@ -30,7 +30,8 @@ better than a part of the data lost.
 
 What round-trips: process UUID, name, location, classifications, the type of
 dataset where it is one the format lists,
-every exchange (flow ref, direction, amount, location, per-exchange comment), the
+every exchange (flow ref, direction, amount, location, per-exchange comment;
+the amount in the flow's unit, so 1 kWh of a flow in MJ comes back 3.6 MJ), the
 exchanged flows (names, CAS, biosphere compartment, flow type, the flow→unit
 reference) and the unit catalog. These are exactly the fields "ILCD.Parser" reads back;
 fields the parser drops (activity description, synonyms, params, pedigree)
@@ -380,7 +381,7 @@ inFlowUnits units db = case [refusal | (_, ls) <- M.elems converted, Left refusa
     refused ->
         Left $
             T.intercalate "\n" $
-                ("ILCD export cannot write " <> T.pack (show (length refused)) <> " lines in their flow's unit, the only one an ILCD exchange has:")
+                ("ILCD export cannot write " <> T.pack (show (length refused)) <> (if length refused == 1 then " line" else " lines") <> " in its flow's unit, the only one an ILCD exchange has:")
                     : map ("  " <>) (take 20 refused)
                     <> ["  and " <> T.pack (show (length refused - 20)) <> " more" | length refused > 20]
   where
