@@ -401,6 +401,8 @@ parseCompartment cats@(firstCat : _) =
             T.strip $ T.drop (T.length "Emissions to soil, ") txt
         | "Emissions to " `T.isPrefixOf` txt =
             T.strip $ T.drop (T.length "Emissions to ") txt
+        | "Immaterial emission, " `T.isPrefixOf` txt =
+            T.strip $ T.drop (T.length "Immaterial emission, ") txt
         | "Resources " `T.isPrefixOf` txt =
             T.strip $ T.drop (T.length "Resources ") txt
         | otherwise = T.toLower $ T.strip txt

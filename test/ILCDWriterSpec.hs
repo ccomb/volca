@@ -379,6 +379,16 @@ spec = describe "ILCD.Writer round-trip" $ do
         it "accepts a multi-output activity, now that each product is its own process" $
             checkILCDExportable multiOutputDb `shouldBe` Right ()
 
+        it "keeps noise's medium through a write and a read" $ do
+            db <- loadFixture
+            let emitted = [bfId f | f <- M.elems (sdbBioFlows db), (compartmentName <$> bfCompartment f) == Just Air]
+                noise = Just (Compartment Immaterial (Just "unspecified"))
+                noisy = db{sdbBioFlows = foldr (M.adjust (\f -> f{bfCompartment = noise})) (sdbBioFlows db) (take 1 emitted)}
+            checkILCDExportable noisy `shouldBe` Right ()
+            back <- roundTrip noisy
+            length emitted `shouldSatisfy` (> 0)
+            [bfCompartment f | f <- M.elems (sdbBioFlows back), bfCompartment f == noise] `shouldBe` [noise]
+
     describe "ilcdProcessUUID (process dataset identity)" $ do
         it "leaves an unshared activity UUID alone" $ do
             db <- loadFixture

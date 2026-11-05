@@ -661,6 +661,7 @@ categoryText = \case
     Economic -> mediumText Economic
     Waste -> mediumText Waste
     Social -> mediumText Social
+    Immaterial -> "non material emissions"
 
 {- | Resolve a unit UUID to its name. The parser stored both unit name and
 symbol as the source unit string, so the name field is the faithful echo.

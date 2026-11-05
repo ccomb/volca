@@ -783,6 +783,7 @@ qualityReport dbName db =
                     Economic -> Nothing
                     Waste -> Nothing
                     Social -> Nothing
+                    Immaterial -> Nothing
             TechnosphereExchange{} -> boughtOrTreated m3
             WasteExchange{} -> boughtOrTreated m3
       where

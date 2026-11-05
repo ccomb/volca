@@ -636,6 +636,8 @@ History of manual bumps:
      to that block, where it used to leave it to another database.
 - 82: an ILCD process's type of dataset is read from @typeOfDataSet@, where
      packages state it, so a process read before has a type now.
+- 83: a flow filed under @non material emissions@ (noise) has the medium
+     'Immaterial', where it used to have no compartment.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -643,7 +645,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 82
+     in hi `xor` lo `xor` 83
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

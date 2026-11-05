@@ -343,9 +343,10 @@ checkSimaProExportable db =
         , ex@BiosphereExchange{bioDirection = Emission} <- exchanges act
         , Just flow <- [M.lookup (exchangeFlowId ex) (sdbBioFlows db)]
         , Just comp <- [bfCompartment flow]
-        , -- A final waste flow is not an emission to a medium; it has its own
-        -- section ('SecWaste'), so it is not held to the emission media.
-        compartmentName comp `notElem` [Waste, InventoryIndicator, Air, Water, Soil]
+        , -- A final waste flow is not an emission to a medium, nor is noise;
+        -- each has its own section ('SecWaste', 'SecNonMaterial'), so neither
+        -- is held to the emission media.
+        compartmentName comp `notElem` [Waste, InventoryIndicator, Immaterial, Air, Water, Soil]
         ]
     amountOffenders =
         [ (activityName act, amt)
@@ -759,8 +760,9 @@ wasteLine _ _ TechnosphereExchange{} = Nothing
 wasteLine _ _ BiosphereExchange{} = Nothing
 
 {- | The medium a biosphere exchange belongs to, derived from the flow's
-compartment name. SimaPro splits biosphere rows into five sections keyed on
-the medium: Resources, Emissions to air/water/soil, and Final waste flows.
+compartment name. SimaPro splits biosphere rows into six sections keyed on
+the medium: Resources, Emissions to air/water/soil, Final waste flows, and Non
+material emissions, which holds noise.
 Resources are the 'Resource' direction; emissions are bucketed by compartment
 name. A final waste flow and an inventory indicator both count what the
 activity sends away rather than naming a substance exchanged with a medium, so
@@ -770,6 +772,7 @@ decides first.
 bioSection :: Catalogs -> Exchange -> Maybe BioSec
 bioSection cats ex@BiosphereExchange{bioDirection = dir}
     | medium `elem` [Just Waste, Just InventoryIndicator] = Just SecWaste
+    | medium == Just Immaterial = Just SecNonMaterial
     | otherwise = case dir of
         Resource -> Just SecRes
         -- Unknown flow → Nothing, mirroring 'bioLine' so an emission keeps a
@@ -789,18 +792,19 @@ bioSection cats ex@BiosphereExchange{bioDirection = dir}
         Water -> SecWater
         Soil -> SecSoil
         -- 'checkSimaProExportable' refuses an emission to any medium but air,
-        -- water and soil, waste and inventory indicators aside, so the other
-        -- arms never meet an emission in a real export.
+        -- water and soil, waste, inventory indicators and noise aside, so the
+        -- other arms never meet an emission in a real export.
         Air -> SecAir
         NaturalResource -> SecAir
         InventoryIndicator -> SecAir
         Economic -> SecAir
         Waste -> SecAir
         Social -> SecAir
+        Immaterial -> SecNonMaterial
 bioSection _ TechnosphereExchange{} = Nothing
 bioSection _ WasteExchange{} = Nothing
 
-data BioSec = SecRes | SecAir | SecWater | SecSoil | SecWaste
+data BioSec = SecRes | SecAir | SecWater | SecSoil | SecWaste | SecNonMaterial
     deriving (Eq)
 
 {- | Output rows (@name;unit;amount;allocation;waste_type;category;comment@) for
@@ -986,6 +990,7 @@ serializeActivity cats consumer ProcessExport{peParameters = parameters, peLines
               -- source but this format's own waste axis produces
               -- ('bioSection'), and a waste exchange that names no treatment.
               withBlank (section "Final waste flows" bioRowText (bioByName SecWaste ++ wasteLines))
+            , withBlank (section "Non material emissions" bioRowText (bioByName SecNonMaterial))
             , withBlank (headed "Input parameters" inputParameters)
             , withBlank (headed "Calculated parameters" calculatedParameters)
             , ["End", ""]
@@ -1174,7 +1179,7 @@ substanceRegistry SimpleDatabase{..} =
         }
   where
     mediumBlocks :: [Text]
-    mediumBlocks = ["Raw materials", "Airborne emissions", "Waterborne emissions", "Emissions to soil"]
+    mediumBlocks = ["Raw materials", "Airborne emissions", "Waterborne emissions", "Emissions to soil", "Non material emissions"]
     byName :: [[BiosphereFlow]]
     byName = map NE.toList (M.elems (groupInOrder [(normalizeName (bfName f), f) | f <- M.elems sdbBioFlows]))
     casOf :: BiosphereFlow -> Maybe Text
@@ -1203,6 +1208,7 @@ substanceRegistry SimpleDatabase{..} =
         Just Water -> "Waterborne emissions"
         Just Soil -> "Emissions to soil"
         Just Air -> "Airborne emissions"
+        Just Immaterial -> "Non material emissions"
         -- No block of the registry is theirs, and the trailing "Final waste
         -- flows" block is read as a process section, so they go with air.
         Just Waste -> "Airborne emissions"

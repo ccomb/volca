@@ -1312,8 +1312,12 @@ spec = do
         it "adds nothing from a section the parser recognises and ignores" $ do
             (activities, _, _, _, _) <- parseIgnoredSectionCSV
             let act = head activities
-            -- the reference product and the one air emission, nothing else
-            length (exchanges act) `shouldBe` 2
+            -- the reference product, the one air emission and the noise, nothing else
+            length (exchanges act) `shouldBe` 3
+
+        it "reads noise under the medium of flows that carry no matter" $ do
+            (_, _, bioFlows, _, _) <- parseIgnoredSectionCSV
+            [compartmentName <$> bfCompartment f | f <- M.elems bioFlows, bfName f == "Noise"] `shouldBe` [Just Immaterial]
 
         it "does not read a row under an ignored header as metadata" $ do
             (activities, _, _, _, _) <- parseIgnoredSectionCSV
@@ -2521,8 +2525,9 @@ parseNoProcessNameCSV = withSystemTempFile "no-process-name.csv" $ \path handle 
     hClose handle
     parseOrFail defaultUnitConfig path
 
-{- | A block carrying the three headers the parser recognises and drops, one of
-them followed by a line that is also a metadata key.
+{- | A block carrying the two headers the parser recognises and drops, one of
+them followed by a line that is also a metadata key, beside the noise section
+it reads.
 
 Those rows are consumed as section rows: the header opens a section, and every
 row under it is swallowed by the section routing. Were a header to stop opening

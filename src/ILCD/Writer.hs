@@ -231,8 +231,9 @@ dataset UUID, but 'ilcdProcessUUID' hands each @(activity, product)@ entry a
 distinct one, so each product becomes its own process dataset.
 
 * /Media this classification cannot name./ 'compartmentBlock' emits
-  @"Emissions to <medium>"@ for any non-resource medium, but the parser's
-  @extractMedium@ only inverts the air\/water\/soil\/natural-resource phrasings.
+  @"Emissions to <medium>"@ for any non-resource medium but noise, but the
+  parser's @extractMedium@ only inverts the air\/water\/soil\/natural-resource
+  phrasings, and noise's own @"Immaterial emission"@.
   A flow of any other medium ('Waste', 'InventoryIndicator', 'Economic',
   'Social')
   re-imports under a different compartment, silently shifting LCIA scores.
@@ -259,7 +260,7 @@ checkILCDExportable db =
         violations -> Left (T.intercalate "\n\n" violations)
   where
     -- The media the parser's @extractMedium@ inverts back.
-    canonicalMedia = [Air, Water, Soil, NaturalResource]
+    canonicalMedia = [Air, Water, Soil, NaturalResource, Immaterial]
     checkMedia =
         case [f | (BioKind f, _) <- exportedFlows db, notInvertible f] of
             [] -> Right ()
@@ -272,7 +273,7 @@ checkILCDExportable db =
                         <> "): compartment medium \""
                         <> bfCompartmentName f
                         <> "\" is not one the ILCD parser can read back; "
-                        <> "only air, water, soil and natural resource round-trip."
+                        <> "only air, water, soil, natural resource and immaterial emission round-trip."
     notInvertible f = case bfCompartment f of
         Nothing -> False
         Just c -> compartmentName c `notElem` canonicalMedia
@@ -705,12 +706,15 @@ compartmentBlock (Just (Compartment medium sub)) =
     level0 = if isResource then "Resources" else "Emissions"
     level1
         | isResource = "Resources"
+        -- Noise is emitted to no medium; openLCA's name for it reads back as itself.
+        | medium == Immaterial = "Immaterial emission"
         | otherwise = "Emissions to " <> m
     level2 = case sub of
         Nothing -> []
         Just s
             | T.null s -> []
             | isResource -> [attrElem "common:category" [("level", "2")] ("Resources " <> s)]
+            | medium == Immaterial -> [attrElem "common:category" [("level", "2")] (level1 <> ", " <> s)]
             | otherwise -> [attrElem "common:category" [("level", "2")] ("Emissions to " <> m <> ", " <> s)]
 
 --------------------------------------------------------------------------------

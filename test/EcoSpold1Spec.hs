@@ -281,6 +281,11 @@ spelledOutMediaXml =
         , "                unit=\"m3\" meanValue=\"0.024\">"
         , "        <inputGroup>4</inputGroup>"
         , "      </exchange>"
+        , "      <exchange number=\"6\" name=\"Noise, road, lorry, average\""
+        , "                category=\"non material emissions\" subCategory=\"unspecified\""
+        , "                unit=\"km\" meanValue=\"0.1\">"
+        , "        <outputGroup>4</outputGroup>"
+        , "      </exchange>"
         , "    </flowData>"
         , "  </dataset>"
         , "</ecoSpold>"
@@ -840,6 +845,7 @@ spec = do
                                    , Just (Compartment Water (Just "river"))
                                    , Just (Compartment Soil (Just "agricultural"))
                                    , Just (Compartment NaturalResource (Just "in water"))
+                                   , Just (Compartment Immaterial (Just "unspecified"))
                                    ]
 
         it "has nothing to say about a dataset whose media it placed" $
