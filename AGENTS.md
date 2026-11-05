@@ -137,7 +137,7 @@ writing it or reading someone else's.
 
 ### Documentation
 - **Re-read this file + README before each PR.** Update them when: (a) you hit a statement contradicting the code, (b) a new convention appears, (c) a command or a config key changes. NON-trigger: adding a module, tool, or endpoint that follows the stated conventions – the rules cover it, no list to grow.
-- **A change to how a flow meets a factor says so where a reader looks.** A PR that adds, removes or reorders a step of the matching cascade, or changes when one fires, updates the README section that describes it, in the same PR. A row added to `data/flows.csv` says in its `note` why the two names are one substance: a row nobody can justify from its note is one nobody can catch being wrong.
+- **A change to how a flow meets a factor says so where a reader looks.** A PR that adds, removes or reorders a step of the matching cascade, or changes when one fires, describes the step in the README section "How a flow meets a factor's subcompartment", in the same PR, adding it there if the section does not name it yet. A row added to `data/flows.csv` says in its `note` why the two names are one substance: a row nobody can justify from its note is one nobody can catch being wrong.
 - Never write hand-maintained counts, versions, or enumerations the code already knows – state the naming rule and point at the source of truth (`versions.env`, `API.Resources`, `volca dump-mcp-tools`, `volca dump-config-schema`).
 
 ### Commits & PRs

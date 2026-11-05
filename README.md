@@ -11,7 +11,7 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, openLCA JSON-LD, and B
 - **Compute** life cycle inventories (LCI) and impact scores (LCIA) – single method or whole collection – with per-flow and per-activity contribution breakdowns
 - **What-if substitutions** – swap an upstream activity (or a cross-database supplier) and recompute inventory and impacts in a single call
 - **Normalize and weight** LCIA results; a single score in Pt for every scoring set, whether a SimaPro method file brings it or the configuration declares it
-- **Map** method characterization factors to database flows with a 4-step cascade (UUID → name → synonym → CAS) and coverage statistics
+- **Map** method characterization factors to database flows through a matching cascade, with coverage statistics
 - **Link** databases across nomenclatures (e.g., a sector database referencing Agribalyse)
 - **Upload** databases and method collections via the API, without touching config files
 
@@ -28,7 +28,7 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, openLCA JSON-LD, and B
 - **LCIA method collections**: Load ILCD method packages (ZIP or directory), SimaPro method CSV exports, openLCA JSON-LD impact categories, or tabular CSV from config, beside a built-in `plain-indicators` collection that counts raw physical quantities; export any loaded collection back as SimaPro method CSV, columnar CSV (one column per impact category – the spreadsheet view), an openLCA JSON-LD zip, or an ILCD method package zip
 - **Normalization and weighting**: a method collection carries scoring sets, each turning impact scores into named single scores (Pt). A SimaPro method file gives one per normalization-weighting set, named after it, whose variables are its damage categories: each sums the impact categories it groups, times their coefficients, and the `Single score` adds up the damages that have a weight, and a normalization as well unless the set normalizes nothing (SimaPro's normalization switched off). A damage that groups no impact category reads as zero. Variable names are short names the engine makes from the damage names (lowercase ASCII letters and digits, each run of anything else one underscore); the `labels` and `units` of the set carry the names and units as the file wrote them. A file with damage categories and no normalization-weighting set gives one set named `Damage assessment`, with no score
 - **Contribution analysis**: Per-flow and per-activity contributions to any LCIA score, ranked by share
-- **Flow mapping engine**: 4-step matching cascade (UUID → name → synonym → CAS) with per-strategy coverage statistics
+- **Flow mapping engine**: matching cascade with per-strategy coverage statistics
 - **Activity classifications**: ISIC, CPC, and category fields parsed from EcoSpold1/2 and ILCD, with named TOML presets for common filter bundles
 - **Per-exchange comments**: Free-text exchange comments extracted from EcoSpold1/2, SimaPro, and ILCD and surfaced in API responses
 - **Fuzzy search**: Typo (edit distance) and stem (trigram) tolerance on activity and supply-chain name filters
