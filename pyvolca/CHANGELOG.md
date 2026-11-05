@@ -18,6 +18,61 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
+## [0.14.1] - 2026-11-05
+
+This release speaks wire revisions 2 to 105. Nothing is removed or changed in
+meaning, so a script written for 0.14.0 runs unchanged. Each capability below
+checks the revision it needs and names engine 0.16.1 when it is missing; a
+field an older engine does not send reads `None` or empty.
+
+### Added
+
+- `compare_methods()` scores one database under two method collections and
+  pairs their categories by name, then by words, then by impact category
+  (`volca.compare_scores`: `pair_categories()`, `join()`, `MethodComparison`).
+  `compare_database_scores()` scores two databases under one collection, pair
+  by pair, each right score put per unit of the left activity's product
+  (`DatabaseScoreComparison`).
+- `compare_databases()` also lists the pairs that did not change, and
+  `pairs()` gives every activity of one database with its counterpart in the
+  other and how they were paired, `"SameCutNames"` included for names SimaPro
+  cut at 80 characters (wire revisions 86, 88).
+- A score says what it rests on, as `basis` (`ScoreBasis`): the engine, each
+  database read and whether it is edited, reallocated or patched, the method
+  collection and whether it differs from its files, and the substitutions and
+  parameter values sent. The score of one activity, a batch, a comparison, the
+  contributions and a sensitivity sweep carry it (wire revisions 99, 102).
+- A batch scored under a scoring set that weighs categories by value choices
+  says so in `reading_notice`: ISO 14044 does not allow such a score in a
+  comparison disclosed to the public (wire revision 105).
+- The score of one activity lists the flows it probably missed, as
+  `probable_misses` (`ProbableMisses`, `ProbableMiss`): where the method writes
+  the substance, and what the flow would add at most, in the score's unit and
+  as a share (wire revision 97).
+- `edit_exchanges()` states the dry or the wet mass of a product
+  (`set_dry_masses=[SetDryMass(...)]`, `set_wet_masses=[SetWetMass(...)]`),
+  which in litres is its density (wire revisions 87, 89).
+- `set_display_name()` renames an uploaded database and `set_description()`
+  changes or removes its description (wire revisions 92, 94).
+- `DatabaseInfo.added` says when the engine made a database, a method
+  collection or a reference table (wire revision 90).
+- `system_model()` lists the coproducts a model substitutes rather than
+  divides (`substitutions`) and the method parameters it sets (`parameters`),
+  each with the processes it moves (wire revisions 91, 98).
+- `terms_to_accept()` says, under `usage`, whether the terms let the publisher
+  count the computations, alone or with each reader's organization (wire
+  revision 95).
+- `database_history()` says which database each change was made on, so a
+  child lists its parent's changes first, and who made it, as `by`, when the
+  server in front of the engine names an account (wire revisions 100, 104).
+- `upload_method_collection(flows_from=...)` uploads a workbook of
+  characterization factors, one per row, as one collection per method family,
+  taking units and CAS numbers from an EcoSpold 2 database already uploaded
+  (wire revision 101).
+- `available_method_collections()` lists the method collections an engine
+  offers, and `install_method_collection(name)` downloads one, checks it and
+  loads it (wire revision 103).
+
 ## [0.14.0] - 2026-10-25
 
 This release speaks wire revisions 2 to 85. Most capabilities below check the
