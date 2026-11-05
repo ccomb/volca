@@ -387,6 +387,7 @@ categoryPath comp = T.intercalate "/" ("Elementary flows" : maybe [] levels comp
         Economic -> "Emission" : mediumText medium : subLevel sub
         Waste -> "Emission" : mediumText medium : subLevel sub
         Social -> "Emission" : mediumText medium : subLevel sub
+        Immaterial -> "Immaterial emission" : subLevel sub
     subLevel = maybe [] pure
 
 {- | What the package says differently from the database: the products of one

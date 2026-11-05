@@ -281,6 +281,7 @@ compartmentOf category = case T.splitOn "/" category of
         ("emission to air", sub) -> Just (Compartment Air (listToMaybe sub))
         ("emission to water", sub) -> Just (Compartment Water (listToMaybe sub))
         ("emission to soil", sub) -> Just (Compartment Soil (listToMaybe sub))
+        ("immaterial emission", sub) -> Just (Compartment Immaterial (listToMaybe sub))
         ("emissions", medium : sub) -> (\m -> Compartment m (listToMaybe sub)) <$> emittedTo (T.toLower medium)
         ("resources", medium : _) -> Just (Compartment NaturalResource (Just medium))
         ("resources", []) -> Just (Compartment NaturalResource Nothing)
@@ -307,6 +308,7 @@ directionOf comp = case compartmentName <$> comp of
     Just Economic -> Emission
     Just Waste -> Emission
     Just Social -> Emission
+    Just Immaterial -> Emission
     Nothing -> Emission
 
 -- | Whether a line offers its flow to others: a product made, or a waste taken in.

@@ -204,6 +204,7 @@ data ProcessBlock = ProcessBlock
     , pbEmissionsWater :: ![BioExchangeRow]
     , pbEmissionsSoil :: ![BioExchangeRow]
     , pbFinalWaste :: ![BioExchangeRow]
+    , pbNonMaterial :: ![BioExchangeRow]
     , pbInputParams :: ![ParamRow]
     , pbCalcParams :: ![ParamRow]
     , pbOpening :: !BlockOpening
@@ -240,6 +241,7 @@ emptyProcessBlock =
         , pbEmissionsWater = []
         , pbEmissionsSoil = []
         , pbFinalWaste = []
+        , pbNonMaterial = []
         , pbInputParams = []
         , pbCalcParams = []
         , pbOpening = ProcessLine
@@ -264,6 +266,7 @@ data BlockSection
     | SecEmissionsWater
     | SecEmissionsSoil
     | SecFinalWaste
+    | SecNonMaterial
     | SecInputParams
     | SecCalcParams
     deriving (Show, Eq)
@@ -517,7 +520,7 @@ detectSection line = case BS8.strip line of
     "Database Calculated parameters" -> Just (FileLevel SecDbCalcParams)
     "Project Input parameters" -> Just (FileLevel SecProjInputParams)
     "Project Calculated parameters" -> Just (FileLevel SecProjCalcParams)
-    "Non material emissions" -> Just SecIgnored
+    "Non material emissions" -> Just (InBlock SecNonMaterial)
     "Social issues" -> Just SecIgnored
     "Economic issues" -> Just SecIgnored
     _ -> Nothing
@@ -539,7 +542,7 @@ classifyHeader inProcess line
     | otherwise = detectSection line
   where
     registryHeaders =
-        ["Raw materials", "Airborne emissions", "Waterborne emissions", "Emissions to soil"]
+        ["Raw materials", "Airborne emissions", "Waterborne emissions", "Emissions to soil", "Non material emissions"]
 
 -- | Known metadata keys in process block (ByteString)
 isMetadataKey :: BS.ByteString -> Bool
@@ -1086,6 +1089,7 @@ addRowToBlock cfg sec line block = case sec of
     SecEmissionsWater -> withBio $ \r -> block{pbEmissionsWater = r : pbEmissionsWater block}
     SecEmissionsSoil -> withBio $ \r -> block{pbEmissionsSoil = r : pbEmissionsSoil block}
     SecFinalWaste -> withBio $ \r -> block{pbFinalWaste = r : pbFinalWaste block}
+    SecNonMaterial -> withBio $ \r -> block{pbNonMaterial = r : pbNonMaterial block}
     SecInputParams -> withParam InputParam $ \p -> block{pbInputParams = p : pbInputParams block}
     SecCalcParams -> withParam CalculatedParam $ \p -> block{pbCalcParams = p : pbCalcParams block}
   where
@@ -1469,7 +1473,7 @@ fallbackAmounts gp pb@ProcessBlock{..} =
         concatMap (\p -> [(prAmountRaw p, prAmount p), (prAllocRaw p, prAllocation p)]) pbProducts
             ++ map (\p -> (prAmountRaw p, prAmount p)) pbAvoidedProducts
             ++ map (\r -> (terAmountRaw r, terAmount r)) (pbMaterials ++ pbElectricity ++ pbWasteToTreatment)
-            ++ map (\r -> (berAmountRaw r, berAmount r)) (pbResources ++ pbEmissionsAir ++ pbEmissionsWater ++ pbEmissionsSoil ++ pbFinalWaste)
+            ++ map (\r -> (berAmountRaw r, berAmount r)) (pbResources ++ pbEmissionsAir ++ pbEmissionsWater ++ pbEmissionsSoil ++ pbFinalWaste ++ pbNonMaterial)
 
 -- | What a warning calls a block: its process name, or a product's when it has none.
 blockLabel :: ProcessBlock -> Text
@@ -1642,6 +1646,7 @@ processBlockToActivity unitCfg gp pb@ProcessBlock{..} =
                 ++ (bioRowToExchange unitCfg env False Water <$> pbEmissionsWater)
                 ++ (bioRowToExchange unitCfg env False Soil <$> pbEmissionsSoil)
                 ++ (bioRowToExchange unitCfg env False Waste <$> pbFinalWaste)
+                ++ (bioRowToExchange unitCfg env False Immaterial <$> pbNonMaterial)
 
     -- Exchanges/flows/units the block's products share. They are written once,
     -- unscaled: "Database.Allocation" splits the block into one process per

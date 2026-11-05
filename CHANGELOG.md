@@ -14,6 +14,12 @@
   24 s instead of 17 s; it now takes 19 s. Each formula is read once instead
   of four times, and worked out by the threads that read the files rather
   than by one thread afterwards.
+- Noise is scored. EcoSpold 1 and SimaPro files put it under "non material
+  emissions", which no medium answered to: the flows loaded with no
+  compartment and every noise score was 0. They now have the medium
+  `immaterial emission`, the one openLCA methods file their noise factors
+  under, so Ecological Scarcity's Noise category reads them. A SimaPro
+  export writes them in its own "Non material emissions" section.
 
 ### Changed
 

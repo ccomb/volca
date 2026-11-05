@@ -105,7 +105,7 @@ and every reader and writer that needed them to agree carried its own list of
 spellings. The medium is the closed part; the subcompartment underneath it
 ("high. pop.", "river water") is genuinely open and stays 'Text'.
 
-'Economic', 'InventoryIndicator', 'Waste' and 'Social' are not media in the physical
+'Economic', 'InventoryIndicator', 'Waste', 'Social' and 'Immaterial' are not media in the physical
 sense. They are what the sources file those flows under, and a flow has to keep
 saying which it is for the readers and writers that bucket by medium.
 -}
@@ -129,6 +129,11 @@ data Medium
       a gas.
       -}
       Social
+    | {- | What the sources file the flows that carry no matter under, such as
+      the noise of a lorry: EcoSpold 1 and SimaPro call them @non material
+      emissions@, openLCA @Immaterial emission@.
+      -}
+      Immaterial
     deriving (Eq, Ord, Show, Enum, Bounded, Generic, NFData, Store)
     deriving anyclass (ToSchema)
 
@@ -146,6 +151,7 @@ mediumText = \case
     Economic -> "economic"
     Waste -> "waste"
     Social -> "social"
+    Immaterial -> "immaterial emission"
 
 {- | Read a medium as any format writes it. Case and surrounding space are
 ignored; @raw@, @resource@ and @resources@ are the three ways the formats name
@@ -175,6 +181,10 @@ parseMedium raw = case T.toLower (T.strip raw) of
     "economic" -> Right Economic
     "waste" -> Right Waste
     "social" -> Right Social
+    "immaterial emission" -> Right Immaterial
+    "immaterial emissions" -> Right Immaterial
+    "non material emission" -> Right Immaterial
+    "non material emissions" -> Right Immaterial
     other -> Left other
 
 -- | On the wire a medium is its canonical spelling, and reads back from any.

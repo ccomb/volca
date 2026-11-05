@@ -190,7 +190,7 @@ spec = describe "an openLCA package written from a database" $ do
         T.concat (warned sdb) `shouldSatisfy` T.isInfixOf "maker · carbon dioxide"
 
     it "keeps every compartment medium through a read" $ do
-        let media = [InventoryIndicator, Economic, Waste, Social, Air, Water, Soil, NaturalResource]
+        let media = [minBound .. maxBound :: Medium]
             flowOf i m = let u = UUID.fromWords 9 1 0 i in (u, BiosphereFlow u (mediumText m) kg M.empty Nothing Nothing (Just (Compartment m (Just "sub"))))
             flows = zipWith flowOf [1 ..] media
             sdb = (oneProcess [bio u 1 (if m == NaturalResource then Resource else Emission) | ((u, _), m) <- zip flows media]){sdbBioFlows = M.fromList flows}
