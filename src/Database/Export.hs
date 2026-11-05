@@ -28,7 +28,7 @@ import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.List (find)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -129,10 +129,11 @@ supplier's product, and points at the supplier, for the formats that write an
 identifier; the formats that name a supplier read its activity and location
 from the dependencies themselves.
 
-The amount stays as written when its unit converts to the supplier's, since a
-reader converts it the same way. A link that bridged two measures (a relink
-mapping row with a conversion) is written in the link's unit, its amount
-converted, and its formula, which spoke of the other measure, dropped and said.
+The amount stays as written when the link reads it as the unit table does,
+since a reader converts it the same way. A link that read it through a relink
+mapping's conversion (1200 kg for 1 p, or 2.17 kg of urea for 1 kg "as N") is
+written in the link's unit, its amount converted, and its formula, which spoke
+of the amount before the conversion, dropped and said.
 The line takes the sign that makes the format, reading it against the
 supplier, ask what the link asks. A line reaching a treatment written as giving
 out its waste changes sign when the format reads such a line the other way than
@@ -151,7 +152,8 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
         activity <- M.lookup key (sdbActivities sdb)
         (before, line@TechnosphereExchange{techFlowId = flow, techAmount = amount, techUnitId = unit, techFormula = formula} : after) <- Just (splitAt position (exchanges activity))
         consumerFlow <- if flow == cdlConsumerFlowId link then M.lookup flow (sdbTechFlows sdb) else Nothing
-        let bridged = isNothing (lineInLinkUnit units (sdbUnits sdb) line (cdlExchangeUnit link))
+        -- Read through a mapping's conversion where the link's factor is not what the unit table gives.
+        let bridged = maybe True (\perLine -> abs (abs factor - perLine) > 1e-9 * perLine) (lineInLinkUnit units (sdbUnits sdb) line (cdlExchangeUnit link))
             -- The link asks factor × amount; the format reads the written line times its own sign.
             turned = signum factor * readingSign target (elReferenceSign supplier)
             linkUnit = fromMaybe (newUnit (cdlExchangeUnit link)) (find ((== cdlExchangeUnit link) . unitName) (M.elems (sdbUnits sdb)))
@@ -173,7 +175,7 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
                     , techFormula = if bridged || turned < 0 then Nothing else formula
                     }
             formulaDropped =
-                [ activityName activity <> ", input " <> tfName consumerFlow <> ": written as a value in " <> cdlExchangeUnit link <> ", its formula spoke of another measure"
+                [ activityName activity <> ", input " <> tfName consumerFlow <> ": written as a value in " <> cdlExchangeUnit link <> ", its formula spoke of the amount before its mapping's conversion"
                 | bridged
                 , Just _ <- [formula]
                 ]

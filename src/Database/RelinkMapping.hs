@@ -30,9 +30,14 @@ columns:
     target name there, the relink reports 'Types.AliasTargetMissing' rather
     than silently falling back
   * @conversion@, with @source_unit@ and @target_unit@: one target unit in
-    source units (a car of 1200 kg is 1 p: 1200, kg, p). Used only where the
-    demand's unit and the supplier's measure different things; units of one
-    measure convert by the unit table, as they do without a mapping.
+    source units (a car of 1200 kg is 1 p: 1200, kg, p). Always applied, also
+    between units of one measure: urea counted by a supplier "as N" is 2.17,
+    kg, kg, a ratio no unit table holds, and so is 0.599 MJ of cold per MJ of
+    heat between "megajoule" and "MJ", two names of one size. Between two
+    units of one measure and different sizes (MJ and kWh), a conversion that
+    disagrees with the table is refused: one kWh is 3.6 MJ whatever the row
+    says, so 0.2778 there is a mistake.
+    Without a conversion, the unit table converts as it does without a mapping.
   * @direction@: @opposite@ when the target counts the demand the other way
     than the supplier the line was written for, @same@ (or blank) otherwise.
     A line of -0.018 m3 to a wastewater market whose reference is -1 m3 asks
@@ -77,6 +82,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Read as TR
 import qualified Data.Vector as V
+import qualified UnitConversion as UC
 
 import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), Direction (..), UnitBridge (..))
 import Types (ProcessRef, parseProcessRef, processRefText)
@@ -141,14 +147,14 @@ a target column (by name or identity). A row with neither source nor target is
 dropped; a row that cannot be read as written is refused with its number
 rather than skipped.
 -}
-parseAliasCSV :: BL.ByteString -> Either Text [AliasRow]
-parseAliasCSV bytes =
+parseAliasCSV :: UC.UnitConfig -> BL.ByteString -> Either Text [AliasRow]
+parseAliasCSV units bytes =
     case Csv.decodeByName bytes of
         Left err -> Left $ "alias CSV parse error: " <> T.pack err
         Right (header, rows) -> do
             requireColumn header "source" ("source_id" : sourceNames)
             requireColumn header "target" ("target_id" : targetNames)
-            catMaybes <$> traverse (uncurry classify) (zip [1 :: Int ..] (V.toList rows))
+            catMaybes <$> traverse (uncurry (classify units)) (zip [1 :: Int ..] (V.toList rows))
   where
     requireColumn header side names
         | any ((`V.elem` header) . Csv.toField) names = Right ()
@@ -156,8 +162,8 @@ parseAliasCSV bytes =
             Left $ "missing required " <> side <> " column (one of: " <> T.intercalate ", " names <> ")"
 
 -- | What row @n@ says: a link, a declined link, nothing, or a mistake to refuse.
-classify :: Int -> WrittenRow -> Either Text (Maybe AliasRow)
-classify n row = do
+classify :: UC.UnitConfig -> Int -> WrittenRow -> Either Text (Maybe AliasRow)
+classify units n row = do
     targetProcess <- traverse (readRef "target_id") (wrTargetId row)
     let supplier = case (targetProcess, wrTarget row) of
             (Just ref, label) -> Just (SupplierProcess ref (fromMaybe (processRefText ref) label))
@@ -185,9 +191,26 @@ classify n row = do
         maybe (refuse (column <> " is not activityUUID_productUUID: " <> txt)) Right (parseProcessRef txt)
     readBridge txt = case (TR.double txt, wrSourceUnit row, wrTargetUnit row) of
         (Right (value, rest), Just sourceUnit, Just targetUnit)
-            | T.null rest && value > 0 -> Right (UnitBridge sourceUnit targetUnit value)
+            | T.null rest && value > 0 -> UnitBridge sourceUnit targetUnit value <$ agreesWithTable sourceUnit targetUnit value
         (_, Just _, Just _) -> refuse ("conversion must be a positive number: " <> txt)
         _ -> refuse "conversion needs source_unit and target_unit, to say which way it reads"
+    -- The table answers only between two units of one measure and different sizes; there it is right.
+    -- Two names of one size ("megajoule" and "MJ") are one unit, so a factor between them is a ratio.
+    agreesWithTable sourceUnit targetUnit value = case UC.convertUnit units targetUnit sourceUnit 1 of
+        Just table
+            | abs (table - 1) > 1e-6
+            , abs (value - table) > 1e-6 * table ->
+                refuse $
+                    "conversion "
+                        <> T.pack (show value)
+                        <> " contradicts the unit table: one "
+                        <> targetUnit
+                        <> " is "
+                        <> T.pack (show table)
+                        <> " "
+                        <> sourceUnit
+                        <> "; leave the conversion out, the table converts these units by itself, or write a ratio such as \"as N\" on one unit named on both sides (2.17, kg, kg)"
+        _ -> Right ()
     readDirection cell = case T.toLower <$> cell of
         Nothing -> Right Same
         Just "same" -> Right Same
@@ -218,9 +241,9 @@ buildAliasMap rows =
 {- | Read a relink mapping. One with no row (header only) would relink as a
 silent no-op, so it is refused.
 -}
-parseAliasMap :: BL.ByteString -> Either Text AliasMap
-parseAliasMap bytes = do
-    m <- buildAliasMap <$> parseAliasCSV bytes
+parseAliasMap :: UC.UnitConfig -> BL.ByteString -> Either Text AliasMap
+parseAliasMap units bytes = do
+    m <- buildAliasMap <$> parseAliasCSV units bytes
     if M.null (amByProcess m) && M.null (amByName m)
         then Left "mapping file contains no row with a source"
         else Right m

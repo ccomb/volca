@@ -1557,8 +1557,10 @@ filesystem access. Each row maps a source (``source_product`` or
 ``target_location``); a row with no target keeps its input unlinked,
 and columns the engine does not know are ignored. ``conversion``, with
 ``source_unit`` and ``target_unit``, says how many source units one
-target unit holds, for units that measure different things (a car of
-1200 kg is 1 p: ``1200``, ``kg``, ``p``). ``direction`` is
+target unit holds (a car of 1200 kg is 1 p: ``1200``, ``kg``, ``p``;
+urea counted "as N" is ``2.17``, ``kg``, ``kg``). It always applies;
+one that contradicts the unit table between two units of different sizes
+(``0.2778`` from MJ to kWh) refuses the file. ``direction`` is
 ``opposite`` when the target counts the demand the other way than the
 supplier the line was written for (a wastewater market of reference
 -1 m3 mapped to a treatment of reference +1 m3), ``same`` or blank

@@ -276,9 +276,10 @@ data AliasSupplier
     | NoSupplier
     deriving (Show, Eq)
 
-{- | How a row converts between units that measure different things: one
-target unit is 'ubTargetInSource' source units (a car of 1200 kg is 1 p, so
-1200 with kg as source and p as target).
+{- | How a row converts the demand into what its supplier counts: one target
+unit is 'ubTargetInSource' source units. A car of 1200 kg is 1 p, so 1200 with
+kg as source and p as target; urea is 46 % nitrogen, so a supplier counted "as
+N" takes 2.17 with kg as both source and target.
 -}
 data UnitBridge = UnitBridge
     { ubSourceUnit :: !Text
@@ -987,10 +988,11 @@ matchInIndexedDBs LinkingContext{..} query@SupplierQuery{sqProductName = product
     unitsMeet bridge se =
         unitsAreCompatible lcUnitConfig unit (seUnit se) || isJust (bridge >>= throughBridge (seUnit se))
 
-    -- The row's conversion, when only it makes the demand's unit meet this supplier's.
+    -- The row's conversion, whenever its units read the demand and this supplier.
+    -- It applies even where the units would meet without it: kg of urea to kg
+    -- "as N" meet, yet only the row knows the 2.17 between them.
     throughBridge :: Text -> UnitBridge -> Maybe UnitBridge
     throughBridge supplierUnit b
-        | unitsAreCompatible lcUnitConfig unit supplierUnit = Nothing
         | unitsAreCompatible lcUnitConfig unit (ubSourceUnit b)
         , unitsAreCompatible lcUnitConfig supplierUnit (ubTargetUnit b) =
             Just b
