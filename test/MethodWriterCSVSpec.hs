@@ -17,6 +17,7 @@ import Database.Export (MethodExportFormat (..), parseMethodExportFormat)
 import Method.ParserCSV (parseMethodCSVBytes)
 import Method.Types
 import Method.WriterCSV (serializeColumnarMethodCSV)
+import Types (Medium (Immaterial), mediumText)
 
 mkCF :: Text -> Maybe Compartment -> Double -> MethodCF
 mkCF name comp v =
@@ -230,8 +231,17 @@ spec = describe "Method.WriterCSV" $ do
             serialize (collection [mkMethod "Ecotoxicity" [cf]]) `shouldSatisfy` isRefused "path separator"
 
         it "rejects a compartment the parser cannot read back" $ do
-            let cf = mkCF "Zinc" (Just (Compartment "economic" "" "")) 1
+            let cf = mkCF "Zinc" (Just (Compartment "outer space" "" "")) 1
             serialize (collection [mkMethod "Ecotoxicity" [cf]]) `shouldSatisfy` isRefused "outside the ones"
+
+        it "keeps a noise factor's medium through a write and a read, with or without a subcompartment" $ do
+            let compartments = [Compartment (mediumText Immaterial) "unspecified" "", Compartment (mediumText Immaterial) "" ""]
+                cfs = [mkCF ("Noise " <> T.pack (show i)) (Just c) 1.2 | (i, c) <- zip [1 :: Int ..] compartments]
+            case serialize (collection [mkMethod "Noise" cfs]) of
+                Left err -> expectationFailure (T.unpack err)
+                Right (out, _) ->
+                    fmap (concatMap (map mcfCompartment . methodFactors)) (reparse out)
+                        `shouldBe` Right (map Just compartments)
 
     describe "format dispatch (Database.Export)" $ do
         it "accepts the 'csv' format name" $

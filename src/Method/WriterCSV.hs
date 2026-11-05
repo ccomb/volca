@@ -207,7 +207,7 @@ checkColumnarExportable mc
     -- The parser only reads a compartment path back when its top segment is
     -- one it knows; anything else would silently come back compartment-less.
     checkTop top
-        | top `elem` knownTops = Right ()
+        | T.toCaseFold top `elem` knownTops = Right ()
         | otherwise =
             Left
                 ( "compartment '"
