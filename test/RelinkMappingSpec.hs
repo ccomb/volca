@@ -11,7 +11,8 @@ missing designated target surfaces as 'AliasTargetMissing' (never a silent
 fallback), and a matching row preempts the direct name cascade. So is the file
 a mapping page writes: its notes ignored, a row without a target declining
 its link, a demand keyed by the supplier process it names, a supplier pinned by
-its own identity, and a conversion between units of different measures.
+its own identity, and a stated conversion, applied unless the unit table
+contradicts it.
 -}
 module RelinkMappingSpec (spec) where
 
@@ -66,13 +67,14 @@ import Types (
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
+    Unit (..),
     UnresolvedProduct (..),
     noDates,
     noDocumentation,
     noProperties,
     processRefText,
  )
-import UnitConversion (defaultUnitConfig)
+import UnitConversion (UnitConfig, UnitDef (..), defaultDimensionOrder, defaultUnitConfig, mergeUnitConfigs, mkUnitConfig)
 
 -- ---------------------------------------------------------------------------
 -- Target fixture: "wheat production" supplied at FR and at CH, in kg.
@@ -169,13 +171,17 @@ twinIndexed =
                 M.insert (actFROrganic, wheatFlow) (targetActivity "wheat production, organic" "FR" "kg" wheatFlow) (sdbActivities targetDB)
             }
 
+-- | The base units and the tonne, so a row can state a conversion the table also knows.
+testUnits :: UnitConfig
+testUnits = mergeUnitConfigs [defaultUnitConfig, mkUnitConfig defaultDimensionOrder (M.singleton "t" (UnitDef [if d == "mass" then 1 else 0 | d <- defaultDimensionOrder] 1000))]
+
 -- | Linking context against the target, with a geography policy and aliases.
 mkCtxPolicy :: GeographyPolicy -> AliasMap -> LinkingContext
 mkCtxPolicy policy aliases =
     LinkingContext
         { lcIndexedDatabases = [targetIndexed]
         , lcSynonymDB = emptySynonymDB
-        , lcUnitConfig = defaultUnitConfig
+        , lcUnitConfig = testUnits
         , lcThreshold = defaultLinkingThreshold
         , lcLocationHierarchy = locationHierarchy
         , lcGeographyPolicy = policy
@@ -213,13 +219,13 @@ spec = do
         it "parses source/target columns and builds the map" $ do
             -- The source name contains a comma, so it must be CSV-quoted.
             let csv = BLC.pack "source,target\n\"wheat, background name\",wheat production\n"
-            rows <- either (fail . show) pure (parseAliasCSV csv)
+            rows <- either (fail . show) pure (parseAliasCSV testUnits csv)
             map arSource rows `shouldBe` [Just consumerName]
             buildAliasMap rows `shouldBe` aliasMap
 
         it "keys the row by source location and pins the target location" $ do
             let csv = BLC.pack "from,to,source_location,target_location\na,b,FR,CH\n"
-            rows <- either (fail . show) pure (parseAliasCSV csv)
+            rows <- either (fail . show) pure (parseAliasCSV testUnits csv)
             buildAliasMap rows
                 `shouldBe` singletonAlias (AliasKey "a" (Just "FR")) (named "b" (Just "CH"))
 
@@ -238,18 +244,18 @@ spec = do
                 `shouldBe` AliasMap M.empty (M.singleton (AliasKey "x" Nothing) (named "y" Nothing :| [named "z" Nothing]))
 
         it "fails when the header names no target column" $
-            parseAliasCSV (BLC.pack "source\nfoo\n") `shouldSatisfy` isLeft'
+            parseAliasCSV testUnits (BLC.pack "source\nfoo\n") `shouldSatisfy` isLeft'
 
         it "reads a row with a source and no target as a declined link" $
-            parseAliasCSV (BLC.pack "source,target\nwheat production,\nbarley,barley production\n")
+            parseAliasCSV testUnits (BLC.pack "source,target\nwheat production,\nbarley,barley production\n")
                 `shouldBe` Right [row "wheat production" Nothing (AliasTarget NoSupplier Nothing Same), row "barley" Nothing (named "barley production" Nothing)]
 
         it "refuses a target without a source, naming its row" $
-            parseAliasCSV (BLC.pack "source,target\n,wheat production\n")
+            parseAliasCSV testUnits (BLC.pack "source,target\n,wheat production\n")
                 `shouldSatisfy` either ("row 1" `T.isInfixOf`) (const False)
 
         it "refuses a file with no row" $
-            parseAliasMap (BLC.pack "source,target\n") `shouldSatisfy` isLeft'
+            parseAliasMap testUnits (BLC.pack "source,target\n") `shouldSatisfy` isLeft'
 
         it "collapses two identical duplicate rows harmlessly" $
             buildAliasMap [row "x" Nothing (named "y" Nothing), row "x" Nothing (named "y" Nothing)]
@@ -257,7 +263,7 @@ spec = do
 
         it "round-trips a quoted target that contains a comma" $ do
             let csv = BLC.pack "source,target\nwheat,\"production, FR\"\n"
-            rows <- either (fail . show) pure (parseAliasCSV csv)
+            rows <- either (fail . show) pure (parseAliasCSV testUnits csv)
             buildAliasMap rows
                 `shouldBe` singletonAlias (AliasKey "wheat" Nothing) (named "production, FR" Nothing)
 
@@ -277,7 +283,7 @@ spec = do
                             <> ",passenger car production,passenger car,CH,p,1200,confirmed,0.91,\n"
                             <> refText sourceRef
                             <> ",market for passenger car,\"passenger car, other\",GLO,kg,,,,,,,suggested,0.8,passenger car\n"
-            parseAliasCSV csv
+            parseAliasCSV testUnits csv
                 `shouldBe` Right
                     [ AliasRow
                         { arSource = Just "passenger car, background"
@@ -295,9 +301,9 @@ spec = do
                     ]
 
         it "reads a direction, blank as the same, and refuses one it does not know" $ do
-            let directions = map (atDirection . arTarget) <$> parseAliasCSV (BLC.pack "source,target,direction\nwastewater,treatment,opposite\nwheat,wheat production,\nbarley,barley production,Same\n")
+            let directions = map (atDirection . arTarget) <$> parseAliasCSV testUnits (BLC.pack "source,target,direction\nwastewater,treatment,opposite\nwheat,wheat production,\nbarley,barley production,Same\n")
             directions `shouldBe` Right [Opposite, Same, Same]
-            parseAliasCSV (BLC.pack "source,target,direction\nwastewater,treatment,reverse\n")
+            parseAliasCSV testUnits (BLC.pack "source,target,direction\nwastewater,treatment,reverse\n")
                 `shouldSatisfy` either ("row 1" `T.isInfixOf`) (const False)
 
         it "keeps both targets of rows that differ only in direction" $ do
@@ -306,14 +312,27 @@ spec = do
                 `shouldBe` AliasMap M.empty (M.singleton (AliasKey "x" Nothing) (named "wheat production" Nothing :| [turned]))
 
         it "refuses a conversion that does not say which way it reads" $
-            parseAliasCSV (BLC.pack "source,target,conversion\ncar,passenger car,1200\n") `shouldSatisfy` isLeft'
+            parseAliasCSV testUnits (BLC.pack "source,target,conversion\ncar,passenger car,1200\n") `shouldSatisfy` isLeft'
 
         it "refuses a conversion that is not a positive number" $ do
-            parseAliasCSV (BLC.pack "source,target,conversion,source_unit,target_unit\ncar,passenger car,-3,kg,p\n") `shouldSatisfy` isLeft'
-            parseAliasCSV (BLC.pack "source,target,conversion,source_unit,target_unit\ncar,passenger car,heavy,kg,p\n") `shouldSatisfy` isLeft'
+            parseAliasCSV testUnits (BLC.pack "source,target,conversion,source_unit,target_unit\ncar,passenger car,-3,kg,p\n") `shouldSatisfy` isLeft'
+            parseAliasCSV testUnits (BLC.pack "source,target,conversion,source_unit,target_unit\ncar,passenger car,heavy,kg,p\n") `shouldSatisfy` isLeft'
+
+        it "refuses a conversion the unit table contradicts, naming the right one" $ do
+            let read' conversion = parseAliasCSV testUnits (BLC.pack ("source,target,conversion,source_unit,target_unit\nwheat,wheat production," <> conversion <> ",kg,t\n"))
+            read' "1000" `shouldSatisfy` either (const False) (const True)
+            read' "500" `shouldSatisfy` either ("one t is 1000.0 kg" `T.isInfixOf`) (const False)
+
+        it "reads a conversion between two names of one size as a ratio" $
+            map (atBridge . arTarget) <$> parseAliasCSV testUnits (BLC.pack "source,target,conversion,source_unit,target_unit\ncold,heat,0.599,megajoule,MJ\n")
+                `shouldBe` Right [Just (UnitBridge "megajoule" "MJ" 0.599)]
+
+        it "reads a conversion between units written the same way, which no table holds" $
+            map (atBridge . arTarget) <$> parseAliasCSV testUnits (BLC.pack "source,target,conversion,source_unit,target_unit\nurea,\"urea, as N\",2.17,kg,kg\n")
+                `shouldBe` Right [Just (UnitBridge "kg" "kg" 2.17)]
 
         it "refuses an identity that is not one" $
-            parseAliasCSV (BLC.pack "source,target_id\ncar,not-an-id\n") `shouldSatisfy` isLeft'
+            parseAliasCSV testUnits (BLC.pack "source,target_id\ncar,not-an-id\n") `shouldSatisfy` isLeft'
 
     describe "lookupAlias" $ do
         it "prefers the exact (name, location) row over the name-only row" $ do
@@ -466,7 +485,7 @@ spec = do
                 CrossDBLinked{} -> pure ()
                 CrossDBNotLinked reason -> expectationFailure $ "Expected the other row to link, got: " ++ show reason
 
-    describe "a conversion between units of different measures" $ do
+    describe "a conversion stated by the row" $ do
         let carRow bridge = singletonAlias (AliasKey "passenger car, background" Nothing) (AliasTarget (SupplierNamed "passenger car" Nothing) bridge Same)
             kgToP = Just (UnitBridge "kg" "p" 1200)
 
@@ -480,9 +499,40 @@ spec = do
                 CrossDBNotLinked UnitIncompatible{} -> pure ()
                 other -> expectationFailure $ "Expected UnitIncompatible, got: " ++ describe' other
 
-        it "ignores the conversion where the units meet without it" $ do
-            let wheatRow = singletonAlias (AliasKey consumerName Nothing) (AliasTarget (SupplierNamed "wheat production" Nothing) (Just (UnitBridge "kg" "t" 500)) Same)
-            case findSupplierInIndexedDBs (mkCtx wheatRow) (aliasQuery consumerName "FR" "kg") of
+        it "applies the conversion where the units meet without it" $ do
+            -- kg of urea and kg "as N" meet, yet only the row knows the 2.17 between them.
+            let asN = Just (UnitBridge "kg" "kg" 2.17)
+                ureaRow = singletonAlias (AliasKey "urea, background" Nothing) (AliasTarget (SupplierNamed "wheat production" Nothing) asN Same)
+                urea = consumerTaking oldCarFlow "urea, background" (techInput oldCarFlow 2.17){techLocation = "CH", techSupplierClaim = ClaimByProduct}
+            map (\l -> (cdlCoefficient l, cdlExchangeUnit l)) (cdlLinks (relinkInput [targetIndexed] urea ureaRow))
+                `shouldBe` [(1.0, "kg")]
+
+        it "applies it between one unit the table does not know, named on both sides" $ do
+            -- "kg N" is in no table, yet one spelling is one unit: the 2.17 still applies.
+            let kgN = read "00000000-0000-0000-0000-0000000000a1"
+                nFlow = read "aaaaaaaa-0000-0000-0000-0000000000a1"
+                nAct = read "cccccccc-0000-0000-0000-0000000000a1"
+                supplier =
+                    buildIndexedDatabase "background" emptySynonymDB $
+                        targetDB
+                            { sdbActivities = M.insert (nAct, nFlow) (targetActivity "urea, as N" "CH" "kg N" nFlow) (sdbActivities targetDB)
+                            , sdbTechFlows = M.insert nFlow ((mkTechFlow nFlow "urea, as N"){tfUnitId = kgN}) (sdbTechFlows targetDB)
+                            , sdbUnits = M.singleton kgN (Unit kgN "kg N" "kg N" "")
+                            }
+                row = singletonAlias (AliasKey "urea, background" Nothing) (AliasTarget (SupplierNamed "urea, as N" Nothing) (Just (UnitBridge "kg N" "kg N" 2.17)) Same)
+                base = consumerTaking oldCarFlow "urea, background" (techInput oldCarFlow 2.17){techLocation = "CH", techSupplierClaim = ClaimByProduct, techUnitId = kgN}
+                urea =
+                    base
+                        { sdbTechFlows = M.adjust (\f -> f{tfUnitId = kgN}) oldCarFlow (sdbTechFlows base)
+                        , sdbUnits = M.insert kgN (Unit kgN "kg N" "kg N" "") (sdbUnits base)
+                        }
+            let st = relinkInput [supplier] urea row
+            map (\l -> (cdlCoefficient l, cdlExchangeUnit l)) (cdlLinks st)
+                `shouldBe` [(1.0, "kg N")]
+
+        it "leaves units of one measure to the table when the row states no conversion" $ do
+            let wheatRow = singletonAlias (AliasKey consumerName Nothing) (AliasTarget (SupplierNamed "wheat production" Nothing) Nothing Same)
+            case findSupplierInIndexedDBs (mkCtx wheatRow) (aliasQuery consumerName "FR" "t") of
                 CrossDBLinked{cdlrBridge = bridge} -> bridge `shouldBe` Nothing
                 CrossDBNotLinked reason -> expectationFailure $ "Expected a link, got: " ++ show reason
 
@@ -566,7 +616,7 @@ consumerFlow = read "eeeeeeee-0000-0000-0000-000000000004"
 -- | Relink a consumer against some dependencies.
 relinkInput :: [IndexedDatabase] -> SimpleDatabase -> AliasMap -> CrossDBLinkingStats
 relinkInput deps consumer aliases =
-    relinkSimpleDatabase deps emptySynonymDB defaultUnitConfig M.empty GeoGlobal aliases consumer
+    relinkSimpleDatabase deps emptySynonymDB testUnits M.empty GeoGlobal aliases consumer
 
 -- | Relink the consumer of 'carConsumer' against the target.
 relinkCar :: AliasMap -> SupplierClaim -> CrossDBLinkingStats

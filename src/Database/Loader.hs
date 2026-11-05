@@ -3024,15 +3024,20 @@ findDemandCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnProc
                 ClaimByDatasetNumber _ -> Nothing
             }
     {- What the link asks of its supplier: the line in the flow's unit, or, where a
-    mapping row's conversion bridges two units that measure different things,
-    the amount in the row's source unit divided by what one target unit holds,
-    in the row's target unit. The matrix converts that unit to the supplier's. -}
+    mapping row states a conversion, the amount in the row's source unit divided
+    by what one target unit holds, in the row's target unit. The matrix converts
+    that unit to the supplier's. -}
     bridgedAmount :: T.Text -> Maybe UnitBridge -> Double -> Maybe (Double, T.Text)
     bridgedAmount flowUnitName bridge amount = case bridge of
         Nothing -> Just (amount, flowUnitName)
         Just UnitBridge{..} ->
             (\inSource -> (inSource / ubTargetInSource, ubTargetUnit))
-                <$> UC.convertUnit (lcUnitConfig ctx) flowUnitName ubSourceUnit amount
+                <$> inSourceUnit ubSourceUnit
+      where
+        -- One spelling is one unit, known to the table or not: "kg N" to "kg N" needs no table.
+        inSourceUnit sourceUnit
+            | UC.unitKey (lcUnitConfig ctx) flowUnitName == UC.unitKey (lcUnitConfig ctx) sourceUnit = Just amount
+            | otherwise = UC.convertUnit (lcUnitConfig ctx) flowUnitName sourceUnit amount
     attributeMatch :: TechnosphereFlow -> T.Text -> CrossDBLinkingStats
     attributeMatch flow flowUnitName =
         let query = supplierQuery flow flowUnitName

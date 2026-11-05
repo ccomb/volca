@@ -411,8 +411,9 @@ relinkDatabaseHandler dbName req = do
     case (rmrDepDb req, rmrMappingCsv req) of
         (Nothing, Nothing) ->
             runRelink (relinkDatabase dbManager dbName)
-        (Just depDb, Just csv) ->
-            case parseAliasMap (BSL.fromStrict (T.encodeUtf8 csv)) of
+        (Just depDb, Just csv) -> do
+            units <- liftIO (getMergedUnitConfig dbManager)
+            case parseAliasMap units (BSL.fromStrict (T.encodeUtf8 csv)) of
                 Left err -> throwError err400{errBody = BSL.fromStrict $ T.encodeUtf8 err}
                 Right aliases -> runRelink (relinkDatabaseWithMapping dbManager dbName depDb aliases)
         (Just _, Nothing) -> incomplete
