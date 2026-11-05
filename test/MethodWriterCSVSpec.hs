@@ -234,13 +234,14 @@ spec = describe "Method.WriterCSV" $ do
             let cf = mkCF "Zinc" (Just (Compartment "outer space" "" "")) 1
             serialize (collection [mkMethod "Ecotoxicity" [cf]]) `shouldSatisfy` isRefused "outside the ones"
 
-        it "keeps a noise factor's medium through a write and a read" $ do
-            let cf = mkCF "Noise, road, lorry, average" (Just (Compartment (mediumText Immaterial) "unspecified" "")) 1.2
-            case serialize (collection [mkMethod "Noise" [cf]]) of
+        it "keeps a noise factor's medium through a write and a read, with or without a subcompartment" $ do
+            let compartments = [Compartment (mediumText Immaterial) "unspecified" "", Compartment (mediumText Immaterial) "" ""]
+                cfs = [mkCF ("Noise " <> T.pack (show i)) (Just c) 1.2 | (i, c) <- zip [1 :: Int ..] compartments]
+            case serialize (collection [mkMethod "Noise" cfs]) of
                 Left err -> expectationFailure (T.unpack err)
                 Right (out, _) ->
                     fmap (concatMap (map mcfCompartment . methodFactors)) (reparse out)
-                        `shouldBe` Right [Just (Compartment (mediumText Immaterial) "unspecified" "")]
+                        `shouldBe` Right (map Just compartments)
 
     describe "format dispatch (Database.Export)" $ do
         it "accepts the 'csv' format name" $

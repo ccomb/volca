@@ -207,7 +207,7 @@ that parsed before the path form existed.
 parseCSVCompartment :: Text -> Maybe Compartment
 parseCSVCompartment comp = case map T.strip (T.splitOn "/" comp) of
     [] -> Nothing -- splitOn never returns [], but the match must be total
-    [single] -> legacyCompartment single
+    [single] -> pathCompartment single "" "" <|> legacyCompartment single
     [top, s] -> pathCompartment top s "" <|> legacyCompartment comp
     [top, s, q] -> pathCompartment top s q <|> legacyCompartment comp
     _ -> legacyCompartment comp -- more path segments than a compartment has fields
