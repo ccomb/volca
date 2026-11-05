@@ -36,6 +36,10 @@
   no unit of its own, so a line asking 0.0157 kWh of a product made in MJ was
   reread as 0.0157 MJ, 3.6 times too little. The amount is now converted, and
   a unit that does not convert to its flow's is refused.
+- Xylene emitted to water is scored by Ecological Scarcity 2021 as openLCA
+  publishes it, which names it "Xylenes, unspecified" where EcoSpold 1
+  databases write "Xylene". POP into water, of which xylene is the largest
+  part, read about half the published score (data version 15).
 
 ### Changed
 
