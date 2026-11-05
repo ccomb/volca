@@ -297,7 +297,7 @@ import Database.Manager (
     unloadUnitDefs,
  )
 import qualified Database.Quality as Quality
-import Database.RelinkMapping (parseAliasMap)
+import Database.RelinkMapping (readSupplierMapping)
 import Database.Requirements (ReleaseSubstitution)
 import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario, savedForExport)
 import Database.SystemModel (ModelOnParent (..), NamedSubstitution (..))
@@ -413,9 +413,9 @@ relinkDatabaseHandler dbName req = do
             runRelink (relinkDatabase dbManager dbName)
         (Just depDb, Just csv) -> do
             units <- liftIO (getMergedUnitConfig dbManager)
-            case parseAliasMap units (BSL.fromStrict (T.encodeUtf8 csv)) of
+            case readSupplierMapping units csv of
                 Left err -> throwError err400{errBody = BSL.fromStrict $ T.encodeUtf8 err}
-                Right aliases -> runRelink (relinkDatabaseWithMapping dbManager dbName depDb aliases)
+                Right mapping -> runRelink (relinkDatabaseWithMapping dbManager dbName depDb mapping)
         (Just _, Nothing) -> incomplete
         (Nothing, Just _) -> incomplete
   where

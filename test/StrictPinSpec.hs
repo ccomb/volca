@@ -20,16 +20,21 @@ and leaves the beta-only input unresolved (surfaced, not silently linked).
 module StrictPinSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
+import Control.Exception (bracket_)
+import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import qualified Data.UUID as UUID
 import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
 import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
-import Database.CrossLinking (AliasKey (..), AliasMap (..), AliasSupplier (..), AliasTarget (..), Direction (..), buildIndexedDatabaseFromDB, emptyAliasMap)
+import Database.CrossLinking (buildIndexedDatabaseFromDB)
+import Database.Edit (copyDatabase)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
@@ -41,9 +46,13 @@ import Database.Manager (
     initDatabaseManager,
     relinkDatabase,
     relinkDatabaseWithMapping,
+    storedSupplierMapping,
  )
+import Database.RelinkMapping (SupplierMapping (..), readSupplierMapping)
 import SharedSolver (SharedSolver, createSharedSolver)
 import SynonymDB (emptySynonymDB)
+import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Environment (setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Types (
@@ -91,6 +100,7 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                         { ldDatabase = consumerDb
                         , ldSharedSolver = solver
                         , ldConfig = consumerConfig (tmp </> "consumer-data")
+                        , ldSupplierMapping = Nothing
                         }
             atomically $ do
                 modifyTVar' (dmLoadedDbs manager) (M.insert "consumer" consumerLoaded)
@@ -163,7 +173,7 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                     manager
                     "consumer"
                     "beta"
-                    (AliasMap M.empty (M.singleton (AliasKey "no-such-input" Nothing) (pure (AliasTarget (SupplierNamed "no-such-supplier" Nothing) Nothing Same))))
+                    (mappingOf "source_name,target_name\nno-such-input,no-such-supplier\n")
             result `shouldSatisfy` isRight
 
             loaded <- readTVarIO (dmLoadedDbs manager)
@@ -193,7 +203,7 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                         , sdLinkingStats = dbLinkingStats consumerDb
                         , sdBuiltWith = dbBuiltWith consumerDb
                         , sdCachedDB = Nothing
-                        , sdSupplierAliases = emptyAliasMap
+                        , sdSupplierMapping = Nothing
                         }
             atomically $ do
                 modifyTVar' (dmStagedDbs manager) (M.insert "consumer" staged)
@@ -209,13 +219,56 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                     manager
                     "consumer"
                     "alpha"
-                    (AliasMap M.empty (M.singleton (AliasKey "q1" Nothing) (pure (AliasTarget (SupplierNamed "p1" Nothing) Nothing Same))))
+                    q1IsP1
             relinked `shouldSatisfy` isRight
             added <- addDependencyToStaged manager (DependencyEdit "consumer" "beta")
             either (expectationFailure . show) (const (pure ())) added
             finalizeDatabase manager "consumer" >>= either (expectationFailure . show) (const (pure ()))
             loaded <- readTVarIO (dmLoadedDbs manager)
             map cdlSourceDatabase (dbCrossDBLinks (ldDatabase (loaded M.! "consumer"))) `shouldBe` ["alpha"]
+
+    describe "a mapping relink stays in force" $ do
+        it "keeps the links it made through a later relink, the one an edit or a dependency reload runs" $
+            withSystemTempDirectory "volca-mapping-kept" $ \tmp ->
+                withMappedConsumer (consumerConfig (tmp </> "consumer-data")) $ \manager -> do
+                    relinkDatabaseWithMapping manager "consumer" "alpha" q1IsP1 >>= (`shouldSatisfy` isRight)
+                    linkCount manager "consumer" `shouldReturn` 1
+                    relinkDatabase manager "consumer" >>= (`shouldSatisfy` isRight)
+                    linkCount manager "consumer" `shouldReturn` 1
+
+        it "keeps the mapping in the database's home, for the next load to read" $
+            withSystemTempDirectory "volca-mapping-home" $ \root -> withDataDir root $ do
+                let config = (consumerConfig (homeOf root "consumer" </> "data")){dcIsUploaded = True}
+                withMappedConsumer config $ \manager -> do
+                    relinkDatabaseWithMapping manager "consumer" "alpha" q1IsP1 >>= (`shouldSatisfy` isRight)
+                    TIO.readFile (homeOf root "consumer" </> "relink.csv") `shouldReturn` smCsv q1IsP1
+                    storedSupplierMapping manager config `shouldReturn` Just q1IsP1
+
+        it "loads without a kept mapping that no longer reads, rather than refusing the database" $
+            withSystemTempDirectory "volca-mapping-unread" $ \root -> withDataDir root $ do
+                let config = (consumerConfig (homeOf root "consumer" </> "data")){dcIsUploaded = True}
+                createDirectoryIfMissing True (homeOf root "consumer")
+                TIO.writeFile (homeOf root "consumer" </> "relink.csv") "source_name,target_name\n"
+                manager <- initDatabaseManager defaultConfig NoCache
+                storedSupplierMapping manager config `shouldReturn` Nothing
+
+        it "loads without a kept mapping that is not UTF-8, rather than refusing the database" $
+            withSystemTempDirectory "volca-mapping-latin1" $ \root -> withDataDir root $ do
+                let config = (consumerConfig (homeOf root "consumer" </> "data")){dcIsUploaded = True}
+                createDirectoryIfMissing True (homeOf root "consumer")
+                -- "q\233" is "qé" in Latin-1: one byte 0xE9, never valid UTF-8 there.
+                BS.writeFile (homeOf root "consumer" </> "relink.csv") (BS.pack [113, 44, 112, 10, 113, 233, 44, 112, 49, 10])
+                manager <- initDatabaseManager defaultConfig NoCache
+                storedSupplierMapping manager config `shouldReturn` Nothing
+
+        it "goes along with a copy, which links as its source does" $
+            withSystemTempDirectory "volca-mapping-copy" $ \root -> withDataDir root $
+                withMappedConsumer (consumerConfig (root </> "consumer-data")) $ \manager -> do
+                    relinkDatabaseWithMapping manager "consumer" "alpha" q1IsP1 >>= (`shouldSatisfy` isRight)
+                    copyDatabase manager "consumer" "hybrid" `shouldReturn` Right ()
+                    doesFileExist (homeOf root "hybrid" </> "relink.csv") `shouldReturn` True
+                    relinkDatabase manager "hybrid" >>= (`shouldSatisfy` isRight)
+                    linkCount manager "hybrid" `shouldReturn` 1
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -225,9 +278,48 @@ isRight :: Either a b -> Bool
 isRight (Right _) = True
 isRight (Left _) = False
 
+-- | A mapping read as a relink request reads it.
+mappingOf :: Text -> SupplierMapping
+mappingOf csv = either (error . show) id (readSupplierMapping defaultUnitConfig csv)
+
+-- | The consumer's input q1 is alpha's p1: only the mapping links them.
+q1IsP1 :: SupplierMapping
+q1IsP1 = mappingOf "source_name,target_name\nq1,p1\n"
+
+{- | A consumer asking for q1, loaded and pinned to alpha, which supplies p1,
+under @config@; then the action, given the manager.
+-}
+withMappedConsumer :: DatabaseConfig -> (DatabaseManager -> IO ()) -> IO ()
+withMappedConsumer config act = do
+    alphaDb <- buildOrFail (supplierDB 100 ["p1"])
+    consumerDb0 <- buildOrFail (consumerDB 300 ["q1"])
+    let consumerDb = consumerDb0{dbDependsOn = ["alpha"], dbCrossDBLinks = []}
+    manager <- initDatabaseManager defaultConfig NoCache
+    alphaSolver <- mkSolver "alpha" alphaDb
+    solver <- mkSolver "consumer" consumerDb
+    atomically $ do
+        modifyTVar' (dmLoadedDbs manager) $
+            M.insert "consumer" (loadedFor consumerDb solver config)
+                . M.insert "alpha" (loadedFor alphaDb alphaSolver (supplierLoadedConfig "alpha"))
+        modifyTVar' (dmAvailableDbs manager) (M.insert "consumer" config)
+        modifyTVar' (dmIndexedDbs manager) (M.insert "alpha" (buildIndexedDatabaseFromDB "alpha" emptySynonymDB alphaDb))
+    act manager
+
+-- | How many links between databases a loaded database holds.
+linkCount :: DatabaseManager -> Text -> IO Int
+linkCount manager name = length . dbCrossDBLinks . ldDatabase . (M.! name) <$> readTVarIO (dmLoadedDbs manager)
+
+-- | Run with the engine's data directory, where homes are written, under @root@.
+withDataDir :: FilePath -> IO a -> IO a
+withDataDir root = bracket_ (setEnv "VOLCA_DATA_DIR" root) (unsetEnv "VOLCA_DATA_DIR")
+
+-- | The home the engine gives a database with one.
+homeOf :: FilePath -> Text -> FilePath
+homeOf root name = root </> "uploads" </> "databases" </> T.unpack name
+
 loadedFor :: Database -> SharedSolver -> DatabaseConfig -> LoadedDatabase
 loadedFor db solver cfg =
-    LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = cfg}
+    LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = cfg, ldSupplierMapping = Nothing}
 
 -- | A minimal loaded-supplier config (no own dependencies, no cache path).
 supplierLoadedConfig :: Text -> DatabaseConfig

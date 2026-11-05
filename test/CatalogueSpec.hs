@@ -122,7 +122,7 @@ loadedSample = do
     manager <- initDatabaseManager defaultConfig NoCache
     db <- loadSampleDatabase "SAMPLE.min3"
     solver <- mkSolverFromDb db sampleName
-    let loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = sampleConfig}
+    let loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = sampleConfig, ldSupplierMapping = Nothing}
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.insert sampleName loaded)
         modifyTVar' (dmAvailableDbs manager) (M.insert sampleName sampleConfig)

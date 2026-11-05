@@ -63,6 +63,8 @@ module Database.Manager (
     basisOf,
     databasesRead,
     scenariosHome,
+    supplierMappingPath,
+    storedSupplierMapping,
 
     -- * Method Operations
     listMethodCollections,
@@ -384,9 +386,9 @@ import Data.Containers.ListUtils (nubOrd)
 import Data.JournalFile (Entry (..), readEntries)
 import Database.Author (editingContext)
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
-import qualified Database.CrossLinking as CrossLinking
 import Database.History (Carried (..))
 import qualified Database.Journal as Journal
+import Database.RelinkMapping (SupplierMapping (..), mappingAliases, readSupplierMapping)
 import Database.Requirements (ReleaseSubstitution (..), RequiredRelease, acceptSubstitute, admission, admits, requiredDatabases, requiredReleases)
 import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirectory, listDirectoryRecursive)
 import qualified Database.Upload as Upload
@@ -408,6 +410,11 @@ data LoadedDatabase = LoadedDatabase
     { ldDatabase :: !Database
     , ldSharedSolver :: !SharedSolver
     , ldConfig :: !DatabaseConfig
+    , ldSupplierMapping :: !(Maybe SupplierMapping)
+    {- ^ The mapping the database was last relinked with. Every later relink
+    applies it, or the links it made would drop at the next edit, dependency
+    reload or restart.
+    -}
     }
 
 {- | A staged database awaiting dependency configuration
@@ -424,7 +431,7 @@ data StagedDatabase = StagedDatabase
     -- ^ Selected dependency database names
     , sdCrossDBLinks :: ![CrossDBLink]
     -- ^ Cross-DB links found so far
-    , sdSupplierAliases :: !CrossLinking.AliasMap
+    , sdSupplierMapping :: !(Maybe SupplierMapping)
     {- ^ The mapping the last relink applied. Finalizing relinks once more,
     and without it would drop the links the mapping made.
     -}
@@ -2528,6 +2535,7 @@ loadDatabaseFromConfigWithCrossDB dbConfig synonymDB unitConfig cachePolicy othe
                         { ldDatabase = database
                         , ldSharedSolver = sharedSolver
                         , ldConfig = dbConfig
+                        , ldSupplierMapping = Nothing
                         }
                     , source
                     )
@@ -2883,7 +2891,9 @@ loadDatabaseSingleFromConfig manager dbName = do
         liftIO $ reportProgress Info $ "[STARTING] Loading database: " <> T.unpack (dcDisplayName dbConfig)
         synonymDB <- liftIO $ getMergedSynonymDB manager
         liftIO $ warnReopenedBridges synonymDB
-        (loaded, origin) <- parseOrReplay dbConfig synonymDB
+        (parsed, origin) <- parseOrReplay dbConfig synonymDB
+        mapping <- liftIO $ storedSupplierMapping manager dbConfig
+        let loaded = parsed{ldSupplierMapping = mapping}
         liftIO $ publish dbConfig synonymDB loaded origin
         pure loaded
 
@@ -2910,7 +2920,7 @@ loadDatabaseSingleFromConfig manager dbName = do
         liftIO $ reportProgress Info $ "Dividing " <> T.unpack dbName <> " from its parent " <> T.unpack parentName
         child <- ExceptT (Child.childOf unitConfig model (ldDatabase parent))
         (db, solver) <- liftIO $ withRuntime dbName synonymDB child
-        (edited, _) <- ExceptT (replayEdits manager dbConfig LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = dbConfig})
+        (edited, _) <- ExceptT (replayEdits manager dbConfig LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = dbConfig, ldSupplierMapping = Nothing})
         pure (edited, FromParent)
 
     fromFiles :: M.Map Text DatabaseConfig -> DatabaseConfig -> SynonymDB -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
@@ -2946,7 +2956,8 @@ loadDatabaseSingleFromConfig manager dbName = do
             dbName
             (SynonymOrigin ("Auto-extracted from " <> dcDisplayName dbConfig))
             (extractFromEcoSpold2 (dbBioFlows (ldDatabase loaded)))
-        when (needsSelfRelink origin) $
+        -- A fresh parse linked without the mapping, so one held means relinking.
+        when (needsSelfRelink origin || isJust (ldSupplierMapping loaded)) $
             relinkDatabase manager dbName >>= either (warnSelfRelinkFailed dbName) (const (pure ()))
         relinkDependents manager dbName
         {- Cache what the journal produced, so the next load does not replay
@@ -2961,6 +2972,51 @@ warnSelfRelinkFailed :: Text -> Text -> IO ()
 warnSelfRelinkFailed dbName err =
     reportProgress Warning $
         "Self-relink of " <> T.unpack dbName <> " failed: " <> T.unpack err
+
+{- | Where a database with a home keeps the mapping it was last relinked with:
+the file as it was sent, read again at every load.
+-}
+supplierMappingPath :: FilePath -> FilePath
+supplierMappingPath home = home </> "relink.csv"
+
+{- | The mapping a database's home holds, read under the unit table now in
+force. One that no longer reads (a conversion the table now contradicts) is
+said and left out: the database loads, without the links that mapping made.
+-}
+storedSupplierMapping :: DatabaseManager -> DatabaseConfig -> IO (Maybe SupplierMapping)
+storedSupplierMapping manager dbConfig =
+    editHome dbConfig >>= \case
+        Nothing -> pure Nothing
+        Just home -> do
+            let path = supplierMappingPath home
+            present <- doesFileExist path
+            if not present
+                then pure Nothing
+                else do
+                    units <- getMergedUnitConfig manager
+                    bytes <- BS.readFile path
+                    let notUtf8 decodeErr = "not valid UTF-8 (" <> T.pack (show decodeErr) <> ")"
+                    case first notUtf8 (TE.decodeUtf8' bytes) >>= readSupplierMapping units of
+                        Right mapping -> pure (Just mapping)
+                        Left err -> do
+                            reportProgress Warning $
+                                "The relink mapping kept in "
+                                    <> path
+                                    <> " no longer reads ("
+                                    <> T.unpack err
+                                    <> "); "
+                                    <> T.unpack (dcName dbConfig)
+                                    <> " loads without the links it made. Relink it with a corrected mapping."
+                            pure Nothing
+
+-- | Keep a database's mapping in its home, for the next load. One without a home keeps it in memory only.
+storeSupplierMapping :: DatabaseManager -> Text -> SupplierMapping -> IO ()
+storeSupplierMapping manager dbName mapping = do
+    availableDbs <- readTVarIO (dmAvailableDbs manager)
+    home <- maybe (pure Nothing) editHome (M.lookup dbName availableDbs)
+    forM_ home $ \dir -> do
+        createDirectoryIfMissing True dir
+        BS.writeFile (supplierMappingPath dir) (TE.encodeUtf8 (smCsv mapping))
 
 {- | Where a database keeps its edits, or 'Nothing' for one the engine only
 reads from its configuration and never writes.
@@ -3412,7 +3468,7 @@ even though we already know the answer. The save is skipped when the
 relink is a no-op (no change vs. the in-memory state).
 -}
 relinkDatabase :: DatabaseManager -> Text -> IO (Either Text RelinkResult)
-relinkDatabase manager dbName = relinkDatabaseWith manager dbName CrossLinking.emptyAliasMap Nothing
+relinkDatabase manager dbName = relinkDatabaseWith manager dbName Nothing
 
 {- | Re-link a loaded DB across its full pinned dependency set, applying a
 curated supplier-alias map. The aliases let a consumer's input flow name that
@@ -3423,6 +3479,10 @@ dependency set, it is pinned in-memory first, so an in-memory pipeline
 (copy → delete → relink) composes without restaging (which would unload the
 live database). Same persistence/no-op semantics as 'relinkDatabase'. Errors
 (DB or dep not loaded) surface as 'Left'.
+
+The mapping replaces the one the database held, and stays in force: every
+later relink applies it, and a database with a home keeps it there for the
+next load.
 -}
 relinkDatabaseWithMapping ::
     DatabaseManager ->
@@ -3430,14 +3490,14 @@ relinkDatabaseWithMapping ::
     Text ->
     -- | dependency database to link against
     Text ->
-    -- | consumer-flow → designated-supplier aliases
-    CrossLinking.AliasMap ->
+    -- | consumer-flow → designated-supplier aliases, with the file they were read from
+    SupplierMapping ->
     IO (Either Text RelinkResult)
-relinkDatabaseWithMapping manager dbName depDb aliases = withLogScope dbName $ do
+relinkDatabaseWithMapping manager dbName depDb mapping = withLogScope dbName $ do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
     configs <- readTVarIO (dmAvailableDbs manager)
-    case M.lookup dbName loadedDbs of
-        Nothing -> relinkStaged manager dbName (Just depDb) aliases
+    relinked <- case M.lookup dbName loadedDbs of
+        Nothing -> relinkStaged manager dbName (Just (depDb, mapping))
         Just loaded
             | not (M.member depDb loadedDbs) ->
                 return $ Left $ "Dependency database not loaded: " <> depDb <> " (load it first)"
@@ -3450,11 +3510,15 @@ relinkDatabaseWithMapping manager dbName depDb aliases = withLogScope dbName $ d
                 -- pass it so 'relinkDatabaseWith' persists the cache when the pin
                 -- diverges from disk even if no new links are discovered.
                 let persistedDeps = dbDependsOn (ldDatabase loaded)
-                unless (depDb `elem` persistedDeps) $
-                    atomically $
-                        modifyTVar' (dmLoadedDbs manager) (M.adjust (addPinnedDep depDb) dbName)
-                relinkDatabaseWith manager dbName aliases (Just persistedDeps)
+                atomically $
+                    modifyTVar' (dmLoadedDbs manager) (M.adjust (withMapping . addPinnedDep depDb) dbName)
+                relinkDatabaseWith manager dbName (Just persistedDeps)
+    forM_ relinked $ \_ -> storeSupplierMapping manager dbName mapping
+    pure relinked
   where
+    withMapping :: LoadedDatabase -> LoadedDatabase
+    withMapping ld = ld{ldSupplierMapping = Just mapping}
+
     -- Idempotent: a concurrent relink may have pinned the dep between the
     -- snapshot above and this transaction, so never prepend a duplicate.
     addPinnedDep :: Text -> LoadedDatabase -> LoadedDatabase
@@ -3467,13 +3531,16 @@ relinkDatabaseWithMapping manager dbName depDb aliases = withLogScope dbName $ d
 {- | Relink a *staged* (parsed-but-not-finalized) database, mirroring
 'relinkDatabaseWith' on the staged 'SimpleDatabase' via the shared
 'Loader.relinkSimpleDatabase'. This lets the relink endpoint work from the setup
-page before a database is finalized. @maybeDepDb@ pins a chosen dependency (a
-mapping relink); @aliases@ feeds the supplier-alias map.
+page before a database is finalized. A mapping relink names the dependency it
+retargets and the mapping, which replaces the staged one; a plain relink
+applies the mapping the staged database already holds.
 -}
-relinkStaged :: DatabaseManager -> Text -> Maybe Text -> CrossLinking.AliasMap -> IO (Either Text RelinkResult)
-relinkStaged manager dbName maybeDepDb aliases = withLogScope dbName $ runExceptT $ do
+relinkStaged :: DatabaseManager -> Text -> Maybe (Text, SupplierMapping) -> IO (Either Text RelinkResult)
+relinkStaged manager dbName chosen = withLogScope dbName $ runExceptT $ do
     stagedDbs <- liftIO $ readTVarIO (dmStagedDbs manager)
     staged <- except $ maybe (Left ("Database not loaded: " <> dbName)) Right (M.lookup dbName stagedDbs)
+    let maybeDepDb = fst <$> chosen
+        mapping = maybe (sdSupplierMapping staged) (Just . snd) chosen
     indexedDbs <- liftIO $ readTVarIO (dmIndexedDbs manager)
     configs <- liftIO $ readTVarIO (dmAvailableDbs manager)
     forM_ maybeDepDb $ \dep -> do
@@ -3490,18 +3557,18 @@ relinkStaged manager dbName maybeDepDb aliases = withLogScope dbName $ runExcept
                 unitConfig
                 (dmLocationHierarchy manager)
                 (dcGeographyPolicy (sdConfig staged))
-                aliases
+                (mappingAliases mapping)
                 (sdSimpleDB staged)
     liftIO $
         atomically $
             modifyTVar'
                 (dmStagedDbs manager)
-                (M.insert dbName (withRelinkedDeps pinnedDeps aliases newStats staged))
+                (M.insert dbName (withRelinkedDeps pinnedDeps mapping newStats staged))
     pure (relinkResult staged pinnedDeps newStats)
   where
     -- A mapping relink pins the dependency it retargets, once.
     withChosenDep :: [Text] -> [Text]
-    withChosenDep selected = case maybeDepDb of
+    withChosenDep selected = case fst <$> chosen of
         Just dep | dep `notElem` selected -> dep : selected
         _ -> selected
 
@@ -3518,10 +3585,10 @@ relinkStaged manager dbName maybeDepDb aliases = withLogScope dbName $ runExcept
 
 {- | Shared relink core. Candidates are the database's full declared pin
 ('dbDependsOn'); relink recomputes the links within it but never grows or
-shrinks the set. @aliases@ feeds 'lcSupplierAliases', a mapping relink passes
-the user's curated map (which retargets a chosen dependency without dropping
-links to the others), a plain relink passes 'emptyAliasMap'. The dependency
-set stored on the database is never mutated here.
+shrinks the set. The aliases are the mapping the database holds
+('ldSupplierMapping'), so a relink after an edit, a reload or a restart keeps
+the links a mapping relink made. The dependency set stored on the database is
+never mutated here.
 
 @persistedDeps@ is the dependency set as it stands in the matrix cache on disk
 ('Just' when the caller pinned a new dep in-memory before calling). The cache
@@ -3532,12 +3599,11 @@ that divergence. 'Nothing' means the pin is unchanged from disk.
 relinkDatabaseWith ::
     DatabaseManager ->
     Text ->
-    CrossLinking.AliasMap ->
     Maybe [Text] ->
     IO (Either Text RelinkResult)
-relinkDatabaseWith manager dbName aliases persistedDeps = withLogScope dbName $ do
+relinkDatabaseWith manager dbName persistedDeps = withLogScope dbName $ do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
-    maybe (relinkStaged manager dbName Nothing aliases) relinkLoaded (M.lookup dbName loadedDbs)
+    maybe (relinkStaged manager dbName Nothing) relinkLoaded (M.lookup dbName loadedDbs)
   where
     relinkLoaded :: LoadedDatabase -> IO (Either Text RelinkResult)
     relinkLoaded loaded = do
@@ -3582,7 +3648,7 @@ relinkDatabaseWith manager dbName aliases persistedDeps = withLogScope dbName $ 
                     , lcThreshold = defaultLinkingThreshold
                     , lcLocationHierarchy = dmLocationHierarchy manager
                     , lcGeographyPolicy = dcGeographyPolicy (ldConfig loaded)
-                    , lcSupplierAliases = aliases
+                    , lcSupplierAliases = mappingAliases (ldSupplierMapping loaded)
                     }
             , riPersistedDeps = persistedDeps
             }
@@ -3689,6 +3755,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
     fromCache cachedDb = liftIO $ do
         -- Cache hit: auto-load dependencies so cross-DB solving works
         _ <- autoLoadDeps manager (dbDependsOn cachedDb)
+        mapping <- storedSupplierMapping manager dbConfig
         stage "  [OK] Staged from cache: " $
             StagedDatabase
                 { sdSimpleDB = toSimpleDatabase cachedDb
@@ -3699,7 +3766,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                 , sdLinkingStats = dbLinkingStats cachedDb
                 , sdBuiltWith = dbBuiltWith cachedDb
                 , sdCachedDB = Just cachedDb
-                , sdSupplierAliases = CrossLinking.emptyAliasMap
+                , sdSupplierMapping = mapping
                 }
 
     -- Linked within the databases its requirements admit, every one when it has none.
@@ -3734,6 +3801,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
         let minimalDeps = computeMinimalSelectedDeps (Loader.cdlLinks stats)
         (finalStats, finalDB) <-
             liftIO $ minimalCover indexedDbs synonymDB unitConfig minimalDeps simpleDb stats
+        mapping <- liftIO $ storedSupplierMapping manager dbConfig
         liftIO $
             stage "  [OK] Staged: " $
                 StagedDatabase
@@ -3745,7 +3813,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                     , sdLinkingStats = finalStats
                     , sdBuiltWith = inputs
                     , sdCachedDB = Nothing
-                    , sdSupplierAliases = CrossLinking.emptyAliasMap
+                    , sdSupplierMapping = mapping
                     }
 
     {- Drop the dependencies whose links are all substitutable by another at
@@ -4441,11 +4509,11 @@ setupInfoFrom SetupSource{..} =
 because the staged relink and the two dependency mutators all write exactly
 these and would otherwise drift apart.
 -}
-withRelinkedDeps :: [Text] -> CrossLinking.AliasMap -> CrossDBLinkingStats -> StagedDatabase -> StagedDatabase
-withRelinkedDeps newDeps aliases newStats staged =
+withRelinkedDeps :: [Text] -> Maybe SupplierMapping -> CrossDBLinkingStats -> StagedDatabase -> StagedDatabase
+withRelinkedDeps newDeps mapping newStats staged =
     staged
         { sdSelectedDeps = newDeps
-        , sdSupplierAliases = aliases
+        , sdSupplierMapping = mapping
         , sdCrossDBLinks = Loader.cdlLinks newStats
         , sdLinkingStats = newStats
         , sdMissingProducts = stagedMissingProducts (sdSimpleDB staged) newStats
@@ -4648,7 +4716,7 @@ restageLoadedDatabase manager dbName ld = do
                 , sdLinkingStats = stats
                 , sdBuiltWith = dbBuiltWith db
                 , sdCachedDB = Nothing
-                , sdSupplierAliases = CrossLinking.emptyAliasMap
+                , sdSupplierMapping = ldSupplierMapping ld
                 }
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.delete dbName)
@@ -4745,7 +4813,7 @@ applyStagedDeps manager dbName StagedRelink{..} = do
     synonymDB <- getMergedSynonymDB manager
     unitConfig <- getMergedUnitConfig manager
     -- The mapping a relink applied stays in force when the dependencies change.
-    let aliases = sdSupplierAliases srStaged
+    let mapping = sdSupplierMapping srStaged
         newStats =
             Loader.relinkSimpleDatabase
                 [idx | (name, idx) <- M.toList srIndexedDbs, name `elem` srNewDeps]
@@ -4753,12 +4821,12 @@ applyStagedDeps manager dbName StagedRelink{..} = do
                 unitConfig
                 (dmLocationHierarchy manager)
                 (dcGeographyPolicy (sdConfig srStaged))
-                aliases
+                (mappingAliases mapping)
                 (sdSimpleDB srStaged)
     atomically $
         modifyTVar'
             (dmStagedDbs manager)
-            (M.insert dbName (withRelinkedDeps srNewDeps aliases newStats srStaged))
+            (M.insert dbName (withRelinkedDeps srNewDeps mapping newStats srStaged))
     persistUploadDepends manager dbName srNewDeps
     first setupErrorMessage <$> getDatabaseSetupInfo manager dbName
 
@@ -4847,6 +4915,7 @@ finalizeDatabase manager dbName = withLogScope dbName $ do
                     { ldDatabase = fbDatabase
                     , ldSharedSolver = sharedSolver
                     , ldConfig = sdConfig staged
+                    , ldSupplierMapping = sdSupplierMapping staged
                     }
             indexedDb = buildIndexedDatabaseFromDB dbName synonymDB fbDatabase
         -- Move from staged to loaded
@@ -4864,7 +4933,7 @@ finalizeDatabase manager dbName = withLogScope dbName $ do
         or the links it made would be dropped. The relink rewrites both the
         in-memory state and (when the links changed) the matrix cache. -}
         linksChangedAfter <-
-            relinkDatabaseWith manager dbName (sdSupplierAliases staged) Nothing
+            relinkDatabaseWith manager dbName Nothing
                 >>= either relinkFailed (pure . rresLinksChanged)
 
         {- Persist when this finalize introduced a change (fresh build, or an

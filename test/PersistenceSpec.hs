@@ -327,7 +327,7 @@ deleteIds ids =
 install :: DatabaseManager -> Text -> Database -> DatabaseConfig -> IO ()
 install manager name db config = do
     solver <- mkSolver name db
-    let loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = config}
+    let loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = config, ldSupplierMapping = Nothing}
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.insert name loaded)
         modifyTVar' (dmAvailableDbs manager) (M.insert name config)
