@@ -37,7 +37,9 @@ module Expr (
     Reference (..),
     readFormula,
     evaluate,
+    evaluateFormula,
     translate,
+    written,
     render,
     writtenIn,
     respelt,
@@ -60,7 +62,7 @@ module Expr (
 
 import Amount (readAmount)
 import Control.Lens ((&), (?~))
-import Control.Monad (when)
+import Control.Monad (when, (>=>))
 import Data.Aeson (ToJSON (..), Value (String))
 import Data.Bifunctor (first)
 import Data.Char (isAlpha, isDigit)
@@ -461,8 +463,11 @@ variable names on both sides of the formula. Two names that differ only in case
 are therefore one name, and an environment stating both keeps one of them.
 -}
 evaluate :: Dialect -> M.Map Text Double -> Text -> Either Refusal Double
-evaluate dialect env input = do
-    formula <- readFormula dialect input
+evaluate dialect env = readFormula dialect >=> evaluateFormula dialect env
+
+-- | 'evaluate' on a formula already read, so a caller that needs the tree as well reads it once.
+evaluateFormula :: Dialect -> M.Map Text Double -> Formula -> Either Refusal Double
+evaluateFormula dialect env formula = do
     value <- first (Unresolved . NE.nubBy ((==) `on` T.toLower)) (resolve (M.union (M.mapKeys T.toLower env) (constants dialect)) formula)
     finite dialect value
 
@@ -511,14 +516,19 @@ formula resolves only through a parameter of that name; the openLCA importer
 supplies them when it keeps formulas.
 -}
 translate :: Dialect -> Text -> Either Refusal Text
-translate dialect input = do
-    formula <- readFormula dialect input
-    let written = render formula
-    case [name | name <- namesIn formula, readFormula Volca name /= Right (Name name)] of
-        name : _ -> Left (Unreadable ("VoLCA's formulas cannot write the name " <> name))
-        []
-            | readFormula Volca written == Right formula -> Right written
-            | otherwise -> Left (Unreadable ("VoLCA's formulas read " <> written <> " as another formula"))
+translate dialect = readFormula dialect >=> written
+
+{- | 'translate' on a formula already read. A formula that reads back is
+written whatever its names, since a name VoLCA cannot write would not have
+read back; the names are looked at only to say why one does not.
+-}
+written :: Formula -> Either Refusal Text
+written formula
+    | readFormula Volca text == Right formula = Right text
+    | name : _ <- [name | name <- namesIn formula, readFormula Volca name /= Right (Name name)] = Left (Unreadable ("VoLCA's formulas cannot write the name " <> name))
+    | otherwise = Left (Unreadable ("VoLCA's formulas read " <> text <> " as another formula"))
+  where
+    text = render formula
 
 {- | A formula in VoLCA's language multiplied by a number, as the amount it
 gives is when a line is scaled. One that does not read is kept whole in

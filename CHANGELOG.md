@@ -9,6 +9,11 @@
   the process, while the others were stated for its reference amount. All of
   them are now stated for the reference amount. The same holds for the
   consumption rows of an aggregation (`scope=consumption`).
+- Loading an EcoSpold 2 database from its files is fast again. Since 0.16.0
+  kept the formulas of its exchanges, a database of 26 000 processes took
+  24 s instead of 17 s; it now takes 19 s. Each formula is read once instead
+  of four times, and worked out by the threads that read the files rather
+  than by one thread afterwards.
 
 ### Changed
 

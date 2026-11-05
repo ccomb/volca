@@ -1798,6 +1798,10 @@ loadEcoSpoldFiles opts files = do
             (refusal : rest) -> return $ Left (refusal NE.:| rest)
             [] -> do
                 let !harvested = harvestOf (concat keyed)
+                -- Each exchange is worked out here, on this worker's core: the formula
+                -- kept on one is otherwise worked out later by the one thread that
+                -- forces the whole database.
+                evaluate (foldr seq () [ex | act <- M.elems (hvActivities harvested), ex <- exchanges act])
 
                 -- The one reading a name without a pair leaves is taken, and said.
                 mapM_

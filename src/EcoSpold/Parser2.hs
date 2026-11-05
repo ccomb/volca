@@ -765,8 +765,8 @@ Divergences are expected in real EcoSpold2 databases
 so nothing is logged: the outcome is recorded on the activity for the
 database quality report.
 -}
-checkFormulas :: FormulaNames -> [(Exchange, FormulaAttributes)] -> Maybe FormulaCheck
-checkFormulas names pairs = case checked of
+checkFormulas :: FormulaNames -> [(Exchange, Maybe Relation)] -> Maybe FormulaCheck
+checkFormulas names relations = case checked of
     [] -> Nothing
     _ ->
         Just
@@ -794,7 +794,7 @@ checkFormulas names pairs = case checked of
             T.intercalate "; " $
                 maybe [] (pure . Expr.describeRefusal . Expr.Unresolved) (NE.nonEmpty (NE.filter (not . declaredTwice) missing))
                     <> ["different amounts declared for " <> T.intercalate ", " twice | let twice = NE.filter declaredTwice missing, not (null twice)]
-    checked = [(ex, rel, Expr.evaluate (Expr.EcoSpold2 (fnConversions names)) (fnValues names) rel) | (ex, ef) <- pairs, Just rel <- [efMathRel ef]]
+    checked = [(ex, rel, snd <$> reading) | (ex, Just (Relation rel reading)) <- relations]
     evaluated = [(ex, rel, v) | (ex, rel, Right v) <- checked]
     divergent = [(ex, rel, v) | (ex, rel, v) <- evaluated, not (nearlyEqual v (exchangeAmount ex))]
     example (ex, rel, v) =
@@ -838,24 +838,35 @@ amount, and keeping it would change the number at the next computation.
 A system model writes a waste output's amount negated and leaves its formula
 as it was, so a formula giving the opposite amount is kept negated.
 -}
-keptFormula :: FormulaNames -> Double -> Text -> Maybe Text
-keptFormula names amount relation = do
-    text <- either (const Nothing) Just (Expr.translate (Expr.EcoSpold2 (fnConversions names)) relation)
-    value <- either (const Nothing) Just (Expr.evaluate Expr.Volca (fnValues names) text)
-    listToMaybe [Expr.times sign text | sign <- [1, -1], Expr.agrees value (sign * amount)]
+keptFormula :: Double -> Relation -> Maybe Text
+keptFormula amount (Relation _ reading) = do
+    (tree, value) <- either (const Nothing) Just reading
+    text <- either (const Nothing) Just (Expr.written tree)
+    listToMaybe ([text | Expr.agrees value amount] <> [Expr.render (Expr.Binary Expr.Multiply tree (Expr.Literal (-1))) | Expr.agrees value (negate amount)])
+
+{- | A relation of the dataset, read once: the quality check and the kept
+formula both start from this one reading, and the value is the one its tree
+gives at the dataset's values.
+-}
+data Relation = Relation !Text (Either Expr.Refusal (Expr.Formula, Double))
+
+relation :: FormulaNames -> Text -> Relation
+relation names text = Relation text $ do
+    tree <- Expr.readFormula (Expr.EcoSpold2 (fnConversions names)) text
+    (,) tree <$> Expr.evaluateFormula (Expr.EcoSpold2 (fnConversions names)) (fnValues names) tree
 
 {- | An exchange with what its amount follows: its relation, when kept, and
 the name other formulas read it by, unless the dataset gives that name two
 amounts. A named line whose relation is not kept follows its stated number.
 -}
-withKeptFormula :: FormulaNames -> (Exchange, FormulaAttributes) -> Exchange
-withKeptFormula names (ex, ef) = withFormula (relation <|> stated) ex
+withKeptFormula :: FormulaNames -> (Exchange, FormulaAttributes, Maybe Relation) -> Exchange
+withKeptFormula names (ex, ef, rel) = withFormula (kept <|> stated) ex
   where
     name :: Maybe Text
     name = efVariableName ef >>= \n -> if isAmbiguous names n then Nothing else Just n
 
-    relation :: Maybe ExchangeFormula
-    relation = ExchangeFormula name <$> (keptFormula names (exchangeAmount ex) =<< efMathRel ef)
+    kept :: Maybe ExchangeFormula
+    kept = ExchangeFormula name <$> (keptFormula (exchangeAmount ex) =<< rel)
 
     stated :: Maybe ExchangeFormula
     stated = (\n -> ExchangeFormula (Just n) (Expr.render (Expr.Literal (exchangeAmount ex)))) <$> name
@@ -1284,12 +1295,14 @@ parseWithXeno conversions xmlContent = do
             parameter var value =
                 let pending = M.findWithDefault emptyPendingParam var (psParamAbout st)
                  in Parameter
-                        { parameterDefinition = maybe (InputParameter value (distribution pending)) (\f -> CalculatedParameter f (Just value)) (keptFormula names value =<< M.lookup var (psParamExprs st))
+                        { parameterDefinition = maybe (InputParameter value (distribution pending)) (\f -> CalculatedParameter f (Just value)) (keptFormula value . relation names =<< M.lookup var (psParamExprs st))
                         , parameterUnit = nonEmptyText (ppUnit pending)
                         , -- A name that is the variable's says nothing more, and written back as one it would grow at each read.
                           parameterDescription = joinParts "\n" [if T.toLower (ppName pending) == T.toLower var then "" else ppName pending, ppComment pending]
                         }
-            formulaCheck = checkFormulas names pairs
+            -- Each relation read once, for the quality check and the kept formula alike.
+            readings = [(ex, ef, relation names <$> efMathRel ef) | (ex, ef) <- pairs]
+            formulaCheck = checkFormulas names [(ex, rel) | (ex, _, rel) <- readings]
             (dates, dateWarnings) = datasetDates (psDocs st)
             -- Apply cutoff strategy to exchanges
             activity =
@@ -1302,7 +1315,7 @@ parseWithXeno conversions xmlContent = do
                     , activityLocation = location
                     , activityLocationSource = locationSource
                     , activityUnit = refUnit
-                    , exchanges = map (withKeptFormula names) pairs
+                    , exchanges = map (withKeptFormula names) readings
                     , activityParameters = parameters
                     , activityNativeType = nativeType
                     , activityNativeId = Nothing
