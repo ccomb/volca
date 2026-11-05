@@ -59,6 +59,7 @@ module ILCD.Writer (
     ilcdFiles,
     checkILCDExportable,
     checkILCDSuppliers,
+    inFlowUnits,
     exportedFlows,
 
     -- * Pure helpers (exported for testing)
@@ -92,9 +93,11 @@ import System.Directory (createDirectoryIfMissing)
 import System.FilePath (joinPath, splitDirectories, (</>))
 
 import Amount (readAmount)
+import Control.Applicative ((<|>))
 import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, makerOf, noDependencies)
 import EcoSpold.Common (showFFloatTrim)
 import Types
+import UnitConversion (UnitConfig, convertUnit, defaultUnitConfig)
 import Zip (zipFiles)
 
 --------------------------------------------------------------------------------
@@ -102,14 +105,16 @@ import Zip (zipFiles)
 --------------------------------------------------------------------------------
 
 -- | What an export knows beyond the database itself.
-newtype WriteOptions = WriteOptions
+data WriteOptions = WriteOptions
     { woDependencies :: Dependencies
     -- ^ Who supplies the inputs bought from the databases this one depends on: each is written under its product and its place.
+    , woUnits :: UnitConfig
+    -- ^ What each unit is worth, to write a line in its flow's unit.
     }
 
--- | An export of the database alone.
+-- | An export of the database alone, with the units the engine ships.
 defaultWriteOptions :: WriteOptions
-defaultWriteOptions = WriteOptions{woDependencies = noDependencies}
+defaultWriteOptions = WriteOptions{woDependencies = noDependencies, woUnits = defaultUnitConfig}
 
 --------------------------------------------------------------------------------
 -- Process dataset identity
@@ -331,10 +336,10 @@ checkILCDExportable db =
 export guard's 'Left' without touching disk.
 -}
 writeILCDDatabase :: WriteOptions -> FilePath -> SimpleDatabase -> IO (Either Text ())
-writeILCDDatabase opts dir db =
-    case checkILCDExportable db >> checkILCDSuppliers opts db of
+writeILCDDatabase opts dir source =
+    case exportable opts source of
         Left err -> pure (Left err)
-        Right () -> do
+        Right db -> do
             createDirectoryIfMissing True (dir </> "processes")
             createDirectoryIfMissing True (dir </> "flows")
             createDirectoryIfMissing True (dir </> "flowproperties")
@@ -352,7 +357,50 @@ database the format cannot represent faithfully, so an unguarded caller cannot
 silently emit a corrupt archive.
 -}
 writeILCDArchive :: WriteOptions -> SimpleDatabase -> Either Text BL.ByteString
-writeILCDArchive opts db = checkILCDExportable db >> checkILCDSuppliers opts db >> pure (zipFiles (ilcdFiles opts db))
+writeILCDArchive opts source = zipFiles . ilcdFiles opts <$> exportable opts source
+
+-- | The database as 'ilcdFiles' writes it, once every guard has passed.
+exportable :: WriteOptions -> SimpleDatabase -> Either Text SimpleDatabase
+exportable opts source = do
+    db <- inFlowUnits (woUnits opts) source
+    checkILCDExportable db
+    checkILCDSuppliers opts db
+    pure db
+
+{- | Every line in its flow's unit. An ILCD exchange has no unit of its own:
+the reader takes it from the flow, so 2 kWh asked of a flow in MJ is written
+7.2, never 2. The amount goes through 'convertUnit', as the matrix converts a
+line, so the reread number is the same 'Double'. A unit pair the table cannot
+convert is refused, naming the lines. A line whose flow the database does not
+describe is left as it is.
+-}
+inFlowUnits :: UnitConfig -> SimpleDatabase -> Either Text SimpleDatabase
+inFlowUnits units db = case [refusal | (_, ls) <- M.elems converted, Left refusal <- ls] of
+    [] -> Right db{sdbActivities = M.map (\(act, ls) -> act{exchanges = [ex | Right ex <- ls]}) converted}
+    refused ->
+        Left $
+            T.intercalate "\n" $
+                ("ILCD export cannot write " <> T.pack (show (length refused)) <> " lines in their flow's unit, the only one an ILCD exchange has:")
+                    : map ("  " <>) (take 20 refused)
+                    <> ["  and " <> T.pack (show (length refused - 20)) <> " more" | length refused > 20]
+  where
+    converted = M.map (\act -> (act, map (inFlowUnit act) (exchanges act))) (sdbActivities db)
+    inFlowUnit act ex = case flowUnitOf (exchangeFlowId ex) of
+        Just unit | unit /= exchangeUnitId ex -> do
+            let from = unitNamed (exchangeUnitId ex)
+                to = unitNamed unit
+            amount <- maybe (Left (activityName act <> " · " <> from <> " does not convert to " <> to)) Right (convertUnit units from to (exchangeAmount ex))
+            Right (inUnit unit (withAmount amount ex))
+        _ -> Right ex
+    flowUnitOf uid =
+        (tfUnitId <$> M.lookup uid (sdbTechFlows db))
+            <|> (bfUnitId <$> M.lookup uid (sdbBioFlows db))
+            <|> (wfUnitId <$> M.lookup uid (sdbWasteFlows db))
+    unitNamed uid = maybe (uuidText uid) unitName (M.lookup uid (sdbUnits db))
+    inUnit uid = \case
+        ex@TechnosphereExchange{} -> ex{techUnitId = uid}
+        ex@BiosphereExchange{} -> ex{bioUnitId = uid}
+        ex@WasteExchange{} -> ex{waUnitId = uid}
 
 {- | Guard an ILCD export against inputs whose supplier a re-import would not find.
 
