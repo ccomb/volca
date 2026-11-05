@@ -67,6 +67,7 @@ import Types (
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
+    Unit (..),
     UnresolvedProduct (..),
     noDates,
     noDocumentation,
@@ -501,6 +502,29 @@ spec = do
                 urea = consumerTaking oldCarFlow "urea, background" (techInput oldCarFlow 2.17){techLocation = "CH", techSupplierClaim = ClaimByProduct}
             map (\l -> (cdlCoefficient l, cdlExchangeUnit l)) (cdlLinks (relinkInput [targetIndexed] urea ureaRow))
                 `shouldBe` [(1.0, "kg")]
+
+        it "applies it between one unit the table does not know, named on both sides" $ do
+            -- "kg N" is in no table, yet one spelling is one unit: the 2.17 still applies.
+            let kgN = read "00000000-0000-0000-0000-0000000000a1"
+                nFlow = read "aaaaaaaa-0000-0000-0000-0000000000a1"
+                nAct = read "cccccccc-0000-0000-0000-0000000000a1"
+                supplier =
+                    buildIndexedDatabase "background" emptySynonymDB $
+                        targetDB
+                            { sdbActivities = M.insert (nAct, nFlow) (targetActivity "urea, as N" "CH" "kg N" nFlow) (sdbActivities targetDB)
+                            , sdbTechFlows = M.insert nFlow ((mkTechFlow nFlow "urea, as N"){tfUnitId = kgN}) (sdbTechFlows targetDB)
+                            , sdbUnits = M.singleton kgN (Unit kgN "kg N" "kg N" "")
+                            }
+                row = singletonAlias (AliasKey "urea, background" Nothing) (AliasTarget (SupplierNamed "urea, as N" Nothing) (Just (UnitBridge "kg N" "kg N" 2.17)) Same)
+                base = consumerTaking oldCarFlow "urea, background" (techInput oldCarFlow 2.17){techLocation = "CH", techSupplierClaim = ClaimByProduct, techUnitId = kgN}
+                urea =
+                    base
+                        { sdbTechFlows = M.adjust (\f -> f{tfUnitId = kgN}) oldCarFlow (sdbTechFlows base)
+                        , sdbUnits = M.insert kgN (Unit kgN "kg N" "kg N" "") (sdbUnits base)
+                        }
+            let st = relinkInput [supplier] urea row
+            map (\l -> (cdlCoefficient l, cdlExchangeUnit l)) (cdlLinks st)
+                `shouldBe` [(1.0, "kg N")]
 
         it "leaves units of one measure to the table when the row states no conversion" $ do
             let wheatRow = singletonAlias (AliasKey consumerName Nothing) (AliasTarget (SupplierNamed "wheat production" Nothing) Nothing Same)

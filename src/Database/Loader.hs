@@ -3032,7 +3032,12 @@ findDemandCrossDBLink LinkScan{lsCtx = ctx, lsConvention = convention, lsOwnProc
         Nothing -> Just (amount, flowUnitName)
         Just UnitBridge{..} ->
             (\inSource -> (inSource / ubTargetInSource, ubTargetUnit))
-                <$> UC.convertUnit (lcUnitConfig ctx) flowUnitName ubSourceUnit amount
+                <$> inSourceUnit ubSourceUnit
+      where
+        -- One spelling is one unit, known to the table or not: "kg N" to "kg N" needs no table.
+        inSourceUnit sourceUnit
+            | UC.unitKey (lcUnitConfig ctx) flowUnitName == UC.unitKey (lcUnitConfig ctx) sourceUnit = Just amount
+            | otherwise = UC.convertUnit (lcUnitConfig ctx) flowUnitName sourceUnit amount
     attributeMatch :: TechnosphereFlow -> T.Text -> CrossDBLinkingStats
     attributeMatch flow flowUnitName =
         let query = supplierQuery flow flowUnitName

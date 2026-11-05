@@ -10,8 +10,10 @@
   asked 2.17 times too much of it. A conversion between two distinct units
   the unit table knows must agree with it: `0.2778` from MJ to kWh, where one
   kWh is 3.6 MJ, refuses the file with the factor the table gives, where it
-  used to be dropped without a word. Leave such a conversion out; the table
-  converts those units by itself.
+  used to be dropped without a word. Agreeing means to six significant
+  figures, so `3.6` and `3.600001` both pass. Leave such a conversion out; the
+  table converts those units by itself. A unit no table knows, written the
+  same way on both sides (`2.17, kg N, kg N`), takes the conversion too.
 
 ## [0.16.1] - 2026-11-05
 

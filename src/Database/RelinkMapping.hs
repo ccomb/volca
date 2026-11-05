@@ -206,7 +206,7 @@ classify units n row = do
                         <> T.pack (show table)
                         <> " "
                         <> sourceUnit
-                        <> "; leave the conversion out, the table converts these units by itself"
+                        <> "; leave the conversion out, the table converts these units by itself, or write a ratio such as \"as N\" on one unit named on both sides (2.17, kg, kg)"
         _ -> Right ()
     readDirection cell = case T.toLower <$> cell of
         Nothing -> Right Same
