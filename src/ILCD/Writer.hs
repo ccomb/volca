@@ -79,7 +79,7 @@ module ILCD.Writer (
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isDigit)
-import Data.Either (lefts)
+import Data.Either (lefts, rights)
 import Data.Indexing (repeated)
 import Data.List (sortOn)
 import qualified Data.List.NonEmpty as NE
@@ -376,14 +376,14 @@ convert is refused, naming the lines. A line whose flow the database does not
 describe is left as it is.
 -}
 inFlowUnits :: UnitConfig -> SimpleDatabase -> Either Text SimpleDatabase
-inFlowUnits units db = case [refusal | (_, ls) <- M.elems converted, Left refusal <- ls] of
-    [] -> Right db{sdbActivities = M.map (\(act, ls) -> act{exchanges = [ex | Right ex <- ls]}) converted}
+inFlowUnits units db = case concatMap (lefts . snd) (M.elems converted) of
+    [] -> Right db{sdbActivities = M.map (\(act, ls) -> act{exchanges = rights ls}) converted}
     refused ->
         Left $
             T.intercalate "\n" $
                 ("ILCD export cannot write " <> T.pack (show (length refused)) <> (if length refused == 1 then " line" else " lines") <> " in its flow's unit, the only one an ILCD exchange has:")
                     : map ("  " <>) (take 20 refused)
-                    <> ["  and " <> T.pack (show (length refused - 20)) <> " more" | length refused > 20]
+                        <> ["  and " <> T.pack (show (length refused - 20)) <> " more" | length refused > 20]
   where
     converted = M.map (\act -> (act, map (inFlowUnit act) (exchanges act))) (sdbActivities db)
     inFlowUnit act ex = case flowUnitOf (exchangeFlowId ex) of
