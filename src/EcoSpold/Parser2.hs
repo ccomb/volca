@@ -850,6 +850,13 @@ gives at the dataset's values.
 -}
 data Relation = Relation !Text (Either Expr.Refusal (Expr.Formula, Double))
 
+-- | An exchange as read, with what the file says of its formula and that formula's one reading.
+data ReadLine = ReadLine
+    { rlExchange :: !Exchange
+    , rlAttributes :: !FormulaAttributes
+    , rlRelation :: !(Maybe Relation)
+    }
+
 relation :: FormulaNames -> Text -> Relation
 relation names text = Relation text $ do
     tree <- Expr.readFormula (Expr.EcoSpold2 (fnConversions names)) text
@@ -859,8 +866,8 @@ relation names text = Relation text $ do
 the name other formulas read it by, unless the dataset gives that name two
 amounts. A named line whose relation is not kept follows its stated number.
 -}
-withKeptFormula :: FormulaNames -> (Exchange, FormulaAttributes, Maybe Relation) -> Exchange
-withKeptFormula names (ex, ef, rel) = withFormula (kept <|> stated) ex
+withKeptFormula :: FormulaNames -> ReadLine -> Exchange
+withKeptFormula names ReadLine{rlExchange = ex, rlAttributes = ef, rlRelation = rel} = withFormula (kept <|> stated) ex
   where
     name :: Maybe Text
     name = efVariableName ef >>= \n -> if isAmbiguous names n then Nothing else Just n
@@ -1301,8 +1308,8 @@ parseWithXeno conversions xmlContent = do
                           parameterDescription = joinParts "\n" [if T.toLower (ppName pending) == T.toLower var then "" else ppName pending, ppComment pending]
                         }
             -- Each relation read once, for the quality check and the kept formula alike.
-            readings = [(ex, ef, relation names <$> efMathRel ef) | (ex, ef) <- pairs]
-            formulaCheck = checkFormulas names [(ex, rel) | (ex, _, rel) <- readings]
+            readings = [ReadLine ex ef (relation names <$> efMathRel ef) | (ex, ef) <- pairs]
+            formulaCheck = checkFormulas names [(rlExchange r, rlRelation r) | r <- readings]
             (dates, dateWarnings) = datasetDates (psDocs st)
             -- Apply cutoff strategy to exchanges
             activity =

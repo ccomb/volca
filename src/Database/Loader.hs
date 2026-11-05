@@ -111,7 +111,7 @@ import qualified BrightwayExcel.Parser as BrightwayExcel
 import qualified Codec.Compression.Zstd as Zstd
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async
-import Control.DeepSeq (force)
+import Control.DeepSeq (force, rnf)
 import Control.Exception (SomeException, catch, evaluate)
 import Control.Monad
 import Data.Bits (xor)
@@ -1801,7 +1801,7 @@ loadEcoSpoldFiles opts files = do
                 -- Each exchange is worked out here, on this worker's core: the formula
                 -- kept on one is otherwise worked out later by the one thread that
                 -- forces the whole database.
-                evaluate (foldr seq () [ex | act <- M.elems (hvActivities harvested), ex <- exchanges act])
+                evaluate (rnf [exchanges act | act <- M.elems (hvActivities harvested)])
 
                 -- The one reading a name without a pair leaves is taken, and said.
                 mapM_
