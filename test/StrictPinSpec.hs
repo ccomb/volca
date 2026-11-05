@@ -21,6 +21,7 @@ module StrictPinSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (bracket_)
+import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -226,10 +227,6 @@ spec = describe "relinkDatabase strict dependency pin" $ do
             loaded <- readTVarIO (dmLoadedDbs manager)
             map cdlSourceDatabase (dbCrossDBLinks (ldDatabase (loaded M.! "consumer"))) `shouldBe` ["alpha"]
 
--- ---------------------------------------------------------------------------
--- Helpers
--- ---------------------------------------------------------------------------
-
     describe "a mapping relink stays in force" $ do
         it "keeps the links it made through a later relink, the one an edit or a dependency reload runs" $
             withSystemTempDirectory "volca-mapping-kept" $ \tmp ->
@@ -255,6 +252,15 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                 manager <- initDatabaseManager defaultConfig NoCache
                 storedSupplierMapping manager config `shouldReturn` Nothing
 
+        it "loads without a kept mapping that is not UTF-8, rather than refusing the database" $
+            withSystemTempDirectory "volca-mapping-latin1" $ \root -> withDataDir root $ do
+                let config = (consumerConfig (homeOf root "consumer" </> "data")){dcIsUploaded = True}
+                createDirectoryIfMissing True (homeOf root "consumer")
+                -- "q\233" is "qé" in Latin-1: one byte 0xE9, never valid UTF-8 there.
+                BS.writeFile (homeOf root "consumer" </> "relink.csv") (BS.pack [113, 44, 112, 10, 113, 233, 44, 112, 49, 10])
+                manager <- initDatabaseManager defaultConfig NoCache
+                storedSupplierMapping manager config `shouldReturn` Nothing
+
         it "goes along with a copy, which links as its source does" $
             withSystemTempDirectory "volca-mapping-copy" $ \root -> withDataDir root $
                 withMappedConsumer (consumerConfig (root </> "consumer-data")) $ \manager -> do
@@ -263,6 +269,10 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                     doesFileExist (homeOf root "hybrid" </> "relink.csv") `shouldReturn` True
                     relinkDatabase manager "hybrid" >>= (`shouldSatisfy` isRight)
                     linkCount manager "hybrid" `shouldReturn` 1
+
+-- ---------------------------------------------------------------------------
+-- Helpers
+-- ---------------------------------------------------------------------------
 
 isRight :: Either a b -> Bool
 isRight (Right _) = True

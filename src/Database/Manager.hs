@@ -386,9 +386,9 @@ import Data.Containers.ListUtils (nubOrd)
 import Data.JournalFile (Entry (..), readEntries)
 import Database.Author (editingContext)
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
-import Database.RelinkMapping (SupplierMapping (..), mappingAliases, readSupplierMapping)
 import Database.History (Carried (..))
 import qualified Database.Journal as Journal
+import Database.RelinkMapping (SupplierMapping (..), mappingAliases, readSupplierMapping)
 import Database.Requirements (ReleaseSubstitution (..), RequiredRelease, acceptSubstitute, admission, admits, requiredDatabases, requiredReleases)
 import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirectory, listDirectoryRecursive)
 import qualified Database.Upload as Upload
@@ -2994,12 +2994,17 @@ storedSupplierMapping manager dbConfig =
                 then pure Nothing
                 else do
                     units <- getMergedUnitConfig manager
-                    csv <- TE.decodeUtf8 <$> BS.readFile path
-                    case readSupplierMapping units csv of
+                    bytes <- BS.readFile path
+                    let notUtf8 decodeErr = "not valid UTF-8 (" <> T.pack (show decodeErr) <> ")"
+                    case first notUtf8 (TE.decodeUtf8' bytes) >>= readSupplierMapping units of
                         Right mapping -> pure (Just mapping)
                         Left err -> do
                             reportProgress Warning $
-                                "The relink mapping kept in " <> path <> " no longer reads (" <> T.unpack err <> "); "
+                                "The relink mapping kept in "
+                                    <> path
+                                    <> " no longer reads ("
+                                    <> T.unpack err
+                                    <> "); "
                                     <> T.unpack (dcName dbConfig)
                                     <> " loads without the links it made. Relink it with a corrected mapping."
                             pure Nothing
