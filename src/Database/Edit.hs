@@ -58,7 +58,6 @@ import Control.Concurrent.STM (STM, atomically, modifyTVar', readTVar, readTVarI
 import Control.Exception (SomeException, try)
 import Control.Monad (forM_, when)
 import qualified Data.ByteString as BS
-import qualified Data.Text.Encoding as TE
 import qualified Data.IntSet as IS
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
@@ -67,6 +66,7 @@ import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, makeAbsolute)
