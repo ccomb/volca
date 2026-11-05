@@ -2081,15 +2081,18 @@ data WalkLevel
     | {- | The matrix columns the dependency is bought at, each one deeper than the process buying it,
       and the root's reference amount, which every level's quantities are stated for.
       -}
-      DepLevel {dlEntered :: !(IM.IntMap Int), dlRootAmount :: !Double}
+      DepLevel {dlEntered :: !(IM.IntMap Int), dlRootAmount :: !RootAmount}
+
+-- | The root's reference amount, as a magnitude.
+newtype RootAmount = RootAmount Double
 
 {- | What a level's quantities are stated for: the root's reference amount, at
 every level. A scaling is per unit of the root's reference product, so a root
 written for 10 000 kg reads its whole chain, in its own database and in its
 dependencies alike, ten thousand times what one kilogram takes.
 -}
-rootAmount :: Database -> WalkLevel -> Double
-rootAmount db RootLevel{rlRoot = r} = referenceMagnitude (dbActivities db V.! fromIntegral r)
+rootAmount :: Database -> WalkLevel -> RootAmount
+rootAmount db RootLevel{rlRoot = r} = RootAmount (referenceMagnitude (dbActivities db V.! fromIntegral r))
 rootAmount _ DepLevel{dlRootAmount = amount} = amount
 
 -- | Every process's depth in the chain, from where a level is entered.
@@ -2262,7 +2265,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
         mRootPid = case level of
             RootLevel{rlRoot = r} -> Just r
             DepLevel{} -> Nothing
-        quantityMult = rootAmount db level
+        RootAmount quantityMult = rootAmount db level
         n = U.length supplyVec
 
         allEntries =
@@ -2598,8 +2601,8 @@ resolveOneDep ::
     Geographies ->
     SharedSolver.DepSolverLookup ->
     SupplyChainFilter ->
-    -- | the root's reference amount, which quantities are stated for
-    Double ->
+    -- | which quantities are stated for
+    RootAmount ->
     -- | levels of dependency crossed, bounding the recursion
     Int ->
     -- | visited

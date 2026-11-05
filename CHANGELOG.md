@@ -7,7 +7,8 @@
 - In the supply chain of a process whose reference amount is not 1, the
   entries reached in a database it depends on were stated for one unit of
   the process, while the others were stated for its reference amount. All of
-  them are now stated for the reference amount.
+  them are now stated for the reference amount. The same holds for the
+  consumption rows of an aggregation (`scope=consumption`).
 
 ## [0.16.1] - 2026-11-05
 

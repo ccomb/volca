@@ -349,7 +349,9 @@ Signs pass through untouched: inputs are stored positive, byproduct
 outputs negative, and a treatment-convention column flips both its
 coefficient and its scaling, so their product stays sign-correct. The
 multiplier is the root's reference amount as a magnitude, the direction
-of one unit of the root being carried by its scaling already.
+of one unit of the root being carried by its scaling already. It applies to
+the dependencies' rows too: their scalings are per unit of the root's product
+as well.
 Filtering on positive values here would silently drop real inputs of
 treatment activities.
 
@@ -362,11 +364,11 @@ or target-name filter therefore never matches a bridge edge.
 -}
 rowsFromConsumption :: Double -> NonEmpty Reached -> [AggRow]
 rowsFromConsumption rootRefMagnitude (Reached rootDbName rootDb rootScaling :| deps) =
-    dbRows False rootDbName rootDb rootScaling rootRefMagnitude
-        <> concatMap (\(Reached depName depDb depScaling) -> dbRows True depName depDb depScaling 1.0) deps
+    dbRows False rootDbName rootDb rootScaling
+        <> concatMap (\(Reached depName depDb depScaling) -> dbRows True depName depDb depScaling) deps
   where
-    dbRows qualifyPids dbN db' s mult =
-        internalEdges qualifyPids dbN db' s mult <> bridgeEdges db' s mult
+    dbRows qualifyPids dbN db' s =
+        internalEdges qualifyPids dbN db' s rootRefMagnitude <> bridgeEdges db' s rootRefMagnitude
 
     -- Matrix indices double as ProcessIds, same convention as
     -- 'Service.collectSupplyChainEntries'.
