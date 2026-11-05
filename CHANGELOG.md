@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- In the supply chain of a process whose reference amount is not 1, the
+  entries reached in a database it depends on were stated for one unit of
+  the process, while the others were stated for its reference amount. All of
+  them are now stated for the reference amount. The same holds for the
+  consumption rows of an aggregation (`scope=consumption`).
+
 ### Changed
 
 - A relink mapping's `conversion` now always applies, also between units of

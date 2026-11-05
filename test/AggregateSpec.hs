@@ -309,6 +309,15 @@ spec = do
             API.aggFilteredCount agg `shouldBe` 4
             API.aggFilteredTotal agg `shouldBeCloseTo` 1.26
 
+        it "states the dependency's edges for the root's reference amount too" $ do
+            -- X written for 10 kg instead of 1: every edge, the dependency's
+            -- 0.12 included, is ten times what one kilogram takes.
+            (rootDb, depLookup) <- loadLinkedPair
+            let writtenForTen act = act{Types.exchanges = map (\ex -> if Types.exchangeIsReference ex then ex{Types.techAmount = 10 * Types.techAmount ex} else ex) (Types.exchanges act)}
+                tenfold = rootDb{dbActivities = V.imap (\i a -> if i == 0 then writtenForTen a else a) (dbActivities rootDb)}
+            agg <- runAggWith depLookup tenfold consumption
+            API.aggFilteredTotal agg `shouldBeCloseTo` 12.6
+
         it "matches the cumulative supply_chain total (two independent paths)" $ do
             (rootDb, depLookup) <- loadLinkedPair
             aggC <- runAggWith depLookup rootDb consumption
