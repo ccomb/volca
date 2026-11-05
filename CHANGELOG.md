@@ -7,8 +7,9 @@
 - A relink mapping's `conversion` now always applies, also between units of
   one measure. A supplier that counts urea "as N" takes 2.17 kg of urea for
   1 kg: the row `2.17, kg, kg` used to be ignored, so the relinked database
-  asked 2.17 times too much of it. A conversion between two distinct units
-  the unit table knows must agree with it: `0.2778` from MJ to kWh, where one
+  asked 2.17 times too much of it. Two names of one size are one unit too:
+  `0.599, megajoule, MJ` applies. A conversion between two units of one
+  measure and different sizes must agree with the unit table: `0.2778` from MJ to kWh, where one
   kWh is 3.6 MJ, refuses the file with the factor the table gives, where it
   used to be dropped without a word. Agreeing means to six significant
   figures, so `3.6` and `3.600001` both pass. Leave such a conversion out; the

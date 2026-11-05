@@ -32,9 +32,11 @@ columns:
   * @conversion@, with @source_unit@ and @target_unit@: one target unit in
     source units (a car of 1200 kg is 1 p: 1200, kg, p). Always applied, also
     between units of one measure: urea counted by a supplier "as N" is 2.17,
-    kg, kg, a ratio no unit table holds. Between two distinct units the table
-    does know (MJ and kWh), a conversion that disagrees with it is refused:
-    one kWh is 3.6 MJ whatever the row says, so 0.2778 there is a mistake.
+    kg, kg, a ratio no unit table holds, and so is 0.599 MJ of cold per MJ of
+    heat between "megajoule" and "MJ", two names of one size. Between two
+    units of one measure and different sizes (MJ and kWh), a conversion that
+    disagrees with the table is refused: one kWh is 3.6 MJ whatever the row
+    says, so 0.2778 there is a mistake.
     Without a conversion, the unit table converts as it does without a mapping.
   * @direction@: @opposite@ when the target counts the demand the other way
     than the supplier the line was written for, @same@ (or blank) otherwise.
@@ -192,10 +194,11 @@ classify units n row = do
             | T.null rest && value > 0 -> UnitBridge sourceUnit targetUnit value <$ agreesWithTable sourceUnit targetUnit value
         (_, Just _, Just _) -> refuse ("conversion must be a positive number: " <> txt)
         _ -> refuse "conversion needs source_unit and target_unit, to say which way it reads"
-    -- The table answers only between two distinct units of one measure; there it is right.
+    -- The table answers only between two units of one measure and different sizes; there it is right.
+    -- Two names of one size ("megajoule" and "MJ") are one unit, so a factor between them is a ratio.
     agreesWithTable sourceUnit targetUnit value = case UC.convertUnit units targetUnit sourceUnit 1 of
         Just table
-            | UC.unitKey units sourceUnit /= UC.unitKey units targetUnit
+            | abs (table - 1) > 1e-6
             , abs (value - table) > 1e-6 * table ->
                 refuse $
                     "conversion "

@@ -323,6 +323,10 @@ spec = do
             read' "1000" `shouldSatisfy` either (const False) (const True)
             read' "500" `shouldSatisfy` either ("one t is 1000.0 kg" `T.isInfixOf`) (const False)
 
+        it "reads a conversion between two names of one size as a ratio" $
+            map (atBridge . arTarget) <$> parseAliasCSV testUnits (BLC.pack "source,target,conversion,source_unit,target_unit\ncold,heat,0.599,megajoule,MJ\n")
+                `shouldBe` Right [Just (UnitBridge "megajoule" "MJ" 0.599)]
+
         it "reads a conversion between units written the same way, which no table holds" $
             map (atBridge . arTarget) <$> parseAliasCSV testUnits (BLC.pack "source,target,conversion,source_unit,target_unit\nurea,\"urea, as N\",2.17,kg,kg\n")
                 `shouldBe` Right [Just (UnitBridge "kg" "kg" 2.17)]
