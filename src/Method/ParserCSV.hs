@@ -56,7 +56,7 @@ import Data.Word (Word8)
 
 import Method.CSV (detectDelimiter, parseDouble, splitRow)
 import Method.Types
-import Types (Medium (InventoryIndicator), mediumText)
+import Types (mediumText)
 
 -- | Pure parser, exported for testing.
 parseMethodCSVBytes :: BS.ByteString -> Either String [Method]
@@ -223,7 +223,7 @@ pathCompartment top s q
 would not read back.
 -}
 knownTops :: [Text]
-knownTops = ["air", "water", "soil", "natural resource", "land occupation", "land transformation", mediumText InventoryIndicator]
+knownTops = map mediumText [minBound .. maxBound] <> ["land occupation", "land transformation"]
 
 -- | Keyword match for the legacy prose forms.
 legacyCompartment :: Text -> Maybe Compartment

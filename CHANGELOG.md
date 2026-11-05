@@ -20,6 +20,9 @@
   `immaterial emission`, the one openLCA methods file their noise factors
   under, so Ecological Scarcity's Noise category reads them. A SimaPro
   export writes them in its own "Non material emissions" section.
+- A method collection holding noise factors, or factors on the economic,
+  waste or social media, exports as columnar CSV. The export refused them,
+  since the CSV reader named only some of the media.
 
 ### Changed
 
