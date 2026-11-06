@@ -380,9 +380,11 @@ productsSpeltAlike :: SimpleDatabase -> [NE.NonEmpty TechnosphereFlow]
 productsSpeltAlike db =
     [ flows
     | (_, flows) <- collisions [(T.toCaseFold (T.strip (tfName f)), f) | f <- written]
-    , NE.length (NE.nub (NE.map ((`unitNameOf` db) . tfUnitId) flows)) > 1
+    , NE.length (NE.nub (NE.map writtenUnit flows)) > 1
     ]
   where
+    -- A unit the table lacks stays its own record, so two such never pass as one.
+    writtenUnit f = maybe (Left (tfUnitId f)) Right (unitNameOf (tfUnitId f) db)
     written :: [TechnosphereFlow]
     written =
         mapMaybe
