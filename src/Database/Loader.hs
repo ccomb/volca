@@ -2527,25 +2527,24 @@ collectDanglingProductNames db =
 
 {- | The lines of a loaded database that one row of the missing-supplier table
 counts: the demands for this product, naming this supplier activity (or none),
-that nothing answers. They are read from what the table is built from, the
-refusals the linker recorded per request and the identities answering nowhere,
-so a row's lines are its own. A demand site the cross-DB links cover entirely
-is answered, whatever its request was refused for elsewhere.
+that nothing answers. They are read from what the table is built from, so a
+row's lines are its own. A line naming its supplier by identity is answered
+when a cross-DB link at its site goes to that very activity. A line naming it
+otherwise is unsupplied when the linker recorded a refusal for its request and
+the cross-DB links do not cover its site entirely.
 
-shortcut: a request carries no unit, so a line linked in kg and one refused in
-t under the same request are both returned; the edit then judges each against
-the supplier chosen, and a site covered in part keeps all its lines.
+shortcut: a request carries no unit and a link names no line, so where one
+line of a request was linked and another refused at the same site, both are
+returned; the edit then judges each against the supplier chosen.
 -}
 unsuppliedDemands :: Database -> T.Text -> Maybe T.Text -> [(ProcessRef, Exchange)]
 unsuppliedDemands db wanted named =
     [ (ProcessRef act prod, ex)
     | (site@(DemandSite (ProcessRef act prod) _), ex) <- demands
-    , M.findWithDefault 0 site covered < M.findWithDefault 0 site demandsAt
-    , refused ex
+    , unsupplied site ex
     ]
   where
-    covered = crossDBCoveredCounts (dbCrossDBLinks db)
-    demandsAt = M.fromListWith (+) [(site, 1 :: Int) | (site, _) <- demands]
+    demands :: [(DemandSite, Exchange)]
     demands =
         [ (exchangeDemandSite consumer ex, ex)
         | (consumer, act) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db))
@@ -2555,11 +2554,17 @@ unsuppliedDemands db wanted named =
         , demandedName (dbTechFlows db) (dbWasteFlows db) ex == Just wanted
         , claimedName (exchangeSupplierClaim ex) == named
         ]
-    refused ex =
-        claimsAnActivityUUID (exchangeSupplierClaim ex)
-            || M.member
-                (supplierRequest wanted (exchangeSupplierClaim ex) (exchangeStatedLocation ex))
-                (cdlUnresolvedRequests (dbLinkingStats db))
+    unsupplied :: DemandSite -> Exchange -> Bool
+    unsupplied site ex = case claimedId (exchangeSupplierClaim ex) of
+        Just activity -> activity `notElem` M.findWithDefault [] site linkedTo
+        Nothing ->
+            M.member (supplierRequest wanted (exchangeSupplierClaim ex) (exchangeStatedLocation ex)) (cdlUnresolvedRequests (dbLinkingStats db))
+                && M.findWithDefault 0 site (crossDBCoveredCounts (dbCrossDBLinks db)) < M.findWithDefault 0 site demandsAt
+    -- The supplier activities the cross-DB links of each site go to.
+    linkedTo :: M.Map DemandSite [UUID.UUID]
+    linkedTo = M.fromListWith (<>) [(linkDemandSite l, [cdlSupplierActUUID l]) | l <- dbCrossDBLinks db]
+    demandsAt :: M.Map DemandSite Int
+    demandsAt = M.fromListWith (+) [(site, 1) | (site, _) <- demands]
 
 {- | Staged-path counterpart of 'collectDanglingProductNames' on a
 'SimpleDatabase' plus its just-computed links. A 'SimpleDatabase' has no process

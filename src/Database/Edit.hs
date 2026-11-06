@@ -66,7 +66,7 @@ import qualified Data.ByteString as BS
 import Data.Either (isRight, lefts)
 import Data.Indexing (groupInOrder)
 import qualified Data.IntSet as IS
-import Data.List (nub)
+import Data.List (nub, partition)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -90,6 +90,7 @@ import Database.Author (
     AuthoredActivity,
     EditedActivity (..),
     ExchangeEdit (..),
+    ExchangeSelector,
     ResolvedInsert (..),
     RestatedLine (..),
     amountsBeforeEach,
@@ -157,6 +158,7 @@ import Types (
     AllocationProperty (..),
     ClassificationFilter,
     Database (..),
+    Exchange,
     FileReading (..),
     Parameter,
     ProcessId,
@@ -816,7 +818,20 @@ supplyMissing ::
 supplyMissing manager dbName by note request =
     getDatabase manager dbName >>= \case
         Nothing -> pure (Left (NotLoaded dbName))
-        Just loaded -> either (pure . Left . Malformed . pure) (editActivities manager dbName by note) (supplyEdits (ldDatabase loaded) request)
+        Just loaded -> case supplyEdits (ldDatabase loaded) request of
+            Left refusal -> pure (Left (Malformed [refusal]))
+            Right (edits, wastes) -> fmap (fmap (warnSkipped wastes)) <$> editActivities manager dbName by note edits
+  where
+    -- A waste of the same name asks for a treatment, which this change does not give.
+    warnSkipped :: Int -> MutationOutcome -> MutationOutcome
+    warnSkipped wastes done
+        | wastes == 0 = done
+        | otherwise =
+            done
+                { moWarnings =
+                    moWarnings done
+                        <> [T.pack (show wastes) <> " waste output(s) named " <> mrProduct request <> " still name no treatment: a waste takes a treatment, not a supplier."]
+                }
 
 -- | A row of the missing-supplier table, and the provider chosen for it.
 data MissingRequest = MissingRequest
@@ -826,19 +841,25 @@ data MissingRequest = MissingRequest
     , mrProvider :: !Text
     }
 
-{- | The edits 'supplyMissing' makes, one per activity holding such a line. A
-waste names its treatment rather than a supplier, so only inputs move.
+{- | The edits 'supplyMissing' makes, one per activity holding such a line,
+and how many waste outputs of that name it leaves: a waste names its treatment
+rather than a supplier, so only inputs move.
 -}
-supplyEdits :: Database -> MissingRequest -> Either Text (NonEmpty (Text, [ExchangeEdit]))
+supplyEdits :: Database -> MissingRequest -> Either Text (NonEmpty (Text, [ExchangeEdit]), Int)
 supplyEdits db (MissingRequest wanted named provider) =
     case NE.nonEmpty (M.toList byActivity) of
-        Just activities -> Right (fmap (\(key, selectors) -> (processRefText key, [SetSupplier sel provider | sel <- nub (NE.toList selectors)])) activities)
+        Just activities -> Right (fmap (\(key, selectors) -> (processRefText key, [SetSupplier sel provider | sel <- nub (NE.toList selectors)])) activities, length wastes)
         Nothing
             | null demands -> Left ("No input of this database asks for " <> wanted <> asked <> " without a supplier.")
             | otherwise -> Left (wanted <> " is a waste: a waste names the treatment that takes it, not a supplier.")
   where
+    demands :: [(ProcessRef, Exchange)]
     demands = Loader.unsuppliedDemands db wanted named
-    byActivity = groupInOrder [(key, sel) | (key, ex) <- demands, Just sel <- [lineSelector ex], isRight (inputSelector sel)]
+    inputs, wastes :: [(ProcessRef, ExchangeSelector)]
+    (inputs, wastes) = partition (isRight . inputSelector . snd) [(key, sel) | (key, ex) <- demands, Just sel <- [lineSelector ex]]
+    byActivity :: M.Map ProcessRef (NonEmpty ExchangeSelector)
+    byActivity = groupInOrder inputs
+    asked :: Text
     asked = maybe "" (" from " <>) named
 
 -- | An activity a request names, found in the database.
