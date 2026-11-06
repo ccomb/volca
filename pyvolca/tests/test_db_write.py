@@ -764,6 +764,32 @@ class TestEditActivities:
         session.post.assert_not_called()
 
 
+class TestSupplyMissingProduct:
+    def test_sends_the_product_the_provider_and_the_note(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=109)
+        _ok(session, {"edited": [], "transient": False, "warnings": []})
+        client.supply_missing_product("barley", "a_b", supplier_activity="barley production", note="Local mill")
+        url = session.post.call_args[0][0]
+        assert url.endswith("/api/v1/db/testdb/missing-suppliers/supply")
+        body = session.post.call_args[1]["json"]
+        assert body == {"product": "barley", "provider": "a_b", "supplierActivity": "barley production", "note": "Local mill"}
+
+    def test_leaves_out_a_supplier_activity_not_given(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=109)
+        _ok(session, {"edited": [], "transient": False, "warnings": []})
+        client.supply_missing_product("barley", "a_b")
+        assert "supplierActivity" not in session.post.call_args[1]["json"]
+
+    def test_never_sent_to_an_engine_that_cannot_supply(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=108)
+        with pytest.raises(VoLCAError, match="wire revision >= 109"):
+            client.supply_missing_product("barley", "a_b")
+        session.post.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # set_display_name
 # ---------------------------------------------------------------------------

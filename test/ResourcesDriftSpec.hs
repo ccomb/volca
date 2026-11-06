@@ -241,6 +241,11 @@ knownDivergences =
     , ("search_activities", "database")
     , ("search_flows", "database")
     , ("search_flows", "query")
+    , ("supply_missing_product", "database")
+    , ("supply_missing_product", "note")
+    , ("supply_missing_product", "product")
+    , ("supply_missing_product", "provider")
+    , ("supply_missing_product", "supplier_activity")
     , ("unload_database", "database")
     ]
 

@@ -112,6 +112,7 @@ data Resource
     | GetCoverageReport
     | EditExchanges
     | EditActivities
+    | SupplyMissing
     | DatabaseParameters
     | DatabaseHistory
     | EditDatabaseParameters
@@ -219,6 +220,7 @@ resourceMutates r = case r of
     GetCoverageReport -> False
     EditExchanges -> True
     EditActivities -> True
+    SupplyMissing -> True
     DatabaseParameters -> False
     DatabaseHistory -> False
     EditDatabaseParameters -> True
@@ -302,6 +304,7 @@ resourceNeeds r = case r of
     -- Its reply echoes the lines the caller wrote.
     EditExchanges -> Nothing
     EditActivities -> Nothing
+    SupplyMissing -> Nothing
     -- Its reply names the parameters the caller wrote and the processes that moved, no amount.
     EditDatabaseParameters -> Nothing
     -- Values a caller chose, never the database's.
@@ -368,6 +371,7 @@ resourceUsage r = case r of
     ExplainCF -> Nothing
     EditExchanges -> Nothing
     EditActivities -> Nothing
+    SupplyMissing -> Nothing
     DatabaseParameters -> Nothing
     DatabaseHistory -> Nothing
     EditDatabaseParameters -> Nothing
@@ -453,6 +457,7 @@ apiPath r = case r of
     GetCoverageReport -> Just (GET, ["db", "{dbName}", "characterization-coverage"])
     EditExchanges -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "exchanges"])
     EditActivities -> Just (POST, ["db", "{dbName}", "activities", "exchanges"])
+    SupplyMissing -> Just (POST, ["db", "{dbName}", "missing-suppliers", "supply"])
     DatabaseParameters -> Just (GET, ["db", "{dbName}", "parameters"])
     DatabaseHistory -> Just (GET, ["db", "{dbName}", "history"])
     EditDatabaseParameters -> Just (POST, ["db", "{dbName}", "parameters"])
@@ -528,6 +533,7 @@ mcpName r = case r of
     GetCoverageReport -> "get_characterization_coverage"
     EditExchanges -> "edit_exchanges"
     EditActivities -> "edit_activities"
+    SupplyMissing -> "supply_missing_product"
     DatabaseParameters -> "get_database_parameters"
     DatabaseHistory -> "get_database_history"
     EditDatabaseParameters -> "edit_database_parameters"
@@ -1170,6 +1176,17 @@ description r = case r of
         \activity is named once per request, two products of one activity \
         \included. The answer lists each activity's report in the order of the \
         \request, then transient and the warnings of the change once."
+    SupplyMissing ->
+        "Give a missing product a supplier, for every activity that lacks \
+        \it: each input of the database that asks for this product (and names \
+        \this supplier activity, when supplier_activity is given) and that \
+        \nothing answers moves to the provider, keeping its amount, formula \
+        \and comment, as edit_activities would with set_suppliers on each. \
+        \The product and supplier activity are the name and supplier_activity \
+        \of a gap get_gap_report lists. The provider is a process_id of this database or \
+        \of one it depends on, and must make the product in a unit the lines \
+        \can convert from; one line it cannot supply refuses the whole change. \
+        \Answers as edit_activities does."
     DatabaseHistory ->
         "Every change made to a database of one's own, oldest first: when, \
         \what it changed in words (the activities added, rewritten or \
@@ -1754,6 +1771,13 @@ params r = case r of
         , Param "set_suppliers" "array" Optional "Inputs to move to another supplier, linked or naming no provider yet. Each is {select: {kind, provider|flow, location?}, provider}, where the selector's kind is \"input\" and provider is the new supplier's process_id, in this database or a dependency. The line keeps its amount, unit, formula, comment and pedigree."
         , Param "remove_parameters" "array" Optional "Names of the activity's parameters to remove, once the formulas set here no longer read them. Refused while a formula still reads one the database does not define."
         , Param "note" "string" Optional "Why the change is made, in a sentence. Kept in the database's history (get_database_history) and in the changes report its export carries."
+        ]
+    SupplyMissing ->
+        [ pDatabase
+        , Param "product" "string" Required "The missing product: the name of a gap get_gap_report lists."
+        , Param "supplier_activity" "string" Optional "The supplier_activity of that gap, when it names one. Absent: the inputs that name none."
+        , Param "provider" "string" Required "The process_id of the activity that will supply the product, in this database or one it depends on."
+        , Param "note" "string" Optional "Why the change is made, in a sentence. Kept in the database's history (get_database_history) for every activity it edits."
         ]
     EditActivities ->
         [ pDatabase

@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.1** speaks wire formats **2 to 108** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.1** speaks wire formats **2 to 109** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1951,6 +1951,23 @@ Set the multiplier a scoring set's values are shown with, or drop it with ``None
 ##### `Client.set_scoring_set_unit(collection: str, name: str, unit: str) -> dict`
 
 Change the unit a scoring set's scores are expressed in.
+
+##### `Client.supply_missing_product(product: str, provider: str, *, supplier_activity: str | None = None, note: str | None = None, db_name: str | None = None) -> dict`
+
+Give a missing product a supplier wherever the database asks for it.
+
+Every input that asks for ``product`` (naming ``supplier_activity``,
+or no supplier activity when it is ``None``) and that nothing answers
+moves to ``provider``, keeping its amount, formula and comment: the
+`SetSupplier` edits `edit_activities` would make, one per
+activity, found by the engine. ``product`` and ``supplier_activity``
+are the ``name`` and ``supplierActivity`` of a gap of
+`get_gap_report`::
+
+    client.supply_missing_product("barley", "a_b", note="Local mill")
+
+One line the provider cannot supply refuses the whole change. Answers
+as `edit_activities` does. Needs wire revision 109.
 
 ##### `Client.system_model(*, db_name: str | None = None) -> dict`
 

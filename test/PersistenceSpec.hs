@@ -44,19 +44,24 @@ import Database.Author (ExchangeEdit (..), ExchangeSelector (..))
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
+    MissingRequest (..),
     MutationOutcome (..),
     copyDatabase,
     deleteActivitiesInDB,
     editActivities,
     mutateUploadedDatabase,
     refusalMessage,
+    supplyMissing,
  )
 import Database.Journal (Change (..), Entry (..), JournalOp (..), journalPath, readJournal)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
+    DatabaseSetupInfo (..),
     LoadedDatabase (..),
+    MissingSupplier (..),
     addDatabase,
+    getDatabaseSetupInfo,
     initDatabaseManager,
     loadDatabase,
     removeDatabase,
@@ -246,6 +251,36 @@ spec = describe "persisting an edit" $ do
                 _ <- reloadOf manager "bafu-like"
                 emissionsBy manager "bafu-like" `shouldReturn` live
 
+    describe "a missing product given a supplier" $ do
+        it "moves every line that asks for it, keeps their amounts, and leaves the others alone" $
+            withEcoSpold1Datasets farm $ \manager home -> do
+                missingCount manager "barley" `shouldReturn` Just 2
+                provider <- processIdNamed manager "barley grain, milled"
+                outcome <- supplyMissing manager "bafu-like" Nothing Nothing (MissingRequest "barley" Nothing provider)
+                void (first refusalMessage outcome) `shouldBe` Right ()
+                bought <- boughtBy manager
+                M.lookup "bread" bought `shouldBe` Just [(Just provider, 2), (Nothing, 1)]
+                M.lookup "beer" bought `shouldBe` Just [(Just provider, 3)]
+                missingCount manager "barley" `shouldReturn` Nothing
+                missingCount manager "oats" `shouldReturn` Just 1
+                journal <- readJournal home
+                fmap length journal `shouldBe` Right 2
+
+        it "refuses the whole change when the provider cannot supply a line in its unit" $
+            withEcoSpold1Datasets farm $ \manager home -> do
+                provider <- processIdNamed manager "electricity production, wind"
+                outcome <- supplyMissing manager "bafu-like" Nothing Nothing (MissingRequest "barley" Nothing provider)
+                void (first refusalMessage outcome) `shouldSatisfy` failsWith ("input from \"" <> provider <> "\": ")
+                readJournal home `shouldReturn` Right []
+                missingCount manager "barley" `shouldReturn` Just 2
+
+        it "says so when no input asks for the product" $
+            withEcoSpold1Datasets farm $ \manager home -> do
+                provider <- processIdNamed manager "barley grain, milled"
+                outcome <- supplyMissing manager "bafu-like" Nothing Nothing (MissingRequest "rye" Nothing provider)
+                void (first refusalMessage outcome) `shouldSatisfy` failsWith "No input of this database asks for rye"
+                readJournal home `shouldReturn` Right []
+
     describe "refusals that protect the value" $ do
         it "refuses a second edit while one is in progress" $
             withDataDir $ \_ -> do
@@ -293,13 +328,17 @@ withEcoSpold1Database = withEcoSpold1DatabaseOf ["electricity production, wind",
 
 -- | The same, with one dataset per name.
 withEcoSpold1DatabaseOf :: [Text] -> (DatabaseManager -> FilePath -> IO ()) -> IO ()
-withEcoSpold1DatabaseOf names act =
+withEcoSpold1DatabaseOf names = withEcoSpold1Datasets (zipWith dataset [1 ..] names)
+
+-- | The same, with these datasets, each the file of its own.
+withEcoSpold1Datasets :: [Text] -> (DatabaseManager -> FilePath -> IO ()) -> IO ()
+withEcoSpold1Datasets datasets act =
     withDataDir $ \dataRoot -> do
         let home = dataRoot </> "uploads" </> "databases" </> "bafu-like"
             dataDir = home </> "data"
         createDirectoryIfMissing True dataDir
-        forM_ (zip [1 ..] names) $ \(number, name) ->
-            TIO.writeFile (dataDir </> "process_" <> T.unpack (UUID.toText (mkUUID (100 + number))) <> ".xml") (dataset number name)
+        forM_ (zip [1 :: Int ..] datasets) $ \(number, text) ->
+            TIO.writeFile (dataDir </> "process_" <> T.unpack (UUID.toText (mkUUID (100 + number))) <> ".xml") text
         manager <- initDatabaseManager defaultConfig UseCache
         addDatabase manager (uploadedConfig "bafu-like" dataDir)
         loaded <- loadDatabase manager "bafu-like"
@@ -312,26 +351,91 @@ threeDatasets = ["electricity production, wind", "electricity production, solar"
 
 -- | One EcoSpold 1 dataset: a reference product and one emission.
 dataset :: Int -> Text -> Text
-dataset number name =
-    T.unlines
+dataset number name = datasetBuying number name "kWh" []
+
+{- | The same, in this unit, buying each of these products by name, in kg, from
+no supplier in particular.
+-}
+datasetBuying :: Int -> Text -> Text -> [(Text, Double)] -> Text
+datasetBuying number name unit bought =
+    T.unlines $
         [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
         , "  <dataset number=\"" <> T.pack (show number) <> "\" generator=\"Test\" timestamp=\"2026-01-01T00:00:00\">"
         , "    <metaInformation><processInformation>"
-        , "      <referenceFunction name=\"" <> name <> "\" category=\"Energy\" subCategory=\"Electricity\" unit=\"kWh\" />"
+        , "      <referenceFunction name=\"" <> name <> "\" category=\"Energy\" subCategory=\"Electricity\" unit=\"" <> unit <> "\" />"
         , "      <geography location=\"DE\" />"
         , "    </processInformation></metaInformation>"
         , "    <flowData>"
-        , "      <exchange number=\"1\" name=\"" <> name <> ", output\" category=\"Energy\" subCategory=\"Electricity\" unit=\"kWh\" meanValue=\"1.0\">"
+        , "      <exchange number=\"1\" name=\"" <> name <> ", output\" category=\"Energy\" subCategory=\"Electricity\" unit=\"" <> unit <> "\" meanValue=\"1.0\">"
         , "        <outputGroup>0</outputGroup>"
         , "      </exchange>"
         , "      <exchange number=\"2\" name=\"Carbon dioxide, fossil\" category=\"air\" subCategory=\"low population density\" unit=\"kg\" meanValue=\"0.01\">"
         , "        <outputGroup>4</outputGroup>"
         , "      </exchange>"
-        , "    </flowData>"
-        , "  </dataset>"
-        , "</ecoSpold>"
         ]
+            <> concat
+                [ [ "      <exchange number=\"" <> T.pack (show n) <> "\" name=\"" <> product' <> "\" category=\"Agriculture\" subCategory=\"Crops\" unit=\"kg\" meanValue=\"" <> T.pack (show amount) <> "\">"
+                  , "        <inputGroup>5</inputGroup>"
+                  , "      </exchange>"
+                  ]
+                | (n, (product', amount)) <- zip [3 :: Int ..] bought
+                ]
+            <> [ "    </flowData>"
+               , "  </dataset>"
+               , "</ecoSpold>"
+               ]
+
+{- | A bakery and a brewery buying barley from nobody, the bakery oats too, and
+a mill whose product is named otherwise, so nothing links to it by name.
+-}
+farm :: [Text]
+farm =
+    [ datasetBuying 1 "bread" "kg" [("barley", 2), ("oats", 1)]
+    , datasetBuying 2 "beer" "kg" [("barley", 3)]
+    , datasetBuying 3 "barley grain, milled" "kg" []
+    , dataset 4 "electricity production, wind"
+    ]
+
+-- | The process id of the activity of this name.
+processIdNamed :: DatabaseManager -> Text -> IO Text
+processIdNamed manager name = do
+    loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    let found =
+            [ processRefText (uncurry ProcessRef key)
+            | Just loaded <- [M.lookup "bafu-like" loadedDbs]
+            , let db = ldDatabase loaded
+            , (key, activity) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db))
+            , activityName activity == name
+            ]
+    case found of
+        [pid] -> pure pid
+        _ -> fail ("the fixture should hold one activity named " <> T.unpack name)
+
+-- | Each activity's inputs, by activity name: the supplier each names, and its amount.
+boughtBy :: DatabaseManager -> IO (M.Map Text [(Maybe Text, Double)])
+boughtBy manager = do
+    loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    pure $ case M.lookup "bafu-like" loadedDbs of
+        Nothing -> M.empty
+        Just loaded ->
+            let db = ldDatabase loaded
+             in M.fromList
+                    [ (activityName activity, [(supplierOf ex, techAmount ex) | ex@TechnosphereExchange{techRole = Input} <- exchanges activity])
+                    | activity <- V.toList (dbActivities db)
+                    ]
+  where
+    supplierOf ex = (\act -> processRefText (ProcessRef act (techFlowId ex))) <$> techActivityLinkId ex
+
+-- | How many lines the missing-supplier table counts for this product, if it lists it.
+missingCount :: DatabaseManager -> Text -> IO (Maybe Int)
+missingCount manager product' = do
+    setup <- getDatabaseSetupInfo manager "bafu-like"
+    case setup of
+        Left err -> fail ("setup: " <> show err)
+        Right info -> pure $ case [msCount row | row <- dsiMissingSuppliers info, msProductName row == product'] of
+            [] -> Nothing
+            counts -> Just (sum counts)
 
 -- | The process ids a loaded database currently holds, in table order.
 processKeysOf :: DatabaseManager -> Text -> IO [Text]

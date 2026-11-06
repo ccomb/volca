@@ -46,6 +46,9 @@ module Database.Edit (
     EditReport (..),
     editExchanges,
     editActivities,
+    MissingRequest (..),
+    supplyMissing,
+    supplyEdits,
     ParametersReport (..),
     editDatabaseParameters,
     authorContext,
@@ -60,8 +63,10 @@ import Control.Exception (SomeException, try)
 import Control.Monad (forM_, when)
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
-import Data.Either (lefts)
+import Data.Either (isRight, lefts)
+import Data.Indexing (groupInOrder)
 import qualified Data.IntSet as IS
+import Data.List (nub, partition)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -85,11 +90,14 @@ import Database.Author (
     AuthoredActivity,
     EditedActivity (..),
     ExchangeEdit (..),
+    ExchangeSelector,
     ResolvedInsert (..),
     RestatedLine (..),
     amountsBeforeEach,
     applyExchangeEdits,
     editingContext,
+    inputSelector,
+    lineSelector,
     retextsAuthoredIdentity,
     validateAuthored,
  )
@@ -150,6 +158,7 @@ import Types (
     AllocationProperty (..),
     ClassificationFilter,
     Database (..),
+    Exchange,
     FileReading (..),
     Parameter,
     ProcessId,
@@ -792,6 +801,66 @@ editActivities manager dbName by note requests
     journalled :: JudgedEdit -> JournalOp
     journalled (JudgedEdit key edits priors edited) =
         Edited (processRefText key) (zipWith3 (\edit n prior -> EditLine edit n (Prior prior)) edits (eaMatched edited) priors)
+
+{- | Give a missing product a supplier: every input of the database that asks
+for this product, naming this supplier activity or none, and that nothing
+answers, moves to the provider, as one change of the activities holding them.
+The journal records each activity's lines, not the search that found them, so
+a replay moves the lines that were moved.
+-}
+supplyMissing ::
+    DatabaseManager ->
+    Text ->
+    Maybe Author ->
+    Maybe Note ->
+    MissingRequest ->
+    IO (Either WriteRefusal (NonEmpty EditReport, MutationOutcome))
+supplyMissing manager dbName by note request =
+    getDatabase manager dbName >>= \case
+        Nothing -> pure (Left (NotLoaded dbName))
+        Just loaded -> case supplyEdits (ldDatabase loaded) request of
+            Left refusal -> pure (Left (Malformed [refusal]))
+            Right (edits, wastes) -> fmap (fmap (warnSkipped wastes)) <$> editActivities manager dbName by note edits
+  where
+    -- A waste of the same name asks for a treatment, which this change does not give.
+    warnSkipped :: Int -> MutationOutcome -> MutationOutcome
+    warnSkipped wastes done
+        | wastes == 0 = done
+        | otherwise =
+            done
+                { moWarnings =
+                    moWarnings done
+                        <> [T.pack (show wastes) <> " waste output(s) named " <> mrProduct request <> " still name no treatment: a waste takes a treatment, not a supplier."]
+                }
+
+-- | A row of the missing-supplier table, and the provider chosen for it.
+data MissingRequest = MissingRequest
+    { mrProduct :: !Text
+    , mrSupplierActivity :: !(Maybe Text)
+    -- ^ The supplier activity the inputs named, as the row states it
+    , mrProvider :: !Text
+    }
+
+{- | The edits 'supplyMissing' makes, one per activity holding such a line,
+and how many waste outputs of that name it leaves: a waste names its treatment
+rather than a supplier, so only inputs move.
+-}
+supplyEdits :: Database -> MissingRequest -> Either Text (NonEmpty (Text, [ExchangeEdit]), Int)
+supplyEdits db (MissingRequest wanted named provider) =
+    case NE.nonEmpty (M.toList byActivity) of
+        Just activities -> Right (fmap (\(key, selectors) -> (processRefText key, [SetSupplier sel provider | sel <- nub (NE.toList selectors)])) activities, length wastes)
+        Nothing
+            | null demands -> Left ("No input of this database asks for " <> wanted <> asked <> " without a supplier.")
+            | otherwise -> Left (wanted <> " is a waste: a waste names the treatment that takes it, not a supplier.")
+  where
+    demands :: [(ProcessRef, Exchange)]
+    demands = Loader.unsuppliedDemands db wanted named
+    inputs, wastes :: [(ProcessRef, ExchangeSelector)]
+    (inputs, wastes) = partition (isRight . inputSelector . snd) [(key, sel) | (key, ex) <- demands, Just sel <- [lineSelector ex]]
+    byActivity :: M.Map ProcessRef (NonEmpty ExchangeSelector)
+    byActivity = groupInOrder inputs
+    asked :: Text
+    asked = maybe "" (" from " <>) named
 
 -- | An activity a request names, found in the database.
 data Addressed = Addressed Text ProcessRef Activity [ExchangeEdit]

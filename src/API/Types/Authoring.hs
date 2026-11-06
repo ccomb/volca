@@ -374,6 +374,20 @@ instance FromJSON ActivitiesEditRequest where
     parseJSON = withObject "ActivitiesEditRequest" $ \o ->
         ActivitiesEditRequest <$> o .: "edits" <*> o .:? "note"
 
+{- | A missing product and the activity chosen to supply it, wherever the
+database asks for it without a supplier.
+-}
+data SupplyMissingRequest = SupplyMissingRequest
+    { smrProduct :: Text
+    , smrSupplierActivity :: Maybe Text
+    -- ^ The supplier activity the inputs name, when they name one
+    , smrProvider :: Text
+    , smrNote :: Maybe Text
+    -- ^ Why the change was made, kept in the database's history
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped SupplyMissingRequest)
+
 -- | One activity's edit in a request that edits several.
 data ActivityEditAPI = ActivityEditAPI
     { aeProcessId :: Text
