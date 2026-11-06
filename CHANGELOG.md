@@ -13,6 +13,28 @@
   into MJ with the calorific value the engine ships, which now has coal mine
   gas at 36 MJ/m3, the value EF 3.1 gives it, and reads hard coal under
   the name SimaPro gives it (data version 15).
+- A Brightway workbook writes each line the way Brightway links it, so a
+  database exported this way comes into Brightway with every line linked.
+  A production row and a line bought from the same file carry the name and
+  location of the activity they belong to or buy from, no longer the
+  product's name. A line bought from a product of the same file is written in
+  the unit that product is made in, converting the amount and its formula: a
+  database where one activity counts a product in kilowatt-hours and another
+  counts a product of the same name in megajoules can now be exported, where
+  it used to be refused. A line bought from another database is written in
+  the unit its supplier makes the product in, in every export format.
+- A waste output naming the treatment of another database that should take
+  it is linked to that treatment when the treatment is written as a product,
+  as an EcoSpold 1 or SimaPro database writes every treatment. The waste was
+  cut off and scored nothing, while the setup page said every link was
+  resolved. Such a treatment now treats it as it would an input written to
+  it. A waste output naming a treatment no loaded database holds is listed
+  among the missing products and counts against completeness, like an input
+  naming a missing supplier.
+- A Brightway workbook export carries the name of the database it exports.
+  Every workbook used to be called "exported-database", and so did each of
+  its rows naming one of its own products, so two exports imported side by
+  side in Brightway collided.
 - A database relinked with a mapping keeps the links that mapping made. They
   used to drop without a word at the next relink, which an edit, the reload
   of a dependency and a restart all run: one process added to a copy of a
@@ -64,6 +86,14 @@
   below the published scores. A line the method writes at the resource's own
   place still comes first, and emissions are unchanged. `explain-cf` names
   the new step `resource_unspecified`.
+- A region-suffixed flow such as "Water, river, RER" no longer borrows its
+  base substance's factor in a category that leaves it out, when the same
+  method collection writes it in another. Ecological Scarcity 2021 writes
+  that flow in its net water balance and not in evaporated water, and
+  counted it there at 99 all the same: a polystyrene foam scored 147 times
+  the published value, and three evaporated-water scores in ten were 1 % or
+  more above it. `explain-cf` reports the step as `declined`, with a
+  sentence saying why.
 
 ### Changed
 

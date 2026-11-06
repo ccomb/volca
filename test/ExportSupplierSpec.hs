@@ -53,7 +53,7 @@ spec = do
 
         it "refuses a supplier of a dependency stating no location" $
             SP.serializeSimaProCSV
-                SP.defaultWriterConfig{SP.wcDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "" PositiveReference []))}
+                SP.defaultWriterConfig{SP.wcDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "" PositiveReference [] ""))}
                 (fixture "IN")
                 `shouldSatisfy` isLeft
 
@@ -92,16 +92,16 @@ spec = do
 
         -- The mill is in TR, where the background also makes power: only the written place sends it to CH.
         it "brings an input back to its supplier in a dependency, by the product and the place it is written with" $ do
-            db <- ilcdRoundTripWith (Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power, CH" "CH" PositiveReference []))) (fixture "BR")
+            db <- ilcdRoundTripWith (Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power, CH" "CH" PositiveReference [] ""))) (fixture "BR")
             (_, stats) <- fixActivityLinksWithCrossDB [buildIndexedDatabase "background" emptySynonymDB twoPlaces] emptySynonymDB defaultUnitConfig locationHierarchy GeoGlobal db
             [(cdlSupplierActUUID l, cdlCoefficient l) | l <- cdlLinks stats] `shouldBe` [(marketCHU, 2.0)]
 
         it "refuses a supplier of a dependency that makes its product at its place twice, naming both" $
-            ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "TR" PositiveReference ["power plant"]))} (fixture "BR")
+            ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "TR" PositiveReference ["power plant"] ""))} (fixture "BR")
                 `shouldSatisfy` either (\why -> all (`T.isInfixOf` why) ["power market", "power plant"]) (const False)
 
         it "refuses a supplier of a dependency stating no location" $
-            ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "" PositiveReference []))} (fixture "BR")
+            ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "" PositiveReference [] ""))} (fixture "BR")
                 `shouldSatisfy` isLeft
 
         it "refuses a supplier of a dependency whose product a process of the package also makes, naming it" $
@@ -131,7 +131,7 @@ spec = do
               , Just consumer <- [M.lookup (act, prod) (sdbActivities exported)]
               , ex <- take 1 (drop i (exchanges consumer))
               ]
-                `shouldBe` [(Elsewhere "background" "power market" "TR" PositiveReference [], "power")]
+                `shouldBe` [(Elsewhere "background" "power market" "TR" PositiveReference [] "kg", "power")]
             out <- simaPro (Dependencies found) exported
             rowsUnder out "Materials/fuels"
                 `shouldSatisfy` any ("power {TR}| power market |;" `T.isPrefixOf`)
@@ -200,7 +200,7 @@ rowsUnder out header = go (map (T.dropWhileEnd (== '\r')) (T.lines (TE.decodeUtf
 
 -- | The mill's power, bought from an activity of a database it depends on.
 dependencies :: Dependencies
-dependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "TR" PositiveReference []))
+dependencies = Dependencies (M.singleton (millU, yarnU, 2) (Elsewhere "background" "power market" "TR" PositiveReference [] ""))
 
 {- | Two farms making one product, « seed », farm A in IN and farm B at the
 place given; each gin buys its seed from one of them, and the mill buys

@@ -947,7 +947,7 @@ exportDatabaseHandler dbName req = do
     scenarios <- liftIO (listScenarios dbManager dbName)
     let (saved, problems) = either (const (M.empty, [])) (savedForExport (ldDatabase ld)) scenarios
     indexed <- liftIO (readTVarIO (dmIndexedDbs dbManager))
-    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase units fmt saved (dependenciesOf indexed (ldDatabase ld)) (ldDatabase ld))
+    (bytes, warnings) <- either (failWith err400) pure (serializeDatabase units fmt saved (dependenciesOf indexed (ldDatabase ld)) dbName (ldDatabase ld))
     pure (addHeader (encodeExportWarnings (warnings <> either unread (scenariosLeftOut fmt problems) scenarios)) (BinaryContent (package bytes)))
   where
     unread :: WriteRefusal -> [Text]
@@ -2102,7 +2102,7 @@ explainCFToAPI db method flow explanation =
         , ecrMethodUnit = methodUnit method
         , ecrFlow = explainedFlowAPI db flow
         , ecrOutcome = Explain.outcomeName resolution
-        , ecrExplanation = Explain.renderResolution resolution
+        , ecrExplanation = Explain.renderExplanation explanation
         , ecrMatch = matchAPI resolution
         , ecrStepsTried = map stepAPI (Explain.ceTrail explanation)
         , ecrRegionalFactorCount = Explain.ceRegionalCFCount explanation

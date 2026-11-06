@@ -39,7 +39,7 @@ import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Cutoffs (gapIndexOf)
 import Database.ExportSupplier (Dependencies (..), Elsewhere (..), noDependencies)
-import Database.Loader (defaultLoadOptions, findAllCrossDBLinks, loadDatabase, loadSimaProCSV)
+import Database.Loader (GapReport (..), collectStagedDanglingProductNames, defaultLoadOptions, findAllCrossDBLinks, gapReportForStaged, loadDatabase, loadSimaProCSV)
 import Matrix (computeInventoryMatrix, computeScalingVector)
 import OlcaPackageFixture (throughPackage)
 import Service (ActivityFilterCore (..), Edges (..), SupplyChainFilter (..), buildCrossDBLinkMap, buildSupplyChainFromScalingVector, toExchangeWithUnit)
@@ -290,6 +290,17 @@ scoreIntra :: T.Text -> M.Map (UUID, UUID) Activity -> IO Double
 scoreIntra name = scoreOf name (pA, yY)
 
 -- | A linking context holding one dependency database.
+
+{- | A dependency whose treatment of W is a product of +1 kg, and which files no
+waste flow: as an EcoSpold 1 or SimaPro database is read.
+-}
+productTreatments :: IO Database
+productTreatments = buildSimple "es1-dep" (simpleDB (M.singleton (tA, wW) (treatment ReferenceProduct 1.0))){sdbWasteFlows = M.empty}
+
+-- | 3 kg of waste W sent to the treatment @act@ names, as an authored waste output is.
+namedWaste :: UUID -> Exchange
+namedWaste act = (wasteEx False (Just act) 3.0){waSupplierClaim = ClaimById act}
+
 ctxWithDep :: T.Text -> Database -> LinkingContext
 ctxWithDep depName depDB =
     LinkingContext
@@ -369,7 +380,7 @@ scoreSentToSecond = scoreWasteSentToSecond (wasteEx False Nothing 3.0)
 scoreWasteSentToSecond :: Exchange -> (Dependencies -> SimpleDatabase -> IO SimpleDatabase) -> TechRole -> Double -> IO Double
 scoreWasteSentToSecond waste through role refAmount =
     scoreReadBack
-        (through (Dependencies (M.singleton (pA, yY, 1) (Elsewhere "eco-dep" "incineration of waste W" "GLO" (referenceSignOf refAmount) []))))
+        (through (Dependencies (M.singleton (pA, yY, 1) (Elsewhere "eco-dep" "incineration of waste W" "GLO" (referenceSignOf refAmount) [] ""))))
         (producer waste)
         ( M.fromList
             [ ((tA, wW), treatment role refAmount)
@@ -505,6 +516,44 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
         cdlLinks stats `shouldBe` []
         cdlCutoffWasteCount stats `shouldBe` 1
         any (\(UnresolvedProduct blockers) -> M.member UnitIncompatible{uiQueryUnit = "s", uiSupplierUnit = "kg"} blockers) (M.elems (cdlUnresolvedRequests stats)) `shouldBe` True
+
+    -- An EcoSpold 1 or SimaPro database writes its treatments as products of a
+    -- positive amount: no waste flow of its own names them. A waste output
+    -- naming one is a demand on it, as an input of 3 kg written to it would be.
+    it "cross-DB waste output naming a treatment written as a product scores +6" $ do
+        let rootActs = M.singleton (pA, yY) (producer (namedWaste tA))
+        rootBase <- buildDB "root" rootActs
+        depDB <- productTreatments
+        let rootDB = rootBase{dbCrossDBLinks = linksFor (ctxWithDep "es1-dep" depDB) rootActs}
+        case processIdOf rootDB (pA, yY) of
+            Nothing -> fail "producer not interned"
+            Just pid -> do
+                score <- scoreAcross rootDB "es1-dep" depDB pid
+                withinTolerance 1.0e-9 6.0 score `shouldBe` True
+
+    it "leaves a named treatment two databases ship, one as a waste and one as a product, ambiguous" $ do
+        asWaste <- buildDB "ilcd-dep" (M.singleton (tA, wW) (treatment ReferenceInput 1.0))
+        asProduct <- productTreatments
+        let ctx = (ctxWithDep "ilcd-dep" asWaste){lcIndexedDatabases = [buildIndexedDatabaseFromDB n emptySynonymDB d | (n, d) <- [("ilcd-dep", asWaste), ("es1-dep", asProduct)]]}
+            stats = findAllCrossDBLinks ctx (simpleDB (M.singleton (pA, yY) (producer (namedWaste tA))))
+        cdlLinks stats `shouldBe` []
+        cdlWasteAmbiguous stats `shouldBe` 1
+
+    it "lists a waste output naming a treatment no database holds among the missing" $ do
+        depDB <- productTreatments
+        let root = simpleDB (M.singleton (pA, yY) (producer (namedWaste tB)))
+            stats = findAllCrossDBLinks (ctxWithDep "es1-dep" depDB) root
+        cdlLinks stats `shouldBe` []
+        collectStagedDanglingProductNames root (cdlLinks stats) `shouldBe` M.singleton "waste W" 1
+        grUnresolvedEdges (gapReportForStaged "root" root stats) `shouldBe` 1
+
+    it "leaves a waste output naming no treatment, and matching none, out of the missing" $ do
+        depDB <- productTreatments
+        let root = simpleDB (M.singleton (pA, yY) (producer (wasteEx False Nothing 3.0)))
+            stats = findAllCrossDBLinks (ctxWithDep "es1-dep" depDB) root
+        cdlLinks stats `shouldBe` []
+        collectStagedDanglingProductNames root (cdlLinks stats) `shouldBe` M.empty
+        grUnresolvedEdges (gapReportForStaged "root" root stats) `shouldBe` 0
 
     it "cross-DB to an ecoinvent (negative ReferenceProduct) treatment scores +6" $ do
         (score, _) <- scoreCross Nothing "eco-dep" ReferenceProduct (-1.0)

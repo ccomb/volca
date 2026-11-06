@@ -24,6 +24,7 @@ module Database.Export (
 ) where
 
 import Control.Exception (SomeException, try)
+import Control.Monad (mfilter)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.List (find)
@@ -61,7 +62,9 @@ import Types (
     SimpleDatabase (..),
     TechnosphereFlow (..),
     Unit (..),
+    exchangeUnitId,
     readingSign,
+    scaleExchange,
     toSimpleDatabase,
  )
 import UnitConversion (UnitConfig)
@@ -87,11 +90,12 @@ depends on ('Database.ExportSupplier.dependenciesOf'). SimaPro and Brightway
 name them on the rows buying from them, ILCD writes the place each states,
 and EcoSpold 1, which cannot, refuses them. Only those four read them, so only they fail when the suppliers
 could not be worked out: the formats pointing at a supplier export all the
-same, under the names the source gave. Before any writer, each input a dependency supplies is
+same, under the names the source gave. Only Brightway writes the database's
+name, which its rows use to tell the file's own products from bought ones. Before any writer, each input a dependency supplies is
 written under that supplier's product and identity ('namedAfterLinks').
 -}
-serializeDatabase :: UnitConfig -> DatabaseFormat -> M.Map Text [ScenarioValue] -> Either Text Dependencies -> Database -> Either Text (BL.ByteString, [Text])
-serializeDatabase units fmt saved dependencies db = fmap (fmap (linkWarnings <>)) $ case fmt of
+serializeDatabase :: UnitConfig -> DatabaseFormat -> M.Map Text [ScenarioValue] -> Either Text Dependencies -> Text -> Database -> Either Text (BL.ByteString, [Text])
+serializeDatabase units fmt saved dependencies name db = fmap (fmap (linkWarnings <>)) $ case fmt of
     -- Each writer runs its own check*Exportable and returns 'Left' on a database
     -- the format cannot represent faithfully, so the guard is unskippable.
     SimaProCSV -> dependencies >>= \deps -> first BL.fromStrict <$> SP.serializeSimaProCSVWithWarnings SP.defaultWriterConfig{SP.wcDependencies = deps} sdb
@@ -103,7 +107,7 @@ serializeDatabase units fmt saved dependencies db = fmap (fmap (linkWarnings <>)
             [] -> valuesOnlyWith [] (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
     EcoSpold2 -> first zipText <$> ES2.writeEcoSpold2WithWarnings ES2.noVolatileMeta sdb
     ILCDProcess -> dependencies >>= \deps -> valuesOnlyWith (ILCD.splitWarnings sdb) (ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = deps, ILCD.woUnits = units} sdb)
-    BrightwayExcel -> dependencies >>= \deps -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig{BE.wcDependencies = deps} sdb
+    BrightwayExcel -> dependencies >>= \deps -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig{BE.wcDatabaseName = name, BE.wcDependencies = deps, BE.wcUnits = units} sdb
     OpenLcaImpactCategory ->
         Left "openLCA JSON-LD export is not supported"
     ColumnarCSV ->
@@ -165,7 +169,17 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
                     , tfUnitId = if bridged then unitId linkUnit else tfUnitId consumerFlow
                     , tfSynonyms = M.empty
                     }
-            written =
+            unitsLinked = if bridged then M.insertWith (\_ kept -> kept) (unitId linkUnit) linkUnit (sdbUnits sdb) else sdbUnits sdb
+            -- Then in the supplier's own unit where the unit table converts to it:
+            -- a format linking by unit finds the supplier only there.
+            supplierUnit = fromMaybe (newUnit (elUnit supplier)) (find ((== elUnit supplier) . unitName) (M.elems unitsLinked))
+            -- Decided on the spelling, not the factor: "kilogram" converts to "kg" at 1, and is still not "kg".
+            statedUnit = maybe "" unitName (M.lookup (exchangeUnitId stated) unitsLinked)
+            perSupplier = mfilter (const (not (T.null statedUnit || T.null (elUnit supplier)) && statedUnit /= elUnit supplier)) (lineInLinkUnit units unitsLinked stated (elUnit supplier))
+            written = case (perSupplier, maybe stated (`scaleExchange` stated) perSupplier) of
+                (Just _, scaled@TechnosphereExchange{}) -> scaled{techUnitId = unitId supplierUnit}
+                (_, scaled) -> scaled
+            stated =
                 line
                     { techFlowId = tfId supplied
                     , techActivityLinkId = Just (cdlSupplierActUUID link)
@@ -187,8 +201,8 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
         pure
             ( sdb
                 { sdbActivities = M.insert key activity{exchanges = before <> (written : after)} (sdbActivities sdb)
-                , sdbTechFlows = M.insertWith (\_ kept -> kept) (tfId supplied) supplied (sdbTechFlows sdb)
-                , sdbUnits = if bridged then M.insertWith (\_ kept -> kept) (unitId linkUnit) linkUnit (sdbUnits sdb) else sdbUnits sdb
+                , sdbTechFlows = M.insertWith (\_ kept -> kept) (tfId supplied) (maybe supplied (const supplied{tfUnitId = unitId supplierUnit}) perSupplier) (sdbTechFlows sdb)
+                , sdbUnits = maybe unitsLinked (const (M.insertWith (\_ kept -> kept) (unitId supplierUnit) supplierUnit unitsLinked)) perSupplier
                 }
             , said <> formulaDropped
             )
