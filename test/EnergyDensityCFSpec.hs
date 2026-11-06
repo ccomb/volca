@@ -25,9 +25,11 @@ Plus the CSV reader: it keys by normalized name and rejects malformed rows.
 -}
 module EnergyDensityCFSpec (spec) where
 
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import Data.Either (fromRight, isLeft, isRight)
+import Data.List (find)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import Data.UUID (UUID)
@@ -35,7 +37,8 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import Method.Mapping
-import Method.Types (Compartment (..), EnergyDensity (..), EnergyDensityMap, FlowDirection (..), MethodCF (..), buildEnergyDensityMapFromCSV)
+import Method.ParserCSV (parseMethodCSVBytes)
+import Method.Types (Compartment (..), EnergyDensity (..), EnergyDensityMap, FlowDirection (..), Method (..), MethodCF (..), buildEnergyDensityMapFromCSV)
 import SynonymDB (normalizeName)
 import Types (
     BiosphereFlow (..),
@@ -322,6 +325,21 @@ spec = do
                 flow = regionWaterFlowIn uidM3
                 tables = tablesForRegion base flow M.empty waterMassCF
             scoreFlow flow 0.283452 tables `shouldSatisfy` near 0
+
+    -- The shipped method and the shipped table together: "Primary energy" is
+    -- written per MJ, crude oil comes in kg, and only the calorific value in
+    -- data/energy_density.csv brings one onto the other.
+    describe "Shipped plain indicators, primary energy" $ do
+        it "counts 1 kg of crude oil as 43.2 MJ" $ do
+            methods <- either fail pure . parseMethodCSVBytes =<< BS.readFile "data/methods/plain-indicators.csv"
+            densities <- either fail pure . buildEnergyDensityMapFromCSV =<< BL.readFile "data/energy_density.csv"
+            let oil = (coalFlowIn uidKg){bfId = UUID.fromWords64 13 0, bfName = "Oil, crude"}
+                oilCF = do
+                    m <- find ((== "Primary energy") . methodName) methods
+                    find ((== "Oil, crude") . mcfFlowName) (methodFactors m)
+            case oilCF of
+                Nothing -> expectationFailure "no \"Oil, crude\" row in Primary energy"
+                Just cf -> scoreFlow oil 1.0 (tablesForRegion oil oil densities cf) `shouldSatisfy` near 43.2
 
     describe "buildEnergyDensityMapFromCSV" $ do
         it "parses a valid row, keyed by normalized flow name" $
