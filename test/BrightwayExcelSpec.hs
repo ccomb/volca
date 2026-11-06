@@ -294,15 +294,53 @@ spec = describe "BrightwayExcel.Parser" $ do
                         exchangeFlowId boughtElsewhere `shouldNotBe` exchangeFlowId cokeProduct
                         inputLink boughtElsewhere `shouldBe` Nothing
 
-        it "refuses to export the two products a workbook would read back as one" $
+        it "exports the two products and reads them back apart" $
             withWorkbook (buildWorkbook [("iron", madeElsewhereSheet)]) $ \path -> do
                 loadDatabase defaultUnitConfig path >>= \case
                     Left err -> expectationFailure (T.unpack err)
                     Right db -> case renderWorkbook defaultWriterConfig db of
-                        Right _ -> expectationFailure "exported a workbook the reader would refuse"
-                        Left err -> do
-                            err `shouldSatisfy` T.isInfixOf "\"Coke\" (kilogram)"
-                            err `shouldSatisfy` T.isInfixOf "\"coke\" (megajoule)"
+                        Left err -> expectationFailure (T.unpack err)
+                        Right bytes ->
+                            withWorkbook bytes $
+                                parseBrightwayExcel defaultUnitConfig >=> \case
+                                    Left err -> expectationFailure (T.unpack err)
+                                    Right Workbook{wbTechFlows = flows} ->
+                                        length (filter ((== "coke") . T.toLower . tfName) (M.elems flows)) `shouldBe` 2
+
+        it "keeps a product made in two measures as two, each bought from its maker" $
+            withWorkbook (buildWorkbook [("board", boardSheet "DE")]) $ \path -> do
+                loadDatabase defaultUnitConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right db -> do
+                        let processes = M.toList (sdbActivities db)
+                            madeBy link = [(activityLocation act, exchangeFlowId ex) | ((a, _), act) <- processes, a == link, ex <- exchanges act, exchangeIsReference ex]
+                        wall <- requireActivity (map snd processes) "Wall"
+                        let inputs = inputExchanges wall
+                        length (filter ((== "board") . tfName) (M.elems (sdbTechFlows db))) `shouldBe` 2
+                        map (fmap madeBy . inputLink) inputs
+                            `shouldBe` [Just [(place, exchangeFlowId ex)] | (place, ex) <- zip ["CH", "DE"] inputs]
+
+        it "leaves one input unlinked where both makers share a name and a location" $
+            withWorkbook (buildWorkbook [("board", boardSheet "CH")]) $ \path -> do
+                loadDatabase defaultUnitConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right db -> do
+                        wall <- requireActivity (M.elems (sdbActivities db)) "Wall"
+                        length (filter isJust (map inputLink (inputExchanges wall))) `shouldBe` 1
+
+        it "keeps a product counted in kWh by one row and in MJ by another one flow" $
+            withWorkbook (buildWorkbook [("energy", energySheet)]) $ \path -> do
+                parseBrightwayExcel energyConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right Workbook{wbTechFlows = flows} ->
+                        length (filter ((== "heat") . tfName) (M.elems flows)) `shouldBe` 1
+
+        it "keeps a product another database makes in two measures as two" $
+            withWorkbook (buildWorkbook [("iron", boughtTwiceSheet)]) $ \path -> do
+                parseBrightwayExcel defaultUnitConfig path >>= \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right Workbook{wbTechFlows = flows} ->
+                        length (filter ((== "coke") . tfName) (M.elems flows)) `shouldBe` 2
 
     describe "upload format detection" $
         it "routes a Brightway .xlsx to ArchiveXlsx, not generic ArchiveZip" $
@@ -596,6 +634,77 @@ madeElsewhereSheet =
     ]
   where
     header = [CT "name", CT "amount", CT "reference product", CT "location", CT "unit", CT "categories", CT "type", CT "database"]
+
+{- | Two blocks making a board, one by the kilogram in CH and one by the square
+metre at the given location, and a wall buying both, each row naming the
+location of its maker.
+-}
+boardSheet :: Text -> [[Cell]]
+boardSheet there =
+    maker "CH" "kilogram"
+        ++ maker there "square meter"
+        ++ [ [CT "Activity", CT "Wall"]
+           , [CT "reference product", CT "wall"]
+           , [CT "location", CT "CH"]
+           , [CT "unit", CT "kilogram"]
+           , [CT "Exchanges"]
+           , exchangeHeader
+           , [CT "Wall", CN 1, CT "wall", CT "CH", CT "kilogram", CE, CT "production", CT "Foreground"]
+           , [CT "Board production", CN 2, CT "board", CT "CH", CT "kilogram", CE, CT "technosphere", CT "Foreground"]
+           , [CT "Board production", CN 3, CT "board", CT there, CT "square meter", CE, CT "technosphere", CT "Foreground"]
+           ]
+  where
+    maker place unit =
+        [ [CT "Activity", CT "Board production"]
+        , [CT "reference product", CT "board"]
+        , [CT "location", CT place]
+        , [CT "unit", CT unit]
+        , [CT "Exchanges"]
+        , exchangeHeader
+        , [CT "Board production", CN 1, CT "board", CT place, CT unit, CE, CT "production", CT "Foreground"]
+        , []
+        ]
+
+energyConfig :: UnitConfig
+energyConfig = either (error . T.unpack) id (buildFromCSV "name,dimension,factor\nkilogram,mass,1.0\nmegajoule,energy,1.0\nkilowatt hour,energy,3.6\n")
+
+-- | A block making heat in kWh, and one buying it in MJ.
+energySheet :: [[Cell]]
+energySheet =
+    [ [CT "Activity", CT "Boiler"]
+    , [CT "reference product", CT "heat"]
+    , [CT "location", CT "CH"]
+    , [CT "unit", CT "kilowatt hour"]
+    , [CT "Exchanges"]
+    , exchangeHeader
+    , [CT "Boiler", CN 1, CT "heat", CT "CH", CT "kilowatt hour", CE, CT "production", CT "Foreground"]
+    , []
+    , [CT "Activity", CT "Drying"]
+    , [CT "reference product", CT "dried grain"]
+    , [CT "location", CT "CH"]
+    , [CT "unit", CT "kilogram"]
+    , [CT "Exchanges"]
+    , exchangeHeader
+    , [CT "Drying", CN 1, CT "dried grain", CT "CH", CT "kilogram", CE, CT "production", CT "Foreground"]
+    , [CT "Boiler", CN 2, CT "heat", CT "CH", CT "megajoule", CE, CT "technosphere", CT "Foreground"]
+    ]
+
+-- | A block buying coke from another database by the kilogram and by the megajoule.
+boughtTwiceSheet :: [[Cell]]
+boughtTwiceSheet =
+    [ [CT "Activity", CT "Pig iron production"]
+    , [CT "reference product", CT "pig iron"]
+    , [CT "location", CT "CN"]
+    , [CT "unit", CT "kilogram"]
+    , [CT "Exchanges"]
+    , exchangeHeader
+    , [CT "Pig iron production", CN 1, CT "pig iron", CT "CN", CT "kilogram", CE, CT "production", CT "Foreground"]
+    , [CT "market for coke", CN 0.4, CT "coke", CT "CN", CT "kilogram", CE, CT "technosphere", CT "Background"]
+    , [CT "market for coke", CN 0.7, CT "coke", CT "CN", CT "megajoule", CE, CT "technosphere", CT "Background"]
+    ]
+
+exchangeHeader :: [Cell]
+exchangeHeader = [CT "name", CT "amount", CT "reference product", CT "location", CT "unit", CT "categories", CT "type", CT "database"]
 
 -- | A single-activity worksheet (standard column order) for multi-sheet tests.
 activitySheet :: Text -> Text -> [[Cell]]

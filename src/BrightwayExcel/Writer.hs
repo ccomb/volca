@@ -230,13 +230,13 @@ re-parse through 'Amount.readAmount' (the importer's correctly-rounded reader);
 every finite amount does, so this rejects only the non-finite @NaN@/@Infinity@
 that would otherwise substitute a different value on re-import.
 
-Two products spelt alike in different units are rejected ('productsSpeltAlike'):
-the file names a product by its name, and the reader would refuse to read them
-back as one.
+Two products spelt alike in different units are rejected when their makers
+share a name and a location ('productsSpeltAlike'): a row names its maker by
+those alone, so the reader could not link each row to the maker of its unit.
 
 Databases whose exchanges all resolve, send no waste to a treatment of the file, keep every resource
-direction recoverable, name no two products alike in different units, and whose
-amounts all re-parse pass unchanged.
+direction recoverable, give no two makers of products spelt alike in different
+units one name and location, and whose amounts all re-parse pass unchanged.
 -}
 
 -- | Where a waste exchange is treated, which decides how a workbook can write it.
@@ -352,12 +352,18 @@ checkBrightwayExportable units deps db =
             <> "\" at "
             <> activityLocation a
             <> ", so a re-import would link every input of it to one of them."
-    alikeMsg :: NE.NonEmpty TechnosphereFlow -> Text
-    alikeMsg flows =
-        "Brightway Excel export cannot represent the products "
-            <> T.intercalate " and " (map spelt (NE.toList flows))
-            <> ": a workbook names a product by its name alone, so they would be read back"
-            <> " as one product written in two units."
+    alikeMsg :: NE.NonEmpty (Activity, TechnosphereFlow) -> Text
+    alikeMsg makers =
+        "Brightway Excel export cannot tell apart the products "
+            <> T.intercalate " and " (map spelt (NE.toList (NE.nubBy (\x y -> tfId x == tfId y) (NE.map snd makers))))
+            <> ": activities named \""
+            <> activityName a
+            <> "\" at "
+            <> activityLocation a
+            <> " make them, and a workbook names a maker by its name and location alone,"
+            <> " so a re-import would link every input of them to one of the makers."
+      where
+        a = fst (NE.head makers)
     spelt :: TechnosphereFlow -> Text
     spelt flow =
         "\"" <> tfName flow <> "\" (" <> maybe "unknown unit" unitName (M.lookup (tfUnitId flow) (sdbUnits db)) <> ")"
@@ -389,21 +395,23 @@ checkBrightwayExportable units deps db =
         , not (amountRoundTrips v)
         ]
 
-{- | The products the exchanges name that a workbook cannot tell apart. The reader
-knows a product by its name folded in case and refuses one written in two units,
-so two such products in different units make a file it would refuse. Units are
+{- | The makers of products spelt alike in different units that a workbook
+cannot tell apart, grouped by the name and location they share. The reader
+keeps a name counted in two units as two products, but links a row to its maker
+by the product name, the maker's name and its location only, so two makers
+writing all three alike leave it one to pick for rows of both units. Units are
 compared as the reader reads them, in the reference unit of their dimension: a
 product counted in kWh by one activity and in MJ by another is one product in MJ
-to it. A database
-reaches this when it holds a product of its own and one spelt alike that
-another database makes ('BrightwayExcel.Parser.productFlowUUID'): the writer
-does not know that database, and writes every row as made in the workbook.
+to it.
 -}
-productsSpeltAlike :: UnitConfig -> SimpleDatabase -> [NE.NonEmpty TechnosphereFlow]
+productsSpeltAlike :: UnitConfig -> SimpleDatabase -> [NE.NonEmpty (Activity, TechnosphereFlow)]
 productsSpeltAlike units db =
-    [ flows
+    [ same
     | (_, flows) <- collisions [(T.toCaseFold (T.strip (tfName f)), f) | f <- written]
     , NE.length (NE.nub (NE.map readAs flows)) > 1
+    , let makers = [(a, f) | ((_, p), a) <- M.toList (sdbActivities db), f <- NE.toList flows, tfId f == p]
+    , same <- NE.groupAllWith (\(a, _) -> (activityName a, activityLocation a)) makers
+    , NE.length (NE.nub (NE.map (readAs . snd) same)) > 1
     ]
   where
     -- A unit the table does not know is read as written, as the reader does.
@@ -636,8 +644,7 @@ on names that database, that supplier's activity and its location, which the
 parser reads as bought there. A production row names its own block, and a row
 bought from an activity of the workbook names that activity and the location
 of its block, as Brightway links them. Any other row names the
-workbook ('productsSpeltAlike' refuses the case where that would merge two
-products), with @name@ carrying the supplier activity where the source named
+workbook, with @name@ carrying the supplier activity where the source named
 one and repeating the flow name where it did not; a supplier named with no
 product leaves @reference product@ empty. The last column is the line's
 formula, if it has one.
