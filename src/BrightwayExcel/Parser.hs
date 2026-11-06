@@ -68,6 +68,7 @@ import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMayb
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.UUID as UUID
 import qualified Expr
 import Progress (ProgressLevel (..), reportProgress)
 import SimaPro.Parser (
@@ -125,8 +126,7 @@ parseBrightwayExcel cfg path = do
         Right sheets -> do
             let (dataSheets, skipped) = partition (validFirstCell . snd) sheets
                 WorkbookRows{wrResults = results, wrBlocks = blocks, wrParameters = parameters, wrWarnings = globalWarnings} = readRows cfg (map snd dataSheets)
-                activities = [a | (a, _, _, _, _) <- results]
-                techFlows = concat [fs | (_, fs, _, _, _) <- results]
+                (activities, techFlows) = splitByMeasure [a | (a, _, _, _, _) <- results] (concat [fs | (_, fs, _, _, _) <- results])
                 bioFlows = concat [fs | (_, _, fs, _, _) <- results]
                 units = concat [us | (_, _, _, us, _) <- results]
                 warnings = globalWarnings ++ concat [ws | (_, _, _, _, ws) <- results] ++ mapMaybe skippedSheetWarning skipped
@@ -145,6 +145,30 @@ parseBrightwayExcel cfg path = do
                         , wbUnits = unitDB
                         , wbParameters = snd (buildParamEnv Expr.Python (wpGlobals parameters))
                         }
+
+{- | One flow per product name and measure, where a name comes in several.
+A product is known by its name ('productFlowUUID'), and two products of one
+name counted in measures that do not convert (a board sold by the kilogram and
+by the square metre) would be one flow in two units, which 'indexFlows'
+refuses. Every row is in the reference unit of its dimension already, so its
+unit is its measure. A name counted in one measure keeps the identity the other
+readers give it.
+-}
+splitByMeasure :: [Activity] -> [TechnosphereFlow] -> ([Activity], [TechnosphereFlow])
+splitByMeasure activities flows =
+    ([a{exchanges = map moveExchange (exchanges a)} | a <- activities], [f{tfId = moved (tfId f) (tfUnitId f)} | f <- flows])
+  where
+    measures :: M.Map UUID.UUID (S.Set UUID.UUID)
+    measures = M.fromListWith S.union [(tfId f, S.singleton (tfUnitId f)) | f <- flows]
+    moved :: UUID.UUID -> UUID.UUID -> UUID.UUID
+    moved flow unit
+        | maybe False ((> 1) . S.size) (M.lookup flow measures) = generateFlowUUID (UUID.toText flow) (UUID.toText unit)
+        | otherwise = flow
+    moveExchange :: Exchange -> Exchange
+    moveExchange ex = case ex of
+        TechnosphereExchange{} -> ex{techFlowId = moved (techFlowId ex) (techUnitId ex)}
+        BiosphereExchange{} -> ex
+        WasteExchange{} -> ex
 
 -- | What the worksheets of a workbook read to.
 data WorkbookRows = WorkbookRows

@@ -48,7 +48,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Read as TR
 import Database (buildDatabaseWithMatrices)
 import Database.ExportSupplier (noDependencies)
-import Database.Loader (getReferenceProductUUID)
+import Database.Loader (getReferenceProductUUID, loadDatabase)
 import Matrix (computeInventoryMatrix)
 import SimaPro.Parser (generateActivityUUID, generateFlowUUID, generateUnitUUID)
 import System.IO (hClose)
@@ -300,11 +300,25 @@ spec = describe "BrightwayExcel.Writer" $ do
         it "keeps its amount when it is written in the maker's unit already" $
             fmap (\r -> (r !! 4, r !! 1)) (boughtRow (inMakerUnitDb (energyDb ReferenceProduct))) `shouldBe` Just (CText "MJ", CNum 2)
         it "lets one product counted in kWh by one activity and in MJ by another through" $
-            checkBrightwayExportable energyConfig noDependencies (spelledTwiceDb "kWh") `shouldBe` Right ()
+            checkBrightwayExportable energyConfig noDependencies (spelledTwiceDb "kWh" "DE") `shouldBe` Right ()
         it "refuses a line bought from a coproduct in a unit that does not convert to the coproduct's" $
             checkBrightwayExportable energyConfig noDependencies (inUnit "kg" (energyDb Coproduct)) `shouldSatisfy` isLeft
-        it "still refuses one product counted in kg by one activity and in kWh by another" $
-            checkBrightwayExportable energyConfig noDependencies (spelledTwiceDb "kg") `shouldSatisfy` isLeft
+        it "reads back one name made in MJ and in kg as two products, each line bought from the maker of its unit, ids aside" $
+            withWrittenBy energyCfg (spelledTwiceDb "kg" "DE") $
+                loadDatabase energyConfig >=> \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right db -> do
+                        let acts = sdbActivities db
+                            unitOf ex = maybe "?" unitName (M.lookup (techUnitId ex) (sdbUnits db))
+                            makerAt link = [activityLocation a | ((uuid, _), a) <- M.toList acts, uuid == link]
+                        [unitOf ex <> " from " <> T.concat (makerAt link) | a <- M.elems acts, activityName a == "Heating", ex@TechnosphereExchange{techRole = Input, techActivityLinkId = Just link} <- exchanges a]
+                            `shouldMatchList` ["MJ from FI", "kg from DE"]
+        it "refuses one name made in MJ and in kg by two makers of one name and location" $
+            checkBrightwayExportable energyConfig noDependencies (spelledTwiceDb "kg" "FI") `shouldSatisfy` isLeft
+        it "lets two makers of one location through when their names tell them apart" $
+            checkBrightwayExportable energyConfig noDependencies (renamingTheKgMaker "Gas boiler" (spelledTwiceDb "kg" "FI")) `shouldBe` Right ()
+        it "refuses two makers of one location when one is named like its product, which names no maker on its rows" $
+            checkBrightwayExportable energyConfig noDependencies (renamingTheKgMaker "electricity, gas" (spelledTwiceDb "kg" "FI")) `shouldSatisfy` isLeft
 
     describe "ReferenceInput regression" $
         it "rejects a reference input rather than round-tripping it to a duplicated row" $ do
@@ -859,13 +873,13 @@ inUnit u db = db{sdbActivities = M.map restated (sdbActivities db)}
 boughtRow :: SimpleDatabase -> Maybe [Cell]
 boughtRow db = listToMaybe [r | r <- sheetRows energyCfg db, length r > 6, r !! 2 == CText "electricity, gas", r !! 6 == CText "technosphere"]
 
-{- | Two activities making a product of one name, one in MJ and the other in the
-given unit, each bought by a third.
+{- | Two activities making a product of one name, one in MJ in FI and the other
+in the given unit at the given location, each bought by a third.
 -}
-spelledTwiceDb :: Text -> SimpleDatabase
-spelledTwiceDb other =
+spelledTwiceDb :: Text -> Text -> SimpleDatabase
+spelledTwiceDb other there =
     emptyDb
-        { sdbActivities = M.fromList [((generateActivityUUID a, getReferenceProductUUID a), a) | a <- [maker "FI" inMJ "MJ", maker "DE" inOther other, buyer]]
+        { sdbActivities = M.fromList [((generateActivityUUID a, getReferenceProductUUID a), a) | a <- [inFI, elsewhere, buyer]]
         , sdbTechFlows = M.fromList [(tfId f, f) | f <- [inMJ, inOther, heat]]
         , sdbUnits = M.fromList [(unitId u, u) | u <- map mkUnit ["kg", "MJ", "kWh"]]
         }
@@ -874,7 +888,19 @@ spelledTwiceDb other =
     inOther = (flowInUnit "electricity, gas" other){tfId = generateFlowUUID "electricity, gas" "DE"}
     heat = flowInUnit "heat" "kg"
     maker place flow u = elec{activityName = "Gas power plant", activityLocation = place, exchanges = [line flow ReferenceProduct 1 u]}
-    buyer = elec{activityName = "Heating", exchanges = [line heat ReferenceProduct 1 "kg", line inMJ Input 1 "MJ", line inOther Input 1 other]}
+    inFI = maker "FI" inMJ "MJ"
+    elsewhere = maker there inOther other
+    from a ex = ex{techActivityLinkId = Just (generateActivityUUID a)}
+    buyer = elec{activityName = "Heating", exchanges = [line heat ReferenceProduct 1 "kg", from inFI (line inMJ Input 1 "MJ"), from elsewhere (line inOther Input 1 other)]}
+
+-- | 'spelledTwiceDb' with its second maker, the one not counting in MJ, under another name.
+renamingTheKgMaker :: Text -> SimpleDatabase -> SimpleDatabase
+renamingTheKgMaker name db = db{sdbActivities = M.mapWithKey rename (sdbActivities db)}
+  where
+    rename :: (UUID, UUID) -> Activity -> Activity
+    rename (_, product) a
+        | product == generateFlowUUID "electricity, gas" "DE" = a{activityName = name}
+        | otherwise = a
 
 -- ---------------------------------------------------------------------------
 -- Export-guard fixtures (rejected at the boundary)

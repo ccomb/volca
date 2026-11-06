@@ -32,6 +32,14 @@
 
 ### Fixed
 
+- A Brightway workbook may hold two products of one name counted in measures
+  that do not convert, a board sold by the kilogram and by the square metre.
+  The reader keeps them as two products, each input bought from the maker of
+  its measure, instead of refusing the whole file. The export to a workbook
+  no longer refuses such a database either, except where the two makers also
+  share their activity name and location, or share a location where one is
+  named like its product: a workbook names a maker by those alone, so a
+  re-import could not tell which one an input buys from.
 - A supplier change found by comparing two versions of an activity, once
   applied, keeps the input's formula, comment, pedigree and place, where it
   removed the line and added a new one at the end.
