@@ -2991,9 +2991,11 @@ cascadeTrail tables flowDB fid =
         -- in the first and not in the second. Lending it the base substance's
         -- line, or a line sharing its CAS number, would count it where its
         -- author chose not to.
-        namedByCollection = case extractLocationSuffix (bfName flow) of
+        namedByCollection = case ownRegion of
             (base, Just region) -> S.member (SR.NormName (normalizeName base), T.toCaseFold region, baseMed) (mvRegionalNames (mtVocabulary tables))
             (_, Nothing) -> False
+
+        ownRegion = extractLocationSuffix (bfName flow)
 
         lend Nothing = RungMiss
         lend (Just entry)
@@ -3012,7 +3014,7 @@ cascadeTrail tables flowDB fid =
         -- suffix with this same 'extractLocationSuffix' before looking a density
         -- up: whatever name lends the factor must also lend the density, or the
         -- flow holds a factor it cannot be converted to and scores 0.
-        regionOutcome = case extractLocationSuffix (bfName flow) of
+        regionOutcome = case ownRegion of
             (base, Just _) -> lend (resourceCF (SR.NormName (normalizeName base)))
             (_, Nothing) -> RungNotApplicable
 
