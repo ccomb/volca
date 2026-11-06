@@ -202,6 +202,46 @@ multiDatasetXml =
         , "</ecoSpold>"
         ]
 
+{- | A placeholder process as some EcoSpold 1 exports write it: the flower draws
+a young plant from a second dataset of the same file, and that dataset names
+its product but carries no inventory at all, an empty @\<flowData/\>@.
+-}
+emptyInventoryXml :: BC.ByteString
+emptyInventoryXml =
+    BC.unlines
+        [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
+        , "  <dataset number=\"1\">"
+        , "    <metaInformation>"
+        , "      <processInformation>"
+        , "        <referenceFunction name=\"Anemone\" unit=\"p\"/>"
+        , "        <geography location=\"FR\" />"
+        , "      </processInformation>"
+        , "    </metaInformation>"
+        , "    <flowData>"
+        , "      <exchange number=\"1\" name=\"Anemone\" category=\"Agricultural\" unit=\"p\" meanValue=\"1.0\">"
+        , "        <outputGroup>0</outputGroup>"
+        , "      </exchange>"
+        , "      <exchange number=\"311\" name=\"Young plant placeholder 1\" location=\"FR\" unit=\"p\" meanValue=\"0.6\">"
+        , "        <inputGroup>5</inputGroup>"
+        , "      </exchange>"
+        , "    </flowData>"
+        , "  </dataset>"
+        , "  <dataset number=\"2\">"
+        , "    <metaInformation>"
+        , "      <processInformation>"
+        , "        <referenceFunction name=\"Young plant placeholder 1\" amount=\"1.0\" unit=\"p\" category=\"Agricultural\" subCategory=\"Horticultural production\"/>"
+        , "        <geography location=\"FR\"/>"
+        , "      </processInformation>"
+        , "    </metaInformation>"
+        , "    <flowData/>"
+        , "  </dataset>"
+        , "  <dataset number=\"3\">"
+        , "    <flowData/>"
+        , "  </dataset>"
+        , "</ecoSpold>"
+        ]
+
 {- | Fixture exercising the 'Final waste flows' export shape. Waste with no
 modelled treatment lands on inputGroup=5, the export's way of fitting a fifth
 flow class into a four-type model, with the category attribute preserved.
@@ -790,6 +830,27 @@ spec = do
                 Right results ->
                     let locs = [activityLocation act | Right ParsedDataset{pdActivity = act} <- results]
                      in locs `shouldBe` ["CH", "FR"]
+
+    describe "a dataset with no inventory" $ do
+        let placeholder = case parseAllWithXeno emptyInventoryXml of
+                Right [_, Right parsed, _] -> pure parsed
+                other -> expectationFailure ("expected the placeholder second, got " ++ show (fmap (map (fmap (activityName . pdActivity))) other)) >> fail "no placeholder"
+
+        it "makes its reference product and nothing else, so the input naming it has a supplier" $ do
+            ParsedDataset{pdActivity = act, pdTechFlows = techs} <- placeholder
+            [(techRole e, techAmount e, techLocation e) | e@TechnosphereExchange{} <- exchanges act]
+                `shouldBe` [(ReferenceProduct, 1, "FR")]
+            [tfName f | f <- techs] `shouldBe` ["Young plant placeholder 1"]
+            activityUnit act `shouldBe` "p"
+
+        it "says the dataset carried no inventory" $ do
+            ParsedDataset{pdWarnings = warnings} <- placeholder
+            warnings `shouldSatisfy` any (T.isInfixOf "no inventory")
+
+        it "still refuses a dataset that names no product either" $
+            case parseAllWithXeno emptyInventoryXml of
+                Right [_, _, Left err] -> err `shouldSatisfy` isInfixOf "no exchange found"
+                other -> expectationFailure ("expected the third dataset refused, got " ++ show (fmap (map (fmap (activityName . pdActivity))) other))
 
     -- -----------------------------------------------------------------------
     -- Final waste flows: waste with no modelled treatment is an elementary
