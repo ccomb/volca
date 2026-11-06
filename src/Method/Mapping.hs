@@ -34,6 +34,7 @@ module Method.Mapping (
     MethodTables (..),
     MethodVocabulary,
     methodVocabulary,
+    withSynonymNames,
     SubReading (..),
     subReadings,
     EnergyPrice (..),
@@ -2906,6 +2907,12 @@ data RungOutcome
       guess" rule.
       -}
       RungAmbiguous
+    | {- | The rung would lend this region-suffixed flow another name's factor,
+      but the method's collection writes the flow's own name, region included,
+      in some category: where a category writes nothing for it, it counts
+      nothing.
+      -}
+      RungDeclined
     deriving (Eq, Show)
 
 {- | Every rung's verdict for one flow, in cascade order. Lazy in each
@@ -2977,13 +2984,28 @@ cascadeTrail tables flowDB fid =
 
         casOutcome = case bfCAS flow >>= SR.casKey of
             Nothing -> RungNotApplicable
-            Just casNo -> plain (join (firstWritten (\sub -> M.lookup (casNo, baseMed, sub) (mtCasCF tables))))
+            Just casNo -> lend (join (firstWritten (\sub -> M.lookup (casNo, baseMed, sub) (mtCasCF tables))))
+
+        -- A method collection that writes "Water, river, RER" in one category
+        -- and only "Water, river" in another has said the regional flow counts
+        -- in the first and not in the second. Lending it the base substance's
+        -- line, or a line sharing its CAS number, would count it where its
+        -- author chose not to.
+        namedByCollection = case extractLocationSuffix (bfName flow) of
+            (base, Just region) -> S.member (SR.NormName (normalizeName base), T.toCaseFold region, baseMed) (mvRegionalNames (mtVocabulary tables))
+            (_, Nothing) -> False
+
+        lend Nothing = RungMiss
+        lend (Just entry)
+            | namedByCollection = RungDeclined
+            | otherwise = RungHit entry
 
         -- A SimaPro region-suffixed flow ("Ammonia, FR") whose region the method
         -- doesn't tag falls back to the base substance's CF: an unregionalized CF
         -- for "Ammonia" applies to the emission wherever it occurs. Only fires
         -- after every direct lookup misses, and only when the suffix is a real
-        -- region code (extractLocationSuffix leaves "Methane, fossil" untouched).
+        -- region code (extractLocationSuffix leaves "Methane, fossil" untouched),
+        -- and never to a regional name its collection writes ('namedByCollection').
         --
         -- The borrowed CF keeps the base substance's *unit*, which may differ in
         -- dimension from the flow's. 'lookupEnergyDensity' therefore strips the
@@ -2991,7 +3013,7 @@ cascadeTrail tables flowDB fid =
         -- up: whatever name lends the factor must also lend the density, or the
         -- flow holds a factor it cannot be converted to and scores 0.
         regionOutcome = case extractLocationSuffix (bfName flow) of
-            (base, Just _) -> plain (resourceCF (SR.NormName (normalizeName base)))
+            (base, Just _) -> lend (resourceCF (SR.NormName (normalizeName base)))
             (_, Nothing) -> RungNotApplicable
 
         -- An extracted energy carrier whose name states its content ("Coal, 18 MJ
@@ -3174,32 +3196,73 @@ has its own forestry factors keep them while one whose flow list has no forest
 reads its non-agricultural soil. Read from the whole collection, not the one
 impact category: a category that happens to write no forestry line belongs to
 a method that does distinguish forests.
+
+It also holds the region-suffixed names the collection writes, which no other
+name may lend a factor to ('cascadeTrail'): a collection that writes
+"Water, river, RER" in one category and "Water, river" in another has said the
+regional flow counts in the first only.
 -}
-newtype MethodVocabulary = MethodVocabulary (S.Set (MediumKey, Subcompartment))
+data MethodVocabulary = MethodVocabulary
+    { mvPlaces :: !(S.Set (MediumKey, Subcompartment))
+    , mvRegionalNames :: !(S.Set (SR.NormName, Text, MediumKey))
+    {- ^ Normalized base name, case-folded region, medium: the key the
+    cascade splits a flow's own name into.
+    -}
+    }
     deriving (Eq, Show)
 
 instance Semigroup MethodVocabulary where
-    MethodVocabulary a <> MethodVocabulary b = MethodVocabulary (S.union a b)
+    MethodVocabulary a b <> MethodVocabulary c d = MethodVocabulary (S.union a c) (S.union b d)
 
 instance Monoid MethodVocabulary where
-    mempty = MethodVocabulary S.empty
+    mempty = MethodVocabulary S.empty S.empty
 
 methodVocabulary :: CompartmentMap -> [MethodCF] -> MethodVocabulary
 methodVocabulary cmap cfs =
     MethodVocabulary
-        ( S.fromList
-            [ (medium, foldSub sub)
-            | cf <- cfs
-            , -- An exclusion line takes a factor away and writes none.
-            not (isExclusionCF cf)
-            , Just (medium, sub) <- [cfMediumSub cmap cf]
-            ]
-        )
+        { mvPlaces =
+            S.fromList
+                [ (medium, foldSub sub)
+                | cf <- cfs
+                , -- An exclusion line takes a factor away and writes none.
+                not (isExclusionCF cf)
+                , Just (medium, sub) <- [cfMediumSub cmap cf]
+                ]
+        , mvRegionalNames =
+            -- An exclusion line names its flow as surely as a factor does; a
+            -- pattern names a family, not one flow.
+            S.fromList
+                [ (SR.NormName (normalizeName base), T.toCaseFold region, medium)
+                | cf <- cfs
+                , not (T.isSuffixOf "*" (mcfFlowName cf))
+                , let written = fromMaybe (mcfFlowName cf) (T.stripPrefix "!" (mcfFlowName cf))
+                , (base, Just region) <- [extractLocationSuffix written]
+                , Just (medium, _) <- [cfMediumSub cmap cf]
+                ]
+        }
+
+{- | The regional names a database's synonyms give the same substances: a
+collection writing "Water, river, RER" names "Water, fresh, RER" too when the
+registry holds the two base names as one, so the two flows score alike.
+-}
+withSynonymNames :: SynonymDB -> MethodVocabulary -> MethodVocabulary
+withSynonymNames synDB vocabulary =
+    vocabulary
+        { mvRegionalNames =
+            S.union
+                (mvRegionalNames vocabulary)
+                ( S.fromList
+                    [ (SR.NormName (normalizeName synonym), region, medium)
+                    | (SR.NormName base, region, medium) <- S.toList (mvRegionalNames vocabulary)
+                    , synonym <- synonymClass synDB base
+                    ]
+                )
+        }
 
 -- | The @if_absent@ rows that hold for a method whose collection writes the given places.
 ifAbsentInForce :: CompartmentMap -> MethodVocabulary -> M.Map (MediumKey, Subcompartment) Subcompartment
-ifAbsentInForce cmap (MethodVocabulary spoken) =
-    M.filterWithKey (\key _ -> not (S.member key spoken)) (M.mapKeysMonotonic (first Just) (cmIfAbsent cmap))
+ifAbsentInForce cmap vocabulary =
+    M.filterWithKey (\key _ -> not (S.member key (mvPlaces vocabulary))) (M.mapKeysMonotonic (first Just) (cmIfAbsent cmap))
 
 {- | Whether delayed long-term (> 100 yr) biosphere emissions count toward the
 impact score. 'IncludeLongTerm' is the default and preserves the standard
@@ -3998,7 +4061,7 @@ siblingLines unitConfig unitDB tables flow
     cas = maybeToList (bfCAS flow >>= SR.casKey)
     name = SR.NormName (normalizeName (bfName flow))
 
-    placeKnown = let MethodVocabulary spoken = mtVocabulary tables in S.member (med, foldSub own) spoken
+    placeKnown = S.member (med, foldSub own) (mvPlaces (mtVocabulary tables))
 
     regional =
         maybe False ((== bfId flow) . fst . fst) (M.lookupGE (bfId flow, Location T.empty) (mtRegionalizedCF tables))

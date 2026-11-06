@@ -41,6 +41,7 @@ module Method.Explain (
     flowMatchKind,
 
     -- * Rendering
+    renderExplanation,
     renderResolution,
     rungName,
     regionalName,
@@ -112,6 +113,10 @@ data StepResult
       StepNotApplicable
     | -- | Candidates disagreed and the rung refused to pick one.
       StepAmbiguous
+    | {- | The rung would have lent another name's factor, but the method's
+      collection writes this flow's own name elsewhere.
+      -}
+      StepDeclined
     deriving (Eq, Show)
 
 data StepTried = StepTried
@@ -157,11 +162,13 @@ explainFlowCF unitCfg unitDB tables fid flow =
     isHit RungMiss = False
     isHit RungNotApplicable = False
     isHit RungAmbiguous = False
+    isHit RungDeclined = False
 
     stepResult (RungHit _) = StepHit
     stepResult RungMiss = StepMiss
     stepResult RungNotApplicable = StepNotApplicable
     stepResult RungAmbiguous = StepAmbiguous
+    stepResult RungDeclined = StepDeclined
 
     resolution = case [(rung, entry) | (rung, RungHit entry) <- walked] of
         [] -> Uncharacterized
@@ -252,6 +259,7 @@ stepName StepHit = "hit"
 stepName StepMiss = "miss"
 stepName StepNotApplicable = "not_applicable"
 stepName StepAmbiguous = "ambiguous"
+stepName StepDeclined = "declined"
 
 {- | Stable name for how the amount reached the factor's basis. The numbers
 behind it live in the sentences; this is what a client groups or filters on.
@@ -272,6 +280,15 @@ refusalName (EnergyBridgeRefused _) = "energy_bridge_failed"
 --------------------------------------------------------------------------------
 -- Sentences
 --------------------------------------------------------------------------------
+
+-- | The sentences of an explanation: its resolution, then any loan a rung declined.
+renderExplanation :: CFExplanation -> [Text]
+renderExplanation explanation =
+    renderResolution (ceResolution explanation)
+        ++ [declinedSentence | any ((== StepDeclined) . stResult) (ceTrail explanation)]
+  where
+    declinedSentence =
+        "The method's collection writes this flow's own name, region included, in another category, so no other name lends it a factor here."
 
 {- | The explanation in plain sentences, written here so no consumer has to
 invent a meaning for a code. Every branch below is exhaustive on purpose: a

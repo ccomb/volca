@@ -9,9 +9,9 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 import UnitConversion (defaultUnitConfig)
 
-import Method.Mapping (MatchStrategy (..), MethodTables, Resolution (..), buildMethodTables, cfValue, lookupCFForFlow)
+import Method.Mapping (MatchStrategy (..), MethodTables, Placing (..), Resolution (..), RungId (..), RungOutcome (..), buildMethodTables, cascadeTrail, cfValue, lookupCFForFlow, methodVocabulary, withSynonymNames)
 import Method.Types (Compartment (..), EnergyDensity (..), EnergyDensityMap, FlowDirection (..), MethodCF (..), extractLocationSuffix, lookupEnergyDensity)
-import SynonymDB (normalizeName)
+import SynonymDB (buildFromPairs, normalizeName)
 import Types (
     BiosphereFlow (..),
     Medium (..),
@@ -54,6 +54,24 @@ tablesFor :: Text -> Double -> MethodTables
 tablesFor base val =
     buildMethodTables mempty defaultUnitConfig M.empty [(baseCF base val, Just (Resolution (mkFlow 1 base) ByName))]
 
+{- | The same base-substance line, in a collection whose other lines (another
+category, say) are given: what the collection writes decides which regional
+names the base substance may lend its factor to.
+-}
+tablesIn :: [MethodCF] -> Text -> Double -> MethodTables
+tablesIn collection base val =
+    buildMethodTables (Placing mempty (methodVocabulary mempty (baseCF base val : collection))) defaultUnitConfig M.empty [(baseCF base val, Just (Resolution (mkFlow 1 base) ByName))]
+
+scoreIn :: MethodTables -> Text -> Maybe Double
+scoreIn tables flowName = fmap cfValue (lookupCFForFlow tables (mkUUID 99) (Just (mkFlow 99 flowName)))
+
+regionStep :: MethodTables -> Text -> Maybe RungOutcome
+regionStep tables flowName = lookup RungRegionBase (cascadeTrail tables (M.singleton (mkUUID 99) (mkFlow 99 flowName)) (mkUUID 99))
+
+-- | A line of another category, for the regional name itself, in water.
+inWater :: Text -> MethodCF
+inWater name = (baseCF name 940){mcfCompartment = Just (Compartment "water" "" "")}
+
 -- | Score a flow of the given name against those tables.
 scoreOf :: Text -> Double -> Text -> Maybe Double
 scoreOf base val flowName =
@@ -80,6 +98,36 @@ spec = do
             scoreOf "Methane" 28.0 "Methane, fossil" `shouldBe` Nothing
         it "still characterizes the base flow itself" $
             scoreOf "Ammonia" 11.5 "Ammonia" `shouldBe` Just 11.5
+
+    describe "a regional name the method's collection writes itself" $ do
+        let named = tablesIn [baseCF "Ammonia, FR" 30] "Ammonia" 11.5
+        it "gets no factor lent by its base substance" $
+            scoreIn named "Ammonia, FR" `shouldBe` Nothing
+        it "says the loan was declined, not that the step did not apply" $
+            regionStep named "Ammonia, FR" `shouldBe` Just RungDeclined
+        it "leaves the base substance its own factor" $
+            scoreIn named "Ammonia" `shouldBe` Just 11.5
+        it "leaves another region of the same substance its loan" $
+            scoreIn named "Ammonia, DE" `shouldBe` Just 11.5
+        it "reads the written base name whatever its case" $
+            scoreIn (tablesIn [baseCF "AMMONIA, FR" 30] "Ammonia" 11.5) "Ammonia, FR" `shouldBe` Nothing
+        it "counts only a name written in the flow's own medium" $
+            scoreIn (tablesIn [inWater "Ammonia, FR"] "Ammonia" 11.5) "Ammonia, FR" `shouldBe` Just 11.5
+        it "counts a name an exclusion line writes" $
+            scoreIn (tablesIn [baseCF "!Ammonia, FR" 0] "Ammonia" 11.5) "Ammonia, FR" `shouldBe` Nothing
+        it "counts a name a synonym of the written one gives" $
+            let synonyms = buildFromPairs [("Ammonia", "Azane")]
+                vocabulary = withSynonymNames synonyms (methodVocabulary mempty [baseCF "Azane, FR" 30])
+                tables = buildMethodTables (Placing mempty vocabulary) defaultUnitConfig M.empty [(baseCF "Ammonia" 11.5, Just (Resolution (mkFlow 1 "Ammonia") ByName))]
+             in scoreIn tables "Ammonia, FR" `shouldBe` Nothing
+        it "gets no factor lent through a CAS number either" $
+            let cas = "7664-41-7"
+                line = (baseCF "Azane" 11.5){mcfCAS = Just cas}
+                flow = (mkFlow 99 "Ammonia, FR"){bfCAS = Just cas}
+                tablesWith collection =
+                    buildMethodTables (Placing mempty (methodVocabulary mempty (line : collection))) defaultUnitConfig M.empty [(line, Just (Resolution flow ByCAS))]
+                score tables = fmap cfValue (lookupCFForFlow tables (mkUUID 98) (Just flow{bfId = mkUUID 98}))
+             in (score (tablesWith []), score (tablesWith [baseCF "Ammonia, FR" 30])) `shouldBe` (Just 11.5, Nothing)
 
     describe "lookupEnergyDensity strips the same suffix the CF lookup strips" $ do
         -- A borrowed CF carries the base substance's unit, so the density that

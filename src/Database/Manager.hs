@@ -279,6 +279,7 @@ import Method.Mapping (
     projectRegionalResourceFlows,
     reweigh,
     spreadLocatedRows,
+    withSynonymNames,
     zeroedMatchedCFs,
  )
 import Method.Types (
@@ -1152,7 +1153,7 @@ buildMethodTablesFor manager dbName collection db method = do
     -- question; a method whose CFs are all region-tagged would be left with none.
     -- The loader warns when such a name matches no method.
     globalMethods <- maybe [] mcUnregionalized <$> getMethodCollection manager (unCollectionName collection)
-    let !raw0 = buildMethodTables (Placing cmap vocabulary) unitConfig energyDensities expanded
+    let !raw0 = buildMethodTables (Placing cmap (withSynonymNames (fromMaybe emptySynonymDB (dbSynonymDB db)) vocabulary)) unitConfig energyDensities expanded
         !raw =
             if methodName method `elem` globalMethods
                 then raw0{mtRegionalizedCF = M.empty}
