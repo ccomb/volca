@@ -9,11 +9,11 @@ module MethodUploadSpec (spec) where
 
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
-import Data.List (isInfixOf, sort)
+import Data.List (intercalate, isInfixOf, sort)
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import System.Directory (createDirectoryIfMissing, doesFileExist, listDirectory)
-import System.FilePath ((</>))
+import System.FilePath (makeRelative, splitDirectories, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
@@ -124,7 +124,8 @@ spec = do
     -- A publisher may ship one archive per dataset inside a single one.
     describe "an archive holding archives" $ do
         let zipped = BL.toStrict . zipFiles
-            -- What the extraction leaves, relative to the directory it fills.
+            -- What the extraction leaves, relative to the directory it fills,
+            -- written with / whatever the platform separates paths with.
             unpacked bytes =
                 withSystemTempDirectory "volca-nested" $ \tmp -> do
                     let source = tmp </> "sent.zip"
@@ -133,7 +134,7 @@ spec = do
                     createDirectoryIfMissing True target
                     written <- extractArchiveFile source target
                     files <- listDirectoryRecursive target
-                    pure (written, sort (map (drop (length target + 1)) files))
+                    pure (written, sort (map (intercalate "/" . splitDirectories . makeRelative target) files))
 
         -- Peony's warning says what lily's does and is kept once; rose's says
         -- something else and is kept under the archive's name.
