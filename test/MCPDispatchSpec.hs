@@ -322,6 +322,7 @@ spec = describe "MCP database load/unload tools" $ do
                            , ("set_formulas", "object")
                            , ("set_parameters", "object")
                            , ("set_prices", "object")
+                           , ("set_suppliers", "object")
                            , ("set_wet_masses", "object")
                            ]
 

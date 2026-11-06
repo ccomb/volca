@@ -40,7 +40,7 @@ import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
 import Database (Geographies, filterByName, flowSearchFields)
 import Database.Cutoffs (Cutoffs (..))
-import Database.Edit (databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, refusalMessage)
+import Database.Edit (MissingRequest (..), databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, refusalMessage, supplyMissing)
 import Database.Journal (noteFrom)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
@@ -414,6 +414,7 @@ paramsToSchema ps =
         "set_prices" -> setPriceItemSchema
         "set_dry_masses" -> setDryMassItemSchema
         "set_wet_masses" -> setWetMassItemSchema
+        "set_suppliers" -> setSupplierItemSchema
         "set_parameters" -> setParameterItemSchema
         "add_inputs" -> providerLineSchema "Producer of what is consumed"
         "add_waste_outputs" -> providerLineSchema "Treatment the waste is handed to"
@@ -466,6 +467,17 @@ paramsToSchema ps =
                     , "amount" .= numberField "New amount for every line the selector names"
                     ]
             , "required" .= (["select", "amount"] :: [Text])
+            ]
+
+    setSupplierItemSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "select" .= selectorItemSchema
+                    , "provider" .= stringField "Process id of the new supplier, in this database or a dependency"
+                    ]
+            , "required" .= (["select", "provider"] :: [Text])
             ]
 
     setFormulaItemSchema =
@@ -785,6 +797,7 @@ dispatchTool (Caller reader by) dbManager presets mHosting mBaseUrl rid resource
     R.GetCoverageReport -> callGetCoverageReport dbManager rid args
     R.EditExchanges -> callEditExchanges dbManager by rid args
     R.EditActivities -> callEditActivities dbManager by rid args
+    R.SupplyMissing -> callSupplyMissing dbManager by rid args
     R.DatabaseHistory -> callDatabaseHistory dbManager rid args
     R.DatabaseParameters -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
     R.EditDatabaseParameters -> callEditDatabaseParameters dbManager by rid args
@@ -2073,6 +2086,15 @@ callEditActivities dbManager by rid args = runTool rid $ do
         | KM.member "note" element = Left "a note is given once, beside \"edits\", for the whole change"
         | otherwise = ActivityEditAPI <$> requireText "process_id" element <*> exchangeEditRequestOf element
 
+-- | A missing product given a supplier wherever the database asks for it.
+callSupplyMissing :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
+callSupplyMissing dbManager by rid args = runTool rid $ do
+    dbName <- except (requireText "database" args)
+    request <- except (MissingRequest <$> requireText "product" args <*> optionalText "supplier_activity" args <*> requireText "provider" args)
+    note <- except (optionalText "note" args)
+    report <- ExceptT (first refusalMessage <$> supplyMissing dbManager dbName by (note >>= noteFrom) request)
+    return $ toolSuccessJson rid (toJSON (activitiesReportToAPI report))
+
 {- | The arguments of one activity's edit, read into the request the HTTP
 endpoint reads, so what an assistant may change, and what it is refused, are
 exactly what a person is.
@@ -2097,6 +2119,7 @@ exchangeEditRequestOf args =
         <*> parseArrayArg "set_prices" Nothing args
         <*> parseArrayArg "set_dry_masses" Nothing args
         <*> parseArrayArg "set_wet_masses" Nothing args
+        <*> parseArrayArg "set_suppliers" Nothing args
         <*> parseArrayArg "remove_parameters" Nothing args
         <*> optionalText "note" args
   where

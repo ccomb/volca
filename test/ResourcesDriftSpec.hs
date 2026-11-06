@@ -119,6 +119,7 @@ knownDivergences =
     , ("edit_exchanges", "set_prices")
     , ("edit_exchanges", "set_dry_masses")
     , ("edit_exchanges", "set_wet_masses")
+    , ("edit_exchanges", "set_suppliers")
     , ("edit_method_categories", "impact_category")
     , ("edit_method_categories", "method_id")
     , ("edit_method_categories", "methodology")
@@ -240,6 +241,11 @@ knownDivergences =
     , ("search_activities", "database")
     , ("search_flows", "database")
     , ("search_flows", "query")
+    , ("supply_missing_product", "database")
+    , ("supply_missing_product", "note")
+    , ("supply_missing_product", "product")
+    , ("supply_missing_product", "provider")
+    , ("supply_missing_product", "supplier_activity")
     , ("unload_database", "database")
     ]
 

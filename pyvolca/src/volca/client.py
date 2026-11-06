@@ -109,6 +109,7 @@ from .types import (
     SetAmount,
     SetFormula,
     SetDryMass,
+    SetSupplier,
     SetWetMass,
     ActivityEdit,
     SetPrice,
@@ -1291,6 +1292,7 @@ class Client:
         set_prices: Sequence[SetPrice] = (),
         set_dry_masses: Sequence[SetDryMass] = (),
         set_wet_masses: Sequence[SetWetMass] = (),
+        set_suppliers: Sequence[SetSupplier] = (),
         remove_parameters: Sequence[str] = (),
         note: str | None = None,
         db_name: str | None = None,
@@ -1340,6 +1342,11 @@ class Client:
         longer gives its amount takes the formula's value; ``restated`` lists
         those lines by ``position``, with the amount moved ``from`` and ``to``.
 
+        ``set_suppliers`` moves inputs to another supplier, in this database
+        or a dependency, and links an input that named none: each line keeps
+        its amount, unit, formula, comment, pedigree and place, and
+        ``suppliersSet`` counts the lines moved. Needs wire revision 108.
+
         Each line of :meth:`get_activity` carries the selector that reaches it
         (``selector``), including a line no provider is named for, which is
         selected by its flow and location.
@@ -1370,6 +1377,7 @@ class Client:
             set_prices=set_prices,
             set_dry_masses=set_dry_masses,
             set_wet_masses=set_wet_masses,
+            set_suppliers=set_suppliers,
             remove_parameters=remove_parameters,
         )
         self._require_edit_wire(edit, "edit_exchanges")
@@ -1427,6 +1435,42 @@ class Client:
             )
         )
 
+    def supply_missing_product(
+        self,
+        product: str,
+        provider: str,
+        *,
+        supplier_activity: str | None = None,
+        note: str | None = None,
+        db_name: str | None = None,
+    ) -> dict:
+        """Give a missing product a supplier wherever the database asks for it.
+
+        Every input that asks for ``product`` (naming ``supplier_activity``,
+        or no supplier activity when it is ``None``) and that nothing answers
+        moves to ``provider``, keeping its amount, formula and comment: the
+        :class:`SetSupplier` edits :meth:`edit_activities` would make, one per
+        activity, found by the engine. ``product`` and ``supplier_activity``
+        are the ``name`` and ``supplierActivity`` of a gap of
+        :meth:`get_gap_report`::
+
+            client.supply_missing_product("barley", "a_b", note="Local mill")
+
+        One line the provider cannot supply refuses the whole change. Answers
+        as :meth:`edit_activities` does. Needs wire revision 109.
+        """
+        self._require_wire(109, "supply_missing_product", engine_hint="0.17.0")
+        target = self._db(db_name)
+        body: dict = {"product": product, "provider": provider}
+        if supplier_activity is not None:
+            body["supplierActivity"] = supplier_activity
+        return self._json(
+            self._session.post(
+                f"{self.base_url}/api/v1/db/{target}/missing-suppliers/supply",
+                json={**body, **self._note(note, "supply_missing_product")},
+            )
+        )
+
     def _require_edit_wire(self, edit: ActivityEdit, feature: str) -> None:
         """Refuse, before sending it, an edit the engine is too old to make."""
         if edit.name is not None or edit.location is not None or edit.description is not None:
@@ -1441,6 +1485,8 @@ class Client:
             self._require_wire(87, f"{feature}(set_dry_masses=)", engine_hint="0.16.1")
         if edit.set_wet_masses:
             self._require_wire(89, f"{feature}(set_wet_masses=)", engine_hint="0.16.1")
+        if edit.set_suppliers:
+            self._require_wire(108, f"{feature}(set_suppliers=)", engine_hint="0.17.0")
 
     # -- Changing a method collection of one's own -------------------------
 

@@ -36,6 +36,7 @@ module API.DatabaseHandlers (
     replaceActivityHandler,
     editExchangesHandler,
     editActivitiesHandler,
+    supplyMissingHandler,
     activitiesReportToAPI,
     editDatabaseParametersHandler,
     databaseHistoryHandler,
@@ -180,6 +181,7 @@ import API.Types (
     RestatedLineAPI (..),
     ScenarioAPI (..),
     ScenarioSaveRequest (..),
+    SupplyMissingRequest (..),
     SynonymGroupsResponse (..),
     SystemModelAPI (..),
     TakenProcessAPI (..),
@@ -214,6 +216,7 @@ import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
     EditReport (..),
+    MissingRequest (..),
     MutationOutcome (..),
     ParametersReport (..),
     WriteRefusal (..),
@@ -229,6 +232,7 @@ import Database.Edit (
     editDatabaseParameters,
     editExchanges,
     refusalMessage,
+    supplyMissing,
     writeActivities,
  )
 import Database.Export (parseExportFormat, parseMethodExportFormat, serializeDatabase, serializeMethodCollection)
@@ -853,6 +857,19 @@ editActivitiesHandler dbName req = do
     outcome <- liftIO (editActivities dbManager dbName by (aqNote req >>= noteFrom) edits)
     either refuseWrite (pure . activitiesReportToAPI) outcome
 
+{- | Give a missing product a supplier wherever the database asks for it, as
+one change of the activities holding those lines. Refused with the codes
+'editExchangesHandler' answers.
+-}
+supplyMissingHandler :: Text -> SupplyMissingRequest -> AppM ActivitiesEditResponse
+supplyMissingHandler dbName req = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    by <- asks aeAuthor
+    let request = MissingRequest (smrProduct req) (smrSupplierActivity req) (smrProvider req)
+    outcome <- liftIO (supplyMissing dbManager dbName by (smrNote req >>= noteFrom) request)
+    either refuseWrite (pure . activitiesReportToAPI) outcome
+
 -- | What an edit of several activities answers, on every surface that offers one.
 activitiesReportToAPI :: (NonEmpty EditReport, MutationOutcome) -> ActivitiesEditResponse
 activitiesReportToAPI (reports, done) =
@@ -876,6 +893,7 @@ editReportToAPI report =
         , eepPricesSet = erPricesSet report
         , eepDryMassesSet = erDryMassesSet report
         , eepWetMassesSet = erWetMassesSet report
+        , eepSuppliersSet = erSuppliersSet report
         , eepParametersSet = erParametersSet report
         , eepParametersRemoved = erParametersRemoved report
         , eepRestated = [RestatedLineAPI{rsPosition = rlPosition line, rsFrom = rlFrom line, rsTo = rlTo line} | line <- erRestated report]

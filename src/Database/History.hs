@@ -150,6 +150,7 @@ describeEdit namer (EditLine edit _ before) = case edit of
     SetText (ActivityDescription _) -> "Description rewritten"
     SetParameter name parameter -> "Parameter " <> name <> " set to " <> parameterValue parameter
     RemoveParameter name -> "Parameter " <> name <> " removed"
+    SetSupplier selector provider -> selected selector <> ": supplier set to " <> activityNamed namer provider
   where
     selected :: ExchangeSelector -> Text
     selected = \case

@@ -4,6 +4,23 @@
 
 ### Added
 
+- A missing product can be given a supplier in one step, for every activity
+  that lacks it: `POST /db/{dbName}/missing-suppliers/supply` (the assistant
+  tool `supply_missing_product`, pyvolca's `Client.supply_missing_product`)
+  names the product as the supplier-gap report lists it, and the activity
+  chosen to supply it. Each input that asks for it and that nothing answers
+  moves to that supplier and keeps its amount, formula and comment, as one
+  change written to the history activity by activity. One line the supplier
+  cannot take refuses the whole change. Wire revision 109.
+- An input can be moved to another supplier and keep the rest of its line:
+  `setSuppliers` in an edit of an activity's exchanges (the assistant tool's
+  `set_suppliers`, pyvolca's `SetSupplier`) names the line and the new
+  supplier's process id, in the database or a dependency. The amount, unit,
+  formula and its name, comment, pedigree and place in the inventory stay as
+  they were, where removing the line and adding another dropped all but the
+  amount. An input that named no supplier is linked the same way. A waste
+  output or a flow of nature is refused, and so is a supplier counted in a
+  unit of another kind than the line. Wire revision 108.
 - Several activities can be edited in one request, as one change: the
   request `POST /db/{dbName}/activities/exchanges`, the assistant tool
   `edit_activities` and pyvolca's `Client.edit_activities` take one edit per
@@ -23,6 +40,9 @@
   share their activity name and location, or share a location where one is
   named like its product: a workbook names a maker by those alone, so a
   re-import could not tell which one an input buys from.
+- A supplier change found by comparing two versions of an activity, once
+  applied, keeps the input's formula, comment, pedigree and place, where it
+  removed the line and added a new one at the end.
 - An archive whose entries are themselves archives loads as one database:
   each archive inside is unpacked where it sat, so a publisher's zip of one
   zip per process gives one database rather than refusing as holding no
