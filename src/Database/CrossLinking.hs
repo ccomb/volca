@@ -797,18 +797,20 @@ findWasteTreatmentByActivity ::
     UUID ->
     WasteTreatmentMatch
 findWasteTreatmentByActivity LinkingContext{lcIndexedDatabases} actUUID flowUUID =
-    case [ (idbName idb, entry)
-         | idb <- lcIndexedDatabases
-         , Just entries <- [M.lookup flowUUID (idbWasteTreatmentByFlowUUID idb)]
-         , entry <- entries
-         , seActivityUUID entry == actUUID
-         ] of
+    -- One database filing the flow both ways answers once, by its waste entry.
+    case M.toList (M.fromListWith (\_ kept -> kept) (asWaste <> asProduct)) of
         [(dbN, entry)] -> WasteMatched entry dbN
-        [] -> case findSupplierByActivityProduct lcIndexedDatabases (ProcessRef actUUID flowUUID) of
-            [(entry, dbN)] -> WasteMatched entry dbN
-            [] -> WasteNoMatch
-            products -> WasteAmbiguous (nub (map snd products))
-        matches -> WasteAmbiguous (nub (map fst matches))
+        [] -> WasteNoMatch
+        matches -> WasteAmbiguous (map fst matches)
+  where
+    asWaste =
+        [ (idbName idb, entry)
+        | idb <- lcIndexedDatabases
+        , Just entries <- [M.lookup flowUUID (idbWasteTreatmentByFlowUUID idb)]
+        , entry <- entries
+        , seActivityUUID entry == actUUID
+        ]
+    asProduct = [(dbN, entry) | (entry, dbN) <- findSupplierByActivityProduct lcIndexedDatabases (ProcessRef actUUID flowUUID)]
 
 {- | Find a supplier across all loaded databases (using pre-built indexes)
 This is the fast O(1) lookup version.

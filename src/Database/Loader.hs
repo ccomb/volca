@@ -2297,8 +2297,9 @@ a missing supplier, and the completeness report names it beside them.
 -}
 namesATreatment :: Exchange -> Bool
 namesATreatment = \case
-    WasteExchange{waIsInput = False, waSupplierClaim = ClaimById _} -> True
-    _ -> False
+    WasteExchange{waIsInput = isInput, waSupplierClaim = claim} -> not isInput && claimsAnActivityUUID claim
+    TechnosphereExchange{} -> False
+    BiosphereExchange{} -> False
 
 -- | The name a demand is reported under: its product's, or its waste's.
 demandedName :: TechFlowDB -> WasteFlowDB -> Exchange -> Maybe T.Text

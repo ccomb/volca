@@ -531,6 +531,14 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
                 score <- scoreAcross rootDB "es1-dep" depDB pid
                 withinTolerance 1.0e-9 6.0 score `shouldBe` True
 
+    it "leaves a named treatment two databases ship, one as a waste and one as a product, ambiguous" $ do
+        asWaste <- buildDB "ilcd-dep" (M.singleton (tA, wW) (treatment ReferenceInput 1.0))
+        asProduct <- productTreatments
+        let ctx = (ctxWithDep "ilcd-dep" asWaste){lcIndexedDatabases = [buildIndexedDatabaseFromDB n emptySynonymDB d | (n, d) <- [("ilcd-dep", asWaste), ("es1-dep", asProduct)]]}
+            stats = findAllCrossDBLinks ctx (simpleDB (M.singleton (pA, yY) (producer (namedWaste tA))))
+        cdlLinks stats `shouldBe` []
+        cdlWasteAmbiguous stats `shouldBe` 1
+
     it "lists a waste output naming a treatment no database holds among the missing" $ do
         depDB <- productTreatments
         let root = simpleDB (M.singleton (pA, yY) (producer (namedWaste tB)))
