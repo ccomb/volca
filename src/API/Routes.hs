@@ -1674,7 +1674,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 107: editing several activities as one change, at
+(revision 108: the @setSuppliers@ an edit of an activity's exchanges takes,
+which moves an input, linked or not, to another supplier and keeps the rest of
+the line, and the @suppliersSet@ its answer gives;
+revision 107: editing several activities as one change, at
 @db/{dbName}/activities/exchanges@;
 revision 106: @pattern@, a value the match strategy of a factor now takes
 for a flow a wildcard line selected, which used to read @name@;
@@ -1908,7 +1911,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 107
+currentWireVersion = 108
 
 getVersion :: AppM Value
 getVersion = do

@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.1** speaks wire formats **2 to 107** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.1** speaks wire formats **2 to 108** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -959,7 +959,7 @@ edits: copy a configured one first.
 (`database_history`) and in the changes report its export
 carries. Needs wire revision 79.
 
-##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, set_parameters: Sequence[SetParameter] = (), set_formulas: Sequence[SetFormula] = (), set_prices: Sequence[SetPrice] = (), set_dry_masses: Sequence[SetDryMass] = (), set_wet_masses: Sequence[SetWetMass] = (), remove_parameters: Sequence[str] = (), note: str | None = None, db_name: str | None = None) -> dict`
+##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, set_parameters: Sequence[SetParameter] = (), set_formulas: Sequence[SetFormula] = (), set_prices: Sequence[SetPrice] = (), set_dry_masses: Sequence[SetDryMass] = (), set_wet_masses: Sequence[SetWetMass] = (), set_suppliers: Sequence[SetSupplier] = (), remove_parameters: Sequence[str] = (), note: str | None = None, db_name: str | None = None) -> dict`
 
 Change what one activity consumes and emits, its texts or its parameters, keeping the activity.
 
@@ -1005,6 +1005,11 @@ and ``remove_parameters`` removes parameters once the formulas set here
 no longer read them. With every change in, each line whose formula no
 longer gives its amount takes the formula's value; ``restated`` lists
 those lines by ``position``, with the amount moved ``from`` and ``to``.
+
+``set_suppliers`` moves inputs to another supplier, in this database
+or a dependency, and links an input that named none: each line keeps
+its amount, unit, formula, comment, pedigree and place, and
+``suppliersSet`` counts the lines moved. Needs wire revision 108.
 
 Each line of `get_activity` carries the selector that reaches it
 (``selector``), including a line no provider is named for, which is
@@ -4165,6 +4170,17 @@ matter is ``SetDryMass(flow, 0.59)``). An ``amount`` of ``None`` removes it.
 | `amount` | `float \| None` | _required_ |
 | `unit` | `str` | 'kg' |
 
+### `SetSupplier`
+
+The inputs to move to another supplier, linked or naming none yet, and
+that supplier's process id, in this database or a dependency. Each line
+keeps its amount, unit, formula, comment and pedigree.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `select` | `ExchangeSelector` | _required_ |
+| `provider` | `str` | _required_ |
+
 ### `SetWetMass`
 
 The wet mass of one unit of a product output, named by its flow id:
@@ -4202,6 +4218,7 @@ whole change, so it is not here.
 | `set_prices` | `collections.abc.Sequence[SetPrice]` | () |
 | `set_dry_masses` | `collections.abc.Sequence[SetDryMass]` | () |
 | `set_wet_masses` | `collections.abc.Sequence[SetWetMass]` | () |
+| `set_suppliers` | `collections.abc.Sequence[SetSupplier]` | () |
 | `remove_parameters` | `collections.abc.Sequence[str]` | () |
 
 #### Methods

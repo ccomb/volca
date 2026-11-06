@@ -414,6 +414,7 @@ paramsToSchema ps =
         "set_prices" -> setPriceItemSchema
         "set_dry_masses" -> setDryMassItemSchema
         "set_wet_masses" -> setWetMassItemSchema
+        "set_suppliers" -> setSupplierItemSchema
         "set_parameters" -> setParameterItemSchema
         "add_inputs" -> providerLineSchema "Producer of what is consumed"
         "add_waste_outputs" -> providerLineSchema "Treatment the waste is handed to"
@@ -466,6 +467,17 @@ paramsToSchema ps =
                     , "amount" .= numberField "New amount for every line the selector names"
                     ]
             , "required" .= (["select", "amount"] :: [Text])
+            ]
+
+    setSupplierItemSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "select" .= selectorItemSchema
+                    , "provider" .= stringField "Process id of the new supplier, in this database or a dependency"
+                    ]
+            , "required" .= (["select", "provider"] :: [Text])
             ]
 
     setFormulaItemSchema =
@@ -2097,6 +2109,7 @@ exchangeEditRequestOf args =
         <*> parseArrayArg "set_prices" Nothing args
         <*> parseArrayArg "set_dry_masses" Nothing args
         <*> parseArrayArg "set_wet_masses" Nothing args
+        <*> parseArrayArg "set_suppliers" Nothing args
         <*> parseArrayArg "remove_parameters" Nothing args
         <*> optionalText "note" args
   where

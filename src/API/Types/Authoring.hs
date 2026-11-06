@@ -190,6 +190,17 @@ data SetAmountAPI = SetAmountAPI
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetAmountAPI)
 
+{- | The inputs to move to another supplier, linked or not, and that supplier's
+process id, as an added input names it. Each line keeps its amount, unit,
+formula, comment and pedigree.
+-}
+data SetSupplierAPI = SetSupplierAPI
+    { ssSelect :: ExchangeSelectorAPI
+    , ssProvider :: Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped SetSupplierAPI)
+
 -- | The lines to give a formula, and the formula, in VoLCA's language; none drops it and keeps the amount.
 data SetFormulaAPI = SetFormulaAPI
     { sfSelect :: ExchangeSelectorAPI
@@ -280,6 +291,7 @@ data ExchangeEditRequest = ExchangeEditRequest
     , eerSetPrices :: [SetPriceAPI]
     , eerSetDryMasses :: [SetDryMassAPI]
     , eerSetWetMasses :: [SetWetMassAPI]
+    , eerSetSuppliers :: [SetSupplierAPI]
     , eerRemoveParameters :: [Text]
     , eerNote :: Maybe Text
     -- ^ Why the change was made, kept in the database's history
@@ -307,6 +319,7 @@ instance FromJSON ExchangeEditRequest where
             <*> o .:? "setPrices" .!= []
             <*> o .:? "setDryMasses" .!= []
             <*> o .:? "setWetMasses" .!= []
+            <*> o .:? "setSuppliers" .!= []
             <*> o .:? "removeParameters" .!= []
             <*> o .:? "note"
 
@@ -324,6 +337,7 @@ data ExchangeEditResponse = ExchangeEditResponse
     , eepPricesSet :: [Int]
     , eepDryMassesSet :: [Int]
     , eepWetMassesSet :: [Int]
+    , eepSuppliersSet :: [Int]
     , eepParametersSet :: [Text]
     , eepParametersRemoved :: [Text]
     , eepRestated :: [RestatedLineAPI]
@@ -498,6 +512,7 @@ toExchangeEdits req = case partitionEithers stated of
             <> map (\sp -> toSetProperty Price (sprProduct sp) (sprPrice sp)) (eerSetPrices req)
             <> map (\sd -> toSetProperty DryMass (sdmProduct sd) (sdmDryMass sd)) (eerSetDryMasses req)
             <> map (\sw -> toSetProperty WetMass (swmProduct sw) (swmWetMass sw)) (eerSetWetMasses req)
+            <> map toSetSupplier (eerSetSuppliers req)
             <> map (Right . AddExchange . toTechInput) (eerAddInputs req)
             <> map (fmap AddExchange . toBio) (eerAddBiosphere req)
             <> map (Right . AddExchange . toWasteOutput) (eerAddWasteOutputs req)
@@ -511,6 +526,7 @@ toExchangeEdits req = case partitionEithers stated of
             ]
     toSetAmount sa = flip SetAmount (saAmount sa) <$> toSelector (saSelect sa)
     toSetFormula sf = flip SetFormula (sfFormula sf) <$> toSelector (sfSelect sf)
+    toSetSupplier ss = flip SetSupplier (ssProvider ss) <$> toSelector (ssSelect ss)
     toSetProperty prop named value = case UUID.fromText named of
         Just flow -> Right (SetProperty prop flow value)
         Nothing -> Left ["a " <> propertyName prop <> " names its product by flow identifier, not " <> named]

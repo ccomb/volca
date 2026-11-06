@@ -586,9 +586,10 @@ presentIn p = \case
     AskedSummary change -> summaryPresence p change == ChangePresent
     AskedLine change -> exchangePresence (linesOf p) change == ChangePresent
 
-{- | Texts first, then amounts on the lines as they are, then removals, then
-additions: an amount set on a line a supplier change then replaces is
-harmless, a line removed before its amount is set is a refusal.
+{- | Texts first, then amounts on the lines as they are, then supplier changes
+and removals, then additions: an amount set on a line before it moves to
+another supplier stays with it, a line removed before its amount is set is a
+refusal.
 -}
 inEditOrder :: [ExchangeEdit] -> [ExchangeEdit]
 inEditOrder = L.sortOn rank
@@ -600,6 +601,7 @@ inEditOrder = L.sortOn rank
         SetAmount _ _ -> 1
         SetFormula _ _ -> 1
         SetProperty{} -> 1
+        SetSupplier _ _ -> 2
         RemoveExchange _ -> 2
         RemoveParameter _ -> 2
         AddExchange _ -> 3
@@ -631,13 +633,17 @@ exchangeLanding p groups query change = case lineLook groups change of
         SetLine line after -> sameUnit line after *> (pure . (`SetAmount` qtyAmount after) <$> selectorOf (inActivity p) line)
         MoveLine line after -> do
             sel <- selectorOf (inActivity p) line
-            quantity <- amountAfter line
             provider <- producerNamed (inDatabase p) (lgFlowId line) after
-            added <- linkedLine (ecRole change) provider quantity
-            pure [RemoveExchange sel, AddExchange added]
+            case ecRole change of
+                TechLine Input -> pure [SetSupplier sel provider]
+                _ -> do
+                    quantity <- amountAfter line
+                    added <- linkedLine (ecRole change) provider quantity
+                    pure [RemoveExchange sel, AddExchange added]
   where
-    -- A supplier change on a line whose amount changed too takes the new amount,
-    -- as long as the activity still holds the old one.
+    -- An input keeps its line when its supplier changes, so an amount changed
+    -- too lands on its own. A waste output is written again: it takes the new
+    -- amount, as long as the activity still holds the old one.
     amountAfter :: LineGroup -> Either Text Quantity
     amountAfter line = case [after | other <- query, sameLine other, Lacks (SetLine _ after) <- [lineLook groups other]] of
         (after : _) -> after <$ sameUnit line after

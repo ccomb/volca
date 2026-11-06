@@ -512,6 +512,7 @@ richEvents =
     , event repriced
     , event dryMassed
     , event wetMassed
+    , event resupplied
     , Entry "2026-10-21T10:00:00Z" Nothing (Change (noteFrom "Measured on site") rememberedEdit)
     , Entry "2026-10-21T10:05:00Z" Nothing (Change Nothing rememberedParameters)
     ]
@@ -552,6 +553,15 @@ parametrised =
         , (SetParameter "yield" Parameter{parameterDefinition = InputParameter 0.8 (Just (Uniform 0.5 1)), parameterUnit = Just "kg", parameterDescription = "Flour per loaf"}, 1)
         , (SetParameter "ratio" Parameter{parameterDefinition = CalculatedParameter "2 * yield" Nothing, parameterUnit = Nothing, parameterDescription = ""}, 1)
         , (RemoveParameter "old", 1)
+        ]
+
+-- | An input moved to another supplier, linked and naming none.
+resupplied :: JournalOp
+resupplied =
+    edited
+        supplierPid
+        [ (SetSupplier (SelectInput supplierPid) "00000000-0000-0001-0000-000000000000", 1)
+        , (SetSupplier (SelectUnlinkedInput supplierProdId (Just (LocationCode "FR"))) supplierPid, 1)
         ]
 
 -- | A product priced, then its price taken off.

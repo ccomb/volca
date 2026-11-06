@@ -243,6 +243,13 @@ spec = describe "Service.Compare" $ do
             capExchanges answer `shouldBe` [OutcomeApplied, OutcomeApplied]
             after <- applied ctx p edits
             [(l, a) | TechnosphereExchange{techRole = Input, techActivityLinkId = l, techAmount = a} <- exchanges after] `shouldBe` [(Just (uuid 3), 2)]
+        it "moves a line to another supplier and keeps the rest of it" $ do
+            (p, ctx) <- wheatIn [(buys 2 barley 1){techComment = Just "measured"}, emits co2 kg 1] barleySuppliers
+            let (answer, edits) = applicableChanges ctx p (changesQuery [] [barleyLine organic])
+            capExchanges answer `shouldBe` [OutcomeApplied]
+            after <- applied ctx p edits
+            [(i, l, c) | (i, TechnosphereExchange{techRole = Input, techActivityLinkId = l, techComment = c}) <- zip [0 :: Int ..] (exchanges after)]
+                `shouldBe` [(1, Just (uuid 3), Just "measured")]
         it "reports a change no edit can make without holding back the others" $ do
             (p, ctx) <- wheatIn [] barleySuppliers
             let addedBarley = barleyLine (LineAdded (Quantity 1 "kg"))

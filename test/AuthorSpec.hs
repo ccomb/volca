@@ -52,6 +52,7 @@ import Types (
     Database (..),
     DeclaredShare (..),
     Exchange (..),
+    ExchangeFormula (..),
     ExchangeLocation (..),
     ExchangeProperties (..),
     FileReading (..),
@@ -716,6 +717,47 @@ spec = do
 
             it "refuses a selector that matches nothing" $
                 editRefused "matches no exchange" [RemoveExchange (SelectBiosphere (mkUUID 998))]
+
+            describe "a supplier changed on a line" $ do
+                -- The same milk sold by another dairy: the database holds the
+                -- supplier under other ids, and the cheese still buys from the first.
+                let movedTo = UUID.toText highActId <> "_" <> UUID.toText highProdId
+                    formulated = importedActivity{exchanges = map withMilkFormula (exchanges importedActivity)}
+                    withMilkFormula ex = case ex of
+                        TechnosphereExchange{techRole = Input} -> ex{techFormula = Just ExchangeFormula{efName = Just "milk", efText = "8"}}
+                        _ -> ex
+                    resupply act edits = do
+                        otherDairy <- buildFixtureAt highActId highProdId
+                        pure (applyExchangeEdits (contextOf otherDairy) edits act)
+
+                it "moves the line and keeps its amount, unit, formula, comment, pedigree and place" $ do
+                    result <- resupply formulated [SetSupplier (SelectInput supplierPid) movedTo]
+                    case result of
+                        Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
+                        Right edited -> do
+                            eaMatched edited `shouldBe` [1]
+                            let place act = [i | (i, TechnosphereExchange{techRole = Input}) <- zip [0 :: Int ..] (exchanges act)]
+                            place (eaActivity edited) `shouldBe` place formulated
+                            map (\ex -> (techFlowId ex, techActivityLinkId ex, techSupplierClaim ex)) (inputsOf (eaActivity edited))
+                                `shouldBe` [(highProdId, Just highActId, ClaimById highActId)]
+                            map (\ex -> (techAmount ex, techUnitId ex, techFormula ex, techComment ex, techPedigree ex)) (inputsOf (eaActivity edited))
+                                `shouldBe` map (\ex -> (techAmount ex, techUnitId ex, techFormula ex, techComment ex, techPedigree ex)) (inputsOf formulated)
+
+                it "links a line that named no supplier" $ do
+                    let unlinked = importedActivity{exchanges = exchanges importedActivity <> [unlinkedMilk "DE" 3]}
+                    result <- resupply unlinked [SetSupplier (SelectUnlinkedInput supplierProdId (Just (LocationCode "DE"))) movedTo]
+                    case result of
+                        Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
+                        Right edited ->
+                            [(techActivityLinkId ex, techAmount ex) | ex <- inputsOf (eaActivity edited), techFlowId ex == highProdId]
+                                `shouldBe` [(Just highActId, 3)]
+
+                it "gives no supplier to a waste output or a flow of nature" $ do
+                    editRefused "takes no supplier" [SetSupplier (SelectWaste treatPid) supplierPid]
+                    editRefused "takes no supplier" [SetSupplier (SelectBiosphere co2Id) supplierPid]
+
+                it "refuses a supplier the database does not hold" $
+                    editRefused "input from" [SetSupplier (SelectInput supplierPid) (UUID.toText (mkUUID 997))]
 
             it "refuses a provider that is not a process id" $
                 -- Otherwise "matches nothing" would send the author looking for
