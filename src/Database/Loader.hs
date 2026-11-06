@@ -180,7 +180,7 @@ import Database.MatrixBuild (findProducer)
 import Database.Patch (applyExchangePatches, describeExchangePatch)
 import Database.Upload (DatabaseFormat (..), listDirectoryRecursive, referenceConventionOf)
 import EcoSpold.Common (ParsedDataset (..), distributeFiles)
-import EcoSpold.Parser1 (streamParseActivityAndFlowsFromFile1, streamParseAllDatasetsFromFile1)
+import EcoSpold.Parser1 (streamParseAllDatasetsFromFile1)
 import EcoSpold.Parser2 (parseUnitConversions, streamParseActivityAndFlowsFromFile)
 import qualified Expr
 import GHC.Conc (getNumCapabilities)
@@ -1784,17 +1784,17 @@ loadEcoSpoldFiles opts files = do
         workerStartTime <- getCurrentTime
         reportProgress Info $ printf "Worker %d started: processing %d files" workerNum (length workerFiles)
 
-        -- Parse all files for this worker using appropriate parser. Both paths
-        -- return a 'ParsedDataset'; EcoSpold 2 addresses its suppliers by UUID
+        -- Parse all files for this worker using appropriate parser. An
+        -- EcoSpold 1 file may hold several datasets, every one of which is
+        -- read; EcoSpold 2 holds one, and addresses its suppliers by UUID
         -- rather than by dataset number, so it fills neither of those fields.
         let parseFile = case files of
-                EcoSpold1Files _ -> streamParseActivityAndFlowsFromFile1
-                EcoSpold2Files conversions _ -> streamParseActivityAndFlowsFromFile conversions
+                EcoSpold1Files _ -> streamParseAllDatasetsFromFile1
+                EcoSpold2Files conversions _ -> fmap (fmap pure) . streamParseActivityAndFlowsFromFile conversions
         workerResults <- mapM parseFile workerFiles
         let paired = zipWith (\f -> either (Left . T.pack) (Right . (f,))) workerFiles workerResults
         let (unread, oks) = partitionEithers paired
-        let split = [(f, allocateParsed opts r) | (f, r) <- oks]
-        let (unreadableNames, keyed) = partitionEithers [keyDatasetsOf f rs | (f, rs) <- split]
+        let (unreadableNames, keyed) = partitionEithers [keyDatasetsOf f (length rs) (concatMap (allocateParsed opts) rs) | (f, rs) <- oks]
 
         -- A file whose content has no reading and a file whose name has none
         -- are the same answer: it was offered and it becomes no dataset. They
@@ -1841,24 +1841,30 @@ loadEcoSpoldFiles opts files = do
     --    activity the name gives: a process kept whole with its coproducts, once
     --    written and read back under a key, keeps every product it had.
     --
-    keyDatasetsOf :: FilePath -> [ParsedDataset] -> Either T.Text [((UUID, UUID), ParsedDataset)]
-    keyDatasetsOf filepath parsed =
-        traverse (\p -> (,p) . ownProduct p <$> processKeyOf filepath p) parsed
+    keyDatasetsOf :: FilePath -> Int -> [ParsedDataset] -> Either T.Text [((UUID, UUID), ParsedDataset)]
+    keyDatasetsOf filepath datasetsRead parsed =
+        traverse (\p -> (,p) . ownProduct p <$> processKeyOf onlyDataset filepath p) parsed
       where
         ownProduct :: ParsedDataset -> (UUID, UUID) -> (UUID, UUID)
         ownProduct p (actUUID, prodUUID)
             | not isEcoSpold1 && length parsed > 1 = (actUUID, getReferenceProductUUID (pdActivity p))
             | otherwise = (actUUID, prodUUID)
 
+        -- Several datasets share one file name, so none of them can claim it.
+        onlyDataset :: Bool
+        onlyDataset = datasetsRead == 1
+
     -- The (activity, product) pair one process is filed under
-    processKeyOf :: FilePath -> ParsedDataset -> Either T.Text (UUID, UUID)
-    processKeyOf filepath parsed
+    processKeyOf :: Bool -> FilePath -> ParsedDataset -> Either T.Text (UUID, UUID)
+    processKeyOf onlyDataset filepath parsed
         | isEcoSpold1 =
             -- EcoSpold1: prefer the identifier the file itself carries, so a
             -- dataset keeps its identity across releases; mint from name and
-            -- location only when the file name carries none.
+            -- location only when the file name carries none, or when the file
+            -- holds several datasets.
             let activity = pdActivity parsed
-                actUUID = fromMaybe (generateActivityUUIDFromActivity activity) (datasetUUIDFromPath filepath)
+                fileUUID = if onlyDataset then datasetUUIDFromPath filepath else Nothing
+                actUUID = fromMaybe (generateActivityUUIDFromActivity activity) fileUUID
              in Right (actUUID, getReferenceProductUUID activity)
         | otherwise =
             -- EcoSpold2: a name with no reading (a file called after its

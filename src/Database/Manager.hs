@@ -7,6 +7,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Database.Manager (
     -- * Types
@@ -2441,10 +2442,6 @@ listDatabases manager = do
                 , dsAdded = dcAdded config
                 }
 
--- | File extensions 'resolveDataPath' knows how to extract as archives.
-archiveExtensions :: [String]
-archiveExtensions = [".zip", ".7z", ".gz", ".xz"]
-
 {- | Resolve a database path: if it's an archive, extract it first.
 Extracts to "{archivePath}.d/" and finds the actual data directory inside.
 Plain files/directories pass through unchanged.
@@ -2461,7 +2458,7 @@ resolveDataPath path = do
     isFile <- doesFileExist path
     -- A directory, a missing path, or a plain file goes through unchanged, and
     -- the caller reports whatever is wrong with it.
-    if isDir || not isFile || map toLower (takeExtension path) `notElem` archiveExtensions
+    if isDir || not isFile || map toLower (takeExtension path) `notElem` Upload.archiveExtensions
         then pure (Right path)
         else extractAndFind path
   where
@@ -2476,9 +2473,12 @@ resolveDataPath path = do
             else do
                 createDirectoryIfMissing True extractDir
                 reportProgress Info $ "Extracting archive: " <> archive
-                result <- Upload.extractArchiveFile archive extractDir
+                result <- either (Left . T.pack . show) id <$> try @SomeException (Upload.extractArchiveFile archive extractDir)
                 case result of
-                    Left err ->
+                    -- What was unpacked before the refusal would otherwise be
+                    -- taken for a finished extraction on the next start.
+                    Left err -> do
+                        removeDirectoryRecursive extractDir
                         pure . Left $
                             "Archive could not be extracted: " <> T.pack archive <> ": " <> err
                     Right () -> do

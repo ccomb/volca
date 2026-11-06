@@ -27,6 +27,16 @@
 - A supplier change found by comparing two versions of an activity, once
   applied, keeps the input's formula, comment, pedigree and place, where it
   removed the line and added a new one at the end.
+- An archive whose entries are themselves archives loads as one database:
+  each archive inside is unpacked where it sat, so a publisher's zip of one
+  zip per process gives one database rather than refusing as holding no
+  data file. A file two inner archives both hold, with different content,
+  is kept under each archive's name rather than overwritten. Archives nested
+  more than three deep, or more than 256 of them, are refused. An inner
+  archive that will not extract is left packed, and the reading says so.
+- A directory of EcoSpold 1 files holding several datasets each loads every
+  dataset. It loaded the first of each file and dropped the rest without a
+  word, while a lone such file loaded them all.
 - An EcoSpold 1 dataset that names its product but carries no inventory at
   all is read as a process making that product from nothing, so it scores
   zero, and the reading says so. It was skipped, so the processes of the
