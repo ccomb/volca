@@ -271,6 +271,23 @@ spec = describe "BrightwayExcel.Writer" $ do
             -- is faithfully representable; the guard must not reject it.
             checkBrightwayExportable noDependencies subnormalDb `shouldSatisfy` isRight
 
+        it "exports two products spelt alike whose units are two records of one name" $ do
+            -- Two databases can each carry their own record of a unit named
+            -- "kilowatt hour": the workbook writes the name, and reads back one unit.
+            let kwhAgain = kwh{unitId = generateUnitUUID "kilowatt hour, again"}
+                boughtFlow = elecFlow{tfId = generateFlowUUID "Electricity, high voltage" "bought", tfName = "Electricity, high voltage", tfUnitId = unitId kwhAgain}
+                bought = gasExch{techFlowId = tfId boughtFlow, techUnitId = unitId kwhAgain, techAmount = 2}
+                buyer = elec{exchanges = [prodExch, bought]}
+                db =
+                    fixtureDb
+                        { sdbActivities = M.singleton (generateActivityUUID buyer, getReferenceProductUUID buyer) buyer
+                        , sdbTechFlows = M.insert (tfId boughtFlow) boughtFlow (sdbTechFlows fixtureDb)
+                        , sdbUnits = M.insert (unitId kwhAgain) kwhAgain (sdbUnits fixtureDb)
+                        }
+            renderWorkbook cfg db `shouldSatisfy` isRight
+            withWritten db $ \path ->
+                (isRight <$> parseBrightwayExcel defaultUnitConfig path) `shouldReturn` True
+
     describe "ReferenceInput regression" $
         it "rejects a reference input rather than round-tripping it to a duplicated row" $ do
             -- Brightway has no marker for a reference input. Emitting it would

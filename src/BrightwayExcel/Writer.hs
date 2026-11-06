@@ -369,7 +369,9 @@ checkBrightwayExportable deps db =
 
 {- | The products the exchanges name that a workbook cannot tell apart. The reader
 knows a product by its name folded in case and refuses one written in two units,
-so two such products in different units make a file it would refuse. A database
+so two such products in different units make a file it would refuse. Units are
+compared as the workbook writes them, by name: two units named alike are one
+unit to the reader, which rebuilds its identity from the name. A database
 reaches this when it holds a product of its own and one spelt alike that
 another database makes ('BrightwayExcel.Parser.productFlowUUID'): the writer
 does not know that database, and writes every row as made in the workbook.
@@ -378,7 +380,7 @@ productsSpeltAlike :: SimpleDatabase -> [NE.NonEmpty TechnosphereFlow]
 productsSpeltAlike db =
     [ flows
     | (_, flows) <- collisions [(T.toCaseFold (T.strip (tfName f)), f) | f <- written]
-    , NE.length (NE.nub (NE.map tfUnitId flows)) > 1
+    , NE.length (NE.nub (NE.map ((`unitNameOf` db) . tfUnitId) flows)) > 1
     ]
   where
     written :: [TechnosphereFlow]
