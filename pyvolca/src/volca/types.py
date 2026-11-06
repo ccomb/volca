@@ -3399,6 +3399,19 @@ class SetFormula:
 
 
 @dataclass(frozen=True)
+class SetSupplier:
+    """The inputs to move to another supplier, linked or naming none yet, and
+    that supplier's process id, in this database or a dependency. Each line
+    keeps its amount, unit, formula, comment and pedigree."""
+
+    select: ExchangeSelector
+    provider: str
+
+    def to_wire(self) -> dict:
+        return {"select": self.select.to_wire(), "provider": self.provider}
+
+
+@dataclass(frozen=True)
 class SetPrice:
     """The price of a product output, named by its flow id: ``amount`` for one
     unit of the product, in ``currency`` as written (``"EUR2005"``). An
@@ -3505,6 +3518,7 @@ class ActivityEdit:
     set_prices: Sequence[SetPrice] = ()
     set_dry_masses: Sequence[SetDryMass] = ()
     set_wet_masses: Sequence[SetWetMass] = ()
+    set_suppliers: Sequence[SetSupplier] = ()
     remove_parameters: Sequence[str] = ()
 
     def fields(self) -> dict:
@@ -3530,6 +3544,7 @@ class ActivityEdit:
                 ("setPrices", [p.to_wire() for p in self.set_prices]),
                 ("setDryMasses", [d.to_wire() for d in self.set_dry_masses]),
                 ("setWetMasses", [w.to_wire() for w in self.set_wet_masses]),
+                ("setSuppliers", [s.to_wire() for s in self.set_suppliers]),
             )
             if value
         }

@@ -482,6 +482,7 @@ editedInserts ctx target editLines = do
         SetAmount _ _ -> False
         AddExchange _ -> False
         SetFormula _ _ -> False
+        SetSupplier _ _ -> False
         SetProperty{} -> False
     siblingsOf pid activityUUID =
         [ other
@@ -616,6 +617,8 @@ editJSON (EditLine edit matched before) = object (("matched" .= matched) : prior
             ["edit" .= ("parameter" :: Text), "name" .= name, "parameter" .= parameterJSON parameter]
         RemoveParameter name ->
             ["edit" .= ("unparameter" :: Text), "name" .= name]
+        SetSupplier selector provider ->
+            ["edit" .= ("supplier" :: Text), "select" .= selectorJSON selector, "provider" .= provider]
 
 parseEdit :: Value -> Parser EditLine
 parseEdit = withObject "exchange edit" $ \o -> do
@@ -637,6 +640,7 @@ parseEdit = withObject "exchange edit" $ \o -> do
             "wet mass" -> property WetMass
             "parameter" -> SetParameter <$> o .: "name" <*> (o .: "parameter" >>= parseParameter)
             "unparameter" -> RemoveParameter <$> o .: "name"
+            "supplier" -> SetSupplier <$> (o .: "select" >>= parseSelector) <*> o .: "provider"
             other -> fail ("unknown exchange edit: " <> T.unpack other)
     pure (EditLine edit matched before)
 

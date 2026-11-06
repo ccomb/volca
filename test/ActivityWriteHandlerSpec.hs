@@ -49,6 +49,7 @@ import API.Types (
     SetAmountAPI (..),
     SetDryMassAPI (..),
     SetPriceAPI (..),
+    SetSupplierAPI (..),
     SetWetMassAPI (..),
     TechInputAPI (..),
  )
@@ -423,6 +424,7 @@ noEdits =
         , eerSetPrices = []
         , eerSetDryMasses = []
         , eerSetWetMasses = []
+        , eerSetSuppliers = []
         , eerRemoveParameters = []
         , eerNote = Nothing
         }
@@ -486,6 +488,10 @@ documentingSpec = describe "documenting the changes made to a database" $ do
             [epDryMass (techProperties ex) | act <- activities, ex@TechnosphereExchange{techRole = ReferenceProduct} <- exchanges act]
                 `shouldBe` [Just milkDryMass]
             history env `shouldReturn` Right [(Just "13 % dry matter", ["Product \"milk\": dry mass set to 0.13 kg"])]
+
+    it "reads a supplier change as the document states it" $
+        fmap (map (\ss -> (esKind (ssSelect ss), esProvider (ssSelect ss), ssProvider ss)) . eerSetSuppliers) (decode "{\"setSuppliers\":[{\"select\":{\"kind\":\"input\",\"provider\":\"a_b\"},\"provider\":\"c_d\"}]}")
+            `shouldBe` Just [("input", Just "a_b", "c_d")]
 
     it "reads a dry mass as the document states it" $
         fmap (map (\sd -> (sdmProduct sd, sdmDryMass sd)) . eerSetDryMasses) (decode "{\"setDryMasses\":[{\"product\":\"p-1\",\"dryMass\":{\"amount\":0.13,\"unit\":\"kg\"}},{\"product\":\"p-2\",\"dryMass\":null}]}")

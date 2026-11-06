@@ -1751,12 +1751,13 @@ params r = case r of
         , Param "set_prices" "array" Optional "Prices of product outputs, which the price allocation key divides a process of several products by. Each is {product, price}: product is the flow id of the reference product or a coproduct, price is {amount, unit} with the currency as unit, or null to remove it."
         , Param "set_dry_masses" "array" Optional "Dry masses of product outputs, which the dry mass allocation key divides a process of several products by. Each is {product, dryMass}: product is the flow id of the reference product or a coproduct, dryMass is {amount, unit} for one unit of the product, in a unit of mass, or null to remove it."
         , Param "set_wet_masses" "array" Optional "Wet masses of product outputs, which the wet mass allocation key divides a process of several products by. Each is {product, wetMass}: product is the flow id of the reference product or a coproduct, wetMass is {amount, unit} for one unit of the product, in a unit of mass, or null to remove it. On a product in litres or cubic metres it is the density: the key multiplies it by the line's amount, which alone it cannot weigh."
+        , Param "set_suppliers" "array" Optional "Inputs to move to another supplier, linked or naming no provider yet. Each is {select: {kind, provider|flow, location?}, provider}, where the selector's kind is \"input\" and provider is the new supplier's process_id, in this database or a dependency. The line keeps its amount, unit, formula, comment and pedigree."
         , Param "remove_parameters" "array" Optional "Names of the activity's parameters to remove, once the formulas set here no longer read them. Refused while a formula still reads one the database does not define."
         , Param "note" "string" Optional "Why the change is made, in a sentence. Kept in the database's history (get_database_history) and in the changes report its export carries."
         ]
     EditActivities ->
         [ pDatabase
-        , Param "edits" "array" Required "One element per activity: {process_id} plus the arguments of edit_exchanges (remove, set_amounts, add_inputs, add_biosphere, add_waste_outputs, set_name, set_location, set_description, set_parameters, set_formulas, set_prices, set_dry_masses, set_wet_masses, remove_parameters), each as edit_exchanges reads it."
+        , Param "edits" "array" Required "One element per activity: {process_id} plus the arguments of edit_exchanges (remove, set_amounts, add_inputs, add_biosphere, add_waste_outputs, set_name, set_location, set_description, set_parameters, set_formulas, set_prices, set_dry_masses, set_wet_masses, set_suppliers, remove_parameters), each as edit_exchanges reads it."
         , Param "note" "string" Optional "Why the change is made, in a sentence, for every activity it edits. Kept in the database's history (get_database_history) and in the changes report its export carries."
         ]
     DatabaseParameters -> [pDatabase]

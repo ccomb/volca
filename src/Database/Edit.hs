@@ -700,6 +700,7 @@ data EditReport = EditReport
     , erPricesSet :: [Int]
     , erDryMassesSet :: [Int]
     , erWetMassesSet :: [Int]
+    , erSuppliersSet :: [Int]
     , erParametersSet :: [Text]
     , erParametersRemoved :: [Text]
     , erRestated :: [RestatedLine]
@@ -834,6 +835,7 @@ reportOf done (JudgedEdit _ edits _ edited) =
         , erPricesSet = [n | (SetProperty Price _ _, n) <- zip edits matched]
         , erDryMassesSet = [n | (SetProperty DryMass _ _, n) <- zip edits matched]
         , erWetMassesSet = [n | (SetProperty WetMass _ _, n) <- zip edits matched]
+        , erSuppliersSet = [n | (SetSupplier _ _, n) <- zip edits matched]
         , erParametersSet = [name | SetParameter name _ <- edits]
         , erParametersRemoved = [name | RemoveParameter name <- edits]
         , erRestated = eaRestated edited

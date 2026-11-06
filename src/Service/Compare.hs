@@ -600,6 +600,7 @@ inEditOrder = L.sortOn rank
         SetAmount _ _ -> 1
         SetFormula _ _ -> 1
         SetProperty{} -> 1
+        SetSupplier _ _ -> 2
         RemoveExchange _ -> 2
         RemoveParameter _ -> 2
         AddExchange _ -> 3

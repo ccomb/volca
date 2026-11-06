@@ -80,7 +80,7 @@ import Data.Either (partitionEithers)
 import Data.Indexing (repeated)
 import Data.List (nub)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isNothing, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -493,6 +493,12 @@ data ExchangeEdit
     | -- | A parameter of the activity, added, or replaced under the same spelling.
       SetParameter Text Parameter
     | RemoveParameter Text
+    | {- | The supplier of an input, linked or not, given by process id as an
+      added input names it. The line keeps everything else it carries: its
+      amount and unit, its formula and name, its comment, its pedigree and its
+      place in the inventory.
+      -}
+      SetSupplier ExchangeSelector Text
     deriving (Eq, Show)
 
 -- | A text of an activity, as an edit restates it.
@@ -615,6 +621,7 @@ amountsBefore activity = \case
     SetAmount selector _ -> named selector
     RemoveExchange selector -> named selector
     SetFormula selector _ -> named selector
+    SetSupplier selector _ -> named selector
     SetProperty{} -> []
     AddExchange _ -> []
     SetText _ -> []
@@ -688,6 +695,17 @@ applyOneEdit ctx act edit = case edit of
     RemoveParameter name -> case removalCheck (acDb ctx) act name of
         Left errs -> Left errs
         Right spelt -> Right (stepTo act{activityParameters = M.delete spelt (activityParameters act)} 1)
+    SetSupplier sel provider -> do
+        (matched, isSelected) <- mapLeft (: []) (inputSelector sel *> selectFrom sel current)
+        relinked <- traverse (\ex -> if isSelected ex then resupplied ctx provider ex else Right (ex, NothingToAdopt)) current
+        pure
+            EditStep
+                { esActivity = act{exchanges = map fst relinked}
+                , esMatched = matched
+                , -- One provider, so every line it moves to adopts the same flow.
+                  esAdoption = fromMaybe NothingToAdopt (listToMaybe [a | (_, a@(AdoptProduct _)) <- relinked])
+                , esWarnings = []
+                }
   where
     current :: [Exchange]
     current = exchanges act
@@ -707,6 +725,44 @@ applyOneEdit ctx act edit = case edit of
             Right (changed (map (\ex -> if isSelected ex then change ex else ex) current) matched)
         (errs, Right _) -> Left errs
         (errs, Left err) -> Left (errs <> [err])
+
+{- | Only an input takes a supplier: a waste output names its treatment and a
+flow of nature has none.
+-}
+inputSelector :: ExchangeSelector -> Either Text ()
+inputSelector sel = case sel of
+    SelectInput _ -> Right ()
+    SelectUnlinkedInput _ _ -> Right ()
+    SelectWaste _ -> refused
+    SelectUnlinkedWaste _ _ -> refused
+    SelectBiosphere _ -> refused
+  where
+    refused :: Either Text ()
+    refused = Left (describeSelector sel <> " takes no supplier: only an input does")
+
+{- | An input moved to another supplier, and the product flow that supplier
+brings in when it lives in a dependency. The supplier is judged as for an added
+input, in the line's own unit; the line keeps its amount, so only the supplier
+is checked here, against an amount of one. The claim becomes the new
+supplier's id, as a substitution does: the name the source wrote described the
+supply it replaced.
+-}
+resupplied :: AuthorContext -> Text -> Exchange -> Either [Text] (Exchange, Adoption)
+resupplied ctx provider line = case line of
+    TechnosphereExchange{} ->
+        let moved :: Supplier -> UUID -> Exchange
+            moved sup _ =
+                line
+                    { techFlowId = prProduct (supKey sup)
+                    , techActivityLinkId = Just (prActivity (supKey sup))
+                    , techSupplierClaim = ClaimById (prActivity (supKey sup))
+                    , techLocation = ""
+                    }
+         in mapLeft (map ((describeSelector (SelectInput provider) <> ": ") <>)) $
+                (\resolved -> (reExchange resolved, reAdoption resolved))
+                    <$> resolveLinked ctx provider 1 (Just (getUnitNameForExchange (dbUnits (acDb ctx)) line)) (fmap (maybe NothingToAdopt AdoptProduct) . adoptTechFlow ctx) moved
+    WasteExchange{} -> Left ["a waste output takes no supplier: only an input does"]
+    BiosphereExchange{} -> Left ["a flow of nature takes no supplier: only an input does"]
 
 -- | The product outputs of this flow, or why there are none.
 selectProduct :: UUID -> [Exchange] -> Either Text (Int, Exchange -> Bool)
@@ -765,6 +821,7 @@ besideDeduced edits final =
         SetFormula _ _ -> False
         SetParameter _ _ -> False
         RemoveParameter _ -> False
+        SetSupplier _ _ -> False
     isStated :: Price -> Bool
     isStated = \case
         StatedPrice{} -> True

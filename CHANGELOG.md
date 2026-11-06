@@ -4,6 +4,15 @@
 
 ### Added
 
+- An input can be moved to another supplier and keep the rest of its line:
+  `setSuppliers` in an edit of an activity's exchanges (the assistant tool's
+  `set_suppliers`, pyvolca's `SetSupplier`) names the line and the new
+  supplier's process id, in the database or a dependency. The amount, unit,
+  formula and its name, comment, pedigree and place in the inventory stay as
+  they were, where removing the line and adding another dropped all but the
+  amount. An input that named no supplier is linked the same way. A waste
+  output or a flow of nature is refused, and so is a supplier counted in a
+  unit of another kind than the line. Wire revision 108.
 - Several activities can be edited in one request, as one change: the
   request `POST /db/{dbName}/activities/exchanges`, the assistant tool
   `edit_activities` and pyvolca's `Client.edit_activities` take one edit per
