@@ -107,6 +107,12 @@ spec = describe "Database.Export dispatcher" $ do
             fmap tfUnitId (M.lookup gridProd (sdbTechFlows sdb)) `shouldBe` Just kwhU
             said `shouldBe` []
 
+        it "is written in its supplier's spelling of a unit the table converts at 1" $ do
+            let spellings = either (error . T.unpack) id (buildFromCSV (BLC.pack "name,dimension,factor\nkg,mass,1.0\nMJ,energy,1.0\nmegajoule,energy,1.0\n"))
+                (sdb, _) = namedAfterLinks spellings SignedReferences (suppliers [(1, grid{elUnit = "megajoule"})]) [linkAt 1 gridAct 1 "MJ"] spinning
+                line = lineAt 1 sdb
+            (techAmount line, unitName <$> M.lookup (techUnitId line) (sdbUnits sdb)) `shouldBe` (33.336, Just "megajoule")
+
         it "is written in the link's unit when a relink bridged two measures, and says its formula is dropped" $ do
             let (sdb, said) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, grid)]) [linkAt 1 gridAct 0.5 "kg"] spinning
             (\ex -> (techAmount ex, techUnitId ex, isNothing (techFormula ex))) (lineAt 1 sdb) `shouldBe` (16.668, kgU, True)

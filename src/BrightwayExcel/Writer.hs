@@ -804,7 +804,9 @@ makerUnitOf db = \case
             maker <- producerOf db supplier flow
             made <- lookup' (\p -> exchangeIsProductOutput p && exchangeFlowId p == flow) (exchanges maker)
             unitNameOf (exchangeUnitId made) db
-    _ -> Nothing
+    TechnosphereExchange{} -> Nothing
+    BiosphereExchange{} -> Nothing
+    WasteExchange{} -> Nothing
 
 unitNameOf :: UUID -> SimpleDatabase -> Maybe Text
 unitNameOf uid db = unitName <$> M.lookup uid (sdbUnits db)

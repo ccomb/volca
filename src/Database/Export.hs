@@ -62,6 +62,7 @@ import Types (
     SimpleDatabase (..),
     TechnosphereFlow (..),
     Unit (..),
+    exchangeUnitId,
     readingSign,
     scaleExchange,
     toSimpleDatabase,
@@ -171,7 +172,9 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
             -- Then in the supplier's own unit where the unit table converts to it:
             -- a format linking by unit finds the supplier only there.
             supplierUnit = fromMaybe (newUnit (elUnit supplier)) (find ((== elUnit supplier) . unitName) (M.elems unitsLinked))
-            perSupplier = mfilter (/= 1) (lineInLinkUnit units unitsLinked stated (elUnit supplier))
+            -- Decided on the spelling, not the factor: "kilogram" converts to "kg" at 1, and is still not "kg".
+            statedUnit = maybe "" unitName (M.lookup (exchangeUnitId stated) unitsLinked)
+            perSupplier = mfilter (const (not (T.null statedUnit || T.null (elUnit supplier)) && statedUnit /= elUnit supplier)) (lineInLinkUnit units unitsLinked stated (elUnit supplier))
             written = case (perSupplier, maybe stated (`scaleExchange` stated) perSupplier) of
                 (Just _, scaled@TechnosphereExchange{}) -> scaled{techUnitId = unitId supplierUnit}
                 (_, scaled) -> scaled
