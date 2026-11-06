@@ -8,9 +8,9 @@
   all is read as a process making that product from nothing, so it scores
   zero, and the reading says so. It was skipped, so the processes of the
   same file that draw on it found no supplier and the database could not be
-  loaded. A MEANS-InOut export of cut flowers ships such placeholders for
-  the young plants; each flower now loads on its own, and the placeholder
-  can be relinked to the young-plant process it stands for. A
+  loaded. Some exports ship such placeholders for inputs modelled
+  elsewhere; each process now loads on its own, and the placeholder can be
+  relinked to the process it stands for. A
   dataset that names no product either is still refused.
 - A wildcard line of a method (`Energy, *`, `Water*`) counts the flows of
   the database whose name starts with its prefix, and no others. It also

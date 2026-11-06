@@ -950,15 +950,15 @@ buildResult st =
             ([], reading, _) -> Left (T.unpack (T.intercalate "; " reading))
   where
     {- The reference product the dataset names, made in the amount of 1: with
-    nothing drawn to make it, every score per unit is zero whatever the amount. -}
+    nothing drawn to make it, every score per unit is zero whatever the amount.
+    No category on the row: the activity carries it, and a "Final waste flows"
+    category would turn the row into an elementary exchange. -}
     withReferenceOnly :: Text -> ParsedDataset -> ParsedDataset
     withReferenceOnly named parsed =
         let reference =
                 emptyExchangeData
                     { exNumber = psDatasetNumber st
                     , exName = named
-                    , exCategory = psActivityCategory st
-                    , exSubCategory = psActivitySubCategory st
                     , exLocation = fromMaybe "" (psLocation st)
                     , exUnit = fromMaybe "UNKNOWN_UNIT" (psRefUnit st)
                     , exOutputGroup = Just OutReferenceProduct

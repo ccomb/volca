@@ -202,7 +202,7 @@ multiDatasetXml =
         , "</ecoSpold>"
         ]
 
-{- | A placeholder process as a MEANS-InOut export writes it: the flower draws
+{- | A placeholder process as some EcoSpold 1 exports write it: the flower draws
 a young plant from a second dataset of the same file, and that dataset names
 its product but carries no inventory at all, an empty @\<flowData/\>@.
 -}
@@ -222,7 +222,7 @@ emptyInventoryXml =
         , "      <exchange number=\"1\" name=\"Anemone\" category=\"Agricultural\" unit=\"p\" meanValue=\"1.0\">"
         , "        <outputGroup>0</outputGroup>"
         , "      </exchange>"
-        , "      <exchange number=\"311\" name=\"Plant_fantomInput 1 - MEANS#32325\" location=\"FR\" unit=\"p\" meanValue=\"0.6\">"
+        , "      <exchange number=\"311\" name=\"Young plant placeholder 1\" location=\"FR\" unit=\"p\" meanValue=\"0.6\">"
         , "        <inputGroup>5</inputGroup>"
         , "      </exchange>"
         , "    </flowData>"
@@ -230,7 +230,7 @@ emptyInventoryXml =
         , "  <dataset number=\"2\">"
         , "    <metaInformation>"
         , "      <processInformation>"
-        , "        <referenceFunction name=\"Plant_fantomInput 1 - MEANS#32325\" amount=\"1.0\" unit=\"p\" category=\"Agricultural\" subCategory=\"Horticultural production\"/>"
+        , "        <referenceFunction name=\"Young plant placeholder 1\" amount=\"1.0\" unit=\"p\" category=\"Agricultural\" subCategory=\"Horticultural production\"/>"
         , "        <geography location=\"FR\"/>"
         , "      </processInformation>"
         , "    </metaInformation>"
@@ -840,7 +840,7 @@ spec = do
             ParsedDataset{pdActivity = act, pdTechFlows = techs} <- placeholder
             [(techRole e, techAmount e, techLocation e) | e@TechnosphereExchange{} <- exchanges act]
                 `shouldBe` [(ReferenceProduct, 1, "FR")]
-            [tfName f | f <- techs] `shouldBe` ["Plant_fantomInput 1 - MEANS#32325"]
+            [tfName f | f <- techs] `shouldBe` ["Young plant placeholder 1"]
             activityUnit act `shouldBe` "p"
 
         it "says the dataset carried no inventory" $ do
