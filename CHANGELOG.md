@@ -8,10 +8,6 @@
   Every workbook used to be called "exported-database", and so did each of
   its rows naming one of its own products, so two exports imported side by
   side in Brightway collided.
-- A database whose units come as several records of one name, such as two
-  units both written `kWh`, exports as a Brightway workbook. The export
-  refused it, saying two of its products would be read back in two units,
-  when the workbook writes and reads them as one.
 - A database relinked with a mapping keeps the links that mapping made. They
   used to drop without a word at the next relink, which an edit, the reload
   of a dependency and a restart all run: one process added to a copy of a
