@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- A waste output naming the treatment of another database that should take
+  it is linked to that treatment when the treatment is written as a product,
+  as an EcoSpold 1 or SimaPro database writes every treatment. The waste was
+  cut off and scored nothing, while the setup page said every link was
+  resolved. Such a treatment now treats it as it would an input written to
+  it. A waste output naming a treatment no loaded database holds is listed
+  among the missing products and counts against completeness, like an input
+  naming a missing supplier.
 - A database relinked with a mapping keeps the links that mapping made. They
   used to drop without a word at the next relink, which an edit, the reload
   of a dependency and a restart all run: one process added to a copy of a

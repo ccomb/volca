@@ -638,6 +638,9 @@ History of manual bumps:
      packages state it, so a process read before has a type now.
 - 83: a flow filed under @non material emissions@ (noise) has the medium
      'Immaterial', where it used to have no compartment.
+- 84: a waste output naming a treatment of another database whose reference
+     is a product is linked to it, where it used to be cut off. Nothing
+     changes type, so a cache written just before would keep the cut-off.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -645,7 +648,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 83
+     in hi `xor` lo `xor` 84
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -2273,7 +2276,8 @@ Biosphere flows need no supplier. Reference exchanges sit on the diagonal of
 @(I-A)@ and are skipped by the matrix builder, so a treatment process's
 'ReferenceInput' is a self-edge, not a supplier demand – counting it would drag
 completeness below 100% for a perfectly solvable database. Waste *outputs* are
-generated, not demanded; only waste/technosphere *inputs* remain.
+generated, not demanded; only waste/technosphere *inputs* remain, and the waste
+output that names its treatment ('namesATreatment'), which demands that one.
 
 An input of zero demands nothing either. It reaches no matrix: the builders drop
 a zero triple ('Database.MatrixBuild.triplesFor' and 'buildBioTriples'), and
@@ -2285,7 +2289,23 @@ answers it. A disabled input still points at a producer, and the author who
 re-enables it expects the link to be there.
 -}
 isSupplierDemand :: Exchange -> Bool
-isSupplierDemand ex = namesASupplier ex && exchangeAmount ex /= 0
+isSupplierDemand ex = (namesASupplier ex || namesATreatment ex) && exchangeAmount ex /= 0
+
+{- | A waste output naming the treatment meant to take it. That treatment
+answers it as a supplier answers an input, so one loaded nowhere is a gap like
+a missing supplier, and the completeness report names it beside them.
+-}
+namesATreatment :: Exchange -> Bool
+namesATreatment = \case
+    WasteExchange{waIsInput = False, waSupplierClaim = ClaimById _} -> True
+    _ -> False
+
+-- | The name a demand is reported under: its product's, or its waste's.
+demandedName :: TechFlowDB -> WasteFlowDB -> Exchange -> Maybe T.Text
+demandedName techFlows wasteFlows = \case
+    ex@TechnosphereExchange{} -> tfName <$> M.lookup (exchangeFlowId ex) techFlows
+    ex@WasteExchange{} -> wfName <$> M.lookup (exchangeFlowId ex) wasteFlows
+    BiosphereExchange{} -> Nothing
 
 {- | An input that names a supplier, whatever it asks of it. The linker's
 question, where 'isSupplierDemand' is the completeness report's.
@@ -2370,7 +2390,7 @@ collectUnlinkedProductNames db =
 {- | Supplier demands a dependency answers, counted as demands rather than as
 links. A link stands for one demand at most, so several links made at one
 demand site answer no more than the demands made there, and a waste output
-answers none: it is no demand ('isSupplierDemand'). Counting the links instead
+naming no treatment answers none: it is no demand ('isSupplierDemand'). Counting the links instead
 let a database with as many such links as unanswered demands report itself
 complete and ready, while the impact routes refused it.
 
@@ -2488,13 +2508,13 @@ collectDanglingProductNames :: Database -> M.Map T.Text Int
 collectDanglingProductNames db =
     tallyDangling
         (crossDBCoveredCounts (dbCrossDBLinks db))
-        [ (exchangeDemandSite consumer ex, tfName flow)
+        [ (exchangeDemandSite consumer ex, name)
         | (consumer, act) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db))
-        , ex@TechnosphereExchange{} <- exchanges act
+        , ex <- exchanges act
         , isSupplierDemand ex
         , not (answeredHere db ex)
         , claimsAnActivityUUID (exchangeSupplierClaim ex)
-        , Just flow <- [M.lookup (exchangeFlowId ex) (dbTechFlows db)]
+        , Just name <- [demandedName (dbTechFlows db) (dbWasteFlows db) ex]
         ]
 
 {- | Staged-path counterpart of 'collectDanglingProductNames' on a
@@ -2506,13 +2526,13 @@ collectStagedDanglingProductNames :: SimpleDatabase -> [CrossDBLink] -> M.Map T.
 collectStagedDanglingProductNames db links =
     tallyDangling
         (crossDBCoveredCounts links)
-        [ (exchangeDemandSite consumer ex, tfName flow)
+        [ (exchangeDemandSite consumer ex, name)
         | (consumer, act) <- M.toList (sdbActivities db)
-        , ex@TechnosphereExchange{} <- exchanges act
+        , ex <- exchanges act
         , isSupplierDemand ex
         , not (hasInternalProducer db ex)
         , claimsAnActivityUUID (exchangeSupplierClaim ex)
-        , Just flow <- [M.lookup (exchangeFlowId ex) (sdbTechFlows db)]
+        , Just name <- [demandedName (sdbTechFlows db) (sdbWasteFlows db) ex]
         ]
 
 -- ---------------------------------------------------------------------------
@@ -2636,7 +2656,7 @@ mkGapEdge ::
     Maybe GapEdge
 mkGapEdge db stats actUUID prodUUID ex = case ex of
     TechnosphereExchange{} -> Just (demandEdge (flowNameOr tfName (sdbTechFlows db)))
-    -- A waste input naming its treatment is linked as an input is ('findExchangeCrossDBLink').
+    -- A waste naming its treatment, sent as an input or an output, is a demand on it ('findExchangeCrossDBLink').
     WasteExchange{waSupplierClaim = ClaimById _} -> Just (demandEdge (flowNameOr wfName (sdbWasteFlows db)))
     WasteExchange{} -> Just (edge (flowNameOr wfName (sdbWasteFlows db)) GapWasteInput)
     BiosphereExchange{} -> Nothing
