@@ -13,6 +13,12 @@
 # anybody's ground. The value cell only says which category the exception
 # applies to. Inland water bodies stay counted: a reservoir is a real surface
 # somebody flooded.
+# "Primary energy" counts every energy carrier taken from nature. The flows
+# already given in MJ (biomass, hydro, wind, solar, geothermal) come in through
+# the "Energy, *" pattern. The fossil carriers and uranium are given in kg or
+# m3, so each has its own row, and the engine turns the quantity into MJ with
+# the calorific value in data/energy_density.csv. A carrier without a calorific
+# value there cannot be counted in MJ, and is not listed here.
 ;;;;Land occupied;Water used;Fossil CO2;Methane;Primary energy;Waste heat;Cadmium
 ;;;;Land occupied;Water used;Fossil CO2;Methane;Primary energy;Waste heat;Cadmium
 ;;;;m2a;m3;kg;kg;MJ;MJ;kg
@@ -29,6 +35,13 @@ Methane, fossil;air;;;;;;1.0;;;
 Methane, biogenic;air;;;;;;1.0;;;
 Methane, from soil or biomass stock;air;;;;;;1.0;;;
 Energy, *;resource;;;;;;;1.0;;
+Oil, crude;resource;;;;;;;1.0;;
+Coal, hard;resource;;;;;;;1.0;;
+Coal, brown;resource;;;;;;;1.0;;
+Gas, natural;resource;;;;;;;1.0;;
+Gas, mine, off-gas, process, coal mining;resource;;;;;;;1.0;;
+Peat;resource;;;;;;;1.0;;
+Uranium;resource;;;;;;;1.0;;
 Heat, waste*;;;;;;;;;1.0;
 Cadmium (II);air;;;;;;;;;1.0
 Cadmium (II);water;;;;;;;;;1.0

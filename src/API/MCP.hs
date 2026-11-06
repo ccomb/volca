@@ -66,7 +66,7 @@ import Matrix (Inventory, applyBiosphereMatrix)
 import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import qualified Method.Explain as Explain
 import Method.Journal (Exact (..))
-import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), Resolution (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude)
+import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), Resolution (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude, strategyToText)
 import qualified Method.Mapping as Mapping
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import Network.HTTP.Types.Header (RequestHeaders, hAccept, hAllow, hHost)
@@ -2426,7 +2426,7 @@ callGetCharacterization dbManager rid args = runTool rid $ do
                 , "flow_unit" .= getUnitNameForBioFlow (dbUnits db) f
                 , "category" .= bfCompartmentName f
                 , "compartment" .= bfCompartmentSub f
-                , "match_strategy" .= show strat
+                , "match_strategy" .= strategyToText strat
                 ]
     pure $
         toolSuccessJson rid $

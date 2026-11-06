@@ -1412,11 +1412,11 @@ class Client:
             {"edited": [{"removed": [], "amountsSet": [1], ...}, ...],
              "transient": False, "warnings": []}
 
-        ``note`` says why, for every activity edited. Needs wire revision 106.
+        ``note`` says why, for every activity edited. Needs wire revision 107.
         """
         if not edits:
             raise ValueError("edit_activities needs at least one ActivityEdit")
-        self._require_wire(106, "edit_activities", engine_hint="0.17.0")
+        self._require_wire(107, "edit_activities", engine_hint="0.17.0")
         for edit in edits:
             self._require_edit_wire(edit, "edit_activities")
         target = self._db(db_name)

@@ -414,7 +414,10 @@ their lines by a reading of its own.
 The same places decide which database flow a method line is matched to: the
 flow that reads it first, and none when no flow reads it. A line whose name
 ends in `*` and that is written at `unspecified` selects the flows filed at
-`unspecified`, not those of every subcompartment.
+`unspecified`, not those of every subcompartment. It also selects only the
+flows its prefix names: the other names the registry gives them are not
+added, so `Energy, *` takes `Energy, from uranium` but not `Uranium`. A line
+naming the flow outranks the wildcard line that takes it.
 `explain-cf` names the step that answered (`exact_name`, `compartment_default`,
 `if_absent`, `resource_unspecified`, …).
 

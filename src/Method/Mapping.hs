@@ -182,6 +182,11 @@ data MatchStrategy
       ByCAS
     | -- | Normalized name match
       ByName
+    | {- | Via a wildcard line ("Water*"): the flow's own name starts with the
+      line's prefix. The line names the family, not a substance, so the
+      synonym fan-out leaves it alone.
+      -}
+      ByPattern
     | -- | Via synonym group
       BySynonym
     | {- | Via a typed @ProxyFor@ edge: a CF borrowed from another flow, scaled
@@ -526,7 +531,7 @@ expandPatternCF flows exclusions cf
     | not (isConstrainedCF cf) = refuse "has no name prefix, CAS or compartment; refusing to match every flow"
     | null selected = refuse "matches no flow in this database"
     | null matches = refuse "matches only flows its exclusions take back"
-    | otherwise = ([(materialize f, Just (Resolution f ByName)) | f <- matches], [])
+    | otherwise = ([(materialize f, Just (Resolution f ByPattern)) | f <- matches], [])
   where
     refuse why = ([(cf, Nothing)], ["wildcard CF '" <> mcfFlowName cf <> "' " <> why])
     selected = filter (selectsFlow cf) (M.elems flows)
@@ -544,13 +549,12 @@ expandPatternCF flows exclusions cf
 {- | Take the exclusions' flows back out of a finished mapping list.
 
 'expandPatternCF' already leaves them out when it materializes a family, but
-the mappings scoring reads are that output re-expanded – synonym fan-out,
-regional projection, proxy edges – and those expansions travel by flow name,
-knowing nothing of the method's exceptions. The curated flow registry bridges
-@"Occupation, industrial area"@ and @"Occupation, industrial area, benthos"@
-through the label they share, so a surviving sibling would hand the excluded
-sea floor its own factor back. Applied after the expansions, this holds the
-exception wherever the flow re-enters.
+the mappings scoring reads are that output re-expanded – synonym fan-out of
+the literal lines, regional projection, proxy edges – and those expansions
+travel by flow name, knowing nothing of the method's exceptions. A regional
+water flow is projected onto every flow of its synonym group, whatever line it
+came from. Applied after the expansions, this holds the exception wherever the
+flow re-enters.
 -}
 dropExcludedMappings ::
     -- | exclusions declared for this category, see 'isExclusionCF'
@@ -632,6 +636,7 @@ strategyToText :: MatchStrategy -> Text
 strategyToText ByUUID = "uuid"
 strategyToText ByCAS = "cas"
 strategyToText ByName = "name"
+strategyToText ByPattern = "pattern"
 strategyToText BySynonym = "synonym"
 strategyToText ByProxy = "proxy"
 
@@ -808,6 +813,8 @@ computeMappingStats = foldMap (tally . fmap resStrategy . snd)
     tally (Just ByUUID) = one{msByUUID = 1}
     tally (Just ByCAS) = one{msByCAS = 1}
     tally (Just ByName) = one{msByName = 1}
+    -- Counted with the name matches: the flow's own name is what the line selected.
+    tally (Just ByPattern) = one{msByName = 1}
     tally (Just BySynonym) = one{msBySynonym = 1}
     tally (Just ByProxy) = one{msByProxy = 1}
 
@@ -1248,6 +1255,12 @@ synonym group of the CF name and emit one extra @(cf, Just (peerFlow,
 BySynonym))@ row per flow whose name is in the group, resolved in the
 CF's direction view. The original mapping list is preserved.
 
+A row a wildcard line materialized ('ByPattern') is not fanned out: the
+line already took every flow of the database its prefix names, so the fan-out
+could only add flows it does not name. @Energy, *@ takes @Energy, from
+uranium@, and the registry ties that name to @Uranium@: fanning out would
+count the uranium of a family meant for the flows written in MJ.
+
 This is the missing piece when a method-side CF (e.g. ILCD's bare
 @copper@) covers many inventory-side variants (@Copper, 2.19% in
 sulfide, …@, @Copper, 1.18% in sulfide, …@, etc.). Without expansion,
@@ -1287,6 +1300,7 @@ expandSynonymMappings ::
 expandSynonymMappings synDB flowsByName mappings =
     mappings ++ concatMap expand mappings
   where
+    expand (_, Just (Resolution _ ByPattern)) = []
     expand (cf, _) =
         [ (cf, Just (Resolution flow BySynonym))
         | peer <- synonymNames (viewFor (mcfDirection cf) synDB) (mcfFlowName cf)
@@ -1507,7 +1521,7 @@ expandProxyEdges targets edges mappings =
     flowsMatching (SR.ByCAS (SR.CASNumber c)) = M.findWithDefault [] c (unFlowsByCAS (ptByCAS targets))
     flowsMatching (SR.ByUUID (SR.FlowUUID u)) = maybe [] pure (M.lookup u (ptByUUID targets))
 
-{- | Cascade-order rank of a match strategy (UUID → name → synonym → CAS →
+{- | Cascade-order rank of a match strategy (UUID → name → pattern → synonym → CAS →
 heuristic/expanded): when two CFs collide on one flow or table key, the lower
 rank – the more discriminating match – wins. What the score tables actually
 compare is 'entryPriority', which also ranks an entry no resolution reached.
@@ -1515,9 +1529,11 @@ compare is 'entryPriority', which also ranks an entry no resolution reached.
 strategyPriority :: MatchStrategy -> Int
 strategyPriority ByUUID = 0
 strategyPriority ByName = 1
-strategyPriority BySynonym = 2
-strategyPriority ByCAS = 3
-strategyPriority ByProxy = 4
+-- A line naming the flow outranks the family that takes it in.
+strategyPriority ByPattern = 2
+strategyPriority BySynonym = 3
+strategyPriority ByCAS = 4
+strategyPriority ByProxy = 5
 
 {- | Cascade rank of a table entry. One no build-side resolution reached ranks
 with 'ByProxy', the least discriminating match, so the two tie here and the
@@ -1840,6 +1856,7 @@ buildMethodTables (Placing cmap vocabulary) unitConfig energyDensities mappings 
     servedByCasBridge ByCAS = True
     servedByCasBridge ByUUID = False
     servedByCasBridge ByName = False
+    servedByCasBridge ByPattern = False
     servedByCasBridge BySynonym = False
     servedByCasBridge ByProxy = False
 
@@ -1899,6 +1916,7 @@ buildMethodTables (Placing cmap vocabulary) unitConfig energyDensities mappings 
     -- the CF under the database flow it resolved to, not the method CF's own name.
     nameKey cf mflow = normalizeName $ case mflow of
         Just (Resolution flow ByName) -> bfName flow
+        Just (Resolution flow ByPattern) -> bfName flow
         Just (Resolution flow BySynonym) -> bfName flow
         Just (Resolution flow ByProxy) -> bfName flow
         Just (Resolution _ ByUUID) -> mcfFlowName cf
@@ -3178,6 +3196,7 @@ lendsAnotherName :: Maybe MatchStrategy -> Bool
 lendsAnotherName Nothing = False
 lendsAnotherName (Just ByUUID) = False
 lendsAnotherName (Just ByName) = False
+lendsAnotherName (Just ByPattern) = False
 lendsAnotherName (Just BySynonym) = False
 lendsAnotherName (Just ByCAS) = True
 lendsAnotherName (Just ByProxy) = True

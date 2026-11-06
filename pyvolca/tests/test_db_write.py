@@ -730,7 +730,7 @@ class TestEditExchanges:
 class TestEditActivities:
     def test_sends_each_edit_with_its_process_and_the_note_once(self, mocked_client):
         client, session = mocked_client
-        _version_ok(session, wire=106)
+        _version_ok(session, wire=107)
         _ok(session, {"edited": [], "transient": False, "warnings": []})
         client.edit_activities(
             [
@@ -752,8 +752,8 @@ class TestEditActivities:
 
     def test_never_sent_to_an_engine_that_cannot_edit_several(self, mocked_client):
         client, session = mocked_client
-        _version_ok(session, wire=105)
-        with pytest.raises(VoLCAError, match="wire revision >= 106"):
+        _version_ok(session, wire=106)
+        with pytest.raises(VoLCAError, match="wire revision >= 107"):
             client.edit_activities([ActivityEdit("a_b", name="milk")])
         session.post.assert_not_called()
 

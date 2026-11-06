@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.1** speaks wire formats **2 to 106** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.1** speaks wire formats **2 to 107** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -939,7 +939,7 @@ gives it, in the order of ``edits``, then ``transient`` and the
     {"edited": [{"removed": [], "amountsSet": [1], ...}, ...],
      "transient": False, "warnings": []}
 
-``note`` says why, for every activity edited. Needs wire revision 106.
+``note`` says why, for every activity edited. Needs wire revision 107.
 
 ##### `Client.edit_database_parameters(*, set_parameters: Sequence[SetParameter] = (), remove_parameters: Sequence[str] = (), note: str | None = None, db_name: str | None = None) -> dict`
 
@@ -2883,7 +2883,7 @@ One characterization factor matched against a database biosphere flow.
 
 Returned in the ``factors`` list of `CharacterizationResult`.
 ``match_strategy`` records how the CF was matched to the DB flow
-(``"uuid"``, ``"cas"``, ``"name"``, ``"synonym"``, ``"proxy"``).
+(``"uuid"``, ``"cas"``, ``"name"``, ``"pattern"``, ``"synonym"``, ``"proxy"``).
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -3445,7 +3445,7 @@ One DB biosphere flow and the CF (if any) assigned to it.
 ``cf_value`` is ``None`` when this DB flow has no characterization factor
 in the method: that flow contributes 0 to the score for the method.
 ``match_strategy`` records how the mapping was resolved (``"uuid"``,
-``"cas"``, ``"name"``, ``"synonym"``, ``"proxy"``).
+``"cas"``, ``"name"``, ``"pattern"``, ``"synonym"``, ``"proxy"``).
 
 | Field | Type | Default |
 |-------|------|---------|
