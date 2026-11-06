@@ -9,7 +9,8 @@
   zip per process gives one database rather than refusing as holding no
   data file. A file two inner archives both hold, with different content,
   is kept under each archive's name rather than overwritten. Archives nested
-  more than three deep, or more than 256 of them, are refused.
+  more than three deep, or more than 256 of them, are refused. An inner
+  archive that will not extract is left packed, and the reading says so.
 - A directory of EcoSpold 1 files holding several datasets each loads every
   dataset. It loaded the first of each file and dropped the rest without a
   word, while a lone such file loaded them all.

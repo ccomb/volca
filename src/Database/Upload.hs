@@ -16,6 +16,7 @@ module Database.Upload (
     -- * Upload handling
     handleUpload,
     extractArchiveFile,
+    archiveExtensions,
     detectArchiveFormat,
     detectDatabaseFormat,
     findDataDirectory,
@@ -58,7 +59,7 @@ import GHC.Generics (Generic)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (makeRelative, takeBaseName, takeDirectory, takeExtension, takeFileName, (</>))
+import System.FilePath (makeRelative, takeDirectory, takeExtension, takeFileName, (</>))
 import System.IO (IOMode (ReadMode), withFile)
 import System.Info (os)
 import System.Process (readProcessWithExitCode)
@@ -66,6 +67,7 @@ import System.Process (readProcessWithExitCode)
 import qualified Method.Parser.OlcaSchema as OlcaSchema
 import Method.ParserCSV (isLabelRow)
 import qualified OlcaSchema.Package as OlcaPackage
+import qualified Progress
 import Types (ReferenceConvention (..))
 
 -- | Detected database format
@@ -303,7 +305,7 @@ a zip per flower. Unpacked beside where they sat, the datasets end up in one
 directory, the one a loader reads. A file an inner archive holds under a name
 already taken by other content is kept under the archive's name followed by its
 own, so nothing is overwritten; the same content is kept once. An inner archive
-that will not extract stays as it was, as it did before anything tried.
+that will not extract stays as it was, and the reading warns that it was left.
 Nesting deeper than 'maxNestingDepth', or more than 'maxNestedArchives'
 archives in all, refuses: an archive can hold itself.
 -}
@@ -315,7 +317,7 @@ unpackNested root = go maxNestingDepth 0 []
         files <- listDirectoryRecursive root
         -- Sorted, so which of two clashing files keeps its name does not
         -- depend on the order the filesystem lists them in.
-        case sort [f | f <- files, f `notElem` leftAlone, map toLower (takeExtension f) `elem` [".zip", ".7z", ".gz", ".xz"]] of
+        case sort [f | f <- files, f `notElem` leftAlone, map toLower (takeExtension f) `elem` archiveExtensions] of
             [] -> pure (Right ())
             inner
                 | depth == 0 ->
@@ -339,12 +341,13 @@ unpackNested root = go maxNestingDepth 0 []
                 else pure (Left "not an archive")
         case result of
             Right () -> do
-                mapM_ (place here scratch (takeBaseName archive)) =<< listDirectoryRecursive scratch
+                mapM_ (place here scratch (takeFileName archive)) =<< listDirectoryRecursive scratch
                 removeDirectoryRecursive scratch
                 removeFile archive
                 pure Nothing
-            Left _ -> do
+            Left reason -> do
                 removeDirectoryRecursive scratch
+                Progress.reportProgress Progress.Warning $ "Left " <> makeRelative root archive <> " packed, its datasets are not read: " <> T.unpack reason
                 pure (Just archive)
 
     place :: FilePath -> FilePath -> String -> FilePath -> IO ()
@@ -358,6 +361,10 @@ unpackNested root = go maxNestingDepth 0 []
                 | otherwise = wanted
         createDirectoryIfMissing True (takeDirectory target)
         if same then removeFile file else renameFile file target
+
+-- | The extensions an archive is recognised by, before its bytes are read.
+archiveExtensions :: [String]
+archiveExtensions = [".zip", ".7z", ".gz", ".xz"]
 
 -- | How many archives deep an upload may nest its archives.
 maxNestingDepth :: Int

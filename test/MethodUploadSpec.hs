@@ -146,7 +146,7 @@ spec = do
                     ]
                 )
                 `shouldReturn` ( Right ()
-                               , ["flowers/WARNING.txt", "flowers/lily.xml", "flowers/peony.xml", "flowers/rose.xml", "flowers/rose__WARNING.txt"]
+                               , ["flowers/WARNING.txt", "flowers/lily.xml", "flowers/peony.xml", "flowers/rose.xml", "flowers/rose.zip__WARNING.txt"]
                                )
 
         it "leaves an inner archive that will not extract as it was" $
