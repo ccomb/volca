@@ -16,6 +16,7 @@ import pytest
 
 from volca.client import Client, VoLCAError
 from volca.types import (
+    ActivityEdit,
     ActivityInput,
     BioDirection,
     BioExchange,
@@ -724,6 +725,43 @@ class TestEditExchanges:
             ExchangeSelector(kind="biosphere", provider="c_d")
         with pytest.raises(ValueError, match="unknown selector kind"):
             ExchangeSelector(kind="product", provider="c_d")
+
+
+class TestEditActivities:
+    def test_sends_each_edit_with_its_process_and_the_note_once(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=106)
+        _ok(session, {"edited": [], "transient": False, "warnings": []})
+        client.edit_activities(
+            [
+                ActivityEdit("a_b", set_amounts=[SetAmount(ExchangeSelector.biosphere_flow("f-1"), 0.2)]),
+                ActivityEdit("c_d", name="milk, corrected"),
+            ],
+            note="Measured on site",
+        )
+        url = session.post.call_args[0][0]
+        assert url.endswith("/api/v1/db/testdb/activities/exchanges")
+        body = session.post.call_args[1]["json"]
+        assert body["note"] == "Measured on site"
+        assert [e["processId"] for e in body["edits"]] == ["a_b", "c_d"]
+        # Each edit is the body edit_exchanges sends for that activity.
+        assert body["edits"][0]["setAmounts"] == [{"select": {"kind": "biosphere", "flow": "f-1"}, "amount": 0.2}]
+        assert body["edits"][1]["setName"] == "milk, corrected"
+        assert body["edits"][1]["remove"] == []
+        assert "note" not in body["edits"][0]
+
+    def test_never_sent_to_an_engine_that_cannot_edit_several(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=105)
+        with pytest.raises(VoLCAError, match="wire revision >= 106"):
+            client.edit_activities([ActivityEdit("a_b", name="milk")])
+        session.post.assert_not_called()
+
+    def test_refuses_an_empty_batch(self, mocked_client):
+        client, session = mocked_client
+        with pytest.raises(ValueError, match="at least one"):
+            client.edit_activities([])
+        session.post.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

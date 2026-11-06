@@ -2,6 +2,7 @@
 
 import dataclasses
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
@@ -3481,6 +3482,69 @@ class SetParameter:
                 "uncertainty": self.uncertainty.to_wire() if self.uncertainty else None,
             }
         )
+
+
+@dataclass(frozen=True)
+class ActivityEdit:
+    """One activity's edit for :meth:`Client.edit_activities`: the process it
+    applies to, and the changes :meth:`Client.edit_exchanges` takes, under the
+    same names and with the same meaning. The note is given once, for the
+    whole change, so it is not here."""
+
+    process_id: str
+    remove: Sequence[ExchangeSelector] = ()
+    set_amounts: Sequence[SetAmount] = ()
+    add_inputs: Sequence[TechInput] = ()
+    add_biosphere: Sequence[BioExchange] = ()
+    add_waste_outputs: Sequence[WasteOutput] = ()
+    name: str | None = None
+    location: str | None = None
+    description: list[str] | None = None
+    set_parameters: Sequence[SetParameter] = ()
+    set_formulas: Sequence[SetFormula] = ()
+    set_prices: Sequence[SetPrice] = ()
+    set_dry_masses: Sequence[SetDryMass] = ()
+    set_wet_masses: Sequence[SetWetMass] = ()
+    remove_parameters: Sequence[str] = ()
+
+    def fields(self) -> dict:
+        """The body of :meth:`Client.edit_exchanges` for this edit. The five
+        lists of lines always travel, so the body keeps one shape; the rest
+        travel only when stated, since an empty description clears it and a
+        null price removes it."""
+        texts = {
+            key: value
+            for key, value in (
+                ("setName", self.name),
+                ("setLocation", self.location),
+                ("setDescription", self.description),
+            )
+            if value is not None
+        }
+        stated = {
+            key: value
+            for key, value in (
+                ("setParameters", [p.to_wire() for p in self.set_parameters]),
+                ("setFormulas", [f.to_wire() for f in self.set_formulas]),
+                ("removeParameters", list(self.remove_parameters)),
+                ("setPrices", [p.to_wire() for p in self.set_prices]),
+                ("setDryMasses", [d.to_wire() for d in self.set_dry_masses]),
+                ("setWetMasses", [w.to_wire() for w in self.set_wet_masses]),
+            )
+            if value
+        }
+        return {
+            "remove": [s.to_wire() for s in self.remove],
+            "setAmounts": [s.to_wire() for s in self.set_amounts],
+            "addInputs": [i.to_wire() for i in self.add_inputs],
+            "addBiosphere": [b.to_wire() for b in self.add_biosphere],
+            "addWasteOutputs": [w.to_wire() for w in self.add_waste_outputs],
+            **texts,
+            **stated,
+        }
+
+    def to_wire(self) -> dict:
+        return {"processId": self.process_id, **self.fields()}
 
 
 def _drop_none(d: dict) -> dict:
