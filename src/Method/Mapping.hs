@@ -361,7 +361,7 @@ CAS number is the evidence there is.
 findFlowByCASWithinSubstance :: MapContext -> MethodCF -> Maybe BiosphereFlow
 findFlowByCASWithinSubstance ctx cf =
     mcfCAS cf >>= nonEmptyCAS >>= (`M.lookup` unFlowsByCAS (mcBioFlowsByCAS ctx)) >>= \flows ->
-        pickByCompartment (mcPlacing ctx) (mcfFlowName cf) (filter sameSubstance flows) (mcfCompartment cf)
+        pickByCompartment ByCAS (mcPlacing ctx) (mcfFlowName cf) (filter sameSubstance flows) (mcfCompartment cf)
   where
     substanceOf :: Text -> Maybe Int
     substanceOf = lookupSynonymGroup (viewFor (mcfDirection cf) (mcSynonymDB ctx))
@@ -656,7 +656,7 @@ unpadded.
 -}
 findFlowByCAS :: Placing -> FlowsByCAS -> Text -> Text -> Maybe Compartment -> Maybe BiosphereFlow
 findFlowByCAS place flowsByCAS name cas mComp =
-    nonEmptyCAS cas >>= (`M.lookup` unFlowsByCAS flowsByCAS) >>= \flows -> pickByCompartment place name flows mComp
+    nonEmptyCAS cas >>= (`M.lookup` unFlowsByCAS flowsByCAS) >>= \flows -> pickByCompartment ByCAS place name flows mComp
 
 -- | Find flow by normalized name match (compartment-aware)
 findFlowByName :: Placing -> FlowsByName -> Text -> Maybe BiosphereFlow
@@ -665,7 +665,7 @@ findFlowByName place flowsByName name = findFlowByNameComp place flowsByName nam
 -- | Find flow by normalized name with compartment preference
 findFlowByNameComp :: Placing -> FlowsByName -> Text -> Maybe Compartment -> Maybe BiosphereFlow
 findFlowByNameComp place flowsByName name mComp =
-    M.lookup (normalizeName name) (unFlowsByName flowsByName) >>= \flows -> pickByCompartment place name flows mComp
+    M.lookup (normalizeName name) (unFlowsByName flowsByName) >>= \flows -> pickByCompartment ByName place name flows mComp
 
 {- | What a synonym search reads: the group table it expands a name in, the
 flows it can land on, and what it judges a landing with.
@@ -683,7 +683,7 @@ findFlowBySynonym search name = findFlowBySynonymComp search name Nothing
 -- | Find flow via synonym group with compartment preference
 findFlowBySynonymComp :: SynonymSearch -> Text -> Maybe Compartment -> Maybe BiosphereFlow
 findFlowBySynonymComp (SynonymSearch synDB flowsByName place) name =
-    pickByCompartment place name (concatMap (flowsNamed flowsByName) (synonymNames synDB name))
+    pickByCompartment BySynonym place name (concatMap (flowsNamed flowsByName) (synonymNames synDB name))
 
 -- | The flows bearing one name, whatever its spelling.
 flowsNamed :: FlowsByName -> Text -> [BiosphereFlow]
@@ -710,7 +710,7 @@ direction, name and compartment can never be mixed from different CFs.
 findFlowBySynonymMemo :: MapContext -> MethodCF -> Maybe BiosphereFlow
 findFlowBySynonymMemo ctx cf =
     case lookupSynonymGroup dirDB name >>= \gid -> M.lookup (dir, gid) (mcSynGroupFlows ctx) of
-        Just flows -> pickByCompartment (mcPlacing ctx) name (flows ++ regionalFlows) mComp
+        Just flows -> pickByCompartment BySynonym (mcPlacing ctx) name (flows ++ regionalFlows) mComp
         Nothing -> findFlowBySynonymComp (SynonymSearch dirDB (mcBioFlowsByName ctx) (mcPlacing ctx)) name mComp
   where
     regionalFlows :: [BiosphereFlow]
@@ -746,8 +746,9 @@ buildSynGroupFlows ctx cfs =
                 ]
 
 {- | The flow a method row's compartment names, among the flows sharing its
-name: the one that reads the row's place first, by the rule every table reads
-with ('subReadings'). That is the flow at the very subcompartment the row
+name: the one that reads the row's place first, by the rule the tables read
+with ('placesFor': a row found by its CAS reaches only the places an author
+wrote). That is the flow at the very subcompartment the row
 states; for a row written for the whole medium, any flow of that medium; then a
 flow an @if_absent@ row in force sends to the row's subcompartment.
 
@@ -774,10 +775,10 @@ a compartment is.
 A compartment a row states is a condition, not a preference. When no candidate
 reads it this answers Nothing, so 'resolveCF' moves on to the next matcher.
 -}
-pickByCompartment :: Placing -> Text -> [BiosphereFlow] -> Maybe Compartment -> Maybe BiosphereFlow
-pickByCompartment _ _ [] _ = Nothing
-pickByCompartment _ _ (f : _) Nothing = Just f
-pickByCompartment (Placing cmap vocabulary) name flows (Just stated) =
+pickByCompartment :: MatchStrategy -> Placing -> Text -> [BiosphereFlow] -> Maybe Compartment -> Maybe BiosphereFlow
+pickByCompartment _ _ _ [] _ = Nothing
+pickByCompartment _ _ _ (f : _) Nothing = Just f
+pickByCompartment strategy (Placing cmap vocabulary) name flows (Just stated) =
     snd <$> listToMaybe (sortOn fst (mapMaybe reading flows))
   where
     inForce :: M.Map (MediumKey, Subcompartment) Subcompartment
@@ -790,7 +791,7 @@ pickByCompartment (Placing cmap vocabulary) name flows (Just stated) =
         guard (mediumFits statedMed flowMed)
         listToMaybe
             [ ((r, T.toCaseFold (bfName fl) /= T.toCaseFold name), fl)
-            | (r, s) <- subReadings inForce flowMed flowSub
+            | (r, s) <- placesFor (Just strategy) inForce flowMed flowSub
             , foldSub s == foldSub (Subcompartment statedSub)
             ]
 
@@ -882,8 +883,9 @@ data MethodTables = MethodTables
     single database flow at build time, so when many flows share one CAS in a
     compartment (e.g. every water flow shares 7732-18-5) only that one flow is
     characterized and the rest score zero. Keyed by the CF's own CAS, medium
-    and subcompartment, and read through 'subReadings' like the name table, so
-    the bridge reaches a subcompartment exactly where a name would. A key with
+    and subcompartment, and read at the places an author wrote
+    ('writtenReadings'): where a name would, except a resource's line at
+    @unspecified@, which only its own name reaches. A key with
     no entry is a place the substance has a line the bridge may not serve (one
     matched by name, see below): the place is taken all the same, so the walk
     stops there rather than reading the substance's line for the whole medium
@@ -1763,8 +1765,8 @@ buildMethodTables (Placing cmap vocabulary) unitConfig energyDensities mappings 
                 M.fromListWith
                     preferRegional
                     [ ((bfId flow, Location loc), (m, cfOf cf))
-                    | (cf, Just (Resolution flow _)) <- mappings
-                    , Just m <- [cfSubcompMatchesFlow cf flow]
+                    | (cf, Just (Resolution flow strategy)) <- mappings
+                    , Just m <- [cfSubcompMatchesFlow strategy cf flow]
                     , Just loc <- [mcfConsumerLocation cf]
                     ]
         , mtIfAbsent = ifAbsent
@@ -1793,7 +1795,7 @@ buildMethodTables (Placing cmap vocabulary) unitConfig energyDensities mappings 
     -- Two deliberate non-voters: consumer-located rows, whose variance the
     -- regional tables dispatch by the flow's own location, and rows at
     -- \*different* subcompartments, which the bridge keys apart and reads
-    -- through 'subReadings' like a name. The rule behind both:
+    -- through 'writtenReadings'. The rule behind both:
     -- a value votes exactly when the method can serve it with no location
     -- attached. So located rows abstain only as such – against a database
     -- that writes its regions into flow names,
@@ -1854,11 +1856,11 @@ buildMethodTables (Placing cmap vocabulary) unitConfig energyDensities mappings 
     -- rule that rewrites a subcomp can't desynchronise this from the
     -- broadcast tables and the 'lookupCascadeCF' read path, and both are
     -- case-folded, as this match always was.
-    cfSubcompMatchesFlow :: MethodCF -> BiosphereFlow -> Maybe SubReading
-    cfSubcompMatchesFlow cf flow =
+    cfSubcompMatchesFlow :: MatchStrategy -> MethodCF -> BiosphereFlow -> Maybe SubReading
+    cfSubcompMatchesFlow strategy cf flow =
         let cfSub = maybe mediumWide snd (cfMediumSub cmap cf)
             (flowMed, flowSub) = flowMediumSub cmap flow
-         in listToMaybe [r | (r, s) <- subReadings ifAbsent flowMed flowSub, foldSub s == foldSub cfSub]
+         in listToMaybe [r | (r, s) <- placesFor (Just strategy) ifAbsent flowMed flowSub, foldSub s == foldSub cfSub]
 
     -- Rank two CFs competing for one (flow, location) key. 'mtRegionalizedCF'
     -- is the only table where CFs at several subcompartments land on one key;
@@ -2208,7 +2210,7 @@ fillRegionalActivityWeights unitCfg unitDB flowDB db hier tables
             regionalCasFor flow = do
                 casNo <- bfCAS flow >>= SR.casKey
                 let (medium, sub) = flowMediumSub cmap flow
-                located <- asum [M.lookup (casNo, medium, at) regionalCas | (_, at) <- subReadings (mtIfAbsent tables) medium sub]
+                located <- asum [M.lookup (casNo, medium, at) regionalCas | (_, at) <- writtenReadings (mtIfAbsent tables) medium sub]
                 if M.null located then Nothing else Just located
          in V.map lookupRow bioFlows
 
@@ -2882,6 +2884,7 @@ data RungId
     | RungExactName
     | RungMediumDefault
     | RungIfAbsent
+    | RungResourceUnspecified
     | RungCasBridge
     | RungRegionBase
     | RungEnergyResource
@@ -2916,8 +2919,9 @@ one winner per base name, which for a sibling unit variant is dimensionally
 wrong and zeroes on conversion; a right-unit factor beats a wrong-unit one.
 Then the flow's name at each place 'subReadings' lets it read, one rung per
 place: its own subcompartment, the line written for the whole medium, the one
-an @if_absent@ row sends it to. UUID/name misses then fall back to the flow's own
-CAS, read at the same places, so every flow sharing a CAS in a compartment is
+an @if_absent@ row sends it to, a resource's @unspecified@ line. UUID/name
+misses then fall back to the flow's own CAS, read at the three places an author
+wrote ('writtenReadings'), so every flow sharing a CAS in a compartment is
 characterized, not just the one a CF resolved to at build time. The parametric
 rungs (region-stripped base name, energy content, ore grade) come last: they
 only fire when every direct lookup misses.
@@ -2934,6 +2938,7 @@ cascadeTrail tables flowDB fid =
         , (RungExactName, plain (nameAt ownSub))
         , (RungMediumDefault, plain (nameAt mediumWide))
         , (RungIfAbsent, maybe RungNotApplicable (plain . nameAt) redirected)
+        , (RungResourceUnspecified, maybe RungNotApplicable (plain . ownLineAt) resourceUnspecified)
         , (RungCasBridge, casOutcome)
         , (RungRegionBase, regionOutcome)
         , (RungEnergyResource, energyOutcome)
@@ -2944,12 +2949,20 @@ cascadeTrail tables flowDB fid =
         (baseMed, ownSub) = flowMediumSub (mtCompartmentMap tables) flow
         readings = subReadings (mtIfAbsent tables) baseMed ownSub
         redirected = listToMaybe [sub | (SubIfAbsent, sub) <- readings]
+        resourceUnspecified = listToMaybe [sub | (SubResourceUnspecified, sub) <- readings]
 
         nameAt sub = M.lookup (name, baseMed, sub) (mtExactCF tables)
 
-        -- The first place the flow may read that the table answers.
-        firstReading :: (Subcompartment -> Maybe a) -> Maybe a
-        firstReading look = asum [look sub | (_, sub) <- readings]
+        -- A proxy line keys under the flow's name but lends another's factor.
+        ownLineAt sub = mfilter (not . lendsAnotherName . bpStrategy . teProvenance) (nameAt sub)
+
+        -- The first of these places that the table answers.
+        firstAt :: [(SubReading, Subcompartment)] -> (Subcompartment -> Maybe a) -> Maybe a
+        firstAt places look = asum [look sub | (_, sub) <- places]
+
+        -- Another name's factor is read only where an author wrote it.
+        firstWritten :: (Subcompartment -> Maybe a) -> Maybe a
+        firstWritten = firstAt (writtenReadings (mtIfAbsent tables) baseMed ownSub)
 
         -- 'mtUnitVariantCF' is empty for every method whose factor lines
         -- carry no unit suffix – the common case – and 'M.lookup' is strict
@@ -2960,11 +2973,11 @@ cascadeTrail tables flowDB fid =
             | M.null (mtUnitVariantCF tables) = RungNotApplicable
             | otherwise =
                 let kname = SR.NormName (normalizeNameKeepUnit (bfName flow))
-                 in plain (firstReading (\sub -> M.lookup (kname, baseMed, sub) (mtUnitVariantCF tables)))
+                 in plain (firstAt readings (\sub -> M.lookup (kname, baseMed, sub) (mtUnitVariantCF tables)))
 
         casOutcome = case bfCAS flow >>= SR.casKey of
             Nothing -> RungNotApplicable
-            Just casNo -> plain (join (firstReading (\sub -> M.lookup (casNo, baseMed, sub) (mtCasCF tables))))
+            Just casNo -> plain (join (firstWritten (\sub -> M.lookup (casNo, baseMed, sub) (mtCasCF tables))))
 
         -- A SimaPro region-suffixed flow ("Ammonia, FR") whose region the method
         -- doesn't tag falls back to the base substance's CF: an unregionalized CF
@@ -3019,8 +3032,8 @@ cascadeTrail tables flowDB fid =
             nativePerUnit <- convertUnit (mtUnitConfig tables) unit (edNativeUnit content) 1
             pure entry{teCF = CF (value / nativePerUnit / edValue content) (CFUnit (edTargetUnit content))}
 
-        -- Another name's factor, read at the places this flow may read.
-        resourceCF rname = firstReading (\sub -> M.lookup (rname, baseMed, sub) (mtExactCF tables))
+        -- Another name's factor, read at the places an author wrote.
+        resourceCF rname = firstWritten (\sub -> M.lookup (rname, baseMed, sub) (mtExactCF tables))
 
         -- An ecoinvent metal-ore resource flow ("Copper, 0.99% in sulfide, Cu 0.36%
         -- …, in ground", "Gold, Au 7.1E-4%, in ore") carries no CAS and matches no CF
@@ -3074,11 +3087,15 @@ data SubReading
       SubMediumWide
     | -- | Another one, by an @if_absent@ row of the compartment table.
       SubIfAbsent
+    | {- | A natural resource's @unspecified@ line, read by the flow's own name
+      only ('subReadings').
+      -}
+      SubResourceUnspecified
     deriving (Eq, Ord, Show)
 
-{- | The places a flow at @(medium, sub)@ may read a factor, in the order it
-tries them. These are the only three, and each is written somewhere a method or
-database author can read:
+{- | The places a flow at @(medium, sub)@ may read a factor that an author
+wrote for it, in the order it tries them. There are three, and each is written
+somewhere a method or database author can read:
 
   * its own subcompartment;
   * the substance's line for the whole medium, a line written with no
@@ -3096,14 +3113,59 @@ outside it. The SimaPro export of EF 3.1 and its ILCD package both leave
 groundwater unwritten; only the second has no line for the whole medium, so
 only there does a groundwater flow reach the row that sends it to fresh water.
 
-Nothing else: no subcompartment is guessed from another, and no factor is
+The rungs that lend a flow another name's factor (CAS, region base name)
+read these three only: their lookup is already a guess about the substance,
+and it is never made at a place the engine guessed as well.
+-}
+writtenReadings :: M.Map (MediumKey, Subcompartment) Subcompartment -> MediumKey -> Subcompartment -> [(SubReading, Subcompartment)]
+writtenReadings inForce medium sub =
+    (SubOwn, sub)
+        : [(SubMediumWide, mediumWide) | sub /= mediumWide]
+        ++ [(SubIfAbsent, target) | Just target <- [M.lookup (medium, foldSub sub) inForce]]
+
+{- | Every place a flow may read a factor by its own name: the three
+'writtenReadings', then, for a natural resource, its substance's line at
+@unspecified@ in the same medium.
+
+An emission's subcompartment changes what the emission does (air at altitude,
+groundwater against a river), so a method that writes nothing there has said
+so. A resource's subcompartment says where a flow list files it (in water,
+land), not a different damage: Ecological Scarcity 2021 for openLCA writes
+@Water, unspecified natural origin@ and @Occupation, tropical rain forest@ at
+@unspecified@ only, and counts them for a database that files them in water
+and on land. A line the method writes at the resource's own place, zero
+included, still comes first.
+
+Nothing else: no emission reads another subcompartment, and no factor is
 borrowed across subcompartments because a substance happens to have one.
 -}
 subReadings :: M.Map (MediumKey, Subcompartment) Subcompartment -> MediumKey -> Subcompartment -> [(SubReading, Subcompartment)]
 subReadings inForce medium sub =
-    (SubOwn, sub)
-        : [(SubMediumWide, mediumWide) | sub /= mediumWide]
-        ++ [(SubIfAbsent, target) | Just target <- [M.lookup (medium, foldSub sub) inForce]]
+    writtenReadings inForce medium sub
+        ++ [(SubResourceUnspecified, unspec) | medium == Just NaturalResource, foldSub sub /= unspec]
+  where
+    unspec = Subcompartment (T.pack "unspecified")
+
+{- | Whether a line attached this way lends a flow another name's factor: a CAS
+number shared with another substance's line, or a proxy edge. A line that
+names the flow itself, by identifier, name or synonym, does not.
+-}
+lendsAnotherName :: Maybe MatchStrategy -> Bool
+lendsAnotherName Nothing = False
+lendsAnotherName (Just ByUUID) = False
+lendsAnotherName (Just ByName) = False
+lendsAnotherName (Just BySynonym) = False
+lendsAnotherName (Just ByCAS) = True
+lendsAnotherName (Just ByProxy) = True
+
+{- | The places a line attached this way may reach a flow at: every place
+'subReadings' lists when it names the flow itself, only those
+'writtenReadings' lists when it lends another name's factor.
+-}
+placesFor :: Maybe MatchStrategy -> M.Map (MediumKey, Subcompartment) Subcompartment -> MediumKey -> Subcompartment -> [(SubReading, Subcompartment)]
+placesFor strategy
+    | lendsAnotherName strategy = writtenReadings
+    | otherwise = subReadings
 
 {- | The places a method's collection writes factors at: every
 (medium, subcompartment) its lines name, case-folded. An @if_absent@ row holds
@@ -3929,7 +3991,10 @@ siblingLines unitConfig unitDB tables flow
     | otherwise = Nothing
   where
     (med, own) = flowMediumSub (mtCompartmentMap tables) flow
-    readings = map snd (subReadings (mtIfAbsent tables) med own)
+    -- The places the flow reads a line at, by how the line was attached: the
+    -- same split as the cascade's ('placesFor').
+    readsAt strategy = map snd (placesFor strategy (mtIfAbsent tables) med own)
+    byCas = readsAt (Just ByCAS)
     cas = maybeToList (bfCAS flow >>= SR.casKey)
     name = SR.NormName (normalizeName (bfName flow))
 
@@ -3937,15 +4002,14 @@ siblingLines unitConfig unitDB tables flow
 
     regional =
         maybe False ((== bfId flow) . fst . fst) (M.lookupGE (bfId flow, Location T.empty) (mtRegionalizedCF tables))
-            || any (`M.member` mtRegionalCasCF tables) [(c, med, sub) | c <- cas, sub <- readings]
+            || any (`M.member` mtRegionalCasCF tables) [(c, med, sub) | c <- cas, sub <- byCas]
 
     written =
-        [(sub, teCF e) | ((_, _, sub), e) <- atMedium (name, med) (mtExactCF tables)]
-            ++ [(sub, teCF e) | c <- cas, ((_, _, sub), Just e) <- atMedium (c, med) (mtCasCF tables)]
+        [(sub, teCF e) | ((_, _, sub), e) <- atMedium (name, med) (mtExactCF tables), sub `notElem` readsAt (bpStrategy (teProvenance e))]
+            ++ [(sub, teCF e) | c <- cas, ((_, _, sub), Just e) <- atMedium (c, med) (mtCasCF tables), sub `notElem` byCas]
     found =
         [ (sub, f)
         | (sub, cf) <- written
-        , sub `notElem` readings
         , let f = convertAndMultiply unitConfig unitDB (mtEnergyDensities tables) (Just flow) cf 1
         , f /= 0
         ]

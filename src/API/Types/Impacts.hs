@@ -156,8 +156,9 @@ data LCIAResult = LCIAResult
 
 {- | The flows a score probably missed, the biggest first. A flow reads the
 factor of its own subcompartment, of its whole medium, or of the one an
-@if_absent@ row sends it to; one whose substance the method writes only at
-other subcompartments scores nothing.
+@if_absent@ row sends it to, and a resource then the line its name has at
+@unspecified@; one whose substance the method writes only at other
+subcompartments scores nothing.
 -}
 data ProbableMisses = ProbableMisses
     { pmsShown :: [ProbableMissEntry] -- The ten biggest, each able to move the score by a thousandth or more; all of them when the score is zero

@@ -372,24 +372,41 @@ replaced with `[[compartment-mappings]]`) holds two kinds of row, named in its
   method collections reads the row's two places as one only when each
   collection writes one of them and never the other.
 
-A flow reads a factor at three places, in this order, and nowhere else:
+A flow reads a factor at these places, in this order, and nowhere else:
 
 1. its own subcompartment;
 2. the line its substance writes for the whole medium, with no
    subcompartment. That is what `(unspecified)` means in the SimaPro CSV format,
    whose reader keys it there. In an ILCD package, a JSON-LD package or this
    engine's CSV format, `unspecified` names one subcompartment like any other;
-3. the place an `if_absent` row sends it to.
+3. the place an `if_absent` row sends it to;
+4. for a natural resource only, the line its own name, or a synonym of it,
+   has at `unspecified`.
+
+The fourth place exists because a resource's subcompartment says where a flow
+list files it, not a different damage. Ecological Scarcity 2021 as published
+for openLCA writes `Water, unspecified natural origin` and
+`Occupation, tropical rain forest` at `unspecified` only, and counts them for a
+database that files them `in water` and on `land`. An emission's subcompartment
+does change what it does, so an emission never reads it. Only a line that
+names the flow itself, by its name or a synonym `data/flows.csv` writes,
+reaches the fourth place. A line that lends it another name's factor (one
+sharing its CAS number, a proxy edge, the base substance of a region-suffixed
+name) reaches the first three, the places an author wrote: never a guessed
+place on top of a borrowed name. The same rule decides which database flow a
+method line is attached to.
 
 A flow that states no subcompartment is an `unspecified` emission. The engine
-borrows no factor across subcompartments beyond these three: a method that
+borrows no factor across subcompartments beyond these places: a method that
 means a sea or long-term emission to count for nothing writes that line.
+This is how a score reads factors; comparing two method collections pairs
+their lines by a reading of its own.
 The same places decide which database flow a method line is matched to: the
 flow that reads it first, and none when no flow reads it. A line whose name
 ends in `*` and that is written at `unspecified` selects the flows filed at
 `unspecified`, not those of every subcompartment.
 `explain-cf` names the step that answered (`exact_name`, `compartment_default`,
-`if_absent`, …).
+`if_absent`, `resource_unspecified`, …).
 
 A method can write two values for one flow at one place. An ILCD package
 tells two such flows apart by their identifiers; written out as SimaPro CSV,
