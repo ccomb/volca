@@ -48,17 +48,17 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum, toLower)
-import Data.List (isPrefixOf, isSuffixOf, sortOn)
-import Data.Maybe (isJust)
+import Data.List (isPrefixOf, isSuffixOf, sort, sortOn)
+import Data.Maybe (catMaybes, isJust)
 import Data.Ord (Down (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import GHC.Generics (Generic)
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeDirectoryRecursive, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (takeExtension, (</>))
+import System.FilePath (makeRelative, takeBaseName, takeDirectory, takeExtension, takeFileName, (</>))
 import System.IO (IOMode (ReadMode), withFile)
 import System.Info (os)
 import System.Process (readProcessWithExitCode)
@@ -288,11 +288,88 @@ extractArchiveFile archivePath targetDir = do
     content <- BL.readFile archivePath
     extractUpload content targetDir
 
-{- | Extract upload data to target directory.
+{- | Extract upload data to target directory, archives it holds included.
 Supports ZIP, 7z, tar.gz, tar.xz archives (auto-detected), plain XML, a single .spold dataset, and CSV files.
 -}
 extractUpload :: BL.ByteString -> FilePath -> IO (Either Text ())
-extractUpload content targetDir = do
+extractUpload content targetDir =
+    extractOne content targetDir >>= either (pure . Left) (const (unpackNested targetDir))
+
+{- | Unpack the archives an extracted archive holds, each into the directory
+it sits in.
+
+A publisher may ship one archive per dataset inside a single one: a zip holding
+a zip per flower. Unpacked beside where they sat, the datasets end up in one
+directory, the one a loader reads. A file an inner archive holds under a name
+already taken by other content is kept under the archive's name followed by its
+own, so nothing is overwritten; the same content is kept once. An inner archive
+that will not extract stays as it was, as it did before anything tried.
+Nesting deeper than 'maxNestingDepth', or more than 'maxNestedArchives'
+archives in all, refuses: an archive can hold itself.
+-}
+unpackNested :: FilePath -> IO (Either Text ())
+unpackNested root = go maxNestingDepth 0 []
+  where
+    go :: Int -> Int -> [FilePath] -> IO (Either Text ())
+    go depth unpacked leftAlone = do
+        files <- listDirectoryRecursive root
+        -- Sorted, so which of two clashing files keeps its name does not
+        -- depend on the order the filesystem lists them in.
+        case sort [f | f <- files, f `notElem` leftAlone, map toLower (takeExtension f) `elem` [".zip", ".7z", ".gz", ".xz"]] of
+            [] -> pure (Right ())
+            inner
+                | depth == 0 ->
+                    pure (Left ("The archive holds archives nested more than " <> T.pack (show maxNestingDepth) <> " deep. Unpack it and upload what it holds."))
+                | unpacked + length inner > maxNestedArchives ->
+                    pure (Left ("The archive holds more than " <> T.pack (show maxNestedArchives) <> " archives. Unpack it and upload what it holds."))
+                | otherwise -> do
+                    stayed <- catMaybes <$> mapM unpackOne inner
+                    go (depth - 1) (unpacked + length inner) (leftAlone <> stayed)
+
+    -- The archive itself when it stays where it was, unextracted.
+    unpackOne :: FilePath -> IO (Maybe FilePath)
+    unpackOne archive = do
+        content <- BL.readFile archive
+        let here = takeDirectory archive
+            scratch = here </> ".temp-nested"
+        createDirectoryIfMissing True scratch
+        result <-
+            if detectArchiveFormat content `elem` [ArchiveZip, Archive7z, ArchiveGzip, ArchiveXz]
+                then either (Left . T.pack . show) id <$> try @SomeException (extractOne content scratch)
+                else pure (Left "not an archive")
+        case result of
+            Right () -> do
+                mapM_ (place here scratch (takeBaseName archive)) =<< listDirectoryRecursive scratch
+                removeDirectoryRecursive scratch
+                removeFile archive
+                pure Nothing
+            Left _ -> do
+                removeDirectoryRecursive scratch
+                pure (Just archive)
+
+    place :: FilePath -> FilePath -> String -> FilePath -> IO ()
+    place here scratch archiveName file = do
+        let relative = makeRelative scratch file
+            wanted = here </> relative
+        taken <- doesFileExist wanted
+        same <- if taken then (==) <$> BS.readFile wanted <*> BS.readFile file else pure False
+        let target
+                | taken = here </> takeDirectory relative </> (archiveName <> "__" <> takeFileName relative)
+                | otherwise = wanted
+        createDirectoryIfMissing True (takeDirectory target)
+        if same then removeFile file else renameFile file target
+
+-- | How many archives deep an upload may nest its archives.
+maxNestingDepth :: Int
+maxNestingDepth = 3
+
+-- | How many archives an upload may hold inside it, at every depth together.
+maxNestedArchives :: Int
+maxNestedArchives = 256
+
+-- | Extract one upload to the target directory, leaving the archives it holds packed.
+extractOne :: BL.ByteString -> FilePath -> IO (Either Text ())
+extractOne content targetDir = do
     let format = detectArchiveFormat content
     case format of
         ArchivePlainXML -> do

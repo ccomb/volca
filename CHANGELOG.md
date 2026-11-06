@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- An archive whose entries are themselves archives loads as one database:
+  each archive inside is unpacked where it sat, so a publisher's zip of one
+  zip per process gives one database rather than refusing as holding no
+  data file. A file two inner archives both hold, with different content,
+  is kept under each archive's name rather than overwritten. Archives nested
+  more than three deep, or more than 256 of them, are refused.
+- A directory of EcoSpold 1 files holding several datasets each loads every
+  dataset. It loaded the first of each file and dropped the rest without a
+  word, while a lone such file loaded them all.
 - A wildcard line of a method (`Energy, *`, `Water*`) counts the flows of
   the database whose name starts with its prefix, and no others. It also
   took every flow the registry gives as another name of one it found:

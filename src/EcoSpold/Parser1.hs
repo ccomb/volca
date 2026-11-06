@@ -7,7 +7,6 @@ This parser handles the older EcoSpold1 XML format (.XML files)
 used in Ecoinvent versions 2.x (e.g., 2.2)
 -}
 module EcoSpold.Parser1 (
-    streamParseActivityAndFlowsFromFile1,
     streamParseAllDatasetsFromFile1,
 
     -- * XML parsing (exported for testing)
@@ -964,17 +963,6 @@ Outer Either = XML parse failure; inner Either = per-activity failure.
 -}
 parseAllWithXeno :: BS.ByteString -> Either String [Either String ParsedDataset]
 parseAllWithXeno = fmap (reverse . psCompletedActivities) . foldEcoSpold1
-
--- | Parse EcoSpold1 file using Xeno SAX parser
-streamParseActivityAndFlowsFromFile1 :: FilePath -> IO (Either String ParsedDataset)
-streamParseActivityAndFlowsFromFile1 path = do
-    !xmlContent <- BS.readFile path
-    -- The failure is named after its file like the warnings below: read across
-    -- a directory of several thousand, a reason that names no file is a reason
-    -- nobody can act on.
-    let parsed = first ((path ++ ": ") ++) (parseWithXeno xmlContent)
-    either (const (pure ())) (reportReading path) parsed
-    return parsed
 
 -- | Send what a reading had to say to the progress log, the one place it can go.
 reportReading :: FilePath -> ParsedDataset -> IO ()

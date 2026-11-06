@@ -9,6 +9,7 @@ module MethodUploadSpec (spec) where
 
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
+import Data.List (isInfixOf, sort)
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import System.Directory (createDirectoryIfMissing, doesFileExist, listDirectory)
@@ -21,6 +22,7 @@ import Config (MethodConfig (..), MethodOrigin (..))
 import Database.Manager (loadMethodCollectionFromConfig)
 import Database.Upload
 import Method.Types (Method (..), MethodCF (..), mcMethods)
+import Zip (zipFiles)
 
 {- | A minimal, hand-written openLCA ImpactCategory JSON-LD document.
 One impact factor is enough to assert the full pipeline parses correctly.
@@ -118,6 +120,42 @@ spec = do
 
         it "is still kept as an .xml and read as EcoSpold 1 when it is EcoSpold 1" $
             stored ecoSpold1 `shouldReturn` (Right (), ["data.xml"], EcoSpold1)
+
+    -- A publisher may ship one archive per dataset inside a single one.
+    describe "an archive holding archives" $ do
+        let zipped = BL.toStrict . zipFiles
+            -- What the extraction leaves, relative to the directory it fills.
+            unpacked bytes =
+                withSystemTempDirectory "volca-nested" $ \tmp -> do
+                    let source = tmp </> "sent.zip"
+                        target = tmp </> "stored"
+                    BL.writeFile source (BL.fromStrict bytes)
+                    createDirectoryIfMissing True target
+                    written <- extractArchiveFile source target
+                    files <- listDirectoryRecursive target
+                    pure (written, sort (map (drop (length target + 1)) files))
+
+        -- Peony's warning says what lily's does and is kept once; rose's says
+        -- something else and is kept under the archive's name.
+        it "unpacks each one where it sat, so the datasets share one directory" $
+            unpacked
+                ( zipped
+                    [ ("flowers/rose.zip", zipped [("rose.xml", "<rose/>"), ("WARNING.txt", "rose")])
+                    , ("flowers/lily.zip", zipped [("lily.xml", "<lily/>"), ("WARNING.txt", "lily")])
+                    , ("flowers/peony.zip", zipped [("peony.xml", "<peony/>"), ("WARNING.txt", "lily")])
+                    ]
+                )
+                `shouldReturn` ( Right ()
+                               , ["flowers/WARNING.txt", "flowers/lily.xml", "flowers/peony.xml", "flowers/rose.xml", "flowers/rose__WARNING.txt"]
+                               )
+
+        it "leaves an inner archive that will not extract as it was" $
+            unpacked (zipped [("broken.zip", "not a zip"), ("data.xml", "<data/>")])
+                `shouldReturn` (Right (), ["broken.zip", "data.xml"])
+
+        it "refuses archives nested deeper than it unpacks" $ do
+            (written, _) <- unpacked (iterate (\inner -> zipped [("inner.zip", inner)]) (zipped [("data.xml", "<data/>")]) !! 5)
+            either (\reason -> T.unpack reason `shouldSatisfy` isInfixOf "nested more than") (const (expectationFailure "expected a refusal")) written
 
     describe "handleUpload writes JSON-LD as .json" $
         it "persists data.json (not data.csv) so the loader can dispatch through OlcaSchema" $

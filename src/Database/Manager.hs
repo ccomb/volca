@@ -2478,7 +2478,10 @@ resolveDataPath path = do
                 reportProgress Info $ "Extracting archive: " <> archive
                 result <- Upload.extractArchiveFile archive extractDir
                 case result of
-                    Left err ->
+                    -- What was unpacked before the refusal would otherwise be
+                    -- taken for a finished extraction on the next start.
+                    Left err -> do
+                        removeDirectoryRecursive extractDir
                         pure . Left $
                             "Archive could not be extracted: " <> T.pack archive <> ": " <> err
                     Right () -> do
