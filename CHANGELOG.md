@@ -20,8 +20,9 @@
   The reader keeps them as two products, each input bought from the maker of
   its measure, instead of refusing the whole file. The export to a workbook
   no longer refuses such a database either, except where the two makers also
-  share their activity name and location: a workbook names a maker by those
-  alone, so a re-import could not tell which one an input buys from.
+  share their activity name and location, or share a location where one is
+  named like its product: a workbook names a maker by those alone, so a
+  re-import could not tell which one an input buys from.
 - An archive whose entries are themselves archives loads as one database:
   each archive inside is unpacked where it sat, so a publisher's zip of one
   zip per process gives one database rather than refusing as holding no

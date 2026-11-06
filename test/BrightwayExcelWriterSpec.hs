@@ -315,6 +315,10 @@ spec = describe "BrightwayExcel.Writer" $ do
                             `shouldMatchList` ["MJ from FI", "kg from DE"]
         it "refuses one name made in MJ and in kg by two makers of one name and location" $
             checkBrightwayExportable energyConfig noDependencies (spelledTwiceDb "kg" "FI") `shouldSatisfy` isLeft
+        it "lets two makers of one location through when their names tell them apart" $
+            checkBrightwayExportable energyConfig noDependencies (renamingTheKgMaker "Gas boiler" (spelledTwiceDb "kg" "FI")) `shouldBe` Right ()
+        it "refuses two makers of one location when one is named like its product, which names no maker on its rows" $
+            checkBrightwayExportable energyConfig noDependencies (renamingTheKgMaker "electricity, gas" (spelledTwiceDb "kg" "FI")) `shouldSatisfy` isLeft
 
     describe "ReferenceInput regression" $
         it "rejects a reference input rather than round-tripping it to a duplicated row" $ do
@@ -888,6 +892,15 @@ spelledTwiceDb other there =
     elsewhere = maker there inOther other
     from a ex = ex{techActivityLinkId = Just (generateActivityUUID a)}
     buyer = elec{activityName = "Heating", exchanges = [line heat ReferenceProduct 1 "kg", from inFI (line inMJ Input 1 "MJ"), from elsewhere (line inOther Input 1 other)]}
+
+-- | 'spelledTwiceDb' with its second maker, the one not counting in MJ, under another name.
+renamingTheKgMaker :: Text -> SimpleDatabase -> SimpleDatabase
+renamingTheKgMaker name db = db{sdbActivities = M.mapWithKey rename (sdbActivities db)}
+  where
+    rename :: (UUID, UUID) -> Activity -> Activity
+    rename (_, product) a
+        | product == generateFlowUUID "electricity, gas" "DE" = a{activityName = name}
+        | otherwise = a
 
 -- ---------------------------------------------------------------------------
 -- Export-guard fixtures (rejected at the boundary)

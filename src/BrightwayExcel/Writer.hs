@@ -99,6 +99,7 @@ import Amount (readAmount)
 import Data.Indexing (collisions)
 import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, frozenWarnings, processExport)
 import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, buys, clashing, inDependency, makerOf, noDependencies, producerOf, unnamedWarnings)
+import Database.Loader (normalizeText)
 import EcoSpold.Common (showFFloatTrim)
 import qualified Expr
 import SubstanceRegistry (nonEmptyCAS)
@@ -231,8 +232,9 @@ every finite amount does, so this rejects only the non-finite @NaN@/@Infinity@
 that would otherwise substitute a different value on re-import.
 
 Two products spelt alike in different units are rejected when their makers
-share a name and a location ('productsSpeltAlike'): a row names its maker by
-those alone, so the reader could not link each row to the maker of its unit.
+share a name and a location, or a location where one is named like its product
+('productsSpeltAlike'): a row names its maker by those alone, so the reader
+could not link each row to the maker of its unit.
 
 Databases whose exchanges all resolve, send no waste to a treatment of the file, keep every resource
 direction recoverable, give no two makers of products spelt alike in different
@@ -356,14 +358,12 @@ checkBrightwayExportable units deps db =
     alikeMsg makers =
         "Brightway Excel export cannot tell apart the products "
             <> T.intercalate " and " (map spelt (NE.toList (NE.nubBy (\x y -> tfId x == tfId y) (NE.map snd makers))))
-            <> ": activities named \""
-            <> activityName a
-            <> "\" at "
-            <> activityLocation a
+            <> ": "
+            <> T.intercalate " and " (map (\n -> "\"" <> n <> "\"") (NE.toList (NE.nub (NE.map (activityName . fst) makers))))
+            <> " at "
+            <> activityLocation (fst (NE.head makers))
             <> " make them, and a workbook names a maker by its name and location alone,"
             <> " so a re-import would link every input of them to one of the makers."
-      where
-        a = fst (NE.head makers)
     spelt :: TechnosphereFlow -> Text
     spelt flow =
         "\"" <> tfName flow <> "\" (" <> maybe "unknown unit" unitName (M.lookup (tfUnitId flow) (sdbUnits db)) <> ")"
@@ -396,13 +396,14 @@ checkBrightwayExportable units deps db =
         ]
 
 {- | The makers of products spelt alike in different units that a workbook
-cannot tell apart, grouped by the name and location they share. The reader
-keeps a name counted in two units as two products, but links a row to its maker
-by the product name, the maker's name and its location only, so two makers
-writing all three alike leave it one to pick for rows of both units. Units are
-compared as the reader reads them, in the reference unit of their dimension: a
-product counted in kWh by one activity and in MJ by another is one product in MJ
-to it.
+cannot tell apart, grouped by the location they share. The reader keeps a name
+counted in two units as two products, but links a row to its maker by the
+product name, the maker's name and its location only, so two makers writing all
+three alike leave it one to pick for rows of both units. A maker named like its
+product names no maker at all on its rows, so it is alike to every maker at its
+location. Units are compared as the reader reads them, in the reference unit of
+their dimension: a product counted in kWh by one activity and in MJ by another
+is one product in MJ to it.
 -}
 productsSpeltAlike :: UnitConfig -> SimpleDatabase -> [NE.NonEmpty (Activity, TechnosphereFlow)]
 productsSpeltAlike units db =
@@ -410,10 +411,15 @@ productsSpeltAlike units db =
     | (_, flows) <- collisions [(T.toCaseFold (T.strip (tfName f)), f) | f <- written]
     , NE.length (NE.nub (NE.map readAs flows)) > 1
     , let makers = [(a, f) | ((_, p), a) <- M.toList (sdbActivities db), f <- NE.toList flows, tfId f == p]
-    , same <- NE.groupAllWith (\(a, _) -> (activityName a, activityLocation a)) makers
+    , atPlace <- NE.groupAllWith (activityLocation . fst) makers
+    , same <- if any namedLikeProduct atPlace then [atPlace] else NE.groupAllWith (normalizeText . activityName . fst) (NE.toList atPlace)
     , NE.length (NE.nub (NE.map (readAs . snd) same)) > 1
     ]
   where
+    -- The reader takes a row repeating the product in its name cell as naming no maker.
+    namedLikeProduct :: (Activity, TechnosphereFlow) -> Bool
+    namedLikeProduct (a, f) = activityName a == tfName f
+
     -- A unit the table does not know is read as written, as the reader does.
     readAs :: TechnosphereFlow -> Maybe Text
     readAs f = (\u -> fromMaybe u (canonicalUnitFor units u)) . unitName <$> M.lookup (tfUnitId f) (sdbUnits db)
