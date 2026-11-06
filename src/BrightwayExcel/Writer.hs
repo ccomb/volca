@@ -616,7 +616,8 @@ carries the flow name, from which the parser reconstructs the same flow UUID for
 a product made in the workbook. A row buying from a database this one depends
 on names that database, that supplier's activity and its location, which the
 parser reads as bought there; a row buying a product several activities of the
-workbook make names its maker and the maker's location. Any other row names the
+workbook make names its maker and the maker's location, and a row linked to the
+sole maker of a product carries the location of that maker's block. Any other row names the
 workbook ('productsSpeltAlike' refuses the case where that would merge two
 products), with @name@ carrying the supplier activity where the source named
 one and repeating the flow name where it did not; a supplier named with no
@@ -629,11 +630,13 @@ exchangeRow cfg db maker formula = \case
         name <- flowNameOf db ex
         (unit, perLine) <- writtenUnit (wcUnits cfg) db ex
         -- Who the row buys from, where it names one: a supplier in a dependency,
-        -- or the maker of a product several activities of the file make.
+        -- or the maker of a product several activities of the file make. A row
+        -- linked to the sole maker states the location of that maker's block, which Brightway
+        -- links by: the line's own may be blank or spelt otherwise.
         let (supplier, product', location, database) = case maker of
                 InDependency e -> (elActivity e, CText name, elLocation e, elDatabase e)
                 OneOfMakers a -> (activityName a, CText name, madeAt a, wcDatabaseName cfg)
-                SoleMaker _ -> asStated
+                SoleMaker a -> (namedSupplier claim name, statedProduct claim name, activityLocation a, wcDatabaseName cfg)
                 Dangling _ -> asStated
                 NoLink -> asStated
             asStated = (namedSupplier claim name, statedProduct claim name, locationCode loc, wcDatabaseName cfg)

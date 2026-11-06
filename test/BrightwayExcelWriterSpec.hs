@@ -277,6 +277,8 @@ spec = describe "BrightwayExcel.Writer" $ do
             fmap (!! 4) row `shouldBe` Just (CText "MJ")
             fmap (!! 1) row `shouldBe` Just (CNum (2 * 3.6))
             fmap last row `shouldBe` Just (CText "x * 3.6")
+        it "states its maker's location, its own being blank" $
+            fmap (!! 3) (boughtRow (energyDb ReferenceProduct)) `shouldBe` Just (CText "FI")
         it "is converted to the unit of a coproduct of a block kept whole" $
             fmap (\r -> (r !! 4, r !! 1)) (boughtRow (energyDb Coproduct)) `shouldBe` Just (CText "MJ", CNum (2 * 3.6))
         it "keeps its amount when it is written in the maker's unit already" $
@@ -800,6 +802,7 @@ energyDb role =
     plant =
         elec
             { activityName = "Gas power plant"
+            , activityLocation = "FI"
             , activityUnit = "MJ"
             , exchanges = case role of
                 -- Every product declares a share, and the block is still kept whole.
@@ -815,6 +818,7 @@ energyDb role =
                 [ line heat ReferenceProduct 1 "kg"
                 , (line power Input 2 "kWh")
                     { techActivityLinkId = Just (generateActivityUUID plant)
+                    , techLocation = ""
                     , techFormula = Just (ExchangeFormula Nothing "x")
                     }
                 ]
