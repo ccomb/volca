@@ -327,19 +327,23 @@ spec = do
             scoreFlow flow 0.283452 tables `shouldSatisfy` near 0
 
     -- The shipped method and the shipped table together: "Primary energy" is
-    -- written per MJ, crude oil comes in kg, and only the calorific value in
-    -- data/energy_density.csv brings one onto the other.
+    -- written per MJ, the fuels come in kg or m3, and only the calorific value
+    -- in data/energy_density.csv brings one onto the other.
     describe "Shipped plain indicators, primary energy" $ do
-        it "counts 1 kg of crude oil as 43.2 MJ" $ do
-            methods <- either fail pure . parseMethodCSVBytes =<< BS.readFile "data/methods/plain-indicators.csv"
-            densities <- either fail pure . buildEnergyDensityMapFromCSV =<< BL.readFile "data/energy_density.csv"
-            let oil = (coalFlowIn uidKg){bfId = UUID.fromWords64 13 0, bfName = "Oil, crude"}
-                oilCF = do
-                    m <- find ((== "Primary energy") . methodName) methods
-                    find ((== "Oil, crude") . mcfFlowName) (methodFactors m)
-            case oilCF of
-                Nothing -> expectationFailure "no \"Oil, crude\" row in Primary energy"
-                Just cf -> scoreFlow oil 1.0 (tablesForRegion oil oil densities cf) `shouldSatisfy` near 43.2
+        let primaryEnergyOf name unitId qty expected = do
+                methods <- either fail pure . parseMethodCSVBytes =<< BS.readFile "data/methods/plain-indicators.csv"
+                densities <- either fail pure . buildEnergyDensityMapFromCSV =<< BL.readFile "data/energy_density.csv"
+                let flow = (coalFlowIn unitId){bfId = UUID.fromWords64 13 0, bfName = name}
+                    rowCF = do
+                        m <- find ((== "Primary energy") . methodName) methods
+                        find ((== name) . mcfFlowName) (methodFactors m)
+                case rowCF of
+                    Nothing -> expectationFailure ("no row for " <> show name <> " in Primary energy")
+                    Just cf -> scoreFlow flow qty (tablesForRegion flow flow densities cf) `shouldSatisfy` near expected
+        it "counts 1 kg of crude oil as 43.2 MJ" $
+            primaryEnergyOf "Oil, crude" uidKg 1.0 43.2
+        it "counts 1 m3 of coal mine gas as 36 MJ" $
+            primaryEnergyOf "Gas, mine, off-gas, process, coal mining" uidM3 1.0 36.0
 
     describe "buildEnergyDensityMapFromCSV" $ do
         it "parses a valid row, keyed by normalized flow name" $

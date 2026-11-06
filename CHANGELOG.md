@@ -5,12 +5,13 @@
 ### Fixed
 
 - The "Primary energy" indicator of the plain indicators counts crude oil,
-  hard and brown coal, natural gas, peat and uranium. It only counted the
-  energy flows already given in MJ (biomass, hydro, wind, solar,
+  hard and brown coal, natural gas, coal mine gas, peat and uranium. It only
+  counted the energy flows already given in MJ (biomass, hydro, wind, solar,
   geothermal), so it measured renewable energy under a name that promised
   all of it: for one dye made in ecoinvent 3.12, it gave 6.3 MJ where the
   natural gas alone comes to 45.9. The fuels, given in kg or m3, are turned
-  into MJ with the calorific value the engine already ships.
+  into MJ with the calorific value the engine ships, which now has coal mine
+  gas at 36 MJ/m3, the value EF 3.1 gives it.
 - A database relinked with a mapping keeps the links that mapping made. They
   used to drop without a word at the next relink, which an edit, the reload
   of a dependency and a restart all run: one process added to a copy of a

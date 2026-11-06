@@ -39,6 +39,7 @@ Oil, crude;resource;;;;;;;1.0;;
 Coal, hard;resource;;;;;;;1.0;;
 Coal, brown;resource;;;;;;;1.0;;
 Gas, natural;resource;;;;;;;1.0;;
+Gas, mine, off-gas, process, coal mining;resource;;;;;;;1.0;;
 Peat;resource;;;;;;;1.0;;
 Uranium;resource;;;;;;;1.0;;
 Heat, waste*;;;;;;;;;1.0;
