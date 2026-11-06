@@ -97,9 +97,8 @@ import qualified Data.Text.Encoding as TE
 
 import Amount (readAmount)
 import Data.Indexing (collisions)
-import Database.Allocation (producerKeyOf)
 import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, frozenWarnings, processExport)
-import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, buys, clashing, inDependency, madeAt, makerOf, noDependencies, unnamedWarnings)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, buys, clashing, inDependency, madeAt, makerOf, noDependencies, producerOf, unnamedWarnings)
 import EcoSpold.Common (showFFloatTrim)
 import qualified Expr
 import SubstanceRegistry (nonEmptyCAS)
@@ -202,7 +201,7 @@ renderWorkbookWithWarnings cfg db = do
 
 -- | The parameters and formulas as the workbook writes them: a formula follows its line into the unit 'writtenUnit' writes it in.
 exportedOf :: UnitConfig -> SimpleDatabase -> Exported
-exportedOf units db = exportFormulas Expr.Python (\_ ex -> Times (maybe 1 snd (writtenUnit units db ex))) db
+exportedOf units db = exportFormulas Expr.Python (\_ ex -> Times (maybe 1 luPerLine (writtenUnit units db ex))) db
 
 {- | Guard a Brightway Excel export against exchanges the writer cannot encode.
 'exchangeRow' resolves each exchange's flow name and unit name from the database
@@ -294,6 +293,7 @@ checkBrightwayExportable units deps db =
         , directionMsg <$> listToMaybe directionOffenders
         , roundTripMsg <$> listToMaybe roundTripOffenders
         , parameterMsg <$> listToMaybe parameterOffenders
+        , otherUnitMsg <$> listToMaybe otherUnitOffenders
         , alikeMsg <$> listToMaybe (productsSpeltAlike units db)
         , sharedMsg <$> listToMaybe sharedOffenders
         ] of
@@ -319,6 +319,24 @@ checkBrightwayExportable units deps db =
             <> "exchange amount "
             <> tshow amt
             <> " does not re-parse to the same value (a non-finite amount)."
+    -- The matrix converts a line to its maker's reference unit, so a line bought
+    -- from a coproduct in a unit that does not convert to the coproduct's loads.
+    otherUnitOffenders =
+        [ (activityName a, own, theirs)
+        | a <- M.elems (sdbActivities db)
+        , ex <- exchanges a
+        , Just theirs <- [makerUnitOf db ex]
+        , Just own <- [unitNameOf (exchangeUnitId ex) db]
+        , own /= theirs
+        , isNothing (convertUnit units own theirs 1)
+        ]
+    otherUnitMsg (consumer, own, theirs) =
+        cannot consumer
+            <> "a line in "
+            <> own
+            <> " buys a product its maker makes in "
+            <> theirs
+            <> ", which it does not convert to, so Brightway could not link it."
     -- A row buying a product two activities of the file make names its maker
     -- by name and location, which two makers may not both write alike.
     sharedOffenders =
@@ -628,7 +646,7 @@ exchangeRow :: WriterConfig -> SimpleDatabase -> Maker -> Maybe Text -> Exchange
 exchangeRow cfg db maker formula = \case
     ex@TechnosphereExchange{techAmount = amt, techRole = role, techLocation = loc, techSupplierClaim = claim} -> do
         name <- flowNameOf db ex
-        (unit, perLine) <- writtenUnit (wcUnits cfg) db ex
+        LineUnit{luName = unit, luPerLine = perLine} <- writtenUnit (wcUnits cfg) db ex
         -- Who the row buys from, where it names one: a supplier in a dependency,
         -- or the maker of a product several activities of the file make. A row
         -- linked to the sole maker states the location of that maker's block, which Brightway
@@ -755,28 +773,35 @@ flowNameOf db = \case
     ex@WasteExchange{} -> wfName <$> M.lookup (exchangeFlowId ex) (sdbWasteFlows db)
     ex@BiosphereExchange{} -> bfName <$> M.lookup (exchangeFlowId ex) (sdbBioFlows db)
 
-{- | The unit a line is written in, and what one unit of the line is in it. A line
-bought from a product of the file is written in that product's unit, as its
-production row states it: Brightway links a line by its unit, and would leave
-one bought in kWh from a product made in MJ unlinked. Any other line keeps its
-unit, as does one whose unit does not convert to its maker's: a database
-holding one is refused at load, where the matrix converts each line. The producer is found as 'makerOf' finds it, from the line alone, so the
-formula hook reaches it too.
+-- | The unit a line is written in, and what one unit of the line is in it.
+data LineUnit = LineUnit {luName :: !Text, luPerLine :: !Double}
+
+{- | A line bought from a product of the file is written in the unit its maker's
+row for that product states: Brightway links a line by its unit, and would
+leave one bought in kWh from a product made in MJ unlinked. Any other line
+keeps its unit. A line whose unit does not convert to its maker's is refused
+by 'checkBrightwayExportable' before any row is written.
 -}
-writtenUnit :: UnitConfig -> SimpleDatabase -> Exchange -> Maybe (Text, Double)
+writtenUnit :: UnitConfig -> SimpleDatabase -> Exchange -> Maybe LineUnit
 writtenUnit units db ex = do
     own <- unitNameOf (exchangeUnitId ex) db
-    Just (fromMaybe (own, 1) (inMakerUnit own))
-  where
-    inMakerUnit own = case ex of
-        TechnosphereExchange{techRole = role, techActivityLinkId = Just supplier, techFlowId = flow}
-            | buys role -> do
-                maker <- producerKeyOf (sdbActivities db) (supplier, flow) >>= (`M.lookup` sdbActivities db)
-                -- The maker's row for this very product: a block kept whole makes it as a coproduct.
-                made <- lookup' (\p -> exchangeIsProductOutput p && exchangeFlowId p == flow) (exchanges maker)
-                theirs <- unitNameOf (exchangeUnitId made) db
-                if theirs == own then Nothing else (,) theirs <$> convertUnit units own theirs 1
-        _ -> Nothing
+    Just . fromMaybe (LineUnit own 1) $ do
+        theirs <- makerUnitOf db ex
+        if theirs == own then Nothing else LineUnit theirs <$> convertUnit units own theirs 1
+
+{- | The unit the maker of the file states for the product a line buys, found
+from the line alone as 'makerOf' finds it, so the formula hook reaches it too.
+The maker's row for this very product: a block kept whole makes it as a
+coproduct, in a unit of its own.
+-}
+makerUnitOf :: SimpleDatabase -> Exchange -> Maybe Text
+makerUnitOf db = \case
+    TechnosphereExchange{techRole = role, techActivityLinkId = Just supplier, techFlowId = flow}
+        | buys role -> do
+            maker <- producerOf db supplier flow
+            made <- lookup' (\p -> exchangeIsProductOutput p && exchangeFlowId p == flow) (exchanges maker)
+            unitNameOf (exchangeUnitId made) db
+    _ -> Nothing
 
 unitNameOf :: UUID -> SimpleDatabase -> Maybe Text
 unitNameOf uid db = unitName <$> M.lookup uid (sdbUnits db)

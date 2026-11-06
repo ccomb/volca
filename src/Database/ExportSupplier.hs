@@ -19,6 +19,7 @@ module Database.ExportSupplier (
     dependenciesOf,
     Maker (..),
     makerOf,
+    producerOf,
     buys,
     inDependency,
     madeAt,
@@ -130,7 +131,7 @@ makerOf (Dependencies deps) db = \(act, prod) (position, ex) -> case ex of
     TechnosphereExchange{techRole = role, techActivityLinkId = link, techFlowId = flow}
         | buys role
         , Just supplier <- link
-        , Just maker <- producerKeyOf (sdbActivities db) (supplier, flow) >>= (`M.lookup` sdbActivities db) ->
+        , Just maker <- producerOf db supplier flow ->
             if S.member flow named then OneOfMakers maker else SoleMaker maker
         | buys role, Just e <- M.lookup (act, prod, position) deps -> InDependency e
         | buys role, Just supplier <- link -> Dangling supplier
@@ -150,6 +151,10 @@ inDependency = \case
     OneOfMakers _ -> False
     Dangling _ -> False
     NoLink -> False
+
+-- | The activity of the file a line linked to this supplier buys this product from.
+producerOf :: SimpleDatabase -> UUID -> UUID -> Maybe Activity
+producerOf db supplier flow = producerKeyOf (sdbActivities db) (supplier, flow) >>= (`M.lookup` sdbActivities db)
 
 -- | The roles that stand for a product some supplier makes.
 buys :: TechRole -> Bool

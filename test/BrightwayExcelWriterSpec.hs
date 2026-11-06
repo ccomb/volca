@@ -285,6 +285,8 @@ spec = describe "BrightwayExcel.Writer" $ do
             fmap (\r -> (r !! 4, r !! 1)) (boughtRow (inMakerUnitDb (energyDb ReferenceProduct))) `shouldBe` Just (CText "MJ", CNum 2)
         it "lets one product counted in kWh by one activity and in MJ by another through" $
             checkBrightwayExportable energyConfig noDependencies (spelledTwiceDb "kWh") `shouldBe` Right ()
+        it "refuses a line bought from a coproduct in a unit that does not convert to the coproduct's" $
+            checkBrightwayExportable energyConfig noDependencies (inUnit "kg" (energyDb Coproduct)) `shouldSatisfy` isLeft
         it "still refuses one product counted in kg by one activity and in kWh by another" $
             checkBrightwayExportable energyConfig noDependencies (spelledTwiceDb "kg") `shouldSatisfy` isLeft
 
@@ -826,11 +828,15 @@ energyDb role =
 
 -- | The heater's line bought in MJ, as its maker counts it.
 inMakerUnitDb :: SimpleDatabase -> SimpleDatabase
-inMakerUnitDb db = db{sdbActivities = M.map inMJ (sdbActivities db)}
+inMakerUnitDb = inUnit "MJ"
+
+-- | The heater's line bought in the given unit.
+inUnit :: Text -> SimpleDatabase -> SimpleDatabase
+inUnit u db = db{sdbActivities = M.map restated (sdbActivities db)}
   where
-    inMJ a = a{exchanges = map toMJ (exchanges a)}
-    toMJ = \case
-        ex@TechnosphereExchange{techRole = Input} -> ex{techUnitId = generateUnitUUID "MJ"}
+    restated a = a{exchanges = map toUnit (exchanges a)}
+    toUnit = \case
+        ex@TechnosphereExchange{techRole = Input} -> ex{techUnitId = generateUnitUUID u}
         ex -> ex
 
 -- | The row the heater writes for the line it buys.
