@@ -2471,7 +2471,8 @@ A flow a score read no factor for, although its method writes the same
 substance elsewhere in the flow's medium.
 
 A flow reads the factor of its own subcompartment, of its whole medium, or
-of the one an ``if_absent`` row of the compartment table sends it to. Ammonia
+of the one an ``if_absent`` row of the compartment table sends it to, and a
+resource then the line its name has at ``unspecified``. Ammonia
 emitted indoors scores nothing under a method that writes ammonia only for
 urban and non-urban air, and that collection writes nothing for indoor air.
 ``up_to`` is what the flow would add to the score at the largest of the
