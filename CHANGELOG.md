@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- A wildcard line of a method (`Energy, *`, `Water*`) counts the flows of
+  the database whose name starts with its prefix, and no others. It also
+  took every flow the registry gives as another name of one it found:
+  `Energy, *` finds BAFU's `Energy, from uranium`, which the registry ties to
+  `Uranium`, and so on for coal, oil and peat. On BAFU 2026, a category
+  written `Energy, *` alone to count the energy taken from nature in MJ held
+  19 flows, five of them fuels in kg; it now holds the 14 in MJ. The plain
+  indicators count the same flows as before, since their fuels have lines of
+  their own. A line that names a substance still reaches its other spellings.
+  How a factor met a flow now reads `pattern` for a flow a wildcard line
+  took, where it read `name`, and the MCP tools give that value in the same
+  words as the web routes. Wire revision 106.
 - The "Primary energy" indicator of the plain indicators counts crude oil,
   hard and brown coal, natural gas, coal mine gas, peat and uranium. It only
   counted the energy flows already given in MJ (biomass, hydro, wind, solar,

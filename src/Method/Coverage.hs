@@ -87,6 +87,7 @@ forces a decision here.
 -}
 strategyReach :: MatchStrategy -> Reach
 strategyReach ByName = Exact
+strategyReach ByPattern = Exact
 strategyReach ByUUID = Exact
 strategyReach ByCAS = Bridged
 strategyReach BySynonym = Bridged

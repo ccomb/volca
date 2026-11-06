@@ -347,6 +347,8 @@ provenanceSentence :: BuildProvenance -> Text
 provenanceSentence provenance = case bpStrategy provenance of
     Just ByUUID -> ""
     Just ByName -> ""
+    Just ByPattern ->
+        "That line is a family of flows, and this flow entered it because its name starts with the line's prefix."
     Just BySynonym ->
         "That line was tied to this flow's name through a known synonym when the method was loaded."
     Just ByCAS ->

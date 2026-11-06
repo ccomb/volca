@@ -2397,7 +2397,7 @@ class FlowMappingEntry(FromJson):
     ``cf_value`` is ``None`` when this DB flow has no characterization factor
     in the method: that flow contributes 0 to the score for the method.
     ``match_strategy`` records how the mapping was resolved (``"uuid"``,
-    ``"cas"``, ``"name"``, ``"synonym"``, ``"proxy"``).
+    ``"cas"``, ``"name"``, ``"pattern"``, ``"synonym"``, ``"proxy"``).
     """
 
     flow_id: str
@@ -2449,7 +2449,7 @@ class CharacterizationFactor(FromJson):
 
     Returned in the ``factors`` list of :class:`CharacterizationResult`.
     ``match_strategy`` records how the CF was matched to the DB flow
-    (``"uuid"``, ``"cas"``, ``"name"``, ``"synonym"``, ``"proxy"``).
+    (``"uuid"``, ``"cas"``, ``"name"``, ``"pattern"``, ``"synonym"``, ``"proxy"``).
     """
 
     method_flow_name: str
