@@ -24,6 +24,9 @@
 
 ### Fixed
 
+- A supplier change found by comparing two versions of an activity, once
+  applied, keeps the input's formula, comment, pedigree and place, where it
+  removed the line and added a new one at the end.
 - An EcoSpold 1 dataset that names its product but carries no inventory at
   all is read as a process making that product from nothing, so it scores
   zero, and the reading says so. It was skipped, so the processes of the
