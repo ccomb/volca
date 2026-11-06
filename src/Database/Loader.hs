@@ -58,6 +58,7 @@ module Database.Loader (
     countTotalTechInputs,
     countUnlinkedExchanges,
     collectDanglingProductNames,
+    unsuppliedDemands,
     collectStagedDanglingProductNames,
 
     -- * Supplier-gap report
@@ -2523,6 +2524,42 @@ collectDanglingProductNames db =
         , claimsAnActivityUUID (exchangeSupplierClaim ex)
         , Just name <- [demandedName (dbTechFlows db) (dbWasteFlows db) ex]
         ]
+
+{- | The lines of a loaded database that one row of the missing-supplier table
+counts: the demands for this product, naming this supplier activity (or none),
+that nothing answers. They are read from what the table is built from, the
+refusals the linker recorded per request and the identities answering nowhere,
+so a row's lines are its own. A demand site the cross-DB links cover entirely
+is answered, whatever its request was refused for elsewhere.
+
+shortcut: a request carries no unit, so a line linked in kg and one refused in
+t under the same request are both returned; the edit then judges each against
+the supplier chosen, and a site covered in part keeps all its lines.
+-}
+unsuppliedDemands :: Database -> T.Text -> Maybe T.Text -> [(ProcessRef, Exchange)]
+unsuppliedDemands db wanted named =
+    [ (ProcessRef act prod, ex)
+    | (site@(DemandSite (ProcessRef act prod) _), ex) <- demands
+    , M.findWithDefault 0 site covered < M.findWithDefault 0 site demandsAt
+    , refused ex
+    ]
+  where
+    covered = crossDBCoveredCounts (dbCrossDBLinks db)
+    demandsAt = M.fromListWith (+) [(site, 1 :: Int) | (site, _) <- demands]
+    demands =
+        [ (exchangeDemandSite consumer ex, ex)
+        | (consumer, act) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db))
+        , ex <- exchanges act
+        , isSupplierDemand ex
+        , not (answeredHere db ex)
+        , demandedName (dbTechFlows db) (dbWasteFlows db) ex == Just wanted
+        , claimedName (exchangeSupplierClaim ex) == named
+        ]
+    refused ex =
+        claimsAnActivityUUID (exchangeSupplierClaim ex)
+            || M.member
+                (supplierRequest wanted (exchangeSupplierClaim ex) (exchangeStatedLocation ex))
+                (cdlUnresolvedRequests (dbLinkingStats db))
 
 {- | Staged-path counterpart of 'collectDanglingProductNames' on a
 'SimpleDatabase' plus its just-computed links. A 'SimpleDatabase' has no process

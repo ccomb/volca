@@ -46,6 +46,9 @@ module Database.Edit (
     EditReport (..),
     editExchanges,
     editActivities,
+    MissingRequest (..),
+    supplyMissing,
+    supplyEdits,
     ParametersReport (..),
     editDatabaseParameters,
     authorContext,
@@ -60,8 +63,10 @@ import Control.Exception (SomeException, try)
 import Control.Monad (forM_, when)
 import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
-import Data.Either (lefts)
+import Data.Either (isRight, lefts)
+import Data.Indexing (groupInOrder)
 import qualified Data.IntSet as IS
+import Data.List (nub)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -90,6 +95,8 @@ import Database.Author (
     amountsBeforeEach,
     applyExchangeEdits,
     editingContext,
+    inputSelector,
+    lineSelector,
     retextsAuthoredIdentity,
     validateAuthored,
  )
@@ -792,6 +799,47 @@ editActivities manager dbName by note requests
     journalled :: JudgedEdit -> JournalOp
     journalled (JudgedEdit key edits priors edited) =
         Edited (processRefText key) (zipWith3 (\edit n prior -> EditLine edit n (Prior prior)) edits (eaMatched edited) priors)
+
+{- | Give a missing product a supplier: every input of the database that asks
+for this product, naming this supplier activity or none, and that nothing
+answers, moves to the provider, as one change of the activities holding them.
+The journal records each activity's lines, not the search that found them, so
+a replay moves the lines that were moved.
+-}
+supplyMissing ::
+    DatabaseManager ->
+    Text ->
+    Maybe Author ->
+    Maybe Note ->
+    MissingRequest ->
+    IO (Either WriteRefusal (NonEmpty EditReport, MutationOutcome))
+supplyMissing manager dbName by note request =
+    getDatabase manager dbName >>= \case
+        Nothing -> pure (Left (NotLoaded dbName))
+        Just loaded -> either (pure . Left . Malformed . pure) (editActivities manager dbName by note) (supplyEdits (ldDatabase loaded) request)
+
+-- | A row of the missing-supplier table, and the provider chosen for it.
+data MissingRequest = MissingRequest
+    { mrProduct :: !Text
+    , mrSupplierActivity :: !(Maybe Text)
+    -- ^ The supplier activity the inputs named, as the row states it
+    , mrProvider :: !Text
+    }
+
+{- | The edits 'supplyMissing' makes, one per activity holding such a line. A
+waste names its treatment rather than a supplier, so only inputs move.
+-}
+supplyEdits :: Database -> MissingRequest -> Either Text (NonEmpty (Text, [ExchangeEdit]))
+supplyEdits db (MissingRequest wanted named provider) =
+    case NE.nonEmpty (M.toList byActivity) of
+        Just activities -> Right (fmap (\(key, selectors) -> (processRefText key, [SetSupplier sel provider | sel <- nub (NE.toList selectors)])) activities)
+        Nothing
+            | null demands -> Left ("No input of this database asks for " <> wanted <> asked <> " without a supplier.")
+            | otherwise -> Left (wanted <> " is a waste: a waste names the treatment that takes it, not a supplier.")
+  where
+    demands = Loader.unsuppliedDemands db wanted named
+    byActivity = groupInOrder [(key, sel) | (key, ex) <- demands, Just sel <- [lineSelector ex], isRight (inputSelector sel)]
+    asked = maybe "" (" from " <>) named
 
 -- | An activity a request names, found in the database.
 data Addressed = Addressed Text ProcessRef Activity [ExchangeEdit]

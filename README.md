@@ -714,6 +714,7 @@ Available tools – auto-derived at runtime from the single resource registry (`
 | `compare_method_collections` | Two loaded method collections side by side: for each pair of impact categories, the characterization factors added, removed and changed, with both values and their ratio |
 | `edit_exchanges` | Change an activity's lines, parameters, formulas, name, location and description |
 | `edit_activities` | The same for several activities at once, as one change that rebuilds the database once |
+| `supply_missing_product` | Give a missing product a supplier wherever the database asks for it, as one change |
 | `get_database_parameters` | The parameters a database's processes read unless they define their own |
 | `edit_database_parameters` | Set or remove database parameters, restating every process that reads them |
 | `get_database_history` | A database's journal of changes, each in words with the reason given for it |

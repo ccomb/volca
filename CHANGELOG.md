@@ -4,6 +4,14 @@
 
 ### Added
 
+- A missing product can be given a supplier in one step, for every activity
+  that lacks it: `POST /db/{dbName}/missing-suppliers/supply` (the assistant
+  tool `supply_missing_product`, pyvolca's `Client.supply_missing_product`)
+  names the product as the supplier-gap report lists it, and the activity
+  chosen to supply it. Each input that asks for it and that nothing answers
+  moves to that supplier and keeps its amount, formula and comment, as one
+  change written to the history activity by activity. One line the supplier
+  cannot take refuses the whole change. Wire revision 109.
 - An input can be moved to another supplier and keep the rest of its line:
   `setSuppliers` in an edit of an activity's exchanges (the assistant tool's
   `set_suppliers`, pyvolca's `SetSupplier`) names the line and the new

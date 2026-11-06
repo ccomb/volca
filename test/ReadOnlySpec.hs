@@ -44,6 +44,7 @@ import API.DatabaseHandlers (
     replaceActivityHandler,
     saveScenarioHandler,
     setDataPathHandler,
+    supplyMissingHandler,
     unloadDatabaseHandler,
     unloadRefData,
     uploadDatabaseHandler,
@@ -69,6 +70,7 @@ import API.Types (
     ScenarioSaveRequest (..),
     ScoringEditOp (..),
     ScoringEditRequest (..),
+    SupplyMissingRequest (..),
  )
 import App.Env (AppEnv (..), runApp)
 import Config (HostingConfig (..), ReadOnly (..), defaultConfig, hostingReadOnly, readOnlyRefusal, readOnlyRefusalFor)
@@ -137,6 +139,7 @@ mutatingHandlers =
     , ("replace-activity", run (replaceActivityHandler "nope" "id" Nothing nothingInParticular))
     , ("edit-exchanges", run (editExchangesHandler "nope" "id" noEdits))
     , ("edit-activities", run (editActivitiesHandler "nope" (ActivitiesEditRequest [] Nothing)))
+    , ("supply-missing", run (supplyMissingHandler "nope" (SupplyMissingRequest "barley" Nothing "a_b" Nothing)))
     , ("edit-database-parameters", run (editDatabaseParametersHandler "nope" (ParametersEditRequest [] [] Nothing)))
     , ("save-scenario", run (saveScenarioHandler "nope" "high salt" (ScenarioSaveRequest [])))
     , ("drop-scenario", run (dropScenarioHandler "nope" "high salt"))
@@ -239,7 +242,7 @@ spec = do
 
     describe "Resource registry" $
         it "counts exactly the operations that change shared state as mutations" $
-            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges, EditActivities, EditDatabaseParameters, SaveScenario, DropScenario, CopyMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
+            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges, EditActivities, SupplyMissing, EditDatabaseParameters, SaveScenario, DropScenario, CopyMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
 
     describe "REST handlers under read_only" $ do
         it "refuse every mutating endpoint with 403" $

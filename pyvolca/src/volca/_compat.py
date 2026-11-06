@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 108
-"""The newest wire revision this pyvolca understands (revision 108 added
+KNOWN_WIRE = 109
+"""The newest wire revision this pyvolca understands (revision 109 added
+``supply_missing_product()``, a missing product given a supplier wherever the
+database asks for it; revision 108 added
 ``set_suppliers`` to ``edit_exchanges()``, an input moved to another supplier
 keeping the rest of its line; revision 107 added
 ``edit_activities()``, several activities edited as one change; revision 106 added the

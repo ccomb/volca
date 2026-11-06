@@ -66,6 +66,7 @@ module Database.Author (
     retextsAuthoredIdentity,
     describeSelector,
     lineSelector,
+    inputSelector,
     selectorPredicate,
 
     -- * Deterministic identity
