@@ -51,6 +51,8 @@ data Elsewhere = Elsewhere
     same place: a format that names a product and a place alone cannot tell
     the supplier from them.
     -}
+    , elUnit :: !Text
+    -- ^ The unit the supplier makes its product in, empty where it is not known.
     }
     deriving (Eq, Show)
 
@@ -86,7 +88,7 @@ dependenciesOf indexed db = do
     elsewhere :: ((UUID, UUID, Int), CrossDBLink) -> Either Text ((UUID, UUID, Int), Elsewhere)
     elsewhere (key@(act, prod, _), l) =
         case findSupplierByActivityProduct (maybe [] pure (M.lookup source indexed)) supplier of
-            ((e, _) : _) -> Right (key, Elsewhere source (seActivityName e) (seLocation e) (seRefSign e) (twinsOf e))
+            ((e, _) : _) -> Right (key, Elsewhere source (seActivityName e) (seLocation e) (seRefSign e) (twinsOf e) (seUnit e))
             [] -> Left (refusal act prod ("its supplier in " <> source <> " is not loaded"))
       where
         source = cdlSourceDatabase l

@@ -101,6 +101,12 @@ spec = describe "Database.Export dispatcher" $ do
             fmap (\f -> (tfName f, tfUnitId f)) (M.lookup gridProd (sdbTechFlows sdb)) `shouldBe` Just ("Electricity, medium voltage, at grid", mjU)
             said `shouldBe` []
 
+        it "is written in the unit its supplier makes the product in, where the table converts to it" $ do
+            let (sdb, said) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, grid{elUnit = "kWh"})]) [linkAt 1 gridAct 1 "MJ"] spinning
+            (\ex -> (round (techAmount ex * 1e6) :: Integer, techUnitId ex)) (lineAt 1 sdb) `shouldBe` (9260000, kwhU)
+            fmap tfUnitId (M.lookup gridProd (sdbTechFlows sdb)) `shouldBe` Just kwhU
+            said `shouldBe` []
+
         it "is written in the link's unit when a relink bridged two measures, and says its formula is dropped" $ do
             let (sdb, said) = namedAfterLinks energyUnits SignedReferences (suppliers [(1, grid)]) [linkAt 1 gridAct 0.5 "kg"] spinning
             (\ex -> (techAmount ex, techUnitId ex, isNothing (techFormula ex))) (lineAt 1 sdb) `shouldBe` (16.668, kgU, True)
@@ -284,7 +290,7 @@ marketLines :: SimpleDatabase -> [(Double, UUID.UUID)]
 marketLines db = [(exchangeAmount ex, exchangeUnitId ex) | act <- M.elems (sdbActivities db), ex <- exchanges act, exchangeFlowId ex == marketFlow]
 
 grid :: Elsewhere
-grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = PositiveReference, elTwins = []}
+grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = PositiveReference, elTwins = [], elUnit = ""}
 
 -- | The suppliers of the spinning lines at these positions.
 suppliers :: [(Int, Elsewhere)] -> Dependencies

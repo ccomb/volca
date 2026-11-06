@@ -369,7 +369,7 @@ scoreSentToSecond = scoreWasteSentToSecond (wasteEx False Nothing 3.0)
 scoreWasteSentToSecond :: Exchange -> (Dependencies -> SimpleDatabase -> IO SimpleDatabase) -> TechRole -> Double -> IO Double
 scoreWasteSentToSecond waste through role refAmount =
     scoreReadBack
-        (through (Dependencies (M.singleton (pA, yY, 1) (Elsewhere "eco-dep" "incineration of waste W" "GLO" (referenceSignOf refAmount) []))))
+        (through (Dependencies (M.singleton (pA, yY, 1) (Elsewhere "eco-dep" "incineration of waste W" "GLO" (referenceSignOf refAmount) [] ""))))
         (producer waste)
         ( M.fromList
             [ ((tA, wW), treatment role refAmount)

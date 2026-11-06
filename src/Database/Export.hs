@@ -24,6 +24,7 @@ module Database.Export (
 ) where
 
 import Control.Exception (SomeException, try)
+import Control.Monad (mfilter)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BL
 import Data.List (find)
@@ -62,6 +63,7 @@ import Types (
     TechnosphereFlow (..),
     Unit (..),
     readingSign,
+    scaleExchange,
     toSimpleDatabase,
  )
 import UnitConversion (UnitConfig)
@@ -165,7 +167,15 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
                     , tfUnitId = if bridged then unitId linkUnit else tfUnitId consumerFlow
                     , tfSynonyms = M.empty
                     }
-            written =
+            unitsLinked = if bridged then M.insertWith (\_ kept -> kept) (unitId linkUnit) linkUnit (sdbUnits sdb) else sdbUnits sdb
+            -- Then in the supplier's own unit where the unit table converts to it:
+            -- a format linking by unit finds the supplier only there.
+            supplierUnit = fromMaybe (newUnit (elUnit supplier)) (find ((== elUnit supplier) . unitName) (M.elems unitsLinked))
+            perSupplier = mfilter (/= 1) (lineInLinkUnit units unitsLinked stated (elUnit supplier))
+            written = case (perSupplier, maybe stated (`scaleExchange` stated) perSupplier) of
+                (Just _, scaled@TechnosphereExchange{}) -> scaled{techUnitId = unitId supplierUnit}
+                (_, scaled) -> scaled
+            stated =
                 line
                     { techFlowId = tfId supplied
                     , techActivityLinkId = Just (cdlSupplierActUUID link)
@@ -187,8 +197,8 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
         pure
             ( sdb
                 { sdbActivities = M.insert key activity{exchanges = before <> (written : after)} (sdbActivities sdb)
-                , sdbTechFlows = M.insertWith (\_ kept -> kept) (tfId supplied) supplied (sdbTechFlows sdb)
-                , sdbUnits = if bridged then M.insertWith (\_ kept -> kept) (unitId linkUnit) linkUnit (sdbUnits sdb) else sdbUnits sdb
+                , sdbTechFlows = M.insertWith (\_ kept -> kept) (tfId supplied) (maybe supplied (const supplied{tfUnitId = unitId supplierUnit}) perSupplier) (sdbTechFlows sdb)
+                , sdbUnits = maybe unitsLinked (const (M.insertWith (\_ kept -> kept) (unitId supplierUnit) supplierUnit unitsLinked)) perSupplier
                 }
             , said <> formulaDropped
             )
