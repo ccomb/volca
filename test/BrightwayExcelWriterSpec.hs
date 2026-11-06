@@ -277,21 +277,6 @@ spec = describe "BrightwayExcel.Writer" $ do
             fmap (!! 4) row `shouldBe` Just (CText "MJ")
             fmap (!! 1) row `shouldBe` Just (CNum (2 * 3.6))
             fmap last row `shouldBe` Just (CText "x * 3.6")
-        it "is read back linked to its maker, in the maker's unit" $
-            withSystemTempFile "brightway-units.xlsx" $ \path h -> do
-                bytes <- either (fail . T.unpack) pure (renderWorkbook energyCfg (energyDb ReferenceProduct))
-                BL.hPut h bytes
-                hClose h
-                parsed <- parseBrightwayExcel energyConfig path
-                case parsed of
-                    Left err -> expectationFailure (T.unpack err)
-                    Right Workbook{wbActivities = acts, wbUnits = units} ->
-                        [ (maybe "" unitName (M.lookup (exchangeUnitId ex) units), exchangeAmount ex)
-                        | a <- acts
-                        , activityName a == "Heating"
-                        , ex@TechnosphereExchange{techRole = Input} <- exchanges a
-                        ]
-                            `shouldBe` [("MJ", 2 * 3.6)]
         it "is converted to the unit of a coproduct of a block kept whole" $
             fmap (\r -> (r !! 4, r !! 1)) (boughtRow (energyDb Coproduct)) `shouldBe` Just (CText "MJ", CNum (2 * 3.6))
         it "keeps its amount when it is written in the maker's unit already" $

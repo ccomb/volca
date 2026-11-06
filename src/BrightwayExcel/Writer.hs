@@ -756,8 +756,8 @@ flowNameOf db = \case
 bought from a product of the file is written in that product's unit, as its
 production row states it: Brightway links a line by its unit, and would leave
 one bought in kWh from a product made in MJ unlinked. Any other line keeps its
-unit, as does one whose unit does not convert ('productsSpeltAlike' refuses
-it). The producer is found as 'makerOf' finds it, from the line alone, so the
+unit, as does one whose unit does not convert to its maker's: a database
+holding one is refused at load, where the matrix converts each line. The producer is found as 'makerOf' finds it, from the line alone, so the
 formula hook reaches it too.
 -}
 writtenUnit :: UnitConfig -> SimpleDatabase -> Exchange -> Maybe (Text, Double)
