@@ -124,6 +124,13 @@ resultsFor e = [(stRung s, stResult s) | s <- ceTrail e]
 
 spec :: Spec
 spec = do
+    describe "renderExplanation" $ do
+        it "says why a declined loan left the flow without a factor" $
+            renderExplanation (CFExplanation Uncharacterized [StepTried RungRegionBase StepDeclined] 0)
+                `shouldBe` [ "No factor in this method reaches this flow, so it adds nothing to the score."
+                           , "The method's collection writes this flow's own name, region included, in another category, so no other name lends it a factor here."
+                           ]
+
     describe "renderResolution (every outcome says what it means)" $ do
         let provenance strat = BuildProvenance strat (cfLine "Methane, fossil" "" "kg" 29.8)
             match rung strat = CFMatch rung (CF 29.8 (CFUnit "kg")) (provenance strat)

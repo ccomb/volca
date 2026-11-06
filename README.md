@@ -396,6 +396,16 @@ name) reaches the first three, the places an author wrote: never a guessed
 place on top of a borrowed name. The same rule decides which database flow a
 method line is attached to.
 
+A region-suffixed name the method's collection writes itself, in any category,
+is never lent another name's factor. Ecological Scarcity 2021 writes
+`Water, river, RER` in "Water resources, net balance" and only `Water, river`
+in "Water resources, evaporated": the regional flow counts in the first and
+not in the second, so neither the base substance's line nor a line sharing its
+CAS number reaches it there. `explain-cf` marks the step `declined` and says
+why. A name an exclusion line writes counts as written, and so does one a
+synonym of the written name gives. A line located at a region rather than
+named with it does not.
+
 A flow that states no subcompartment is an `unspecified` emission. The engine
 borrows no factor across subcompartments beyond these places: a method that
 means a sea or long-term emission to count for nothing writes that line.

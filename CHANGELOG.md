@@ -77,6 +77,14 @@
   below the published scores. A line the method writes at the resource's own
   place still comes first, and emissions are unchanged. `explain-cf` names
   the new step `resource_unspecified`.
+- A region-suffixed flow such as "Water, river, RER" no longer borrows its
+  base substance's factor in a category that leaves it out, when the same
+  method collection writes it in another. Ecological Scarcity 2021 writes
+  that flow in its net water balance and not in evaporated water, and
+  counted it there at 99 all the same: a polystyrene foam scored 147 times
+  the published value, and three evaporated-water scores in ten were 1 % or
+  more above it. `explain-cf` reports the step as `declined`, with a
+  sentence saying why.
 
 ### Changed
 

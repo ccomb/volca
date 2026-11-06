@@ -2469,7 +2469,7 @@ class ExplainedStep:
     """One rung of the factor-matching cascade, and what it made of the flow."""
 
     rung: str
-    result: str  # "hit" | "miss" | "not_applicable" | "vetoed" | "ambiguous"
+    result: str  # "hit" | "miss" | "not_applicable" | "ambiguous" | "declined"
     veto: str | None = None
 
     @classmethod
