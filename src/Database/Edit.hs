@@ -1028,8 +1028,10 @@ mutateUploadedDatabase manager dbName by changes = do
                 else Right ()
 
 {- | The mutation proper. The caller holds the 'dmStagingDbs' reservation.
-Several changes are applied, recorded and committed as one: all or none of
-them reach the journal, and the database is relinked and saved once.
+Several changes are applied, recorded and committed as one, and the database
+is relinked and saved once. A refused change writes nothing; a crash during
+the single journal write can still leave the first lines of the batch, each a
+whole edit, which the next load replays.
 -}
 mutateReserved :: DatabaseManager -> Text -> Maybe Author -> NonEmpty Change -> IO (Either Text MutationOutcome)
 mutateReserved manager dbName by changes =

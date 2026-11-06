@@ -10,8 +10,8 @@
   activity, each with what an edit of one activity takes, and one note for
   all. Every edit is judged before anything is written, and one refused edit
   refuses them all. The database is rebuilt, relinked and saved once instead
-  of once per activity, which on a database of twenty thousand activities
-  saves about a quarter of a minute per activity. Wire revision 106.
+  of once per activity: one rebuild takes about 13 s on a database of twenty
+  thousand activities. Wire revision 106.
 
 ### Fixed
 
