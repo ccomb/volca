@@ -4,11 +4,16 @@
 
 ### Fixed
 
-- A Brightway workbook writes a line bought from a product of the same file
-  in the unit that product is made in, converting the amount and its formula,
-  so Brightway links the line. A database where one activity counts a product
-  in kilowatt-hours and another counts a product of the same name in
-  megajoules can now be exported: it used to be refused.
+- A Brightway workbook writes each line the way Brightway links it, so a
+  database exported this way comes into Brightway with every line linked.
+  A production row and a line bought from the same file carry the name and
+  location of the activity they belong to or buy from, no longer the
+  product's name. A line bought from a product of the same file is written in
+  the unit that product is made in, converting the amount and its formula: a
+  database where one activity counts a product in kilowatt-hours and another
+  counts a product of the same name in megajoules can now be exported, where
+  it used to be refused. A line bought from another database is written in
+  the unit its supplier makes the product in, in every export format.
 - A database relinked with a mapping keeps the links that mapping made. They
   used to drop without a word at the next relink, which an edit, the reload
   of a dependency and a restart all run: one process added to a copy of a
