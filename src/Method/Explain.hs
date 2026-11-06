@@ -212,6 +212,7 @@ rungName RungUuid = "flow_id"
 rungName RungUnitVariant = "same_unit_name"
 rungName RungExactName = "exact_name"
 rungName RungIfAbsent = "if_absent"
+rungName RungResourceUnspecified = "resource_unspecified"
 rungName RungMediumDefault = "compartment_default"
 rungName RungCasBridge = "cas_number"
 rungName RungRegionBase = "region_base_name"
@@ -301,6 +302,8 @@ rungSentence (CFMatch rung _ provenance) = case rung of
         "The method writes no factor anywhere for this flow's subcompartment, and the compartment table says such a flow reads the factor written at " <> quoted sourceSub <> ", so " <> lineName <> " applies."
     RungMediumDefault ->
         "The method sets no factor for this flow's subcompartment, and " <> lineName <> " is written for the whole compartment, so it applies."
+    RungResourceUnspecified ->
+        "The method sets no factor for this resource at its subcompartment, and " <> lineName <> " is written for it at " <> quoted sourceSub <> ". A resource's subcompartment says where it is filed, not what it is, so that factor applies."
     RungCasBridge ->
         "No factor carries this flow's name. " <> lineName <> " describes the same substance" <> casClause <> " in the same compartment, so its factor applies."
     RungRegionBase ->

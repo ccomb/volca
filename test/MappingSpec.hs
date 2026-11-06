@@ -159,6 +159,22 @@ spec = do
                 comp = Compartment "water" "unspecified" ""
             fmap bfId (findFlowByNameComp mempty byName "water" (Just comp)) `shouldBe` Just fidUnspec
 
+        it "gives a resource row written at unspecified to the resource filed in water" $ do
+            -- The flow reads that line by its name, so the row is attached to it.
+            fid <- nextRandom
+            let inWater = mkFlow fid "water, unspecified natural origin" NaturalResource (Just "in water")
+                comp = Compartment "natural resource" "unspecified" ""
+            fmap bfId (findFlowByNameComp mempty (FlowsByName (M.singleton "water unspecified natural origin" [inWater])) "water, unspecified natural origin" (Just comp)) `shouldBe` Just fid
+
+        it "gives a resource row written at unspecified to the flow at unspecified first" $ do
+            fidInWater <- nextRandom
+            fidUnspec <- nextRandom
+            let inWater = mkFlow fidInWater "water, unspecified natural origin" NaturalResource (Just "in water")
+                unspec = mkFlow fidUnspec "water, unspecified natural origin" NaturalResource (Just "unspecified")
+                byName = FlowsByName $ M.singleton "water unspecified natural origin" [inWater, unspec]
+                comp = Compartment "natural resource" "unspecified" ""
+            fmap bfId (findFlowByNameComp mempty byName "water, unspecified natural origin" (Just comp)) `shouldBe` Just fidUnspec
+
         it "answers nothing when no candidate is in the stated medium" $ do
             -- A row for an emission to air does not describe a water flow of
             -- the same name, so the name matcher has found nothing and the
@@ -268,6 +284,15 @@ spec = do
 
         it "returns Nothing for unknown CAS" $
             fmap bfId (findFlowByCAS mempty (FlowsByCAS M.empty) "co2" "000-00-0" Nothing) `shouldBe` Nothing
+
+        it "attaches no resource row written at unspecified to a flow of another name filed in water" $ do
+            -- The flow reads that line only by its own name, so a row found by
+            -- its CAS would be counted matched and read by nothing.
+            fid <- nextRandom
+            let iodine = mkFlow fid "Iodine" NaturalResource (Just "in water")
+                byCAS = FlowsByCAS $ M.singleton "7553-56-2" [iodine]
+                comp = Compartment "natural resource" "unspecified" ""
+            fmap bfId (findFlowByCAS mempty byCAS "Iodine, in brine" "7553-56-2" (Just comp)) `shouldBe` Nothing
 
         -- The index is keyed canonically; a method whose parser kept the
         -- source's zero-padding still has to reach the same flow, or its

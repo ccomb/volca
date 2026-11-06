@@ -12,6 +12,10 @@
   it. A waste output naming a treatment no loaded database holds is listed
   among the missing products and counts against completeness, like an input
   naming a missing supplier.
+- A Brightway workbook export carries the name of the database it exports.
+  Every workbook used to be called "exported-database", and so did each of
+  its rows naming one of its own products, so two exports imported side by
+  side in Brightway collided.
 - A database relinked with a mapping keeps the links that mapping made. They
   used to drop without a word at the next relink, which an edit, the reload
   of a dependency and a restart all run: one process added to a copy of a
@@ -54,6 +58,15 @@
   Ecological Scarcity 2021 scored radioactive substances into air about 3 %
   above what openLCA publishes, and agrees once the two are kept apart
   (data version 15).
+- A natural resource that a method writes only at `unspecified` now counts
+  when a database files it elsewhere in the same medium. Ecological Scarcity
+  2021 as published for openLCA writes "Water, unspecified natural origin"
+  and "Occupation, tropical rain forest" at `unspecified` alone; a database
+  that files them "in water" and on "land" scored them nothing, so a tropical
+  wood lost all of its land use and evaporated water came out about 12 %
+  below the published scores. A line the method writes at the resource's own
+  place still comes first, and emissions are unchanged. `explain-cf` names
+  the new step `resource_unspecified`.
 
 ### Changed
 
