@@ -10,8 +10,8 @@
   `Energy, *` finds BAFU's `Energy, from uranium`, which the registry ties to
   `Uranium`, and so on for coal, oil and peat. On BAFU 2026, a category
   written `Energy, *` alone to count the energy taken from nature in MJ held
-  19 flows, five of them fuels in kg; it now holds the 14 in MJ. The plain
-  indicators count the same flows as before, since their fuels have lines of
+  19 flows, five of them fuels in kg; it now holds the 14 in MJ. On BAFU 2026,
+  the plain indicators count the same flows as before, since their fuels have lines of
   their own. A line that names a substance still reaches its other spellings.
   How a factor met a flow now reads `pattern` for a flow a wildcard line
   took, where it read `name`, and the MCP tools give that value in the same
@@ -20,7 +20,7 @@
   hard and brown coal, natural gas, coal mine gas, peat and uranium. It only
   counted the energy flows already given in MJ (biomass, hydro, wind, solar,
   geothermal), so it measured renewable energy under a name that promised
-  all of it: for one dye made in ecoinvent 3.12, it gave 6.3 MJ where the
+  all of it: for one dye in a database of 26 000 processes, it gave 6.3 MJ where the
   natural gas alone comes to 45.9. The fuels, given in kg or m3, are turned
   into MJ with the calorific value the engine ships, which now has coal mine
   gas at 36 MJ/m3, the value EF 3.1 gives it, and reads hard coal under
