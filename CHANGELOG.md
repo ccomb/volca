@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- The "Primary energy" indicator of the plain indicators counts crude oil,
+  hard and brown coal, natural gas, coal mine gas, peat and uranium. It only
+  counted the energy flows already given in MJ (biomass, hydro, wind, solar,
+  geothermal), so it measured renewable energy under a name that promised
+  all of it: for one dye made in ecoinvent 3.12, it gave 6.3 MJ where the
+  natural gas alone comes to 45.9. The fuels, given in kg or m3, are turned
+  into MJ with the calorific value the engine ships, which now has coal mine
+  gas at 36 MJ/m3, the value EF 3.1 gives it, and reads hard coal under
+  the name SimaPro gives it (data version 15).
 - A Brightway workbook writes each line the way Brightway links it, so a
   database exported this way comes into Brightway with every line linked.
   A production row and a line bought from the same file carry the name and
