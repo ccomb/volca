@@ -19,6 +19,7 @@ module Database.ExportSupplier (
     dependenciesOf,
     Maker (..),
     makerOf,
+    buys,
     inDependency,
     madeAt,
     namedProducts,

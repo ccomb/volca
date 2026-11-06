@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- A Brightway workbook writes a line bought from a product of the same file
+  in the unit that product is made in, converting the amount and its formula,
+  so Brightway links the line. A database where one activity counts a product
+  in kilowatt-hours and another counts a product of the same name in
+  megajoules can now be exported: it used to be refused.
 - A database relinked with a mapping keeps the links that mapping made. They
   used to drop without a word at the next relink, which an edit, the reload
   of a dependency and a restart all run: one process added to a copy of a

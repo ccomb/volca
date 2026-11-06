@@ -97,12 +97,14 @@ import qualified Data.Text.Encoding as TE
 
 import Amount (readAmount)
 import Data.Indexing (collisions)
+import Database.Allocation (producerKeyOf)
 import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, frozenWarnings, processExport)
-import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, clashing, inDependency, madeAt, makerOf, noDependencies, unnamedWarnings)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, buys, clashing, inDependency, madeAt, makerOf, noDependencies, unnamedWarnings)
 import EcoSpold.Common (showFFloatTrim)
 import qualified Expr
 import SubstanceRegistry (nonEmptyCAS)
 import Types
+import UnitConversion (UnitConfig, canonicalUnitFor, convertUnit, defaultUnitConfig)
 import Zip (zipFiles)
 
 -- ---------------------------------------------------------------------------
@@ -118,12 +120,14 @@ data WriterConfig = WriterConfig
     { wcDatabaseName :: Text
     , wcDependencies :: Dependencies
     -- ^ What the inputs buy from the databases this one depends on, which their rows name.
+    , wcUnits :: UnitConfig
+    -- ^ The unit table a line bought from the file is converted with ('writtenUnit').
     }
     deriving (Eq, Show)
 
 -- | A neutral default name for ad-hoc exports.
 defaultWriterConfig :: WriterConfig
-defaultWriterConfig = WriterConfig{wcDatabaseName = "exported-database", wcDependencies = noDependencies}
+defaultWriterConfig = WriterConfig{wcDatabaseName = "exported-database", wcDependencies = noDependencies, wcUnits = defaultUnitConfig}
 
 -- ---------------------------------------------------------------------------
 -- Cell model (mirrors the parser's CellValue / the spec emitter)
@@ -156,7 +160,7 @@ renderWorkbook cfg = fmap fst . renderWorkbookWithWarnings cfg
 -- | The workbook, and what it could not write as the database holds it.
 renderWorkbookWithWarnings :: WriterConfig -> SimpleDatabase -> Either Text (BL.ByteString, [Text])
 renderWorkbookWithWarnings cfg db = do
-    checkBrightwayExportable (wcDependencies cfg) db
+    checkBrightwayExportable (wcUnits cfg) (wcDependencies cfg) db
     pure
         ( zipFiles
             [ ("[Content_Types].xml", enc contentTypesXml)
@@ -177,7 +181,7 @@ renderWorkbookWithWarnings cfg db = do
     enc = TE.encodeUtf8
 
     exported :: Exported
-    exported = exportedOf db
+    exported = exportedOf (wcUnits cfg) db
 
     spreadless :: [Text]
     spreadless =
@@ -196,9 +200,9 @@ renderWorkbookWithWarnings cfg db = do
         , not (IM.null (peLines pe))
         ]
 
--- | The parameters and formulas as the workbook writes them: every amount as the engine holds it.
-exportedOf :: SimpleDatabase -> Exported
-exportedOf = exportFormulas Expr.Python (\_ _ -> Times 1)
+-- | The parameters and formulas as the workbook writes them: a formula follows its line into the unit 'writtenUnit' writes it in.
+exportedOf :: UnitConfig -> SimpleDatabase -> Exported
+exportedOf units db = exportFormulas Expr.Python (\_ ex -> Times (maybe 1 snd (writtenUnit units db ex))) db
 
 {- | Guard a Brightway Excel export against exchanges the writer cannot encode.
 'exchangeRow' resolves each exchange's flow name and unit name from the database
@@ -280,8 +284,8 @@ wasteManifest deps db = case wasteActs of
             <> T.intercalate ", " (take 10 wasteActs)
             <> (if length wasteActs > 10 then ", … and " <> tshow (length wasteActs - 10) <> " more" else "")
 
-checkBrightwayExportable :: Dependencies -> SimpleDatabase -> Either Text ()
-checkBrightwayExportable deps db =
+checkBrightwayExportable :: UnitConfig -> Dependencies -> SimpleDatabase -> Either Text ()
+checkBrightwayExportable units deps db =
     case catMaybes
         [ flowMsg <$> listToMaybe flowOffenders
         , unitMsg <$> listToMaybe unitOffenders
@@ -290,7 +294,7 @@ checkBrightwayExportable deps db =
         , directionMsg <$> listToMaybe directionOffenders
         , roundTripMsg <$> listToMaybe roundTripOffenders
         , parameterMsg <$> listToMaybe parameterOffenders
-        , alikeMsg <$> listToMaybe (productsSpeltAlike db)
+        , alikeMsg <$> listToMaybe (productsSpeltAlike units db)
         , sharedMsg <$> listToMaybe sharedOffenders
         ] of
         [] -> Right ()
@@ -369,18 +373,25 @@ checkBrightwayExportable deps db =
 
 {- | The products the exchanges name that a workbook cannot tell apart. The reader
 knows a product by its name folded in case and refuses one written in two units,
-so two such products in different units make a file it would refuse. A database
+so two such products in different units make a file it would refuse. Units are
+compared as the reader reads them, in the reference unit of their dimension: a
+product counted in kWh by one activity and in MJ by another is one product in MJ
+to it. A database
 reaches this when it holds a product of its own and one spelt alike that
 another database makes ('BrightwayExcel.Parser.productFlowUUID'): the writer
 does not know that database, and writes every row as made in the workbook.
 -}
-productsSpeltAlike :: SimpleDatabase -> [NE.NonEmpty TechnosphereFlow]
-productsSpeltAlike db =
+productsSpeltAlike :: UnitConfig -> SimpleDatabase -> [NE.NonEmpty TechnosphereFlow]
+productsSpeltAlike units db =
     [ flows
     | (_, flows) <- collisions [(T.toCaseFold (T.strip (tfName f)), f) | f <- written]
-    , NE.length (NE.nub (NE.map tfUnitId flows)) > 1
+    , NE.length (NE.nub (NE.map readAs flows)) > 1
     ]
   where
+    -- A unit the table does not know is read as written, as the reader does.
+    readAs :: TechnosphereFlow -> Maybe Text
+    readAs f = (\u -> fromMaybe u (canonicalUnitFor units u)) . unitName <$> M.lookup (tfUnitId f) (sdbUnits db)
+
     written :: [TechnosphereFlow]
     written =
         mapMaybe
@@ -424,7 +435,7 @@ Brightway reads a section's rows down to the next blank one, so the
 parameters stand between two.
 -}
 sheetRows :: WriterConfig -> SimpleDatabase -> [[Cell]]
-sheetRows cfg db = rowsWith (exportedOf db) cfg db
+sheetRows cfg db = rowsWith (exportedOf (wcUnits cfg) db) cfg db
 
 -- | The rows, from the parameters and formulas already computed for the warnings.
 rowsWith :: Exported -> WriterConfig -> SimpleDatabase -> [[Cell]]
@@ -616,7 +627,7 @@ exchangeRow :: WriterConfig -> SimpleDatabase -> Maker -> Maybe Text -> Exchange
 exchangeRow cfg db maker formula = \case
     ex@TechnosphereExchange{techAmount = amt, techRole = role, techLocation = loc, techSupplierClaim = claim} -> do
         name <- flowNameOf db ex
-        unit <- unitNameOf (exchangeUnitId ex) db
+        (unit, perLine) <- writtenUnit (wcUnits cfg) db ex
         -- Who the row buys from, where it names one: a supplier in a dependency,
         -- or the maker of a product several activities of the file make.
         let (supplier, product', location, database) = case maker of
@@ -628,7 +639,7 @@ exchangeRow cfg db maker formula = \case
             asStated = (namedSupplier claim name, statedProduct claim name, locationCode loc, wcDatabaseName cfg)
         Just
             [ CText supplier
-            , CNum amt
+            , CNum (amt * perLine)
             , product'
             , locCell location
             , CText unit
@@ -740,6 +751,29 @@ flowNameOf db = \case
     ex@TechnosphereExchange{} -> tfName <$> M.lookup (exchangeFlowId ex) (sdbTechFlows db)
     ex@WasteExchange{} -> wfName <$> M.lookup (exchangeFlowId ex) (sdbWasteFlows db)
     ex@BiosphereExchange{} -> bfName <$> M.lookup (exchangeFlowId ex) (sdbBioFlows db)
+
+{- | The unit a line is written in, and what one unit of the line is in it. A line
+bought from a product of the file is written in that product's unit, as its
+production row states it: Brightway links a line by its unit, and would leave
+one bought in kWh from a product made in MJ unlinked. Any other line keeps its
+unit, as does one whose unit does not convert ('productsSpeltAlike' refuses
+it). The producer is found as 'makerOf' finds it, from the line alone, so the
+formula hook reaches it too.
+-}
+writtenUnit :: UnitConfig -> SimpleDatabase -> Exchange -> Maybe (Text, Double)
+writtenUnit units db ex = do
+    own <- unitNameOf (exchangeUnitId ex) db
+    Just (fromMaybe (own, 1) (inMakerUnit own))
+  where
+    inMakerUnit own = case ex of
+        TechnosphereExchange{techRole = role, techActivityLinkId = Just supplier, techFlowId = flow}
+            | buys role -> do
+                maker <- producerKeyOf (sdbActivities db) (supplier, flow) >>= (`M.lookup` sdbActivities db)
+                -- The maker's row for this very product: a block kept whole makes it as a coproduct.
+                made <- lookup' (\p -> exchangeIsProductOutput p && exchangeFlowId p == flow) (exchanges maker)
+                theirs <- unitNameOf (exchangeUnitId made) db
+                if theirs == own then Nothing else (,) theirs <$> convertUnit units own theirs 1
+        _ -> Nothing
 
 unitNameOf :: UUID -> SimpleDatabase -> Maybe Text
 unitNameOf uid db = unitName <$> M.lookup uid (sdbUnits db)

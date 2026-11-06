@@ -738,8 +738,7 @@ is instead fixed-point over the parser's /image/ – once a database has been
 parsed (so its reference unit is canonical), @parse (write d) == d@ holds, for a
 database whose products are all made in the workbook: the writer does not keep
 the database a product made elsewhere came from ('productFlowUUID'). A
-coproduct row is left in its stated unit (no canonicalization), so it round-trips
-verbatim.
+coproduct row is normalized the same way.
 -}
 productRowOut :: RowContext -> M.Map Text CellValue -> Bool -> M.Map Text CellValue -> RowOut
 productRowOut ctx@RowContext{rcUnits = cfg} meta isRef f =
