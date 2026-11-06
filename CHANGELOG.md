@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- A waste output naming the treatment of another database that should take
+  it is linked to that treatment when the treatment is written as a product,
+  as an EcoSpold 1 or SimaPro database writes every treatment. The waste was
+  cut off and scored nothing, while the setup page said every link was
+  resolved. Such a treatment now treats it as it would an input written to
+  it. A waste output naming a treatment no loaded database holds is listed
+  among the missing products and counts against completeness, like an input
+  naming a missing supplier.
 - A Brightway workbook export carries the name of the database it exports.
   Every workbook used to be called "exported-database", and so did each of
   its rows naming one of its own products, so two exports imported side by

@@ -783,9 +783,11 @@ strict on identity: same waste flow, same activity UUID, no name match, no
 location widening. Two databases shipping that identity resolve to
 'WasteAmbiguous' rather than a first-wins pick, as everywhere else here.
 
-Waste treatments live in 'idbWasteTreatmentByFlowUUID' and nowhere else:
-'idbByActivityProduct' is built from activities whose reference is a
-technosphere product, which a treatment's never is.
+A treatment whose reference is a waste flow is found in
+'idbWasteTreatmentByFlowUUID'. One whose reference is a product, as an
+EcoSpold 1 or SimaPro database writes every treatment, is found in
+'idbByActivityProduct' under the same identity. Its reference sign then makes
+the waste a demand on it, as an input written to it would be.
 -}
 findWasteTreatmentByActivity ::
     LinkingContext ->
@@ -795,15 +797,20 @@ findWasteTreatmentByActivity ::
     UUID ->
     WasteTreatmentMatch
 findWasteTreatmentByActivity LinkingContext{lcIndexedDatabases} actUUID flowUUID =
-    case [ (idbName idb, entry)
-         | idb <- lcIndexedDatabases
-         , Just entries <- [M.lookup flowUUID (idbWasteTreatmentByFlowUUID idb)]
-         , entry <- entries
-         , seActivityUUID entry == actUUID
-         ] of
+    -- One database filing the flow both ways answers once, by its waste entry.
+    case M.toList (M.fromListWith (\_ kept -> kept) (asWaste <> asProduct)) of
         [(dbN, entry)] -> WasteMatched entry dbN
         [] -> WasteNoMatch
-        matches -> WasteAmbiguous (nub (map fst matches))
+        matches -> WasteAmbiguous (map fst matches)
+  where
+    asWaste =
+        [ (idbName idb, entry)
+        | idb <- lcIndexedDatabases
+        , Just entries <- [M.lookup flowUUID (idbWasteTreatmentByFlowUUID idb)]
+        , entry <- entries
+        , seActivityUUID entry == actUUID
+        ]
+    asProduct = [(dbN, entry) | (entry, dbN) <- findSupplierByActivityProduct lcIndexedDatabases (ProcessRef actUUID flowUUID)]
 
 {- | Find a supplier across all loaded databases (using pre-built indexes)
 This is the fast O(1) lookup version.
