@@ -457,7 +457,7 @@ data FlowCFEntry = FlowCFEntry
     , fceFlowCategory :: Text
     , fceCfValue :: Maybe Double -- CF value (Nothing if no match)
     , fceCfFlowName :: Maybe Text -- Method CF flow name
-    , fceMatchStrategy :: Maybe Text -- "uuid" | "name" | "synonym"
+    , fceMatchStrategy :: Maybe Text -- 'Method.Mapping.strategyToText' of the strategy that matched
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped FlowCFEntry)

@@ -1651,7 +1651,7 @@ spec = do
             map (fmap (bfId . resFlow) . snd) mappings
                 `shouldMatchList` map (Just . bfId) [occAnnual, occOrchard, occIndustrial]
 
-        it "an exclusion still holds when the synonym fan-out re-reaches its flow" $ do
+        it "a wildcard row is not fanned out to the synonyms of the flow it took" $ do
             let method =
                     Method
                         { methodId = nil
@@ -1668,20 +1668,51 @@ spec = do
                 ctx = MapContext flowDB (byName allFlows) (FlowsByCAS M.empty) emptySynonymDB M.empty mempty M.empty
                 -- The curated registry bridges the dry industrial area and its
                 -- drowned namesake through the label they share, as data/flows.csv
-                -- does; the fan-out then travels by name, knowing no exceptions.
+                -- does. The family took the dry one by its prefix; the drowned
+                -- one, excluded, must not come back through that bridge.
                 synDB =
                     buildFromPairs
                         [ ("Occupation, industrial area", "industrial area")
                         , ("Occupation, industrial area, benthos", "industrial area")
                         ]
             mappings <- mapMethodFlows ctx method
-            let expanded = expandSynonymMappings synDB (byName allFlows) mappings
-                ids = map (fmap (bfId . resFlow) . snd)
-            -- The bridge really does hand the excluded flow back – without this
-            -- the test below would pass on an expansion that never reached it.
-            ids expanded `shouldSatisfy` elem (Just (bfId occBenthos))
-            ids (dropExcludedMappings (filter isExclusionCF (methodFactors method)) expanded)
+            map (fmap (bfId . resFlow) . snd) (expandSynonymMappings synDB (byName allFlows) mappings)
                 `shouldSatisfy` notElem (Just (bfId occBenthos))
+
+        it "an exclusion still holds when an expansion re-reaches its flow" $ do
+            -- The regional projection and the proxy edges travel by flow name
+            -- too, knowing no exceptions: a row they hand the excluded flow is
+            -- taken back out.
+            let family = mkCFComp "Occupation*" "natural resource" "" 1.0
+                benthos = mkCFComp "!Occupation, industrial area, benthos" "natural resource" "" 1.0
+                reReached = [(family{mcfFlowName = "Occupation, industrial area"}, Just (Resolution occBenthos BySynonym))]
+            map (fmap (bfId . resFlow) . snd) (dropExcludedMappings [benthos] reReached)
+                `shouldBe` []
+
+        it "a wildcard row takes the flows its prefix names, not their synonyms' flows" $ do
+            -- BAFU writes uranium as an energy flow in MJ, and the registry
+            -- ties that name to the uranium extracted in kg.
+            let energyUranium = mkFlow (u 20) "Energy, from uranium" NaturalResource Nothing
+                uranium = mkFlow (u 21) "Uranium" NaturalResource Nothing
+                flows = [energyUranium, uranium]
+                synDB = buildFromPairs [("Energy, from uranium", "uranium"), ("Uranium", "uranium")]
+                ctx = MapContext (M.fromList [(bfId f, f) | f <- flows]) (byName flows) (FlowsByCAS M.empty) emptySynonymDB M.empty mempty M.empty
+                categoryOf row =
+                    Method
+                        { methodId = nil
+                        , methodName = "Energy"
+                        , methodDescription = Nothing
+                        , methodUnit = "MJ"
+                        , methodCategory = "Energy"
+                        , methodMethodology = Nothing
+                        , methodFactors = [mkCFComp row "natural resource" "" 1.0]
+                        }
+                reached row = do
+                    mappings <- mapMethodFlows ctx (categoryOf row)
+                    pure (map (fmap (bfId . resFlow) . snd) (expandSynonymMappings synDB (byName flows) mappings))
+            reached "Energy, *" >>= (`shouldMatchList` [Just (bfId energyUranium)])
+            -- A line naming the substance still reaches its other spellings.
+            reached "Energy, from uranium" >>= (`shouldSatisfy` elem (Just (bfId uranium)))
 
         it "mapMethodFlows resolves literal rows via the cascade and expands patterns" $ do
             let method =
