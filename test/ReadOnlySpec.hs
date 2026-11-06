@@ -31,6 +31,7 @@ import API.DatabaseHandlers (
     deleteMethodHandler,
     deleteRefData,
     dropScenarioHandler,
+    editActivitiesHandler,
     editDatabaseParametersHandler,
     editExchangesHandler,
     finalizeDatabaseHandler,
@@ -54,6 +55,7 @@ import API.MethodEditHandlers (copyMethodCollectionHandler, editMethodCategories
 import API.Resources (Resource (..), allResources, resourceMutates)
 import API.Routes (getHosting, loadMethodCollectionHandler, unloadMethodCollectionHandler)
 import API.Types (
+    ActivitiesEditRequest (..),
     ActivityInput (..),
     ActivityWriteRequest (..),
     CategoryEditOp (..),
@@ -134,6 +136,7 @@ mutatingHandlers =
     , ("create-activities", run (createActivitiesHandler "nope" (ActivityWriteRequest [] Nothing)))
     , ("replace-activity", run (replaceActivityHandler "nope" "id" Nothing nothingInParticular))
     , ("edit-exchanges", run (editExchangesHandler "nope" "id" noEdits))
+    , ("edit-activities", run (editActivitiesHandler "nope" (ActivitiesEditRequest [] Nothing)))
     , ("edit-database-parameters", run (editDatabaseParametersHandler "nope" (ParametersEditRequest [] [] Nothing)))
     , ("save-scenario", run (saveScenarioHandler "nope" "high salt" (ScenarioSaveRequest [])))
     , ("drop-scenario", run (dropScenarioHandler "nope" "high salt"))
@@ -235,7 +238,7 @@ spec = do
 
     describe "Resource registry" $
         it "counts exactly the operations that change shared state as mutations" $
-            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges, EditDatabaseParameters, SaveScenario, DropScenario, CopyMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
+            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges, EditActivities, EditDatabaseParameters, SaveScenario, DropScenario, CopyMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
 
     describe "REST handlers under read_only" $ do
         it "refuse every mutating endpoint with 403" $

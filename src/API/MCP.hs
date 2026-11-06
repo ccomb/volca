@@ -40,7 +40,7 @@ import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
 import Database (Geographies, filterByName, flowSearchFields)
 import Database.Cutoffs (Cutoffs (..))
-import Database.Edit (databaseHistory, derivationOf, deriveDatabase, editDatabaseParameters, editExchanges, refusalMessage)
+import Database.Edit (databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, refusalMessage)
 import Database.Journal (noteFrom)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
@@ -50,13 +50,13 @@ import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
 
 import qualified API.BatchImpacts as BI
-import API.DatabaseHandlers (copyRefusal, coverageReportToAPI, databaseHistoryToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
+import API.DatabaseHandlers (activitiesReportToAPI, copyRefusal, coverageReportToAPI, databaseHistoryToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.JournalFile (Author)
 import Data.List (find)
@@ -784,6 +784,7 @@ dispatchTool (Caller reader by) dbManager presets mHosting mBaseUrl rid resource
     R.GetComputedQualityReport -> callGetComputedQualityReport dbManager mHosting rid args
     R.GetCoverageReport -> callGetCoverageReport dbManager rid args
     R.EditExchanges -> callEditExchanges dbManager by rid args
+    R.EditActivities -> callEditActivities dbManager by rid args
     R.DatabaseHistory -> callDatabaseHistory dbManager rid args
     R.DatabaseParameters -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
     R.EditDatabaseParameters -> callEditDatabaseParameters dbManager by rid args
@@ -2049,27 +2050,55 @@ callEditExchanges :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Valu
 callEditExchanges dbManager by rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     processId <- except (requireText "process_id" args)
-    request <-
-        except $
-            ExchangeEditRequest
-                <$> parseArrayArg "remove" Nothing args
-                <*> parseArrayArg "set_amounts" Nothing args
-                <*> parseArrayArg "add_inputs" Nothing args
-                <*> parseArrayArg "add_biosphere" Nothing args
-                <*> parseArrayArg "add_waste_outputs" Nothing args
-                <*> optionalText "set_name" args
-                <*> optionalText "set_location" args
-                <*> optionalDescription
-                <*> parseArrayArg "set_parameters" Nothing args
-                <*> parseArrayArg "set_formulas" Nothing args
-                <*> parseArrayArg "set_prices" Nothing args
-                <*> parseArrayArg "set_dry_masses" Nothing args
-                <*> parseArrayArg "set_wet_masses" Nothing args
-                <*> parseArrayArg "remove_parameters" Nothing args
-                <*> optionalText "note" args
+    request <- except (exchangeEditRequestOf args)
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))
     report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName by (eerNote request >>= noteFrom) processId edits)
     return $ toolSuccessJson rid (toJSON (editReportToAPI report))
+
+{- | The edit of several activities: each element of @edits@ carries
+@process_id@ and the arguments 'callEditExchanges' reads, and the note is
+given once. It reads into the request the HTTP endpoint reads.
+-}
+callEditActivities :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
+callEditActivities dbManager by rid args = runTool rid $ do
+    dbName <- except (requireText "database" args)
+    elements <- except (parseArrayArg "edits" (Just "Missing required parameter: edits") args)
+    request <- except (ActivitiesEditRequest <$> traverse activityEdit elements <*> optionalText "note" args)
+    edits <- except (first (T.intercalate "\n") (toActivityEdits request))
+    report <- ExceptT (first refusalMessage <$> editActivities dbManager dbName by (aqNote request >>= noteFrom) edits)
+    return $ toolSuccessJson rid (toJSON (activitiesReportToAPI report))
+  where
+    activityEdit :: KeyMap Value -> Either Text ActivityEditAPI
+    activityEdit element
+        | KM.member "note" element = Left "a note is given once, beside \"edits\", for the whole change"
+        | otherwise = ActivityEditAPI <$> requireText "process_id" element <*> exchangeEditRequestOf element
+
+{- | The arguments of one activity's edit, read into the request the HTTP
+endpoint reads, so what an assistant may change, and what it is refused, are
+exactly what a person is.
+
+Every list defaults to empty: an assistant that only removes a line should not
+have to state four empty arrays to say so. An edit that ends up naming nothing
+is refused by the domain, so the leniency costs no silence.
+-}
+exchangeEditRequestOf :: KeyMap Value -> Either Text ExchangeEditRequest
+exchangeEditRequestOf args =
+    ExchangeEditRequest
+        <$> parseArrayArg "remove" Nothing args
+        <*> parseArrayArg "set_amounts" Nothing args
+        <*> parseArrayArg "add_inputs" Nothing args
+        <*> parseArrayArg "add_biosphere" Nothing args
+        <*> parseArrayArg "add_waste_outputs" Nothing args
+        <*> optionalText "set_name" args
+        <*> optionalText "set_location" args
+        <*> optionalDescription
+        <*> parseArrayArg "set_parameters" Nothing args
+        <*> parseArrayArg "set_formulas" Nothing args
+        <*> parseArrayArg "set_prices" Nothing args
+        <*> parseArrayArg "set_dry_masses" Nothing args
+        <*> parseArrayArg "set_wet_masses" Nothing args
+        <*> parseArrayArg "remove_parameters" Nothing args
+        <*> optionalText "note" args
   where
     -- Absent leaves the description as it is; an empty list clears it.
     optionalDescription :: Either Text (Maybe [Text])

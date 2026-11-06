@@ -13,7 +13,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, runApp)
 import Config (DatabaseConfig (..))
 import qualified Config
@@ -203,6 +203,8 @@ type LCAAPI =
                 -- carries – the operation a PUT cannot do for a row that came in
                 -- from a database file rather than from a description
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "exchanges" :> ReqBody '[JSON] ExchangeEditRequest :> Post '[JSON] ExchangeEditResponse
+                -- The same for several activities, applied as one change
+                :<|> "db" :> Capture "dbName" Text :> "activities" :> "exchanges" :> ReqBody '[JSON] ActivitiesEditRequest :> Post '[JSON] ActivitiesEditResponse
                 -- Export a loaded database as raw bytes in the requested format;
                 -- approximation warnings travel percent-encoded in a response header
                 :<|> "db" :> Capture "dbName" Text :> "export" :> ReqBody '[JSON] DatabaseExportRequest :> Post '[OctetStream] (Headers '[Header "X-Volca-Export-Warnings" Text] BinaryContent)
@@ -1672,7 +1674,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 105: the @weighs@ of a scoring set, whether its scores rest on
+(revision 106: editing several activities as one change, at
+@db/{dbName}/activities/exchanges@;
+revision 105: the @weighs@ of a scoring set, whether its scores rest on
 value choices, and the @readingNotice@ of a batch scored under one that does;
 revision 104: the @by@ of each line of a database's or a method collection's
 history, the public name of the account that made it;
@@ -1902,7 +1906,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 105
+currentWireVersion = 106
 
 getVersion :: AppM Value
 getVersion = do
@@ -3540,6 +3544,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> DBHandlers.createActivitiesHandler
             :<|> DBHandlers.replaceActivityHandler
             :<|> DBHandlers.editExchangesHandler
+            :<|> DBHandlers.editActivitiesHandler
             :<|> DBHandlers.exportDatabaseHandler
             :<|> DBHandlers.documentFileHandler
             :<|> DBHandlers.setLicenceHandler
