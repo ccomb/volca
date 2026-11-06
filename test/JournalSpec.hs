@@ -10,12 +10,17 @@ rather than quietly losing an edit.
 -}
 module JournalSpec (spec) where
 
-import Control.Monad (void)
-import Data.Aeson (Value, decodeStrict, encode, toJSON)
+import Control.Monad (foldM, void)
+import Data.Aeson (Value, decodeStrict, toJSON)
+import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.Either (isRight)
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+import Data.Store (encode)
 import Data.Text (Text, isInfixOf)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -44,6 +49,8 @@ import Database.Journal (
     ParameterLine (..),
     Prior (..),
     appendEvent,
+    applyOp,
+    applyOps,
     journalPath,
     noteFrom,
     readJournal,
@@ -113,7 +120,7 @@ spec = do
         it "reads back every event it writes" $
             -- One event per operation, and one exchange per kind, so a field
             -- lost in the codec cannot hide behind the others.
-            mapM_ (\written -> decodeStrict (BL.toStrict (encode written)) `shouldBe` Just written) richEvents
+            mapM_ (\written -> decodeStrict (BL.toStrict (Aeson.encode written)) `shouldBe` Just written) richEvents
 
     describe "Database.Journal (file)" $ do
         it "reads a database that has never been edited as an empty journal" $
@@ -294,6 +301,32 @@ spec = do
             replayOutcome ctx [event (edited cheeseKey [(RemoveExchange (SelectBiosphere co2Id), 1)])]
                 `shouldSatisfy` failsWith "Unknown process id"
 
+    describe "Database.Journal (edits of several activities)" $ do
+        withCream <- runIO buildSiblingFixture
+        let creamCtx = ctx{acDb = withCream}
+            created = Created [cheese, butter] [mintedKey withCream cheese, mintedKey withCream butter]
+            -- The supplier's rename reaches its sibling, the cream row.
+            supplierEdit = edited supplierPid [(SetText (ActivityName "milk production, corrected"), 1), (SetAmount (SelectBiosphere co2Id) 3, 1)]
+            dairyEdit activity amount = edited (mintedKey withCream activity) [(SetAmount (SelectBiosphere co2Id) amount, 1)]
+            oneByOne = foldM (\db op -> applyOp creamCtx{acDb = db} op) withCream
+            encoded = fmap encode
+
+        it "gives the database the edits give one by one, siblings included" $ do
+            let ops = created :| [supplierEdit, dairyEdit cheese 0.7, dairyEdit butter 0.9]
+            encoded (applyOps creamCtx ops) `shouldBe` encoded (oneByOne (NE.toList ops))
+            encoded (replayJournal creamCtx (map event (NE.toList ops))) `shouldBe` encoded (oneByOne (NE.toList ops))
+
+        it "lets an edit of an activity already in the run see the run's result" $ do
+            -- The second edit of the cheese matches the line the first one adds.
+            let moreCo2 = AuthoredBio{abFlow = FlowById co2Id, abDirection = Emission, abAmount = 0.1, abUnit = Nothing, abComment = Nothing}
+                ops = created :| [edited (mintedKey withCream cheese) [(AddExchange moreCo2, 1)], supplierEdit, edited (mintedKey withCream cheese) [(SetAmount (SelectBiosphere co2Id) 0.4, 2)]]
+            void (oneByOne (NE.toList ops)) `shouldSatisfy` isRight
+            encoded (applyOps creamCtx ops) `shouldBe` encoded (oneByOne (NE.toList ops))
+
+        it "names the edit of the run that failed" $
+            replayOutcome creamCtx (map event [created, supplierEdit, edited (mintedKey withCream cheese) [(RemoveExchange (SelectBiosphere co2Id), 2)]])
+                `shouldSatisfy` failsWith "journal event 3 (edit)"
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
@@ -399,6 +432,10 @@ cheese =
                 }
             ]
         }
+
+-- | A second authored activity, so a run of edits can name several.
+butter :: AuthoredActivity
+butter = cheese{aaName = "butter, at dairy", aaProductName = "butter"}
 
 -- | A biosphere line introducing a flow the fixture does not have.
 methane :: AuthoredExchange
@@ -658,6 +695,28 @@ buildDepFixture = do
 
 buildFixture :: IO Database
 buildFixture = buildFixtureWith []
+
+-- | The fixture with a second product on the supplier's activity: two rows under one activity UUID.
+buildSiblingFixture :: IO Database
+buildSiblingFixture = do
+    built <-
+        buildDatabaseWithMatrices
+            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
+            SimpleDatabase
+                { sdbActivities = M.fromList [((supplierActId, supplierProdId), supplierActivity), ((supplierActId, creamProdId), creamRow)]
+                , sdbTechFlows = M.fromList [(supplierProdId, milkFlow), (creamProdId, milkFlow{tfId = creamProdId, tfName = "cream"})]
+                , sdbBioFlows = M.singleton co2Id co2Flow
+                , sdbWasteFlows = M.empty
+                , sdbUnits = unitTable
+                , sdbDocumentation = noDocumentation
+                , sdbParameters = M.empty
+                , sdbProductSystems = []
+                , sdbReferenceConvention = SignedReferences
+                }
+    either (fail . show) pure built
+  where
+    creamRow = supplierActivity{exchanges = [ex{techFlowId = creamProdId} | ex@TechnosphereExchange{} <- exchanges supplierActivity]}
+    creamProdId = mkUUID 6
 
 -- | The fixture with more lines on its activity, and then the wheat flow they may name.
 buildFixtureWith :: [Exchange] -> IO Database

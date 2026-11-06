@@ -45,6 +45,7 @@ module Database.Edit (
     writeActivities,
     EditReport (..),
     editExchanges,
+    editActivities,
     ParametersReport (..),
     editDatabaseParameters,
     authorContext,
@@ -57,7 +58,9 @@ import Control.Applicative ((<|>))
 import Control.Concurrent.STM (STM, atomically, modifyTVar', readTVar, readTVarIO)
 import Control.Exception (SomeException, try)
 import Control.Monad (forM_, when)
+import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
+import Data.Either (lefts)
 import qualified Data.IntSet as IS
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
@@ -99,8 +102,8 @@ import Database.Journal (
     Note,
     ParameterLine (..),
     Prior (..),
-    appendEvent,
-    applyOp,
+    appendEvents,
+    applyOps,
     journalPath,
     journalStamp,
     readJournal,
@@ -141,6 +144,7 @@ import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
 import Service (ActivityFilterCore (..), SearchFilter (..), activityMatches)
 import Types (
+    Activity,
     AddedAt,
     AllocationKey (..),
     AllocationProperty (..),
@@ -674,7 +678,7 @@ writeActivities manager dbName by note verb authored =
     -- link. Identity minting is pure, so the keys cannot differ between the
     -- two runs.
     commit resolved warnings op = do
-        outcome <- mutateUploadedDatabase manager dbName by (Change note op)
+        outcome <- mutateUploadedDatabase manager dbName by (pure (Change note op))
         pure $ case outcome of
             Left err -> Left (WriteFailed err)
             Right done ->
@@ -723,56 +727,121 @@ editExchanges ::
     Text ->
     [ExchangeEdit] ->
     IO (Either WriteRefusal EditReport)
-editExchanges _ _ _ _ _ [] =
-    -- Committing re-serializes the database and rebuilds its solver; an empty
-    -- edit would pay all of that to change nothing.
-    pure (Left (Malformed ["There is nothing to change: the edit names no exchange and no text."]))
 editExchanges manager dbName by note target edits =
-    getDatabase manager dbName >>= \case
-        Nothing -> pure (Left (NotLoaded dbName))
-        Just loaded
-            | not (dcIsUploaded (ldConfig loaded)) -> pure (Left (NotWritable dbName))
-            | otherwise -> case addressed (ldDatabase loaded) of
-                Nothing -> pure (Left (NotPresent [target]))
-                Just (key, activity)
-                    | Just refusal <- retextsAuthoredIdentity key activity edits -> pure (Left (Malformed [refusal]))
-                    | otherwise -> do
-                        ctx <- authorContext manager (ldDatabase loaded)
-                        case applyExchangeEdits ctx edits activity of
-                            Left errs -> pure (Left (Malformed errs))
-                            Right edited -> commit (processRefText key) (amountsBeforeEach ctx activity edits) edited
+    fmap alone <$> editActivities manager dbName by note (pure (target, edits))
   where
+    alone :: (NonEmpty EditReport, MutationOutcome) -> EditReport
+    alone (reports, done) = let report = NE.head reports in report{erWarnings = erWarnings report <> moWarnings done}
+
+{- | Change the inventories of several activities as one change: each judged
+as 'editExchanges' judges one, all refused if any is, and the database
+rebuilt, relinked and saved once rather than once per activity, which on a
+large database is most of what an edit costs.
+
+An activity is named at most once, two products of one activity included:
+the second edit would be judged against what the first leaves, which nothing
+here has computed yet. The reports come back in the order of the request,
+each with its activity's own warnings; the warnings of the commit come once,
+in the outcome.
+-}
+editActivities ::
+    DatabaseManager ->
+    Text ->
+    Maybe Author ->
+    Maybe Note ->
+    NonEmpty (Text, [ExchangeEdit]) ->
+    IO (Either WriteRefusal (NonEmpty EditReport, MutationOutcome))
+editActivities manager dbName by note requests
+    | Just empties <- NE.nonEmpty [target | (target, []) <- NE.toList requests] =
+        -- Committing re-serializes the database and rebuilds its solver; an
+        -- empty edit would pay all of that to change nothing.
+        pure (Left (Malformed [situate target "There is nothing to change: the edit names no exchange and no text." | target <- NE.toList empties]))
+    | otherwise =
+        getDatabase manager dbName >>= \case
+            Nothing -> pure (Left (NotLoaded dbName))
+            Just loaded
+                | not (dcIsUploaded (ldConfig loaded)) -> pure (Left (NotWritable dbName))
+                | otherwise -> do
+                    ctx <- authorContext manager (ldDatabase loaded)
+                    either (pure . Left) commit (addressEdits ctx requests >>= traverse (judged ctx))
+  where
+    -- A batch names the activity each complaint is about; one edit alone
+    -- reads as it always has.
+    situate :: Text -> Text -> Text
+    situate target msg
+        | length requests > 1 = target <> ": " <> msg
+        | otherwise = msg
+    judged :: AuthorContext -> Addressed -> Either WriteRefusal JudgedEdit
+    judged ctx (Addressed target key activity edits)
+        | Just refusal <- retextsAuthoredIdentity key activity edits = Left (Malformed [situate target refusal])
+        | otherwise =
+            either
+                (Left . Malformed . map (situate target))
+                (Right . JudgedEdit key edits (amountsBeforeEach ctx activity edits))
+                (applyExchangeEdits ctx edits activity)
+    commit :: NonEmpty JudgedEdit -> IO (Either WriteRefusal (NonEmpty EditReport, MutationOutcome))
+    commit edits = do
+        outcome <- mutateUploadedDatabase manager dbName by (fmap (Change note . journalled) edits)
+        pure $ case outcome of
+            Left err -> Left (WriteFailed err)
+            Right done -> Right (fmap (reportOf done) edits, done)
     -- The identity is recorded canonically even when the caller addressed the
     -- activity by its bare UUID, so the journal keeps naming the same process
     -- if that activity ever gains a second product.
-    addressed db = do
+    journalled :: JudgedEdit -> JournalOp
+    journalled (JudgedEdit key edits priors edited) =
+        Edited (processRefText key) (zipWith3 (\edit n prior -> EditLine edit n (Prior prior)) edits (eaMatched edited) priors)
+
+-- | An activity a request names, found in the database.
+data Addressed = Addressed Text ProcessRef Activity [ExchangeEdit]
+
+-- | An edit judged valid against the database: what it changes, the amounts it found, and its result.
+data JudgedEdit = JudgedEdit ProcessRef [ExchangeEdit] [[Double]] EditedActivity
+
+{- | Find every activity a request names, refusing the ones the database does
+not hold, all at once, and an activity named twice.
+-}
+addressEdits :: AuthorContext -> NonEmpty (Text, [ExchangeEdit]) -> Either WriteRefusal (NonEmpty Addressed)
+addressEdits ctx requests = do
+    found <- first NotPresent (collect (fmap address requests))
+    case repeated (NE.toList found) of
+        [] -> Right found
+        twice -> Left (Malformed ["The activity " <> UUID.toText activity <> " is named more than once; edit each activity once per request." | activity <- twice])
+  where
+    db = acDb ctx
+    address :: (Text, [ExchangeEdit]) -> Either Text Addressed
+    address (target, edits) = maybe (Left target) Right $ do
         pid <- either (const Nothing) Just (resolveProcess db target)
         key <- either (const Nothing) Just (processKey db pid)
         activity <- getActivity db pid
-        pure (key, activity)
-    commit key priors edited = do
-        let matched = eaMatched edited
-            line edit n prior = EditLine edit n (Prior prior)
-        outcome <- mutateUploadedDatabase manager dbName by (Change note (Edited key (zipWith3 line edits matched priors)))
-        pure $ case outcome of
-            Left err -> Left (WriteFailed err)
-            Right done ->
-                Right
-                    EditReport
-                        { erRemoved = [n | (RemoveExchange _, n) <- zip edits matched]
-                        , erAmountsSet = [n | (SetAmount _ _, n) <- zip edits matched]
-                        , erAdded = length [() | AddExchange _ <- edits]
-                        , erTextsSet = [textField text | SetText text <- edits]
-                        , erFormulasSet = [n | (SetFormula _ _, n) <- zip edits matched]
-                        , erPricesSet = [n | (SetProperty Price _ _, n) <- zip edits matched]
-                        , erDryMassesSet = [n | (SetProperty DryMass _ _, n) <- zip edits matched]
-                        , erWetMassesSet = [n | (SetProperty WetMass _ _, n) <- zip edits matched]
-                        , erParametersSet = [name | SetParameter name _ <- edits]
-                        , erParametersRemoved = [name | RemoveParameter name <- edits]
-                        , erRestated = eaRestated edited
-                        , erPersisted = moPersisted done
-                        , erWarnings = eaWarnings edited <> moWarnings done
-                        }
+        pure (Addressed target key activity edits)
+    repeated :: [Addressed] -> [UUID.UUID]
+    repeated found = M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(prActivity key, 1) | Addressed _ key _ _ <- found]))
+    collect :: NonEmpty (Either Text Addressed) -> Either [Text] (NonEmpty Addressed)
+    collect results = case lefts (NE.toList results) of
+        [] -> first pure (sequence results)
+        missing -> Left missing
+
+-- | What one activity's edit produced, counted the way the request stated it.
+reportOf :: MutationOutcome -> JudgedEdit -> EditReport
+reportOf done (JudgedEdit _ edits _ edited) =
+    EditReport
+        { erRemoved = [n | (RemoveExchange _, n) <- zip edits matched]
+        , erAmountsSet = [n | (SetAmount _ _, n) <- zip edits matched]
+        , erAdded = length [() | AddExchange _ <- edits]
+        , erTextsSet = [textField text | SetText text <- edits]
+        , erFormulasSet = [n | (SetFormula _ _, n) <- zip edits matched]
+        , erPricesSet = [n | (SetProperty Price _ _, n) <- zip edits matched]
+        , erDryMassesSet = [n | (SetProperty DryMass _ _, n) <- zip edits matched]
+        , erWetMassesSet = [n | (SetProperty WetMass _ _, n) <- zip edits matched]
+        , erParametersSet = [name | SetParameter name _ <- edits]
+        , erParametersRemoved = [name | RemoveParameter name <- edits]
+        , erRestated = eaRestated edited
+        , erPersisted = moPersisted done
+        , erWarnings = eaWarnings edited
+        }
+  where
+    matched = eaMatched edited
 
 -- | What an edit of a database's parameters produced.
 data ParametersReport = ParametersReport
@@ -802,7 +871,7 @@ editDatabaseParameters manager dbName by note edits =
                     let applied parameters (name, parameter) = maybe id (M.insert name) parameter (M.filterWithKey (\key _ -> T.toLower key /= T.toLower name) parameters)
                         priors = zipWith (\parameters (name, _) -> Prior (lookupParameter name parameters)) (scanl applied (dbParameters (ldDatabase loaded)) edits) edits
                         lines' = zipWith (\(name, parameter) prior -> ParameterLine name parameter prior) edits priors
-                    outcome <- mutateUploadedDatabase manager dbName by (Change note (ParametersEdited lines'))
+                    outcome <- mutateUploadedDatabase manager dbName by (pure (Change note (ParametersEdited lines')))
                     pure $ case outcome of
                         Left err -> Left (WriteFailed err)
                         Right done ->
@@ -941,15 +1010,15 @@ mutateUploadedDatabase ::
     DatabaseManager ->
     Text ->
     Maybe Author ->
-    Change ->
+    NonEmpty Change ->
     IO (Either Text MutationOutcome)
-mutateUploadedDatabase manager dbName by change = do
+mutateUploadedDatabase manager dbName by changes = do
     -- Two concurrent edits of the same database would each apply to the value
     -- the other started from, and both would land in the journal. Reserve the
     -- name (the same reservation copy and staging use) and refuse the second
     -- rather than queue it: edits are interactive and rare.
     withReservedName manager dbName notAlreadyRunning $ \() ->
-        mutateReserved manager dbName by change
+        mutateReserved manager dbName by changes
   where
     notAlreadyRunning = do
         staging <- readTVar (dmStagingDbs manager)
@@ -958,20 +1027,23 @@ mutateUploadedDatabase manager dbName by change = do
                 then Left ("An edit of " <> dbName <> " is already in progress. Retry when it finishes.")
                 else Right ()
 
--- | The mutation proper. The caller holds the 'dmStagingDbs' reservation.
-mutateReserved :: DatabaseManager -> Text -> Maybe Author -> Change -> IO (Either Text MutationOutcome)
-mutateReserved manager dbName by change =
+{- | The mutation proper. The caller holds the 'dmStagingDbs' reservation.
+Several changes are applied, recorded and committed as one: all or none of
+them reach the journal, and the database is relinked and saved once.
+-}
+mutateReserved :: DatabaseManager -> Text -> Maybe Author -> NonEmpty Change -> IO (Either Text MutationOutcome)
+mutateReserved manager dbName by changes =
     getDatabase manager dbName >>= \case
         Nothing -> pure $ Left $ "Database not loaded: " <> dbName
         Just loaded -> do
             loadedDbs <- readTVarIO (dmLoadedDbs manager)
             configs <- readTVarIO (dmAvailableDbs manager)
             ctx <- authorContext manager (ldDatabase loaded)
-            case guardDependents configs dbName loadedDbs *> applyOp ctx (changeOp change) of
+            case guardDependents configs dbName loadedDbs *> applyOps ctx (fmap changeOp changes) of
                 Left err -> pure (Left err)
                 Right edited -> do
                     home <- editHome (ldConfig loaded)
-                    recorded <- traverse (\h -> appendEvent h by change) home
+                    recorded <- traverse (\h -> appendEvents h by changes) home
                     case sequence recorded of
                         Left err -> pure (Left err)
                         Right _ -> Right <$> commitMutation manager dbName loaded edited home
@@ -1210,7 +1282,7 @@ deleteActivitiesInDB manager dbName by DeleteRequest{drName = nameP, drLocation 
                         -- deletion happened.
                         Right [] -> pure (Right (removed 0 (dcIsUploaded (ldConfig loaded)) []))
                         Right targets -> do
-                            outcome <- mutateUploadedDatabase manager dbName by (Change note (Deleted targets))
+                            outcome <- mutateUploadedDatabase manager dbName by (pure (Change note (Deleted targets)))
                             pure $ flip fmap outcome $ \done ->
                                 removed (length targets) (moPersisted done) (moWarnings done)
   where

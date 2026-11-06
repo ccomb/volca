@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -20,7 +21,9 @@ module PersistenceSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (bracket_)
-import Control.Monad (void)
+import Control.Monad (forM_, void)
+import Data.Bifunctor (first)
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as Set
 import Data.Text (Text, isInfixOf)
@@ -37,15 +40,18 @@ import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
 import Database (buildDatabaseWithMatrices)
+import Database.Author (ExchangeEdit (..), ExchangeSelector (..))
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
     MutationOutcome (..),
     copyDatabase,
     deleteActivitiesInDB,
+    editActivities,
     mutateUploadedDatabase,
+    refusalMessage,
  )
-import Database.Journal (Change (..), JournalOp (..), journalPath, readJournal)
+import Database.Journal (Change (..), Entry (..), JournalOp (..), journalPath, readJournal)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
@@ -185,7 +191,7 @@ spec = describe "persisting an edit" $ do
                 manager <- initDatabaseManager defaultConfig NoCache
                 db <- buildTwoActivityFixture
                 install manager "configured" db (configuredConfig "configured")
-                r <- mutateUploadedDatabase manager "configured" Nothing dropSecond
+                r <- mutateUploadedDatabase manager "configured" Nothing (pure dropSecond)
                 case r of
                     Left err -> expectationFailure ("mutateUploadedDatabase: " <> show err)
                     Right outcome -> do
@@ -194,6 +200,52 @@ spec = describe "persisting an edit" $ do
                         -- config file, and the engine writes none of its own.
                         listDirectory (dataRoot </> "uploads" </> "databases") `shouldReturn` []
 
+    describe "edits of several activities at once" $ do
+        it "edits every activity named, one journal line each" $
+            withEcoSpold1DatabaseOf threeDatasets $ \manager home -> do
+                keys <- processKeysOf manager "bafu-like"
+                co2 <- co2Of manager
+                outcome <- editActivities manager "bafu-like" Nothing Nothing (setCo2 co2 keys)
+                void (first refusalMessage outcome) `shouldBe` Right ()
+                emissionsBy manager "bafu-like" `shouldReturn` M.fromList (zip keys [[1], [2], [3]])
+                journal <- readJournal home
+                fmap (map (opTarget . changeOp . jeOp)) journal `shouldBe` Right (map Just keys)
+
+        it "writes nothing when one of the edits is refused" $
+            withEcoSpold1DatabaseOf threeDatasets $ \manager home -> do
+                keys <- processKeysOf manager "bafu-like"
+                co2 <- co2Of manager
+                before <- emissionsBy manager "bafu-like"
+                let missing = SetAmount (SelectBiosphere (mkUUID 999)) 5
+                    requests = case setCo2 co2 keys of
+                        first' :| (second' : rest) -> first' :| ((fst second', [missing]) : rest)
+                        whole -> whole
+                outcome <- editActivities manager "bafu-like" Nothing Nothing requests
+                void (first refusalMessage outcome) `shouldSatisfy` failsWith (keys !! 1)
+                readJournal home `shouldReturn` Right []
+                emissionsBy manager "bafu-like" `shouldReturn` before
+
+        it "refuses an activity named twice" $
+            withEcoSpold1DatabaseOf threeDatasets $ \manager home -> do
+                keys <- processKeysOf manager "bafu-like"
+                co2 <- co2Of manager
+                let twice = head' keys
+                outcome <- editActivities manager "bafu-like" Nothing Nothing ((twice, [SetAmount (SelectBiosphere co2) 1]) :| [(twice, [SetAmount (SelectBiosphere co2) 2])])
+                void (first refusalMessage outcome) `shouldSatisfy` failsWith "more than once"
+                readJournal home `shouldReturn` Right []
+
+        it "replays to the database the edits left" $
+            withEcoSpold1DatabaseOf threeDatasets $ \manager home -> do
+                keys <- processKeysOf manager "bafu-like"
+                co2 <- co2Of manager
+                _ <- editActivities manager "bafu-like" Nothing Nothing (setCo2 co2 keys)
+                live <- emissionsBy manager "bafu-like"
+                -- Without the stamp the cache is not trusted, so the reload
+                -- reads the sources and replays the journal over them.
+                removeFile (home </> "journal.applied")
+                _ <- reloadOf manager "bafu-like"
+                emissionsBy manager "bafu-like" `shouldReturn` live
+
     describe "refusals that protect the value" $ do
         it "refuses a second edit while one is in progress" $
             withDataDir $ \_ -> do
@@ -201,7 +253,7 @@ spec = describe "persisting an edit" $ do
                 db <- buildTwoActivityFixture
                 install manager "busy" db (configuredConfig "busy")
                 atomically $ modifyTVar' (dmStagingDbs manager) (Set.insert "busy")
-                r <- mutateUploadedDatabase manager "busy" Nothing dropSecond
+                r <- mutateUploadedDatabase manager "busy" Nothing (pure dropSecond)
                 void r `shouldSatisfy` failsWith "already in progress"
 
         it "refuses while another loaded database depends on this one" $
@@ -210,7 +262,7 @@ spec = describe "persisting an edit" $ do
                 db <- buildTwoActivityFixture
                 install manager "background" db (configuredConfig "background")
                 install manager "foreground" db{dbDependsOn = ["background"]} (configuredConfig "foreground")
-                r <- mutateUploadedDatabase manager "background" Nothing dropSecond
+                r <- mutateUploadedDatabase manager "background" Nothing (pure dropSecond)
                 void r `shouldSatisfy` failsWith "still required by"
 
 -- ---------------------------------------------------------------------------
@@ -237,19 +289,26 @@ edit. Each dataset is a file named after the identifier it carries, the layout
 a published EcoSpold 1 collection uses.
 -}
 withEcoSpold1Database :: (DatabaseManager -> FilePath -> IO ()) -> IO ()
-withEcoSpold1Database act =
+withEcoSpold1Database = withEcoSpold1DatabaseOf ["electricity production, wind", "electricity production, solar"]
+
+-- | The same, with one dataset per name.
+withEcoSpold1DatabaseOf :: [Text] -> (DatabaseManager -> FilePath -> IO ()) -> IO ()
+withEcoSpold1DatabaseOf names act =
     withDataDir $ \dataRoot -> do
         let home = dataRoot </> "uploads" </> "databases" </> "bafu-like"
             dataDir = home </> "data"
         createDirectoryIfMissing True dataDir
-        TIO.writeFile (dataDir </> "process_" <> T.unpack (UUID.toText (mkUUID 101)) <> ".xml") (dataset 1 "electricity production, wind")
-        TIO.writeFile (dataDir </> "process_" <> T.unpack (UUID.toText (mkUUID 102)) <> ".xml") (dataset 2 "electricity production, solar")
+        forM_ (zip [1 ..] names) $ \(number, name) ->
+            TIO.writeFile (dataDir </> "process_" <> T.unpack (UUID.toText (mkUUID (100 + number))) <> ".xml") (dataset number name)
         manager <- initDatabaseManager defaultConfig UseCache
         addDatabase manager (uploadedConfig "bafu-like" dataDir)
         loaded <- loadDatabase manager "bafu-like"
         case loaded of
             Left err -> expectationFailure ("loading the fixture: " <> show err)
             Right _ -> act manager home
+
+threeDatasets :: [Text]
+threeDatasets = ["electricity production, wind", "electricity production, solar", "electricity production, hydro"]
 
 -- | One EcoSpold 1 dataset: a reference product and one emission.
 dataset :: Int -> Text -> Text
@@ -294,6 +353,41 @@ reloadOf manager dbName = do
     unloadDatabase manager dbName >>= either (fail . T.unpack) pure
     loadDatabase manager dbName >>= either (fail . T.unpack) (const (pure ()))
     processKeysOf manager dbName
+
+-- | Each process's biosphere amounts, by process id.
+emissionsBy :: DatabaseManager -> Text -> IO (M.Map Text [Double])
+emissionsBy manager dbName = do
+    loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    pure $ case M.lookup dbName loadedDbs of
+        Nothing -> M.empty
+        Just loaded ->
+            let db = ldDatabase loaded
+             in M.fromList
+                    [ (processRefText (uncurry ProcessRef key), [bioAmount ex | ex@BiosphereExchange{} <- exchanges activity])
+                    | (key, activity) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db))
+                    ]
+
+-- | The fixture's one biosphere flow.
+co2Of :: DatabaseManager -> IO UUID
+co2Of manager = do
+    loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    case maybe [] (M.keys . dbBioFlows . ldDatabase) (M.lookup "bafu-like" loadedDbs) of
+        [flow] -> pure flow
+        flows -> fail ("the fixture should have one biosphere flow, not " <> show (length flows))
+
+-- | Set the emission of each process to its rank: 1, 2, 3.
+setCo2 :: UUID -> [Text] -> NonEmpty (Text, [ExchangeEdit])
+setCo2 co2 keys = case zipWith (\key amount -> (key, [SetAmount (SelectBiosphere co2) amount])) keys [1 ..] of
+    request : rest -> request :| rest
+    [] -> ("the fixture has no processes", []) :| []
+
+opTarget :: JournalOp -> Maybe Text
+opTarget = \case
+    Edited target _ -> Just target
+    Created _ _ -> Nothing
+    Replaced _ _ -> Nothing
+    Deleted _ -> Nothing
+    ParametersEdited _ -> Nothing
 
 deleteLineFor :: Text -> Text
 deleteLineFor target =
