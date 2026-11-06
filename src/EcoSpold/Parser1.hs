@@ -935,16 +935,43 @@ buildResult st =
                         ++ [datasetPrefix st <> "timestamp: " <> reason | Left reason <- [created]]
                 , pdLiterature = mapMaybe sourceDocument (IM.elems (ddSources (psDocs st)))
                 }
-     in -- A file that yields no exchange at all is not a dataset: a stray or
-        -- truncated XML the SAX fold walked through without complaint. A
+     in -- A file that yields no exchange and names no product is not a
+        -- dataset: a stray or truncated XML the SAX fold walked through without
+        -- complaint. One that names its product is a process with no inventory,
+        -- a placeholder an export ships for others of the file to draw on. A
         -- dataset whose every exchange was left out is a different story and
         -- says so: the reading is the reason, and the only thing a reader can
         -- act on, so it travels on the refusal rather than dying on the branch
         -- 'pdWarnings' never reaches.
-        case (exchanges activity, unreadableAmountsSeen st) of
-            (_ : _, _) -> Right (pack activity)
-            ([], []) -> Left "not an EcoSpold1 dataset: no exchange found"
-            ([], reading) -> Left (T.unpack (T.intercalate "; " reading))
+        case (exchanges activity, unreadableAmountsSeen st, psActivityName st) of
+            (_ : _, _, _) -> Right (pack activity)
+            ([], [], Just named) -> Right (withReferenceOnly named (pack activity))
+            ([], [], Nothing) -> Left "not an EcoSpold1 dataset: no exchange found"
+            ([], reading, _) -> Left (T.unpack (T.intercalate "; " reading))
+  where
+    {- The reference product the dataset names, made in the amount of 1: with
+    nothing drawn to make it, every score per unit is zero whatever the amount. -}
+    withReferenceOnly :: Text -> ParsedDataset -> ParsedDataset
+    withReferenceOnly named parsed =
+        let reference =
+                emptyExchangeData
+                    { exNumber = psDatasetNumber st
+                    , exName = named
+                    , exCategory = psActivityCategory st
+                    , exSubCategory = psActivitySubCategory st
+                    , exLocation = fromMaybe "" (psLocation st)
+                    , exUnit = fromMaybe "UNKNOWN_UNIT" (psRefUnit st)
+                    , exOutputGroup = Just OutReferenceProduct
+                    }
+            BuiltExchange{beExchange = exchange, beFlow = flow, beUnit = unit} = buildExchange (psLocation st) 1 reference
+         in parsed
+                { pdActivity = (pdActivity parsed){exchanges = [exchange]}
+                , pdTechFlows = [tf | ParsedTech tf <- [flow]]
+                , pdUnits = [unit]
+                , pdWarnings =
+                    pdWarnings parsed
+                        ++ [datasetPrefix st <> "no inventory, read as a process making its reference product from nothing, so it scores zero"]
+                }
 
 -- | Run the shared SAX fold, surfacing any Xeno error as a String.
 foldEcoSpold1 :: BS.ByteString -> Either String ParseState
