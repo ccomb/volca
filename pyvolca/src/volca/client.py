@@ -110,6 +110,7 @@ from .types import (
     SetFormula,
     SetDryMass,
     SetWetMass,
+    ActivityEdit,
     SetPrice,
     SetParameter,
     Substitution,
@@ -1354,53 +1355,92 @@ class Client:
         carries. Needs wire revision 79.
         """
         self._require_wire(7, "edit_exchanges", engine_hint="0.9.5")
-        texts = {
-            key: value
-            for key, value in (("setName", name), ("setLocation", location), ("setDescription", description))
-            if value is not None
-        }
-        if texts:
-            self._require_wire(56, "edit_exchanges(name=, location=, description=)", engine_hint="0.15.0")
-        parametric = {
-            key: value
-            for key, value in (
-                ("setParameters", [p.to_wire() for p in set_parameters]),
-                ("setFormulas", [f.to_wire() for f in set_formulas]),
-                ("removeParameters", list(remove_parameters)),
-            )
-            if value
-        }
-        if parametric:
-            self._require_wire(
-                73, "edit_exchanges(set_parameters=, set_formulas=, remove_parameters=)", engine_hint="0.16.0"
-            )
-        if any(s.by_flow for s in [*remove, *(a.select for a in set_amounts), *(f.select for f in set_formulas)]):
-            self._require_wire(76, "edit_exchanges(a selector by flow for an input or a waste output)", engine_hint="0.16.0")
-        if set_prices:
-            self._require_wire(84, "edit_exchanges(set_prices=)", engine_hint="0.16.0")
-        if set_dry_masses:
-            self._require_wire(87, "edit_exchanges(set_dry_masses=)", engine_hint="0.16.1")
-        if set_wet_masses:
-            self._require_wire(89, "edit_exchanges(set_wet_masses=)", engine_hint="0.16.1")
+        edit = ActivityEdit(
+            process_id,
+            remove=remove,
+            set_amounts=set_amounts,
+            add_inputs=add_inputs,
+            add_biosphere=add_biosphere,
+            add_waste_outputs=add_waste_outputs,
+            name=name,
+            location=location,
+            description=description,
+            set_parameters=set_parameters,
+            set_formulas=set_formulas,
+            set_prices=set_prices,
+            set_dry_masses=set_dry_masses,
+            set_wet_masses=set_wet_masses,
+            remove_parameters=remove_parameters,
+        )
+        self._require_edit_wire(edit, "edit_exchanges")
         target = self._db(db_name)
         return self._json(
             self._session.post(
                 f"{self.base_url}/api/v1/db/{target}/activity/{process_id}/exchanges",
-                json={
-                    "remove": [s.to_wire() for s in remove],
-                    "setAmounts": [s.to_wire() for s in set_amounts],
-                    "addInputs": [i.to_wire() for i in add_inputs],
-                    "addBiosphere": [b.to_wire() for b in add_biosphere],
-                    "addWasteOutputs": [w.to_wire() for w in add_waste_outputs],
-                    **texts,
-                    **parametric,
-                    **({"setPrices": [p.to_wire() for p in set_prices]} if set_prices else {}),
-                    **({"setDryMasses": [d.to_wire() for d in set_dry_masses]} if set_dry_masses else {}),
-                    **({"setWetMasses": [w.to_wire() for w in set_wet_masses]} if set_wet_masses else {}),
-                    **self._note(note, "edit_exchanges"),
-                },
+                json={**edit.fields(), **self._note(note, "edit_exchanges")},
             )
         )
+
+    def edit_activities(
+        self,
+        edits: Sequence[ActivityEdit],
+        *,
+        note: str | None = None,
+        db_name: str | None = None,
+    ) -> dict:
+        """Edit several activities as one change: what :meth:`edit_exchanges`
+        does for one, for each :class:`ActivityEdit`.
+
+        Every edit is judged before anything is written, and one refused edit
+        refuses them all. The database is then rebuilt, relinked and saved
+        once rather than once per activity, which on a large database is most
+        of what an edit costs. An activity is named once per call, two
+        products of one activity included::
+
+            client.edit_activities(
+                [
+                    ActivityEdit("a_b", set_amounts=[SetAmount(ExchangeSelector.biosphere_flow("f-1"), 0.2)]),
+                    ActivityEdit("c_d", remove=[ExchangeSelector.input_from("e_f")]),
+                ],
+                note="Measured on site",
+            )
+
+        The answer lists each activity's report, as :meth:`edit_exchanges`
+        gives it, in the order of ``edits``, then ``transient`` and the
+        ``warnings`` of the change once::
+
+            {"edited": [{"removed": [], "amountsSet": [1], ...}, ...],
+             "transient": False, "warnings": []}
+
+        ``note`` says why, for every activity edited. Needs wire revision 107.
+        """
+        if not edits:
+            raise ValueError("edit_activities needs at least one ActivityEdit")
+        self._require_wire(107, "edit_activities", engine_hint="0.17.0")
+        for edit in edits:
+            self._require_edit_wire(edit, "edit_activities")
+        target = self._db(db_name)
+        return self._json(
+            self._session.post(
+                f"{self.base_url}/api/v1/db/{target}/activities/exchanges",
+                json={"edits": [e.to_wire() for e in edits], **self._note(note, "edit_activities")},
+            )
+        )
+
+    def _require_edit_wire(self, edit: ActivityEdit, feature: str) -> None:
+        """Refuse, before sending it, an edit the engine is too old to make."""
+        if edit.name is not None or edit.location is not None or edit.description is not None:
+            self._require_wire(56, f"{feature}(name=, location=, description=)", engine_hint="0.15.0")
+        if edit.set_parameters or edit.set_formulas or edit.remove_parameters:
+            self._require_wire(73, f"{feature}(set_parameters=, set_formulas=, remove_parameters=)", engine_hint="0.16.0")
+        if any(s.by_flow for s in [*edit.remove, *(a.select for a in edit.set_amounts), *(f.select for f in edit.set_formulas)]):
+            self._require_wire(76, f"{feature}(a selector by flow for an input or a waste output)", engine_hint="0.16.0")
+        if edit.set_prices:
+            self._require_wire(84, f"{feature}(set_prices=)", engine_hint="0.16.0")
+        if edit.set_dry_masses:
+            self._require_wire(87, f"{feature}(set_dry_masses=)", engine_hint="0.16.1")
+        if edit.set_wet_masses:
+            self._require_wire(89, f"{feature}(set_wet_masses=)", engine_hint="0.16.1")
 
     # -- Changing a method collection of one's own -------------------------
 

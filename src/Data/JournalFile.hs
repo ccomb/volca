@@ -25,6 +25,7 @@ module Data.JournalFile (
     JournalVocabulary (..),
     journalPath,
     appendEntry,
+    appendEntries,
     readEntries,
 ) where
 
@@ -47,6 +48,7 @@ import Data.Bifunctor (first)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isSpace)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -139,15 +141,22 @@ rather than a whole entry: when it happened is the journal's business, not its
 caller's.
 -}
 appendEntry :: (JournalVocabulary op) => FilePath -> Maybe Author -> op -> IO (Either Text ())
-appendEntry home by op = do
+appendEntry home by = appendEntries home by . pure
+
+{- | Record several changes made as one: one line each, so a reader of the
+file sees the same lines it would for changes made one by one, stamped with
+one time and written in one call.
+-}
+appendEntries :: (JournalVocabulary op) => FilePath -> Maybe Author -> NonEmpty op -> IO (Either Text ())
+appendEntries home by ops = do
     now <- getCurrentTime
-    let entry = Entry{jeAt = T.pack (iso8601Show now), jeBy = by, jeOp = op}
+    let entry op = Entry{jeAt = T.pack (iso8601Show now), jeBy = by, jeOp = op}
     written <- try $ do
         createDirectoryIfMissing True home
         withFile (journalPath home) ReadWriteMode $ \handle -> do
             dropTornTail handle
             hSeek handle SeekFromEnd 0
-            BL.hPut handle (encode entry <> "\n")
+            BL.hPut handle (foldMap (\op -> encode (entry op) <> "\n") ops)
     pure $ case written of
         Right () -> Right ()
         Left (err :: SomeException) ->

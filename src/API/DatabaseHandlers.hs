@@ -35,6 +35,8 @@ module API.DatabaseHandlers (
     createActivitiesHandler,
     replaceActivityHandler,
     editExchangesHandler,
+    editActivitiesHandler,
+    activitiesReportToAPI,
     editDatabaseParametersHandler,
     databaseHistoryHandler,
     databaseHistoryToAPI,
@@ -130,6 +132,8 @@ import qualified Database.ComputedQuality as CQ
 
 import API.Types (
     ActivateResponse (..),
+    ActivitiesEditRequest (..),
+    ActivitiesEditResponse (..),
     ActivityInput (..),
     ActivityWriteRequest (..),
     ActivityWriteResponse (..),
@@ -182,6 +186,7 @@ import API.Types (
     UploadChunk (..),
     UploadResponse (..),
     UploadedFamily (..),
+    toActivityEdits,
     toAuthoredActivities,
     toExchangeEdits,
     toParameterEdits,
@@ -198,6 +203,7 @@ import Data.Foldable (toList)
 import Data.Indexing (repeated)
 import Data.JournalFile (Author (..))
 import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe, isJust)
 import Data.Time.Clock (getCurrentTime, utctDay)
 import qualified Data.UUID as UUID
@@ -208,6 +214,7 @@ import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
     EditReport (..),
+    MutationOutcome (..),
     ParametersReport (..),
     WriteRefusal (..),
     WriteReport (..),
@@ -218,6 +225,7 @@ import Database.Edit (
     deleteActivitiesInDB,
     derivationOf,
     deriveDatabase,
+    editActivities,
     editDatabaseParameters,
     editExchanges,
     refusalMessage,
@@ -832,6 +840,27 @@ editExchangesHandler dbName processId req = do
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toExchangeEdits req)
     outcome <- liftIO (editExchanges dbManager dbName by (eerNote req >>= noteFrom) processId edits)
     either refuseWrite (pure . editReportToAPI) outcome
+
+{- | Change the inventories of several activities as one change. Refused whole
+when one edit is, with the codes 'editExchangesHandler' answers.
+-}
+editActivitiesHandler :: Text -> ActivitiesEditRequest -> AppM ActivitiesEditResponse
+editActivitiesHandler dbName req = do
+    guardMutation
+    dbManager <- asks aeDbManager
+    by <- asks aeAuthor
+    edits <- either (writeErr err400 . T.intercalate "\n") pure (toActivityEdits req)
+    outcome <- liftIO (editActivities dbManager dbName by (aqNote req >>= noteFrom) edits)
+    either refuseWrite (pure . activitiesReportToAPI) outcome
+
+-- | What an edit of several activities answers, on every surface that offers one.
+activitiesReportToAPI :: (NonEmpty EditReport, MutationOutcome) -> ActivitiesEditResponse
+activitiesReportToAPI (reports, done) =
+    ActivitiesEditResponse
+        { aesEdited = map editReportToAPI (NE.toList reports)
+        , aesTransient = not (moPersisted done)
+        , aesWarnings = moWarnings done
+        }
 
 {- | What an edit answers, on every surface that offers one, so an assistant
 and a person reading the API reference are told the same thing.

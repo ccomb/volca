@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- Several activities can be edited in one request, as one change: the
+  request `POST /db/{dbName}/activities/exchanges`, the assistant tool
+  `edit_activities` and pyvolca's `Client.edit_activities` take one edit per
+  activity, each with what an edit of one activity takes, and one note for
+  all. Every edit is judged before anything is written, and one refused edit
+  refuses them all. The database is rebuilt, relinked and saved once instead
+  of once per activity: one rebuild takes about 13 s on a database of twenty
+  thousand activities. Wire revision 107.
+
 ### Fixed
 
 - A wildcard line of a method (`Energy, *`, `Water*`) counts the flows of
