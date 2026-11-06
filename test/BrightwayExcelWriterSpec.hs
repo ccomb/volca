@@ -271,7 +271,23 @@ spec = describe "BrightwayExcel.Writer" $ do
             -- is faithfully representable; the guard must not reject it.
             checkBrightwayExportable defaultUnitConfig noDependencies subnormalDb `shouldSatisfy` isRight
 
+    describe "a production row" $
+        it "names its own block, which Brightway links it to" $
+            listToMaybe [name | r@(name : _) <- sheetRows energyCfg (energyDb ReferenceProduct), length r > 6, r !! 2 == CText "electricity, gas", r !! 6 == CText "production"]
+                `shouldBe` Just (CText "Gas power plant")
+
     describe "a line bought from a product of the file" $ do
+        it "names its maker's block, whose name is not the product's" $
+            fmap (!! 0) (boughtRow (energyDb ReferenceProduct)) `shouldBe` Just (CText "Gas power plant")
+        it "is read back as the product its maker makes" $
+            withWrittenBy energyCfg (energyDb ReferenceProduct) $
+                parseBrightwayExcel energyConfig >=> \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right Workbook{wbActivities = acts} -> do
+                        let made = [exchangeFlowId ex | a <- acts, activityName a == "Gas power plant", ex <- exchanges a, exchangeIsReference ex]
+                            bought = [exchangeFlowId ex | a <- acts, activityName a == "Heating", ex@TechnosphereExchange{techRole = Input} <- exchanges a]
+                        made `shouldSatisfy` (not . null)
+                        bought `shouldBe` made
         it "is written in the unit the product is made in, its formula following" $ do
             let row = boughtRow (energyDb ReferenceProduct)
             fmap (!! 4) row `shouldBe` Just (CText "MJ")
@@ -1077,9 +1093,12 @@ co2Inventory sdb = do
 -- ---------------------------------------------------------------------------
 
 withWritten :: SimpleDatabase -> (FilePath -> IO a) -> IO a
-withWritten db action =
+withWritten = withWrittenBy cfg
+
+withWrittenBy :: WriterConfig -> SimpleDatabase -> (FilePath -> IO a) -> IO a
+withWrittenBy config db action =
     withSystemTempFile "brightway-writer.xlsx" $ \path h -> do
-        bytes <- either (\e -> error ("renderWorkbook: " <> T.unpack e)) pure (renderWorkbook cfg db)
+        bytes <- either (\e -> error ("renderWorkbook: " <> T.unpack e)) pure (renderWorkbook config db)
         BL.hPut h bytes
         hClose h
         action path

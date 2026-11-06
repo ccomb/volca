@@ -98,7 +98,7 @@ import qualified Data.Text.Encoding as TE
 import Amount (readAmount)
 import Data.Indexing (collisions)
 import Database.ExportFormulas (Exported (..), ProcessExport (..), Scaled (..), Written (..), exportFormulas, frozenWarnings, processExport)
-import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, buys, clashing, inDependency, madeAt, makerOf, noDependencies, producerOf, unnamedWarnings)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), boughtShared, buys, clashing, inDependency, makerOf, noDependencies, producerOf, unnamedWarnings)
 import EcoSpold.Common (showFFloatTrim)
 import qualified Expr
 import SubstanceRegistry (nonEmptyCAS)
@@ -342,7 +342,7 @@ checkBrightwayExportable units deps db =
     sharedOffenders =
         [ (maybe "?" tfName (M.lookup flow (sdbTechFlows db)), NE.head same)
         | (flow, makers) <- boughtShared db
-        , same <- take 1 (clashing (\a -> (activityName a, madeAt a)) makers)
+        , same <- take 1 (clashing (\a -> (activityName a, activityLocation a)) makers)
         ]
     sharedMsg (product', a) =
         "Brightway Excel export cannot tell apart the activities making \""
@@ -350,7 +350,7 @@ checkBrightwayExportable units deps db =
             <> "\": two of them are named \""
             <> activityName a
             <> "\" at "
-            <> madeAt a
+            <> activityLocation a
             <> ", so a re-import would link every input of it to one of them."
     alikeMsg :: NE.NonEmpty TechnosphereFlow -> Text
     alikeMsg flows =
@@ -556,7 +556,7 @@ activityRows cfg db makerAt pe act =
     ordered :: [Exchange]
     ordered = map snd numbered
     exchangeDataRows :: [[Cell]]
-    exchangeDataRows = mapMaybe (\(i, ex) -> exchangeRow cfg db (makerAt (i, ex)) (IM.lookup i (peLines pe)) ex) numbered
+    exchangeDataRows = mapMaybe (\(i, ex) -> exchangeRow cfg db act (makerAt (i, ex)) (IM.lookup i (peLines pe)) ex) numbered
     refExchange = lookup' exchangeIsReference ordered
     refProduct = refExchange >>= flowNameOf db
     refUnit = (`unitNameOf` db) . exchangeUnitId =<< refExchange
@@ -633,30 +633,33 @@ that would re-parse into a different flow). The @reference product@ column
 carries the flow name, from which the parser reconstructs the same flow UUID for
 a product made in the workbook. A row buying from a database this one depends
 on names that database, that supplier's activity and its location, which the
-parser reads as bought there; a row buying a product several activities of the
-workbook make names its maker and the maker's location, and a row linked to the
-sole maker of a product carries the location of that maker's block. Any other row names the
+parser reads as bought there. A production row names its own block, and a row
+bought from an activity of the workbook names that activity and the location
+of its block, as Brightway links them. Any other row names the
 workbook ('productsSpeltAlike' refuses the case where that would merge two
 products), with @name@ carrying the supplier activity where the source named
 one and repeating the flow name where it did not; a supplier named with no
 product leaves @reference product@ empty. The last column is the line's
 formula, if it has one.
 -}
-exchangeRow :: WriterConfig -> SimpleDatabase -> Maker -> Maybe Text -> Exchange -> Maybe [Cell]
-exchangeRow cfg db maker formula = \case
+exchangeRow :: WriterConfig -> SimpleDatabase -> Activity -> Maker -> Maybe Text -> Exchange -> Maybe [Cell]
+exchangeRow cfg db act maker formula = \case
     ex@TechnosphereExchange{techAmount = amt, techRole = role, techLocation = loc, techSupplierClaim = claim} -> do
         name <- flowNameOf db ex
         LineUnit{luName = unit, luPerLine = perLine} <- writtenUnit (wcUnits cfg) db ex
-        -- Who the row buys from, where it names one: a supplier in a dependency,
-        -- or the maker of a product several activities of the file make. A row
-        -- linked to the sole maker states the location of that maker's block, which Brightway
-        -- links by: the line's own may be blank or spelt otherwise.
-        let (supplier, product', location, database) = case maker of
-                InDependency e -> (elActivity e, CText name, elLocation e, elDatabase e)
-                OneOfMakers a -> (activityName a, CText name, madeAt a, wcDatabaseName cfg)
-                SoleMaker a -> (namedSupplier claim name, statedProduct claim name, activityLocation a, wcDatabaseName cfg)
-                Dangling _ -> asStated
-                NoLink -> asStated
+        -- Brightway links a row to the block whose name, reference product, unit
+        -- and location it states: a production row states its own block, a row
+        -- bought in the file its maker's block, a row bought in a dependency that
+        -- supplier. The line's own location may be blank or spelt otherwise.
+        let (supplier, product', location, database)
+                | exchangeIsProductOutput ex = blockOf act
+                | otherwise = case maker of
+                    InDependency e -> (elActivity e, CText name, elLocation e, elDatabase e)
+                    OneOfMakers a -> blockOf a
+                    SoleMaker a -> blockOf a
+                    Dangling _ -> asStated
+                    NoLink -> asStated
+            blockOf a = (activityName a, CText name, activityLocation a, wcDatabaseName cfg)
             asStated = (namedSupplier claim name, statedProduct claim name, locationCode loc, wcDatabaseName cfg)
         Just
             [ CText supplier
