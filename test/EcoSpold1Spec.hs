@@ -8,11 +8,16 @@ import Data.List (isInfixOf)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
+import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
 import EcoSpold.Common (ParsedDataset (..))
 import EcoSpold.Parser1
 import Types
+import UnitConversion (defaultUnitConfig)
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -799,6 +804,17 @@ spec = do
     -- -----------------------------------------------------------------------
     -- parseAllWithXeno – multi-dataset
     -- -----------------------------------------------------------------------
+    describe "a directory of files holding several datasets each" $
+        it "loads every dataset of every file, not the first of each" $
+            withSystemTempDirectory "es1-multi" $ \dir -> do
+                let others = TE.encodeUtf8 . T.replace "process B" "process D" . T.replace "product B" "product D" . T.replace "process A" "process C" . T.replace "product A" "product C" . TE.decodeUtf8
+                BC.writeFile (dir </> "first.xml") multiDatasetXml
+                BC.writeFile (dir </> "second.xml") (others multiDatasetXml)
+                loaded <- loadDatabaseWithLocationAliases (defaultLoadOptions defaultUnitConfig) dir
+                case loaded of
+                    Left err -> expectationFailure (T.unpack err)
+                    Right db -> M.size (sdbActivities db) `shouldBe` 4
+
     describe "parseAllWithXeno" $ do
         it "returns Left for invalid XML" $
             case parseAllWithXeno "<not-xml" of
