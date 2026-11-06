@@ -124,6 +124,7 @@ import Types (
     exchangeIsReference,
     exchangeProperties,
     findProcessIdByActivityUUID,
+    getUnitForExchange,
     getUnitNameForExchange,
     isPlaceholderUnit,
     locationCode,
@@ -758,9 +759,10 @@ resupplied ctx provider line = case line of
                     , techSupplierClaim = ClaimById (prActivity (supKey sup))
                     , techLocation = ""
                     }
-         in mapLeft (map ((describeSelector (SelectInput provider) <> ": ") <>)) $
+         in mapLeft (map ((describeSelector (SelectInput provider) <> ": ") <>)) $ do
+                unit <- maybe (Left ["the line's unit is not one this database declares"]) (Right . unitName) (getUnitForExchange (dbUnits (acDb ctx)) line)
                 (\resolved -> (reExchange resolved, reAdoption resolved))
-                    <$> resolveLinked ctx provider 1 (Just (getUnitNameForExchange (dbUnits (acDb ctx)) line)) (fmap (maybe NothingToAdopt AdoptProduct) . adoptTechFlow ctx) moved
+                    <$> resolveLinked ctx provider 1 (Just unit) (fmap (maybe NothingToAdopt AdoptProduct) . adoptTechFlow ctx) moved
     WasteExchange{} -> Left ["a waste output takes no supplier: only an input does"]
     BiosphereExchange{} -> Left ["a flow of nature takes no supplier: only an input does"]
 
