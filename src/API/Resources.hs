@@ -111,6 +111,7 @@ data Resource
     | GetComputedQualityReport
     | GetCoverageReport
     | EditExchanges
+    | EditActivities
     | DatabaseParameters
     | DatabaseHistory
     | EditDatabaseParameters
@@ -217,6 +218,7 @@ resourceMutates r = case r of
     GetComputedQualityReport -> False
     GetCoverageReport -> False
     EditExchanges -> True
+    EditActivities -> True
     DatabaseParameters -> False
     DatabaseHistory -> False
     EditDatabaseParameters -> True
@@ -299,6 +301,7 @@ resourceNeeds r = case r of
     GetFlowFactors -> Nothing
     -- Its reply echoes the lines the caller wrote.
     EditExchanges -> Nothing
+    EditActivities -> Nothing
     -- Its reply names the parameters the caller wrote and the processes that moved, no amount.
     EditDatabaseParameters -> Nothing
     -- Values a caller chose, never the database's.
@@ -364,6 +367,7 @@ resourceUsage r = case r of
     GetCharacterization -> Nothing
     ExplainCF -> Nothing
     EditExchanges -> Nothing
+    EditActivities -> Nothing
     DatabaseParameters -> Nothing
     DatabaseHistory -> Nothing
     EditDatabaseParameters -> Nothing
@@ -448,6 +452,7 @@ apiPath r = case r of
     GetComputedQualityReport -> Just (GET, ["db", "{dbName}", "computed-quality-report"])
     GetCoverageReport -> Just (GET, ["db", "{dbName}", "characterization-coverage"])
     EditExchanges -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "exchanges"])
+    EditActivities -> Just (POST, ["db", "{dbName}", "activities", "exchanges"])
     DatabaseParameters -> Just (GET, ["db", "{dbName}", "parameters"])
     DatabaseHistory -> Just (GET, ["db", "{dbName}", "history"])
     EditDatabaseParameters -> Just (POST, ["db", "{dbName}", "parameters"])
@@ -522,6 +527,7 @@ mcpName r = case r of
     GetComputedQualityReport -> "get_computed_quality_report"
     GetCoverageReport -> "get_characterization_coverage"
     EditExchanges -> "edit_exchanges"
+    EditActivities -> "edit_activities"
     DatabaseParameters -> "get_database_parameters"
     DatabaseHistory -> "get_database_history"
     EditDatabaseParameters -> "edit_database_parameters"
@@ -1154,6 +1160,16 @@ description r = case r of
         \configuration: copy it first (that background data is shared with \
         \everyone). If the answer says transient, the edit is in memory only \
         \and an unload undoes it."
+    EditActivities ->
+        "edit_exchanges for several activities at once, applied as one change: \
+        \every edit is judged first and all are refused if one is, and the \
+        \database is rebuilt and relinked once instead of once per activity, \
+        \which on a large database is most of what an edit costs. Each element \
+        \of edits is {process_id} plus the arguments edit_exchanges takes, \
+        \without note: the note is given once, for the whole change. An \
+        \activity is named once per request, two products of one activity \
+        \included. The answer lists each activity's report in the order of the \
+        \request, then transient and the warnings of the change once."
     DatabaseHistory ->
         "Every change made to a database of one's own, oldest first: when, \
         \what it changed in words (the activities added, rewritten or \
@@ -1737,6 +1753,11 @@ params r = case r of
         , Param "set_wet_masses" "array" Optional "Wet masses of product outputs, which the wet mass allocation key divides a process of several products by. Each is {product, wetMass}: product is the flow id of the reference product or a coproduct, wetMass is {amount, unit} for one unit of the product, in a unit of mass, or null to remove it. On a product in litres or cubic metres it is the density: the key multiplies it by the line's amount, which alone it cannot weigh."
         , Param "remove_parameters" "array" Optional "Names of the activity's parameters to remove, once the formulas set here no longer read them. Refused while a formula still reads one the database does not define."
         , Param "note" "string" Optional "Why the change is made, in a sentence. Kept in the database's history (get_database_history) and in the changes report its export carries."
+        ]
+    EditActivities ->
+        [ pDatabase
+        , Param "edits" "array" Required "One element per activity: {process_id} plus the arguments of edit_exchanges (remove, set_amounts, add_inputs, add_biosphere, add_waste_outputs, set_name, set_location, set_description, set_parameters, set_formulas, set_prices, set_dry_masses, set_wet_masses, remove_parameters), each as edit_exchanges reads it."
+        , Param "note" "string" Optional "Why the change is made, in a sentence, for every activity it edits. Kept in the database's history (get_database_history) and in the changes report its export carries."
         ]
     DatabaseParameters -> [pDatabase]
     DatabaseHistory -> [pDatabase]

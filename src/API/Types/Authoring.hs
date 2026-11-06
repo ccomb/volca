@@ -8,11 +8,17 @@
 module API.Types.Authoring where
 
 import API.JsonOptions (Stripped (..))
+import Control.Lens ((%~), (&))
 import Data.Aeson
-import Data.Bifunctor (first)
+import qualified Data.Aeson.KeyMap as KM
+import Data.Bifunctor (bimap, first)
 import Data.Either (partitionEithers)
+import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe, maybeToList)
-import Data.OpenApi (ToSchema (..))
+import Data.OpenApi (NamedSchema (..), ToSchema (..), declareSchema, declareSchemaRef, properties, required)
+import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -338,6 +344,68 @@ data RestatedLineAPI = RestatedLineAPI
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped RestatedLineAPI)
 
+{- | Changes to several activities, made as one change: each edit is the body
+'ExchangeEditRequest' reads, with the process it applies to beside its
+fields, and the reason is given once for all of them.
+-}
+data ActivitiesEditRequest = ActivitiesEditRequest
+    { aqEdits :: [ActivityEditAPI]
+    , aqNote :: Maybe Text
+    -- ^ Why the change was made, kept in the database's history
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ActivitiesEditRequest)
+
+instance FromJSON ActivitiesEditRequest where
+    parseJSON = withObject "ActivitiesEditRequest" $ \o ->
+        ActivitiesEditRequest <$> o .: "edits" <*> o .:? "note"
+
+-- | One activity's edit in a request that edits several.
+data ActivityEditAPI = ActivityEditAPI
+    { aeProcessId :: Text
+    , aeEdit :: ExchangeEditRequest
+    }
+
+{- | The process id sits among the fields of the edit, as a caller writing one
+edit per activity already has them. A reason belongs to the whole request, so
+one given on an edit is refused rather than dropped.
+-}
+instance FromJSON ActivityEditAPI where
+    parseJSON = withObject "ActivityEditAPI" $ \o -> do
+        noteHere <- o .:? "note"
+        case noteHere :: Maybe Text of
+            Just _ -> fail "a note is given once, beside \"edits\", for the whole change"
+            Nothing -> ActivityEditAPI <$> o .: "processId" <*> parseJSON (Object o)
+
+instance ToJSON ActivityEditAPI where
+    toJSON edit = case toJSON (aeEdit edit) of
+        Object fields -> Object (KM.insert "processId" (toJSON (aeProcessId edit)) (KM.delete "note" fields))
+        other -> other
+
+instance ToSchema ActivityEditAPI where
+    declareNamedSchema _ = do
+        fields <- declareSchema (Proxy :: Proxy ExchangeEditRequest)
+        processId <- declareSchemaRef (Proxy :: Proxy Text)
+        pure $
+            NamedSchema (Just "ActivityEditAPI") $
+                fields
+                    & properties %~ (InsOrdHashMap.insert "processId" processId . InsOrdHashMap.delete "note")
+                    & required %~ ("processId" :)
+
+{- | What an edit of several activities produced: each activity's report, in
+the order of the request, and once for all of them whether it was saved and
+what the commit has to say.
+-}
+data ActivitiesEditResponse = ActivitiesEditResponse
+    { aesEdited :: [ExchangeEditResponse]
+    -- ^ Each with its own activity's warnings.
+    , aesTransient :: Bool
+    -- ^ True when the edits live in memory only and an unload would undo them.
+    , aesWarnings :: [Text]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped ActivitiesEditResponse)
+
 -- ---------------------------------------------------------------------------
 -- Wire → authoring input
 -- ---------------------------------------------------------------------------
@@ -446,6 +514,16 @@ toExchangeEdits req = case partitionEithers stated of
     toSetProperty prop named value = case UUID.fromText named of
         Just flow -> Right (SetProperty prop flow value)
         Nothing -> Left ["a " <> propertyName prop <> " names its product by flow identifier, not " <> named]
+
+{- | Translate an edit of several activities, each as 'toExchangeEdits' does
+one, every complaint naming the process it is about.
+-}
+toActivityEdits :: ActivitiesEditRequest -> Either [Text] (NonEmpty (Text, [ExchangeEdit]))
+toActivityEdits req = case partitionEithers (map translate (aqEdits req)) of
+    ([], edits) -> maybe (Left ["The request names no activity: \"edits\" is empty."]) Right (NE.nonEmpty edits)
+    (errs, _) -> Left (concat errs)
+  where
+    translate edit = bimap (map ((aeProcessId edit <> ": ") <>)) (aeProcessId edit,) (toExchangeEdits (aeEdit edit))
 
 {- | A parameter states a value or a formula, never both: a calculated
 parameter's value is what its formula gives, and an uncertainty spreads a

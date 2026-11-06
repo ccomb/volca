@@ -60,6 +60,7 @@ module Database.Journal (
     journalPath,
     journalHasEntries,
     appendEvent,
+    appendEvents,
     readJournal,
 
     -- * Keeping a cache honest about it
@@ -69,6 +70,7 @@ module Database.Journal (
 
     -- * Applying it
     applyOp,
+    applyOps,
     replayJournal,
 ) where
 
@@ -88,8 +90,10 @@ import Data.Aeson.Types (Pair, Parser)
 import Data.Bifunctor (bimap, first)
 import Data.Bits (xor)
 import qualified Data.ByteString.Char8 as BS
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -98,7 +102,7 @@ import Data.Word (Word64)
 import System.Directory (doesFileExist, getFileSize)
 import System.FilePath ((</>))
 
-import Data.JournalFile (Author, Entry (..), JournalVocabulary (..), appendEntry, journalPath, readEntries)
+import Data.JournalFile (Author, Entry (..), JournalVocabulary (..), appendEntries, appendEntry, journalPath, readEntries)
 
 import Database.Author (
     ActivityText (..),
@@ -122,7 +126,7 @@ import Database.Rebuild (
  )
 import Parametric (editedParameters)
 import Progress (ProgressLevel (..), reportProgress)
-import Types (AllocationProperty (..), BioDirection (..), Compartment (..), Database (..), ExchangeLocation, Parameter (..), ParameterDefinition (..), ProcessRef (..), getActivity, locationCode, processRefText, propertyName, readExchangeLocation)
+import Types (AllocationProperty (..), BioDirection (..), Compartment (..), Database (..), ExchangeLocation, Parameter (..), ParameterDefinition (..), ProcessRef (..), getActivity, locationCode, parseProcessRef, processRefText, propertyName, readExchangeLocation)
 
 -- ---------------------------------------------------------------------------
 -- What a journal records
@@ -209,6 +213,10 @@ an edit is on disk by the time its caller answers.
 appendEvent :: FilePath -> Maybe Author -> Change -> IO (Either Text ())
 appendEvent = appendEntry
 
+-- | Record changes made as one, one line each, in a single write.
+appendEvents :: FilePath -> Maybe Author -> NonEmpty Change -> IO (Either Text ())
+appendEvents = appendEntries
+
 -- | Read a database's journal. A database with no journal has made no edits.
 readJournal :: FilePath -> IO (Either Text [JournalEvent])
 readJournal = readEntries
@@ -289,8 +297,8 @@ fnv1a = BS.foldl' step 14695981039346656037
 -- Applying it
 -- ---------------------------------------------------------------------------
 
-{- | Replay a journal over the database it belongs to, one line at a time, each
-line seeing the result of the ones before it.
+{- | Replay a journal over the database it belongs to, each line seeing the
+result of the ones before it ('applyOps').
 
 The context carries the database to start from ('acDb'), the dependencies
 suppliers are resolved against, and the units amounts are judged in – the same
@@ -298,7 +306,8 @@ context authoring uses, because a replay validates exactly what authoring
 validated. That is deliberate: a supplier that has since vanished from a
 dependency fails here rather than landing as a dangling link.
 
-Any failure refuses the whole database, naming the line and the reason. A
+Any failure refuses the whole database, naming the line (or the run of
+edits applied together) and the reason. A
 half-applied journal would be a database that silently disagrees with its own
 record.
 
@@ -307,17 +316,102 @@ author when the edit was made, and repeating them at every load says nothing
 new.
 -}
 replayJournal :: AuthorContext -> [JournalEvent] -> Either Text Database
-replayJournal ctx = foldM step (acDb ctx) . zip [1 :: Int ..]
+replayJournal ctx events = case NE.nonEmpty (zip [1 :: Int ..] (map (changeOp . jeOp) events)) of
+    Nothing -> Right (acDb ctx)
+    Just numbered -> first situate (applyNumbered ctx numbered)
   where
-    step db (i, event) =
-        first (situate i op) (applyOp ctx{acDb = db} op)
-      where
-        op = changeOp (jeOp event)
-    situate i op msg =
-        "journal event " <> T.pack (show i) <> " (" <> opName op <> "): " <> msg
+    situate :: Failure -> Text
+    situate (Failure ops msg) =
+        "journal " <> numbers (fst <$> ops) <> " (" <> opName (snd (NE.head ops)) <> "): " <> msg
+    numbers :: NonEmpty Int -> Text
+    numbers (i :| []) = "event " <> T.pack (show i)
+    numbers is = "events " <> T.pack (show (NE.head is)) <> " to " <> T.pack (show (NE.last is))
 
+-- | Apply one change to the database in the context.
 applyOp :: AuthorContext -> JournalOp -> Either Text Database
-applyOp ctx = \case
+applyOp ctx = applyOps ctx . pure
+
+{- | Apply changes in order, each seeing the result of the ones before it.
+
+A run of edits of distinct activities is written by one rebuild rather than
+one each: a rebuild costs the same for one activity as for all of them, and
+is most of what an edit costs on a large database. That is exact because an
+edit adds and removes no activity, so every edit of the run resolves its
+target, its siblings and its suppliers against the same database whether the
+others have been applied yet or not, and they write disjoint rows.
+-}
+applyOps :: AuthorContext -> NonEmpty JournalOp -> Either Text Database
+applyOps ctx = first failureReason . applyNumbered ctx . NE.zip (1 :| [2 ..])
+
+-- | The changes a failure came from, with their position, and why.
+data Failure = Failure (NonEmpty (Int, JournalOp)) Text
+
+failureReason :: Failure -> Text
+failureReason (Failure _ msg) = msg
+
+applyNumbered :: AuthorContext -> NonEmpty (Int, JournalOp) -> Either Failure Database
+applyNumbered ctx = foldM applyRun (acDb ctx) . runs . NE.toList
+  where
+    applyRun :: Database -> Run -> Either Failure Database
+    applyRun db = \case
+        Alone numbered -> first (Failure (pure numbered)) (applyOne ctx{acDb = db} (snd numbered))
+        Edits edits -> do
+            inserts <- traverse (insertsOf db) edits
+            first (Failure (fmap eNumbered edits)) (replaceActivities (acUnitConfig ctx) (concat inserts) db)
+    insertsOf :: Database -> NumberedEdit -> Either Failure [ResolvedInsert]
+    insertsOf db edit =
+        first (Failure (pure (eNumbered edit))) (editedInserts ctx{acDb = db} (eTarget edit) (eLines edit))
+
+-- | An edit as a run holds it: the change it came from, and what it edits.
+data NumberedEdit = NumberedEdit
+    { eNumbered :: (Int, JournalOp)
+    , eTarget :: Text
+    , eLines :: [EditLine]
+    }
+
+{- | How a sequence of changes is applied: a run of edits that share one
+rebuild, or any other change on its own.
+-}
+data Run
+    = Alone (Int, JournalOp)
+    | Edits (NonEmpty NumberedEdit)
+
+{- | Cut changes into runs. A run of edits stops before an edit of an activity
+it already holds, siblings included: that edit has to see the run's result.
+A target that names no process pair is a run of its own, since its activity
+cannot be told from the text alone.
+-}
+runs :: [(Int, JournalOp)] -> [Run]
+runs = \case
+    [] -> []
+    numbered : rest -> case asEdit numbered of
+        Nothing -> Alone numbered : runs rest
+        Just edit -> case editedActivity edit of
+            Nothing -> Edits (pure edit) : runs rest
+            Just activity ->
+                let (run, rest') = spanDistinct (S.singleton activity) rest
+                 in Edits (edit :| run) : runs rest'
+  where
+    spanDistinct :: S.Set UUID.UUID -> [(Int, JournalOp)] -> ([NumberedEdit], [(Int, JournalOp)])
+    spanDistinct seen = \case
+        numbered : rest
+            | Just edit <- asEdit numbered
+            , Just activity <- editedActivity edit
+            , not (S.member activity seen) ->
+                first (edit :) (spanDistinct (S.insert activity seen) rest)
+        rest -> ([], rest)
+    asEdit :: (Int, JournalOp) -> Maybe NumberedEdit
+    asEdit numbered = case snd numbered of
+        Edited target editLines -> Just (NumberedEdit numbered target editLines)
+        Created _ _ -> Nothing
+        Replaced _ _ -> Nothing
+        Deleted _ -> Nothing
+        ParametersEdited _ -> Nothing
+    editedActivity :: NumberedEdit -> Maybe UUID.UUID
+    editedActivity = fmap prActivity . parseProcessRef . eTarget
+
+applyOne :: AuthorContext -> JournalOp -> Either Text Database
+applyOne ctx = \case
     Created activities written -> do
         resolved <- resolve activities
         let minted = map (processRefText . riKey) resolved
@@ -333,32 +427,9 @@ applyOp ctx = \case
     Deleted targets -> do
         pids <- traverse (resolveProcess (acDb ctx)) targets
         deleteActivitiesWith (acUnitConfig ctx) pids (acDb ctx)
-    -- An edit is replayed through the very function that made it, so there is
-    -- one implementation of what an edit means, not a live one and a
-    -- reconstructed one that could disagree.
     Edited target editLines -> do
-        let edits = [(elEdit line, elMatched line) | line <- editLines]
-        pid <- resolveProcess (acDb ctx) target
-        key <- processKey (acDb ctx) pid
-        act <- maybe (Left ("Unknown process id: " <> target)) Right (getActivity (acDb ctx) pid)
-        edited <- first (T.intercalate "; ") (applyExchangeEdits ctx (map fst edits) act)
-        let shared = filter ofTheActivity (map fst edits)
-        siblings <- if null shared then pure [] else traverse (alongside shared) (siblingsOf pid (prActivity key))
-        if eaMatched edited == map snd edits
-            then
-                replaceActivities
-                    (acUnitConfig ctx)
-                    ( ResolvedInsert
-                        { riKey = key
-                        , riActivity = eaActivity edited
-                        , riNewTechFlows = eaNewTechFlows edited
-                        , riNewWasteFlows = eaNewWasteFlows edited
-                        , riNewBioFlows = eaNewBioFlows edited
-                        }
-                        : siblings
-                    )
-                    (acDb ctx)
-            else Left (matchDrift (map snd edits) (eaMatched edited))
+        inserts <- editedInserts ctx target editLines
+        replaceActivities (acUnitConfig ctx) inserts (acDb ctx)
     ParametersEdited parameterLines -> do
         (parameters, moved) <- first (T.intercalate "; ") (editedParameters (acDb ctx) [(plName line, plParameter line) | line <- parameterLines])
         let withParameters = (acDb ctx){dbParameters = parameters}
@@ -369,6 +440,37 @@ applyOp ctx = \case
         key <- processKey db pid
         pure ResolvedInsert{riKey = key, riActivity = act, riNewTechFlows = [], riNewWasteFlows = [], riNewBioFlows = []}
     resolve = bimap (T.intercalate "; ") fst . validateAuthored ctx
+
+{- | The rows an edit writes: the edited activity, and its siblings when the
+edit changes what belongs to the activity rather than to one product.
+
+An edit is replayed through the very function that made it, so there is one
+implementation of what an edit means, not a live one and a reconstructed one
+that could disagree.
+-}
+editedInserts :: AuthorContext -> Text -> [EditLine] -> Either Text [ResolvedInsert]
+editedInserts ctx target editLines = do
+    let edits = [(elEdit line, elMatched line) | line <- editLines]
+    pid <- resolveProcess (acDb ctx) target
+    key <- processKey (acDb ctx) pid
+    act <- maybe (Left ("Unknown process id: " <> target)) Right (getActivity (acDb ctx) pid)
+    edited <- first (T.intercalate "; ") (applyExchangeEdits ctx (map fst edits) act)
+    let shared = filter ofTheActivity (map fst edits)
+    siblings <- if null shared then pure [] else traverse (alongside shared) (siblingsOf pid (prActivity key))
+    if eaMatched edited == map snd edits
+        then
+            Right
+                ( ResolvedInsert
+                    { riKey = key
+                    , riActivity = eaActivity edited
+                    , riNewTechFlows = eaNewTechFlows edited
+                    , riNewWasteFlows = eaNewWasteFlows edited
+                    , riNewBioFlows = eaNewBioFlows edited
+                    }
+                    : siblings
+                )
+        else Left (matchDrift (map snd edits) (eaMatched edited))
+  where
     -- The texts and parameters belong to the activity, not to one of its
     -- products: a block read with two products is two rows under one activity
     -- UUID, and renaming one alone would leave the same activity under two names.

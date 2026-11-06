@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.1** speaks wire formats **2 to 106** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.1** speaks wire formats **2 to 107** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -912,6 +912,34 @@ Raises VoLCAError on an HTTP error (e.g. the table does not exist).
 
 Drop a saved scenario, and return the scenarios left. Refused for
 a scenario the database ships, which comes back at every load.
+
+##### `Client.edit_activities(edits: Sequence[ActivityEdit], *, note: str | None = None, db_name: str | None = None) -> dict`
+
+Edit several activities as one change: what `edit_exchanges`
+does for one, for each `ActivityEdit`.
+
+Every edit is judged before anything is written, and one refused edit
+refuses them all. The database is then rebuilt, relinked and saved
+once rather than once per activity, which on a large database is most
+of what an edit costs. An activity is named once per call, two
+products of one activity included::
+
+    client.edit_activities(
+        [
+            ActivityEdit("a_b", set_amounts=[SetAmount(ExchangeSelector.biosphere_flow("f-1"), 0.2)]),
+            ActivityEdit("c_d", remove=[ExchangeSelector.input_from("e_f")]),
+        ],
+        note="Measured on site",
+    )
+
+The answer lists each activity's report, as `edit_exchanges`
+gives it, in the order of ``edits``, then ``transient`` and the
+``warnings`` of the change once::
+
+    {"edited": [{"removed": [], "amountsSet": [1], ...}, ...],
+     "transient": False, "warnings": []}
+
+``note`` says why, for every activity edited. Needs wire revision 107.
 
 ##### `Client.edit_database_parameters(*, set_parameters: Sequence[SetParameter] = (), remove_parameters: Sequence[str] = (), note: str | None = None, db_name: str | None = None) -> dict`
 
@@ -4150,6 +4178,40 @@ line's own amount. An ``amount`` of ``None`` removes it.
 | `product` | `str` | _required_ |
 | `amount` | `float \| None` | _required_ |
 | `unit` | `str` | 'kg' |
+
+### `ActivityEdit`
+
+One activity's edit for `Client.edit_activities`: the process it
+applies to, and the changes `Client.edit_exchanges` takes, under the
+same names and with the same meaning. The note is given once, for the
+whole change, so it is not here.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `process_id` | `str` | _required_ |
+| `remove` | `collections.abc.Sequence[ExchangeSelector]` | () |
+| `set_amounts` | `collections.abc.Sequence[SetAmount]` | () |
+| `add_inputs` | `collections.abc.Sequence[TechInput]` | () |
+| `add_biosphere` | `collections.abc.Sequence[BioExchange]` | () |
+| `add_waste_outputs` | `collections.abc.Sequence[WasteOutput]` | () |
+| `name` | `str \| None` | None |
+| `location` | `str \| None` | None |
+| `description` | `list[str] \| None` | None |
+| `set_parameters` | `collections.abc.Sequence[SetParameter]` | () |
+| `set_formulas` | `collections.abc.Sequence[SetFormula]` | () |
+| `set_prices` | `collections.abc.Sequence[SetPrice]` | () |
+| `set_dry_masses` | `collections.abc.Sequence[SetDryMass]` | () |
+| `set_wet_masses` | `collections.abc.Sequence[SetWetMass]` | () |
+| `remove_parameters` | `collections.abc.Sequence[str]` | () |
+
+#### Methods
+
+##### `ActivityEdit.fields()`
+
+The body of `Client.edit_exchanges` for this edit. The five
+lists of lines always travel, so the body keeps one shape; the rest
+travel only when stated, since an empty description clears it and a
+null price removes it.
 
 ### `SetPrice`
 

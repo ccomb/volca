@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- Several activities can be edited in one request, as one change: the
+  request `POST /db/{dbName}/activities/exchanges`, the assistant tool
+  `edit_activities` and pyvolca's `Client.edit_activities` take one edit per
+  activity, each with what an edit of one activity takes, and one note for
+  all. Every edit is judged before anything is written, and one refused edit
+  refuses them all. The database is rebuilt, relinked and saved once instead
+  of once per activity: one rebuild takes about 13 s on a database of twenty
+  thousand activities. Wire revision 107.
+
 ### Fixed
 
 - An archive whose entries are themselves archives loads as one database:
@@ -14,6 +25,14 @@
 - A directory of EcoSpold 1 files holding several datasets each loads every
   dataset. It loaded the first of each file and dropped the rest without a
   word, while a lone such file loaded them all.
+- An EcoSpold 1 dataset that names its product but carries no inventory at
+  all is read as a process making that product from nothing, so it scores
+  zero, and the reading says so. It was skipped, so the processes of the
+  same file that draw on it found no supplier and the database could not be
+  loaded. Some exports ship such placeholders for inputs modelled
+  elsewhere; each process now loads on its own, and the placeholder can be
+  relinked to the process it stands for. A
+  dataset that names no product either is still refused.
 - A wildcard line of a method (`Energy, *`, `Water*`) counts the flows of
   the database whose name starts with its prefix, and no others. It also
   took every flow the registry gives as another name of one it found:
