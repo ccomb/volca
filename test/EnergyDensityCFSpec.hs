@@ -330,20 +330,29 @@ spec = do
     -- written per MJ, the fuels come in kg or m3, and only the calorific value
     -- in data/energy_density.csv brings one onto the other.
     describe "Shipped plain indicators, primary energy" $ do
-        let primaryEnergyOf name unitId qty expected = do
+        let primaryEnergyOf row flowName unitId qty expected = do
                 methods <- either fail pure . parseMethodCSVBytes =<< BS.readFile "data/methods/plain-indicators.csv"
                 densities <- either fail pure . buildEnergyDensityMapFromCSV =<< BL.readFile "data/energy_density.csv"
-                let flow = (coalFlowIn unitId){bfId = UUID.fromWords64 13 0, bfName = name}
+                let flow = (coalFlowIn unitId){bfId = UUID.fromWords64 13 0, bfName = flowName}
+                    -- Another spelling reaches the row through the registry's synonym fan-out.
+                    strategy = if flowName == row then ByName else BySynonym
+                    tables cf =
+                        fillBroadcastVector unitConfig unitDB (M.singleton (bfId flow) flow) $
+                            buildMethodTables mempty defaultUnitConfig densities [(cf, Just (Resolution flow strategy))]
                     rowCF = do
                         m <- find ((== "Primary energy") . methodName) methods
-                        find ((== name) . mcfFlowName) (methodFactors m)
+                        find ((== row) . mcfFlowName) (methodFactors m)
                 case rowCF of
-                    Nothing -> expectationFailure ("no row for " <> show name <> " in Primary energy")
-                    Just cf -> scoreFlow flow qty (tablesForRegion flow flow densities cf) `shouldSatisfy` near expected
+                    Nothing -> expectationFailure ("no row for " <> show row <> " in Primary energy")
+                    Just cf -> scoreFlow flow qty (tables cf) `shouldSatisfy` near expected
         it "counts 1 kg of crude oil as 43.2 MJ" $
-            primaryEnergyOf "Oil, crude" uidKg 1.0 43.2
+            primaryEnergyOf "Oil, crude" "Oil, crude" uidKg 1.0 43.2
         it "counts 1 m3 of coal mine gas as 36 MJ" $
-            primaryEnergyOf "Gas, mine, off-gas, process, coal mining" uidM3 1.0 36.0
+            primaryEnergyOf "Gas, mine, off-gas, process, coal mining" "Gas, mine, off-gas, process, coal mining" uidM3 1.0 36.0
+        -- The registry lends the "Coal, hard" row to the SimaPro spelling, but
+        -- the density is read under the flow's own name, so it needs its row.
+        it "counts 1 kg of SimaPro's hard coal as 18.01 MJ" $
+            primaryEnergyOf "Coal, hard" "Coal, hard, unspecified, in ground" uidKg 1.0 18.01
 
     describe "buildEnergyDensityMapFromCSV" $ do
         it "parses a valid row, keyed by normalized flow name" $

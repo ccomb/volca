@@ -1,5 +1,6 @@
 flow_name,value,target_unit,native_unit
 "Coal, hard",18.01,MJ,kg
+"Coal, hard, unspecified, in ground",18.01,MJ,kg
 "Coal, brown",9.41,MJ,kg
 "Oil, crude",43.2,MJ,kg
 "Gas, natural",36.0,MJ,Sm3
