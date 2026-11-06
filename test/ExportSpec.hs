@@ -9,6 +9,7 @@ own export-guard 'Left' rather than swallow it.
 -}
 module ExportSpec (spec) where
 
+import Codec.Archive.Zip (fromEntry, toArchive, zEntries)
 import Control.Monad (forM_)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
@@ -36,21 +37,30 @@ spec = describe "Database.Export dispatcher" $ do
     it "serializes a simple database to every writable format" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
         forM_ [SimaProCSV, EcoSpold1, EcoSpold2, ILCDProcess, BrightwayExcel, OpenLcaPackage] $ \fmt ->
-            case serializeDatabase defaultUnitConfig fmt M.empty (Right noDependencies) db of
+            case serializeDatabase defaultUnitConfig fmt M.empty (Right noDependencies) "exported" db of
                 Left err -> expectationFailure (show fmt <> ": " <> T.unpack err)
                 Right (bytes, _warnings) -> BL.null bytes `shouldBe` False
 
     -- Suppliers that could not be worked out stop only the formats naming them.
     it "exports the formats pointing at a supplier when the suppliers could not be named" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
-        let unnamed fmt = serializeDatabase defaultUnitConfig fmt M.empty (Left "its supplier is not loaded") db
+        let unnamed fmt = serializeDatabase defaultUnitConfig fmt M.empty (Left "its supplier is not loaded") "exported" db
         forM_ [EcoSpold2, OpenLcaPackage] $ \fmt -> unnamed fmt `shouldSatisfy` isRight
         forM_ [SimaProCSV, EcoSpold1, ILCDProcess, BrightwayExcel] $ \fmt -> unnamed fmt `shouldSatisfy` isLeft
 
+    it "names a Brightway workbook after the database it exports" $ do
+        db <- buildFixture (Compartment Air (Just "unspecified"))
+        case serializeDatabase defaultUnitConfig BrightwayExcel M.empty (Right noDependencies) "Kitchen inventory" db of
+            Left err -> expectationFailure (T.unpack err)
+            Right (bytes, _) -> do
+                let sheets = BL.concat [fromEntry e | e <- zEntries (toArchive bytes)]
+                BLC.unpack sheets `shouldSatisfy` isInfixOf ">Kitchen inventory<"
+                BLC.unpack sheets `shouldNotSatisfy` isInfixOf "exported-database"
+
     it "fails loudly for formats with no writer (never a silent empty file)" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
-        serializeDatabase defaultUnitConfig OpenLcaImpactCategory M.empty (Right noDependencies) db `shouldSatisfy` isLeft
-        serializeDatabase defaultUnitConfig UnknownFormat M.empty (Right noDependencies) db `shouldSatisfy` isLeft
+        serializeDatabase defaultUnitConfig OpenLcaImpactCategory M.empty (Right noDependencies) "exported" db `shouldSatisfy` isLeft
+        serializeDatabase defaultUnitConfig UnknownFormat M.empty (Right noDependencies) "exported" db `shouldSatisfy` isLeft
 
     it "writes an exclusion row only to the format that reads the marker back" $ do
         -- VoLCA's own columnar CSV parses "!…" as an exception and must keep it,
@@ -91,7 +101,7 @@ spec = describe "Database.Export dispatcher" $ do
         -- SimaPro writer's own guard rejects it; the dispatcher must surface that
         -- Left rather than emit a corrupt file.
         db <- buildFixture (Compartment NaturalResource Nothing)
-        serializeDatabase defaultUnitConfig SimaProCSV M.empty (Right noDependencies) db `shouldSatisfy` isLeft
+        serializeDatabase defaultUnitConfig SimaProCSV M.empty (Right noDependencies) "exported" db `shouldSatisfy` isLeft
 
     describe "an input linked to another database" $ do
         it "is written under the supplier's product and pointed at it, in the unit it was written in" $ do
@@ -135,7 +145,7 @@ spec = describe "Database.Export dispatcher" $ do
 
         it "is written as its source named it, and said, when its suppliers could not be worked out" $ do
             linked <- linkedSpinning
-            case serializeDatabase energyUnits EcoSpold2 M.empty (Left "its supplier is not loaded") linked of
+            case serializeDatabase energyUnits EcoSpold2 M.empty (Left "its supplier is not loaded") "exported" linked of
                 Left err -> expectationFailure (T.unpack err)
                 Right (_, said) -> said `shouldSatisfy` any (T.isInfixOf "as their source named them")
 
@@ -143,11 +153,11 @@ spec = describe "Database.Export dispatcher" $ do
             linked <- linkedSpinning
             let deps = Right (suppliers [(1, grid), (2, grid)])
             forM_ [SimaProCSV, EcoSpold2, BrightwayExcel, OpenLcaPackage, ILCDProcess] $ \fmt ->
-                case serializeDatabase energyUnits fmt M.empty deps linked of
+                case serializeDatabase energyUnits fmt M.empty deps "exported" linked of
                     Left err -> expectationFailure (show fmt <> ": " <> T.unpack err)
                     Right _ -> pure ()
-            serializeDatabase energyUnits EcoSpold1 M.empty deps linked `shouldSatisfy` isLeft
-            let simapro = fmap (BLC.unpack . fst) (serializeDatabase energyUnits SimaProCSV M.empty deps linked)
+            serializeDatabase energyUnits EcoSpold1 M.empty deps "exported" linked `shouldSatisfy` isLeft
+            let simapro = fmap (BLC.unpack . fst) (serializeDatabase energyUnits SimaProCSV M.empty deps "exported" linked)
             fromRight "" simapro `shouldSatisfy` isInfixOf "Electricity, medium voltage, at grid {RER}| Electricity, medium voltage, at grid |"
             fromRight "" simapro `shouldSatisfy` (not . isInfixOf "market group for electricity")
 

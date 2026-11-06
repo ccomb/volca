@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- A Brightway workbook export carries the name of the database it exports.
+  Every workbook used to be called "exported-database", and so did each of
+  its rows naming one of its own products, so two exports imported side by
+  side in Brightway collided.
 - A database relinked with a mapping keeps the links that mapping made. They
   used to drop without a word at the next relink, which an edit, the reload
   of a dependency and a restart all run: one process added to a copy of a
