@@ -4,6 +4,16 @@
 
 ### Fixed
 
+- A Brightway workbook writes each line the way Brightway links it, so a
+  database exported this way comes into Brightway with every line linked.
+  A production row and a line bought from the same file carry the name and
+  location of the activity they belong to or buy from, no longer the
+  product's name. A line bought from a product of the same file is written in
+  the unit that product is made in, converting the amount and its formula: a
+  database where one activity counts a product in kilowatt-hours and another
+  counts a product of the same name in megajoules can now be exported, where
+  it used to be refused. A line bought from another database is written in
+  the unit its supplier makes the product in, in every export format.
 - A waste output naming the treatment of another database that should take
   it is linked to that treatment when the treatment is written as a product,
   as an EcoSpold 1 or SimaPro database writes every treatment. The waste was

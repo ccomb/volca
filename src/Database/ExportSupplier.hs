@@ -19,6 +19,8 @@ module Database.ExportSupplier (
     dependenciesOf,
     Maker (..),
     makerOf,
+    producerOf,
+    buys,
     inDependency,
     madeAt,
     namedProducts,
@@ -49,6 +51,8 @@ data Elsewhere = Elsewhere
     same place: a format that names a product and a place alone cannot tell
     the supplier from them.
     -}
+    , elUnit :: !Text
+    -- ^ The unit the supplier makes its product in, empty where it is not known.
     }
     deriving (Eq, Show)
 
@@ -84,7 +88,7 @@ dependenciesOf indexed db = do
     elsewhere :: ((UUID, UUID, Int), CrossDBLink) -> Either Text ((UUID, UUID, Int), Elsewhere)
     elsewhere (key@(act, prod, _), l) =
         case findSupplierByActivityProduct (maybe [] pure (M.lookup source indexed)) supplier of
-            ((e, _) : _) -> Right (key, Elsewhere source (seActivityName e) (seLocation e) (seRefSign e) (twinsOf e))
+            ((e, _) : _) -> Right (key, Elsewhere source (seActivityName e) (seLocation e) (seRefSign e) (twinsOf e) (seUnit e))
             [] -> Left (refusal act prod ("its supplier in " <> source <> " is not loaded"))
       where
         source = cdlSourceDatabase l
@@ -129,7 +133,7 @@ makerOf (Dependencies deps) db = \(act, prod) (position, ex) -> case ex of
     TechnosphereExchange{techRole = role, techActivityLinkId = link, techFlowId = flow}
         | buys role
         , Just supplier <- link
-        , Just maker <- producerKeyOf (sdbActivities db) (supplier, flow) >>= (`M.lookup` sdbActivities db) ->
+        , Just maker <- producerOf db supplier flow ->
             if S.member flow named then OneOfMakers maker else SoleMaker maker
         | buys role, Just e <- M.lookup (act, prod, position) deps -> InDependency e
         | buys role, Just supplier <- link -> Dangling supplier
@@ -149,6 +153,10 @@ inDependency = \case
     OneOfMakers _ -> False
     Dangling _ -> False
     NoLink -> False
+
+-- | The activity of the file a line linked to this supplier buys this product from.
+producerOf :: SimpleDatabase -> UUID -> UUID -> Maybe Activity
+producerOf db supplier flow = producerKeyOf (sdbActivities db) (supplier, flow) >>= (`M.lookup` sdbActivities db)
 
 -- | The roles that stand for a product some supplier makes.
 buys :: TechRole -> Bool

@@ -251,7 +251,7 @@ spec = describe "BrightwayExcel.Writer" $ do
             -- Brightway has no waste type. An orphan waste exchange (no producer link)
             -- never enters the matrix, so the writer rewrites it as a technosphere flow
             -- (inventory-neutral) and records it in the manifest, rather than refusing.
-            checkBrightwayExportable noDependencies wasteDb `shouldBe` Right ()
+            checkBrightwayExportable defaultUnitConfig noDependencies wasteDb `shouldBe` Right ()
             wasteManifest noDependencies wasteDb `shouldSatisfy` (not . null)
             renderWorkbook defaultWriterConfig wasteDb `shouldSatisfy` isRight
         it "rejects a waste exchange linked to a treatment of the file, which would invert its sign on re-import" $ do
@@ -259,17 +259,52 @@ spec = describe "BrightwayExcel.Writer" $ do
             -- coefficient to the matrix; written as technosphere it re-imports as a
             -- positive Input, inverting the inventory. The guard must reject it, and
             -- it is not best-efforted (so it never appears in the manifest).
-            checkBrightwayExportable noDependencies linkedWasteDb `shouldSatisfy` isLeft
+            checkBrightwayExportable defaultUnitConfig noDependencies linkedWasteDb `shouldSatisfy` isLeft
             wasteManifest noDependencies linkedWasteDb `shouldBe` []
         it "rejects a non-finite amount" $
             -- A non-finite amount has no numeric-cell form that re-parses; the
             -- guard rejects the database instead of emitting a misleading value.
-            checkBrightwayExportable noDependencies nonFiniteDb `shouldSatisfy` isLeft
+            checkBrightwayExportable defaultUnitConfig noDependencies nonFiniteDb `shouldSatisfy` isLeft
         it "accepts a subnormal amount, which round-trips through the correctly-rounded reader" $
             -- 5e-324 (smallest positive subnormal) re-parses exactly through
             -- Amount.readAmount (Data.Text.Read.double used to lose it to 0), so it
             -- is faithfully representable; the guard must not reject it.
-            checkBrightwayExportable noDependencies subnormalDb `shouldSatisfy` isRight
+            checkBrightwayExportable defaultUnitConfig noDependencies subnormalDb `shouldSatisfy` isRight
+
+    describe "a production row" $
+        it "names its own block, which Brightway links it to" $
+            listToMaybe [name | r@(name : _) <- sheetRows energyCfg (energyDb ReferenceProduct), length r > 6, r !! 2 == CText "electricity, gas", r !! 6 == CText "production"]
+                `shouldBe` Just (CText "Gas power plant")
+
+    describe "a line bought from a product of the file" $ do
+        it "names its maker's block, whose name is not the product's" $
+            fmap (!! 0) (boughtRow (energyDb ReferenceProduct)) `shouldBe` Just (CText "Gas power plant")
+        it "is read back as the product its maker makes" $
+            withWrittenBy energyCfg (energyDb ReferenceProduct) $
+                parseBrightwayExcel energyConfig >=> \case
+                    Left err -> expectationFailure (T.unpack err)
+                    Right Workbook{wbActivities = acts} -> do
+                        let made = [exchangeFlowId ex | a <- acts, activityName a == "Gas power plant", ex <- exchanges a, exchangeIsReference ex]
+                            bought = [exchangeFlowId ex | a <- acts, activityName a == "Heating", ex@TechnosphereExchange{techRole = Input} <- exchanges a]
+                        made `shouldSatisfy` (not . null)
+                        bought `shouldBe` made
+        it "is written in the unit the product is made in, its formula following" $ do
+            let row = boughtRow (energyDb ReferenceProduct)
+            fmap (!! 4) row `shouldBe` Just (CText "MJ")
+            fmap (!! 1) row `shouldBe` Just (CNum (2 * 3.6))
+            fmap last row `shouldBe` Just (CText "x * 3.6")
+        it "states its maker's location, its own being blank" $
+            fmap (!! 3) (boughtRow (energyDb ReferenceProduct)) `shouldBe` Just (CText "FI")
+        it "is converted to the unit of a coproduct of a block kept whole" $
+            fmap (\r -> (r !! 4, r !! 1)) (boughtRow (energyDb Coproduct)) `shouldBe` Just (CText "MJ", CNum (2 * 3.6))
+        it "keeps its amount when it is written in the maker's unit already" $
+            fmap (\r -> (r !! 4, r !! 1)) (boughtRow (inMakerUnitDb (energyDb ReferenceProduct))) `shouldBe` Just (CText "MJ", CNum 2)
+        it "lets one product counted in kWh by one activity and in MJ by another through" $
+            checkBrightwayExportable energyConfig noDependencies (spelledTwiceDb "kWh") `shouldBe` Right ()
+        it "refuses a line bought from a coproduct in a unit that does not convert to the coproduct's" $
+            checkBrightwayExportable energyConfig noDependencies (inUnit "kg" (energyDb Coproduct)) `shouldSatisfy` isLeft
+        it "still refuses one product counted in kg by one activity and in kWh by another" $
+            checkBrightwayExportable energyConfig noDependencies (spelledTwiceDb "kg") `shouldSatisfy` isLeft
 
     describe "ReferenceInput regression" $
         it "rejects a reference input rather than round-tripping it to a duplicated row" $ do
@@ -281,7 +316,7 @@ spec = describe "BrightwayExcel.Writer" $ do
                     refInputDb
                         { sdbActivities = M.singleton (generateActivityUUID refInputAct, tfId solventFlow) refInputAct
                         }
-            checkBrightwayExportable noDependencies db `shouldSatisfy` isLeft
+            checkBrightwayExportable defaultUnitConfig noDependencies db `shouldSatisfy` isLeft
 
 -- ---------------------------------------------------------------------------
 -- Fixture database, built with the parser's UUID conventions
@@ -749,6 +784,99 @@ refUnitAmount Workbook{wbActivities = acts, wbUnits = unitDB} = do
     pure (maybe "" unitName (M.lookup (exchangeUnitId ex) unitDB), exchangeAmount ex)
 
 -- ---------------------------------------------------------------------------
+-- A line bought in kWh from a product made in MJ
+-- ---------------------------------------------------------------------------
+
+energyConfig :: UnitConfig
+energyConfig =
+    either (error . T.unpack) id $
+        buildFromCSV "name,dimension,factor\nkg,mass,1.0\nMJ,energy,1.0\nkWh,energy,3.6\n"
+
+energyCfg :: WriterConfig
+energyCfg = cfg{wcUnits = energyConfig}
+
+power :: TechnosphereFlow
+power = flowInUnit "electricity, gas" "MJ"
+
+-- | A line of an activity: its flow, role, amount and unit.
+line :: TechnosphereFlow -> TechRole -> Double -> Text -> Exchange
+line flow role amount u = (kgProduction flow role amount){techUnitId = generateUnitUUID u}
+
+{- | A power plant making 'power' in MJ, as its reference or as the coproduct
+of a block kept whole, and a heater buying 2 kWh of it by id, by the formula @x@.
+-}
+energyDb :: TechRole -> SimpleDatabase
+energyDb role =
+    emptyDb
+        { sdbActivities = M.fromList [(key a, a) | a <- [plant, heater]]
+        , sdbTechFlows = M.fromList [(tfId f, f) | f <- [power, heat, ash]]
+        , sdbUnits = M.fromList [(unitId u, u) | u <- map mkUnit ["kg", "MJ", "kWh"]]
+        }
+  where
+    key a = (generateActivityUUID a, getReferenceProductUUID a)
+    shared ex = ex{techShare = Just DeclaredShare{dsPercent = 50, dsFormula = Nothing, dsBy = Nothing}}
+    heat = flowInUnit "heat" "kg"
+    ash = flowInUnit "ash" "kg"
+    plant =
+        elec
+            { activityName = "Gas power plant"
+            , activityLocation = "FI"
+            , activityUnit = "MJ"
+            , exchanges = case role of
+                -- Every product declares a share, and the block is still kept whole.
+                Coproduct -> [shared (line ash ReferenceProduct 1 "kg"), shared (line power Coproduct 1 "MJ")]
+                _ -> [line power ReferenceProduct 1 "MJ"]
+            }
+    heater =
+        elec
+            { activityName = "Heating"
+            , activityUnit = "kg"
+            , activityParameters = M.singleton "x" (Parameter (InputParameter 2 Nothing) Nothing "")
+            , exchanges =
+                [ line heat ReferenceProduct 1 "kg"
+                , (line power Input 2 "kWh")
+                    { techActivityLinkId = Just (generateActivityUUID plant)
+                    , techLocation = ""
+                    , techFormula = Just (ExchangeFormula Nothing "x")
+                    }
+                ]
+            }
+
+-- | The heater's line bought in MJ, as its maker counts it.
+inMakerUnitDb :: SimpleDatabase -> SimpleDatabase
+inMakerUnitDb = inUnit "MJ"
+
+-- | The heater's line bought in the given unit.
+inUnit :: Text -> SimpleDatabase -> SimpleDatabase
+inUnit u db = db{sdbActivities = M.map restated (sdbActivities db)}
+  where
+    restated a = a{exchanges = map toUnit (exchanges a)}
+    toUnit = \case
+        ex@TechnosphereExchange{techRole = Input} -> ex{techUnitId = generateUnitUUID u}
+        ex -> ex
+
+-- | The row the heater writes for the line it buys.
+boughtRow :: SimpleDatabase -> Maybe [Cell]
+boughtRow db = listToMaybe [r | r <- sheetRows energyCfg db, length r > 6, r !! 2 == CText "electricity, gas", r !! 6 == CText "technosphere"]
+
+{- | Two activities making a product of one name, one in MJ and the other in the
+given unit, each bought by a third.
+-}
+spelledTwiceDb :: Text -> SimpleDatabase
+spelledTwiceDb other =
+    emptyDb
+        { sdbActivities = M.fromList [((generateActivityUUID a, getReferenceProductUUID a), a) | a <- [maker "FI" inMJ "MJ", maker "DE" inOther other, buyer]]
+        , sdbTechFlows = M.fromList [(tfId f, f) | f <- [inMJ, inOther, heat]]
+        , sdbUnits = M.fromList [(unitId u, u) | u <- map mkUnit ["kg", "MJ", "kWh"]]
+        }
+  where
+    inMJ = (flowInUnit "electricity, gas" "MJ"){tfId = generateFlowUUID "electricity, gas" "FI"}
+    inOther = (flowInUnit "electricity, gas" other){tfId = generateFlowUUID "electricity, gas" "DE"}
+    heat = flowInUnit "heat" "kg"
+    maker place flow u = elec{activityName = "Gas power plant", activityLocation = place, exchanges = [line flow ReferenceProduct 1 u]}
+    buyer = elec{activityName = "Heating", exchanges = [line heat ReferenceProduct 1 "kg", line inMJ Input 1 "MJ", line inOther Input 1 other]}
+
+-- ---------------------------------------------------------------------------
 -- Export-guard fixtures (rejected at the boundary)
 -- ---------------------------------------------------------------------------
 
@@ -965,9 +1093,12 @@ co2Inventory sdb = do
 -- ---------------------------------------------------------------------------
 
 withWritten :: SimpleDatabase -> (FilePath -> IO a) -> IO a
-withWritten db action =
+withWritten = withWrittenBy cfg
+
+withWrittenBy :: WriterConfig -> SimpleDatabase -> (FilePath -> IO a) -> IO a
+withWrittenBy config db action =
     withSystemTempFile "brightway-writer.xlsx" $ \path h -> do
-        bytes <- either (\e -> error ("renderWorkbook: " <> T.unpack e)) pure (renderWorkbook cfg db)
+        bytes <- either (\e -> error ("renderWorkbook: " <> T.unpack e)) pure (renderWorkbook config db)
         BL.hPut h bytes
         hClose h
         action path
