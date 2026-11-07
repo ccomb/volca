@@ -1095,10 +1095,6 @@ data MethodIndex = MethodIndex
 
 * 'loScore' – the LCIA score in the method's reference unit. Bit-equivalent
   to the previous Double-only return.
-* 'loCharacterizedSum' / 'loInventoryAbsSum' – together they reveal how much
-  of the inventory was actually characterized (by absolute mass). The
-  difference is the silent-omission tail; small ratio means the score is
-  trustworthy, large ratio means many flows had no CF.
 * 'loUncharacterized' – flows with non-trivial inventory weight but no
   matching CF, ranked by 'ucfAbsWeight'. Cap and threshold via
   'UncharacterizedOpts'. Empty list ⇒ no diagnostics requested OR no flows
@@ -1109,8 +1105,6 @@ data MethodIndex = MethodIndex
 -}
 data LCIAOutcome = LCIAOutcome
     { loScore :: !Double
-    , loCharacterizedSum :: !Double
-    , loInventoryAbsSum :: !Double
     , loUncharacterized :: ![UncharacterizedFlow]
     , loUnknownUuids :: ![UUID]
     }
@@ -2405,10 +2399,6 @@ columnLocations db =
 {- | Score an inventory against precomputed 'MethodTables'.
 Hot path: O(|inventory|) per call, no map construction.
 
-Returns 'LCIAOutcome' carrying the score plus characterized-vs-total
-inventory mass (so callers can detect tail erosion when many small flows
-go uncharacterized).
-
 Uses 'mtBroadcast' (single Map lookup, conversion pre-multiplied) when filled,
 falling back to the legacy UUID→exact→fallback cascade with on-the-fly unit
 conversion when 'mtBroadcast' is empty. Tests and back-compat callers that use
@@ -2417,25 +2407,18 @@ conversion when 'mtBroadcast' is empty. Tests and back-compat callers that use
 -}
 computeLCIAScoreFromTables :: UnitConfig -> UnitDB -> BioFlowDB -> Inventory -> MethodTables -> LCIAOutcome
 computeLCIAScoreFromTables unitConfig unitDB flowDB inventory tables =
-    let (!score, !charSum, !invSum) = M.foldlWithKey' step (0, 0, 0) inventory
+    let !score = M.foldlWithKey' step 0 inventory
      in LCIAOutcome
             { loScore = score
-            , loCharacterizedSum = charSum
-            , loInventoryAbsSum = invSum
             , loUncharacterized = []
             , loUnknownUuids = []
             }
   where
     useFast = not (M.null (mtBroadcast tables))
 
-    step (!s, !cs, !is) fid qty
-        | qty == 0 = (s, cs, is)
-        | otherwise =
-            let !absQty = abs qty
-                !is' = is + absQty
-             in case scoreFlow fid qty of
-                    Nothing -> (s, cs, is')
-                    Just contribution -> (s + contribution, cs + absQty, is')
+    step !s fid qty
+        | qty == 0 = s
+        | otherwise = maybe s (s +) (scoreFlow fid qty)
 
     scoreFlow fid qty
         | useFast = case M.lookup fid (mtBroadcast tables) of

@@ -62,7 +62,7 @@ import Data.JournalFile (Author)
 import Data.List (find)
 import qualified Data.List as L
 import qualified Data.Set as Set
-import Matrix (Inventory, applyBiosphereMatrix)
+import Matrix (applyBiosphereMatrix)
 import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import qualified Method.Explain as Explain
 import Method.Journal (Exact (..))
@@ -77,7 +77,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, Terms (..), UUID, UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, readingKey, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), Database (..), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, readingKey, withheldSentence)
 import Usage (Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -1578,8 +1578,6 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
         baseOutcome =
             LCIAOutcome
                 { loScore = score
-                , loCharacterizedSum = characterizedMass scored inventory
-                , loInventoryAbsSum = inventoryMass inventory
                 , loUncharacterized = []
                 , loUnknownUuids = []
                 }
@@ -1624,18 +1622,6 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
             , irBasis = basis
             }
 
-{- | How much of an inventory's mass a score characterized: the flows it
-published a row for. Read that way rather than from the cascade, so the figure
-describes the path that produced the score printed beside it.
--}
-characterizedMass :: Set.Set UUID -> Inventory -> Double
-characterizedMass scored =
-    M.foldlWithKey' (\acc fid qty -> if Set.member fid scored then acc + abs qty else acc) 0
-
--- | How much the inventory holds in all, characterized or not.
-inventoryMass :: Inventory -> Double
-inventoryMass = M.foldl' (\acc qty -> acc + abs qty) 0
-
 -- | The diagnostics of a score, and what they leave out.
 data Diagnostics = Diagnostics
     { dgFields :: ![Pair]
@@ -1645,18 +1631,13 @@ data Diagnostics = Diagnostics
 
 {- | Each uncharacterized flow carries its quantity in the aggregated
 inventory, so a licence keeping its amounts, the database's own or a
-dependency's, empties them. The share is a ratio and stays.
+dependency's, empties them.
 -}
 diagnosticsOf :: Text -> Licence -> ImpactsResult -> Diagnostics
 diagnosticsOf dbName licence ir =
     Diagnostics
         { dgFields =
             [ "uncharacterized_flows" .= map encodeUncharacterized (if null kept then loUncharacterized outcome else [])
-            , "characterized_share"
-                .= ( if loInventoryAbsSum outcome > 0
-                        then loCharacterizedSum outcome / loInventoryAbsSum outcome
-                        else 1 :: Double
-                   )
             ]
         , dgWithheld = [withheldSentence name ReadInventory | name <- kept]
         }
@@ -1964,17 +1945,12 @@ callCompareImpacts dbManager rid args =
   where
     sideJson req ir misses =
         let outcome = irOutcome ir
-            characterizedShare =
-                if loInventoryAbsSum outcome > 0
-                    then loCharacterizedSum outcome / loInventoryAbsSum outcome
-                    else 1 :: Double
          in object $
                 [ "database" .= lrDbName req
                 , "process_id" .= raText (lrResolved req)
                 , "method" .= methodName (lrMethod req)
                 , "score" .= loScore outcome
                 , "unit" .= methodUnit (lrMethod req)
-                , "characterized_share" .= characterizedShare
                 , "probable_misses" .= misses
                 , "basis" .= irBasis ir
                 ]

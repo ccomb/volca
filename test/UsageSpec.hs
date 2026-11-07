@@ -48,7 +48,7 @@ rootNaming = ProcessNaming{pnActivityName = "act-FR", pnProductName = Nothing, p
 
 -- | A line numbered @n@, the rest of no interest to the bookkeeping.
 lineNo :: Int -> UsageLine
-lineNo n = UsageLine n (UTCTime (fromGregorian 2026 10 5) 0) Scoring "db" (ProcessKey "p") Nothing Nothing (NE.singleton (CountedRelease ecoinvent ReadersNamed)) (NE.singleton ecoinvent)
+lineNo n = UsageLine n (UTCTime (fromGregorian 2026 10 5) 0) Scoring "db" (ProcessKey "p") Nothing Nothing (NE.singleton (CountedRelease ecoinvent ReadersNamed))
 
 -- | A log that has kept @n@ lines.
 logOf :: Int -> LogState
@@ -148,8 +148,8 @@ spec = do
             _ <- runLogged manager lg (Just "account-7") (getActivityInventory "root" rootPid Nothing Nothing)
             UsagePage{upBoot = boot, upLines = ls} <- readUsage lg 0
             boot `shouldBe` usageBoot lg
-            map (\l -> (ulKind l, ulDatabase l, ulProcess l, ulHeldAs l, ulReader l, NE.toList (ulCounted l), NE.toList (ulReads l))) ls
-                `shouldBe` [(Inventorying, "root", ProcessKey rootPid, Just rootNaming, Just "account-7", [CountedRelease ecoinvent ReadersNamed], [ecoinvent])]
+            map (\l -> (ulKind l, ulDatabase l, ulProcess l, ulHeldAs l, ulReader l, NE.toList (ulCounted l))) ls
+                `shouldBe` [(Inventorying, "root", ProcessKey rootPid, Just rootNaming, Just "account-7", [CountedRelease ecoinvent ReadersNamed])]
 
         it "leaves nothing when no database it reads declares a release" $ do
             manager <- managerDeclaring Nothing
