@@ -18,6 +18,40 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
+## [0.14.2] - 2026-11-07
+
+This release speaks wire revisions 2 to 110. Nothing pyvolca offers is removed
+or changed in meaning, so a script written for 0.14.1 runs unchanged. Each
+capability below checks the revision it needs and names engine 0.17.0 when it
+is missing.
+
+### Added
+
+- `edit_activities()` edits several activities as one change, each described
+  by an `ActivityEdit` with what `edit_exchanges()` takes. Every edit is
+  judged before anything is written, one refused edit refuses them all, and
+  the database is rebuilt once (wire revision 107).
+- `edit_exchanges()` and `ActivityEdit` move an input to another supplier and
+  keep the rest of its line (`set_suppliers=[SetSupplier(...)]`): amount,
+  unit, formula, comment, pedigree and place stay. An input that named no
+  supplier is linked the same way (wire revision 108).
+- `supply_missing_product()` gives a missing product of the supplier-gap
+  report a supplier, for every input that asks for it, as one change (wire
+  revision 109).
+
+### Changed
+
+- The match strategy of a flow a wildcard method line took reads `pattern`,
+  where it read `name` (wire revision 106), and an explanation step the engine
+  refused reads `declined`. These are values the engine sends; pyvolca passes
+  them through.
+- The docstrings of `relink()` and of the factor explanations follow the
+  engine: a relink row's `conversion` always applies and one that contradicts
+  the unit table refuses the file, and a resource reads the line its name has
+  at `unspecified`.
+- `usage()` documents `counted`; engine 0.17.0 no longer sends `reads`, which
+  pyvolca never read (wire revision 110).
+
 ## [0.14.1] - 2026-11-05
 
 This release speaks wire revisions 2 to 105. Nothing is removed or changed in
