@@ -4,6 +4,11 @@
 
 ### Added
 
+- A database read from its source files, because it has no cache yet or the
+  cache was written by another version of the engine, now says so in its log
+  right as the parsing starts: `### FIRST LOAD OF THIS DATABASE ###`, then
+  `This may take a while`. The wait of a minute or more that follows an update
+  was silent until now, and looked like a stuck engine.
 - A missing product can be given a supplier in one step, for every activity
   that lacks it: `POST /db/{dbName}/missing-suppliers/supply` (the assistant
   tool `supply_missing_product`, pyvolca's `Client.supply_missing_product`)

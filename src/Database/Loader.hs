@@ -1684,13 +1684,16 @@ loadEcoSpoldDirectory opts dir = do
         ([], [singleXml]) -> do
             -- Single XML file: likely a multi-dataset EcoSpold1 file
             reportProgress Info $ "Found single EcoSpold1 file: " ++ singleXml
+            reportColdLoad
             loadSingleEcoSpold1File opts singleXml
         ([], xs) -> do
             reportProgress Info $ "Found " ++ show (length xs) ++ " EcoSpold1 (.XML) files for processing"
+            reportColdLoad
             loadEcoSpoldFiles opts (EcoSpold1Files xs)
         (xs, _) -> do
             -- Prefer EcoSpold2 if both present
             reportProgress Info $ "Found " ++ show (length xs) ++ " EcoSpold2 (.spold) files for processing"
+            reportColdLoad
             conversions <- readUnitConversions conversionFiles
             loadEcoSpoldFiles opts (EcoSpold2Files conversions xs)
 

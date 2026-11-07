@@ -88,7 +88,7 @@ import qualified Data.Vector as V
 import qualified Expr
 import GHC.Conc (getNumCapabilities)
 import GHC.Generics (Generic)
-import Progress (ProgressLevel (..), reportProgress)
+import Progress (ProgressLevel (..), reportColdLoad, reportProgress)
 import SubstanceRegistry (CASNumber (..), NormName (..), casBindings, normalizeCAS)
 import SynonymDB (normalizeName)
 import Text.Printf (printf)
@@ -2373,6 +2373,7 @@ parseSimaProCSV unitCfg path = do
     let ranges = workerRanges numWorkers utf8Content
 
     reportProgress Info $ printf "Parsing with %d parallel workers" numWorkers
+    reportColdLoad
 
     -- First pass: only what the file declares for every block in it. A block
     -- cannot be converted before this is known, and knowing it is what lets the
