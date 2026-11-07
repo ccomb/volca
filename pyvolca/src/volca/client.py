@@ -2009,8 +2009,9 @@ class Client:
         Returns ``{"boot", "lines", "more"}``: each line carries ``seq``,
         ``at``, ``kind``, ``database``, ``process``, ``heldAs`` (the
         ``activityName``, ``productName`` and ``location`` the database gives
-        the process, wire revision 54), ``reader`` and ``reads``, the releases
-        it read; ``more`` says more lines wait after these. Raises VoLCAError
+        the process, wire revision 54), ``reader`` and ``counted``, the
+        releases the computation is counted for, each with what its publisher
+        sees; ``more`` says more lines wait after these. Raises VoLCAError
         with a 404 on an engine that keeps no log. Needs wire revision 53.
         """
         self._require_wire(53, "usage", engine_hint="0.15.0")
