@@ -51,7 +51,7 @@ import EcoSpold.Common (bsToText, decodeNumericRefs, decodeXmlEntities, distribu
 import ILCD.Common (Claimed (..), Indexed (..), latestByUUID, listXMLFiles, readILCDFile)
 import Method.FlowResolver (ILCDFlowInfo (..), parseFlowDirectory)
 import qualified Method.Types as MT
-import Progress (ProgressLevel (..), reportProgress)
+import Progress (ProgressLevel (..), reportColdLoad, reportProgress)
 import Types
 
 -- | Raw parsed ILCD process (before conversion to VoLCA types)
@@ -131,6 +131,7 @@ parseILCDDirectory unitConfig key dir = runExceptT $ do
     -- Step 4: Parse process XMLs in parallel
     processFiles <- liftIO $ listXMLFiles (dir </> "processes")
     liftIO $ reportProgress Info $ printf "Parsing %d ILCD process files..." (length processFiles)
+    liftIO reportColdLoad
     claimedProcesses <- liftIO $ parseProcessFilesParallel processFiles
     processes <- M.elems <$> ExceptT (oneDataSetPerUUID claimedProcesses)
 

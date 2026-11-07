@@ -22,6 +22,7 @@ module Progress (
     reportProgressWithTiming,
     reportError,
     reportCacheOperation,
+    reportColdLoad,
     reportMatrixOperation,
     reportSolverOperation,
 
@@ -232,6 +233,13 @@ reportError = reportProgress Error
 -- | Report cache-related operations
 reportCacheOperation :: String -> IO ()
 reportCacheOperation = reportProgress Cache
+
+{- | Say that the source files are being read because no up-to-date cache
+exists, right after the line that starts the parsing: it is the last line a
+reader sees during the long wait, so it has to say why there is one.
+-}
+reportColdLoad :: IO ()
+reportColdLoad = mapM_ (reportProgress Info) ["### FIRST LOAD OF THIS DATABASE ###", "This may take a while"]
 
 -- | Report matrix construction operations
 reportMatrixOperation :: String -> IO ()
