@@ -183,6 +183,14 @@
   table converts those units by itself. A unit no table knows, written the
   same way on both sides (`2.17, kg N, kg N`), takes the conversion too.
 
+### Removed
+
+- The `characterized_share` of `get_impacts` (with `include_diagnostics`) and
+  of `compare_impacts`, deprecated in 0.16.0: it added up quantities of every
+  unit together. Read `probable_misses` instead. Wire revision 110.
+- The `reads` of a usage line, which listed the releases of `counted` without
+  what their publishers see. Read `counted`. Wire revision 110.
+
 ## [0.16.1] - 2026-11-05
 
 ### Added

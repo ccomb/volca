@@ -1676,7 +1676,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 109: giving a missing product a supplier wherever the database
+(revision 110: the @characterized_share@ of the scoring tools and the
+@reads@ of a usage line removed, as 0.16 announced;
+revision 109: giving a missing product a supplier wherever the database
 asks for it, at @db/{dbName}/missing-suppliers/supply@;
 revision 108: the @setSuppliers@ an edit of an activity's exchanges takes,
 which moves an input, linked or not, to another supplier and keeps the rest of
@@ -1915,7 +1917,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 109
+currentWireVersion = 110
 
 getVersion :: AppM Value
 getVersion = do

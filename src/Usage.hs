@@ -71,7 +71,7 @@ import Servant (FromHttpApiData, ToHttpApiData)
 import API.JsonOptions (Stripped (..))
 import Data.JournalFile (Author (..))
 import Progress (ProgressLevel (..), reportProgress)
-import Types (CountedRelease (..), Release, codeSchema, parseCode)
+import Types (CountedRelease (..), codeSchema, parseCode)
 
 -- | What a computation did with the process it was asked about.
 data UsageKind
@@ -149,8 +149,6 @@ data UsageLine = UsageLine
     -- ^ Whoever the request said it was made for, as the server in front of the engine named them
     , ulCounted :: !(NonEmpty CountedRelease)
     -- ^ The database's own release when its terms ask it counted, then those of the databases it depends on
-    , ulReads :: !(NonEmpty Release)
-    -- ^ The same releases without what their publishers see; kept for the collectors that read only this, until 0.17
     }
     deriving (Show, Eq, Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped UsageLine)
@@ -266,7 +264,7 @@ recordUse lg known reader use = do
     forM_ (nonEmpty releases) $ \readReleases -> do
         naming <- namingOf known (useDatabase use) (useProcess use)
         now <- getCurrentTime
-        recordLine lg (\n -> UsageLine n now (useKind use) (useDatabase use) (useProcess use) naming reader readReleases (fmap crRelease readReleases))
+        recordLine lg (\n -> UsageLine n now (useKind use) (useDatabase use) (useProcess use) naming reader readReleases)
 
 recordLine :: UsageLog -> (Int -> UsageLine) -> IO ()
 recordLine lg mkLine = do

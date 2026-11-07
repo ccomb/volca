@@ -726,10 +726,7 @@ description r = case r of
         \at a subcompartment the flow does not read, where the method's \
         \collection writes nothing at the flow's own place. Each says where the \
         \substance is written ('writtenAt') and 'upTo', what it would add at the largest of \
-        \those factors, in the score's unit. With include_diagnostics, \
-        \'characterized_share' sums quantities of every unit together (becquerels \
-        \beside kilograms) and is removed in the next minor release: read \
-        \'probable_misses' instead.\n\
+        \those factors, in the score's unit.\n\
         \\n\
         \'basis' says what the score rests on: the engine and its commit, each \
         \database read with its release and whether it is a copy, edited, \
@@ -923,9 +920,7 @@ description r = case r of
         \because of mapping gaps, not because of underlying chemistry. Headline \
         \field is delta.relative_pct: the metric to drive down by adding \
         \synonym pairs to data/flows.csv or by regenerating the chem_synonyms \
-        \snapshot. Each side carries 'probable_misses' and 'basis', as get_impacts does; its \
-        \'characterized_share' sums quantities of every unit together and is \
-        \removed in the next minor release."
+        \snapshot. Each side carries 'probable_misses' and 'basis', as get_impacts does."
     CompareActivities ->
         "LCA / ACV: compare two activities exchange by exchange: the lines one \
         \has and the other does not, and the lines whose amount or unit differ. \
