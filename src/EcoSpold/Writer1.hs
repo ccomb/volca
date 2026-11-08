@@ -196,12 +196,11 @@ placedAtMakers sdb = M.mapWithKey place (sdbActivities sdb)
   where
     maker = makerOf noDependencies sdb
     place key act = act{exchanges = zipWith (placed key) [0 ..] (exchanges act)}
-    placed key i ex = case (maker key (i, ex), ex) of
-        (SoleMaker m, TechnosphereExchange{}) -> at m
-        (OneOfMakers m, TechnosphereExchange{}) -> at m
+    placed key i ex@TechnosphereExchange{} = case maker key (i, ex) of
+        SoleMaker m -> ex{techLocation = readExchangeLocation (madeAt m)}
+        OneOfMakers m -> ex{techLocation = readExchangeLocation (madeAt m)}
         _ -> ex
-      where
-        at m = ex{techLocation = readExchangeLocation (madeAt m)}
+    placed _ _ ex = ex
 
 {- | Serialize the database's activities against the flow / unit tables that
 resolve their exchange UUIDs, one chunk per dataset between the envelope's two
