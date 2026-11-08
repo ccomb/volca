@@ -15,6 +15,7 @@
 -}
 module EcoSpold1WriterSpec (spec) where
 
+import Control.Monad (forM_)
 import qualified Data.ByteString.Char8 as BC
 import Data.Either (isLeft, isRight)
 import Data.List (sort)
@@ -287,6 +288,47 @@ coproductDb =
     mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty Nothing Nothing Nothing noDates
     refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
     inputOnA = TechnosphereExchange prodAU 2.0 kgUnit Input (Just supU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+
+{- | Tap water made by two datasets, in Italy and in the Netherlands, and a
+consumer buying the Italian one through a link while stating no location, as an
+input written through the engine's API does. The Dutch water is given as its
+own product, as in a database read from EcoSpold 1, where each country's tap
+water is a flow of its own, or as the same product as the Italian one.
+-}
+tapWaterDb :: UUID -> SimpleDatabase
+tapWaterDb nlWaterU =
+    SimpleDatabase
+        { sdbActivities =
+            M.fromList
+                [ ((itU, waterU), mkAct "aaa tap water" "IT" waterU [])
+                , ((nlU, nlWaterU), mkAct "aaa tap water" "NL" nlWaterU [])
+                , ((conU, conU), mkAct "bbb consumer" "GLO" conU [input])
+                ]
+        , sdbTechFlows =
+            M.fromList
+                [ (waterU, TechnosphereFlow waterU "tap water" kgUnit M.empty Nothing Nothing)
+                , (nlWaterU, TechnosphereFlow nlWaterU "tap water" kgUnit M.empty Nothing Nothing)
+                , (conU, TechnosphereFlow conU "bbb consumer" kgUnit M.empty Nothing Nothing)
+                ]
+        , sdbBioFlows = M.empty
+        , sdbWasteFlows = M.empty
+        , sdbUnits = units1
+        , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
+        , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
+        }
+  where
+    waterU = tapWaterU
+    itU = read "66666666-0000-4000-8000-0000000000aa"
+    nlU = read "66666666-0000-4000-8000-0000000000bb"
+    conU = read "33333333-0000-4000-8000-000000000001"
+    mkAct nm loc prodU exs = Activity nm [] [] M.empty M.empty loc LocationDeclared "kg" (refOf prodU : exs) M.empty Nothing Nothing Nothing noDates
+    refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+    input = TechnosphereExchange waterU 0.07 kgUnit Input (Just itU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+
+tapWaterU :: UUID
+tapWaterU = read "55555555-0000-4000-8000-000000000001"
 
 {- | The supplier's stored activity UUID, the first component of its
 'sdbActivities' key, and the value a solver-resolved input carries in
@@ -587,15 +629,27 @@ spec = do
         it "passes the export-boundary check for a link naming one coproduct" $
             checkEcoSpold1Exportable coproductDb `shouldBe` Right ()
 
-        it "preserves a linked input semantically across a write→parse round-trip" $
+        forM_ [("its own product", read "55555555-0000-4000-8000-000000000002"), ("the same product", tapWaterU)] $ \(shape, nlWaterU) ->
+            it ("places an input where its linked maker is, the other maker's water being " <> shape) $ do
+                -- A reader holding the consumer alone links it by name and
+                -- location: with no location it took either tap water.
+                out <- writeOk canonicalWriterOptions (tapWaterDb nlWaterU)
+                let bought l = "name=\"tap water\"" `T.isInfixOf` l && "meanValue=\"0.07\"" `T.isInfixOf` l
+                filter ("location=\"IT\"" `T.isInfixOf`) (filter bought (T.lines out)) `shouldSatisfy` ((== 1) . length)
+                let inputs db = [techLocation e | e@TechnosphereExchange{techRole = Input} <- allExchanges db]
+                (inputs <$> roundTrip (tapWaterDb nlWaterU)) `shouldBe` Right [LocationCode "IT"]
+
+        it "preserves a linked input semantically across a write→parse round-trip" $ do
             -- SimpleDatabase carries no supplier link, so a bare re-parse can't
             -- reproduce the raw dataset-number byte-for-byte (the module doc's
             -- linked-input caveat). What must survive, and does, is the
             -- semantic content the loader re-links on: flow name, amount, role,
             -- unit. The idempotence test (a) uses an unlinked fixture, so this is
-            -- the only check that exercises a linked input end to end.
+            -- the only check that exercises a linked input end to end. The
+            -- input comes back placed where its supplier is.
+            let placed v = v{avExchanges = sort [if evRole e == "input" then e{evLocation = "GLO"} else e | e <- avExchanges v]}
             (dbViews <$> roundTrip (linkedDb supplierLink))
-                `shouldBe` Right (dbViews (linkedDb supplierLink))
+                `shouldBe` Right (map placed (dbViews (linkedDb supplierLink)))
 
     describe "flow tables across a multi-dataset round-trip" $ do
         it "keeps one substance one flow and two same-named products apart" $
