@@ -7,10 +7,11 @@ that name a supplier rather than point at it.
 EcoSpold 2 and an openLCA package write the supplier's identifier, which any
 reader resolves. SimaPro CSV and a Brightway workbook name a product, with the
 supplier's activity and location beside it; ILCD names a product and a
-location only. What they name has to be worked out: from the database's own
-links, and from the links the engine made into the databases it depends on,
-which are kept beside the database ('dbCrossDBLinks') rather than on its
-exchanges.
+location only. EcoSpold 1 points at a supplier of its own file by number, and
+names a product and a location for a reader that holds one dataset alone. What
+they name has to be worked out: from the database's own links, and from the
+links the engine made into the databases it depends on, which are kept beside
+the database ('dbCrossDBLinks') rather than on its exchanges.
 -}
 module Database.ExportSupplier (
     Elsewhere (..),

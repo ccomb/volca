@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- An EcoSpold 1 export now writes, on each input linked to a dataset of the
+  file, the location of that dataset. Inputs written through the API, and
+  every input of a database read from EcoSpold 2, state no location, so a
+  dataset taken out of the file and loaded beside the database it came from
+  linked to whichever maker of that name came first: an input of Italian tap
+  water came back as the Dutch one, and moved the water use score by 45 %. An
+  input whose stated location differs from its linked dataset's now carries
+  the linked dataset's, the one its score was computed with.
+
 ## [0.17.0] - 2026-11-07
 
 ### Added

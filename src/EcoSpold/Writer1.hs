@@ -107,6 +107,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
+import Database.ExportSupplier (Maker (..), madeAt, makerOf, noDependencies)
 import EcoSpold.Common (showFFloatTrim)
 import Types
 
@@ -176,7 +177,30 @@ writeSimpleDatabaseChunks opts sdb = do
             (sdbBioFlows sdb)
             (sdbWasteFlows sdb)
             (sdbUnits sdb)
-            (sdbActivities sdb)
+            (placedAtMakers sdb)
+
+{- | Each input linked to a dataset of the file, placed where that dataset
+makes its product.
+
+A reader holding the whole file links the input by its @number@. One holding a
+dataset alone, beside the database it was taken from, links it by name and
+location, and an input that states no location takes any maker of that name:
+the Italian tap water comes back as the Dutch one. Each country's tap water is
+its own product in a file read from this format, so this holds whether the file
+makes the product once or several times. An input that states a place other
+than its maker's is placed at its maker's, since that is the link the database
+scores.
+-}
+placedAtMakers :: SimpleDatabase -> ActivityMap
+placedAtMakers sdb = M.mapWithKey place (sdbActivities sdb)
+  where
+    maker = makerOf noDependencies sdb
+    place key act = act{exchanges = zipWith (placed key) [0 ..] (exchanges act)}
+    placed key i ex@TechnosphereExchange{} = case maker key (i, ex) of
+        SoleMaker m -> ex{techLocation = readExchangeLocation (madeAt m)}
+        OneOfMakers m -> ex{techLocation = readExchangeLocation (madeAt m)}
+        _ -> ex
+    placed _ _ ex = ex
 
 {- | Serialize the database's activities against the flow / unit tables that
 resolve their exchange UUIDs, one chunk per dataset between the envelope's two
