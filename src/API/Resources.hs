@@ -1309,6 +1309,9 @@ description r = case r of
 pDatabase :: Param
 pDatabase = Param "database" "string" Required "Database name"
 
+pSource :: Param
+pSource = Param "source" "object" Optional "Where the figures of this change come from: {document, page, passage}. document names the paper or report; page, counted from 1, and passage, the words relied on, are optional. It covers the whole call: to cite one page per exchange, make one call per exchange. Kept in the database's history (get_database_history) and in the changes report its export carries."
+
 pProcessId :: Param
 pProcessId =
     Param
@@ -1766,6 +1769,7 @@ params r = case r of
         , Param "set_suppliers" "array" Optional "Inputs to move to another supplier, linked or naming no provider yet. Each is {select: {kind, provider|flow, location?}, provider}, where the selector's kind is \"input\" and provider is the new supplier's process_id, in this database or a dependency. The line keeps its amount, unit, formula, comment and pedigree."
         , Param "remove_parameters" "array" Optional "Names of the activity's parameters to remove, once the formulas set here no longer read them. Refused while a formula still reads one the database does not define."
         , Param "note" "string" Optional "Why the change is made, in a sentence. Kept in the database's history (get_database_history) and in the changes report its export carries."
+        , pSource
         ]
     SupplyMissing ->
         [ pDatabase
@@ -1773,11 +1777,13 @@ params r = case r of
         , Param "supplier_activity" "string" Optional "The supplier_activity of that gap, when it names one. Absent: the inputs that name none."
         , Param "provider" "string" Required "The process_id of the activity that will supply the product, in this database or one it depends on."
         , Param "note" "string" Optional "Why the change is made, in a sentence. Kept in the database's history (get_database_history) for every activity it edits."
+        , pSource
         ]
     EditActivities ->
         [ pDatabase
         , Param "edits" "array" Required "One element per activity: {process_id} plus the arguments of edit_exchanges (remove, set_amounts, add_inputs, add_biosphere, add_waste_outputs, set_name, set_location, set_description, set_parameters, set_formulas, set_prices, set_dry_masses, set_wet_masses, set_suppliers, remove_parameters), each as edit_exchanges reads it."
         , Param "note" "string" Optional "Why the change is made, in a sentence, for every activity it edits. Kept in the database's history (get_database_history) and in the changes report its export carries."
+        , pSource
         ]
     DatabaseParameters -> [pDatabase]
     DatabaseHistory -> [pDatabase]
@@ -1786,6 +1792,7 @@ params r = case r of
         , Param "set_parameters" "array" Optional "Parameters of the database to add, or to replace under the same spelling. Each is {name} plus either value (with optional uncertainty) or formula, and optional unit and description."
         , Param "remove_parameters" "array" Optional "Names of the database's parameters to remove, after the ones set here. Refused while a formula still reads one."
         , Param "note" "string" Optional "Why the change is made, in a sentence. Kept in the database's history (get_database_history) and in the changes report its export carries."
+        , pSource
         ]
     ListScenarios -> [pDatabase]
     SaveScenario ->

@@ -9,11 +9,13 @@ module API.Types.Authoring where
 
 import API.JsonOptions (Stripped (..))
 import Control.Lens ((%~), (&))
+import Control.Monad (when)
 import Data.Aeson
 import qualified Data.Aeson.KeyMap as KM
 import Data.Bifunctor (bimap, first)
 import Data.Either (partitionEithers)
 import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
+import Data.JournalFile (Source)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe, maybeToList)
@@ -139,6 +141,7 @@ data ActivityInput = ActivityInput
 data ActivityWriteRequest = ActivityWriteRequest
     { awrActivities :: [ActivityInput]
     , awrNote :: Maybe Text
+    , awrSource :: Maybe Source
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ActivityWriteRequest)
@@ -295,6 +298,8 @@ data ExchangeEditRequest = ExchangeEditRequest
     , eerRemoveParameters :: [Text]
     , eerNote :: Maybe Text
     -- ^ Why the change was made, kept in the database's history
+    , eerSource :: Maybe Source
+    -- ^ Where its figures come from, kept beside the reason
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ExchangeEditRequest)
@@ -322,6 +327,7 @@ instance FromJSON ExchangeEditRequest where
             <*> o .:? "setSuppliers" .!= []
             <*> o .:? "removeParameters" .!= []
             <*> o .:? "note"
+            <*> o .:? "source"
 
 {- | What an inventory edit produced: one count per selector, in the order the
 selectors were stated. A caller that meant to drop one line and reads three
@@ -366,13 +372,15 @@ data ActivitiesEditRequest = ActivitiesEditRequest
     { aqEdits :: [ActivityEditAPI]
     , aqNote :: Maybe Text
     -- ^ Why the change was made, kept in the database's history
+    , aqSource :: Maybe Source
+    -- ^ Where its figures come from, kept beside the reason
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ActivitiesEditRequest)
 
 instance FromJSON ActivitiesEditRequest where
     parseJSON = withObject "ActivitiesEditRequest" $ \o ->
-        ActivitiesEditRequest <$> o .: "edits" <*> o .:? "note"
+        ActivitiesEditRequest <$> o .: "edits" <*> o .:? "note" <*> o .:? "source"
 
 {- | A missing product and the activity chosen to supply it, wherever the
 database asks for it without a supplier.
@@ -384,6 +392,8 @@ data SupplyMissingRequest = SupplyMissingRequest
     , smrProvider :: Text
     , smrNote :: Maybe Text
     -- ^ Why the change was made, kept in the database's history
+    , smrSource :: Maybe Source
+    -- ^ Where its figures come from, kept beside the reason
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SupplyMissingRequest)
@@ -395,19 +405,18 @@ data ActivityEditAPI = ActivityEditAPI
     }
 
 {- | The process id sits among the fields of the edit, as a caller writing one
-edit per activity already has them. A reason belongs to the whole request, so
-one given on an edit is refused rather than dropped.
+edit per activity already has them. A reason and a source belong to the whole
+request, so one given on an edit is refused rather than dropped.
 -}
 instance FromJSON ActivityEditAPI where
     parseJSON = withObject "ActivityEditAPI" $ \o -> do
-        noteHere <- o .:? "note"
-        case noteHere :: Maybe Text of
-            Just _ -> fail "a note is given once, beside \"edits\", for the whole change"
-            Nothing -> ActivityEditAPI <$> o .: "processId" <*> parseJSON (Object o)
+        when (KM.member "note" o) (fail "a note is given once, beside \"edits\", for the whole change")
+        when (KM.member "source" o) (fail "a source is given once, beside \"edits\", for the whole change")
+        ActivityEditAPI <$> o .: "processId" <*> parseJSON (Object o)
 
 instance ToJSON ActivityEditAPI where
     toJSON edit = case toJSON (aeEdit edit) of
-        Object fields -> Object (KM.insert "processId" (toJSON (aeProcessId edit)) (KM.delete "note" fields))
+        Object fields -> Object (KM.insert "processId" (toJSON (aeProcessId edit)) (KM.delete "source" (KM.delete "note" fields)))
         other -> other
 
 instance ToSchema ActivityEditAPI where
@@ -417,7 +426,7 @@ instance ToSchema ActivityEditAPI where
         pure $
             NamedSchema (Just "ActivityEditAPI") $
                 fields
-                    & properties %~ (InsOrdHashMap.insert "processId" processId . InsOrdHashMap.delete "note")
+                    & properties %~ (InsOrdHashMap.insert "processId" processId . InsOrdHashMap.delete "source" . InsOrdHashMap.delete "note")
                     & required %~ ("processId" :)
 
 {- | What an edit of several activities produced: each activity's report, in
@@ -586,13 +595,15 @@ data ParametersEditRequest = ParametersEditRequest
     , pqRemoveParameters :: [Text]
     , pqNote :: Maybe Text
     -- ^ Why the change was made, kept in the database's history
+    , pqSource :: Maybe Source
+    -- ^ Where its figures come from, kept beside the reason
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ParametersEditRequest)
 
 instance FromJSON ParametersEditRequest where
     parseJSON = withObject "ParametersEditRequest" $ \o ->
-        ParametersEditRequest <$> o .:? "setParameters" .!= [] <*> o .:? "removeParameters" .!= [] <*> o .:? "note"
+        ParametersEditRequest <$> o .:? "setParameters" .!= [] <*> o .:? "removeParameters" .!= [] <*> o .:? "note" <*> o .:? "source"
 
 -- | What an edit of a database's parameters produced.
 data ParametersEditResponse = ParametersEditResponse

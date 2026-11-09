@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- The history of a database now says what a change came through and where its
+  figures come from. An edit made by an assistant over MCP is marked as such,
+  whoever signed it, and every write that takes a reason also takes a source:
+  a document, and the page and the passage when given. Both appear in the
+  history and in the changes report an export carries, and a replay ignores
+  them. A change made over HTTP is not thereby the work of a person: a script
+  driven by an assistant comes through HTTP too. Wire revision 111.
+
 ### Fixed
 
 - An EcoSpold 1 export now writes, on each input linked to a dataset of the

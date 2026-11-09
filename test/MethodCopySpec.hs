@@ -13,7 +13,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
 import Config (Config (..), MethodConfig (..), MethodOrigin (..), MethodPatch (..), MethodPatchMatch (..), ScoringSetConfig (..), defaultConfig)
-import Data.JournalFile (Entry (..), readEntries)
+import Data.JournalFile (Entry (..), noOrigin, readEntries)
 import Database.Manager (CachePolicy (..), defaultMethodCollection, getMethodCollection, initDatabaseManager, loadMethodCollection, removeMethodCollection, unloadMethodCollection)
 import Database.UploadedDatabase (getMethodUploadsDir)
 import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, undoMethodEdit)
@@ -158,9 +158,9 @@ spec = describe "copying a method collection" $ do
                 category <-
                     maybe (fail "no Ecotoxicity category") (pure . Method.Types.methodId) $
                         find ((== "Ecotoxicity") . Method.Types.methodName) (maybe [] Method.Types.mcMethods collection)
-                _ <- editMethodCategories manager "mine" Nothing (Rename category "Ecotoxicity, total")
+                _ <- editMethodCategories manager "mine" noOrigin (Rename category "Ecotoxicity, total")
                 renamed <- getMethodCollection manager "mine"
                 fmap (concatMap (M.elems . ssVariables) . Method.Types.mcScoringSets) renamed `shouldBe` Just ["Ecotoxicity, total"]
                 fmap Method.Types.mcUnregionalized renamed `shouldBe` Just ["Ecotoxicity, total"]
-                _ <- undoMethodEdit manager "mine" Nothing Nothing
+                _ <- undoMethodEdit manager "mine" noOrigin Nothing
                 getMethodCollection manager "mine" `shouldReturn` collection

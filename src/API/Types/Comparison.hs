@@ -12,6 +12,7 @@ import API.Types.Common
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
 import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
+import Data.JournalFile (Source)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), enum_, properties, required, type_)
 import Data.Text (Text)
 import GHC.Generics
@@ -133,6 +134,8 @@ data ChangesQuery = ChangesQuery
     , cqExchanges :: ![ExchangeChange]
     , cqNote :: !(Maybe Text)
     -- ^ Why the changes are applied, kept in the database's history; a question about them ignores it
+    , cqSource :: !(Maybe Source)
+    -- ^ Where their figures come from, kept beside the reason
     }
     deriving (Generic)
     deriving (FromJSON, ToSchema) via (Stripped ChangesQuery)

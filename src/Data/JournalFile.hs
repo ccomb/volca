@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -22,6 +24,14 @@ warning. A line that fails to parse anywhere else refuses the whole journal.
 module Data.JournalFile (
     Entry (..),
     Author (..),
+    Channel (..),
+    channelCode,
+    Origin (..),
+    noOrigin,
+    Source,
+    sourceFrom,
+    sourceCitation,
+    parseKeptSource,
     JournalVocabulary (..),
     journalPath,
     appendEntry,
@@ -30,30 +40,38 @@ module Data.JournalFile (
 ) where
 
 import Control.Exception (SomeException, try)
-import Control.Monad (when)
+import Control.Monad (mfilter, when)
 import Data.Aeson (
     FromJSON (..),
     Object,
     ToJSON (..),
+    Value,
     eitherDecodeStrict,
     encode,
     object,
     withObject,
+    withText,
     (.:),
     (.:?),
     (.=),
  )
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Pair, Parser, parseEither)
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Char (isSpace)
 import Data.List.NonEmpty (NonEmpty)
+import Data.OpenApi (ToParamSchema (..), ToSchema)
 import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
+import GHC.Generics (Generic)
+import Servant (FromHttpApiData (..))
 import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath ((</>))
 import System.IO (
@@ -66,15 +84,17 @@ import System.IO (
     withFile,
  )
 
+import API.JsonOptions (Stripped (..))
 import Progress (ProgressLevel (..), reportProgress)
 
-{- | One line of a journal: what was done, when, and by whom when that is
-known. The time and the author are provenance for whoever reads the file; a
-replay never looks at them.
+{- | One line of a journal: what was done, when, by whom and through what when
+that is known. All but the operation is provenance for whoever reads the file;
+a replay never looks at it.
 -}
 data Entry op = Entry
     { jeAt :: Text
     , jeBy :: Maybe Author
+    , jeVia :: Maybe Channel
     , jeOp :: op
     }
     deriving (Eq, Show)
@@ -95,6 +115,95 @@ instance ToJSON Author where
 instance FromJSON Author where
     parseJSON = withObject "author" $ \o -> Author <$> o .: "account" <*> o .: "handle"
 
+{- | The surface a change came through, as the engine saw it: never declared
+by a client. HTTP does not mean a person: a script an assistant drives comes
+through it too.
+-}
+data Channel = ThroughMcp | ThroughHttp
+    deriving (Eq, Show)
+
+channelCode :: Channel -> Text
+channelCode = \case
+    ThroughMcp -> "mcp"
+    ThroughHttp -> "http"
+
+instance ToJSON Channel where
+    toJSON = toJSON . channelCode
+
+instance FromJSON Channel where
+    parseJSON = withText "channel" $ \case
+        "mcp" -> pure ThroughMcp
+        "http" -> pure ThroughHttp
+        other -> fail ("unknown channel: " <> T.unpack other)
+
+-- | What the engine itself establishes about a change it is asked to record.
+data Origin = Origin
+    { originBy :: Maybe Author
+    , originVia :: Maybe Channel
+    }
+    deriving (Eq, Show)
+
+-- | A line nobody asked for, such as those seeding a copied method collection.
+noOrigin :: Origin
+noOrigin = Origin Nothing Nothing
+
+{- | Where the figures of a change come from, as its author cites it: a
+document, and the page and the passage when given. Built only by 'sourceFrom',
+so no source lacks a document or points at page zero.
+-}
+data Source = Source
+    { sourceDocument :: Text
+    , sourcePage :: Maybe Int
+    , sourcePassage :: Maybe Text
+    }
+    deriving (Eq, Show, Generic)
+    deriving (ToSchema) via (Stripped Source)
+
+sourceFrom :: Text -> Maybe Int -> Maybe Text -> Either Text Source
+sourceFrom document page passage
+    | T.null (T.strip document) = Left "A source needs the name of its document."
+    | Just number <- page, number < 1 = Left ("A source's page is counted from 1, not " <> T.pack (show number) <> ".")
+    | otherwise = Right (Source (T.strip document) page (mfilter (not . T.null) (T.strip <$> passage)))
+
+-- | A source in one line of a report: @Camplone 2025, p. 7: "63 kg N/ha"@.
+sourceCitation :: Source -> Text
+sourceCitation source =
+    sourceDocument source
+        <> maybe "" (\number -> ", p. " <> T.pack (show number)) (sourcePage source)
+        <> maybe "" (\passage -> ": \"" <> passage <> "\"") (sourcePassage source)
+
+instance ToJSON Source where
+    toJSON source =
+        object $
+            ["document" .= sourceDocument source]
+                <> maybe [] (\number -> ["page" .= number]) (sourcePage source)
+                <> maybe [] (\passage -> ["passage" .= passage]) (sourcePassage source)
+
+-- | A source as a request gives it, where a misspelt key would otherwise vanish in silence.
+instance FromJSON Source where
+    parseJSON = withObject "source" $ \o ->
+        case filter (`notElem` ["document", "page", "passage"]) (KM.keys o) of
+            [] -> sourceFields o
+            unknown -> fail ("a source takes document, page and passage, not " <> T.unpack (T.intercalate ", " (map Key.toText unknown)))
+
+-- | A source as a journal keeps it. Unknown keys pass, so an engine can still read what a later one wrote.
+parseKeptSource :: Value -> Parser Source
+parseKeptSource = withObject "source" sourceFields
+
+sourceFields :: Object -> Parser Source
+sourceFields o = do
+    document <- o .: "document"
+    page <- o .:? "page"
+    passage <- o .:? "passage"
+    either (fail . T.unpack) pure (sourceFrom document page passage)
+
+-- | For the one write that carries its reason in the address: the same JSON, encoded.
+instance FromHttpApiData Source where
+    parseUrlPiece = first T.pack . eitherDecodeStrict . TE.encodeUtf8
+
+instance ToParamSchema Source where
+    toParamSchema _ = toParamSchema (Proxy :: Proxy Text)
+
 {- | What the lines of one kind of journal say, and the version of those
 words. Each vocabulary is versioned on its own: a database's journal and a
 method collection's move apart.
@@ -103,7 +212,7 @@ class JournalVocabulary op where
     -- | The version this engine writes for this vocabulary, and the only one it reads.
     vocabularyVersion :: Proxy op -> Int
 
-    -- | The fields of one line besides @v@, @at@ and @by@.
+    -- | The fields of one line besides @v@, @at@, @by@ and @via@.
     opFields :: op -> [Pair]
 
     -- | Read those fields back.
@@ -114,6 +223,7 @@ instance (JournalVocabulary op) => ToJSON (Entry op) where
         object $
             ["v" .= vocabularyVersion (Proxy :: Proxy op), "at" .= jeAt entry]
                 <> maybe [] (\by -> ["by" .= by]) (jeBy entry)
+                <> maybe [] (\via -> ["via" .= via]) (jeVia entry)
                 <> opFields (jeOp entry)
 
 instance (JournalVocabulary op) => FromJSON (Entry op) where
@@ -127,7 +237,7 @@ instance (JournalVocabulary op) => FromJSON (Entry op) where
                         <> show (version :: Int)
                         <> ", but this engine reads version "
                         <> show expected
-            else Entry <$> o .: "at" <*> o .:? "by" <*> parseOp o
+            else Entry <$> o .: "at" <*> o .:? "by" <*> o .:? "via" <*> parseOp o
 
 -- | A journal, given the directory it lives in.
 journalPath :: FilePath -> FilePath
@@ -140,17 +250,17 @@ Stamps the line with the current time, which is why this takes the operation
 rather than a whole entry: when it happened is the journal's business, not its
 caller's.
 -}
-appendEntry :: (JournalVocabulary op) => FilePath -> Maybe Author -> op -> IO (Either Text ())
-appendEntry home by = appendEntries home by . pure
+appendEntry :: (JournalVocabulary op) => FilePath -> Origin -> op -> IO (Either Text ())
+appendEntry home origin = appendEntries home origin . pure
 
 {- | Record several changes made as one: one line each, so a reader of the
 file sees the same lines it would for changes made one by one, stamped with
 one time and written in one call.
 -}
-appendEntries :: (JournalVocabulary op) => FilePath -> Maybe Author -> NonEmpty op -> IO (Either Text ())
-appendEntries home by ops = do
+appendEntries :: (JournalVocabulary op) => FilePath -> Origin -> NonEmpty op -> IO (Either Text ())
+appendEntries home origin ops = do
     now <- getCurrentTime
-    let entry op = Entry{jeAt = T.pack (iso8601Show now), jeBy = by, jeOp = op}
+    let entry op = Entry{jeAt = T.pack (iso8601Show now), jeBy = originBy origin, jeVia = originVia origin, jeOp = op}
     written <- try $ do
         createDirectoryIfMissing True home
         withFile (journalPath home) ReadWriteMode $ \handle -> do

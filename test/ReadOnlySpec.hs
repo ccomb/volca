@@ -135,12 +135,12 @@ mutatingHandlers =
     , ("remove-dependency", run (removeDependencyHandler "nope" "dep"))
     , ("finalize", run (finalizeDatabaseHandler "nope"))
     , ("upload", run (uploadDatabaseHandler (Just "nope") Nothing (source [])))
-    , ("create-activities", run (createActivitiesHandler "nope" (ActivityWriteRequest [] Nothing)))
-    , ("replace-activity", run (replaceActivityHandler "nope" "id" Nothing nothingInParticular))
+    , ("create-activities", run (createActivitiesHandler "nope" (ActivityWriteRequest [] Nothing Nothing)))
+    , ("replace-activity", run (replaceActivityHandler "nope" "id" Nothing Nothing nothingInParticular))
     , ("edit-exchanges", run (editExchangesHandler "nope" "id" noEdits))
-    , ("edit-activities", run (editActivitiesHandler "nope" (ActivitiesEditRequest [] Nothing)))
-    , ("supply-missing", run (supplyMissingHandler "nope" (SupplyMissingRequest "barley" Nothing "a_b" Nothing)))
-    , ("edit-database-parameters", run (editDatabaseParametersHandler "nope" (ParametersEditRequest [] [] Nothing)))
+    , ("edit-activities", run (editActivitiesHandler "nope" (ActivitiesEditRequest [] Nothing Nothing)))
+    , ("supply-missing", run (supplyMissingHandler "nope" (SupplyMissingRequest "barley" Nothing "a_b" Nothing Nothing)))
+    , ("edit-database-parameters", run (editDatabaseParametersHandler "nope" (ParametersEditRequest [] [] Nothing Nothing)))
     , ("save-scenario", run (saveScenarioHandler "nope" "high salt" (ScenarioSaveRequest [])))
     , ("drop-scenario", run (dropScenarioHandler "nope" "high salt"))
     , ("set-data-path", run (setDataPathHandler "nope" Null))
@@ -179,6 +179,7 @@ mutatingHandlers =
             , eerSetSuppliers = []
             , eerRemoveParameters = []
             , eerNote = Nothing
+            , eerSource = Nothing
             }
     nothingInParticular =
         ActivityInput
@@ -203,6 +204,7 @@ mutatingHandlers =
             , dsqExtra = []
             , dsqIds = Just []
             , dsqNote = Nothing
+            , dsqSource = Nothing
             }
 
 -- | Whether an MCP reply is flagged as an error.

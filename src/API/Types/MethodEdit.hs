@@ -231,6 +231,8 @@ data MethodHistoryEntry = MethodHistoryEntry
     , mheAt :: Text
     , mheBy :: Maybe Text
     -- ^ the public name of the account that made it; absent when the engine was not told
+    , mheVia :: Maybe Text
+    -- ^ the surface it came through, "mcp" or "http"; absent on a line older than the record of it
     , mheKind :: HistoryKindAPI
     , mheUndoes :: Maybe Int
     -- ^ the line this one undoes, for an undo

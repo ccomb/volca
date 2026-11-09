@@ -61,8 +61,8 @@ import API.Types (
     toFactorEdit,
     toScoringEdit,
  )
-import App.Env (AppEnv (..), AppM)
-import Data.JournalFile (Author (..))
+import App.Env (AppEnv (..), AppM, httpOrigin)
+import Data.JournalFile (Author (..), channelCode)
 import Database.Manager (DatabaseLoadStatus (..), MethodCollectionStatus (..), getMethodCollection, listMethodCollections)
 import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import Method.EditPlan (EditEffect (..))
@@ -108,25 +108,25 @@ editMethodFactorsHandler :: Text -> FactorEditRequest -> AppM MethodEditResponse
 editMethodFactorsHandler collection req = do
     guardMutation
     manager <- asks aeDbManager
-    by <- asks aeAuthor
+    origin <- httpOrigin
     edit <- either (refuse . EditRefused) pure (toFactorEdit req)
-    outcomeToAPI <$> (liftIO (editMethodFactors manager collection by edit) >>= either refuse pure)
+    outcomeToAPI <$> (liftIO (editMethodFactors manager collection origin edit) >>= either refuse pure)
 
 editMethodCategoriesHandler :: Text -> CategoryEditRequest -> AppM MethodEditResponse
 editMethodCategoriesHandler collection req = do
     guardMutation
     manager <- asks aeDbManager
-    by <- asks aeAuthor
+    origin <- httpOrigin
     edit <- either (refuse . EditRefused) pure (toCategoryEdit req)
-    outcomeToAPI <$> (liftIO (editMethodCategories manager collection by edit) >>= either refuse pure)
+    outcomeToAPI <$> (liftIO (editMethodCategories manager collection origin edit) >>= either refuse pure)
 
 editScoringSetsHandler :: Text -> ScoringEditRequest -> AppM MethodEditResponse
 editScoringSetsHandler collection req = do
     guardMutation
     manager <- asks aeDbManager
-    by <- asks aeAuthor
+    origin <- httpOrigin
     edit <- either (refuse . EditRefused) pure (toScoringEdit req)
-    outcomeToAPI <$> (liftIO (editScoringSets manager collection by edit) >>= either refuse pure)
+    outcomeToAPI <$> (liftIO (editScoringSets manager collection origin edit) >>= either refuse pure)
 
 scoringSetsHandler :: Text -> AppM [ScoringSetAPI]
 scoringSetsHandler collection = do
@@ -166,8 +166,8 @@ undoMethodEditHandler :: Text -> Maybe Int -> AppM MethodEditResponse
 undoMethodEditHandler collection line = do
     guardMutation
     manager <- asks aeDbManager
-    by <- asks aeAuthor
-    outcomeToAPI <$> (liftIO (undoMethodEdit manager collection by line) >>= either refuse pure)
+    origin <- httpOrigin
+    outcomeToAPI <$> (liftIO (undoMethodEdit manager collection origin line) >>= either refuse pure)
 
 methodHistoryHandler :: Text -> AppM [MethodHistoryEntry]
 methodHistoryHandler collection = do
@@ -209,6 +209,7 @@ historyToAPI loaded history = map entry history
             { mheLine = hlLine h
             , mheAt = hlAt h
             , mheBy = authorHandle <$> hlBy h
+            , mheVia = channelCode <$> hlVia h
             , mheKind = kindOf (hlKind h)
             , mheUndoes = undoes (hlKind h)
             , mheInEffect = hlInEffect h

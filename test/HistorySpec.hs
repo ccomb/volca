@@ -2,14 +2,15 @@
 
 module HistorySpec (spec) where
 
+import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Data.JournalFile (Author (..), Entry (..))
+import Data.JournalFile (Author (..), Channel (..), Entry (..), sourceFrom)
 import Database.Author (AuthoredActivity (..), ExchangeEdit (..), ExchangeSelector (..))
 import Database.History
-import Database.Journal (Change (..), EditLine (..), JournalOp (..), ParameterLine (..), Prior (..), noteFrom)
+import Database.Journal (Change (..), EditLine (..), JournalEvent, JournalOp (..), ParameterLine (..), Prior (..), Stated (..), noteFrom, nothingStated)
 import TestHelpers (modelDividingBy)
 import Types (AllocationProperty (..), Parameter (..), ParameterDefinition (..), Reading (..), Release (..), StatedAmount (..))
 
@@ -35,14 +36,31 @@ history :: [HistoryLine]
 history =
     describeJournal
         (namerFor Nothing)
-        [ Entry "2026-10-01" Nothing (Change Nothing (Created [bread] ["a_b"]))
-        , Entry "2026-10-02" (Just (Author "acc-1" "ana")) (Change (noteFrom "Measured on site") (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3) 1 (Prior [1.2]), EditLine (RemoveExchange (SelectInput "c_d")) 1 PriorUnknown, EditLine (SetProperty Price flowId (Just (StatedAmount "EUR2005" 0.42))) 1 (Prior []), EditLine (SetProperty Price flowId Nothing) 1 (Prior [])]))
-        , Entry "2026-10-03" Nothing (Change Nothing (ParametersEdited [ParameterLine "distance" (Just (value 90)) (Prior (Just (value 120))), ParameterLine "new" (Just (value 1)) (Prior Nothing)]))
-        , Entry "2026-10-04" Nothing (Change Nothing (Deleted ["a_b"]))
+        [ Entry "2026-10-01" Nothing Nothing (Change nothingStated (Created [bread] ["a_b"]))
+        , Entry "2026-10-02" (Just (Author "acc-1" "ana")) Nothing (Change (Stated (noteFrom "Measured on site") Nothing) (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3) 1 (Prior [1.2]), EditLine (RemoveExchange (SelectInput "c_d")) 1 PriorUnknown, EditLine (SetProperty Price flowId (Just (StatedAmount "EUR2005" 0.42))) 1 (Prior []), EditLine (SetProperty Price flowId Nothing) 1 (Prior [])]))
+        , Entry "2026-10-03" Nothing Nothing (Change nothingStated (ParametersEdited [ParameterLine "distance" (Just (value 90)) (Prior (Just (value 120))), ParameterLine "new" (Just (value 1)) (Prior Nothing)]))
+        , Entry "2026-10-04" Nothing Nothing (Change nothingStated (Deleted ["a_b"]))
         ]
+
+{- | The one report line each change owes, without the provenance of the
+database around them.
+-}
+reportOf :: [JournalEvent] -> [Text]
+reportOf events =
+    filter
+        (\line -> any (`T.isPrefixOf` line) ["Through:", "Source:"])
+        (T.lines (changesReport Provenance{pvDatabase = "d", pvOriginal = "o", pvRelease = Nothing, pvReallocated = Nothing} (Carried Nothing (Journal "d" (describeJournal (namerFor Nothing) events)))))
 
 spec :: Spec
 spec = describe "Database.History" $ do
+    it "reports a change made through the assistant tools, and the source it cites" $
+        reportOf [Entry "t" Nothing (Just ThroughMcp) (Change (Stated Nothing (either (const Nothing) Just (sourceFrom "Camplone 2025" (Just 7) (Just "63 kg N/ha")))) (Deleted ["a_b"]))]
+            `shouldBe` ["Through: the assistant tools (MCP)", "Source: Camplone 2025, p. 7: \"63 kg N/ha\""]
+
+    it "says nothing of a change made over HTTP, nor of one with no channel kept" $
+        reportOf [Entry "t" Nothing via (Change nothingStated (Deleted ["a_b"])) | via <- [Just ThroughHttp, Nothing]]
+            `shouldBe` []
+
     it "says each change in words, with the value it replaced when it was kept" $
         map (\line -> (hlSummary line, hlDetails line)) history
             `shouldBe` [ ("Added 1 activity", ["\"bread\" (FR), a_b"])

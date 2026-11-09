@@ -193,7 +193,7 @@ import API.Types (
     toExchangeEdits,
     toParameterEdits,
  )
-import App.Env (AppEnv (..), AppM)
+import App.Env (AppEnv (..), AppM, httpOrigin)
 import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, licenceOf, messageOr, readOnlyRefusalFor)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.Reader (asks)
@@ -203,7 +203,7 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.Char (toLower)
 import Data.Foldable (toList)
 import Data.Indexing (repeated)
-import Data.JournalFile (Author (..))
+import Data.JournalFile (Author (..), Source, channelCode)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe, isJust)
@@ -238,7 +238,7 @@ import Database.Edit (
 import Database.Export (parseExportFormat, parseMethodExportFormat, serializeDatabase, serializeMethodCollection)
 import Database.ExportSupplier (dependenciesOf)
 import Database.History (Carried, HistoryLine (..), Journal (..), Provenance (..), changesReport)
-import Database.Journal (Note, noteFrom, noteText)
+import Database.Journal (Stated, noteText, statedFrom)
 import qualified Database.Loader as Loader
 import Database.Manager (
     DatabaseLoadStatus (..),
@@ -463,7 +463,7 @@ databaseHistoryHandler dbName = do
 -- | Each line of a database's history, with the database it was made on: its parent's, or its own.
 databaseHistoryToAPI :: Carried (Journal DatabaseConfig) -> [DatabaseHistoryEntry]
 databaseHistoryToAPI carried =
-    [ DatabaseHistoryEntry (hlAt line) (dcName (journalOf journal)) (authorHandle <$> hlBy line) (noteText <$> hlNote line) (hlSummary line) (hlDetails line)
+    [ DatabaseHistoryEntry (hlAt line) (dcName (journalOf journal)) (authorHandle <$> hlBy line) (channelCode <$> hlVia line) (noteText <$> hlNote line) (hlSource line) (hlSummary line) (hlDetails line)
     | journal <- toList carried
     , line <- journalLines journal
     ]
@@ -753,7 +753,7 @@ deleteActivitiesHandler :: Text -> DeleteSelectionRequest -> AppM DeleteSelectio
 deleteActivitiesHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
-    by <- asks aeAuthor
+    origin <- httpOrigin
     let classFilters =
             [ ClassificationFilter{clfSystem = dcfSystem f, clfValue = dcfValue f, clfMatch = if dcfExact f then MatchExact else MatchContains}
             | f <- dsqClassifications req
@@ -768,7 +768,7 @@ deleteActivitiesHandler dbName req = do
             deleteActivitiesInDB
                 dbManager
                 dbName
-                by
+                origin
                 DeleteRequest
                     { drName = nonBlank (dsqName req)
                     , drLocation = nonBlank (dsqLocation req)
@@ -778,7 +778,7 @@ deleteActivitiesHandler dbName req = do
                     , drKeep = dsqKeep req
                     , drExtra = dsqExtra req
                     , drIds = dsqIds req
-                    , drNote = dsqNote req >>= noteFrom
+                    , drStated = statedFrom (dsqNote req) (dsqSource req)
                     }
     case result of
         -- A failed delete is a client error (bad filter, unknown DB, loaded
@@ -803,22 +803,22 @@ wants the PUT) and a batch a caller can fix is a 400 carrying every complaint
 at once, so a ten-line inventory is fixed in one round trip.
 -}
 createActivitiesHandler :: Text -> ActivityWriteRequest -> AppM ActivityWriteResponse
-createActivitiesHandler dbName req = runWrite dbName (awrNote req >>= noteFrom) CreateActivities (awrActivities req)
+createActivitiesHandler dbName req = runWrite dbName (statedFrom (awrNote req) (awrSource req)) CreateActivities (awrActivities req)
 
 {- | Rewrite one activity the database already holds, keeping its identity. A
 @process_id@ the database does not hold is a 404.
 -}
-replaceActivityHandler :: Text -> Text -> Maybe Text -> ActivityInput -> AppM ActivityWriteResponse
-replaceActivityHandler dbName processId note body =
-    runWrite dbName (note >>= noteFrom) (ReplaceActivity processId) [body]
+replaceActivityHandler :: Text -> Text -> Maybe Text -> Maybe Source -> ActivityInput -> AppM ActivityWriteResponse
+replaceActivityHandler dbName processId note source body =
+    runWrite dbName (statedFrom note source) (ReplaceActivity processId) [body]
 
-runWrite :: Text -> Maybe Note -> WriteVerb -> [ActivityInput] -> AppM ActivityWriteResponse
-runWrite dbName note verb inputs = do
+runWrite :: Text -> Stated -> WriteVerb -> [ActivityInput] -> AppM ActivityWriteResponse
+runWrite dbName stated verb inputs = do
     guardMutation
     dbManager <- asks aeDbManager
-    by <- asks aeAuthor
+    origin <- httpOrigin
     authored <- either (writeErr err400 . T.intercalate "\n") pure (toAuthoredActivities inputs)
-    outcome <- liftIO (writeActivities dbManager dbName by note verb authored)
+    outcome <- liftIO (writeActivities dbManager dbName origin stated verb authored)
     case outcome of
         Left refusal -> writeErr (statusFor refusal) (refusalMessage refusal)
         Right report ->
@@ -840,9 +840,9 @@ editExchangesHandler :: Text -> Text -> ExchangeEditRequest -> AppM ExchangeEdit
 editExchangesHandler dbName processId req = do
     guardMutation
     dbManager <- asks aeDbManager
-    by <- asks aeAuthor
+    origin <- httpOrigin
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toExchangeEdits req)
-    outcome <- liftIO (editExchanges dbManager dbName by (eerNote req >>= noteFrom) processId edits)
+    outcome <- liftIO (editExchanges dbManager dbName origin (statedFrom (eerNote req) (eerSource req)) processId edits)
     either refuseWrite (pure . editReportToAPI) outcome
 
 {- | Change the inventories of several activities as one change. Refused whole
@@ -852,9 +852,9 @@ editActivitiesHandler :: Text -> ActivitiesEditRequest -> AppM ActivitiesEditRes
 editActivitiesHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
-    by <- asks aeAuthor
+    origin <- httpOrigin
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toActivityEdits req)
-    outcome <- liftIO (editActivities dbManager dbName by (aqNote req >>= noteFrom) edits)
+    outcome <- liftIO (editActivities dbManager dbName origin (statedFrom (aqNote req) (aqSource req)) edits)
     either refuseWrite (pure . activitiesReportToAPI) outcome
 
 {- | Give a missing product a supplier wherever the database asks for it, as
@@ -865,9 +865,9 @@ supplyMissingHandler :: Text -> SupplyMissingRequest -> AppM ActivitiesEditRespo
 supplyMissingHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
-    by <- asks aeAuthor
+    origin <- httpOrigin
     let request = MissingRequest (smrProduct req) (smrSupplierActivity req) (smrProvider req)
-    outcome <- liftIO (supplyMissing dbManager dbName by (smrNote req >>= noteFrom) request)
+    outcome <- liftIO (supplyMissing dbManager dbName origin (statedFrom (smrNote req) (smrSource req)) request)
     either refuseWrite (pure . activitiesReportToAPI) outcome
 
 -- | What an edit of several activities answers, on every surface that offers one.
@@ -906,9 +906,9 @@ editDatabaseParametersHandler :: Text -> ParametersEditRequest -> AppM Parameter
 editDatabaseParametersHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
-    by <- asks aeAuthor
+    origin <- httpOrigin
     edits <- either (writeErr err400 . T.intercalate "\n") pure (toParameterEdits req)
-    outcome <- liftIO (editDatabaseParameters dbManager dbName by (pqNote req >>= noteFrom) edits)
+    outcome <- liftIO (editDatabaseParameters dbManager dbName origin (statedFrom (pqNote req) (pqSource req)) edits)
     either refuseWrite (pure . parametersReportToAPI) outcome
 
 parametersReportToAPI :: ParametersReport -> ParametersEditResponse
@@ -932,8 +932,8 @@ saveScenarioHandler :: Text -> Text -> ScenarioSaveRequest -> AppM [ScenarioAPI]
 saveScenarioHandler dbName name req = do
     guardMutation
     dbManager <- asks aeDbManager
-    by <- asks aeAuthor
-    either refuseWrite pure =<< liftIO (saveScenario dbManager dbName by (ScenarioName name) (ssrParameters req))
+    origin <- httpOrigin
+    either refuseWrite pure =<< liftIO (saveScenario dbManager dbName origin (ScenarioName name) (ssrParameters req))
     listScenariosHandler dbName
 
 -- | Drop a saved scenario, and answer the scenarios left.
@@ -941,8 +941,8 @@ dropScenarioHandler :: Text -> Text -> AppM [ScenarioAPI]
 dropScenarioHandler dbName name = do
     guardMutation
     dbManager <- asks aeDbManager
-    by <- asks aeAuthor
-    either refuseWrite pure =<< liftIO (dropScenario dbManager dbName by (ScenarioName name))
+    origin <- httpOrigin
+    either refuseWrite pure =<< liftIO (dropScenario dbManager dbName origin (ScenarioName name))
     listScenariosHandler dbName
 
 -- | A refused write, answered with its status and its message.

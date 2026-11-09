@@ -41,7 +41,7 @@ import Data.Bifunctor (bimap, first)
 import Database (Geographies, filterByName, flowSearchFields)
 import Database.Cutoffs (Cutoffs (..))
 import Database.Edit (MissingRequest (..), databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, refusalMessage, supplyMissing)
-import Database.Journal (noteFrom)
+import Database.Journal (statedFrom)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
 import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario)
@@ -58,7 +58,8 @@ import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), colle
 import API.Terms (referencedDatabases)
 import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
-import Data.JournalFile (Author)
+import Data.JournalFile (Channel (..), Origin (..))
+import qualified Data.JournalFile as JournalFile (Source)
 import Data.List (find)
 import qualified Data.List as L
 import qualified Data.Set as Set
@@ -795,27 +796,29 @@ dispatchTool (Caller reader by) dbManager presets mHosting mBaseUrl rid resource
     R.GetQualityReport -> callGetQualityReport dbManager rid args
     R.GetComputedQualityReport -> callGetComputedQualityReport dbManager mHosting rid args
     R.GetCoverageReport -> callGetCoverageReport dbManager rid args
-    R.EditExchanges -> callEditExchanges dbManager by rid args
-    R.EditActivities -> callEditActivities dbManager by rid args
-    R.SupplyMissing -> callSupplyMissing dbManager by rid args
+    R.EditExchanges -> callEditExchanges dbManager origin rid args
+    R.EditActivities -> callEditActivities dbManager origin rid args
+    R.SupplyMissing -> callSupplyMissing dbManager origin rid args
     R.DatabaseHistory -> callDatabaseHistory dbManager rid args
     R.DatabaseParameters -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
-    R.EditDatabaseParameters -> callEditDatabaseParameters dbManager by rid args
+    R.EditDatabaseParameters -> callEditDatabaseParameters dbManager origin rid args
     R.ListScenarios -> callScenarios dbManager rid args (\_ -> pure ())
     R.SaveScenario -> callScenarios dbManager rid args $ \dbName -> do
         scenario <- except (requireText "name" args)
         values <- except (parseArrayArg "parameters" Nothing args)
-        ExceptT (first refusalMessage <$> saveScenario dbManager dbName by (ScenarioName scenario) values)
+        ExceptT (first refusalMessage <$> saveScenario dbManager dbName origin (ScenarioName scenario) values)
     R.DropScenario -> callScenarios dbManager rid args $ \dbName -> do
         scenario <- except (requireText "name" args)
-        ExceptT (first refusalMessage <$> dropScenario dbManager dbName by (ScenarioName scenario))
+        ExceptT (first refusalMessage <$> dropScenario dbManager dbName origin (ScenarioName scenario))
     R.CopyMethodCollection -> callCopyMethodCollection dbManager rid args
-    R.EditMethodFactors -> callEditMethodFactors dbManager by rid args
-    R.EditMethodCategories -> callEditMethodCategories dbManager by rid args
-    R.EditMethodScoringSets -> callEditScoringSets dbManager by rid args
-    R.UndoMethodEdit -> callUndoMethodEdit dbManager by rid args
+    R.EditMethodFactors -> callEditMethodFactors dbManager origin rid args
+    R.EditMethodCategories -> callEditMethodCategories dbManager origin rid args
+    R.EditMethodScoringSets -> callEditScoringSets dbManager origin rid args
+    R.UndoMethodEdit -> callUndoMethodEdit dbManager origin rid args
     R.GetMethodHistory -> callGetMethodHistory dbManager rid args
     R.SearchMethodFlows -> callSearchMethodFlows dbManager rid args
+  where
+    origin = Origin by (Just ThroughMcp)
 
 -- Helper: extract database, then run action
 
@@ -914,6 +917,14 @@ silently collapses:
     actual type, so a typo like @{"collection": 42}@ surfaces instead of
     being treated as "omitted".
 -}
+
+-- | The source a tool call cites, read as the HTTP endpoints read it.
+optionalSource :: KeyMap Value -> Either Text (Maybe JournalFile.Source)
+optionalSource args = case KM.lookup "source" args of
+    Nothing -> Right Nothing
+    Just Null -> Right Nothing
+    Just value -> bimap (("Invalid source: " <>) . T.pack) Just (parseEither parseJSON value)
+
 optionalText :: Text -> KeyMap Value -> Either Text (Maybe Text)
 optionalText key args = case KM.lookup (fromText key) args of
     Nothing -> Right Nothing
@@ -2035,40 +2046,41 @@ Every list defaults to empty: an assistant that only removes a line should not
 have to state four empty arrays to say so. An edit that ends up naming nothing
 is refused by the domain, so the leniency costs no silence.
 -}
-callEditExchanges :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
-callEditExchanges dbManager by rid args = runTool rid $ do
+callEditExchanges :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
+callEditExchanges dbManager origin rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     processId <- except (requireText "process_id" args)
     request <- except (exchangeEditRequestOf args)
     edits <- except (first (T.intercalate "\n") (toExchangeEdits request))
-    report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName by (eerNote request >>= noteFrom) processId edits)
+    report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName origin (statedFrom (eerNote request) (eerSource request)) processId edits)
     return $ toolSuccessJson rid (toJSON (editReportToAPI report))
 
 {- | The edit of several activities: each element of @edits@ carries
 @process_id@ and the arguments 'callEditExchanges' reads, and the note is
 given once. It reads into the request the HTTP endpoint reads.
 -}
-callEditActivities :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
-callEditActivities dbManager by rid args = runTool rid $ do
+callEditActivities :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
+callEditActivities dbManager origin rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     elements <- except (parseArrayArg "edits" (Just "Missing required parameter: edits") args)
-    request <- except (ActivitiesEditRequest <$> traverse activityEdit elements <*> optionalText "note" args)
+    request <- except (ActivitiesEditRequest <$> traverse activityEdit elements <*> optionalText "note" args <*> optionalSource args)
     edits <- except (first (T.intercalate "\n") (toActivityEdits request))
-    report <- ExceptT (first refusalMessage <$> editActivities dbManager dbName by (aqNote request >>= noteFrom) edits)
+    report <- ExceptT (first refusalMessage <$> editActivities dbManager dbName origin (statedFrom (aqNote request) (aqSource request)) edits)
     return $ toolSuccessJson rid (toJSON (activitiesReportToAPI report))
   where
     activityEdit :: KeyMap Value -> Either Text ActivityEditAPI
     activityEdit element
         | KM.member "note" element = Left "a note is given once, beside \"edits\", for the whole change"
+        | KM.member "source" element = Left "a source is given once, beside \"edits\", for the whole change"
         | otherwise = ActivityEditAPI <$> requireText "process_id" element <*> exchangeEditRequestOf element
 
 -- | A missing product given a supplier wherever the database asks for it.
-callSupplyMissing :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
-callSupplyMissing dbManager by rid args = runTool rid $ do
+callSupplyMissing :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
+callSupplyMissing dbManager origin rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     request <- except (MissingRequest <$> requireText "product" args <*> optionalText "supplier_activity" args <*> requireText "provider" args)
-    note <- except (optionalText "note" args)
-    report <- ExceptT (first refusalMessage <$> supplyMissing dbManager dbName by (note >>= noteFrom) request)
+    stated <- except (statedFrom <$> optionalText "note" args <*> optionalSource args)
+    report <- ExceptT (first refusalMessage <$> supplyMissing dbManager dbName origin stated request)
     return $ toolSuccessJson rid (toJSON (activitiesReportToAPI report))
 
 {- | The arguments of one activity's edit, read into the request the HTTP
@@ -2098,6 +2110,7 @@ exchangeEditRequestOf args =
         <*> parseArrayArg "set_suppliers" Nothing args
         <*> parseArrayArg "remove_parameters" Nothing args
         <*> optionalText "note" args
+        <*> optionalSource args
   where
     -- Absent leaves the description as it is; an empty list clears it.
     optionalDescription :: Either Text (Maybe [Text])
@@ -2106,12 +2119,12 @@ exchangeEditRequestOf args =
         Just Null -> Right Nothing
         Just _ -> Just <$> parseArrayArg "set_description" Nothing args
 
-callEditDatabaseParameters :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
-callEditDatabaseParameters dbManager by rid args = runTool rid $ do
+callEditDatabaseParameters :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
+callEditDatabaseParameters dbManager origin rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
-    request <- except (ParametersEditRequest <$> parseArrayArg "set_parameters" Nothing args <*> parseArrayArg "remove_parameters" Nothing args <*> optionalText "note" args)
+    request <- except (ParametersEditRequest <$> parseArrayArg "set_parameters" Nothing args <*> parseArrayArg "remove_parameters" Nothing args <*> optionalText "note" args <*> optionalSource args)
     edits <- except (first (T.intercalate "\n") (toParameterEdits request))
-    report <- ExceptT (first refusalMessage <$> editDatabaseParameters dbManager dbName by (pqNote request >>= noteFrom) edits)
+    report <- ExceptT (first refusalMessage <$> editDatabaseParameters dbManager dbName origin (statedFrom (pqNote request) (pqSource request)) edits)
     return $ toolSuccessJson rid (toJSON (parametersReportToAPI report))
 
 callDatabaseHistory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
@@ -2139,33 +2152,33 @@ callCopyMethodCollection dbManager rid args = runTool rid $ do
 asks for is refused or taken exactly as a person's is. The arguments are the
 request's fields in snake case.
 -}
-callEditMethodFactors :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
-callEditMethodFactors dbManager by rid args = runTool rid $ do
+callEditMethodFactors :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
+callEditMethodFactors dbManager origin rid args = runTool rid $ do
     (collection, request) <- except (editArguments names args)
     edit <- except (toFactorEdit request)
-    outcome <- ExceptT (first refusalText <$> editMethodFactors dbManager collection by edit)
+    outcome <- ExceptT (first refusalText <$> editMethodFactors dbManager collection origin edit)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
   where
     names :: [(Key, Key)]
     names = [("op", "op"), ("method_id", "methodId"), ("flow_id", "flowId"), ("location", "location"), ("value", "value"), ("new_value", "newValue"), ("scale", "scale"), ("match", "match"), ("factor", "factor")]
 
 -- | Read through the request the HTTP endpoint reads, as 'callEditMethodFactors' does.
-callEditMethodCategories :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
-callEditMethodCategories dbManager by rid args = runTool rid $ do
+callEditMethodCategories :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
+callEditMethodCategories dbManager origin rid args = runTool rid $ do
     (collection, request) <- except (editArguments names args)
     edit <- except (toCategoryEdit request)
-    outcome <- ExceptT (first refusalText <$> editMethodCategories dbManager collection by edit)
+    outcome <- ExceptT (first refusalText <$> editMethodCategories dbManager collection origin edit)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
   where
     names :: [(Key, Key)]
     names = [("op", "op"), ("method_id", "methodId"), ("name", "name"), ("unit", "unit"), ("impact_category", "impactCategory"), ("methodology", "methodology")]
 
 -- | Read through the request the HTTP endpoint reads, as 'callEditMethodFactors' does.
-callEditScoringSets :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
-callEditScoringSets dbManager by rid args = runTool rid $ do
+callEditScoringSets :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
+callEditScoringSets dbManager origin rid args = runTool rid $ do
     (collection, request) <- except (editArguments names args)
     edit <- except (toScoringEdit request)
-    outcome <- ExceptT (first refusalText <$> editScoringSets dbManager collection by edit)
+    outcome <- ExceptT (first refusalText <$> editScoringSets dbManager collection origin edit)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
   where
     names :: [(Key, Key)]
@@ -2182,11 +2195,11 @@ editArguments names args = do
     request <- first T.pack (parseEither parseJSON (Object (KM.fromList [(camel, v) | (snake, camel) <- names, Just v <- [KM.lookup snake args]])))
     pure (collection, request)
 
-callUndoMethodEdit :: DatabaseManager -> Maybe Author -> RequestId -> KeyMap Value -> IO Value
-callUndoMethodEdit dbManager by rid args = runTool rid $ do
+callUndoMethodEdit :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
+callUndoMethodEdit dbManager origin rid args = runTool rid $ do
     collection <- except (requireText "collection" args)
     line <- except (optionalWhole "line" args)
-    outcome <- ExceptT (first refusalText <$> undoMethodEdit dbManager collection by line)
+    outcome <- ExceptT (first refusalText <$> undoMethodEdit dbManager collection origin line)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
 
 callGetMethodHistory :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value

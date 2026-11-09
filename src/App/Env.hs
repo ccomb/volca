@@ -11,6 +11,7 @@ module App.Env (
     counted,
     countedEach,
     usageLookup,
+    httpOrigin,
 ) where
 
 import qualified Config
@@ -19,7 +20,7 @@ import Control.Monad.Except (MonadError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, ReaderT (..), asks)
 import Data.Foldable (for_)
-import Data.JournalFile (Author)
+import Data.JournalFile (Author, Channel (..), Origin (..))
 import Data.Text (Text)
 import Database.Manager (DatabaseManager, LoadedDatabase (..), getDatabase, releasesRead)
 import Servant (Handler, ServerError)
@@ -48,6 +49,10 @@ newtype AppM a = AppM {unAppM :: ReaderT AppEnv Handler a}
 
 runApp :: AppEnv -> AppM a -> Handler a
 runApp env (AppM m) = runReaderT m env
+
+-- | Where a change made by the request in hand comes from.
+httpOrigin :: AppM Origin
+httpOrigin = asks (\env -> Origin (aeAuthor env) (Just ThroughHttp))
 
 -- | What a usage line is told of the database and the process it counts.
 usageLookup :: DatabaseManager -> Lookup
