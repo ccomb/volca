@@ -1141,6 +1141,7 @@ class Client:
         extra: list[str] | None = None,
         ids: list[str] | None = None,
         note: str | None = None,
+        source: dict | None = None,
         db_name: str | None = None,
     ) -> dict:
         """Delete activities selected by filter, or exactly the ``ids`` list.
@@ -1165,6 +1166,10 @@ class Client:
         ``note`` says why, in a sentence: it is kept in the database's history
         (:meth:`database_history`) and in the changes report its export
         carries. Needs wire revision 79.
+
+        ``source`` says where the figures come from, as ``{"document": ...,
+        "page": 7, "passage": ...}`` (page and passage are optional): it is
+        kept beside the reason. Needs wire revision 111.
         """
         if ids is not None and (name or location or product or classifications or exact):
             raise VoLCAError(
@@ -1188,7 +1193,7 @@ class Client:
         if ids is not None:
             self._require_wire(3, "delete_activities(ids=...)", engine_hint="0.9.3")
             body["ids"] = list(ids)
-        body.update(self._note(note, "delete_activities"))
+        body.update(self._stated(note, source, "delete_activities"))
         target = self._db(db_name)
         payload = self._json(
             self._session.post(
@@ -1203,6 +1208,7 @@ class Client:
         db_name: str | None = None,
         *,
         note: str | None = None,
+        source: dict | None = None,
     ) -> dict:
         """Write new activities into a database that can hold them.
 
@@ -1232,6 +1238,10 @@ class Client:
         ``note`` says why, in a sentence: it is kept in the database's history
         (:meth:`database_history`) and in the changes report its export
         carries. Needs wire revision 79.
+
+        ``source`` says where the figures come from, as ``{"document": ...,
+        "page": 7, "passage": ...}`` (page and passage are optional): it is
+        kept beside the reason. Needs wire revision 111.
         """
         batch = [activities] if isinstance(activities, ActivityInput) else list(activities)
         self._require_wire(5, "create_activities", engine_hint="0.9.5")
@@ -1239,7 +1249,7 @@ class Client:
         return self._json(
             self._session.post(
                 f"{self.base_url}/api/v1/db/{target}/activities",
-                json={"activities": [a.to_wire() for a in batch], **self._note(note, "create_activities")},
+                json={"activities": [a.to_wire() for a in batch], **self._stated(note, source, "create_activities")},
             )
         )
 
@@ -1250,6 +1260,7 @@ class Client:
         db_name: str | None = None,
         *,
         note: str | None = None,
+        source: dict | None = None,
     ) -> dict:
         """Rewrite one activity the database already holds, keeping its identity.
 
@@ -1264,13 +1275,20 @@ class Client:
         ``note`` says why, in a sentence: it is kept in the database's history
         (:meth:`database_history`) and in the changes report its export
         carries. Needs wire revision 79.
+
+        ``source`` says where the figures come from, as ``{"document": ...,
+        "page": 7, "passage": ...}`` (page and passage are optional): it is
+        kept beside the reason. Needs wire revision 111.
         """
         self._require_wire(5, "replace_activity", engine_hint="0.9.5")
         target = self._db(db_name)
         return self._json(
             self._session.put(
                 f"{self.base_url}/api/v1/db/{target}/activity/{process_id}",
-                params=self._note(note, "replace_activity"),
+                params={
+                    **self._stated(note, source, "replace_activity"),
+                    **({"source": json.dumps(source)} if source is not None else {}),
+                },
                 json=activity.to_wire(),
             )
         )
@@ -1295,6 +1313,7 @@ class Client:
         set_suppliers: Sequence[SetSupplier] = (),
         remove_parameters: Sequence[str] = (),
         note: str | None = None,
+        source: dict | None = None,
         db_name: str | None = None,
     ) -> dict:
         """Change what one activity consumes and emits, its texts or its parameters, keeping the activity.
@@ -1360,6 +1379,10 @@ class Client:
         ``note`` says why, in a sentence: it is kept in the database's history
         (:meth:`database_history`) and in the changes report its export
         carries. Needs wire revision 79.
+
+        ``source`` says where the figures come from, as ``{"document": ...,
+        "page": 7, "passage": ...}`` (page and passage are optional): it is
+        kept beside the reason. Needs wire revision 111.
         """
         self._require_wire(7, "edit_exchanges", engine_hint="0.9.5")
         edit = ActivityEdit(
@@ -1385,7 +1408,7 @@ class Client:
         return self._json(
             self._session.post(
                 f"{self.base_url}/api/v1/db/{target}/activity/{process_id}/exchanges",
-                json={**edit.fields(), **self._note(note, "edit_exchanges")},
+                json={**edit.fields(), **self._stated(note, source, "edit_exchanges")},
             )
         )
 
@@ -1394,6 +1417,7 @@ class Client:
         edits: Sequence[ActivityEdit],
         *,
         note: str | None = None,
+        source: dict | None = None,
         db_name: str | None = None,
     ) -> dict:
         """Edit several activities as one change: what :meth:`edit_exchanges`
@@ -1421,6 +1445,10 @@ class Client:
              "transient": False, "warnings": []}
 
         ``note`` says why, for every activity edited. Needs wire revision 107.
+
+        ``source`` says where the figures come from, as ``{"document": ...,
+        "page": 7, "passage": ...}`` (page and passage are optional): it is
+        kept beside the reason. Needs wire revision 111.
         """
         if not edits:
             raise ValueError("edit_activities needs at least one ActivityEdit")
@@ -1431,7 +1459,7 @@ class Client:
         return self._json(
             self._session.post(
                 f"{self.base_url}/api/v1/db/{target}/activities/exchanges",
-                json={"edits": [e.to_wire() for e in edits], **self._note(note, "edit_activities")},
+                json={"edits": [e.to_wire() for e in edits], **self._stated(note, source, "edit_activities")},
             )
         )
 
@@ -1442,6 +1470,7 @@ class Client:
         *,
         supplier_activity: str | None = None,
         note: str | None = None,
+        source: dict | None = None,
         db_name: str | None = None,
     ) -> dict:
         """Give a missing product a supplier wherever the database asks for it.
@@ -1458,6 +1487,10 @@ class Client:
 
         One line the provider cannot supply refuses the whole change. Answers
         as :meth:`edit_activities` does. Needs wire revision 109.
+
+        ``source`` says where the figures come from, as ``{"document": ...,
+        "page": 7, "passage": ...}`` (page and passage are optional): it is
+        kept beside the reason. Needs wire revision 111.
         """
         self._require_wire(109, "supply_missing_product", engine_hint="0.17.0")
         target = self._db(db_name)
@@ -1467,7 +1500,7 @@ class Client:
         return self._json(
             self._session.post(
                 f"{self.base_url}/api/v1/db/{target}/missing-suppliers/supply",
-                json={**body, **self._note(note, "supply_missing_product")},
+                json={**body, **self._stated(note, source, "supply_missing_product")},
             )
         )
 
@@ -2817,6 +2850,7 @@ class Client:
         summary: list[dict] | None = None,
         exchanges: list[dict] | None = None,
         note: str | None = None,
+        source: dict | None = None,
         db_name: str | None = None,
     ) -> dict:
         """Make an activity say each change it is given that it does not say yet.
@@ -2833,13 +2867,17 @@ class Client:
         ``note`` says why, in a sentence: it is kept in the database's history
         (:meth:`database_history`) and in the changes report its export
         carries. Needs wire revision 79.
+
+        ``source`` says where the figures come from, as ``{"document": ...,
+        "page": 7, "passage": ...}`` (page and passage are optional): it is
+        kept beside the reason. Needs wire revision 111.
         """
         self._require_wire(60, "apply_changes", engine_hint="0.15.0")
         target = self._db(db_name)
         return self._json(
             self._session.post(
                 f"{self.base_url}/api/v1/db/{target}/activity/{process_id}/apply-changes",
-                json={"summary": summary or [], "exchanges": exchanges or [], **self._note(note, "apply_changes")},
+                json={"summary": summary or [], "exchanges": exchanges or [], **self._stated(note, source, "apply_changes")},
             )
         )
 
@@ -3379,6 +3417,7 @@ class Client:
         set_parameters: Sequence[SetParameter] = (),
         remove_parameters: Sequence[str] = (),
         note: str | None = None,
+        source: dict | None = None,
         db_name: str | None = None,
     ) -> dict:
         """Set or remove the database's own parameters, then restate every
@@ -3396,12 +3435,16 @@ class Client:
         ``note`` says why, in a sentence: it is kept in the database's history
         (:meth:`database_history`) and in the changes report its export
         carries. Needs wire revision 79.
+
+        ``source`` says where the figures come from, as ``{"document": ...,
+        "page": 7, "passage": ...}`` (page and passage are optional): it is
+        kept beside the reason. Needs wire revision 111.
         """
         self._require_wire(74, "edit_database_parameters", engine_hint="0.16.0")
         body = {
             "setParameters": [p.to_wire() for p in set_parameters],
             "removeParameters": list(remove_parameters),
-            **self._note(note, "edit_database_parameters"),
+            **self._stated(note, source, "edit_database_parameters"),
         }
         return self._call("edit_database_parameters", body=body, db_name=self._db(db_name))
 
@@ -3416,6 +3459,10 @@ class Client:
         ``by`` is the public name of the account that made it, ``None`` when
         the engine was not told, as on the desktop (wire revision 104).
         ``note`` is the reason its author gave, ``None`` when they gave none.
+        ``via`` is the surface the change came through, ``"mcp"`` or
+        ``"http"`` (a script an assistant drives comes through ``"http"`` too),
+        and ``source`` where its figures come from, as its author cited them
+        (wire revision 111; absent from an older engine).
         ``database`` is the database the change was made on: for a child, the
         changes of the parent it is divided from come first, since its data
         carry them (wire revision 100; absent from an older engine). A
@@ -3425,12 +3472,16 @@ class Client:
         self._require_wire(79, "database_history", engine_hint="0.16.0")
         return self._call("get_database_history", db_name=self._db(db_name))
 
-    def _note(self, note: str | None, feature: str) -> dict:
-        """The ``note`` key of a write, when one is given."""
-        if note is None:
-            return {}
-        self._require_wire(79, f"{feature}(note=...)", engine_hint="0.16.0")
-        return {"note": note}
+    def _stated(self, note: str | None, source: dict | None, feature: str) -> dict:
+        """The ``note`` and ``source`` keys of a write, for those given."""
+        if note is not None:
+            self._require_wire(79, f"{feature}(note=...)", engine_hint="0.16.0")
+        if source is not None:
+            self._require_wire(111, f"{feature}(source=...)", engine_hint="0.17.1")
+        return {
+            **({"note": note} if note is not None else {}),
+            **({"source": source} if source is not None else {}),
+        }
 
     def scenarios(self, *, db_name: str | None = None) -> list[Scenario]:
         """The scenarios of the database: those it ships, then those saved

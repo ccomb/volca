@@ -25,7 +25,7 @@ import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 
-import Data.JournalFile (Author (..), Entry (..))
+import Data.JournalFile (Author (..), Channel (..), Entry (..), Source, sourceCitation)
 import Database.Author (
     ActivityText (..),
     AuthoredActivity (..),
@@ -43,6 +43,7 @@ import Database.Journal (
     Note,
     ParameterLine (..),
     Prior (..),
+    Stated (..),
     noteText,
  )
 import Types (
@@ -65,11 +66,13 @@ import Types (
     propertyName,
  )
 
--- | One change, said: when, by whom, why, what in a sentence, and each line it touched.
+-- | One change, said: when, by whom, through what, why, from which source, what in a sentence, and each line it touched.
 data HistoryLine = HistoryLine
     { hlAt :: Text
     , hlBy :: Maybe Author
+    , hlVia :: Maybe Channel
     , hlNote :: Maybe Note
+    , hlSource :: Maybe Source
     , hlSummary :: Text
     , hlDetails :: [Text]
     }
@@ -120,8 +123,9 @@ describeJournal :: Namer -> [JournalEvent] -> [HistoryLine]
 describeJournal namer = map line
   where
     line event =
-        let (summary, details) = describeOp namer (changeOp (jeOp event))
-         in HistoryLine (jeAt event) (jeBy event) (changeNote (jeOp event)) summary details
+        let Change (Stated note source) op = jeOp event
+            (summary, details) = describeOp namer op
+         in HistoryLine (jeAt event) (jeBy event) (jeVia event) note source summary details
 
 describeOp :: Namer -> JournalOp -> (Text, [Text])
 describeOp namer = \case
@@ -247,7 +251,9 @@ changesReport provenance carried =
     section line =
         ["", "## " <> hlAt line <> ": " <> hlSummary line, ""]
             <> maybe [] (\by -> ["By: @" <> authorHandle by]) (hlBy line)
+            <> ["Through: the assistant tools (MCP)" | hlVia line == Just ThroughMcp]
             <> ["Reason: " <> maybe "No reason given" noteText (hlNote line)]
+            <> maybe [] (\source -> ["Source: " <> sourceCitation source]) (hlSource line)
             <> (if null (hlDetails line) then [] else "" : map ("- " <>) (hlDetails line))
     releaseTitle release = T.unwords ([releaseName release, releaseVersion release] <> maybe [] pure (releaseSystemModel release))
 

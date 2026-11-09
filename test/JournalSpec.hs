@@ -16,6 +16,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (isRight)
+import Data.JournalFile (Channel (..), noOrigin, sourceFrom)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -48,11 +49,13 @@ import Database.Journal (
     JournalOp (..),
     ParameterLine (..),
     Prior (..),
+    Stated (..),
     appendEvent,
     applyOp,
     applyOps,
     journalPath,
     noteFrom,
+    nothingStated,
     readJournal,
     replayJournal,
  )
@@ -90,6 +93,9 @@ import Types (
  )
 import UnitConversion (defaultUnitConfig)
 
+rightOf :: Either Text a -> Maybe a
+rightOf = either (const Nothing) Just
+
 spec :: Spec
 spec = do
     fixture <- runIO buildFixture
@@ -114,8 +120,18 @@ spec = do
         it "writes a reason only when one is given" $ do
             noteFrom "   " `shouldBe` Nothing
             noteFrom "" `shouldBe` Nothing
-            Just (toJSON (Entry "now" Nothing (Change (noteFrom " Measured on site ") (Deleted []))))
+            Just (toJSON (Entry "now" Nothing Nothing (Change (Stated (noteFrom " Measured on site ") Nothing) (Deleted []))))
                 `shouldBe` decodeStrict "{\"v\":1,\"at\":\"now\",\"op\":\"delete\",\"targets\":[],\"note\":\"Measured on site\"}"
+
+        it "writes a source beside the reason, and reads it back" $ do
+            let sourced = Entry "now" Nothing Nothing (Change (Stated Nothing (rightOf (sourceFrom "Camplone 2025" (Just 7) (Just "63 kg N/ha")))) (Deleted []))
+            Just (toJSON sourced)
+                `shouldBe` decodeStrict "{\"v\":1,\"at\":\"now\",\"op\":\"delete\",\"targets\":[],\"source\":{\"document\":\"Camplone 2025\",\"page\":7,\"passage\":\"63 kg N/ha\"}}"
+            decodeStrict (BL.toStrict (Aeson.encode sourced)) `shouldBe` Just sourced
+
+        it "still reads a source carrying a key a later engine added" $
+            (statedSource . changeStated . jeOp <$> (decodeStrict "{\"v\":1,\"at\":\"now\",\"op\":\"delete\",\"targets\":[],\"source\":{\"document\":\"d\",\"doi\":\"10.1/x\"}}" :: Maybe JournalEvent))
+                `shouldBe` Just (rightOf (sourceFrom "d" Nothing Nothing))
 
         it "reads back every event it writes" $
             -- One event per operation, and one exchange per kind, so a field
@@ -157,9 +173,9 @@ spec = do
             -- append truncates the tail first: what is dropped is exactly the
             -- unacknowledged debris, never the edit being recorded.
             withSystemTempDirectory "journal" $ \home -> do
-                appendOrFail home (Change Nothing (Deleted ["a_b"]))
+                appendOrFail home (Change nothingStated (Deleted ["a_b"]))
                 appendFile (journalPath home) "{\"v\":1,\"at\":\"now\",\"op\":\"del"
-                appendOrFail home (Change Nothing (Deleted ["c_d"]))
+                appendOrFail home (Change nothingStated (Deleted ["c_d"]))
                 read' <- readJournal home
                 fmap (map (changeOp . jeOp)) read' `shouldBe` Right [Deleted ["a_b"], Deleted ["c_d"]]
 
@@ -173,6 +189,12 @@ spec = do
             let journal = [event (Created [cheese] [cheeseKey]), event (Replaced cheeseKey cheese{aaProductAmount = 2})]
              in fmap processKeys (replayJournal ctx journal)
                     `shouldBe` fmap processKeys (replayJournal ctx journal)
+
+        it "gives the same database with or without a source and a channel" $
+            let plain = event (Created [cheese] [cheeseKey])
+                cited = plain{jeVia = Just ThroughMcp, jeOp = (jeOp plain){changeStated = Stated Nothing (rightOf (sourceFrom "d" Nothing Nothing))}}
+             in fmap processKeys (replayJournal ctx [cited])
+                    `shouldBe` fmap processKeys (replayJournal ctx [plain])
 
         it "applies a delete, leaving the database it started from" $
             case replayJournal ctx [event (Created [cheese] [cheeseKey]), event (Deleted [cheeseKey])] of
@@ -332,7 +354,7 @@ spec = do
 -- ---------------------------------------------------------------------------
 
 event :: JournalOp -> JournalEvent
-event = Entry "2026-08-03T09:12:41Z" Nothing . Change Nothing
+event = Entry "2026-08-03T09:12:41Z" Nothing Nothing . Change nothingStated
 
 -- | An inventory edit written before the amounts it replaced were kept.
 edited :: Text -> [(ExchangeEdit, Int)] -> JournalOp
@@ -350,7 +372,7 @@ failsWith :: Text -> Either Text a -> Bool
 failsWith needle = either (isInfixOf needle) (const False)
 
 appendOrFail :: FilePath -> Change -> IO ()
-appendOrFail home op = appendEvent home Nothing op >>= either (fail . show) pure
+appendOrFail home op = appendEvent home noOrigin op >>= either (fail . show) pure
 
 {- | Run a check against a journal file written verbatim, so a line this
 engine would never write can still be read.
@@ -513,8 +535,8 @@ richEvents =
     , event dryMassed
     , event wetMassed
     , event resupplied
-    , Entry "2026-10-21T10:00:00Z" Nothing (Change (noteFrom "Measured on site") rememberedEdit)
-    , Entry "2026-10-21T10:05:00Z" Nothing (Change Nothing rememberedParameters)
+    , Entry "2026-10-21T10:00:00Z" Nothing Nothing (Change (Stated (noteFrom "Measured on site") Nothing) rememberedEdit)
+    , Entry "2026-10-21T10:05:00Z" Nothing Nothing (Change nothingStated rememberedParameters)
     ]
 
 -- | An inventory edit keeping the amounts it replaced, one per line matched.

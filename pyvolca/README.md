@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.2** speaks wire formats **2 to 110** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.2** speaks wire formats **2 to 111** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -557,7 +557,7 @@ Args:
     aggregate: `AggregateOp` member or wire string
         (``"sum_quantity"`` by default, ``"count"``, or ``"share"``).
 
-##### `Client.apply_changes(process_id: str, *, summary: list[dict] | None = None, exchanges: list[dict] | None = None, note: str | None = None, db_name: str | None = None) -> dict`
+##### `Client.apply_changes(process_id: str, *, summary: list[dict] | None = None, exchanges: list[dict] | None = None, note: str | None = None, source: dict | None = None, db_name: str | None = None) -> dict`
 
 Make an activity say each change it is given that it does not say yet.
 
@@ -573,6 +573,10 @@ wire revision 60.
 ``note`` says why, in a sentence: it is kept in the database's history
 (`database_history`) and in the changes report its export
 carries. Needs wire revision 79.
+
+``source`` says where the figures come from, as ``{"document": ...,
+"page": 7, "passage": ...}`` (page and passage are optional): it is
+kept beside the reason. Needs wire revision 111.
 
 ##### `Client.available_method_collections()`
 
@@ -740,7 +744,7 @@ Args:
         answering three zeros, which would read as "this database has
         nothing".
 
-##### `Client.create_activities(activities: list[ActivityInput] | ActivityInput, db_name: str | None = None, *, note: str | None = None) -> dict`
+##### `Client.create_activities(activities: list[ActivityInput] | ActivityInput, db_name: str | None = None, *, note: str | None = None, source: dict | None = None) -> dict`
 
 Write new activities into a database that can hold them.
 
@@ -771,6 +775,10 @@ misspelled database name).
 (`database_history`) and in the changes report its export
 carries. Needs wire revision 79.
 
+``source`` says where the figures come from, as ``{"document": ...,
+"page": 7, "passage": ...}`` (page and passage are optional): it is
+kept beside the reason. Needs wire revision 111.
+
 ##### `Client.create_scoring_set(collection: str, name: str, rows: list[ScoringRow], *, unit: str | None = None) -> dict`
 
 Create a scoring set in a collection of your own, from its rows.
@@ -791,6 +799,10 @@ Every change made to the database, oldest first::
 ``by`` is the public name of the account that made it, ``None`` when
 the engine was not told, as on the desktop (wire revision 104).
 ``note`` is the reason its author gave, ``None`` when they gave none.
+``via`` is the surface the change came through, ``"mcp"`` or
+``"http"`` (a script an assistant drives comes through ``"http"`` too),
+and ``source`` where its figures come from, as its author cited them
+(wire revision 111; absent from an older engine).
 ``database`` is the database the change was made on: for a child, the
 changes of the parent it is divided from come first, since its data
 carry them (wire revision 100; absent from an older engine). A
@@ -809,7 +821,7 @@ The method collection the configuration offers a reader first, by
 name; ``None`` when it names none, and against an engine older than
 wire revision 52.
 
-##### `Client.delete_activities(*, name: str = '', location: str = '', product: str = '', classifications: list[dict | tuple] | None = None, exact: bool = False, keep: list[str] | None = None, extra: list[str] | None = None, ids: list[str] | None = None, note: str | None = None, db_name: str | None = None) -> dict`
+##### `Client.delete_activities(*, name: str = '', location: str = '', product: str = '', classifications: list[dict | tuple] | None = None, exact: bool = False, keep: list[str] | None = None, extra: list[str] | None = None, ids: list[str] | None = None, note: str | None = None, source: dict | None = None, db_name: str | None = None) -> dict`
 
 Delete activities selected by filter, or exactly the ``ids`` list.
 
@@ -833,6 +845,10 @@ Returns the ``DeleteSelectionResponse`` dict
 ``note`` says why, in a sentence: it is kept in the database's history
 (`database_history`) and in the changes report its export
 carries. Needs wire revision 79.
+
+``source`` says where the figures come from, as ``{"document": ...,
+"page": 7, "passage": ...}`` (page and passage are optional): it is
+kept beside the reason. Needs wire revision 111.
 
 ##### `Client.delete_database(db_name: str | None = None) -> dict`
 
@@ -913,7 +929,7 @@ Raises VoLCAError on an HTTP error (e.g. the table does not exist).
 Drop a saved scenario, and return the scenarios left. Refused for
 a scenario the database ships, which comes back at every load.
 
-##### `Client.edit_activities(edits: Sequence[ActivityEdit], *, note: str | None = None, db_name: str | None = None) -> dict`
+##### `Client.edit_activities(edits: Sequence[ActivityEdit], *, note: str | None = None, source: dict | None = None, db_name: str | None = None) -> dict`
 
 Edit several activities as one change: what `edit_exchanges`
 does for one, for each `ActivityEdit`.
@@ -941,7 +957,11 @@ gives it, in the order of ``edits``, then ``transient`` and the
 
 ``note`` says why, for every activity edited. Needs wire revision 107.
 
-##### `Client.edit_database_parameters(*, set_parameters: Sequence[SetParameter] = (), remove_parameters: Sequence[str] = (), note: str | None = None, db_name: str | None = None) -> dict`
+``source`` says where the figures come from, as ``{"document": ...,
+"page": 7, "passage": ...}`` (page and passage are optional): it is
+kept beside the reason. Needs wire revision 111.
+
+##### `Client.edit_database_parameters(*, set_parameters: Sequence[SetParameter] = (), remove_parameters: Sequence[str] = (), note: str | None = None, source: dict | None = None, db_name: str | None = None) -> dict`
 
 Set or remove the database's own parameters, then restate every
 process that reads them: each line whose formula no longer gives its
@@ -959,7 +979,11 @@ edits: copy a configured one first.
 (`database_history`) and in the changes report its export
 carries. Needs wire revision 79.
 
-##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, set_parameters: Sequence[SetParameter] = (), set_formulas: Sequence[SetFormula] = (), set_prices: Sequence[SetPrice] = (), set_dry_masses: Sequence[SetDryMass] = (), set_wet_masses: Sequence[SetWetMass] = (), set_suppliers: Sequence[SetSupplier] = (), remove_parameters: Sequence[str] = (), note: str | None = None, db_name: str | None = None) -> dict`
+``source`` says where the figures come from, as ``{"document": ...,
+"page": 7, "passage": ...}`` (page and passage are optional): it is
+kept beside the reason. Needs wire revision 111.
+
+##### `Client.edit_exchanges(process_id: str, *, remove: Sequence[ExchangeSelector] = (), set_amounts: Sequence[SetAmount] = (), add_inputs: Sequence[TechInput] = (), add_biosphere: Sequence[BioExchange] = (), add_waste_outputs: Sequence[WasteOutput] = (), name: str | None = None, location: str | None = None, description: list[str] | None = None, set_parameters: Sequence[SetParameter] = (), set_formulas: Sequence[SetFormula] = (), set_prices: Sequence[SetPrice] = (), set_dry_masses: Sequence[SetDryMass] = (), set_wet_masses: Sequence[SetWetMass] = (), set_suppliers: Sequence[SetSupplier] = (), remove_parameters: Sequence[str] = (), note: str | None = None, source: dict | None = None, db_name: str | None = None) -> dict`
 
 Change what one activity consumes and emits, its texts or its parameters, keeping the activity.
 
@@ -1024,6 +1048,10 @@ input or a waste output.
 ``note`` says why, in a sentence: it is kept in the database's history
 (`database_history`) and in the changes report its export
 carries. Needs wire revision 79.
+
+``source`` says where the figures come from, as ``{"document": ...,
+"page": 7, "passage": ...}`` (page and passage are optional): it is
+kept beside the reason. Needs wire revision 111.
 
 ##### `Client.ensure_database(source: str | Path | bytes, name: str | None = None) -> str`
 
@@ -1649,7 +1677,7 @@ so they keep scoring it. A name already in use is refused.
 
 Rename a scoring set of a collection of your own.
 
-##### `Client.replace_activity(process_id: str, activity: ActivityInput, db_name: str | None = None, *, note: str | None = None) -> dict`
+##### `Client.replace_activity(process_id: str, activity: ActivityInput, db_name: str | None = None, *, note: str | None = None, source: dict | None = None) -> dict`
 
 Rewrite one activity the database already holds, keeping its identity.
 
@@ -1664,6 +1692,10 @@ Returns the same shape as `create_activities`.
 ``note`` says why, in a sentence: it is kept in the database's history
 (`database_history`) and in the changes report its export
 carries. Needs wire revision 79.
+
+``source`` says where the figures come from, as ``{"document": ...,
+"page": 7, "passage": ...}`` (page and passage are optional): it is
+kept beside the reason. Needs wire revision 111.
 
 ##### `Client.resolve_activities(names: Iterable[str], *, by: Literal['name', 'product'] = 'name', geo: str | None = None, exact: bool = True, limit: int = 5, workers: int = 8) -> dict[str, list[Activity]]`
 
@@ -1952,7 +1984,7 @@ Set the multiplier a scoring set's values are shown with, or drop it with ``None
 
 Change the unit a scoring set's scores are expressed in.
 
-##### `Client.supply_missing_product(product: str, provider: str, *, supplier_activity: str | None = None, note: str | None = None, db_name: str | None = None) -> dict`
+##### `Client.supply_missing_product(product: str, provider: str, *, supplier_activity: str | None = None, note: str | None = None, source: dict | None = None, db_name: str | None = None) -> dict`
 
 Give a missing product a supplier wherever the database asks for it.
 
@@ -1968,6 +2000,10 @@ are the ``name`` and ``supplierActivity`` of a gap of
 
 One line the provider cannot supply refuses the whole change. Answers
 as `edit_activities` does. Needs wire revision 109.
+
+``source`` says where the figures come from, as ``{"document": ...,
+"page": 7, "passage": ...}`` (page and passage are optional): it is
+kept beside the reason. Needs wire revision 111.
 
 ##### `Client.system_model(*, db_name: str | None = None) -> dict`
 

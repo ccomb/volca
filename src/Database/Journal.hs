@@ -55,6 +55,9 @@ module Database.Journal (
     Note,
     noteFrom,
     noteText,
+    Stated (..),
+    nothingStated,
+    statedFrom,
 
     -- * The file
     journalPath,
@@ -102,7 +105,7 @@ import Data.Word (Word64)
 import System.Directory (doesFileExist, getFileSize)
 import System.FilePath ((</>))
 
-import Data.JournalFile (Author, Entry (..), JournalVocabulary (..), appendEntries, appendEntry, journalPath, readEntries)
+import Data.JournalFile (Entry (..), JournalVocabulary (..), Origin, Source, appendEntries, appendEntry, journalPath, parseKeptSource, readEntries)
 
 import Database.Author (
     ActivityText (..),
@@ -135,15 +138,29 @@ import Types (AllocationProperty (..), BioDirection (..), Compartment (..), Data
 -- | One line of a database's journal.
 type JournalEvent = Entry Change
 
-{- | A change as its author made it: what it did, and why, when they said. The
-reason is for whoever reads the database's history; a replay never looks at
+{- | A change as its author made it: what it did, and what they said of it. What
+they said is for whoever reads the database's history; a replay never looks at
 it.
 -}
 data Change = Change
-    { changeNote :: Maybe Note
+    { changeStated :: Stated
     , changeOp :: JournalOp
     }
     deriving (Eq, Show)
+
+-- | What the author of a change says of it: why, and where its figures come from.
+data Stated = Stated
+    { statedNote :: Maybe Note
+    , statedSource :: Maybe Source
+    }
+    deriving (Eq, Show)
+
+nothingStated :: Stated
+nothingStated = Stated Nothing Nothing
+
+-- | What a request says of a change, as it arrives.
+statedFrom :: Maybe Text -> Maybe Source -> Stated
+statedFrom note = Stated (note >>= noteFrom)
 
 {- | Why a change was made, in its author's words. Never empty: a reason made
 of blanks says nothing, and is no reason at all.
@@ -210,11 +227,11 @@ data JournalOp
 {- | Record an edit. Appends one line and closes the file before returning, so
 an edit is on disk by the time its caller answers.
 -}
-appendEvent :: FilePath -> Maybe Author -> Change -> IO (Either Text ())
+appendEvent :: FilePath -> Origin -> Change -> IO (Either Text ())
 appendEvent = appendEntry
 
 -- | Record changes made as one, one line each, in a single write.
-appendEvents :: FilePath -> Maybe Author -> NonEmpty Change -> IO (Either Text ())
+appendEvents :: FilePath -> Origin -> NonEmpty Change -> IO (Either Text ())
 appendEvents = appendEntries
 
 -- | Read a database's journal. A database with no journal has made no edits.
@@ -546,13 +563,19 @@ opName = \case
 -- ---------------------------------------------------------------------------
 
 {- | The version this engine writes for a database's journal, and the only one
-it reads. The reason and the earlier values came later as keys a line may lack,
-so a line written before them still reads, as one that kept neither.
+it reads. The reason, the source and the earlier values came later as keys a
+line may lack, so a line written before them still reads, as one that kept none.
 -}
 instance JournalVocabulary Change where
     vocabularyVersion _ = 1
-    opFields (Change note op) = maybe [] (\stated -> ["note" .= noteText stated]) note <> databaseOpFields op
-    parseOp o = Change <$> ((>>= noteFrom) <$> o .:? "note") <*> databaseParseOp o
+    opFields (Change (Stated note source) op) =
+        maybe [] (\said -> ["note" .= noteText said]) note
+            <> maybe [] (\cited -> ["source" .= cited]) source
+            <> databaseOpFields op
+    parseOp o = do
+        note <- (>>= noteFrom) <$> o .:? "note"
+        source <- o .:? "source" >>= traverse parseKeptSource
+        Change (Stated note source) <$> databaseParseOp o
 
 databaseOpFields :: JournalOp -> [Pair]
 databaseOpFields = \case

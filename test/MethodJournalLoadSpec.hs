@@ -10,7 +10,7 @@ import System.FilePath ((</>))
 import Test.Hspec
 
 import Config (defaultConfig)
-import Data.JournalFile (appendEntry, journalPath)
+import Data.JournalFile (appendEntry, journalPath, noOrigin)
 import Database.Manager (CachePolicy (..), getMethodCollection, initDatabaseManager, loadMethodCollection)
 import Database.UploadedDatabase (getMethodUploadsDir)
 import Method.Journal
@@ -57,7 +57,7 @@ spec = describe "loading an uploaded method collection" $ do
             case before of
                 Right MethodCollection{mcMethods = [category]}
                     | [ammonia] <- filter ((== "Ammonia") . mcfFlowName) (methodFactors category) -> do
-                        appendEntry home Nothing (MethodLine (SetFactor (methodId category) ammonia 27) Change) `shouldReturn` Right ()
+                        appendEntry home noOrigin (MethodLine (SetFactor (methodId category) ammonia 27) Change) `shouldReturn` Right ()
                         after <- loadedEcotox
                         fmap ammoniaValues after `shouldBe` Right [27]
                 other -> expectationFailure ("expected one category with one ammonia factor, got " <> show other)

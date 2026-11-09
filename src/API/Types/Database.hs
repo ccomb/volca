@@ -7,6 +7,7 @@ module API.Types.Database where
 
 import API.JsonOptions (Stripped (..), parseClosed, stripLowerPrefix)
 import Data.Aeson
+import Data.JournalFile (Source)
 import Data.OpenApi (ToSchema (..))
 import Data.Text (Text)
 import GHC.Generics
@@ -27,8 +28,12 @@ data DatabaseHistoryEntry = DatabaseHistoryEntry
     -- ^ The database the change was made on: this one, or the parent it is divided from
     , dheBy :: Maybe Text
     -- ^ The public name of the account that made it; absent when the engine was not told
+    , dheVia :: Maybe Text
+    -- ^ The surface it came through, "mcp" or "http"; absent on a line older than the record of it
     , dheNote :: Maybe Text
     -- ^ Why, in its author's words; absent when they gave no reason
+    , dheSource :: Maybe Source
+    -- ^ Where its figures come from, as its author cited them
     , dheSummary :: Text
     , dheDetails :: [Text]
     -- ^ Each line the change touched, with its value before when it was kept
@@ -501,6 +506,7 @@ data DeleteSelectionRequest = DeleteSelectionRequest
     , dsqExtra :: [Text] -- Process-id strings to add to deletion
     , dsqIds :: Maybe [Text] -- Delete exactly these process ids (no filter fields allowed)
     , dsqNote :: Maybe Text -- Why, kept in the database's history
+    , dsqSource :: Maybe Source -- Where its figures come from, kept beside the reason
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeleteSelectionRequest)

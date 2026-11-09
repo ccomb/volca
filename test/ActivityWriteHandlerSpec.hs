@@ -15,8 +15,9 @@ outright. The validation itself is "AuthorSpec"'s subject, not this file's.
 module ActivityWriteHandlerSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
-import Control.Monad (void)
-import Data.Aeson (decode)
+import Control.Monad (forM_, void)
+import Data.Aeson (Value (..), decode, encode, object, toJSON, (.=))
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.List (find, isInfixOf)
 import qualified Data.Map.Strict as M
@@ -35,6 +36,7 @@ import API.DatabaseHandlers (createActivitiesHandler, databaseHistoryHandler, ed
 import Codec.Archive.Zip (findEntryByPath, fromEntry, toArchive)
 import Database.Author (authoredActivityUUID, authoredProductUUID)
 
+import API.MCP (callTool, noRequestId)
 import API.Types (
     ActivityInput (..),
     ActivityWriteRequest (..),
@@ -56,7 +58,7 @@ import API.Types (
 import App.Env (AppEnv (..), runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Control.Exception (bracket_)
-import Data.JournalFile (Author (..))
+import Data.JournalFile (Author (..), sourceFrom)
 import Database (buildDatabaseWithMatrices)
 import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), databaseModification, getDatabase, initDatabaseManager)
 import Database.Upload (DatabaseFormat (..))
@@ -92,6 +94,7 @@ import Types (
     noProperties,
  )
 import UnitConversion (defaultUnitConfig)
+import Usage (anonymous)
 
 spec :: Spec
 spec = do
@@ -397,11 +400,11 @@ textsOf a = (activityLocation a, activityLocationSource a, activityDescription a
 
 create :: AppEnv -> Text -> [ActivityInput] -> IO (Either ServerError ActivityWriteResponse)
 create env dbName activities =
-    runHandler (runApp env (createActivitiesHandler dbName (ActivityWriteRequest activities Nothing)))
+    runHandler (runApp env (createActivitiesHandler dbName (ActivityWriteRequest activities Nothing Nothing)))
 
 replace :: AppEnv -> Text -> Text -> ActivityInput -> IO (Either ServerError ActivityWriteResponse)
 replace env dbName processId body =
-    runHandler (runApp env (replaceActivityHandler dbName processId Nothing body))
+    runHandler (runApp env (replaceActivityHandler dbName processId Nothing Nothing body))
 
 edit :: AppEnv -> Text -> Text -> ExchangeEditRequest -> IO (Either ServerError ExchangeEditResponse)
 edit env dbName processId body =
@@ -427,6 +430,7 @@ noEdits =
         , eerSetSuppliers = []
         , eerRemoveParameters = []
         , eerNote = Nothing
+        , eerSource = Nothing
         }
 
 bioSelector :: UUID -> ExchangeSelectorAPI
@@ -462,6 +466,47 @@ documentingSpec = describe "documenting the changes made to a database" $ do
             void (edit env "authored" supplierPid (setCo2 4 Nothing))
             fmap (map dheBy) <$> runHandler (runApp env (databaseHistoryHandler "authored"))
                 `shouldReturn` Right [Just "ana", Nothing]
+
+    describe "what a change came through and where its figures come from" $ do
+        let camplone = either (const Nothing) Just (sourceFrom "Camplone 2025" (Just 7) (Just "63 kg N/ha"))
+            cited = object ["document" .= ("Camplone 2025" :: Text), "page" .= (7 :: Int), "passage" .= ("63 kg N/ha" :: Text)]
+            recorded env = fmap (map (\h -> (dheVia h, dheSource h))) <$> runHandler (runApp env (databaseHistoryHandler "authored"))
+            setAmounts = toJSON [SetAmountAPI{saSelect = bioSelector co2Id, saAmount = 3}]
+            call env name args = callTool anonymous (aeDbManager env) [] Nothing Nothing noRequestId name (KM.fromList (("database", String "authored") : args))
+            mcpEdit env args = call env "edit_exchanges" ([("process_id", String supplierPid), ("set_amounts", setAmounts)] <> args)
+            refused = isInfixOf "\"isError\":true"
+            reply = BSL.unpack . encode
+
+        it "records a change made over HTTP as such, with its source" $
+            withWritableDb $ \env -> do
+                void (edit env "authored" supplierPid (setCo2 3 Nothing){eerSource = camplone})
+                recorded env `shouldReturn` Right [(Just "http", camplone)]
+
+        it "records a change made by a tool call as such, with its source" $
+            withWritableDb $ \env -> do
+                resp <- mcpEdit env [("source", cited)]
+                reply resp `shouldNotSatisfy` refused
+                recorded env `shouldReturn` Right [(Just "mcp", camplone)]
+
+        it "refuses a tool call whose source cannot be kept, and writes nothing" $
+            withWritableDb $ \env -> do
+                let attempts =
+                        [ (object ["document" .= ("  " :: Text)], "document")
+                        , (object ["document" .= ("d" :: Text), "page" .= (0 :: Int)], "page")
+                        , (object ["document" .= ("d" :: Text), "pages" .= (7 :: Int)], "pages")
+                        ]
+                forM_ attempts $ \(source, named) -> do
+                    resp <- mcpEdit env [("source", source)]
+                    reply resp `shouldSatisfy` refused
+                    reply resp `shouldContain` named
+                recorded env `shouldReturn` Right []
+
+        it "refuses a source given on one edit of several, and writes nothing" $
+            withWritableDb $ \env -> do
+                resp <- call env "edit_activities" [("edits", toJSON [object ["process_id" .= supplierPid, "set_amounts" .= setAmounts, "source" .= cited]])]
+                reply resp `shouldSatisfy` refused
+                reply resp `shouldContain` "a source is given once"
+                recorded env `shouldReturn` Right []
 
     it "prices a product, keeping the price on the activity and the change in the history" $
         withWritableDb $ \env -> do

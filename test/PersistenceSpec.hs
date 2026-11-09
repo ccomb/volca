@@ -23,6 +23,7 @@ import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (bracket_)
 import Control.Monad (forM_, void)
 import Data.Bifunctor (first)
+import Data.JournalFile (noOrigin)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Set as Set
@@ -53,7 +54,7 @@ import Database.Edit (
     refusalMessage,
     supplyMissing,
  )
-import Database.Journal (Change (..), Entry (..), JournalOp (..), journalPath, readJournal)
+import Database.Journal (Change (..), Entry (..), JournalOp (..), journalPath, nothingStated, readJournal)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
@@ -196,7 +197,7 @@ spec = describe "persisting an edit" $ do
                 manager <- initDatabaseManager defaultConfig NoCache
                 db <- buildTwoActivityFixture
                 install manager "configured" db (configuredConfig "configured")
-                r <- mutateUploadedDatabase manager "configured" Nothing (pure dropSecond)
+                r <- mutateUploadedDatabase manager "configured" noOrigin (pure dropSecond)
                 case r of
                     Left err -> expectationFailure ("mutateUploadedDatabase: " <> show err)
                     Right outcome -> do
@@ -210,7 +211,7 @@ spec = describe "persisting an edit" $ do
             withEcoSpold1DatabaseOf threeDatasets $ \manager home -> do
                 keys <- processKeysOf manager "bafu-like"
                 co2 <- co2Of manager
-                outcome <- editActivities manager "bafu-like" Nothing Nothing (setCo2 co2 keys)
+                outcome <- editActivities manager "bafu-like" noOrigin nothingStated (setCo2 co2 keys)
                 void (first refusalMessage outcome) `shouldBe` Right ()
                 emissionsBy manager "bafu-like" `shouldReturn` M.fromList (zip keys [[1], [2], [3]])
                 journal <- readJournal home
@@ -225,7 +226,7 @@ spec = describe "persisting an edit" $ do
                     requests = case setCo2 co2 keys of
                         first' :| (second' : rest) -> first' :| ((fst second', [missing]) : rest)
                         whole -> whole
-                outcome <- editActivities manager "bafu-like" Nothing Nothing requests
+                outcome <- editActivities manager "bafu-like" noOrigin nothingStated requests
                 void (first refusalMessage outcome) `shouldSatisfy` failsWith (keys !! 1)
                 readJournal home `shouldReturn` Right []
                 emissionsBy manager "bafu-like" `shouldReturn` before
@@ -235,7 +236,7 @@ spec = describe "persisting an edit" $ do
                 keys <- processKeysOf manager "bafu-like"
                 co2 <- co2Of manager
                 let twice = head' keys
-                outcome <- editActivities manager "bafu-like" Nothing Nothing ((twice, [SetAmount (SelectBiosphere co2) 1]) :| [(twice, [SetAmount (SelectBiosphere co2) 2])])
+                outcome <- editActivities manager "bafu-like" noOrigin nothingStated ((twice, [SetAmount (SelectBiosphere co2) 1]) :| [(twice, [SetAmount (SelectBiosphere co2) 2])])
                 void (first refusalMessage outcome) `shouldSatisfy` failsWith "more than once"
                 readJournal home `shouldReturn` Right []
 
@@ -243,7 +244,7 @@ spec = describe "persisting an edit" $ do
             withEcoSpold1DatabaseOf threeDatasets $ \manager home -> do
                 keys <- processKeysOf manager "bafu-like"
                 co2 <- co2Of manager
-                _ <- editActivities manager "bafu-like" Nothing Nothing (setCo2 co2 keys)
+                _ <- editActivities manager "bafu-like" noOrigin nothingStated (setCo2 co2 keys)
                 live <- emissionsBy manager "bafu-like"
                 -- Without the stamp the cache is not trusted, so the reload
                 -- reads the sources and replays the journal over them.
@@ -256,7 +257,7 @@ spec = describe "persisting an edit" $ do
             withEcoSpold1Datasets farm $ \manager home -> do
                 missingCount manager "barley" `shouldReturn` Just 2
                 provider <- processIdNamed manager "barley grain, milled"
-                outcome <- supplyMissing manager "bafu-like" Nothing Nothing (MissingRequest "barley" Nothing provider)
+                outcome <- supplyMissing manager "bafu-like" noOrigin nothingStated (MissingRequest "barley" Nothing provider)
                 void (first refusalMessage outcome) `shouldBe` Right ()
                 bought <- boughtBy manager
                 M.lookup "bread" bought `shouldBe` Just [(Just provider, 2), (Nothing, 1)]
@@ -269,7 +270,7 @@ spec = describe "persisting an edit" $ do
         it "refuses the whole change when the provider cannot supply a line in its unit" $
             withEcoSpold1Datasets farm $ \manager home -> do
                 provider <- processIdNamed manager "electricity production, wind"
-                outcome <- supplyMissing manager "bafu-like" Nothing Nothing (MissingRequest "barley" Nothing provider)
+                outcome <- supplyMissing manager "bafu-like" noOrigin nothingStated (MissingRequest "barley" Nothing provider)
                 void (first refusalMessage outcome) `shouldSatisfy` failsWith ("input from \"" <> provider <> "\": ")
                 readJournal home `shouldReturn` Right []
                 missingCount manager "barley" `shouldReturn` Just 2
@@ -277,7 +278,7 @@ spec = describe "persisting an edit" $ do
         it "says so when no input asks for the product" $
             withEcoSpold1Datasets farm $ \manager home -> do
                 provider <- processIdNamed manager "barley grain, milled"
-                outcome <- supplyMissing manager "bafu-like" Nothing Nothing (MissingRequest "rye" Nothing provider)
+                outcome <- supplyMissing manager "bafu-like" noOrigin nothingStated (MissingRequest "rye" Nothing provider)
                 void (first refusalMessage outcome) `shouldSatisfy` failsWith "No input of this database asks for rye"
                 readJournal home `shouldReturn` Right []
 
@@ -288,7 +289,7 @@ spec = describe "persisting an edit" $ do
                 db <- buildTwoActivityFixture
                 install manager "busy" db (configuredConfig "busy")
                 atomically $ modifyTVar' (dmStagingDbs manager) (Set.insert "busy")
-                r <- mutateUploadedDatabase manager "busy" Nothing (pure dropSecond)
+                r <- mutateUploadedDatabase manager "busy" noOrigin (pure dropSecond)
                 void r `shouldSatisfy` failsWith "already in progress"
 
         it "refuses while another loaded database depends on this one" $
@@ -297,7 +298,7 @@ spec = describe "persisting an edit" $ do
                 db <- buildTwoActivityFixture
                 install manager "background" db (configuredConfig "background")
                 install manager "foreground" db{dbDependsOn = ["background"]} (configuredConfig "foreground")
-                r <- mutateUploadedDatabase manager "background" Nothing (pure dropSecond)
+                r <- mutateUploadedDatabase manager "background" noOrigin (pure dropSecond)
                 void r `shouldSatisfy` failsWith "still required by"
 
 -- ---------------------------------------------------------------------------
@@ -448,7 +449,7 @@ processKeysOf manager dbName = do
 -- | Delete the first process, through the request path a client uses.
 deleteFirst :: DatabaseManager -> Text -> [Text] -> IO DeleteOutcome
 deleteFirst manager dbName keys = do
-    r <- deleteActivitiesInDB manager dbName Nothing (deleteIds [head' keys])
+    r <- deleteActivitiesInDB manager dbName noOrigin (deleteIds [head' keys])
     either (fail . T.unpack) pure r
 
 -- | Unload, load again, and say which processes came back.
@@ -506,7 +507,7 @@ here, and a deletion is the one every database supports, so these examples pin
 the mutation path itself rather than what happened to be edited.
 -}
 dropSecond :: Change
-dropSecond = Change Nothing (Deleted [processRefText (ProcessRef otherActId supplierProdId)])
+dropSecond = Change nothingStated (Deleted [processRefText (ProcessRef otherActId supplierProdId)])
 
 deleteIds :: [Text] -> DeleteRequest
 deleteIds ids =
@@ -519,7 +520,7 @@ deleteIds ids =
         , drKeep = []
         , drExtra = []
         , drIds = Just ids
-        , drNote = Nothing
+        , drStated = nothingStated
         }
 
 install :: DatabaseManager -> Text -> Database -> DatabaseConfig -> IO ()

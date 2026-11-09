@@ -657,4 +657,4 @@ withEnergy =
 
 -- | Changes asked about or applied with no reason given.
 changesQuery :: [SummaryChange] -> [ExchangeChange] -> ChangesQuery
-changesQuery summary exchanges' = ChangesQuery summary exchanges' Nothing
+changesQuery summary exchanges' = ChangesQuery summary exchanges' Nothing Nothing

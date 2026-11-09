@@ -81,7 +81,7 @@ import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, make
 import System.FilePath ((</>))
 
 import Config (DatabaseConfig (..), licenceOf)
-import Data.JournalFile (Author)
+import Data.JournalFile (Origin)
 import Database (Geographies)
 import Database.Allocation (Allocating (..), describePropertyRefusal, keptWhole, propertyKeyRefusals)
 import Database.Author (
@@ -107,9 +107,9 @@ import Database.Journal (
     Change (..),
     EditLine (..),
     JournalOp (..),
-    Note,
     ParameterLine (..),
     Prior (..),
+    Stated,
     appendEvents,
     applyOps,
     journalPath,
@@ -643,8 +643,8 @@ where authoring belongs.
 writeActivities ::
     DatabaseManager ->
     Text ->
-    Maybe Author ->
-    Maybe Note ->
+    Origin ->
+    Stated ->
     WriteVerb ->
     [AuthoredActivity] ->
     IO (Either WriteRefusal WriteReport)
@@ -652,7 +652,7 @@ writeActivities _ _ _ _ _ [] =
     -- Committing re-serializes the whole database and rebuilds its solver;
     -- an empty batch would pay all of that to write nothing.
     pure (Left (Malformed ["The batch is empty: there is nothing to write."]))
-writeActivities manager dbName by note verb authored =
+writeActivities manager dbName origin stated verb authored =
     getDatabase manager dbName >>= \case
         Nothing -> pure (Left (NotLoaded dbName))
         Just loaded
@@ -687,7 +687,7 @@ writeActivities manager dbName by note verb authored =
     -- link. Identity minting is pure, so the keys cannot differ between the
     -- two runs.
     commit resolved warnings op = do
-        outcome <- mutateUploadedDatabase manager dbName by (pure (Change note op))
+        outcome <- mutateUploadedDatabase manager dbName origin (pure (Change stated op))
         pure $ case outcome of
             Left err -> Left (WriteFailed err)
             Right done ->
@@ -732,13 +732,13 @@ as it is.
 editExchanges ::
     DatabaseManager ->
     Text ->
-    Maybe Author ->
-    Maybe Note ->
+    Origin ->
+    Stated ->
     Text ->
     [ExchangeEdit] ->
     IO (Either WriteRefusal EditReport)
-editExchanges manager dbName by note target edits =
-    fmap alone <$> editActivities manager dbName by note (pure (target, edits))
+editExchanges manager dbName origin stated target edits =
+    fmap alone <$> editActivities manager dbName origin stated (pure (target, edits))
   where
     alone :: (NonEmpty EditReport, MutationOutcome) -> EditReport
     alone (reports, done) = let report = NE.head reports in report{erWarnings = erWarnings report <> moWarnings done}
@@ -757,11 +757,11 @@ in the outcome.
 editActivities ::
     DatabaseManager ->
     Text ->
-    Maybe Author ->
-    Maybe Note ->
+    Origin ->
+    Stated ->
     NonEmpty (Text, [ExchangeEdit]) ->
     IO (Either WriteRefusal (NonEmpty EditReport, MutationOutcome))
-editActivities manager dbName by note requests
+editActivities manager dbName origin stated requests
     | Just empties <- NE.nonEmpty [target | (target, []) <- NE.toList requests] =
         -- Committing re-serializes the database and rebuilds its solver; an
         -- empty edit would pay all of that to change nothing.
@@ -791,7 +791,7 @@ editActivities manager dbName by note requests
                 (applyExchangeEdits ctx edits activity)
     commit :: NonEmpty JudgedEdit -> IO (Either WriteRefusal (NonEmpty EditReport, MutationOutcome))
     commit edits = do
-        outcome <- mutateUploadedDatabase manager dbName by (fmap (Change note . journalled) edits)
+        outcome <- mutateUploadedDatabase manager dbName origin (fmap (Change stated . journalled) edits)
         pure $ case outcome of
             Left err -> Left (WriteFailed err)
             Right done -> Right (fmap (reportOf done) edits, done)
@@ -811,16 +811,16 @@ a replay moves the lines that were moved.
 supplyMissing ::
     DatabaseManager ->
     Text ->
-    Maybe Author ->
-    Maybe Note ->
+    Origin ->
+    Stated ->
     MissingRequest ->
     IO (Either WriteRefusal (NonEmpty EditReport, MutationOutcome))
-supplyMissing manager dbName by note request =
+supplyMissing manager dbName origin stated request =
     getDatabase manager dbName >>= \case
         Nothing -> pure (Left (NotLoaded dbName))
         Just loaded -> case supplyEdits (ldDatabase loaded) request of
             Left refusal -> pure (Left (Malformed [refusal]))
-            Right (edits, wastes) -> fmap (fmap (warnSkipped wastes)) <$> editActivities manager dbName by note edits
+            Right (edits, wastes) -> fmap (fmap (warnSkipped wastes)) <$> editActivities manager dbName origin stated edits
   where
     -- A waste of the same name asks for a treatment, which this change does not give.
     warnSkipped :: Int -> MutationOutcome -> MutationOutcome
@@ -928,9 +928,9 @@ data ParametersReport = ParametersReport
 removed, and restate every process that reads them. Refused for the reasons
 an edit of one activity is, and checked whole before anything is written.
 -}
-editDatabaseParameters :: DatabaseManager -> Text -> Maybe Author -> Maybe Note -> [(Text, Maybe Parameter)] -> IO (Either WriteRefusal ParametersReport)
+editDatabaseParameters :: DatabaseManager -> Text -> Origin -> Stated -> [(Text, Maybe Parameter)] -> IO (Either WriteRefusal ParametersReport)
 editDatabaseParameters _ _ _ _ [] = pure (Left (Malformed ["There is nothing to change: the edit names no parameter."]))
-editDatabaseParameters manager dbName by note edits =
+editDatabaseParameters manager dbName origin stated edits =
     getDatabase manager dbName >>= \case
         Nothing -> pure (Left (NotLoaded dbName))
         Just loaded
@@ -942,7 +942,7 @@ editDatabaseParameters manager dbName by note edits =
                     let applied parameters (name, parameter) = maybe id (M.insert name) parameter (M.filterWithKey (\key _ -> T.toLower key /= T.toLower name) parameters)
                         priors = zipWith (\parameters (name, _) -> Prior (lookupParameter name parameters)) (scanl applied (dbParameters (ldDatabase loaded)) edits) edits
                         lines' = zipWith (\(name, parameter) prior -> ParameterLine name parameter prior) edits priors
-                    outcome <- mutateUploadedDatabase manager dbName by (pure (Change note (ParametersEdited lines')))
+                    outcome <- mutateUploadedDatabase manager dbName origin (pure (Change stated (ParametersEdited lines')))
                     pure $ case outcome of
                         Left err -> Left (WriteFailed err)
                         Right done ->
@@ -1080,16 +1080,16 @@ process identity in them ("Database.Journal" says why).
 mutateUploadedDatabase ::
     DatabaseManager ->
     Text ->
-    Maybe Author ->
+    Origin ->
     NonEmpty Change ->
     IO (Either Text MutationOutcome)
-mutateUploadedDatabase manager dbName by changes = do
+mutateUploadedDatabase manager dbName origin changes = do
     -- Two concurrent edits of the same database would each apply to the value
     -- the other started from, and both would land in the journal. Reserve the
     -- name (the same reservation copy and staging use) and refuse the second
     -- rather than queue it: edits are interactive and rare.
     withReservedName manager dbName notAlreadyRunning $ \() ->
-        mutateReserved manager dbName by changes
+        mutateReserved manager dbName origin changes
   where
     notAlreadyRunning = do
         staging <- readTVar (dmStagingDbs manager)
@@ -1104,8 +1104,8 @@ is relinked and saved once. A refused change writes nothing; a crash during
 the single journal write can still leave the first lines of the batch, each a
 whole edit, which the next load replays.
 -}
-mutateReserved :: DatabaseManager -> Text -> Maybe Author -> NonEmpty Change -> IO (Either Text MutationOutcome)
-mutateReserved manager dbName by changes =
+mutateReserved :: DatabaseManager -> Text -> Origin -> NonEmpty Change -> IO (Either Text MutationOutcome)
+mutateReserved manager dbName origin changes =
     getDatabase manager dbName >>= \case
         Nothing -> pure $ Left $ "Database not loaded: " <> dbName
         Just loaded -> do
@@ -1116,7 +1116,7 @@ mutateReserved manager dbName by changes =
                 Left err -> pure (Left err)
                 Right edited -> do
                     home <- editHome (ldConfig loaded)
-                    recorded <- traverse (\h -> appendEvents h by changes) home
+                    recorded <- traverse (\h -> appendEvents h origin changes) home
                     case sequence recorded of
                         Left err -> pure (Left err)
                         Right _ -> Right <$> commitMutation manager dbName loaded edited home
@@ -1292,7 +1292,7 @@ data DeleteRequest = DeleteRequest
     , drKeep :: [Text]
     , drExtra :: [Text]
     , drIds :: Maybe [Text]
-    , drNote :: Maybe Note
+    , drStated :: Stated
     }
 
 {- | What a delete-by-selection request did: how many activities went, and
@@ -1322,10 +1322,10 @@ set, so a restart quietly resurrected every removed activity. A configured
 deleteActivitiesInDB ::
     DatabaseManager ->
     Text -> -- database name
-    Maybe Author ->
+    Origin ->
     DeleteRequest ->
     IO (Either Text DeleteOutcome)
-deleteActivitiesInDB manager dbName by DeleteRequest{drName = nameP, drLocation = geoP, drProduct = prodP, drClassifications = classFilters, drExactName = exactMatch, drKeep = keep, drExtra = extra, drIds = mIds, drNote = note} =
+deleteActivitiesInDB manager dbName origin DeleteRequest{drName = nameP, drLocation = geoP, drProduct = prodP, drClassifications = classFilters, drExactName = exactMatch, drKeep = keep, drExtra = extra, drIds = mIds, drStated = stated} =
     getDatabase manager dbName >>= \case
         Nothing -> pure $ Left $ "Database not loaded: " <> dbName
         Just loaded -> do
@@ -1355,7 +1355,7 @@ deleteActivitiesInDB manager dbName by DeleteRequest{drName = nameP, drLocation 
                         -- deletion happened.
                         Right [] -> pure (Right (removed 0 (dcIsUploaded (ldConfig loaded)) []))
                         Right targets -> do
-                            outcome <- mutateUploadedDatabase manager dbName by (pure (Change note (Deleted targets)))
+                            outcome <- mutateUploadedDatabase manager dbName origin (pure (Change stated (Deleted targets)))
                             pure $ flip fmap outcome $ \done ->
                                 removed (length targets) (moPersisted done) (moWarnings done)
   where
