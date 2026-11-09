@@ -1285,9 +1285,10 @@ class Client:
         return self._json(
             self._session.put(
                 f"{self.base_url}/api/v1/db/{target}/activity/{process_id}",
+                # The URL carries the source as JSON: requests would flatten a dict.
                 params={
-                    **self._stated(note, source, "replace_activity"),
-                    **({"source": json.dumps(source)} if source is not None else {}),
+                    key: json.dumps(value) if key == "source" else value
+                    for key, value in self._stated(note, source, "replace_activity").items()
                 },
                 json=activity.to_wire(),
             )
