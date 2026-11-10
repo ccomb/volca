@@ -36,7 +36,11 @@
   loaded" instead of preparing the database from its files, which left that
   work out: load the database, and its setup is there. pyvolca's
   `ensure_database` went through that door for every closed upload, and now
-  loads the database when the setup answers so.
+  loads the database when the setup answers so. An earlier pyvolca raises on
+  that answer where it used to return the database without its work: update
+  it, or call `load_database`. Changing the data path of such a database
+  (`POST /api/v1/db/{name}/set-data-path`) is refused the same way while it is
+  closed, before anything is written.
 - A copy of a database relinked by a mapping links as its source does when it
   is closed and loaded again, and an edit that names a supplier in a
   dependency is replayed against the dependencies the database stands on, the

@@ -63,6 +63,7 @@ import Database.Manager (
     DatabaseSetupInfo (..),
     LoadedDatabase (..),
     MissingSupplier (..),
+    RelativeDataPath (..),
     SetupError (..),
     addDatabase,
     getDatabaseSetupInfo,
@@ -70,6 +71,7 @@ import Database.Manager (
     loadDatabase,
     relinkDatabaseWithMapping,
     removeDatabase,
+    setDataPath,
     unloadDatabase,
  )
 import Database.RelinkMapping (SupplierMapping, readSupplierMapping)
@@ -214,6 +216,16 @@ spec = describe "persisting an edit" $ do
                 relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
                 unloadDatabase manager "bakery" `shouldReturn` Right ()
                 (void <$> getDatabaseSetupInfo manager "bakery") `shouldReturn` Left (SetupNotLoaded "bakery")
+
+        it "keeps its data path while it is closed, rather than move it and then answer that it is not loaded" $
+            withBakeryAndMill $ \dataRoot manager -> do
+                relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
+                unloadDatabase manager "bakery" `shouldReturn` Right ()
+                let home = homeOf dataRoot "bakery"
+                createDirectoryIfMissing True (home </> "other")
+                TIO.writeFile (home </> "other" </> "process.xml") (datasetBuying 1 "bread" "kg" [])
+                (void <$> setDataPath manager "bakery" (RelativeDataPath "other")) `shouldReturn` Left "Database not loaded: bakery"
+                fmap umDataPath <$> readUploadMeta home `shouldReturn` Just "data"
 
         it "replays an edit that names a supplier in the dependency" $
             -- The edit was accepted against the dependencies the database had

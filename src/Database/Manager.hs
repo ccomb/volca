@@ -4689,6 +4689,13 @@ setDataPath manager dbName (RelativeDataPath newRelPath) = runExceptT $ do
             maybe (Left $ "Database not found: " <> dbName) Right (M.lookup dbName availableDbs)
     unless (dcIsUploaded dbConfig) $ throwE "Cannot change data path for configured databases"
 
+    {- A closed upload that is more than its files is not staged from them, so
+    the setup this answers with would say "not loaded" once the path had
+    already moved. Refuse before anything is written. -}
+    loaded <- liftIO $ M.member dbName <$> readTVarIO (dmLoadedDbs manager)
+    worked <- liftIO $ moreThanItsFiles manager dbConfig
+    when (worked && not loaded) $ throwE (setupErrorMessage (SetupNotLoaded dbName))
+
     uploadsDir <- liftIO UploadedDB.getDatabaseUploadsDir
     let uploadRoot = uploadsDir </> T.unpack dbName
         newFullPath = uploadRoot </> T.unpack newRelPath
