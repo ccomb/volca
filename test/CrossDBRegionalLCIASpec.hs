@@ -17,8 +17,10 @@ products recovers the right answer.
 -}
 module CrossDBRegionalLCIASpec (spec) where
 
+import Data.Either (lefts)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 
@@ -187,6 +189,90 @@ spec = describe "cross-DB regional LCIA" $ do
                         perDb
                     )
                     `shouldBe` [Right 5.0]
+
+    it "two databases in error are both named, in the order the solve reached them" $ do
+        rootSolver <- mkSolverFromDb rootDb "root"
+        depSolver <- mkSolverFromDb depDb "dep"
+        let depLookup name =
+                pure $
+                    if name == "dep" then Just (depDb, depSolver) else Nothing
+        eRes <-
+            SS.computeInventoryMatrixWithDepsCached
+                kgUnitConfig
+                depLookup
+                rootDb
+                "root"
+                rootSolver
+                0
+        case eRes of
+            Left err -> expectationFailure ("solve failed: " <> show err)
+            Right sol -> do
+                let stale t = t{mtRegionalActivityWeights = Nothing}
+                    perDb =
+                        [ (db, s, stale (if n == "root" then rootTables else depTables))
+                        | SS.Reached n db s <- NE.toList (SS.csScalings sol)
+                        ]
+                    alone (db, s, t) =
+                        computeRegionalizedLCIAScore kgUnitConfig (dbUnits depDb) (dbBioFlows depDb) IncludeLongTerm db s M.empty t
+                    errors = lefts (map alone perDb)
+                length errors `shouldBe` 2
+                sumRegionalizedLCIAScoreCrossDB
+                    kgUnitConfig
+                    (dbUnits depDb)
+                    (dbBioFlows depDb)
+                    IncludeLongTerm
+                    M.empty
+                    perDb
+                    `shouldBe` Left (T.intercalate "; " errors)
+
+    it "a database whose set does not carry a method adds nothing to that method" $ do
+        let method =
+                Method
+                    { methodId = mkUUID 9
+                    , methodName = "Water use"
+                    , methodDescription = Nothing
+                    , methodUnit = "kg"
+                    , methodCategory = "Test"
+                    , methodMethodology = Nothing
+                    , methodFactors =
+                        map fst (regionalMappings [("FR", 1), ("DE", 5), ("GLO", 0.5)])
+                    }
+            rootSet = buildMethodSetTables [(method, rootTables)]
+            emptySet = buildMethodSetTables []
+        rootSolver <- mkSolverFromDb rootDb "root"
+        depSolver <- mkSolverFromDb depDb "dep"
+        let depLookup name =
+                pure $
+                    if name == "dep" then Just (depDb, depSolver) else Nothing
+        eRes <-
+            SS.computeInventoryMatrixWithDepsCached
+                kgUnitConfig
+                depLookup
+                rootDb
+                "root"
+                rootSolver
+                0
+        case eRes of
+            Left err -> expectationFailure ("solve failed: " <> show err)
+            Right sol -> do
+                let perDb =
+                        NE.map
+                            (\(SS.Reached n db sc) -> (db, sc, if n == "root" then rootSet else emptySet))
+                            (SS.csScalings sol)
+                -- The dependency's kilogram at DE is worth 5 with its own
+                -- tables: left out, the root alone answers.
+                map
+                    snd
+                    ( computeLCIAScoreSetFromTables
+                        kgUnitConfig
+                        (dbUnits depDb)
+                        (dbBioFlows depDb)
+                        IncludeLongTerm
+                        (SS.csInventory sol)
+                        M.empty
+                        perDb
+                    )
+                    `shouldBe` [Right 0.0]
 
     it "NEW path: a dep-DB integrity error fails the whole sum, never undercounts" $ do
         -- Same solve as the 5.0 case, but the dep DB's tables carry a
