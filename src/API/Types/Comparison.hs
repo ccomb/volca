@@ -7,7 +7,7 @@
 
 module API.Types.Comparison where
 
-import API.JsonOptions (Stripped (..))
+import API.JsonOptions (Stripped (..), parseClosed)
 import API.Types.Common
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
@@ -343,3 +343,51 @@ data ScorePairs = ScorePairs
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ScorePairs)
+
+{- | Processes of one database whose scores a reader wants per one unit of
+their choosing. The unit is the same for every database of a comparison, so
+the caller names it; a misspelt field is refused rather than read as absent.
+-}
+data ScoreUnitsRequest = ScoreUnitsRequest
+    { surUnit :: !Text
+    , surProcessIds :: ![Text]
+    }
+    deriving (Generic)
+    deriving (ToSchema) via (Stripped ScoreUnitsRequest)
+
+instance FromJSON ScoreUnitsRequest where
+    parseJSON = parseClosed
+
+-- | What a score per one unit of a process's reference product is multiplied by to be per one chosen unit, or why nothing can.
+data UnitScale
+    = Scaled {usFactor :: !Double}
+    | SetApart {usReason :: !PairRefusal}
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped UnitScale)
+
+-- | One asked process, and how its score reads per the chosen unit.
+data ScoreUnit = ScoreUnit
+    { suProcessId :: !Text
+    -- ^ As the caller asked for it, so it joins the batch scores asked with the same id.
+    , suActivityName :: !Text
+    , suLocation :: !Text
+    , suProductUnit :: !(Maybe Text)
+    -- ^ Absent when the process has no reference product, or its database registers no unit for it.
+    , suScale :: !UnitScale
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScoreUnit)
+
+{- | The asked processes of one database put per one chosen unit, with the
+units a reader could choose instead: every one the unit table measures the
+same quantity in, one spelling per factor, smallest first.
+-}
+data ScoreUnits = ScoreUnits
+    { susUnit :: !Text
+    , susSameMeasure :: ![Text]
+    , susProcesses :: ![ScoreUnit]
+    , susNotFound :: ![Text]
+    -- ^ Asked ids that name no process of the database; the others are answered all the same.
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScoreUnits)

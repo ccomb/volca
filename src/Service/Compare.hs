@@ -54,6 +54,7 @@ module Service.Compare (
     compareDatabases,
     limitComparison,
     scorePairs,
+    scoreUnits,
     changesPresent,
     applicableChanges,
 
@@ -67,6 +68,7 @@ module Service.Compare (
 ) where
 
 import Control.Monad (mfilter)
+import Data.Either (partitionEithers)
 import Data.Foldable (asum)
 import Data.Indexing (groupInOrder)
 import Data.List (mapAccumL)
@@ -75,6 +77,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (listToMaybe)
+import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -101,11 +104,14 @@ import API.Types (
     Quantity (..),
     ScorePair (..),
     ScorePairs (..),
+    ScoreUnit (..),
+    ScoreUnits (..),
     SetApartPair (..),
     SummaryChange (..),
     Supplier (..),
     UncomparedLine (..),
     UncomparedReason (..),
+    UnitScale (..),
     WasteSide (..),
     unresolvedFlowName,
  )
@@ -151,7 +157,7 @@ import Types (
     processIdToRef,
     processIdToText,
  )
-import UnitConversion (UnitConfig, UnitDef (..), UnitReading (..), readUnit)
+import UnitConversion (UnitConfig (ucUnits), UnitDef (..), UnitReading (..), canonicalUnitFor, readUnit, unitKey)
 
 -- | The two things compared, named so that swapping them shows at the call.
 data Sides a = Sides
@@ -834,23 +840,79 @@ scorePairs units dbs =
 perBaseUnit :: UnitConfig -> Sides ProcessIn -> Either PairRefusal Double
 perBaseUnit units sides = do
     Sides baseUnit otherUnit <- traverse referenceUnit sides
-    Sides baseDef otherDef <- traverse definition (Sides baseUnit otherUnit)
+    onto units baseUnit otherUnit
+
+{- | What a score per one @unit@ is multiplied by to be per one @target@: a
+score per tonne times 0.001 is a score per kilogram, one per megajoule times
+3.6 is one per kilowatt hour.
+-}
+onto :: UnitConfig -> Text -> Text -> Either PairRefusal Double
+onto units target unit = do
+    targetDef <- unitDefinition units target
+    unitDef <- unitDefinition units unit
     if
-        | udDimension baseDef /= udDimension otherDef -> Left (DifferentMeasures baseUnit otherUnit)
-        | udFactor baseDef == 0 -> Left (ZeroFactor baseUnit)
-        | udFactor otherDef == 0 -> Left (ZeroFactor otherUnit)
-        | otherwise -> Right (udFactor baseDef / udFactor otherDef)
+        | udDimension targetDef /= udDimension unitDef -> Left (DifferentMeasures target unit)
+        | udFactor targetDef == 0 -> Left (ZeroFactor target)
+        | udFactor unitDef == 0 -> Left (ZeroFactor unit)
+        | otherwise -> Right (udFactor targetDef / udFactor unitDef)
+
+-- | The unit a process's score is per: the one its database registers for its reference product.
+referenceUnit :: ProcessIn -> Either PairRefusal Text
+referenceUnit p = do
+    reference <- maybe (Left NoReferenceProduct) Right (L.find exchangeIsReference (exchanges (inActivity p)))
+    maybe (Left UnregisteredUnit) (Right . unitName) (getUnitForExchange (dbUnits (inDatabase p)) reference)
+
+unitDefinition :: UnitConfig -> Text -> Either PairRefusal UnitDef
+unitDefinition units unit = case readUnit units unit of
+    ReadExact def -> Right def
+    ReadRespelt _ def -> Right def
+    ReadAmbiguous{} -> Left (AmbiguousUnit unit)
+    ReadUnknown -> Left (UnknownUnit unit)
+
+{- | The score of each asked process of the database put per one @target@, or
+set apart with why it cannot be. Each process is named by the id it was asked
+by, and an id that names none is listed apart. A target the table cannot read
+sets every process apart under that reason rather than refusing the question,
+so a reader always has the units of the processes left to choose from.
+-}
+scoreUnits :: UnitConfig -> Text -> Database -> [Text] -> ScoreUnits
+scoreUnits units target db asked =
+    ScoreUnits
+        { susUnit = target
+        , susSameMeasure = either (const []) (sameMeasure units target) (unitDefinition units target)
+        , susProcesses = map scale resolved
+        , susNotFound = notFound
+        }
   where
-    referenceUnit :: ProcessIn -> Either PairRefusal Text
-    referenceUnit p = do
-        reference <- maybe (Left NoReferenceProduct) Right (L.find exchangeIsReference (exchanges (inActivity p)))
-        maybe (Left UnregisteredUnit) (Right . unitName) (getUnitForExchange (dbUnits (inDatabase p)) reference)
-    definition :: Text -> Either PairRefusal UnitDef
-    definition unit = case readUnit units unit of
-        ReadExact def -> Right def
-        ReadRespelt _ def -> Right def
-        ReadAmbiguous{} -> Left (AmbiguousUnit unit)
-        ReadUnknown -> Left (UnknownUnit unit)
+    notFound :: [Text]
+    resolved :: [(Text, ProcessIn)]
+    (notFound, resolved) = partitionEithers [either (const (Left processId)) (Right . (processId,)) (resolveProcess db processId) | processId <- asked]
+    scale :: (Text, ProcessIn) -> ScoreUnit
+    scale (processId, p) =
+        ScoreUnit
+            { suProcessId = processId
+            , suActivityName = activityName (inActivity p)
+            , suLocation = activityLocation (inActivity p)
+            , suProductUnit = either (const Nothing) Just (referenceUnit p)
+            , suScale = either SetApart Scaled (referenceUnit p >>= onto units target)
+            }
+
+{- | The units the table measures what @target@ measures in, one spelling per
+factor, smallest first. Of the spellings sharing a factor, the target's own
+comes first, then the quantity's reference unit, then the shortest: a reader
+picking a unit wants @t@, not every alias of a tonne.
+-}
+sameMeasure :: UnitConfig -> Text -> UnitDef -> [Text]
+sameMeasure units target targetDef = map (L.minimumBy (comparing preference) . fmap snd) (NE.groupAllWith fst candidates)
+  where
+    candidates :: [(Double, Text)]
+    candidates = [(udFactor def, spelling) | (spelling, def) <- M.toList (ucUnits units), udDimension def == udDimension targetDef, udFactor def /= 0]
+    own :: Text
+    own = unitKey units target
+    reference :: Maybe Text
+    reference = canonicalUnitFor units target
+    preference :: Text -> (Bool, Bool, Int, Text)
+    preference spelling = (spelling /= own, Just spelling /= reference, T.length spelling, spelling)
 
 -- | Keep the first @n@ entries of each list. The counts still cover them all.
 limitComparison :: Int -> DatabaseComparison -> DatabaseComparison
