@@ -68,7 +68,6 @@ module Service.Compare (
 ) where
 
 import Control.Monad (mfilter)
-import Data.Either (partitionEithers)
 import Data.Foldable (asum)
 import Data.Indexing (groupInOrder)
 import Data.List (mapAccumL)
@@ -94,6 +93,7 @@ import API.Types (
     ChangesApplied (..),
     ChangesPresence (..),
     ChangesQuery (..),
+    ChosenUnit (..),
     DatabaseComparison (..),
     ExchangeChange (..),
     LineChange (..),
@@ -127,7 +127,7 @@ import Database.Author (
     lineSelector,
     retextsAuthoredIdentity,
  )
-import Service (ReferenceProductInfo (..), ServiceError, TargetRef (..), buildCrossDBLinkMap, crossDBLinkIndex, crossDBLinksOf, mkActivitySummary, referenceProductOf, resolveActivityAndProcessId, resolveTarget)
+import Service (ReferenceProductInfo (..), ServiceError (ActivityNotFound), TargetRef (..), buildCrossDBLinkMap, crossDBLinkIndex, crossDBLinksOf, mkActivitySummary, referenceProductOf, resolveActivityAndProcessId, resolveTarget)
 import Types (
     Activity (..),
     BioDirection,
@@ -838,23 +838,21 @@ scorePairs units dbs =
 
 -- | What a score of the other activity is multiplied by to be per one unit of the base one's reference product.
 perBaseUnit :: UnitConfig -> Sides ProcessIn -> Either PairRefusal Double
-perBaseUnit units sides = do
-    Sides baseUnit otherUnit <- traverse referenceUnit sides
-    onto units baseUnit otherUnit
+perBaseUnit units sides = traverse referenceUnit sides >>= onto units
 
-{- | What a score per one @unit@ is multiplied by to be per one @target@: a
-score per tonne times 0.001 is a score per kilogram, one per megajoule times
+{- | What a score per one other unit is multiplied by to be per one base unit:
+a score per tonne times 0.001 is a score per kilogram, one per megajoule times
 3.6 is one per kilowatt hour.
 -}
-onto :: UnitConfig -> Text -> Text -> Either PairRefusal Double
-onto units target unit = do
-    targetDef <- unitDefinition units target
-    unitDef <- unitDefinition units unit
+onto :: UnitConfig -> Sides Text -> Either PairRefusal Double
+onto units (Sides baseUnit otherUnit) = do
+    baseDef <- unitDefinition units baseUnit
+    otherDef <- unitDefinition units otherUnit
     if
-        | udDimension targetDef /= udDimension unitDef -> Left (DifferentMeasures target unit)
-        | udFactor targetDef == 0 -> Left (ZeroFactor target)
-        | udFactor unitDef == 0 -> Left (ZeroFactor unit)
-        | otherwise -> Right (udFactor targetDef / udFactor unitDef)
+        | udDimension baseDef /= udDimension otherDef -> Left (DifferentMeasures baseUnit otherUnit)
+        | udFactor baseDef == 0 -> Left (ZeroFactor baseUnit)
+        | udFactor otherDef == 0 -> Left (ZeroFactor otherUnit)
+        | otherwise -> Right (udFactor baseDef / udFactor otherDef)
 
 -- | The unit a process's score is per: the one its database registers for its reference product.
 referenceUnit :: ProcessIn -> Either PairRefusal Text
@@ -871,31 +869,42 @@ unitDefinition units unit = case readUnit units unit of
 
 {- | The score of each asked process of the database put per one @target@, or
 set apart with why it cannot be. Each process is named by the id it was asked
-by, and an id that names none is listed apart. A target the table cannot read
-sets every process apart under that reason rather than refusing the question,
-so a reader always has the units of the processes left to choose from.
+by. A target the table cannot read is said once, and sets every process apart
+under that reason rather than refusing the question, so a reader still has the
+units of the processes to choose from.
 -}
 scoreUnits :: UnitConfig -> Text -> Database -> [Text] -> ScoreUnits
 scoreUnits units target db asked =
     ScoreUnits
-        { susUnit = target
-        , susSameMeasure = either (const []) (sameMeasure units target) (unitDefinition units target)
-        , susProcesses = map scale resolved
-        , susNotFound = notFound
+        { susUnit = unitKey units target
+        , susReading = either NotUnderstood (Understood . sameMeasure units target) chosen
+        , susProcesses = [scale processId p | (processId, Right p) <- attempts]
+        , susNotFound = [processId | (processId, Left err) <- attempts, namesNothing err]
+        , susInvalid = [processId | (processId, Left err) <- attempts, not (namesNothing err)]
         }
   where
-    notFound :: [Text]
-    resolved :: [(Text, ProcessIn)]
-    (notFound, resolved) = partitionEithers [either (const (Left processId)) (Right . (processId,)) (resolveProcess db processId) | processId <- asked]
-    scale :: (Text, ProcessIn) -> ScoreUnit
-    scale (processId, p) =
+    -- A unit of factor zero reads, but nothing can be put per it.
+    chosen :: Either PairRefusal UnitDef
+    chosen = unitDefinition units target >>= \def -> if udFactor def == 0 then Left (ZeroFactor target) else Right def
+    attempts :: [(Text, Either ServiceError ProcessIn)]
+    attempts = [(processId, resolveProcess db processId) | processId <- asked]
+    -- As the batch scores sort ids: any other failure is an id unusable as sent.
+    namesNothing :: ServiceError -> Bool
+    namesNothing = \case
+        ActivityNotFound _ -> True
+        _ -> False
+    scale :: Text -> ProcessIn -> ScoreUnit
+    scale processId p =
         ScoreUnit
             { suProcessId = processId
             , suActivityName = activityName (inActivity p)
             , suLocation = activityLocation (inActivity p)
-            , suProductUnit = either (const Nothing) Just (referenceUnit p)
-            , suScale = either SetApart Scaled (referenceUnit p >>= onto units target)
+            , suProductUnit = either (const Nothing) Just productUnit
+            , suScale = either SetApart Scaled (chosen *> (productUnit >>= onto units . Sides target))
             }
+      where
+        productUnit :: Either PairRefusal Text
+        productUnit = referenceUnit p
 
 {- | The units the table measures what @target@ measures in, one spelling per
 factor, smallest first. Of the spellings sharing a factor, the target's own

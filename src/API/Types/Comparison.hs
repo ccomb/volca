@@ -302,9 +302,13 @@ data ScorePair = ScorePair
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ScorePair)
 
--- | Why the scores of a pair cannot be put per one unit of the same thing.
+{- | Why a score cannot be put per one unit of something else. Two answers use
+it: the pairs of two databases, where the base unit is that of the base
+database's product, and the scores per a chosen unit, where the base unit is
+the one the reader chose and the other is that of a process's product.
+-}
 data PairRefusal
-    = -- | One side or both have no reference product, so its score is per nothing named.
+    = -- | A process has no reference product, so its score is per nothing named.
       NoReferenceProduct
     | -- | The reference product names a unit its own database does not register.
       UnregisteredUnit
@@ -378,16 +382,31 @@ data ScoreUnit = ScoreUnit
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ScoreUnit)
 
-{- | The asked processes of one database put per one chosen unit, with the
-units a reader could choose instead: every one the unit table measures the
-same quantity in, one spelling per factor, smallest first.
+-- | How the unit table reads the unit a reader chose.
+data ChosenUnit
+    = {- | Read. These are the units a reader could choose instead: every one
+      the table measures the same quantity in, one spelling per factor,
+      smallest first.
+      -}
+      Understood {cuSameMeasure :: ![Text]}
+    | -- | Not read, so every process is set apart under this reason.
+      NotUnderstood {cuReason :: !PairRefusal}
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ChosenUnit)
+
+{- | The asked processes of one database put per one chosen unit. Every asked
+id is in exactly one of the three lists, sorted as the batch scores sort them,
+so a page joining both answers finds an id in the same place.
 -}
 data ScoreUnits = ScoreUnits
     { susUnit :: !Text
-    , susSameMeasure :: ![Text]
+    -- ^ The table's spelling of the asked unit when it reads it: @KWH@ is answered as @kWh@.
+    , susReading :: !ChosenUnit
     , susProcesses :: ![ScoreUnit]
     , susNotFound :: ![Text]
-    -- ^ Asked ids that name no process of the database; the others are answered all the same.
+    -- ^ Well-formed ids that name no process of the database.
+    , susInvalid :: ![Text]
+    -- ^ Ids unusable as sent: malformed, or a bare activity id where the activity has several products.
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ScoreUnits)

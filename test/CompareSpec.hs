@@ -27,6 +27,7 @@ import API.Types (
     ChangesApplied (..),
     ChangesPresence (..),
     ChangesQuery (..),
+    ChosenUnit (..),
     DatabaseComparison (..),
     ExchangeChange (..),
     LineChange (..),
@@ -413,18 +414,24 @@ spec = describe "Service.Compare" $ do
         it "sets apart a process whose product is measured in another quantity" $
             scalesOf "kg" litre `shouldReturn` [SetApart (DifferentMeasures "kg" "l")]
 
-        it "sets every process apart under a unit no table knows, and offers none in its place" $ do
+        it "says once that no table knows the unit, and sets every process apart under it" $ do
             units <- scoreUnitsOf "furlong" (producedIn kg) [pid 1 electricity]
-            (map suScale (susProcesses units), susSameMeasure units) `shouldBe` ([SetApart (UnknownUnit "furlong")], [])
+            (susReading units, map suScale (susProcesses units)) `shouldBe` (NotUnderstood (UnknownUnit "furlong"), [SetApart (UnknownUnit "furlong")])
+
+        it "answers a unit written another way in the table's spelling" $ do
+            units <- scoreUnitsOf "KG" (producedIn tonne) [pid 1 electricity]
+            (susUnit units, map suScale (susProcesses units)) `shouldBe` ("kg", [Scaled 0.001])
 
         it "offers the units measuring the same quantity, one spelling per factor, smallest first" $ do
             perKilogram <- scoreUnitsOf "kg" (producedIn kg) [pid 1 electricity]
             perTonne <- scoreUnitsOf "tonne" (producedIn kg) [pid 1 electricity]
-            (susSameMeasure perKilogram, susSameMeasure perTonne) `shouldBe` (["g", "kg", "t"], ["g", "kg", "tonne"])
+            (susReading perKilogram, susReading perTonne) `shouldBe` (Understood ["g", "kg", "t"], Understood ["g", "kg", "tonne"])
 
-        it "lists apart an id that names no process, and answers the others by the id they were asked by" $ do
-            units <- scoreUnitsOf "kg" (producedIn kg) ["no such process", pid 1 electricity]
-            (map suProcessId (susProcesses units), susNotFound units) `shouldBe` ([pid 1 electricity], ["no such process"])
+        it "sorts the ids it cannot answer as the batch scores do, and answers the others by the id they were asked by" $ do
+            let heat = productFlow 701 "heat"
+                bareActivity = UUID.toText (uuid 1)
+            units <- scoreUnitsOf "kg" (producedIn kg ++ [row 1 heat "heat production" []]) ["no such process", pid 2 electricity, bareActivity, pid 1 electricity]
+            (map suProcessId (susProcesses units), susNotFound units, susInvalid units) `shouldBe` ([pid 1 electricity], [pid 2 electricity], ["no such process", bareActivity])
 
     it "a limit shortens the lists, never the counts" $ do
         c <- compareVersions [row 1 wheat "wheat production" [], row 4 rye "rye production" []] [row 1 wheat "wheat production" [], row 4 rye "rye production" [], row 2 barley "barley production" [], row 3 oat "oat production" []]
