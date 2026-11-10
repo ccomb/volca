@@ -9,13 +9,14 @@ interleaves the media, shows them as duplicate rows.
 module FlowSearchSpec (spec) where
 
 import API.Types (FlowSearchResult (..))
+import Control.Monad (forM_)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.UUID as UUID
 import Database (allFlows, filterByName, flowMatchesQuery, flowSearchFields)
-import Service (FlowFilter (..), flowSearchResults)
+import Service (FlowFilter (..), SortOrder (..), flowSearchResults, sortOrderOf)
 import Test.Hspec
 import Types (
     BiosphereFlow (..),
@@ -176,8 +177,13 @@ orderSpec = describe "Service.flowSearchResults" $ do
         length (search byName threeKinds) `shouldBe` 3
 
     it "reverses the whole order on desc, not just the requested column" $
-        map compartmentOf (search sortByName{ffOrder = Just "desc"} deltamethrins)
+        map compartmentOf (search sortByName{ffOrder = Reversed} deltamethrins)
             `shouldBe` reverse (map compartmentOf (search sortByName deltamethrins))
+
+    it "keeps the order on any word but desc" $
+        forM_ ["asc", "DESC", ""] $ \word ->
+            map compartmentOf (search sortByName{ffOrder = sortOrderOf (Just word)} deltamethrins)
+                `shouldBe` map compartmentOf (search sortByName deltamethrins)
 
     it "orders by medium then sub-compartment when sorting on the category" $
         map compartmentOf (search sortByName{ffSort = Just "category"} deltamethrins)
@@ -233,7 +239,7 @@ sortByName =
         , ffLimit = Nothing
         , ffOffset = Nothing
         , ffSort = Nothing
-        , ffOrder = Nothing
+        , ffOrder = Forward
         }
 
 {- | The seven Agribalyse 3.2 flows, in the UUID order the database yields

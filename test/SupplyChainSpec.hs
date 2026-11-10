@@ -7,6 +7,7 @@ import Data.Aeson (Value (..))
 import Data.Aeson.Key (fromText)
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.IntMap.Strict as IM
+import Data.List (sort)
 import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import Data.UUID (nil)
@@ -19,12 +20,14 @@ import Service (
     ConsumerFilter (..),
     Edges (..),
     NamePattern (..),
+    SortOrder (..),
     SupplyChainFilter (..),
     bfsToPattern,
     buildSupplyChainFromScalingVector,
     filterTreeExport,
     getConsumers,
     getPathTo,
+    sortOrderOf,
  )
 import SharedSolver (createSharedSolver)
 import Test.Hspec
@@ -42,7 +45,7 @@ emptyCore =
         , afcLimit = Nothing
         , afcOffset = Nothing
         , afcSort = Nothing
-        , afcOrder = Nothing
+        , afcOrder = Forward
         }
 
 emptySupply :: SupplyChainFilter
@@ -204,6 +207,23 @@ spec = do
                         (mapSupplyCore (\c -> c{afcName = Just "produc", afcSort = Just "depth"}) emptySupply)
             map sceDepth (scrSupplyChain resp) `shouldBe` [1, 2]
 
+        it "reverses the listing on desc, the default one included" $ do
+            db <- loadWithIndex
+            let rootPid = 0 :: ProcessId
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db rootPid
+            let listed f =
+                    scrSupplyChain $
+                        buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootPid supplyVec (mapSupplyCore f emptySupply)
+                byDepth c = c{afcName = Just "produc", afcSort = Just "depth"}
+                amounts = map (abs . sceQuantity) . listed
+            map sceDepth (listed (\c -> (byDepth c){afcOrder = Reversed})) `shouldBe` [2, 1]
+            map sceDepth (listed (\c -> (byDepth c){afcOrder = sortOrderOf (Just "asc")})) `shouldBe` [1, 2]
+            -- With no column named the largest amount comes first, so desc
+            -- puts the smallest first.
+            amounts id `shouldBe` reverse (sort (amounts id))
+            amounts id `shouldNotBe` reverse (amounts id)
+            amounts (\c -> c{afcOrder = Reversed}) `shouldBe` reverse (amounts id)
+
     describe "Fuzzy name filter on consumers" $ do
         let loadWithIndex = fmap BM25.addBM25Index (loadSampleDatabase "SAMPLE.min3")
 
@@ -230,6 +250,16 @@ spec = do
             case getConsumers shippedGeographies db "test-db" pidZ emptyConsumer of
                 Left err -> expectationFailure $ "getConsumers failed: " ++ show err
                 Right cr -> length (srResults (crrResults cr)) `shouldBe` 2
+
+        it "lists the nearest consumer first, and the farthest first on desc" $ do
+            db <- loadWithIndex
+            let pidZ = processIdToText db 2
+                depths f =
+                    either (const []) (map crDepth . srResults . crrResults) $
+                        getConsumers shippedGeographies db "test-db" pidZ (mapConsumerCore f emptyConsumer)
+            depths id `shouldBe` [1, 2]
+            depths (\c -> c{afcOrder = Reversed}) `shouldBe` [2, 1]
+            depths (\c -> c{afcOrder = sortOrderOf (Just "asc")}) `shouldBe` [1, 2]
 
         it "non-matching name query returns zero consumers" $ do
             db <- loadWithIndex

@@ -1499,7 +1499,7 @@ buildSupplyChainFilter refusing presets nameFilter limitParam minQuantity offset
                     , Service.afcLimit = limitParam
                     , Service.afcOffset = offsetParam
                     , Service.afcSort = sortParam
-                    , Service.afcOrder = orderParam
+                    , Service.afcOrder = Service.sortOrderOf orderParam
                     }
             , Service.scfMaxDepth = maxDepthParam
             , Service.scfMinQuantity = minQuantity
@@ -2775,7 +2775,7 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
                         , Service.afcLimit = limitParam
                         , Service.afcOffset = offsetParam
                         , Service.afcSort = sortParam
-                        , Service.afcOrder = orderParam
+                        , Service.afcOrder = Service.sortOrderOf orderParam
                         }
                 , Service.cnfMaxDepth = maxDepthParam
                 , Service.cnfEdges = if fromMaybe False includeEdgesParam then Service.WithEdges else Service.EntriesOnly
@@ -3403,7 +3403,7 @@ searchFlows dbName queryParam langParam kindParam limitParam offsetParam sortPar
                         , Service.ffLimit = limitParam
                         , Service.ffOffset = offsetParam
                         , Service.ffSort = sortParam
-                        , Service.ffOrder = orderParam
+                        , Service.ffOrder = Service.sortOrderOf orderParam
                         }
             searchFlowsInternal db ff
   where
@@ -3433,7 +3433,7 @@ searchActivitiesWithCount dbName nameParam geoParam productParam exactParam pres
                         , Service.afcLimit = limitParam
                         , Service.afcOffset = offsetParam
                         , Service.afcSort = sortParam
-                        , Service.afcOrder = orderParam
+                        , Service.afcOrder = Service.sortOrderOf orderParam
                         }
                 , Service.sfExactMatch = fromMaybe False exactParam
                 }

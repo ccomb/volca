@@ -53,6 +53,24 @@ import Tree (childTarget)
 import Types
 import UnitConversion (UnitConfig, convertUnit)
 
+{- | Which way a listing runs: the way its comparator orders it, or the other
+way round. 'Forward' is not always ascending: with no column named, a supply
+chain lists its largest amount first, and 'Reversed' its smallest.
+-}
+data SortOrder = Forward | Reversed
+
+{- | The order a request's @order@ word asks for. Only @desc@ reverses: an
+absent word and any other one leave the listing as it is.
+-}
+sortOrderOf :: Maybe Text -> SortOrder
+sortOrderOf (Just "desc") = Reversed
+sortOrderOf _ = Forward
+
+-- | A comparator, run the way the order says.
+inOrder :: SortOrder -> (a -> a -> Ordering) -> a -> a -> Ordering
+inOrder Forward = id
+inOrder Reversed = flip
+
 {- | Fields shared by every activity-oriented endpoint (search, supply chain,
 consumers). Split out from the endpoint-specific filters so each filter
 type carries exactly the knobs it can act on – no more "ignored in this
@@ -66,7 +84,7 @@ data ActivityFilterCore = ActivityFilterCore
     , afcLimit :: Maybe Int
     , afcOffset :: Maybe Int
     , afcSort :: Maybe Text
-    , afcOrder :: Maybe Text
+    , afcOrder :: SortOrder
     }
 
 {- | Filter for activity search (/activities). Carries the shared core plus
@@ -117,7 +135,7 @@ data FlowFilter = FlowFilter
     , ffLimit :: Maybe Int
     , ffOffset :: Maybe Int
     , ffSort :: Maybe Text
-    , ffOrder :: Maybe Text
+    , ffOrder :: SortOrder
     }
 
 {- | A case-blind substring a name is searched for, as opposed to a name, a
@@ -881,10 +899,9 @@ paginate.
 -}
 flowSearchResults :: UnitDB -> (FlowKind -> Maybe Int) -> FlowFilter -> [FlowKind] -> [FlowSearchResult]
 flowSearchResults units producersOfFlow FlowFilter{ffQuery = query, ffKind = kindParam, ffSort = sortParam, ffOrder = orderParam} =
-    L.sortBy (direction (\a b -> compare (sortKey a) (sortKey b))) . map toResult . filter askedFor
+    L.sortBy (inOrder orderParam (\a b -> compare (sortKey a) (sortKey b))) . map toResult . filter askedFor
   where
     askedFor flow = kindFilterKeeps kindParam (kindOfFlow flow)
-    direction = if orderParam == Just "desc" then flip else id
     -- Parsers turn an absent sub-compartment into 'Nothing', never @""@, so
     -- the empty string sorts where 'Nothing' would: ahead of every named one.
     sub = fromMaybe "" . fsrCompartment
@@ -1053,9 +1070,7 @@ activityMatches geographies db sFilter@(SearchFilter core exactMatch) =
     structured = applyStructuredFilters geographies db (afcLocation core) (afcProduct core) (afcClassifications core)
 
     ordered :: (ProcessId, Activity) -> (ProcessId, Activity) -> Ordering
-    ordered
-        | afcOrder core == Just "desc" = flip (activityRowComparator (afcSort core))
-        | otherwise = activityRowComparator (afcSort core)
+    ordered = inOrder (afcOrder core) (activityRowComparator (afcSort core))
 
 {- | The processes a caller names, in the order named, through the search's
 place, product and classification filters, read as exactly as the search
@@ -1152,7 +1167,7 @@ searchCounts geographies db listedAs query =
                     , afcLimit = Nothing
                     , afcOffset = Nothing
                     , afcSort = caSort listedAs
-                    , afcOrder = Nothing
+                    , afcOrder = Forward
                     }
             , sfExactMatch = caExact listedAs
             }
@@ -2372,7 +2387,6 @@ sortAndPaginate :: ActivityFilterCore -> [SupplyChainEntry] -> [SupplyChainEntry
 sortAndPaginate core entries =
     let limit = fromMaybe 100 (afcLimit core)
         offset = fromMaybe 0 (afcOffset core)
-        isDesc = afcOrder core == Just "desc"
         comparator = case afcSort core of
             Just "name" -> \a b -> compare (sceActivityName a) (sceActivityName b)
             Just "location" -> \a b -> compare (sceLocation a) (sceLocation b)
@@ -2381,8 +2395,7 @@ sortAndPaginate core entries =
             Just "consumers" -> \a b -> compare (sceUpstreamCount a) (sceUpstreamCount b)
             Just "amount" -> \a b -> compare (abs (sceQuantity a)) (abs (sceQuantity b))
             _ -> \a b -> compare (abs (sceQuantity b)) (abs (sceQuantity a))
-        applied = if isDesc then flip comparator else comparator
-     in take limit . drop offset $ L.sortBy applied entries
+     in take limit . drop offset $ L.sortBy (inOrder (afcOrder core) comparator) entries
 
 {- | Pure function: build a SupplyChainResponse from a scaling vector.
 Used by both GET (normal) and POST (with substitutions) supply-chain endpoints.
@@ -3570,7 +3583,6 @@ getConsumers geographies db dbName processIdText cnf = do
             , productMatches (rpName refProduct)
             ]
 
-        isDesc = afcOrder core == Just "desc"
         crCmp = case afcSort core of
             Just "name" -> \a b -> compare (crActivityName a) (crActivityName b)
             Just "location" -> \a b -> compare (crLocation a) (crLocation b)
@@ -3578,7 +3590,7 @@ getConsumers geographies db dbName processIdText cnf = do
             Just "unit" -> \a b -> compare (crProductUnit a) (crProductUnit b)
             Just "product" -> \a b -> compare (crProductName a) (crProductName b)
             _ -> \a b -> compare (crDepth a) (crDepth b)
-        allResults = L.sortBy (if isDesc then flip crCmp else crCmp) rawResults
+        allResults = L.sortBy (inOrder (afcOrder core) crCmp) rawResults
 
         total = length allResults
         page = take limit $ drop offset allResults
