@@ -128,6 +128,15 @@ spec = describe "classification filter match mode" $ do
             rest <- runRest manager (searchREST ["category", "category"] ["food"] ["exact"])
             fmap srTotal rest `shouldBe` Right 1
 
+    describe "REST order" $
+        it "reverses the listing on desc and on no other word" $ do
+            (manager, _) <- loadedFixture
+            let listed order = fmap (map prsProcessId . srResults) <$> runRest manager (orderedREST order)
+            plain <- listed Nothing
+            plain `shouldNotBe` fmap reverse plain
+            listed (Just "desc") `shouldReturn` fmap reverse plain
+            forM_ ["asc", "DESC", ""] $ \word -> listed (Just word) `shouldReturn` plain
+
     describe "REST process" $ do
         it "answers the processes named, in the order named" $ do
             (manager, db) <- loadedFixture
@@ -207,6 +216,10 @@ runRest manager = runHandler . runApp env
 searchREST :: [Text] -> [Text] -> [Text] -> AppM (SearchResults ActivitySummary)
 searchREST systems values modes =
     searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing systems values modes [] Nothing Nothing Nothing Nothing
+
+orderedREST :: Maybe Text -> AppM (SearchResults ActivitySummary)
+orderedREST =
+    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing [] [] [] [] Nothing Nothing Nothing
 
 namedREST :: [Text] -> AppM (SearchResults ActivitySummary)
 namedREST processes =

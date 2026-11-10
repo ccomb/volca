@@ -9,6 +9,7 @@ interleaves the media, shows them as duplicate rows.
 module FlowSearchSpec (spec) where
 
 import API.Types (FlowSearchResult (..))
+import Control.Monad (forM_)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -178,6 +179,11 @@ orderSpec = describe "Service.flowSearchResults" $ do
     it "reverses the whole order on desc, not just the requested column" $
         map compartmentOf (search sortByName{ffOrder = Just "desc"} deltamethrins)
             `shouldBe` reverse (map compartmentOf (search sortByName deltamethrins))
+
+    it "keeps the order on any word but desc" $
+        forM_ ["asc", "DESC", ""] $ \word ->
+            map compartmentOf (search sortByName{ffOrder = Just word} deltamethrins)
+                `shouldBe` map compartmentOf (search sortByName deltamethrins)
 
     it "orders by medium then sub-compartment when sorting on the category" $
         map compartmentOf (search sortByName{ffSort = Just "category"} deltamethrins)
