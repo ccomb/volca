@@ -29,7 +29,7 @@ import qualified Data.Text as T
 import Database (buildDatabaseWithMatrices)
 import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
 import Search.BM25 (addBM25Index)
-import Service (ActivityFilterCore (..), SearchFilter (..), activitiesNamed, activityMatches, mkActivitySummary)
+import Service (ActivityFilterCore (..), SearchFilter (..), SortOrder (..), activitiesNamed, activityMatches, mkActivitySummary)
 import TestHelpers (shippedGeographies)
 import Types (BuildInputs (..), Database (..), FileReading (..), ProcessId)
 import UnitConversion (defaultUnitConfig)
@@ -155,7 +155,7 @@ noFilter =
         , afcLimit = Nothing
         , afcOffset = Nothing
         , afcSort = Nothing
-        , afcOrder = Nothing
+        , afcOrder = Forward
         }
 
 -- | Every process of a SimaPro file, loaded and built the way a served one is.
@@ -197,7 +197,7 @@ productsMatching db exact query =
             , afcLimit = Nothing
             , afcOffset = Nothing
             , afcSort = Nothing
-            , afcOrder = Nothing
+            , afcOrder = Forward
             }
 
 {- | Two blocks written under one process name, each with two coproducts. The

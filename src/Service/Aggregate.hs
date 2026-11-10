@@ -49,6 +49,7 @@ import Service (
     ActivityFilterCore (..),
     Edges (..),
     ServiceError (..),
+    SortOrder (..),
     SupplyChainFilter (..),
     buildSupplyChainFromScalingVectorCrossDB,
     convertToInventoryExport,
@@ -268,7 +269,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                     , afcLimit = Just maxBound
                     , afcOffset = Nothing
                     , afcSort = Nothing
-                    , afcOrder = Nothing
+                    , afcOrder = Forward
                     }
             , scfMaxDepth = maxD
             , scfMinQuantity = Nothing

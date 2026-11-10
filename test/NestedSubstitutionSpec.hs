@@ -23,6 +23,7 @@ import Service (
     ActivityFilterCore (..),
     Edges (..),
     ServiceError (..),
+    SortOrder (..),
     SupplyChainFilter (..),
     applySubstitutionsAt,
     buildSupplyChainFromScalingVectorCrossDB,
@@ -355,7 +356,7 @@ everything =
                 , afcLimit = Nothing
                 , afcOffset = Nothing
                 , afcSort = Nothing
-                , afcOrder = Nothing
+                , afcOrder = Forward
                 }
         , scfMaxDepth = Nothing
         , scfMinQuantity = Nothing

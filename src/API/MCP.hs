@@ -1108,7 +1108,7 @@ callSearchActivities geographies presets rid args (db, _) = runTool rid $ do
                         , Service.afcLimit = intArg "limit" args <|> Just 20
                         , Service.afcOffset = Nothing
                         , Service.afcSort = Nothing
-                        , Service.afcOrder = Nothing
+                        , Service.afcOrder = Service.Forward
                         }
                 , Service.sfExactMatch = fromMaybe False (boolArg "exact" args)
                 }
@@ -1174,7 +1174,7 @@ callSearchFlows rid args (db, _) =
                             , Service.ffLimit = limit <|> Just 20
                             , Service.ffOffset = Nothing
                             , Service.ffSort = Nothing
-                            , Service.ffOrder = Nothing
+                            , Service.ffOrder = Service.Forward
                             }
                 result <- Service.searchFlows db ff
                 case result of
@@ -1278,7 +1278,7 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
                             , Service.afcLimit = intArg "limit" args
                             , Service.afcOffset = Nothing
                             , Service.afcSort = Nothing
-                            , Service.afcOrder = Nothing
+                            , Service.afcOrder = Service.Forward
                             }
                     , Service.scfMaxDepth = intArg "max_depth" args
                     , Service.scfMinQuantity = doubleArg "min_quantity" args
@@ -1401,7 +1401,7 @@ callGetConsumers geographies presets rid args (db, _) = runTool rid $ do
                         , Service.afcLimit = intArg "limit" args
                         , Service.afcOffset = Nothing
                         , Service.afcSort = Nothing
-                        , Service.afcOrder = Nothing
+                        , Service.afcOrder = Service.Forward
                         }
                 , Service.cnfMaxDepth = intArg "max_depth" args
                 , Service.cnfEdges = if fromMaybe False (boolArg "include_edges" args) then Service.WithEdges else Service.EntriesOnly

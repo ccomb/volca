@@ -33,6 +33,7 @@ import Service (
     ActivityFilterCore (..),
     ConsumerFilter (..),
     Edges (..),
+    SortOrder (..),
     convertActivityForAPI,
     convertToInventoryExport,
     functionalUnitOf,
@@ -151,7 +152,7 @@ consumers =
             , afcLimit = Nothing
             , afcOffset = Nothing
             , afcSort = Nothing
-            , afcOrder = Nothing
+            , afcOrder = Forward
             }
         Nothing
         EntriesOnly

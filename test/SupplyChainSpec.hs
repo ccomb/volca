@@ -20,12 +20,14 @@ import Service (
     ConsumerFilter (..),
     Edges (..),
     NamePattern (..),
+    SortOrder (..),
     SupplyChainFilter (..),
     bfsToPattern,
     buildSupplyChainFromScalingVector,
     filterTreeExport,
     getConsumers,
     getPathTo,
+    sortOrderOf,
  )
 import SharedSolver (createSharedSolver)
 import Test.Hspec
@@ -43,7 +45,7 @@ emptyCore =
         , afcLimit = Nothing
         , afcOffset = Nothing
         , afcSort = Nothing
-        , afcOrder = Nothing
+        , afcOrder = Forward
         }
 
 emptySupply :: SupplyChainFilter
@@ -214,13 +216,13 @@ spec = do
                         buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootPid supplyVec (mapSupplyCore f emptySupply)
                 byDepth c = c{afcName = Just "produc", afcSort = Just "depth"}
                 amounts = map (abs . sceQuantity) . listed
-            map sceDepth (listed (\c -> (byDepth c){afcOrder = Just "desc"})) `shouldBe` [2, 1]
-            map sceDepth (listed (\c -> (byDepth c){afcOrder = Just "asc"})) `shouldBe` [1, 2]
+            map sceDepth (listed (\c -> (byDepth c){afcOrder = Reversed})) `shouldBe` [2, 1]
+            map sceDepth (listed (\c -> (byDepth c){afcOrder = sortOrderOf (Just "asc")})) `shouldBe` [1, 2]
             -- With no column named the largest amount comes first, so desc
             -- puts the smallest first.
             amounts id `shouldBe` reverse (sort (amounts id))
             amounts id `shouldNotBe` reverse (amounts id)
-            amounts (\c -> c{afcOrder = Just "desc"}) `shouldBe` reverse (amounts id)
+            amounts (\c -> c{afcOrder = Reversed}) `shouldBe` reverse (amounts id)
 
     describe "Fuzzy name filter on consumers" $ do
         let loadWithIndex = fmap BM25.addBM25Index (loadSampleDatabase "SAMPLE.min3")
@@ -256,8 +258,8 @@ spec = do
                     either (const []) (map crDepth . srResults . crrResults) $
                         getConsumers shippedGeographies db "test-db" pidZ (mapConsumerCore f emptyConsumer)
             depths id `shouldBe` [1, 2]
-            depths (\c -> c{afcOrder = Just "desc"}) `shouldBe` [2, 1]
-            depths (\c -> c{afcOrder = Just "asc"}) `shouldBe` [1, 2]
+            depths (\c -> c{afcOrder = Reversed}) `shouldBe` [2, 1]
+            depths (\c -> c{afcOrder = sortOrderOf (Just "asc")}) `shouldBe` [1, 2]
 
         it "non-matching name query returns zero consumers" $ do
             db <- loadWithIndex

@@ -42,7 +42,7 @@ import Database.ExportSupplier (Dependencies (..), Elsewhere (..), noDependencie
 import Database.Loader (GapReport (..), collectStagedDanglingProductNames, defaultLoadOptions, findAllCrossDBLinks, gapReportForStaged, loadDatabase, loadSimaProCSV)
 import Matrix (computeInventoryMatrix, computeScalingVector)
 import OlcaPackageFixture (throughPackage)
-import Service (ActivityFilterCore (..), Edges (..), SupplyChainFilter (..), buildCrossDBLinkMap, buildSupplyChainFromScalingVector, toExchangeWithUnit)
+import Service (ActivityFilterCore (..), Edges (..), SortOrder (..), SupplyChainFilter (..), buildCrossDBLinkMap, buildSupplyChainFromScalingVector, toExchangeWithUnit)
 import qualified Service.Aggregate as Agg
 import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached)
 import qualified SimaPro.Writer as SP
@@ -278,7 +278,7 @@ supplierQuantityOf name key acts = do
                 , afcLimit = Nothing
                 , afcOffset = Nothing
                 , afcSort = Nothing
-                , afcOrder = Nothing
+                , afcOrder = Forward
                 }
             Nothing
             Nothing
