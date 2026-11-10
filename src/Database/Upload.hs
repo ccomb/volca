@@ -23,6 +23,8 @@ module Database.Upload (
     findAllDataDirectories,
     countDataFilesIn,
     anyDataFilesIn,
+    supplierMappingFile,
+    sourceEntries,
 
     -- * Filesystem helpers
     listDirectoryRecursive,
@@ -665,10 +667,24 @@ findAllDataDirectories = go
             Right paths -> return paths
             Left _ -> return [] -- skip inaccessible directories
 
+{- | The name a home keeps the mapping of its last relink under.
+
+A home is also the data directory of an upload whose files sit at the root of
+its archive, and this file is a CSV that is no part of the database: whatever
+looks in a directory for a database's files leaves it out, or the database is
+taken for a SimaPro export that holds nothing.
+-}
+supplierMappingFile :: FilePath
+supplierMappingFile = "relink.csv"
+
+-- | What a directory holds that may be a database's files.
+sourceEntries :: FilePath -> IO [FilePath]
+sourceEntries dir = filter (/= supplierMappingFile) <$> listDirectory dir
+
 -- | Count files with data extensions (.spold, .xml, .csv) in a single directory (non-recursive).
 countDataFilesIn :: FilePath -> IO Int
 countDataFilesIn dir = do
-    fs <- listDirectory dir
+    fs <- sourceEntries dir
     let exts = map (map toLower . takeExtension) fs
     return $ length $ filter isDataExt exts
   where
@@ -680,7 +696,7 @@ Uses content-aware checks for XML and CSV to avoid false positives
 -}
 anyDataFilesIn :: FilePath -> IO Bool
 anyDataFilesIn d = do
-    fs <- listDirectory d
+    fs <- sourceEntries d
     -- ILCD detection: directory contains a processes/ subdirectory
     hasProcessesDir <- doesDirectoryExist (d </> "processes")
     if hasProcessesDir
@@ -893,7 +909,7 @@ detectDatabaseFormat path = do
                             if hasProcesses
                                 then return ILCDProcess
                                 else do
-                                    fs <- listDirectoryRecursive path
+                                    fs <- filter (/= path </> supplierMappingFile) <$> listDirectoryRecursive path
                                     let extensions = map (map toLower . takeExtension) fs
                                     let hasSpold = ".spold" `elem` extensions
                                         hasXlsx = ".xlsx" `elem` extensions

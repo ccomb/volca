@@ -73,6 +73,20 @@ spec = describe "detectDirectoryFormat" $ do
             writeFile (dir </> "units.csv") "name;unit\n"
             detectDirectoryFormat dir `shouldReturn` FormatExcel
 
+    -- The home of an upload whose files sit at the root of its archive is also
+    -- its data directory, and the mapping a relink keeps there is a CSV.
+    it "does not take the mapping a relink keeps beside EcoSpold 1 files for a SimaPro export" $
+        withSystemTempDirectory "mapping-beside-xml" $ \dir -> do
+            writeFile (dir </> "process.xml") "<ecoSpold/>"
+            writeFile (dir </> "relink.csv") "source_name,target_name\n"
+            detectDirectoryFormat dir `shouldReturn` FormatXML
+
+    it "still announces a SimaPro export that has such a mapping beside it" $
+        withSystemTempDirectory "mapping-beside-csv" $ \dir -> do
+            writeFile (dir </> "export.csv") "{SimaPro 9.5}\n"
+            writeFile (dir </> "relink.csv") "source_name,target_name\n"
+            detectDatabaseFormat dir `shouldReturn` SimaProCSV
+
     it "recognises none of them for a directory holding none of them" $
         withSystemTempDirectory "unknown-detect" $ \dir -> do
             writeFile (dir </> "notes.txt") "nothing to load here\n"

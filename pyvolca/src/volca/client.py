@@ -2177,8 +2177,18 @@ class Client:
         copy that ``get_setup`` reports not ready raises with the concrete
         blocker instead: a half-linked database silently undercounts and
         the consumer can't tell.
+
+        A closed database that is more than its files (edits, a relink
+        mapping, a system model) has no setup to read, and the engine says
+        so with a 404: loading it is what brings those back.
         """
-        setup = self.get_setup(slug)
+        try:
+            setup = self.get_setup(slug)
+        except VoLCAError as err:
+            if err.status_code != 404:
+                raise
+            self.load_database(slug)
+            return
         if setup.get("isReady", False):
             self.finalize_database(slug)
             return

@@ -14,6 +14,33 @@
 
 ### Fixed
 
+- An uploaded database that was edited or relinked no longer comes back as
+  its bare files when its matrix cache has to be built again, as after an
+  upgrade that changes the cache. Two things an author had done lived in the
+  cache alone and went missing without a word. The edits: read again from its
+  files, the database was cached before its journal was replayed, so a replay
+  that was refused or cut short left a cache of the bare files that every
+  later load took as up to date. The cache of an edited database is now
+  written only once its journal has been replayed. The dependency chosen by a
+  mapping relink: with the cache gone the mapping found no database to link
+  to. It is now recorded in the database's `meta.toml`, and a database
+  relinked before this fix has it recorded the next time it loads, as long as
+  its cache still reads.
+- An upload whose files sit at the root of its archive loads again from them
+  after a mapping relink. The mapping is kept beside them as `relink.csv`,
+  which was taken for the database itself: an EcoSpold 1 upload was refused as
+  a SimaPro export holding no activity, and a SimaPro upload was read from
+  whichever of the two files the directory listed first.
+- The setup of a closed upload that was edited, relinked by a mapping or
+  divided by a system model (`GET /api/v1/db/{name}/setup`) answers 404 "not
+  loaded" instead of preparing the database from its files, which left that
+  work out: load the database, and its setup is there. pyvolca's
+  `ensure_database` went through that door for every closed upload, and now
+  loads the database when the setup answers so.
+- A copy of a database relinked by a mapping links as its source does when it
+  is closed and loaded again, and an edit that names a supplier in a
+  dependency is replayed against the dependencies the database stands on, the
+  ones it was accepted with.
 - An EcoSpold 1 export now writes, on each input linked to a dataset of the
   file, the location of that dataset. Inputs written through the API, and
   every input of a database read from EcoSpold 2, state no location, so a

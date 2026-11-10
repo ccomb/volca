@@ -131,3 +131,27 @@ def test_bytes_source_requires_a_name(client: Client):
     with pytest.raises(VoLCAError, match="name= is required"):
         client.ensure_database(b"raw bytes")
     client.upload_database.assert_not_called()
+
+
+def test_closed_upload_with_no_setup_is_loaded_not_finalized(client: Client):
+    # An edited or relinked upload has no setup while closed: finalizing it
+    # from its files would leave out what was done to it.
+    client.list_databases.return_value = [
+        _info("mine", "mine", DatabaseStatus.UNLOADED, uploaded=True)
+    ]
+    client.get_setup.side_effect = VoLCAError(
+        "404 Not Found: Database not loaded: mine", status_code=404
+    )
+    assert client.ensure_database("ignored/mine.zip") == "mine"
+    client.load_database.assert_called_once_with("mine")
+    client.finalize_database.assert_not_called()
+
+
+def test_a_setup_that_fails_otherwise_is_not_hidden(client: Client):
+    client.list_databases.return_value = [
+        _info("mine", "mine", DatabaseStatus.UNLOADED, uploaded=True)
+    ]
+    client.get_setup.side_effect = VoLCAError("500 Server Error", status_code=500)
+    with pytest.raises(VoLCAError):
+        client.ensure_database("ignored/mine.zip")
+    client.load_database.assert_not_called()

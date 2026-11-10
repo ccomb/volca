@@ -495,7 +495,9 @@ registerCopy manager slug loaded = do
         Left err -> pure (Left err)
         Right () -> do
             let copiedDb = ldDatabase src
-                newConfig = renameConfig slug added (ldConfig src)
+                -- The dependencies the copy's meta.toml names, not the ones
+                -- the source was loaded with: a relink since added to them.
+                newConfig = (renameConfig slug added (ldConfig src)){dcDepends = dbDependsOn copiedDb}
             -- Fresh solver: a distinct name keys a distinct factorization cache.
             solver <- solverFor slug copiedDb
             synonymDB <- getMergedSynonymDB manager

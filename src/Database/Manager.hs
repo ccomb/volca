@@ -586,7 +586,9 @@ data DatabaseSetupInfo = DatabaseSetupInfo
 -- | Errors from getDatabaseSetupInfo
 data SetupError
     = SetupNotFound Text
-    | -- | Configured (non-uploaded) database that must be loaded before setup.
+    | {- | A database that must be loaded before setup: a configured one, or an
+      upload that is more than its files.
+      -}
       SetupNotLoaded Text
     | SetupFailed Text
     deriving (Show, Eq)
@@ -2631,7 +2633,7 @@ detectDirectoryFormat path = do
     -- here are the last two, and both are cheap next to the recursive walks above.
     hasTopLevelExtension :: String -> IO Bool
     hasTopLevelExtension ext =
-        elem ext . map (map toLower . takeExtension) <$> listDirectory path
+        elem ext . map (map toLower . takeExtension) <$> Upload.sourceEntries path
 
     -- No fallback guess: a directory matching no probe stays FormatUnknown.
     firstMatch :: [(DirectoryFormat, IO Bool)] -> IO DirectoryFormat
@@ -2650,7 +2652,7 @@ containsExtensionDeep ext =
 -- | Files in a directory carrying the given (lowercased) extension.
 findFilesWithExtension :: String -> FilePath -> IO [FilePath]
 findFilesWithExtension ext path = do
-    entries <- listDirectory path
+    entries <- Upload.sourceEntries path
     let candidates = [path </> f | f <- entries, map toLower (takeExtension f) == ext]
     -- A directory named "exports.csv" carries the extension and is not a file;
     -- handing it to a parser is a crash where a refusal belongs.
@@ -2739,6 +2741,7 @@ loadDatabaseRawWithCrossDB ::
 loadDatabaseRawWithCrossDB RawLoad{..} = do
     mCachedDb <- case rlCachePolicy of
         NoCache -> return Nothing
+        ReadCache -> Loader.loadCachedDatabaseWithMatrices rlDbName rlSourcePath inputs
         UseCache -> Loader.loadCachedDatabaseWithMatrices rlDbName rlSourcePath inputs
     case cacheVerdict rlOtherIndexes mCachedDb of
         Fresh db -> do
@@ -2858,9 +2861,11 @@ data LoadSource = FromCache | FromSource
 
 {- | Whether a load may read and write the matrix cache. 'NoCache' is what
 @--no-cache@ asks for, and what a database whose journal runs ahead of its
-cache gets whatever the flag says.
+cache gets whatever the flag says. 'ReadCache' reads a cache and saves none:
+it is what a database with a journal gets, since what its files give lacks the
+journal until the replay.
 -}
-data CachePolicy = UseCache | NoCache
+data CachePolicy = UseCache | ReadCache | NoCache
     deriving (Eq, Show)
 
 {- | On a fresh parse 'loadDatabaseRawWithCrossDB' already ran linking against
@@ -2921,14 +2926,14 @@ loadDatabaseSingleFromConfig manager dbName = do
         liftIO $ reportProgress Info $ "Dividing " <> T.unpack dbName <> " from its parent " <> T.unpack parentName
         child <- ExceptT (Child.childOf unitConfig model (ldDatabase parent))
         (db, solver) <- liftIO $ withRuntime dbName synonymDB child
-        (edited, _) <- ExceptT (replayEdits manager dbConfig LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = dbConfig, ldSupplierMapping = Nothing})
+        (edited, _) <- ExceptT (replayEdits manager dbConfig (withRecordedDeps dbConfig LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = dbConfig, ldSupplierMapping = Nothing}))
         pure (edited, FromParent)
 
     fromFiles :: M.Map Text DatabaseConfig -> DatabaseConfig -> SynonymDB -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
     fromFiles configs dbConfig synonymDB = do
         currentIndexedDbs <- liftIO $ readTVarIO (dmIndexedDbs manager)
         unitConfig <- liftIO $ getMergedUnitConfig manager
-        journalAhead <- liftIO $ journalAheadOfCache dbConfig
+        cachePolicy <- liftIO $ journalCachePolicy (dmCachePolicy manager) dbConfig
         eitherResult <-
             liftIO $
                 try $
@@ -2936,14 +2941,14 @@ loadDatabaseSingleFromConfig manager dbName = do
                         dbConfig
                         synonymDB
                         unitConfig
-                        (if journalAhead then NoCache else dmCachePolicy manager)
+                        cachePolicy
                         (filter (admits configs dbConfig . idbName) (M.elems currentIndexedDbs))
                         (dmLocationHierarchy manager)
         ExceptT $ case eitherResult of
             Left (ex :: SomeException) -> pure $ Left $ "Exception loading database: " <> T.pack (show ex)
             Right (Left err) -> pure (Left err)
-            Right (Right (loaded, FromCache)) -> pure (Right (loaded, CacheHit))
-            Right (Right (loaded, FromSource)) -> replayEdits manager dbConfig loaded
+            Right (Right (loaded, FromCache)) -> pure (Right (withRecordedDeps dbConfig loaded, CacheHit))
+            Right (Right (loaded, FromSource)) -> replayEdits manager dbConfig (withRecordedDeps dbConfig loaded)
 
     publish :: DatabaseConfig -> SynonymDB -> LoadedDatabase -> LoadOrigin -> IO ()
     publish dbConfig synonymDB loaded origin = do
@@ -2961,10 +2966,43 @@ loadDatabaseSingleFromConfig manager dbName = do
         when (needsSelfRelink origin || isJust (ldSupplierMapping loaded)) $
             relinkDatabase manager dbName >>= either (warnSelfRelinkFailed dbName) (const (pure ()))
         relinkDependents manager dbName
+        -- A mapping links to a database no input reaches by name: only what
+        -- is recorded finds it again when the files are read afresh.
+        when (isJust (ldSupplierMapping loaded)) $ recordDependencies manager dbName
         {- Cache what the journal produced, so the next load does not replay
         it, and stamp the cache with the journal it holds. The stamp goes
         last: a cache that is not stamped is read again from source. -}
         when (origin == Replayed) $ recordReplayedCache manager dbConfig
+
+{- | A database just read, depending also on the databases its home records.
+
+What is recorded only adds to what the reading found. A dependency chosen by a
+mapping relink reaches no input by name, so the files read afresh do not find
+it; and nothing is taken away, so a supplier in a database the record does not
+name is still found. A configured database owns its dependencies in the
+configuration file and is left as read.
+-}
+withRecordedDeps :: DatabaseConfig -> LoadedDatabase -> LoadedDatabase
+withRecordedDeps dbConfig loaded
+    | dcIsUploaded dbConfig = loaded{ldDatabase = db{dbDependsOn = nubOrd (dbDependsOn db <> dcDepends dbConfig)}}
+    | otherwise = loaded
+  where
+    db :: Database
+    db = ldDatabase loaded
+
+{- | Record the dependencies a database stands on now, loaded or staged, where
+a restart reads them. Nothing is written when they are already what is
+recorded.
+-}
+recordDependencies :: DatabaseManager -> Text -> IO ()
+recordDependencies manager dbName = do
+    loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    stagedDbs <- readTVarIO (dmStagedDbs manager)
+    configs <- readTVarIO (dmAvailableDbs manager)
+    let standing = (dbDependsOn . ldDatabase <$> M.lookup dbName loadedDbs) <|> (sdSelectedDeps <$> M.lookup dbName stagedDbs)
+        recorded = maybe [] dcDepends (M.lookup dbName configs)
+    forM_ standing $ \deps ->
+        unless (sameSet deps recorded) $ persistUploadDepends manager dbName deps
 
 {- | A self-relink that failed wrote nothing, and the caller carries on: what
 was loaded is usable, its cross-database links are just not converged.
@@ -2978,7 +3016,7 @@ warnSelfRelinkFailed dbName err =
 the file as it was sent, read again at every load.
 -}
 supplierMappingPath :: FilePath -> FilePath
-supplierMappingPath home = home </> "relink.csv"
+supplierMappingPath home = home </> Upload.supplierMappingFile
 
 {- | The mapping a database's home holds, read under the unit table now in
 force. One that no longer reads (a conversion the table now contradicts) is
@@ -3042,6 +3080,16 @@ databaseModification :: M.Map Text DatabaseConfig -> DatabaseConfig -> IO Modifi
 databaseModification configs config = do
     edited <- or <$> traverse (maybe (pure False) Journal.journalHasEntries <=< editHome) (journalsCarried configs config)
     pure Modification{modificationEdited = edited, modificationReallocated = dcReading (filesOwner configs config) /= dcReading config}
+
+{- | Whether an upload holds work its files do not: edits, its own or those it
+carries from a parent, a division other than its files', or a relink mapping.
+-}
+moreThanItsFiles :: DatabaseManager -> DatabaseConfig -> IO Bool
+moreThanItsFiles manager config = do
+    configs <- readTVarIO (dmAvailableDbs manager)
+    modification <- databaseModification configs config
+    mapped <- maybe (pure False) (doesFileExist . supplierMappingPath) =<< editHome config
+    pure (modificationEdited modification || modificationReallocated modification || mapped)
 
 -- | What a request substituted, and the parameter sets it scored at.
 data Asked = Asked
@@ -3148,30 +3196,41 @@ their own ("Database.Scenarios"), apart from the database's.
 scenariosHome :: FilePath -> FilePath
 scenariosHome home = home </> "scenarios"
 
-{- | Whether the journal has moved since the matrix cache was saved from it.
+{- | How a database's journal lets its matrix cache be used, under the policy
+the engine runs with.
 
 The cache holds the database after its edits, which is what keeps every load
 from replaying them. It is only trustworthy while it can say which journal it
 was built from, so a cache whose stamp does not match the journal is not used
 at all: the sources are read again and the journal replayed over them.
+
+A stamp that matches lets the cache be read, and nothing more. When the cache
+is missing or no longer reads, what the files give lacks the journal until the
+replay: saved at that point, under a stamp that says the journal is in it, it
+would be what the next load takes if the replay is refused or cut short.
 -}
-journalAheadOfCache :: DatabaseConfig -> IO Bool
-journalAheadOfCache dbConfig =
+journalCachePolicy :: CachePolicy -> DatabaseConfig -> IO CachePolicy
+journalCachePolicy NoCache _ = pure NoCache
+journalCachePolicy policy dbConfig =
     editHome dbConfig >>= \case
-        Nothing -> pure False
+        Nothing -> pure policy
         Just home -> do
             current <- Journal.journalStamp home
             applied <- Journal.readAppliedStamp home
-            pure (current /= applied)
+            edited <- Journal.journalHasEntries home
+            pure $ case (current == applied, edited) of
+                (False, _) -> NoCache
+                (True, True) -> ReadCache
+                (True, False) -> policy
 
 {- | Replay a database's edits over the sources just parsed, returning whether
 there were any.
 
 Everything the author was told had happened lives in the journal, so a failure
 here refuses the load rather than handing back a database that quietly
-disagrees with its own record. The dependencies are the ones the config pins,
-already loaded by 'loadDatabase', because a supplier an edit points at may
-live in one of them.
+disagrees with its own record. The dependencies are the ones the database
+stands on, as for an edit made while it is loaded, because a supplier an edit
+points at may live in one of them.
 -}
 replayEdits :: DatabaseManager -> DatabaseConfig -> LoadedDatabase -> IO (Either Text (LoadedDatabase, LoadOrigin))
 replayEdits manager dbConfig loaded =
@@ -3185,7 +3244,7 @@ replayEdits manager dbConfig loaded =
                     loadedDbs <- readTVarIO (dmLoadedDbs manager)
                     unitConfig <- getMergedUnitConfig manager
                     synonymDB <- getMergedSynonymDB manager
-                    let deps = [ldDatabase ld | name <- dcDepends dbConfig, Just ld <- [M.lookup name loadedDbs]]
+                    let deps = [ldDatabase ld | name <- dbDependsOn (ldDatabase loaded), Just ld <- [M.lookup name loadedDbs]]
                         ctx = editingContext unitConfig (ldDatabase loaded) deps
                     reportProgress Info $
                         "Replaying " <> show (length events) <> " recorded edit(s) of " <> T.unpack (dcName dbConfig)
@@ -3447,9 +3506,8 @@ relinkPlan RelinkInputs{..} =
     linksChanged = not (sameSet newLinks (dbCrossDBLinks riDatabase))
 
     -- A caller may have pinned a new dependency in-memory before this call.
-    -- The cache is the only durable store of 'dbDependsOn', so if the live pin
-    -- diverges from what is on disk the cache must be rewritten even when no
-    -- new links were discovered.
+    -- The cache holds 'dbDependsOn' too, so if the live pin diverges from what
+    -- is on disk the cache is rewritten even when no new links were discovered.
     depsChanged :: Bool
     depsChanged = maybe False (not . sameSet newDeps) riPersistedDeps
 
@@ -3514,7 +3572,9 @@ relinkDatabaseWithMapping manager dbName depDb mapping = withLogScope dbName $ d
                 atomically $
                     modifyTVar' (dmLoadedDbs manager) (M.adjust (withMapping . addPinnedDep depDb) dbName)
                 relinkDatabaseWith manager dbName (Just persistedDeps)
-    forM_ relinked $ \_ -> storeSupplierMapping manager dbName mapping
+    forM_ relinked $ \_ -> do
+        storeSupplierMapping manager dbName mapping
+        recordDependencies manager dbName
     pure relinked
   where
     withMapping :: LoadedDatabase -> LoadedDatabase
@@ -3592,9 +3652,9 @@ the links a mapping relink made. The dependency set stored on the database is
 never mutated here.
 
 @persistedDeps@ is the dependency set as it stands in the matrix cache on disk
-('Just' when the caller pinned a new dep in-memory before calling). The cache
-is the only durable store of 'dbDependsOn', so a pin that yields zero new links
-must still be written; comparing the live pin against @persistedDeps@ surfaces
+('Just' when the caller pinned a new dep in-memory before calling). A cache
+that reads is loaded as it stands, so a pin that yields zero new links must
+still be written to it; comparing the live pin against @persistedDeps@ surfaces
 that divergence. 'Nothing' means the pin is unchanged from disk.
 -}
 relinkDatabaseWith ::
@@ -4233,14 +4293,26 @@ getDatabaseSetupInfo manager dbName = do
             -- Do the slow work, ensuring we always unmark on exception
             stageResult <-
                 Control.Exception.finally
-                    (stageUploadedDatabase manager dbConfig)
+                    (stageFromFiles dbConfig)
                     (atomically $ modifyTVar' (dmStagingDbs manager) (S.delete dbName))
             case stageResult of
-                Left err -> do
+                Left (SetupFailed err) -> do
                     reportProgress Error $ "Setup staging failed for " <> T.unpack dbName <> ": " <> T.unpack err
                     return $ Left $ SetupFailed err
+                Left err -> return (Left err)
                 Right () -> buildSetupResult manager dbName
   where
+    {- Its files are all there is to a database nobody has worked on. One that
+    was edited, relinked by a mapping or divided by a system model is more
+    than them, and staged from them it would come back without that work: it
+    is loaded instead, which replays it. -}
+    stageFromFiles :: DatabaseConfig -> IO (Either SetupError ())
+    stageFromFiles dbConfig = do
+        worked <- moreThanItsFiles manager dbConfig
+        if worked
+            then pure (Left (SetupNotLoaded dbName))
+            else first SetupFailed <$> stageUploadedDatabase manager dbConfig
+
     {- Already staged? already staging? need to stage? One transaction, so the
     answer cannot go stale between the reads, and the name is reserved in the
     same breath as the decision to stage it. -}

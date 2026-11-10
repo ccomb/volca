@@ -21,8 +21,9 @@ module PersistenceSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (bracket_)
-import Control.Monad (forM_, void)
+import Control.Monad (forM_, void, when)
 import Data.Bifunctor (first)
+import Data.Either (isRight)
 import Data.JournalFile (noOrigin)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
@@ -33,7 +34,7 @@ import qualified Data.Text.IO as TIO
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, listDirectory, removeFile)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile)
 import System.Environment (setEnv, unsetEnv)
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -54,29 +55,36 @@ import Database.Edit (
     refusalMessage,
     supplyMissing,
  )
-import Database.Journal (Change (..), Entry (..), JournalOp (..), journalPath, nothingStated, readJournal)
+import Database.Journal (Change (..), Entry (..), JournalOp (..), journalPath, journalStamp, nothingStated, readJournal, writeAppliedStamp)
+import Database.Loader (matrixCacheFile)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
     DatabaseSetupInfo (..),
     LoadedDatabase (..),
     MissingSupplier (..),
+    SetupError (..),
     addDatabase,
     getDatabaseSetupInfo,
     initDatabaseManager,
     loadDatabase,
+    relinkDatabaseWithMapping,
     removeDatabase,
     unloadDatabase,
  )
+import Database.RelinkMapping (SupplierMapping, readSupplierMapping)
 import Database.Upload (DatabaseFormat (..))
-import Database.UploadedDatabase (UploadMeta (..), readUploadMeta)
+import Database.UploadedDatabase (UploadMeta (..), metaVersion, readUploadMeta, writeUploadMeta)
 import SharedSolver (SharedSolver, createSharedSolver)
+import TestHelpers (modelDividingBy)
 import Types (
     Activity (..),
+    AllocationProperty (..),
     BioDirection (..),
     BiosphereFlow (..),
     BuildInputs (..),
     Compartment (..),
+    CrossDBLink (..),
     Database (..),
     Exchange (..),
     FileReading (..),
@@ -148,6 +156,109 @@ spec = describe "persisting an edit" $ do
                 unloadDatabase manager "bafu-like" `shouldReturn` Right ()
                 reloaded <- loadDatabase manager "bafu-like"
                 void reloaded `shouldSatisfy` failsWith "Unknown process id"
+
+        it "keeps refusing a journal it cannot apply, once its cache is gone" $
+            -- The stamp says the cache holds the journal. Read again from its
+            -- files, the database must not be cached before the journal is
+            -- replayed over it: a refused replay would leave behind a cache
+            -- without the edits, which the next load takes at its word.
+            withEcoSpold1Database $ \manager home -> do
+                keys <- processKeysOf manager "bafu-like"
+                _ <- deleteFirst manager "bafu-like" keys
+                TIO.appendFile (journalPath home) (deleteLineFor (head' keys) <> "\n")
+                journalStamp home >>= writeAppliedStamp home
+                unloadDatabase manager "bafu-like" `shouldReturn` Right ()
+                removeFile (cacheOf home "bafu-like")
+                refused <- loadDatabase manager "bafu-like"
+                void refused `shouldSatisfy` failsWith "Unknown process id"
+                doesFileExist (cacheOf home "bafu-like") `shouldReturn` False
+                refusedAgain <- loadDatabase manager "bafu-like"
+                void refusedAgain `shouldSatisfy` failsWith "Unknown process id"
+
+        it "is not prepared from its files while it is closed, which would leave its edits out" $
+            withEcoSpold1Database $ \manager home -> do
+                keys <- processKeysOf manager "bafu-like"
+                _ <- deleteFirst manager "bafu-like" keys
+                unloadDatabase manager "bafu-like" `shouldReturn` Right ()
+                removeFile (cacheOf home "bafu-like")
+                (void <$> getDatabaseSetupInfo manager "bafu-like") `shouldReturn` Left (SetupNotLoaded "bafu-like")
+                mustLoad manager "bafu-like"
+                processKeysOf manager "bafu-like" `shouldReturn` drop 1 keys
+
+        it "is not prepared from its parent's files when a system model divides it" $
+            withEcoSpold1Database $ \manager home -> do
+                addDatabase manager (uploadedConfig "child" (home </> "data")){dcSource = Just "bafu-like", dcReading = ByModel (modelDividingBy WetMass)}
+                (void <$> getDatabaseSetupInfo manager "child") `shouldReturn` Left (SetupNotLoaded "child")
+
+    describe "a database relinked by a mapping" $ do
+        it "names the dependency where a restart reads it, and links to it again once its cache is gone" $
+            withBakeryAndMill $ \dataRoot manager -> do
+                relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
+                suppliersOf manager "bakery" `shouldReturn` Set.singleton "mill"
+                dependsRecorded dataRoot "bakery" `shouldReturn` Just ["mill"]
+                restarted <- initDatabaseManager defaultConfig UseCache
+                removeFile (cacheOf (homeOf dataRoot "bakery") "bakery")
+                mustLoad restarted "bakery"
+                suppliersOf restarted "bakery" `shouldReturn` Set.singleton "mill"
+
+        it "is read again from files that sit at the root of its home, beside the mapping it keeps there" $
+            withBakeryAt "" $ \dataRoot manager -> do
+                relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
+                restarted <- initDatabaseManager defaultConfig UseCache
+                removeFile (matrixCacheFile "bakery" (homeOf dataRoot "bakery"))
+                mustLoad restarted "bakery"
+                suppliersOf restarted "bakery" `shouldReturn` Set.singleton "mill"
+
+        it "is not prepared from its files while it is closed, which would leave its mapping out" $
+            withBakeryAndMill $ \_ manager -> do
+                relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
+                unloadDatabase manager "bakery" `shouldReturn` Right ()
+                (void <$> getDatabaseSetupInfo manager "bakery") `shouldReturn` Left (SetupNotLoaded "bakery")
+
+        it "replays an edit that names a supplier in the dependency" $
+            -- The edit was accepted against the dependencies the database had
+            -- when it was made, so the replay judges it against the same ones.
+            withBakeryAndMill $ \dataRoot manager -> do
+                relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
+                oats <- processIdNamedIn manager "mill" "rolled oats"
+                outcome <- supplyMissing manager "bakery" noOrigin nothingStated (MissingRequest "oats" Nothing oats)
+                void (first refusalMessage outcome) `shouldBe` Right ()
+                restarted <- initDatabaseManager defaultConfig UseCache
+                removeFile (cacheOf (homeOf dataRoot "bakery") "bakery")
+                reloaded <- loadDatabase restarted "bakery"
+                void reloaded `shouldBe` Right ()
+
+        it "records again a dependency that only its cache still named" $
+            -- How a database relinked before the dependency was recorded stands.
+            withBakeryAndMill $ \dataRoot manager -> do
+                relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
+                writeUpload dataRoot "bakery" [] bakery
+                restarted <- initDatabaseManager defaultConfig UseCache
+                mustLoad restarted "bakery"
+                dependsRecorded dataRoot "bakery" `shouldReturn` Just ["mill"]
+                suppliersOf restarted "bakery" `shouldReturn` Set.singleton "mill"
+
+        it "goes along with a copy, which links as its source does when it is loaded again" $
+            withBakeryAndMill $ \dataRoot manager -> do
+                relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
+                copyDatabase manager "bakery" "hybrid" `shouldReturn` Right ()
+                unloadDatabase manager "hybrid" `shouldReturn` Right ()
+                let cache = cacheOf (homeOf dataRoot "bakery") "hybrid"
+                doesFileExist cache >>= (`when` removeFile cache)
+                mustLoad manager "hybrid"
+                suppliersOf manager "hybrid" `shouldReturn` Set.singleton "mill"
+
+    describe "the dependencies an upload records" $
+        it "do not keep it from a supplier found in a database they do not name" $
+            -- What is recorded only adds: a database loaded while one of its
+            -- suppliers was closed finds it at the next reading of its files.
+            withDataDir $ \dataRoot -> do
+                writeUpload dataRoot "barley-farm" [] [datasetBuying 1 "barley" "kg" [], dataset 2 "electricity production, wind"]
+                writeUpload dataRoot "oat-farm" [] [datasetBuying 1 "oats" "kg" [], dataset 2 "electricity production, solar"]
+                writeUpload dataRoot "bakery" ["barley-farm"] [datasetBuying 1 "bread" "kg" [("barley, output", 2), ("oats, output", 1)], dataset 2 "electricity production, hydro"]
+                manager <- initDatabaseManager defaultConfig UseCache
+                forM_ ["barley-farm", "oat-farm", "bakery"] (mustLoad manager)
+                suppliersOf manager "bakery" `shouldReturn` Set.fromList ["barley-farm", "oat-farm"]
 
     describe "a copy" $ do
         it "gets a home of its own at once, holding no data" $
@@ -398,13 +509,94 @@ farm =
     , dataset 4 "electricity production, wind"
     ]
 
+{- | An upload as a restart finds it: its datasets under its home, and the
+meta.toml that names the databases it depends on.
+-}
+writeUpload :: FilePath -> Text -> [Text] -> [Text] -> IO ()
+writeUpload = writeUploadAt "data"
+
+{- | The same, its datasets where this path leads from its home: @""@ is the
+home itself, as for an archive whose files sit at its root.
+-}
+writeUploadAt :: FilePath -> FilePath -> Text -> [Text] -> [Text] -> IO ()
+writeUploadAt dataPath dataRoot name depends datasets = do
+    let home = homeOf dataRoot name
+    createDirectoryIfMissing True (home </> dataPath)
+    forM_ (zip [1 :: Int ..] datasets) $ \(number, text) ->
+        TIO.writeFile (home </> dataPath </> "process_" <> T.unpack (UUID.toText (mkUUID (100 + number))) <> ".xml") text
+    writeUploadMeta
+        home
+        UploadMeta
+            { umVersion = metaVersion
+            , umDisplayName = name
+            , umDescription = Nothing
+            , umFormat = EcoSpold1
+            , umDataPath = dataPath
+            , umDepends = depends
+            , umSource = Nothing
+            , umReading = FromFiles ReadDeclared
+            , umBuiltIn = Nothing
+            , umLicence = LicenceUnstated
+            , umRelease = Nothing
+            , umRequires = []
+            , umPackageMethod = Nothing
+            , umAdded = Nothing
+            }
+
+homeOf :: FilePath -> Text -> FilePath
+homeOf dataRoot name = dataRoot </> "uploads" </> "databases" </> T.unpack name
+
+-- | Where a database of this name keeps its matrix cache, beside the data of this home.
+cacheOf :: FilePath -> Text -> FilePath
+cacheOf home name = matrixCacheFile name (home </> "data")
+
+{- | A bakery whose barley and oats no database supplies under those names, and
+a mill selling both under other names, each an upload with its meta.toml, both
+loaded.
+-}
+withBakeryAndMill :: (FilePath -> DatabaseManager -> IO ()) -> IO ()
+withBakeryAndMill = withBakeryAt "data"
+
+-- | The same, the bakery's datasets where this path leads from its home.
+withBakeryAt :: FilePath -> (FilePath -> DatabaseManager -> IO ()) -> IO ()
+withBakeryAt dataPath act =
+    withDataDir $ \dataRoot -> do
+        writeUpload dataRoot "mill" [] [datasetBuying 1 "milled barley" "kg" [], datasetBuying 2 "rolled oats" "kg" []]
+        writeUploadAt dataPath dataRoot "bakery" [] bakery
+        manager <- initDatabaseManager defaultConfig UseCache
+        forM_ ["mill", "bakery"] (mustLoad manager)
+        act dataRoot manager
+
+bakery :: [Text]
+bakery =
+    [ datasetBuying 1 "bread" "kg" [("barley", 2), ("oats", 1)]
+    , datasetBuying 2 "beer" "kg" [("barley", 3)]
+    ]
+
+-- | The bakery's barley is the mill's milled barley: only the mapping says so.
+barleyIsMilled :: SupplierMapping
+barleyIsMilled = either (error . show) id (readSupplierMapping defaultUnitConfig "source_name,target_name\nbarley,\"milled barley, output\"\n")
+
+-- | The databases a loaded database's links between databases reach.
+suppliersOf :: DatabaseManager -> Text -> IO (Set.Set Text)
+suppliersOf manager name =
+    maybe Set.empty (Set.fromList . map cdlSourceDatabase . dbCrossDBLinks . ldDatabase) . M.lookup name <$> readTVarIO (dmLoadedDbs manager)
+
+-- | The dependencies an upload's meta.toml names.
+dependsRecorded :: FilePath -> Text -> IO (Maybe [Text])
+dependsRecorded dataRoot name = fmap umDepends <$> readUploadMeta (homeOf dataRoot name)
+
 -- | The process id of the activity of this name.
 processIdNamed :: DatabaseManager -> Text -> IO Text
-processIdNamed manager name = do
+processIdNamed manager = processIdNamedIn manager "bafu-like"
+
+-- | The same, in the database of this name.
+processIdNamedIn :: DatabaseManager -> Text -> Text -> IO Text
+processIdNamedIn manager dbName name = do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
     let found =
             [ processRefText (uncurry ProcessRef key)
-            | Just loaded <- [M.lookup "bafu-like" loadedDbs]
+            | Just loaded <- [M.lookup dbName loadedDbs]
             , let db = ldDatabase loaded
             , (key, activity) <- zip (V.toList (dbProcessIdTable db)) (V.toList (dbActivities db))
             , activityName activity == name
@@ -452,11 +644,15 @@ deleteFirst manager dbName keys = do
     r <- deleteActivitiesInDB manager dbName noOrigin (deleteIds [head' keys])
     either (fail . T.unpack) pure r
 
+-- | Load a database, failing the example when it is refused.
+mustLoad :: DatabaseManager -> Text -> IO ()
+mustLoad manager dbName = loadDatabase manager dbName >>= either (fail . T.unpack) (const (pure ()))
+
 -- | Unload, load again, and say which processes came back.
 reloadOf :: DatabaseManager -> Text -> IO [Text]
 reloadOf manager dbName = do
     unloadDatabase manager dbName >>= either (fail . T.unpack) pure
-    loadDatabase manager dbName >>= either (fail . T.unpack) (const (pure ()))
+    mustLoad manager dbName
     processKeysOf manager dbName
 
 -- | Each process's biosphere amounts, by process id.
