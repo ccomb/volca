@@ -115,7 +115,7 @@ spec = describe "cross-DB regional LCIA" $ do
             Left err -> expectationFailure ("solve failed: " <> show err)
             Right sol -> do
                 let perDb =
-                        [ (db, s, tablesFor n)
+                        [ Participant n db s (tablesFor n)
                         | SS.Reached n db s <- NE.toList (SS.csScalings sol)
                         ]
                     tablesFor n = case n of
@@ -175,7 +175,7 @@ spec = describe "cross-DB regional LCIA" $ do
             Right sol -> do
                 let perDb =
                         NE.map
-                            (\(SS.Reached n db sc) -> (db, sc, if n == "root" then blindRootSet else depSet))
+                            (\(SS.Reached n db sc) -> Participant n db sc (if n == "root" then blindRootSet else depSet))
                             (SS.csScalings sol)
                 map
                     snd
@@ -209,10 +209,10 @@ spec = describe "cross-DB regional LCIA" $ do
             Right sol -> do
                 let stale t = t{mtRegionalActivityWeights = Nothing}
                     perDb =
-                        [ (db, s, stale (if n == "root" then rootTables else depTables))
+                        [ Participant n db s (stale (if n == "root" then rootTables else depTables))
                         | SS.Reached n db s <- NE.toList (SS.csScalings sol)
                         ]
-                    alone (db, s, t) =
+                    alone (Participant _ db s t) =
                         computeRegionalizedLCIAScore kgUnitConfig (dbUnits depDb) (dbBioFlows depDb) IncludeLongTerm db s M.empty t
                     errors = lefts (map alone perDb)
                 length errors `shouldBe` 2
@@ -257,7 +257,7 @@ spec = describe "cross-DB regional LCIA" $ do
             Right sol -> do
                 let perDb =
                         NE.map
-                            (\(SS.Reached n db sc) -> (db, sc, if n == "root" then rootSet else emptySet))
+                            (\(SS.Reached n db sc) -> Participant n db sc (if n == "root" then rootSet else emptySet))
                             (SS.csScalings sol)
                 -- The dependency's kilogram at DE is worth 5 with its own
                 -- tables: left out, the root alone answers.
@@ -297,7 +297,7 @@ spec = describe "cross-DB regional LCIA" $ do
             Left err -> expectationFailure ("solve failed: " <> show err)
             Right sol -> do
                 let perDb =
-                        [ (db, s, tablesFor n)
+                        [ Participant n db s (tablesFor n)
                         | SS.Reached n db s <- NE.toList (SS.csScalings sol)
                         ]
                     tablesFor n = case n of
@@ -343,7 +343,7 @@ spec = describe "cross-DB regional LCIA" $ do
             Left err -> expectationFailure ("solve failed: " <> show err)
             Right sol -> do
                 let perDb =
-                        [ (db, s, tablesFor n)
+                        [ Participant n db s (tablesFor n)
                         | SS.Reached n db s <- NE.toList (SS.csScalings sol)
                         ]
                     tablesFor n = case n of
@@ -389,7 +389,7 @@ spec = describe "cross-DB regional LCIA" $ do
             Left err -> expectationFailure ("solve failed: " <> show err)
             Right sol -> do
                 let perDb =
-                        [ (db, s, tablesFor n)
+                        [ Participant n db s (tablesFor n)
                         | SS.Reached n db s <- NE.toList (SS.csScalings sol)
                         ]
                     tablesFor n = case n of
@@ -482,7 +482,7 @@ spec = describe "cross-DB regional LCIA" $ do
                     -- csScalings has only the root entry; cross-DB sum
                     -- reduces to the single-DB dot product. Score =
                     -- 1·CF[F, FR] = 7.
-                    let perDb = [(db, sv, standaloneTables) | SS.Reached _ db sv <- NE.toList (SS.csScalings sol)]
+                    let perDb = [Participant n db sv standaloneTables | SS.Reached n db sv <- NE.toList (SS.csScalings sol)]
                     sumRegionalizedLCIAScoreCrossDB
                         kgUnitConfig
                         (dbUnits rootStandalone)

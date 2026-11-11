@@ -54,6 +54,7 @@ module Method.Mapping (
     zeroedMatchedCFs,
     fillRegionalActivityWeights,
     reweigh,
+    Participant (..),
     regionalizedContributionsCrossDB,
     regionalizedProcessContributions,
     RegionalActivityWeights (..),
@@ -2609,6 +2610,19 @@ computeRegionalizedLCIAScore unitConfig unitDB flowDB ltMode db scalingVec _hier
                             else go (i + 1) (acc + sv * U.unsafeIndex weights i)
         Right (go 0 0)
 
+{- | One database a cross-database solve reached, at the scaling the solve found
+for it, with the tables a method or a set of methods was read into against it.
+-}
+data Participant t = Participant
+    { partName :: !Text
+    -- ^ the name the database is loaded under
+    , partDatabase :: Database
+    -- ^ left lazy: a method scored flat from the merged inventory never opens it
+    , partScaling :: !Vector
+    -- ^ indexed by the activities of 'partDatabase'
+    , partTables :: !t
+    }
+
 {- | Cross-DB regionalized LCIA score.
 
 For each participating database @d@ (root + each dep DB reached at request
@@ -2643,13 +2657,13 @@ sumRegionalizedLCIAScoreCrossDB ::
     -- | What to do with the delayed long-term emissions
     LongTermMode ->
     M.Map Location [Location] ->
-    {- | Per-DB triples: one per database participating in the cross-DB solve
-    (root + dep DBs in the same order returned by 'SharedSolver.csScalings').
+    {- | One per database participating in the cross-DB solve (root + dep DBs
+    in the same order returned by 'SharedSolver.csScalings').
     -}
-    [(Database, Vector, MethodTables)] ->
+    [Participant MethodTables] ->
     Either Text Double
-sumRegionalizedLCIAScoreCrossDB unitCfg unitDB flowDB ltMode hier triples =
-    let results = [computeRegionalizedLCIAScore unitCfg unitDB flowDB ltMode db sv hier t | (db, sv, t) <- triples]
+sumRegionalizedLCIAScoreCrossDB unitCfg unitDB flowDB ltMode hier participants =
+    let results = [computeRegionalizedLCIAScore unitCfg unitDB flowDB ltMode db sv hier t | Participant _ db sv t <- participants]
      in case lefts results of
             [] -> Right (sum (rights results))
             es -> Left (T.intercalate "; " es)
@@ -2698,10 +2712,10 @@ regionalizedContributionsCrossDB ::
     BioFlowDB ->
     -- | What to do with the delayed long-term emissions
     LongTermMode ->
-    -- | Per-DB triples, in the order 'SharedSolver.csScalings' returns them
-    [(Database, Vector, MethodTables)] ->
+    -- | The databases of the solve, in the order 'SharedSolver.csScalings' returns them
+    [Participant MethodTables] ->
     Either Text ([FlowContribution], [UUID])
-regionalizedContributionsCrossDB unitCfg unitDB flowDB ltMode triples =
+regionalizedContributionsCrossDB unitCfg unitDB flowDB ltMode participants =
     case lefts perDb of
         [] ->
             let (shares, unknowns) = unzip (rights perDb)
@@ -2710,7 +2724,7 @@ regionalizedContributionsCrossDB unitCfg unitDB flowDB ltMode triples =
         es -> Left (T.intercalate "; " es)
   where
     perDb :: [Either Text (M.Map UUID FlowShare, [UUID])]
-    perDb = [sharesOf db sv t | (db, sv, t) <- triples]
+    perDb = [sharesOf db sv t | Participant _ db sv t <- participants]
 
     sharesOf :: Database -> Vector -> MethodTables -> Either Text (M.Map UUID FlowShare, [UUID])
     sharesOf db sv tables = case regionalPathOf tables of
@@ -3741,17 +3755,17 @@ computeLCIAScoreSetFromTables ::
     LongTermMode ->
     Inventory ->
     M.Map Location [Location] ->
-    {- | Non-empty per-DB triples: 'NE.head' is root, tail is each participating
-    dep DB. Building order matches 'SharedSolver.csScalings'.
+    {- | 'NE.head' is root, tail is each participating dep DB. Building order
+    matches 'SharedSolver.csScalings'.
     -}
-    NonEmpty (Database, Vector, MethodSetTables) ->
+    NonEmpty (Participant MethodSetTables) ->
     [(UUID, Either Text Double)]
 computeLCIAScoreSetFromTables unitCfg unitDB flowDB ltMode inventory hier perDb =
-    let (_, _, mstRoot) = NE.head perDb
+    let mstRoot = partTables (NE.head perDb)
         regionalIds =
             Set.fromList
                 [ mseMethodId e
-                | (_, _, mst) <- NE.toList perDb
+                | mst <- map partTables (NE.toList perDb)
                 , e <- V.toList (msRegional mst)
                 ]
         regionalEntries =
@@ -3879,20 +3893,20 @@ scoreRegionalCrossDB ::
     LongTermMode ->
     M.Map Location [Location] ->
     V.Vector MethodSetEntry ->
-    NonEmpty (Database, Vector, MethodSetTables) ->
+    NonEmpty (Participant MethodSetTables) ->
     [(UUID, Either Text Double)]
 scoreRegionalCrossDB unitCfg unitDB flowDB ltMode hier ms perDb =
     [ ( mseMethodId e
-      , sumRegionalizedLCIAScoreCrossDB unitCfg unitDB flowDB ltMode hier (triples (mseMethodId e))
+      , sumRegionalizedLCIAScoreCrossDB unitCfg unitDB flowDB ltMode hier (carrying (mseMethodId e))
       )
     | e <- V.toList ms
     ]
   where
-    -- Per-method per-DB triples; skip DBs that don't carry this method.
-    triples mid =
-        [ (db, sv, t)
-        | (db, sv, mst) <- NE.toList perDb
-        , Just t <- [lookupMethodTables mid mst]
+    -- Each database with this method's tables; skip DBs that don't carry this method.
+    carrying mid =
+        [ p{partTables = t}
+        | p <- NE.toList perDb
+        , Just t <- [lookupMethodTables mid (partTables p)]
         ]
     lookupMethodTables mid mst =
         mseTables

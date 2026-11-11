@@ -66,10 +66,10 @@ import qualified GHC.Stats
 import qualified Impact
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
-import Matrix (Inventory, Vector)
+import Matrix (Inventory)
 import qualified Matrix
 import qualified Method.Explain as Explain
-import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), Resolution (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
+import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), Participant (..), Resolution (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
 import Method.Scoring (ScoringRow (..), readingNotice, rowsOf)
 import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, legacyReadings, legacySet, legacySetNames)
@@ -704,12 +704,12 @@ buildPerDbSetTables ::
     DM.CollectionName ->
     NE.NonEmpty Reached ->
     [Method] ->
-    IO (NE.NonEmpty (Database, Vector, Method.Mapping.MethodSetTables))
+    IO (NE.NonEmpty (Participant Method.Mapping.MethodSetTables))
 buildPerDbSetTables dbManager collection scalings methods =
     traverse
         ( \(Reached n d sv) -> do
             mst <- DM.mapMethodSetToTablesCached dbManager n collection d methods
-            pure (d, sv, mst)
+            pure (Participant n d sv mst)
         )
         scalings
 
@@ -2519,7 +2519,7 @@ emissionFactors SupplierFrame{sfDatabase = db, sfCollection = collectionName, sf
     unitCfg <- liftIO (getMergedUnitConfig dbManager)
     tables <- liftIO (buildPerDbSetTables dbManager collectionName (SharedSolver.csScalings root) methods)
     (mFlows, mUnits) <- liftIO (DM.getMergedFlowMetadata dbManager)
-    either scoringError pure (Method.Mapping.rowFactorsOf unitCfg mUnits mFlows ltMode db ((\(_, _, t) -> t) <$> tables) (map methodId methods))
+    either scoringError pure (Method.Mapping.rowFactorsOf unitCfg mUnits mFlows ltMode db (partTables <$> tables) (map methodId methods))
 
 {- | What one more unit of each supplier gives, with the scaling it solves to of
 each of these processes of the root's database. A supplier no loaded database

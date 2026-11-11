@@ -233,7 +233,7 @@ contributionRows = contributionRowsUnder IncludeLongTerm
 
 contributionRowsUnder :: LongTermMode -> Database -> U.Vector Double -> MethodTables -> [FlowContribution]
 contributionRowsUnder ltMode db scaling tables =
-    case regionalizedContributionsCrossDB kgUnitConfig (dbUnits db) (dbBioFlows db) ltMode [(db, scaling, tables)] of
+    case regionalizedContributionsCrossDB kgUnitConfig (dbUnits db) (dbBioFlows db) ltMode [Participant "root" db scaling tables] of
         Left err -> error (T.unpack err)
         Right (rows, _unknown) -> sortOn (bfName . fcFlow) rows
 

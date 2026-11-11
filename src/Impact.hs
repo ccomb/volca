@@ -72,12 +72,13 @@ import Data.UUID (UUID)
 
 import Database.Cutoffs (Cutoffs (..), cutoffsOf)
 import Database.Manager (CollectionName, DatabaseManager (..), getGapIndex, getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, refusingDatabases)
-import Matrix (Inventory, Vector, applyBiosphereMatrix)
+import Matrix (Inventory, applyBiosphereMatrix)
 import Method.Mapping (
     FlowContribution (..),
     LCIAOutcome (..),
     LongTermMode (..),
     MethodTables (..),
+    Participant (..),
     applyLongTermMode,
     computeLCIAScoreFromTables,
     inventoryContributions,
@@ -90,7 +91,7 @@ import Method.Types (Method (..))
 import Progress (ProgressLevel (..), reportProgress)
 import SharedSolver (Reached (..))
 import qualified SharedSolver
-import Types (BioFlowDB, Database, Permission (..), ProcessId, includedSentence)
+import Types (BioFlowDB, Permission (..), ProcessId, includedSentence)
 
 {- | Record the long-term emission policy on a solution: drop the delayed
 emissions from its inventory and say so, in one move.
@@ -300,7 +301,7 @@ scoreSolution dbManager collection method tables sol = do
     perDb <- perDatabaseTables dbManager collection method sol
     label method $
         if anyRegionalized perDb
-            then traverse evaluate (sumRegionalizedLCIAScoreCrossDB unitCfg mUnits mFlows ltMode (dmLocationHierarchy dbManager) (map unnamed perDb))
+            then traverse evaluate (sumRegionalizedLCIAScoreCrossDB unitCfg mUnits mFlows ltMode (dmLocationHierarchy dbManager) perDb)
             else Right <$> evaluate (loScore (computeLCIAScoreFromTables unitCfg mUnits mFlows (SharedSolver.csInventory sol) tables))
   where
     ltMode :: LongTermMode
@@ -329,7 +330,7 @@ contributionsOf dbManager collection method tables sol = do
     perDb <- perDatabaseTables dbManager collection method sol
     label method $
         if anyRegionalized perDb
-            then pure (regionalizedContributionsCrossDB unitCfg mUnits mFlows ltMode (map unnamed perDb))
+            then pure (regionalizedContributionsCrossDB unitCfg mUnits mFlows ltMode perDb)
             else pure (Right (inventoryContributions unitCfg mUnits mFlows (SharedSolver.csInventory sol) tables))
   where
     ltMode :: LongTermMode
@@ -339,8 +340,8 @@ contributionsOf dbManager collection method tables sol = do
 a flow occurs. One that carries none is not evidence that the method has none:
 it is evidence about that database's flows.
 -}
-anyRegionalized :: [(Text, Database, Vector, MethodTables)] -> Bool
-anyRegionalized = any (\(_, _, _, tables) -> not (M.null (mtRegionalizedCF tables)))
+anyRegionalized :: [Participant MethodTables] -> Bool
+anyRegionalized = not . all (M.null . mtRegionalizedCF . partTables)
 
 {- | The activities that made that score, each with what it contributed.
 
@@ -372,10 +373,10 @@ processContributionsOf dbManager collection method tables sol = do
     (mFlows, mUnits) <- getMergedFlowMetadata dbManager
     perDb <- perDatabaseTables dbManager collection method sol
     let ltMode = SharedSolver.csLongTerm sol
-        regional (name, db, sv, dbTables) =
+        regional (Participant name db sv dbTables) =
             M.mapKeys (name,)
                 <$> regionalizedProcessContributions unitCfg mUnits mFlows ltMode db sv dbTables
-        flat (name, db, sv, _) =
+        flat (Participant name db sv _) =
             M.mapKeys (name,) $
                 processContributionsFromTables unitCfg mUnits mFlows ltMode db sv tables
     label method $
@@ -407,24 +408,17 @@ warnUnknownFlowIds surface unknown =
                 <> " inventory flow UUID(s) absent from merged FlowDB – characterization incomplete. Samples: "
                 <> show (take 3 unknown)
 
-{- | Each database of the solution, named, with this method's tables built
-against it. Named because a process id means nothing without the database it
-belongs to; the scoring calls drop it with 'unnamed'.
--}
+-- | Each database of the solution, with this method's tables built against it.
 perDatabaseTables ::
     DatabaseManager ->
     CollectionName ->
     Method ->
     SharedSolver.CrossDBSolution ->
-    IO [(Text, Database, Vector, MethodTables)]
+    IO [Participant MethodTables]
 perDatabaseTables dbManager collection method sol =
     forM (NE.toList (SharedSolver.csScalings sol)) $ \(Reached n d sv) -> do
         tbls <- mapMethodToTablesCached dbManager n collection d method
-        pure (n, d, sv, tbls)
-
--- | The three a per-database score takes, the name dropped.
-unnamed :: (Text, Database, Vector, MethodTables) -> (Database, Vector, MethodTables)
-unnamed (_, db, sv, tables) = (db, sv, tables)
+        pure (Participant n d sv tbls)
 
 -- | Name the method in front of whatever went wrong, once for both paths.
 label :: Method -> IO (Either Text a) -> IO (Either Text a)
