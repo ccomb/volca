@@ -22,6 +22,11 @@
 
 ### Fixed
 
+- An archive that cannot be unpacked now says why. When `unzip` or 7-Zip ran
+  and stopped, on a full disk or a damaged archive, the engine still asked to
+  install an extraction tool, and the reader went looking for one they had.
+  It now gives what the tool said, with its exit code; the advice to install
+  one stands only when none could be started.
 - An uploaded database that was edited or relinked no longer comes back as
   its bare files when its matrix cache has to be built again, as after an
   upgrade that changes the cache. Two things an author had done lived in the
