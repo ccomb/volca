@@ -74,9 +74,9 @@
   Fortran compiler: GHC, Rust and a C compiler build the engine. The
   published binaries no longer contain them: the Windows zip no longer
   carries runtime DLLs beside `volca.exe`, and the macOS Intel binary starts
-  without Homebrew's libraries. On Alpine, `./build.sh` links a static binary
-  when asked with `--static`, where it also did so on finding a MUMPS it had
-  built.
+  without Homebrew's libraries. On Alpine, `./build.sh` without `--static` now
+  links a dynamic binary, where it linked a static one whenever it found a
+  MUMPS it had built: ask for the static one with `--static`.
 
 ## [0.17.0] - 2026-11-07
 
