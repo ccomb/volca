@@ -172,7 +172,7 @@ spec = do
                         IncludeLongTerm
                         inv
                         M.empty -- hier unused for non-regio
-                        (NE.singleton (unusedDatabase, U.empty, mst)) -- scalingVec unused for non-regio
+                        (NE.singleton (Participant "root" unusedDatabase U.empty mst)) -- scalingVec unused for non-regio
                 resultMap = M.fromList results
             -- Sanity: explicit numbers
             sA `shouldBe` 8.0 -- 4*2 + 0.1*0 (no ch4 cf)
@@ -202,7 +202,7 @@ spec = do
                         IncludeLongTerm
                         M.empty
                         M.empty
-                        (NE.singleton (unusedDatabase, U.empty, mst))
+                        (NE.singleton (Participant "root" unusedDatabase U.empty mst))
             map snd results `shouldBe` [Right 0.0, Right 0.0]
 
         it "inventory UUIDs absent from both broadcast and flowDB contribute 0" $ do
@@ -229,7 +229,7 @@ spec = do
                         IncludeLongTerm
                         inv
                         M.empty
-                        (NE.singleton (unusedDatabase, U.empty, mst))
+                        (NE.singleton (Participant "root" unusedDatabase U.empty mst))
             -- Only the matched flow contributes: 2 × 3 = 6.
             map snd results `shouldBe` [Right 6.0]
 
@@ -278,7 +278,7 @@ spec = do
                         IncludeLongTerm
                         inv
                         M.empty
-                        (NE.singleton (unusedDatabase, U.empty, mst))
+                        (NE.singleton (Participant "root" unusedDatabase U.empty mst))
             -- Both contribute against CF=3: (2 + 4) × 3 = 18.
             map snd results `shouldBe` [Right 18.0]
 
@@ -321,7 +321,7 @@ spec = do
                         IncludeLongTerm
                         inv
                         M.empty
-                        (NE.singleton (unusedDatabase, U.empty, mst))
+                        (NE.singleton (Participant "root" unusedDatabase U.empty mst))
             btJudged (msBatched mst) `shouldBe` Set.singleton fidNoCF
             map snd results `shouldBe` [Right 18.0]
 
@@ -402,7 +402,7 @@ spec = do
                         IncludeLongTerm
                         inv
                         M.empty
-                        (NE.singleton (unusedDatabase, U.empty, mst))
+                        (NE.singleton (Participant "root" unusedDatabase U.empty mst))
             -- Caller order preserved on the result keys.
             map fst results
                 `shouldBe` [methodId m1, methodId m2, methodId m3]

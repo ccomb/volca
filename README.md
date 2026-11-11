@@ -570,6 +570,7 @@ GET    /api/v1/db/{dbName}/activity/{processId}/contributing-activities/{collect
 POST   /api/v1/db/{dbName}/impacts/{collection}                          Batch-impacts for many activities (multi-RHS solve)
 POST   /api/v1/db/{dbName}/impacts/{collection}/{methodId}               Same, under one method of the collection
 GET    /api/v1/db/{dbName}/score-pairs?other_database=                   Activities paired with another database's, and what scales the other's scores to this one's units
+POST   /api/v1/db/{dbName}/score-units                                   What scales each asked activity's scores to one unit of the caller's choosing
 
 # Search and reference data
 GET    /api/v1/db/{dbName}/activities?name=&geo=&product=&preset=&classification=&sort=  Search activities
@@ -919,6 +920,7 @@ volca method delete ef-31                        # delete
 | LCIA batch over many activities | `POST /db/{db}/impacts/{collection}` | – |
 | LCIA batch over many activities, one method | `POST /db/{db}/impacts/{collection}/{methodId}` | – |
 | Pairs of activities to score in two databases | `GET /db/{db}/score-pairs?other_database=OTHER` | – |
+| Scores of some activities per one chosen unit | `POST /db/{db}/score-units` | – |
 | Contributing flows | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/{methodId}` | `contributing-flows ID --method METHOD` |
 | Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | `contributing-activities ID --method METHOD` |
 | Contributing flows to a single score | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/score/{set}/{score}` | – |

@@ -7,7 +7,7 @@
 
 module API.Types.Comparison where
 
-import API.JsonOptions (Stripped (..))
+import API.JsonOptions (Stripped (..), parseClosed)
 import API.Types.Common
 import Control.Lens ((&), (.~), (?~))
 import Data.Aeson
@@ -302,9 +302,13 @@ data ScorePair = ScorePair
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ScorePair)
 
--- | Why the scores of a pair cannot be put per one unit of the same thing.
+{- | Why a score cannot be put per one unit of something else. Two answers use
+it: the pairs of two databases, where the base unit is that of the base
+database's product, and the scores per a chosen unit, where the base unit is
+the one the reader chose and the other is that of a process's product.
+-}
 data PairRefusal
-    = -- | One side or both have no reference product, so its score is per nothing named.
+    = -- | A process has no reference product, so its score is per nothing named.
       NoReferenceProduct
     | -- | The reference product names a unit its own database does not register.
       UnregisteredUnit
@@ -343,3 +347,66 @@ data ScorePairs = ScorePairs
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ScorePairs)
+
+{- | Processes of one database whose scores a reader wants per one unit of
+their choosing. The unit is the same for every database of a comparison, so
+the caller names it; a misspelt field is refused rather than read as absent.
+-}
+data ScoreUnitsRequest = ScoreUnitsRequest
+    { surUnit :: !Text
+    , surProcessIds :: ![Text]
+    }
+    deriving (Generic)
+    deriving (ToSchema) via (Stripped ScoreUnitsRequest)
+
+instance FromJSON ScoreUnitsRequest where
+    parseJSON = parseClosed
+
+-- | What a score per one unit of a process's reference product is multiplied by to be per one chosen unit, or why nothing can.
+data UnitScale
+    = Scaled {usFactor :: !Double}
+    | SetApart {usReason :: !PairRefusal}
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped UnitScale)
+
+-- | One asked process, and how its score reads per the chosen unit.
+data ScoreUnit = ScoreUnit
+    { suProcessId :: !Text
+    -- ^ As the caller asked for it, so it joins the batch scores asked with the same id.
+    , suActivityName :: !Text
+    , suLocation :: !Text
+    , suProductUnit :: !(Maybe Text)
+    -- ^ Absent when the process has no reference product, or its database registers no unit for it.
+    , suScale :: !UnitScale
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScoreUnit)
+
+-- | How the unit table reads the unit a reader chose.
+data ChosenUnit
+    = {- | Read. These are the units a reader could choose instead: every one
+      the table measures the same quantity in, one spelling per factor,
+      smallest first.
+      -}
+      Understood {cuSameMeasure :: ![Text]}
+    | -- | Not read, so every process is set apart under this reason.
+      NotUnderstood {cuReason :: !PairRefusal}
+    deriving (Eq, Show, Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ChosenUnit)
+
+{- | The asked processes of one database put per one chosen unit. Every asked
+id is in exactly one of the three lists, sorted as the batch scores sort them,
+so a page joining both answers finds an id in the same place.
+-}
+data ScoreUnits = ScoreUnits
+    { susUnit :: !Text
+    -- ^ The table's spelling of the asked unit when it reads it: @KWH@ is answered as @kWh@.
+    , susReading :: !ChosenUnit
+    , susProcesses :: ![ScoreUnit]
+    , susNotFound :: ![Text]
+    -- ^ Well-formed ids that name no process of the database.
+    , susInvalid :: ![Text]
+    -- ^ Ids unusable as sent: malformed, or a bare activity id where the activity has several products.
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ScoreUnits)

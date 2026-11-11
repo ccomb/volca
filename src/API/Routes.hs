@@ -13,7 +13,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, httpOrigin, runApp)
 import Config (DatabaseConfig (..))
 import qualified Config
@@ -66,10 +66,10 @@ import qualified GHC.Stats
 import qualified Impact
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
-import Matrix (Inventory, Vector)
+import Matrix (Inventory)
 import qualified Matrix
 import qualified Method.Explain as Explain
-import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), Resolution (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
+import Method.Mapping (BuildProvenance (..), CF (..), FlowContribution (..), LongTermMode (..), MappingStats (..), MethodTables (..), Participant (..), Resolution (..), TableEntry (..), characterizedFlowIds, computeLCIAScoreSetFromTables, computeMappingStats, longTermModeFromExclude, lookupEntryForFlow, provenanceStrategyText, strategyToText)
 import qualified Method.Mapping
 import Method.Scoring (ScoringRow (..), readingNotice, rowsOf)
 import Method.SimaProScoring (LegacyEntry, LegacyReading (..), legacyReading, legacyReadings, legacySet, legacySetNames)
@@ -166,6 +166,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "catalogue" :> "fingerprint" :> Get '[JSON] CatalogueFingerprint
                 :<|> "db" :> Capture "dbName" Text :> "compare" :> QueryParam "other_database" Text :> QueryParam "limit" Int :> Get '[JSON] DatabaseComparison
                 :<|> "db" :> Capture "dbName" Text :> "score-pairs" :> QueryParam "other_database" Text :> Get '[JSON] ScorePairs
+                :<|> "db" :> Capture "dbName" Text :> "score-units" :> ReqBody '[JSON] ScoreUnitsRequest :> Post '[JSON] ScoreUnits
                 :<|> "db" :> Capture "dbName" Text :> "impacts" :> Capture "collection" DM.CollectionName :> QueryParam "top-flows" Int :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] BatchImpactsRequest :> Post '[JSON] BatchImpactsResponse
                 :<|> "db" :> Capture "dbName" Text :> "impacts" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "top-flows" Int :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] BatchImpactsRequest :> Post '[JSON] BatchImpactsResponse
                 -- Database management endpoints
@@ -704,12 +705,12 @@ buildPerDbSetTables ::
     DM.CollectionName ->
     NE.NonEmpty Reached ->
     [Method] ->
-    IO (NE.NonEmpty (Database, Vector, Method.Mapping.MethodSetTables))
+    IO (NE.NonEmpty (Participant Method.Mapping.MethodSetTables))
 buildPerDbSetTables dbManager collection scalings methods =
     traverse
         ( \(Reached n d sv) -> do
             mst <- DM.mapMethodSetToTablesCached dbManager n collection d methods
-            pure (d, sv, mst)
+            pure (Participant n d sv mst)
         )
         scalings
 
@@ -2516,7 +2517,7 @@ emissionFactors SupplierFrame{sfDatabase = db, sfCollection = collectionName, sf
     unitCfg <- liftIO (getMergedUnitConfig dbManager)
     tables <- liftIO (buildPerDbSetTables dbManager collectionName (SharedSolver.csScalings root) methods)
     (mFlows, mUnits) <- liftIO (DM.getMergedFlowMetadata dbManager)
-    either scoringError pure (Method.Mapping.rowFactorsOf unitCfg mUnits mFlows ltMode db ((\(_, _, t) -> t) <$> tables) (map methodId methods))
+    either scoringError pure (Method.Mapping.rowFactorsOf unitCfg mUnits mFlows ltMode db (partTables <$> tables) (map methodId methods))
 
 {- | What one more unit of each supplier gives, with the scaling it solves to of
 each of these processes of the root's database. A supplier no loaded database
@@ -2879,6 +2880,18 @@ getScorePairs dbName otherDbParam = do
     (otherDb, _) <- requireDatabaseByName otherName
     units <- liftIO . getMergedUnitConfig =<< asks aeDbManager
     pure (Compare.scorePairs units (Compare.Sides db otherDb))
+
+{- | Each asked process of the database with what its score is multiplied by to
+be per one unit of the caller's choosing. An id that names no process is listed
+apart, and the others are answered all the same.
+-}
+postScoreUnits :: Text -> ScoreUnitsRequest -> AppM ScoreUnits
+postScoreUnits dbName (ScoreUnitsRequest unit processIds) = do
+    when (null processIds) $
+        throwError err400{errBody = "Name at least one process in 'processIds'"}
+    (db, _) <- requireDatabaseByName dbName
+    units <- liftIO . getMergedUnitConfig =<< asks aeDbManager
+    pure (Compare.scoreUnits units unit db processIds)
 
 -- | What a caller asks a comparison of two method collections for.
 data MethodComparisonAsk = MethodComparisonAsk
@@ -3533,6 +3546,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getCatalogueFingerprint
             :<|> getDatabaseComparison
             :<|> getScorePairs
+            :<|> postScoreUnits
             :<|> postImpactsBatch
             :<|> postMethodImpactsBatch
             :<|> DBHandlers.getDatabases

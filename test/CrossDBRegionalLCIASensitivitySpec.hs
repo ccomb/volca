@@ -29,7 +29,7 @@ import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
 import CrossDBRegionalLCIAFixture
-import Method.Mapping (LongTermMode (..), sumRegionalizedLCIAScoreCrossDB)
+import Method.Mapping (LongTermMode (..), Participant (..), sumRegionalizedLCIAScoreCrossDB)
 import qualified SharedSolver as SS
 import TestHelpers (mkSolverFromDb)
 import Types
@@ -82,7 +82,7 @@ spec = describe "cross-DB regional LCIA via sensitivity propagation" $ do
                 M.lookup flowUUID (SS.csInventory sol) `shouldBe` Just 1.0
                 -- Regional score against both DBs' tables = 0 + 5 = 5.
                 let perDb =
-                        [ (db, sv, tablesFor n)
+                        [ Participant n db sv (tablesFor n)
                         | SS.Reached n db sv <- NE.toList (SS.csScalings sol)
                         ]
                     tablesFor "root" = rootTables
@@ -124,7 +124,7 @@ spec = describe "cross-DB regional LCIA via sensitivity propagation" $ do
             Right [] -> expectationFailure "goWithDepsFromScalings returned empty list"
             Right (sol : _) -> do
                 let perDb =
-                        [ (db, sv, tablesFor n)
+                        [ Participant n db sv (tablesFor n)
                         | SS.Reached n db sv <- NE.toList (SS.csScalings sol)
                         ]
                     tablesFor "root" = rootTables

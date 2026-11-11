@@ -27,6 +27,7 @@ import API.Types (
     ChangesApplied (..),
     ChangesPresence (..),
     ChangesQuery (..),
+    ChosenUnit (..),
     DatabaseComparison (..),
     ExchangeChange (..),
     LineChange (..),
@@ -37,15 +38,18 @@ import API.Types (
     Quantity (..),
     ScorePair (..),
     ScorePairs (..),
+    ScoreUnit (..),
+    ScoreUnits (..),
     SetApartPair (..),
     SummaryChange (..),
     Supplier (..),
     UncomparedLine (..),
     UncomparedReason (..),
+    UnitScale (..),
  )
 import Database (buildDatabaseWithMatrices)
 import Database.Author (AuthorContext (..), EditedActivity (..), ExchangeEdit, applyExchangeEdits, authoredActivityUUID)
-import Service.Compare (ProcessIn (..), Sides (..), applicableChanges, changesPresent, compareActivities, compareDatabases, limitComparison, resolveProcess, scorePairs)
+import Service.Compare (ProcessIn (..), Sides (..), applicableChanges, changesPresent, compareActivities, compareDatabases, limitComparison, resolveProcess, scorePairs, scoreUnits)
 import TestHelpers (unitDef)
 import Types (
     Activity (..),
@@ -373,7 +377,7 @@ spec = describe "Service.Compare" $ do
     describe "pairs to score" $ do
         let electricity = productFlow 700 "electricity"
             producedIn unit = [(row 1 electricity "electricity production" []){rowUnit = unit}]
-            scorePairsOf base other = scorePairs withEnergy <$> (Sides <$> database base <*> database other)
+            scorePairsOf base other = scorePairs unitTable <$> (Sides <$> database base <*> database other)
 
         it "scales a score per megajoule to one per kilowatt hour" $ do
             pairs <- scorePairsOf (producedIn kWh) (producedIn megajoule)
@@ -394,6 +398,40 @@ spec = describe "Service.Compare" $ do
         it "counts the activities left without a pair" $ do
             pairs <- scorePairsOf (producedIn kg ++ [row 2 rye "rye production" []]) (producedIn kg)
             (length (spsPairs pairs), spsUnpairedBaseCount pairs, spsUnpairedOtherCount pairs) `shouldBe` (1, 1, 0)
+
+    describe "scores per a chosen unit" $ do
+        let electricity = productFlow 700 "electricity"
+            producedIn unit = [(row 1 electricity "electricity production" []){rowUnit = unit}]
+            scoreUnitsOf target rows asked = (\db -> scoreUnits unitTable target db asked) <$> database rows
+            scalesOf target unit = map suScale . susProcesses <$> scoreUnitsOf target (producedIn unit) [pid 1 electricity]
+
+        it "puts a score per tonne per kilogram" $
+            scalesOf "kg" tonne `shouldReturn` [Scaled 0.001]
+
+        it "puts a score per megajoule per kilowatt hour" $
+            scalesOf "kWh" megajoule `shouldReturn` [Scaled 3.6]
+
+        it "sets apart a process whose product is measured in another quantity" $
+            scalesOf "kg" litre `shouldReturn` [SetApart (DifferentMeasures "kg" "l")]
+
+        it "says once that no table knows the unit, and sets every process apart under it" $ do
+            units <- scoreUnitsOf "furlong" (producedIn kg) [pid 1 electricity]
+            (susReading units, map suScale (susProcesses units)) `shouldBe` (NotUnderstood (UnknownUnit "furlong"), [SetApart (UnknownUnit "furlong")])
+
+        it "answers a unit written another way in the table's spelling" $ do
+            units <- scoreUnitsOf "KG" (producedIn tonne) [pid 1 electricity]
+            (susUnit units, map suScale (susProcesses units)) `shouldBe` ("kg", [Scaled 0.001])
+
+        it "offers the units measuring the same quantity, one spelling per factor, smallest first" $ do
+            perKilogram <- scoreUnitsOf "kg" (producedIn kg) [pid 1 electricity]
+            perTonne <- scoreUnitsOf "tonne" (producedIn kg) [pid 1 electricity]
+            (susReading perKilogram, susReading perTonne) `shouldBe` (Understood ["g", "kg", "t"], Understood ["g", "kg", "tonne"])
+
+        it "sorts the ids it cannot answer as the batch scores do, and answers the others by the id they were asked by" $ do
+            let heat = productFlow 701 "heat"
+                bareActivity = UUID.toText (uuid 1)
+            units <- scoreUnitsOf "kg" (producedIn kg ++ [row 1 heat "heat production" []]) ["no such process", pid 2 electricity, bareActivity, pid 1 electricity]
+            (map suProcessId (susProcesses units), susNotFound units, susInvalid units) `shouldBe` ([pid 1 electricity], [pid 2 electricity], ["no such process", bareActivity])
 
     it "a limit shortens the lists, never the counts" $ do
         c <- compareVersions [row 1 wheat "wheat production" [], row 4 rye "rye production" []] [row 1 wheat "wheat production" [], row 4 rye "rye production" [], row 2 barley "barley production" [], row 3 oat "oat production" []]
@@ -438,6 +476,10 @@ megajoule = Unit{unitId = uuid 7, unitName = "MJ", unitSymbol = "MJ", unitCommen
 item = Unit{unitId = uuid 8, unitName = "item", unitSymbol = "item", unitComment = ""}
 -- A unit no unit table knows.
 nonsense = Unit{unitId = uuid 9, unitName = "bushel of nonsense", unitSymbol = "bushel of nonsense", unitComment = ""}
+
+tonne, litre :: Unit
+tonne = Unit{unitId = uuid 10, unitName = "t", unitSymbol = "t", unitComment = ""}
+litre = Unit{unitId = uuid 11, unitName = "l", unitSymbol = "l", unitComment = ""}
 
 -- Units a line names but the registry of its database lacks.
 strayUnit, otherStrayUnit :: Unit
@@ -601,7 +643,7 @@ databaseKeyed key rows = do
                 , sdbTechFlows = M.fromList [(tfId (rowProduct r), rowProduct r) | r <- rows]
                 , sdbBioFlows = M.fromList [(bfId f, f) | f <- [co2, co2Renumbered, water]]
                 , sdbWasteFlows = M.empty
-                , sdbUnits = M.fromList [(unitId u, u) | u <- [kg, gram, kgAgain, kWh, megajoule, item, nonsense]]
+                , sdbUnits = M.fromList [(unitId u, u) | u <- [kg, gram, kgAgain, kWh, megajoule, item, nonsense, tonne, litre]]
                 , sdbDocumentation = noDocumentation
                 , sdbParameters = M.empty
                 , sdbProductSystems = []
@@ -648,12 +690,25 @@ entry key r =
             , techProperties = noProperties
             }
 
--- | The default unit table, which measures no energy, plus the two units of energy the cases need.
-withEnergy :: UnitConfig
-withEnergy =
+{- | The default unit table, which measures no energy nor volume, plus the units
+the cases need: two of energy, a gram, a tonne under two spellings, a litre.
+-}
+unitTable :: UnitConfig
+unitTable =
     mkUnitConfig
         (ucDimensionOrder defaultUnitConfig)
-        (M.union (M.fromList [("kWh", unitDef "energy" 3.6), ("MJ", unitDef "energy" 1)]) (ucUnits defaultUnitConfig))
+        ( M.union
+            ( M.fromList
+                [ ("kWh", unitDef "energy" 3.6)
+                , ("MJ", unitDef "energy" 1)
+                , ("g", unitDef "mass" 0.001)
+                , ("t", unitDef "mass" 1000)
+                , ("tonne", unitDef "mass" 1000)
+                , ("l", unitDef "volume" 0.001)
+                ]
+            )
+            (ucUnits defaultUnitConfig)
+        )
 
 -- | Changes asked about or applied with no reason given.
 changesQuery :: [SummaryChange] -> [ExchangeChange] -> ChangesQuery
