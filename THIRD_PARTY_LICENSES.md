@@ -16,13 +16,13 @@ further is owed.
 Texts: <https://gcc.gnu.org/onlinedocs/gcc/Copying.html> and
 <https://www.gnu.org/licenses/gcc-exception-3.1.html>.
 
-## Runtime DLL shipped beside the binary, Windows only
+## MinGW-w64 runtime linked into the binary, Windows only
 
-The Windows zip carries the MSYS2 ucrt64 threading library the binary loads,
-`libwinpthread-1`. Its `licenses/` directory is MSYS2's own `share/licenses`
-copied whole, so it holds the text for that DLL and for the rest of the
-toolchain installed alongside it. Copied rather than curated: the DLL's terms
-are certainly in there, and no list here can go stale.
+The Windows binary is linked with the MSYS2 ucrt64 toolchain and loads no DLL
+of it. The zip's `licenses/` directory is MSYS2's own `share/licenses` copied
+whole, so it holds the text for what that toolchain linked in and for the rest
+of what is installed alongside it. Copied rather than curated: the terms are
+certainly in there, and no list here can go stale.
 
 ## Sparse solver – Rust crates
 

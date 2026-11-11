@@ -119,12 +119,6 @@ jobs:
             os: macos
     env:
       MACOSX_DEPLOYMENT_TARGET: ${{ needs.versions.outputs.macos_target }}
-      # The MSYS2 ucrt64 runtime volca.exe loads. Named once because two steps
-      # need the same list: the per-PR check that they exist, and the release
-      # packaging that copies them into the zip. A rename upstream (a gcc major
-      # bump renaming one, say) then fails on the PR that first sees it, not at
-      # tag time.
-      WINDOWS_RUNTIME_DLLS: libwinpthread-1.dll
       # Skip the brew formula refresh and post-install cleanup on every
       # invocation – the runner image is ephemeral, the disk savings
       # do not matter, and the refresh alone can add 30-60s.
@@ -401,70 +395,46 @@ jobs:
         # everything packaging will reach for.
         if: needs.preflight.outputs.skip != 'true' && matrix.os == 'windows'
         run: |
-          missing=""
-          for dll in $WINDOWS_RUNTIME_DLLS; do
-            if [[ ! -f "/ucrt64/bin/$dll" ]]; then
-              missing="$missing $dll"
-            fi
-          done
-          if [[ -n "$missing" ]]; then
-            echo "::error::MSYS2 no longer ships:$missing – the release zip would be missing runtime the binary loads."
-            exit 1
-          fi
           if [[ ! -d /ucrt64/share/licenses ]]; then
-            echo "::error::/ucrt64/share/licenses missing – the release zip cannot carry the runtime DLLs' licence texts."
+            echo "::error::/ucrt64/share/licenses missing – the release zip cannot carry the toolchain's licence texts."
             exit 1
           fi
-          echo "OK: every runtime DLL present, and $(find /ucrt64/share/licenses -type f | wc -l) licence file(s) available to ship."
+          echo "OK: $(find /ucrt64/share/licenses -type f | wc -l) licence file(s) available to ship."
 
-      - name: Verify the Windows binaries start on the runtime the zip carries
+      - name: Verify the Windows binaries start without MSYS2
         # The suite ran inside MSYS2, where every DLL of /ucrt64/bin is on the
-        # PATH: a binary that loads one the zip does not carry passes there and
-        # fails on a user's machine. So read what each binary loads, and start
-        # it beside the listed DLLs with MSYS2 off the PATH, which is what that
-        # machine does.
+        # PATH: a binary that loads one passes there and fails on a user's
+        # machine, since the zip carries none. So read what each binary loads,
+        # and start it with MSYS2 off the PATH, which is what that machine does.
         #
         # The test suite too, on the tests that solve: `--version` starts the
         # engine and never reaches the solver archive.
         if: needs.preflight.outputs.skip != 'true' && matrix.os == 'windows'
         run: |
           [[ -f /d/ghcup/env ]] && source /d/ghcup/env
-          # The MSYS2 DLLs a binary loads, by itself and through the ones it
-          # loads. A name absent from /ucrt64/bin is a Windows system DLL.
-          msys2_dlls() {
-            local -A seen=()
-            local queue=("$1") current dll
-            while ((${#queue[@]} > 0)); do
-              current="${queue[0]}"
-              queue=("${queue[@]:1}")
-              while read -r dll; do
-                [[ -z "$dll" || -n "${seen[$dll]:-}" || ! -f "/ucrt64/bin/$dll" ]] && continue
-                seen[$dll]=1
-                queue+=("/ucrt64/bin/$dll")
-              # objdump is a native Windows program: its lines end in CR.
-              done < <(objdump -p "$current" | sed -n 's/\r$//; s/^[[:space:]]*DLL Name:[[:space:]]*//p')
-            done
-            printf '%s\n' "${!seen[@]}"
-          }
           starts_alone() {
-            local exe="$1" stage dll loaded
+            local exe="$1" imports dll from_msys2=""
             shift
-            loaded=$(msys2_dlls "$exe")
-            echo "$(basename "$exe") loads from MSYS2: ${loaded//$'\n'/ }"
-            for dll in $loaded; do
-              if [[ " $WINDOWS_RUNTIME_DLLS " != *" $dll "* ]]; then
-                echo "::error::$(basename "$exe") loads $dll, which the release zip does not carry."
-                return 1
+            # objdump is a native Windows program: its lines end in CR.
+            imports=$(objdump -p "$exe" | sed -n 's/\r$//; s/^[[:space:]]*DLL Name:[[:space:]]*//p')
+            # Every Windows program imports this one: without it the table was
+            # not read, and an empty answer below would mean nothing.
+            if ! grep -qix 'kernel32.dll' <<< "$imports"; then
+              echo "::error::Could not read what $(basename "$exe") imports."
+              return 1
+            fi
+            # A name absent from /ucrt64/bin is a Windows system DLL.
+            for dll in $imports; do
+              if [[ -f "/ucrt64/bin/$dll" ]]; then
+                from_msys2="$from_msys2 $dll"
               fi
             done
-            stage=$(mktemp -d)
-            cp "$exe" "$stage/"
-            for dll in $WINDOWS_RUNTIME_DLLS; do
-              cp "/ucrt64/bin/$dll" "$stage/"
-            done
-            # Started from here: Windows looks for a program's DLLs beside the
-            # program, and the suite reads its fixtures from the repository.
-            if ! PATH="/c/Windows/System32:/c/Windows" "$stage/$(basename "$exe")" "$@"; then
+            if [[ -n "$from_msys2" ]]; then
+              echo "::error::$(basename "$exe") loads from MSYS2:$from_msys2 – the release zip carries no DLL."
+              return 1
+            fi
+            # Started from here: the suite reads its fixtures from the repository.
+            if ! PATH="/c/Windows/System32:/c/Windows" "$exe" "$@"; then
               echo "::error::$(basename "$exe") does not start with MSYS2 off the PATH."
               return 1
             fi
@@ -587,13 +557,12 @@ jobs:
           # copyright notices to travel with the artifact, on every platform.
           cp THIRD_PARTY_LICENSES.md staging/
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            # volca.exe links the MSYS2 ucrt64 runtime dynamically (gen-cabal-config.sh's
-            # windows mode). Those DLLs sit on the build machine's PATH but nowhere on a
-            # user's, so a zip holding only volca.exe fails at load with
-            # "libwinpthread-1.dll introuvable". Ship them beside the binary – Windows
-            # searches the .exe's own directory first. The per-PR check above has
-            # already confirmed each one exists; re-checked here so an absence can
-            # never turn into a silent partial zip.
+            # volca.exe loads no DLL of MSYS2, which the per-PR check above holds
+            # it to: the zip carries the binary alone. What the binary links
+            # from that toolchain still asks for its licence text to travel with
+            # it. MSYS2 installs each package's own texts under share/licenses,
+            # so copy those rather than transcribing them into the repo and
+            # letting them rot.
             UCRT_BIN=""
             for candidate in /ucrt64/bin /c/msys64/ucrt64/bin; do
               if [[ -d "$candidate" ]]; then
@@ -601,22 +570,8 @@ jobs:
                 break
               fi
             done
-            if [[ -z "$UCRT_BIN" ]]; then
-              echo "::error::MSYS2 ucrt64 not found – cannot bundle the runtime DLLs the binary needs."
-              exit 1
-            fi
-            for dll in $WINDOWS_RUNTIME_DLLS; do
-              if [[ ! -f "$UCRT_BIN/$dll" ]]; then
-                echo "::error::Required runtime DLL not found: $UCRT_BIN/$dll"
-                exit 1
-              fi
-              cp "$UCRT_BIN/$dll" staging/
-            done
-            # Their licences ask for the text to travel with the binaries. MSYS2
-            # installs each package's own texts under share/licenses, so copy those
-            # rather than transcribing them into the repo and letting them rot.
             if [[ ! -d "$UCRT_BIN/../share/licenses" ]]; then
-              echo "::error::$UCRT_BIN/../share/licenses missing – cannot ship the DLLs' licence texts."
+              echo "::error::MSYS2's share/licenses not found – cannot ship the toolchain's licence texts."
               exit 1
             fi
             cp -r "$UCRT_BIN/../share/licenses" staging/licenses

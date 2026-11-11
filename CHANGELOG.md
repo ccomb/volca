@@ -72,10 +72,10 @@
   of a database, how large its factors are and how far a trial solve was off.
   The build no longer compiles MUMPS and OpenBLAS and no longer wants a
   Fortran compiler: GHC, Rust and a C compiler build the engine. The
-  published binaries no longer contain them: the Windows zip carries one
-  runtime DLL beside `volca.exe`, and the macOS Intel binary starts without
-  Homebrew's libraries. On Alpine, `./build.sh` links a static binary when
-  asked with `--static`, where it also did so on finding a MUMPS it had
+  published binaries no longer contain them: the Windows zip no longer
+  carries runtime DLLs beside `volca.exe`, and the macOS Intel binary starts
+  without Homebrew's libraries. On Alpine, `./build.sh` links a static binary
+  when asked with `--static`, where it also did so on finding a MUMPS it had
   built.
 
 ## [0.17.0] - 2026-11-07
