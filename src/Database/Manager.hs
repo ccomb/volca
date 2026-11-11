@@ -241,7 +241,7 @@ import Database.Cutoffs (GapIndex, gapIndexMoved, gapIndexOf)
 import qualified Database.Loader as Loader
 import Database.MatrixBuild (technosphereChange)
 import qualified Database.Quality as Quality
-import Matrix (byPosition)
+import Matrix (byActivityName)
 import Method.ChemSynonyms (ChemSynonyms, emptyChemSynonyms, loadChemSynonyms)
 import qualified Method.Coverage as Coverage
 import qualified Method.Explain as Explain
@@ -4041,14 +4041,11 @@ it refuses is refused at an activity called by its name.
 -}
 solverFor :: Text -> Database -> IO SharedSolver
 solverFor dbName db =
-    namingColumns (\column -> maybe (byPosition column) activityName (activities V.!? column))
+    namingColumns (byActivityName db)
         <$> createSharedSolver
             dbName
             [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
             (fromIntegral (dbActivityCount db))
-  where
-    activities :: V.Vector Activity
-    activities = dbActivities db
 
 {- | Run with the loaded database at these settings and a solver for it, or
 say why the settings give none. The solver is the loaded one when no entry of

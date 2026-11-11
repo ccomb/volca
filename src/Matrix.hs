@@ -53,6 +53,7 @@ module Matrix (
     factorizeSystem,
     solveWithFactors,
     refusal,
+    byActivityName,
     byPosition,
     chunksOf,
     readSolveCounter,
@@ -189,12 +190,17 @@ refusal _ (Sparse.Unreliable off) =
 byPosition :: Int -> Text
 byPosition column = "column " <> T.pack (show column)
 
+-- | A column named by the activity this database holds there.
+byActivityName :: Database -> Int -> Text
+byActivityName db column = maybe (byPosition column) activityName (dbActivities db V.!? column)
+
 {- | Solve @(I - A) x = d@ once from the technosphere: factorize, solve, and
-keep nothing.
+keep nothing. A matrix that is refused is refused at a column named by the
+function given.
 -}
-solveSparseLinearSystem :: [(Int, Int, Double)] -> Int -> Vector -> IO (Either Text Vector)
-solveSparseLinearSystem techTriples n demand = runExceptT $ do
-    factors <- ExceptT (factorizeSystem n techTriples) >>= either (throwE . refusal byPosition) pure
+solveSparseLinearSystem :: (Int -> Text) -> [(Int, Int, Double)] -> Int -> Vector -> IO (Either Text Vector)
+solveSparseLinearSystem name techTriples n demand = runExceptT $ do
+    factors <- ExceptT (factorizeSystem n techTriples) >>= either (throwE . refusal name) pure
     ExceptT (solveOne (solveWithFactors factors) demand)
 
 -- | Efficient sparse matrix multiplication: result = A * vector
@@ -224,6 +230,7 @@ computeScalingVector db rootProcessId =
     solve :: Demand -> IO (Either Text Vector)
     solve demandVec =
         solveSparseLinearSystem
+            (byActivityName db)
             [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
             (fromIntegral (dbActivityCount db))
             (unDemand demandVec)

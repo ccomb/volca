@@ -19,7 +19,7 @@ import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector.Unboxed as U
-import Matrix (Demand (..), applyShermanMorrison, buildDemandVector, perturbA, solveSparseLinearSystem)
+import Matrix (Demand (..), applyShermanMorrison, buildDemandVector, byPosition, perturbA, solveSparseLinearSystem)
 import Service (computeSensitivities)
 import SharedSolver (solveMultiWithSharedSolver, solveWithSharedSolver)
 import Test.Hspec
@@ -195,7 +195,7 @@ spec = do
                     ]
                 n = fromIntegral (dbActivityCount db)
             demand <- unDemand <$> either (fail . show) pure (buildDemandVector db 0)
-            xRef <- either (fail . show) pure =<< solveSparseLinearSystem scaledTriples n demand
+            xRef <- either (fail . show) pure =<< solveSparseLinearSystem byPosition scaledTriples n demand
 
             -- Compare element-wise within tight numerical tolerance.
             let near a b = abs (a - b) < 1e-10
