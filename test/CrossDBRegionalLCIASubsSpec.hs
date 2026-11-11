@@ -27,7 +27,7 @@ import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
 import CrossDBRegionalLCIAFixture
-import Method.Mapping (LongTermMode (..), MethodTables, sumRegionalizedLCIAScoreCrossDB)
+import Method.Mapping (LongTermMode (..), MethodTables, Participant (..), sumRegionalizedLCIAScoreCrossDB)
 import qualified Service
 import qualified SharedSolver as SS
 import TestHelpers (mkSolverFromDb)
@@ -48,7 +48,7 @@ spec = describe "cross-DB regional LCIA via substitution path" $ do
 
         scoreSolution sol =
             let perDb =
-                    [ (db, sv, tablesFor n)
+                    [ Participant n db sv (tablesFor n)
                     | SS.Reached n db sv <- NE.toList (SS.csScalings sol)
                     ]
              in sumRegionalizedLCIAScoreCrossDB
