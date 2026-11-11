@@ -516,9 +516,8 @@ jobs:
         # it beside the listed DLLs with MSYS2 off the PATH, which is what that
         # machine does.
         #
-        # The test suite too, on the one test that calls into the solver
-        # archive: nothing in volca.exe calls it yet, so the linker leaves the
-        # archive out of it and its imports say nothing about Rust.
+        # The test suite too, on the tests that solve: `--version` starts the
+        # engine and never reaches the solver archive.
         if: needs.preflight.outputs.skip != 'true' && matrix.os == 'windows'
         run: |
           [[ -f /d/ghcup/env ]] && source /d/ghcup/env
