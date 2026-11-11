@@ -10,8 +10,8 @@
 #   ./docker-build.sh -t mytag --extract       # combine flags
 #
 # --platform takes a Docker platform string (linux/amd64, linux/arm64); omitted,
-# the image is built for the host architecture. The Dockerfile builds OpenBLAS,
-# MUMPS and the GHC dependency tree from source, so building a foreign
+# the image is built for the host architecture. The Dockerfile builds the GHC
+# dependency tree from source, so building a foreign
 # architecture under QEMU emulation takes hours – build on a native host of the
 # target architecture instead. The script warns when it detects an emulated build.
 #

@@ -233,11 +233,8 @@ executable volca
   main-is:             Main.hs
   hs-source-dirs:      app
   -- Drop ELF sections nothing references; pairs with cabal.project's
-  -- split-sections to actually shrink the linked exe. Not on darwin: ld64's
-  -- equivalent, -dead_strip, splits sections into atoms at symbol boundaries,
-  -- and a local assembler label is not a symbol, so it can drop hand-written
-  -- kernel code that a neighbouring atom jumps into. Statically linked
-  -- OpenBLAS is full of those; see gen-cabal-config.sh's darwin flags.
+  -- split-sections to actually shrink the linked exe. Not on darwin, whose
+  -- linker does not know the flag.
   if !os(darwin)
     ghc-options:       -optl-Wl,--gc-sections
   build-depends:       base >=4.14 && <5

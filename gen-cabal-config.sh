@@ -1,10 +1,8 @@
 #!/bin/bash
-# Generate cabal.project.local for building volca with MUMPS_SEQ.
+# Generate cabal.project.local for building volca.
 # Shared between build.sh and Dockerfile.
 #
 # Optional env vars:
-#   MUMPS_LIB_DIR           Path to MUMPS libraries (default: system)
-#   MUMPS_INCLUDE_DIR       Path to MUMPS headers (default: /usr/include)
 #   LINK_MODE               "dynamic" (default), "musl", "darwin", "windows"
 #   OUTPUT_DIR              Where to write cabal.project.local (default: current dir)
 #   VOLCA_OPT_LEVEL         0, 1 or 2 (default 2) - see the block below
@@ -13,8 +11,6 @@
 
 set -e
 
-MUMPS_LIB_DIR="${MUMPS_LIB_DIR:-/usr/lib/x86_64-linux-gnu}"
-MUMPS_INCLUDE_DIR="${MUMPS_INCLUDE_DIR:-/usr/include}"
 LINK_MODE="${LINK_MODE:-dynamic}"
 OUTPUT="${OUTPUT_DIR:-.}/cabal.project.local"
 
@@ -67,9 +63,9 @@ fi
 
 # Parallelism preamble shared by every LINK_MODE.
 # Lives in cabal.project.local (not cabal.project) so that Docker builds –
-# which copy only volca.cabal + mumps-hs/ into the build context and write a
-# minimal cabal.project without `packages: .` machinery – still get jobs +
-# RTS allocation area + per-module GHC parallelism.
+# which copy only volca.cabal into the build context and write a minimal
+# cabal.project without `packages: .` machinery – still get jobs + RTS
+# allocation area + per-module GHC parallelism.
 #
 # shared / executable-dynamic sit here for the same reason: they apply to
 # every mode, not one. On a dynamic GHC, which is what ghcup installs for
@@ -103,32 +99,27 @@ program-options
 
 EOF
 
-case "$LINK_MODE" in
-    dynamic)
-        # Shared linking (Linux, macOS, Docker, dev builds)
-        # A distro's libdmumps_seq.so names its own BLAS, LAPACK and gfortran
-        # runtime. The archives build-mumps.sh leaves when no distro MUMPS is
-        # found do not, so the link has to name them; without this, the
-        # executable fails to link with undefined dgemm_ / _gfortran_* symbols.
-        MUMPS_STATIC_DEPS=""
-        if [ -f "$MUMPS_LIB_DIR/libdmumps_seq.a" ] && [ ! -e "$MUMPS_LIB_DIR/libdmumps_seq.so" ]; then
-            MUMPS_STATIC_DEPS="-optl-lopenblas -optl-lgfortran"
-        fi
-        DYNAMIC_GHC_OPTIONS=""
-        if [ -n "$VOLCA_BOUNDS_CHECK$MUMPS_STATIC_DEPS" ]; then
-            DYNAMIC_GHC_OPTIONS="  ghc-options: $VOLCA_BOUNDS_CHECK$MUMPS_STATIC_DEPS"
-        fi
-        cat >> "$OUTPUT" << EOF
-optimization: 2
-
-extra-lib-dirs: $MUMPS_LIB_DIR
-extra-include-dirs: $MUMPS_INCLUDE_DIR
+# What every mode says about volca itself. $1 is the mode's own link flags.
+volca_package() {
+    local options="$VOLCA_BOUNDS_CHECK$1"
+    cat << EOF
 
 package volca
   optimization: $VOLCA_OPT_LEVEL
 $VOLCA_SPLIT_SECTIONS
-$DYNAMIC_GHC_OPTIONS
 EOF
+    if [ -n "$options" ]; then
+        echo "  ghc-options: $options"
+    fi
+}
+
+case "$LINK_MODE" in
+    dynamic)
+        # Shared linking (glibc Linux, dev builds)
+        {
+            echo "optimization: 2"
+            volca_package ""
+        } >> "$OUTPUT"
         ;;
 
     musl)
@@ -137,185 +128,34 @@ EOF
         # binary without dragging in the host's libc, so the resulting
         # executable is genuinely portable across Linux distros.
         #
-        # Alpine packages ship LAPACK/BLAS as shared libs only (no .a), so
-        # OpenBLAS – which bundles both BLAS and LAPACK in a single static
-        # archive – must be built from source and pointed at via OPENBLAS_LIB_DIR.
-        : "${OPENBLAS_LIB_DIR:?OPENBLAS_LIB_DIR is required for musl mode (path to libopenblas.a)}"
-        case "$(uname -m)" in
-            x86_64|amd64) QUADMATH_FLAG="-optl-lquadmath" ;;
-            *)            QUADMATH_FLAG="" ;;
-        esac
-        # --gc-sections drops unreferenced sections from the final exe.
-        # Effective on the C/Fortran archives that were compiled with
-        # -ffunction-sections / -fdata-sections (OpenBLAS in our pipeline);
-        # harmless on the others.
-        #
-        # -z stack-size=8388608: bake an 8 MB PT_GNU_STACK into the ELF.
-        # musl reads this header at startup and uses it as the default
-        # pthread stack size (its hardcoded fallback is 128 KB, vs glibc's
-        # 8 MB picked up from RLIMIT_STACK). OpenBLAS DYNAMIC_ARCH Fortran
-        # kernels have large auto-arrays that overflow 128 KB on the first
-        # BLAS3 call inside MUMPS factorization (SIGSEGV / exit 139).
-        # Setting it at link time covers every pthread the binary creates
-        # – RTS capabilities and OpenBLAS workers alike – without patching
-        # OpenBLAS source. (An earlier attempt to sed the stack size into
-        # OpenBLAS's blas_server.c was a no-op: the relevant block sits
-        # under #ifdef NEED_STACKATTR, which blas_server.c #undef's
-        # unconditionally on Linux.)
-        MUSL_LINK_FLAGS="-optl-L$MUMPS_LIB_DIR -optl-L$OPENBLAS_LIB_DIR -optl-Wl,--gc-sections -optl-Wl,-z,stack-size=8388608 -optl-Wl,--start-group -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran $QUADMATH_FLAG -optl-Wl,--end-group -optl-lpthread -optl-lm"
-        cat >> "$OUTPUT" << EOF
-optimization: 2
-split-sections: True
-executable-static: True
-
-extra-lib-dirs: $MUMPS_LIB_DIR
-                $OPENBLAS_LIB_DIR
-extra-include-dirs: $MUMPS_INCLUDE_DIR
-
-package volca
-  optimization: $VOLCA_OPT_LEVEL
-$VOLCA_SPLIT_SECTIONS
-  ghc-options: $VOLCA_BOUNDS_CHECK$MUSL_LINK_FLAGS
-EOF
+        # -z stack-size=8388608: musl gives a thread 128 KB of stack unless
+        # the program header asks for more, where glibc gives 8 MB. The C
+        # code the engine calls runs on those threads, and has only ever
+        # shipped with 8 MB under it.
+        {
+            echo "optimization: 2"
+            echo "split-sections: True"
+            echo "executable-static: True"
+            volca_package "-optl-Wl,-z,stack-size=8388608"
+        } >> "$OUTPUT"
         ;;
 
     darwin)
-        # macOS: locally-built MUMPS (.a only) + Homebrew gcc gfortran/quadmath.
-        # ld64 picks .a from extra-lib-dirs when no .dylib is present, so no GNU -Bstatic/-Bdynamic.
-        # Accelerate.framework is rejected: its LAPACK ABI does not match what build-mumps.sh emits.
-        #
-        # arm64 links BLAS and the Fortran runtime from their .a by absolute path,
-        # never via -l: Homebrew ships both .a and .dylib, ld64 has no -Bstatic to
-        # express the preference, and it picks the .dylib. That produced a binary whose
-        # LC_LOAD_DYLIB entries point into the build machine's Homebrew prefix, so the
-        # shipped tarball aborted at dyld ("Library not loaded: .../libopenblas.0.dylib")
-        # on any Mac without those formulas. Linux already links these statically (musl
-        # mode); this gives macOS arm64 the same standalone binary.
-        #
-        # OpenBLAS comes from the same source build musl mode uses, not from Homebrew:
-        # the bottled libopenblas.a is the OpenMP variant, whose __kmpc_* / omp_*
-        # references only the dylib resolved on its own. Building it with USE_OPENMP=0
-        # settles that instead of adding libomp – one more Homebrew dependency to keep
-        # out of the shipped binary.
-        #
-        # x86_64 keeps the dynamic link, and the Homebrew dependency with it, because
-        # no OpenBLAS build works there: DYNAMIC_ARCH pulls in older kernels that
-        # hard-code `.align 32768`, which Mach-O caps at 4 KB and ld64 silently reduces
-        # (SIGBUS on the first call), while naming one TARGET yields a library whose own
-        # unit tests return denormals for min(). Both are upstream ground.
-        BREW_PREFIX="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
-        # Homebrew gcc lays out libgfortran/libquadmath under lib/gcc/<major>/
-        GFORTRAN_LIB_DIR=$(ls -d "${BREW_PREFIX}/Cellar/gcc/"*/lib/gcc/*/ 2>/dev/null | sort -V | tail -1)
-        : "${GFORTRAN_LIB_DIR:?Could not locate Homebrew gcc libgfortran – install with: brew install gcc}"
-        GFORTRAN_LIB_DIR="${GFORTRAN_LIB_DIR%/}"
+        # -dead_strip_dylibs drops the load commands of dylibs nothing needs.
         DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:?MACOSX_DEPLOYMENT_TARGET must be set (source versions.env)}"
-        # MUMPS arrives as .a either way; only how BLAS and the Fortran runtime
-        # arrive differs between the two architectures.
-        DARWIN_MUMPS_FLAGS="-optl-L$MUMPS_LIB_DIR -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq"
-        # -dead_strip_dylibs only drops load commands for dylibs nothing needs,
-        # which is safe. Plain -dead_strip is not, once OpenBLAS is linked
-        # statically: ld64 splits sections into atoms at symbol boundaries, and
-        # a local assembler label like .L2_0 is not a symbol, so hand-written
-        # kernel code reached by a jump from a neighbouring atom can be dropped,
-        # leaving a hole that faults when execution lands in it. Nothing here
-        # proves that has happened; the few kilobytes are not worth the risk.
-        DARWIN_TAIL_FLAGS="-optl-lpthread -optl-lm -optl-mmacosx-version-min=${DEPLOYMENT_TARGET} -optl-Wl,-dead_strip_dylibs"
-
-        if [[ "$(uname -m)" == "arm64" ]]; then
-            : "${OPENBLAS_LIB_DIR:?OPENBLAS_LIB_DIR is required for darwin arm64 (path to a libopenblas.a built with USE_OPENMP=0 – see .github/actions/setup-haskell-env)}"
-            # Ordered dependent-before-dependency: openblas calls into libgfortran, which
-            # calls into libquadmath. libgcc.a comes last and is located by asking the
-            # compiler driver rather than guessing its Cellar layout – gcc keeps it under
-            # lib/gcc/<major>/gcc/<triple>/<major>/, not next to libgfortran.a. It resolves
-            # the emutls/soft-arithmetic symbols libgfortran.a leaves undefined.
-            DARWIN_STATIC_LIBS=(
-                "${OPENBLAS_LIB_DIR}/libopenblas.a"
-                "${GFORTRAN_LIB_DIR}/libgfortran.a"
-                "${GFORTRAN_LIB_DIR}/libquadmath.a"
-            )
-            # An unanswered driver would drop libgcc.a from the link and surface as an
-            # undefined ___emutls_get_address far from its cause, so an empty answer is
-            # an error like a missing archive - the loop below reports it either way.
-            GCC_A=$("${BREW_PREFIX}/bin/gfortran" -print-libgcc-file-name 2>/dev/null || true)
-            DARWIN_STATIC_LIBS+=("${GCC_A:-<gfortran -print-libgcc-file-name answered nothing>}")
-            DARWIN_NUMERIC_FLAGS=""
-            for lib in "${DARWIN_STATIC_LIBS[@]}"; do
-                if [[ ! -f "$lib" ]]; then
-                    echo "ERROR: static library not found: $lib" >&2
-                    echo "       The shipped binary must not depend on Homebrew dylibs." >&2
-                    echo "       Fortran runtime: brew install gcc. OpenBLAS: build it with" >&2
-                    echo "       NO_SHARED=1 USE_OPENMP=0 (see .github/actions/setup-haskell-env)." >&2
-                    exit 1
-                fi
-                # OpenBLAS goes in whole, the rest on demand. ld64 pulls members out
-                # of an archive in one pass, driven by symbols undefined so far, and
-                # OpenBLAS reaches its kernels through tables of function pointers -
-                # a reference no symbol resolution can see, so the member holding a
-                # kernel can go unpulled and leave its pointer zero.
-                case "$lib" in
-                    *libopenblas.a) DARWIN_NUMERIC_FLAGS="$DARWIN_NUMERIC_FLAGS -optl-Wl,-force_load,$lib" ;;
-                    *)              DARWIN_NUMERIC_FLAGS="$DARWIN_NUMERIC_FLAGS -optl$lib" ;;
-                esac
-            done
-        else
-            OPENBLAS_PREFIX=$(brew --prefix openblas 2>/dev/null || echo "${BREW_PREFIX}/opt/openblas")
-            DARWIN_NUMERIC_FLAGS=" -optl-L${OPENBLAS_PREFIX}/lib -optl-lopenblas -optl-L${GFORTRAN_LIB_DIR} -optl-lgfortran -optl-lquadmath"
-        fi
-        DARWIN_LINK_FLAGS="$DARWIN_MUMPS_FLAGS$DARWIN_NUMERIC_FLAGS $DARWIN_TAIL_FLAGS"
-        cat >> "$OUTPUT" << EOF
-optimization: 2
-split-sections: True
-
-extra-lib-dirs: $MUMPS_LIB_DIR
-extra-include-dirs: $MUMPS_INCLUDE_DIR
-
-package mumps-hs
-  extra-lib-dirs: $MUMPS_LIB_DIR
-  ghc-options: $DARWIN_LINK_FLAGS
-
-package volca
-  optimization: $VOLCA_OPT_LEVEL
-$VOLCA_SPLIT_SECTIONS
-  ghc-options: $VOLCA_BOUNDS_CHECK$DARWIN_LINK_FLAGS
-EOF
+        {
+            echo "optimization: 2"
+            echo "split-sections: True"
+            volca_package "-optl-mmacosx-version-min=${DEPLOYMENT_TARGET} -optl-Wl,-dead_strip_dylibs"
+        } >> "$OUTPUT"
         ;;
 
     windows)
-        # Windows/MSYS2: MinGW + OpenBLAS
-        # Auto-discover MSYS2/GCC paths and convert POSIX-style MUMPS paths
-        # to Windows form. Callers running under MSYS2 bash (build.sh,
-        # prebuild-cabal-store.yml) used to duplicate this block; factoring
-        # it here keeps the per-caller code to LINK_MODE=windows.
-        if [[ -z "${MSYS2_LIB_DIR:-}" ]]; then
-            MSYS2_LIB_DIR=$(cygpath -m /ucrt64/lib)
-            : "${MSYS2_LIB_DIR:?cygpath -m /ucrt64/lib returned empty – is MSYS2 ucrt64 installed?}"
-        fi
-        if [[ -z "${GCC_LIB_DIR:-}" ]]; then
-            GCC_LIB_DIR=$(find /ucrt64/lib/gcc/x86_64-w64-mingw32 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1)
-            : "${GCC_LIB_DIR:?Could not locate GCC lib dir under /ucrt64/lib/gcc/x86_64-w64-mingw32 – install mingw-w64-ucrt-x86_64-gcc}"
-            GCC_LIB_DIR=$(cygpath -m "$GCC_LIB_DIR")
-        fi
-        # Cabal + clang on Windows want forward-slash drive-letter paths
-        # (`C:/foo/bar`), not the MSYS2 `/c/foo/bar` form. Convert if needed.
-        win_path() { echo "$1" | sed 's|^/\([a-zA-Z]\)/|\1:/|'; }
-        case "$MUMPS_LIB_DIR" in
-            /[a-zA-Z]/*) MUMPS_LIB_DIR=$(win_path "$MUMPS_LIB_DIR") ;;
-        esac
-        case "$MUMPS_INCLUDE_DIR" in
-            /[a-zA-Z]/*) MUMPS_INCLUDE_DIR=$(win_path "$MUMPS_INCLUDE_DIR") ;;
-        esac
-        cat >> "$OUTPUT" << EOF
-optimization: 2
-split-sections: True
-
-extra-lib-dirs: $MUMPS_LIB_DIR
-              , $MSYS2_LIB_DIR
-extra-include-dirs: $MUMPS_INCLUDE_DIR
-
-package volca
-  optimization: $VOLCA_OPT_LEVEL
-$VOLCA_SPLIT_SECTIONS
-  ghc-options: $VOLCA_BOUNDS_CHECK-optl-Wl,--allow-multiple-definition -optl-L$GCC_LIB_DIR -optl-L$MSYS2_LIB_DIR -optl-L$MUMPS_LIB_DIR -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran -optl-lgcc -optl-lquadmath -optl-lmingwex -optl-lpthread -optl-lmsvcrt
+        {
+            echo "optimization: 2"
+            echo "split-sections: True"
+            volca_package ""
+            cat << 'EOF'
 
 -- MSYS2's pkg-config finds zlib, so the zlib package would link the shared
 -- zlib1.dll, which a user's machine does not have: volca.exe then fails to
@@ -324,6 +164,7 @@ $VOLCA_SPLIT_SECTIONS
 package zlib
   flags: +bundled-c-zlib
 EOF
+        } >> "$OUTPUT"
         ;;
 
     *)

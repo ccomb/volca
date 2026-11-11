@@ -57,7 +57,7 @@ spec modules are `*Spec.hs` under `test/` and auto-discovered. New behavior need
 | Area | Modules | Role |
 |------|---------|------|
 | Domain | `Types` | Central domain types (Activity, Exchange, Flow, …) |
-| Solve | `Matrix`, `SharedSolver` | Sparse technosphere/biosphere matrices; MUMPS-backed LCI solve |
+| Solve | `Matrix`, `SharedSolver`, `Matrix.Sparse` | Sparse technosphere/biosphere matrices; the LCI solve, by a sparse LU factorisation written here |
 | Formats | `EcoSpold.*`, `SimaPro.*`, `ILCD.*`, `BrightwayExcel.*`, `Method.Parser*` | One namespace per database format, each with a `Parser` (wired into `Database.Loader`) and a `Writer` (wired into `Database.Export`); method readers are `Method.Parser*` |
 | Methods | `Method.Mapping`, `Method.FlowResolver`, `Method.ChemSynonyms` | CF mapping (UUID→name→synonym→CAS cascade), flow resolution |
 | Database | `Database.*` (`Loader`, `CrossLinking`, `MatrixBuild`, `Manager`) | Load, cross-link, build matrices, manage lifecycle |
@@ -66,8 +66,7 @@ spec modules are `*Spec.hs` under `test/` and auto-discovered. New behavior need
 | API | `API.Resources`, `API.Routes`, `API.MCP` | `API.Resources` holds the resource registry (one `Resource` per operation); REST routes, MCP tools and OpenAPI derive from it |
 | CLI | `CLI.*`, `app/Main.hs` | Arg parsing, commands, HTTP client, REPL; entrypoint (server/client/repl modes) |
 
-A Python client lives in `pyvolca/` (own `pyproject.toml`); the MUMPS binding in
-`mumps-hs/`. The core is otherwise pure Haskell.
+A Python client lives in `pyvolca/` (own `pyproject.toml`).
 
 ## Where to start
 

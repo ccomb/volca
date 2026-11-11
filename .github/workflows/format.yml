@@ -29,4 +29,3 @@ jobs:
             src/**/*.hs
             app/**/*.hs
             test/**/*.hs
-            mumps-hs/**/*.hs
