@@ -28,7 +28,7 @@ on:
 # main is grouped by its commit, so it is neither cancelled nor queued
 # behind another: every commit of main has its own binaries to download.
 concurrency:
-  group: build-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
+  group: build-${{ github.head_ref || github.sha }}
   cancel-in-progress: true
 
 jobs:
