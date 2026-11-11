@@ -68,6 +68,71 @@ Haskell FFI bindings to MUMPS, maintained inside this repository
 (`mumps-hs/`). Apache-2.0; copyright Christophe Combelles. See
 `mumps-hs/LICENSE`.
 
+## Sparse solver – Rust crates
+
+The sparse solver in `solver/` is written in Rust and linked statically into
+the binary, with Rust's standard library (MIT OR Apache-2.0,
+<https://github.com/rust-lang/rust>) and the crates below, each found at
+`https://crates.io/crates/<name>`. The table holds the crates whose code cargo
+puts in the solver's archive on one platform or another. Those that only run
+while compiling (procedural macros and what they are built from) leave no code
+of their own and are out of scope. `scripts/check-licenses-table.sh` fails the
+build when this table and what cargo reports disagree, on a name or on a
+license.
+
+| Crate | License |
+|---|---|
+| `bitflags` | MIT OR Apache-2.0 |
+| `bytemuck` | Zlib OR Apache-2.0 OR MIT |
+| `byteorder` | Unlicense OR MIT |
+| `cfg-if` | MIT OR Apache-2.0 |
+| `dyn-stack` | MIT |
+| `equator` | MIT |
+| `faer` | MIT |
+| `faer-traits` | MIT |
+| `gemm` | MIT |
+| `gemm-c32` | MIT |
+| `gemm-c64` | MIT |
+| `gemm-common` | MIT |
+| `gemm-f32` | MIT |
+| `gemm-f64` | MIT |
+| `generativity` | MIT OR Apache-2.0 |
+| `hermit-abi` | MIT OR Apache-2.0 |
+| `libc` | MIT OR Apache-2.0 |
+| `libm` | MIT |
+| `nano-gemm` | MIT |
+| `nano-gemm-c32` | MIT |
+| `nano-gemm-c64` | MIT |
+| `nano-gemm-core` | MIT |
+| `nano-gemm-f32` | MIT |
+| `nano-gemm-f64` | MIT |
+| `num-complex` | MIT OR Apache-2.0 |
+| `num-traits` | MIT OR Apache-2.0 |
+| `num_cpus` | MIT OR Apache-2.0 |
+| `once_cell` | MIT OR Apache-2.0 |
+| `private-gemm-x86` | MIT |
+| `pulp` | MIT |
+| `pulp-wasm-simd-flag` | MIT |
+| `qd` | MIT |
+| `raw-cpuid` | MIT |
+| `reborrow` | MIT |
+| `same-file` | Unlicense/MIT |
+| `sysctl` | MIT |
+| `thiserror` | MIT OR Apache-2.0 |
+| `walkdir` | Unlicense/MIT |
+| `winapi-util` | Unlicense OR MIT |
+| `windows-link` | MIT OR Apache-2.0 |
+| `windows-sys` | MIT OR Apache-2.0 |
+
+`faer` is MIT as a whole and carries algorithms ported from other projects,
+which stay under the terms they came with:
+
+- its minimum-degree ordering, which the solver calls, is ported from AMD –
+  BSD 3-Clause, notice at the end of this document;
+- a column ordering and several dense decompositions (BSD 3-Clause) and a
+  singular value decomposition (MPL-2.0), none of which the solver calls and
+  none of which is compiled into the binary.
+
 ## Haskell direct dependencies
 
 The following table covers the libraries the shipped binary links: the direct
@@ -143,6 +208,9 @@ that reconciliation at release time and update any drifted entries.
 changes when a dependency comes or goes. A package that relicenses keeps its
 name, so the reconciliation above is still the only thing that catches it.
 
+The crates table needs no such reconciliation: the script compares its
+licenses too, and prints the rows to add, remove or correct.
+
 ## OpenBLAS license
 
 Copyright (c) 2011-2014, The OpenBLAS Project
@@ -175,3 +243,32 @@ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
+
+## AMD license
+
+AMD, Copyright (c), 1996-2022, Timothy A. Davis, Patrick R. Amestoy, and
+Iain S. Duff. All Rights Reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of the organizations to which the authors are
+      affiliated, nor the names of its contributors may be used to endorse
+      or promote products derived from this software without specific prior
+      written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+DAMAGE.

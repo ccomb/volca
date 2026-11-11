@@ -25,6 +25,13 @@ The notable third-party components are:
   * GCC runtime (libgfortran, libquadmath, libgcc) – GPLv3 with the GCC
     Runtime Library Exception
 
+  * faer (dense linear algebra and ordering, used by the sparse solver) – MIT,
+    its minimum-degree ordering ported from AMD – BSD 3-Clause
+    https://codeberg.org/sarah-quinones/faer
+
+  * Rust standard library and a number of Rust crates – MIT or Apache-2.0
+    (full table in THIRD_PARTY_LICENSES.md)
+
   * Numerous Haskell libraries – predominantly BSD 3-Clause and MIT
     (full table in THIRD_PARTY_LICENSES.md)
 

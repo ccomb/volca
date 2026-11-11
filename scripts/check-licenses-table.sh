@@ -10,6 +10,10 @@
 # Scope is what ships: the direct build-depends of the library and executable
 # stanzas. Test and benchmark dependencies never reach a user, and the two
 # packages that live in this repository are covered by their own sections.
+#
+# The Rust crates of the solver have a table of their own, held to the same
+# rule against what cargo reports, and there the license is compared as well:
+# cargo knows it, where volca.cabal does not.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -38,9 +42,23 @@ awk '
     }
 ' volca.cabal | grep -vxE 'volca|mumps-hs' | sort -u > "$work/cabal"
 
-# The package column of the table, minus its header row.
+# The package column of the table, minus its header row. A crate is written
+# between backquotes, which keeps its rows out of this list.
 grep -oE '^\| [A-Za-z0-9][A-Za-z0-9-]*' THIRD_PARTY_LICENSES.md \
-    | cut -c3- | grep -vx 'Package' | sort -u > "$work/table"
+    | cut -c3- | grep -vx 'Package\|Crate' | sort -u > "$work/table"
+
+# The crates whose code cargo puts in the solver's archive on one platform or
+# another, each with its license. A procedural macro runs while compiling and
+# leaves no code of its own, so it and what it is built from are left out, and
+# so are the two crates of this repository.
+cargo tree --locked --manifest-path solver/Cargo.toml -p ffi \
+    --edges normal,no-proc-macro --target all --prefix none --no-dedupe --format '{p}|{l}' \
+    | awk -F'|' '{ split($1, name, " "); print name[1] " | " $2 }' \
+    | grep -vE '^(ffi|lu) \| ' | LC_ALL=C sort -u > "$work/cargo"
+
+# shellcheck disable=SC2016 # the backquotes are the table's, not a command
+sed -nE 's/^\| `([^`]+)` \| (.*[^ ]) *\|$/\1 | \2/p' THIRD_PARTY_LICENSES.md \
+    | LC_ALL=C sort -u > "$work/crates"
 
 missing=$(comm -23 "$work/cabal" "$work/table")
 extra=$(comm -13 "$work/cabal" "$work/table")
@@ -57,10 +75,16 @@ if [ -n "$extra" ]; then
     status=1
 fi
 
+if ! diff "$work/crates" "$work/cargo" > "$work/crates.diff"; then
+    echo "The crates table of THIRD_PARTY_LICENSES.md (<) and what cargo reports for solver/ (>) differ:"
+    sed -n 's/^[<>]/  &/p' "$work/crates.diff"
+    status=1
+fi
+
 if [ "$status" -ne 0 ]; then
     echo ""
-    echo "The table names the libraries the binary links. Add or remove the rows above."
+    echo "The tables name the libraries the binary links. Add, remove or correct the rows above."
     exit 1
 fi
 
-echo "THIRD_PARTY_LICENSES.md matches volca.cabal."
+echo "THIRD_PARTY_LICENSES.md matches volca.cabal and solver/."

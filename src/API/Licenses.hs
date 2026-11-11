@@ -93,6 +93,27 @@ componentList =
         Nothing
         (Just "https://gcc.gnu.org/onlinedocs/gcc/Copying.html")
         Nothing
+    , component
+        "faer (dense linear algebra and ordering, used by the sparse solver)"
+        Nothing
+        "MIT"
+        (Just "sarah quiñones")
+        (Just "https://codeberg.org/sarah-quinones/faer")
+        Nothing
+    , component
+        "AMD ordering (ported in faer)"
+        Nothing
+        "BSD-3-Clause"
+        (Just "Copyright (c) 1996-2022, Timothy A. Davis, Patrick R. Amestoy, and Iain S. Duff")
+        (Just "http://www.suitesparse.com")
+        Nothing
+    , component
+        "Rust standard library"
+        Nothing
+        "MIT OR Apache-2.0"
+        (Just "The Rust Project contributors")
+        (Just "https://github.com/rust-lang/rust")
+        Nothing
     ]
 
 component :: Text -> Maybe Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Value
