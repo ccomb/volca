@@ -299,7 +299,7 @@ import Parametric (Setting, parameterised)
 import Progress (ProgressLevel (..), reportError, reportProgress, reportProgressWithTiming, withLogScope)
 import qualified Search.BM25 as BM25
 import Servant.API (FromHttpApiData)
-import SharedSolver (SharedSolver, correctedFor, createSharedSolver)
+import SharedSolver (SharedSolver, Uncorrected (..), correctedFor, createSharedSolver)
 import qualified SharedSolver
 import SubstanceRegistry (CASNumber (..), KeyNormalizers (..), NormName (..), SubstanceEdge, casBindingsFromEdges, normalizeCAS, parseSubstanceEdges)
 import SynonymDB (BridgeDirection (..), SynEdge (..), SynonymDB (..), buildFromCSV, emptySynonymDB, excludeJunkSynonyms, excludeOverFrequentSynonyms, loadFromCSVFileWithCache, mergeSynonymDBs, normalizeName, oversizedClasses, reopenedBridges, synonymCount, uncoveredUnitSuffixes)
@@ -4042,9 +4042,10 @@ solverFor dbName db =
 {- | Run with the loaded database at these settings and a solver for it, or
 say why the settings give none. The solver is the loaded one when no entry of
 the technosphere moved, and the loaded one corrected by the columns that moved
-when they are few enough for the correction to stay small. Otherwise it is a
-solver of its own, factorised for this action and dropped with it. One such
-action runs at a time: each holds a whole factorisation beside the loaded one.
+when they are few enough for the correction to stay small. Otherwise, and when
+the loaded matrix has no answer for a column that moved, it is a solver of its
+own, factorised for this action and dropped with it. One such action runs at a
+time: each holds a whole factorisation beside the loaded one.
 -}
 withSettings :: forall a. DatabaseManager -> Text -> (Database, SharedSolver) -> [Setting] -> (Database -> SharedSolver -> IO a) -> IO (Either Text a)
 withSettings manager dbName (before, loaded) settings act = do
@@ -4056,8 +4057,14 @@ withSettings manager dbName (before, loaded) settings act = do
         [] -> Right <$> act after loaded
         change
             | correctable (length change) ->
-                correctedFor (SharedSolver.refusal before loaded) loaded change >>= either (pure . Left . (<> inputsOf change)) (fmap Right . act after)
-            | otherwise -> fmap Right . withMVar (dmFactorisationLock manager) $ \() -> solverFor dbName after >>= act after
+                correctedFor loaded change >>= \case
+                    Right solver -> Right <$> act after solver
+                    Left LoadedUnsolved -> factorised after
+                    Left (Refused why) -> pure (Left (why <> inputsOf change))
+            | otherwise -> factorised after
+
+    factorised :: Database -> IO (Either Text a)
+    factorised after = fmap Right . withMVar (dmFactorisationLock manager) $ \() -> solverFor dbName after >>= act after
 
     {- A correction beats a new factorisation while it stays small: its k dense
     columns under 64 MB, and k itself bounded, since its k×k elimination grows

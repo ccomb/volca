@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | A solver corrected by a few columns of its matrix answers as a new
@@ -8,11 +9,10 @@ module CorrectedSolverSpec (spec) where
 import Control.Monad ((<=<))
 import Data.Either (isLeft)
 import qualified Data.Map.Strict as M
-import qualified Data.Text as T
 import qualified Data.Vector.Unboxed as U
 import Matrix (Demand (..))
 import Matrix.Dense (factorLU, solveLU)
-import SharedSolver (SharedSolver, correctedFor, createSharedSolver, solveMultiWithSharedSolver, solveWithSharedSolver)
+import SharedSolver (SharedSolver, Uncorrected (..), correctedFor, createSharedSolver, solveMultiWithSharedSolver, solveWithSharedSolver)
 import Test.Hspec
 import Test.QuickCheck
 import Types (SparseTriple (..))
@@ -40,7 +40,7 @@ spec = do
         it "answers as a new factorisation of the changed matrix" $
             withNumTests 50 . forAll changedMatrix $ \(n, before, after, moved, demands) -> ioProperty $
                 withSolver n before $ \loaded -> withSolver n after $ \fresh -> do
-                    corrected <- either (fail . show) pure =<< correctedFor (T.pack . show) loaded (change before after moved)
+                    corrected <- either (fail . show) pure =<< correctedFor loaded (change before after moved)
                     expected <- either (fail . show) pure =<< solveMultiWithSharedSolver fresh (map Demand demands)
                     got <- either (fail . show) pure =<< solveMultiWithSharedSolver corrected (map Demand demands)
                     one <- traverse (either (fail . show) pure <=< solveWithSharedSolver corrected . Demand) demands
@@ -49,8 +49,18 @@ spec = do
         it "refuses a change that makes the matrix singular" $
             -- M = I; taking 1 off the first column's diagonal leaves it empty.
             withSolver 2 M.empty $
-                \loaded -> isLeft <$> correctedFor (T.pack . show) loaded [(0, [(0, -1)])] `shouldReturn` True
+                \loaded -> either refused (const False) <$> correctedFor loaded [(0, [(0, -1)])] `shouldReturn` True
+
+        it "leaves a loaded matrix with no answer for a column that moved to a new factorisation" $
+            -- Processes 0 and 1 take all of each other; the change halves what 1 takes of 0.
+            withSolver 2 (M.fromList [((0, 1), 1), ((1, 0), 1)]) $
+                \loaded -> either Just (const Nothing) <$> correctedFor loaded [(1, [(0, 0.5)])] `shouldReturn` Just LoadedUnsolved
   where
+    refused :: Uncorrected -> Bool
+    refused = \case
+        Refused _ -> True
+        LoadedUnsolved -> False
+
     close :: U.Vector Double -> U.Vector Double -> Property
     close expected got =
         counterexample (show (expected, got)) $

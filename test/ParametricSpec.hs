@@ -149,6 +149,20 @@ spec = describe "a database at other values of its parameters" $ do
         expected <- either (fail . T.unpack) pure =<< computeScalingVectorCached atSettings fresh top
         (U.toList . U.zipWith (withinTolerance 1e-9) expected <$> got) `shouldSatisfy` either (const False) and
 
+    it "factorises again for values that undo a loop the loaded database has no answer for" $ do
+        -- Loaded, two processes take all of each other; at 0.5 each leaves half of what it makes.
+        loop <- build "loop" (M.restrictKeys chainFlows (S.fromList (map (snd . link) [0, 1]))) loopActivities (M.singleton "yield" (input 1))
+        first' <- pidOf loop (link 0)
+        manager <- bakeryManager
+        let settings = [Setting Nothing "yield" 0.5]
+        loaded <- mkSolverFromDb loop "loop-loaded"
+        (isLeft <$> computeScalingVectorCached loop loaded first') `shouldReturn` True
+        got <- either (fail . T.unpack) pure =<< withSettings manager "loop-loaded" (loop, loaded) settings (\db solver -> computeScalingVectorCached db solver first')
+        atSettings <- either (fail . T.unpack) (pure . snd) (parameterised bakeryUnits loop settings)
+        fresh <- mkSolverFromDb atSettings "loop-fresh"
+        expected <- either (fail . T.unpack) pure =<< computeScalingVectorCached atSettings fresh first'
+        (U.toList . U.zipWith (withinTolerance 1e-9) expected <$> got) `shouldSatisfy` either (const False) and
+
     it "lets a process's own value of a name win over its database's, in the database's formulas too" $ do
         (bakery, _) <- databases
         cake <- pidOf bakery (aCake, pCake)
@@ -772,6 +786,14 @@ chainActivities =
     M.fromList
         [ (link i, activity "link" (reference (snd (link i)) : [withFormula (formulaOf "yield") (line (snd (link (i - 1))) 1 Input){techActivityLinkId = Just (fst (link (i - 1)))} | i > 0]))
         | i <- [0 .. 129]
+        ]
+
+-- | Two links that each buy @yield@ of the other: at 1, nothing is left of what either makes.
+loopActivities :: M.Map (UUID, UUID) Activity
+loopActivities =
+    M.fromList
+        [ (link i, activity "link" [reference (snd (link i)), withFormula (formulaOf "yield") (line (snd (link other)) 1 Input){techActivityLinkId = Just (fst (link other))}])
+        | (i, other) <- [(0, 1), (1, 0)]
         ]
 
 -- | The bakery's parameters with a few more for the formula check: units, and two that read each other.

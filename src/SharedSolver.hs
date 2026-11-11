@@ -16,6 +16,7 @@ module SharedSolver (
 
     -- * Solver management
     createSharedSolver,
+    Uncorrected (..),
     correctedFor,
 
     -- * Concurrent solving
@@ -47,7 +48,7 @@ import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
 import Control.DeepSeq (force)
 import Control.Exception (evaluate)
 import Control.Monad (when)
-import Data.Bifunctor (first)
+import Data.Bifunctor (bimap, first)
 import Data.List (transpose)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -109,18 +110,28 @@ corrected Nothing y = y
 corrected (Just (Correction columns zs s)) y =
     foldl' (\x (w, z) -> U.zipWith (\xi zi -> xi - w * zi) x z) y (zip (U.toList (solveLU s (U.fromList (map (y U.!) columns)))) zs)
 
+-- | Why the loaded solver was not corrected.
+data Uncorrected
+    = {- | The loaded matrix has no answer for a column that moved, so it says
+      nothing of the changed one, which may well have answers: that takes a
+      factorisation of the changed matrix.
+      -}
+      LoadedUnsolved
+    | -- | The correction is refused, and why.
+      Refused Text
+    deriving (Eq, Show)
+
 {- | The solver of the loaded matrix with these columns changed: each column
 with the entries of M = I − A it adds, by row. It shares the loaded solver's
 factors, so nothing is factorised again. Refused when the changed matrix is
-singular, and when the loaded one cannot be solved for a column that moved:
-that refusal is put into words by the function given.
+singular.
 -}
-correctedFor :: (Unsolvable -> Text) -> SharedSolver -> [(Int, [(Int, Double)])] -> IO (Either Text SharedSolver)
-correctedFor _ SharedSolver{solverCorrection = Just _} _ = pure (Left "a corrected solver is not corrected again")
-correctedFor say base change =
+correctedFor :: SharedSolver -> [(Int, [(Int, Double)])] -> IO (Either Uncorrected SharedSolver)
+correctedFor SharedSolver{solverCorrection = Just _} _ = pure (Left (Refused "a corrected solver is not corrected again"))
+correctedFor base change =
     solveMultiWithSharedSolver base [Demand (U.accum (+) (U.replicate (solverActivityCount base) 0) entries) | (_, entries) <- change] >>= \case
-        Left why -> pure (Left (say why))
-        Right zs -> pure $ (\lu -> base{solverCorrection = Just (Correction columns zs lu)}) <$> first ("these values make the technosphere singular: " <>) (factorLU (length columns) (capacitance zs))
+        Left _ -> pure (Left LoadedUnsolved)
+        Right zs -> pure $ bimap (Refused . ("these values make the technosphere singular: " <>)) (\lu -> base{solverCorrection = Just (Correction columns zs lu)}) (factorLU (length columns) (capacitance zs))
   where
     columns :: [Int]
     columns = map fst change
