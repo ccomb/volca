@@ -70,6 +70,12 @@
   memory. Requests on one database no longer wait for one another: the solver
   took one at a time, and now answers as many as there are processor cores.
   Scores move in their last digits only.
+- Building the engine no longer takes a Fortran compiler nor a linear algebra
+  library: a C compiler and the Haskell toolchain are enough. The Windows
+  download holds `volca.exe` alone, without the runtime libraries that sat
+  beside it. The components list of `/api/v1/licenses` is empty, since those
+  libraries were all it named; the Haskell libraries stay listed in
+  `THIRD_PARTY_LICENSES.md`.
 
 ## [0.17.0] - 2026-11-07
 

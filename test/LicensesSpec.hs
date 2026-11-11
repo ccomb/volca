@@ -27,19 +27,9 @@ spec = describe "/api/v1/licenses payload" $ do
         let lic = lookupPath ["engine", "license"] =<< decode licensesJson
         lic `shouldBe` Just (String "Apache-2.0")
 
-    it "exposes a non-empty components list" $ do
+    it "keeps the components key clients decode, with nothing to list" $ do
         let cs = lookupPath ["components"] =<< decode licensesJson
-        case cs of
-            Just (Array v) -> V.length v `shouldSatisfy` (>= 4)
-            _ -> expectationFailure "components is missing or not an array"
-
-    it "lists MUMPS as a CeCILL-C component" $ do
-        let mumps = do
-                Array cs <- lookupPath ["components"] =<< decode licensesJson
-                find (componentNamed "MUMPS") (V.toList cs)
-        mumps `shouldSatisfy` isJust
-        let licField = lookupPath ["license"] =<< mumps
-        licField `shouldBe` Just (String "CeCILL-C")
+        cs `shouldBe` Just (Array V.empty)
 
     it "points clients at the Haskell-deps markdown" $ do
         let url = lookupPath ["haskell_dependencies_url"] =<< decode licensesJson
@@ -60,12 +50,3 @@ lookupPath :: [Text] -> Value -> Maybe Value
 lookupPath [] v = Just v
 lookupPath (k : ks) (Object o) = lookupPath ks =<< KM.lookup (Key.fromText k) o
 lookupPath _ _ = Nothing
-
-componentNamed :: Text -> Value -> Bool
-componentNamed expected v = case lookupPath ["name"] v of
-    Just (String n) -> n == expected
-    _ -> False
-
-find :: (a -> Bool) -> [a] -> Maybe a
-find _ [] = Nothing
-find p (x : xs) = if p x then Just x else find p xs

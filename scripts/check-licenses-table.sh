@@ -8,8 +8,8 @@
 # no row at all. Neither shows up in a build.
 #
 # Scope is what ships: the direct build-depends of the library and executable
-# stanzas. Test and benchmark dependencies never reach a user, and the two
-# packages that live in this repository are covered by their own sections.
+# stanzas. Test and benchmark dependencies never reach a user, and the engine
+# itself is not its own dependency.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -36,7 +36,7 @@ awk '
         split(line, field, /[ \t]/)                         # drop the version constraint
         if (field[1] != "") print field[1]
     }
-' volca.cabal | grep -vxE 'volca|mumps-hs' | sort -u > "$work/cabal"
+' volca.cabal | grep -vx 'volca' | sort -u > "$work/cabal"
 
 # The package column of the table, minus its header row.
 grep -oE '^\| [A-Za-z0-9][A-Za-z0-9-]*' THIRD_PARTY_LICENSES.md \
