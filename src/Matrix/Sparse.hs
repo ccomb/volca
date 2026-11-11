@@ -441,7 +441,7 @@ factorBlock columns numbering (Block first count) (Elimination _ under over) = d
                 reaching <- readPrimArray (dense scratch) earlier
                 writePrimArray (dense scratch) earlier 0
                 writePrimArray (upperValues scratch) at reaching
-                subtractScaled (dense scratch) 0 (stretch under (lowerValues scratch) earlier) reaching
+                subtractScaledFromScratch (dense scratch) 0 (stretch under (lowerValues scratch) earlier) reaching
             pivot <- readPrimArray (dense scratch) place
             writePrimArray (dense scratch) place 0
             if dividable columns column pivot
@@ -470,28 +470,44 @@ lineStart = indexPrimArray . listStart
 {-# INLINE lineStart #-}
 
 -- | Entries of the factors: where each one lands, and its value.
-data Stretch s = Stretch !(PrimArray Int) !(MutablePrimArray s Double) !Span
+data Stretch values = Stretch !(PrimArray Int) !values !Span
 
 -- | One line of lists whose values are held beside them.
-stretch :: Lists -> MutablePrimArray s Double -> Int -> Stretch s
+stretch :: Lists -> values -> Int -> Stretch values
 stretch lists values line = Stretch (listItem lists) values (Span (lineStart lists line) (lineStart lists (line + 1)))
 {-# INLINE stretch #-}
 
-{- | @target[offset + item] −= value × by@ along a stretch: the loop nearly
-all the time of a factorisation and of a solve is spent in. Kept out of line:
-inlined into its callers it shares their registers and runs slower.
+{- | @target[offset + item] −= value × by@ along a stretch of finished
+factors: the loop nearly all the time of a solve is spent in. The factors can
+only be read here, which is what lets every demand being solved share them.
+Kept out of line, as is the one below: inlined into its callers it shares
+their registers and runs slower.
 -}
-subtractScaled :: forall s. MutablePrimArray s Double -> Int -> Stretch s -> Double -> ST s ()
-subtractScaled target !offset (Stretch items values (Span from to)) !by = go from
-  where
-    go :: Int -> ST s ()
-    go !at = when (at < to) $ do
-        let into = offset + indexPrimArray items at
-        value <- readPrimArray values at
-        was <- readPrimArray target into
-        writePrimArray target into (was - value * by)
-        go (at + 1)
+subtractScaled :: MutablePrimArray s Double -> Int -> Stretch (PrimArray Double) -> Double -> ST s ()
+subtractScaled = alongStretch (\values at -> pure (indexPrimArray values at))
 {-# NOINLINE subtractScaled #-}
+
+-- | The same, from a column of L that the factorisation writing it has finished.
+subtractScaledFromScratch :: MutablePrimArray s Double -> Int -> Stretch (MutablePrimArray s Double) -> Double -> ST s ()
+subtractScaledFromScratch = alongStretch readPrimArray
+{-# NOINLINE subtractScaledFromScratch #-}
+
+-- Only the reader on the left: each of the two above, naming only the reader,
+-- takes a copy of the loop made for it, not one that calls a function per entry.
+alongStretch :: forall s values. (values -> Int -> ST s Double) -> MutablePrimArray s Double -> Int -> Stretch values -> Double -> ST s ()
+alongStretch valueAt = along
+  where
+    along :: MutablePrimArray s Double -> Int -> Stretch values -> Double -> ST s ()
+    along target !offset (Stretch items values (Span from to)) !by = go from
+      where
+        go :: Int -> ST s ()
+        go !at = when (at < to) $ do
+            let into = offset + indexPrimArray items at
+            value <- valueAt values at
+            was <- readPrimArray target into
+            writePrimArray target into (was - value * by)
+            go (at + 1)
+{-# INLINE alongStretch #-}
 
 {- | Solve for one demand, one entry per process. A demand is refused only
 when it reaches a process that cannot be solved for; the reason names it.
@@ -545,10 +561,7 @@ for their share of.
 passOn :: MutablePrimArray s Double -> Links -> Int -> ST s ()
 passOn asked (Links from values) place = do
     supplied <- readPrimArray asked place
-    when (supplied /= 0) $ do
-        -- Only read: the factors are shared by every demand being solved.
-        shares <- unsafeThawPrimArray values
-        subtractScaled asked 0 (stretch from shares place) supplied
+    when (supplied /= 0) (subtractScaled asked 0 (stretch from values place) supplied)
 {-# INLINE passOn #-}
 
 nothingAsked :: forall s. MutablePrimArray s Double -> Span -> ST s Bool
@@ -565,21 +578,18 @@ which is most places when a demand names one process.
 -}
 solveKnot :: forall s. LU -> MutablePrimArray s Double -> Int -> ST s ()
 solveKnot lu asked first = do
-    -- Only read: the factors are shared by every demand being solved.
-    lowers <- unsafeThawPrimArray (lowerValue lu)
-    uppers <- unsafeThawPrimArray (upperValue lu)
     forRange 0 count $ \place -> do
         value <- readPrimArray asked (first + place)
-        when (value /= 0) (subtractScaled asked first (stretch (lower lu) lowers place) value)
-    ascend uppers (count - 1)
+        when (value /= 0) (subtractScaled asked first (stretch (lower lu) (lowerValue lu) place) value)
+    ascend (count - 1)
   where
     count :: Int
     count = sizeofPrimArray (reciprocal lu)
-    ascend :: MutablePrimArray s Double -> Int -> ST s ()
-    ascend uppers !place = when (place >= 0) $ do
+    ascend :: Int -> ST s ()
+    ascend !place = when (place >= 0) $ do
         value <- readPrimArray asked (first + place)
         when (value /= 0) $ do
             let supplied = value * indexPrimArray (reciprocal lu) place
             writePrimArray asked (first + place) supplied
-            subtractScaled asked first (stretch (upper lu) uppers place) supplied
-        ascend uppers (place - 1)
+            subtractScaled asked first (stretch (upper lu) (upperValue lu) place) supplied
+        ascend (place - 1)
