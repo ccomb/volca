@@ -2,19 +2,23 @@
 
 module SharedSolverSpec (spec) where
 
+import Control.Concurrent.Async (mapConcurrently)
+import Data.Either (isRight)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector.Unboxed as U
+import Data.Word (Word32)
 import Database (buildDatabaseWithMatrices)
 import GoldenData
-import Matrix (buildDemandVector)
+import Matrix (Demand (..), buildDemandVector)
 import qualified Service
 import SharedSolver (SharedSolver, createSharedSolver, getFactorization, solveWithSharedSolver)
 import qualified SharedSolver as SS
 import Test.Hspec
-import TestHelpers (assertVectorNear, linkDatabases, loadSampleDatabase, mkActivity, mkDepLookupFromMap, mkSolverFromDb, mkTechFlow, reference, units)
+import TestHelpers (assertVectorNear, linkDatabases, loadSampleDatabase, mkActivity, mkDepLookupFromMap, mkSolverFromDb, mkTechFlow, reference, techInput, units)
 import Types
 import UnitConversion (defaultUnitConfig)
 
@@ -25,7 +29,7 @@ spec = do
     -- -----------------------------------------------------------------------
     describe "lazy factorization" $ do
         it "getFactorization returns Nothing before first solve" $ do
-            solver <- createSharedSolver "test" [] 0
+            solver <- createSharedSolver "test" U.empty 0
             result <- getFactorization solver
             case result of
                 Nothing -> return ()
@@ -45,7 +49,7 @@ spec = do
         it "scaling vector matches golden values [1.0, 0.6, 0.24]" $ do
             (solver, db) <- min3Solver
             let demandVec = buildDemandVector db 0
-            result <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
+            result <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             assertVectorNear "scaling vector" defaultTolerance result sampleMin3ExpectedSupply
 
     -- -----------------------------------------------------------------------
@@ -55,9 +59,37 @@ spec = do
         it "second solve produces the same result" $ do
             (solver, db) <- min3Solver
             let demandVec = buildDemandVector db 0
-            result1 <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
-            result2 <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
+            result1 <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demandVec
+            result2 <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             U.toList result1 `shouldBe` U.toList result2
+
+    describe "solves asked at the same time" $
+        it "answer as the same solves asked in turn, whichever of them factorises" $ do
+            -- Two hundred processes in one loop, each buying from two of the others.
+            let n = 200
+                ring = U.fromList (concat [[SparseTriple (fromIntegral ((i + 1) `mod` n)) (fromIntegral i) 0.3, SparseTriple (fromIntegral ((i + 7) `mod` n)) (fromIntegral i) 0.2] | i <- [0 .. n - 1]])
+                demands = [Demand (U.generate n (\i -> if i `mod` (k + 2) == 0 then 1 else 0)) | k <- [0 .. 19]]
+            inTurn <- createSharedSolver "ring" ring n >>= \solver -> traverse (solveWithSharedSolver solver) demands
+            together <- createSharedSolver "ring" ring n >>= \solver -> mapConcurrently (solveWithSharedSolver solver) demands
+            inTurn `shouldSatisfy` all isRight
+            together `shouldBe` inTurn
+
+    describe "a demand that reaches processes with no answer" $ do
+        -- "left" and "right" each take all of what the other makes; "buyer" buys from "left", "apart" buys nothing.
+        db <- runIO (handBuilt (M.fromList [(1, mkActivity "left" [reference (made 1), boughtFrom 2 1]), (2, mkActivity "right" [reference (made 2), boughtFrom 1 1]), (3, mkActivity "buyer" [reference (made 3), boughtFrom 1 0.5]), (4, mkActivity "apart" [reference (made 4)])]))
+        solver <- runIO (mkSolverFromDb db "looped")
+        it "is refused as an error of the request, in a sentence naming the database and a process of the loop" $ do
+            answer <- Service.supplyFor db solver =<< demandOf db 3
+            case answer of
+                Left (Service.MatrixError why) -> do
+                    why `shouldSatisfy` T.isPrefixOf "Database 'looped' has no answer to this demand: "
+                    why `shouldSatisfy` \sentence -> any (`T.isInfixOf` sentence) ["\"left\" (FR)", "\"right\" (FR)"]
+                Left other -> expectationFailure ("refused for another reason: " <> show other)
+                Right supply -> expectationFailure ("answered " <> show supply)
+        it "is answered when it does not reach them" $ do
+            demand <- demandOf db 4
+            answer <- Service.supplyFor db solver demand
+            either (const Nothing) Just answer `shouldBe` Just (unDemand demand)
 
     -- -----------------------------------------------------------------------
     -- Which databases a cross-database solve reaches, and in what order
@@ -89,23 +121,40 @@ chainOfFour = do
     rootSolver <- mkSolverFromDb r' "R"
     pure (r', mkDepLookupFromMap (M.fromList deps), rootSolver)
   where
-    oneActivity :: Word -> IO Database
-    oneActivity n =
-        let act = UUID.fromWords 0 0 0 (fromIntegral n)
-            flow = UUID.fromWords 0 0 1 (fromIntegral n)
-            sdb =
-                SimpleDatabase
-                    { sdbActivities = M.singleton (act, flow) (mkActivity "P" [reference flow])
-                    , sdbTechFlows = M.singleton flow (mkTechFlow flow "P")
-                    , sdbBioFlows = M.empty
-                    , sdbWasteFlows = M.empty
-                    , sdbUnits = units
-                    , sdbDocumentation = noDocumentation
-                    , sdbParameters = M.empty
-                    , sdbProductSystems = []
-                    , sdbReferenceConvention = SignedReferences
-                    }
-         in buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty ReadDeclared []) sdb >>= either (fail . show) pure
+    oneActivity :: Word32 -> IO Database
+    oneActivity n = handBuilt (M.singleton n (mkActivity "P" [reference (made n)]))
+
+-- | A database of hand-written processes, each under a number, making the product of that number.
+handBuilt :: M.Map Word32 Activity -> IO Database
+handBuilt processes =
+    buildDatabaseWithMatrices (BuildInputs defaultUnitConfig M.empty ReadDeclared []) sdb >>= either (fail . show) pure
+  where
+    sdb :: SimpleDatabase
+    sdb =
+        SimpleDatabase
+            { sdbActivities = M.mapKeys (\n -> (maker n, made n)) processes
+            , sdbTechFlows = M.fromList [(made n, mkTechFlow (made n) (activityName process)) | (n, process) <- M.toList processes]
+            , sdbBioFlows = M.empty
+            , sdbWasteFlows = M.empty
+            , sdbUnits = units
+            , sdbDocumentation = noDocumentation
+            , sdbParameters = M.empty
+            , sdbProductSystems = []
+            , sdbReferenceConvention = SignedReferences
+            }
+
+maker, made :: Word32 -> UUID.UUID
+maker = UUID.fromWords 0 0 0
+made = UUID.fromWords 0 0 1
+
+-- | An amount of what the process of a number makes, bought from it.
+boughtFrom :: Word32 -> Double -> Exchange
+boughtFrom n amount = (techInput (made n) amount){techActivityLinkId = Just (maker n), techSupplierClaim = ClaimById (maker n)}
+
+-- | One unit of what the process of a number makes.
+demandOf :: Database -> Word32 -> IO Demand
+demandOf db n =
+    maybe (fail ("no process " <> show n)) (either (fail . show) pure . buildDemandVector db) (findProcessId db (maker n) (made n))
 
 -- ---------------------------------------------------------------------------
 -- Helper: build solver + DB for SAMPLE.min3, with factorization pre-triggered
@@ -114,10 +163,7 @@ chainOfFour = do
 min3Solver :: IO (SharedSolver, Database)
 min3Solver = do
     db <- loadSampleDatabase "SAMPLE.min3"
-    let techTriples =
-            [ (fromIntegral i, fromIntegral j, v)
-            | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-            ]
+    let techTriples = dbTechnosphereTriples db
         actCount = fromIntegral (dbActivityCount db)
     solver <- createSharedSolver "SAMPLE.min3" techTriples actCount
     -- Trigger lazy factorization via first solve

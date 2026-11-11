@@ -58,8 +58,9 @@ import Service (
     getReferenceProductName,
     referenceMagnitude,
     resolveScorable,
+    supplyFor,
  )
-import SharedSolver (DepSolverLookup, Reached (..), SharedSolver, computeInventoryMatrixWithDepsCached, solveWithSharedSolver)
+import SharedSolver (DepSolverLookup, Reached (..), SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (
     Activity,
@@ -203,21 +204,24 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                 ScopeSupplyChain -> case demandFor db processId of
                     Left err -> return (Left err)
                     Right demandVec -> do
-                        supplyVec <- solveWithSharedSolver solver demandVec
-                        let af = emptyFilter (apMaxDepth params)
-                        eResp <-
-                            buildSupplyChainFromScalingVectorCrossDB
-                                unitConfig
-                                geographies
-                                depLookup
-                                indexFor
-                                db
-                                dbName
-                                processId
-                                supplyVec
-                                []
-                                af
-                        return $ fmap (\resp -> (reduce params (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
+                        eSupply <- supplyFor db solver demandVec
+                        case eSupply of
+                            Left err -> return (Left err)
+                            Right supplyVec -> do
+                                let af = emptyFilter (apMaxDepth params)
+                                eResp <-
+                                    buildSupplyChainFromScalingVectorCrossDB
+                                        unitConfig
+                                        geographies
+                                        depLookup
+                                        indexFor
+                                        db
+                                        dbName
+                                        processId
+                                        supplyVec
+                                        []
+                                        af
+                                return $ fmap (\resp -> (reduce params (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
                 ScopeBiosphere -> do
                     solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
                     case solE of

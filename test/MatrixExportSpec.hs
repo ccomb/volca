@@ -238,8 +238,8 @@ spec = do
             --
             -- The expected amounts are read off the record rather than written out,
             -- because the last digit of a solve is the solver's, not the exporter's:
-            -- gfortran contracts differently across the platforms this suite runs on,
-            -- and a literal here would fail on an exporter that is faithful. Reading
+            -- a literal here would fail on an exporter that is faithful, the day the
+            -- solver sums in another order. Reading
             -- them off the record keeps what this test is for, which is that the file
             -- restitutes the record and puts each column under its own activity: a
             -- swapped column still fails, the two supplies differ.

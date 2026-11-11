@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Service where
 
@@ -9,7 +8,6 @@ import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), Ac
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Exception (SomeException, try)
 import Control.Monad (foldM, guard, mfilter)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.Aeson (Value, object, toJSON, (.=))
@@ -37,7 +35,7 @@ import Database.Author (lineSelector)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, cutoffsReached, gapIndexOf)
 import Database.MatrixBuild (findProducer, linkedProducer)
 import Impact (PartScore (..))
-import Matrix (Demand (..), DepDemands, Inventory, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, processScaling, toList)
+import Matrix (Demand (..), DepDemands, Inventory, Solve, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, processScaling, toList)
 import qualified Matrix.Export as MatrixExport
 import Method.Mapping (LongTermMode (..))
 import qualified Method.Mapping as Mapping
@@ -320,6 +318,17 @@ here without being resolved is the only way to get a 'Left'.
 demandFor :: Database -> ProcessId -> Either ServiceError Demand
 demandFor db processId =
     either (Left . MatrixError) Right (buildDemandVector db processId)
+
+{- | What a demand asks of every activity of a database. A demand the solver
+refuses is an error of the request, which names the database and the process
+in the way.
+-}
+supplyFor :: Database -> SharedSolver -> Demand -> IO (Either ServiceError (U.Vector Double))
+supplyFor db solver demand = first (MatrixError . SharedSolver.refusal db solver) <$> solveWithSharedSolver solver demand
+
+-- | The same for several demands at once, the refusal in words: what a rank-one update solves with.
+suppliesFor :: Database -> SharedSolver -> Solve
+suppliesFor db solver = fmap (first (SharedSolver.refusal db solver)) . solveMultiWithSharedSolver solver . map Demand
 
 -- | Rich activity info (returns same format as API)
 getActivityInfo :: Database -> Text -> Either ServiceError Value
@@ -815,19 +824,21 @@ buildActivityGraph :: Database -> SharedSolver -> Text -> Double -> IO (Either S
 buildActivityGraph db sharedSolver queryText cutoffPercent =
     case resolveActivityAndProcessId db queryText >>= \(pid, _) -> (,) pid <$> demandFor db pid of
         Left err -> pure (Left err)
-        Right (processId, demandVec) -> do
-            supplyVec <- solveWithSharedSolver sharedSolver demandVec
-            let supplyList = toList supplyVec
-                threshold = sum (map abs supplyList) * (cutoffPercent / 100.0)
-                significantActivities = selectSignificantActivities threshold processId supplyList
-                nodeIdMap = M.fromList [(pid, idx) | (idx, (pid, _)) <- zip [0 ..] significantActivities]
-                edges =
-                    mapMaybe
-                        (mkGraphEdgeFromTriple db nodeIdMap)
-                        (U.toList (dbTechnosphereTriples db))
-                nodes = zipWith (mkGraphNode db) [0 ..] significantActivities
-                unitGroups = buildUnitGroups (map gnUnit nodes)
-            pure $ Right $ GraphExport nodes edges unitGroups
+        Right (processId, demandVec) -> fmap (graphOf processId) <$> supplyFor db sharedSolver demandVec
+  where
+    graphOf :: ProcessId -> U.Vector Double -> GraphExport
+    graphOf processId supplyVec =
+        let supplyList = toList supplyVec
+            threshold = sum (map abs supplyList) * (cutoffPercent / 100.0)
+            significantActivities = selectSignificantActivities threshold processId supplyList
+            nodeIdMap = M.fromList [(pid, idx) | (idx, (pid, _)) <- zip [0 ..] significantActivities]
+            edges =
+                mapMaybe
+                    (mkGraphEdgeFromTriple db nodeIdMap)
+                    (U.toList (dbTechnosphereTriples db))
+            nodes = zipWith (mkGraphNode db) [0 ..] significantActivities
+            unitGroups = buildUnitGroups (map gnUnit nodes)
+         in GraphExport nodes edges unitGroups
 
 -- | Classify units into groups for edge width normalization
 buildUnitGroups :: [Text] -> M.Map Text Text
@@ -1993,19 +2004,21 @@ getSupplyChain unitCfg geographies depLookup indexFor db dbName sharedSolver pro
             -- no column is refused here, by name.
             case demandFor db processId of
                 Left err -> return $ Left err
-                Right demandVec -> do
-                    supplyVec <- solveWithSharedSolver sharedSolver demandVec
-                    buildSupplyChainFromScalingVectorCrossDB
-                        unitCfg
-                        geographies
-                        depLookup
-                        indexFor
-                        db
-                        dbName
-                        processId
-                        supplyVec
-                        []
-                        af
+                Right demandVec ->
+                    supplyFor db sharedSolver demandVec >>= \case
+                        Left err -> return $ Left err
+                        Right supplyVec ->
+                            buildSupplyChainFromScalingVectorCrossDB
+                                unitCfg
+                                geographies
+                                depLookup
+                                indexFor
+                                db
+                                dbName
+                                processId
+                                supplyVec
+                                []
+                                af
 
 {- | Find the shortest supply chain path from a root process to the first upstream activity
 whose name contains the given substring (case-insensitive).
@@ -2630,34 +2643,43 @@ resolveOneDep unitCfg geographies depLookup scf statedFor depth visited call
             Nothing -> pure (Right mempty) -- unloaded dep DB: silent skip (matches LCIA path)
             Just (depDb, depSolver) -> case depDemandsToVector unitCfg depDbName depDb (dcDemands call) of
                 Left err -> pure (Left (MatrixError err))
-                Right demandVec -> do
-                    let level = DepLevel (enteredAt depDb) statedFor
-                    depScaling <- solveWithSharedSolver depSolver demandVec
-                    let local =
-                            collectSupplyChainEntries
-                                geographies
-                                depDb
-                                depDbName
-                                level
-                                depScaling
-                                scf
-                    let supplier = Consumer depDbName depDb level depScaling
-                    eDeeper <-
-                        walkDepLevels
-                            unitCfg
-                            geographies
-                            depLookup
-                            supplier
-                            []
-                            scf
-                            (depth + 1)
-                            (S.insert depDbName visited)
-                    pure $ case crossEdges unitCfg (fromMaybe 0 (scfMinQuantity scf)) call supplier of
-                        Left err -> Left (MatrixError err)
-                        Right edges -> ((local <> Collected 0 [] edges []) <>) <$> eDeeper
+                Right demandVec -> supplyFor depDb depSolver demandVec >>= either (pure . Left) (reached depDb)
   where
     depDbName :: Text
     depDbName = dcName call
+
+    -- What the dependency holds at the scaling the call asks of it, and whatever it reaches in turn.
+    reached :: Database -> U.Vector Double -> IO (Either ServiceError Collected)
+    reached depDb depScaling = do
+        eDeeper <-
+            walkDepLevels
+                unitCfg
+                geographies
+                depLookup
+                supplier
+                []
+                scf
+                (depth + 1)
+                (S.insert depDbName visited)
+        pure $ case crossEdges unitCfg (fromMaybe 0 (scfMinQuantity scf)) call supplier of
+            Left err -> Left (MatrixError err)
+            Right edges -> ((local <> Collected 0 [] edges []) <>) <$> eDeeper
+      where
+        level :: WalkLevel
+        level = DepLevel (enteredAt depDb) statedFor
+
+        local :: Collected
+        local =
+            collectSupplyChainEntries
+                geographies
+                depDb
+                depDbName
+                level
+                depScaling
+                scf
+
+        supplier :: Consumer
+        supplier = Consumer depDbName depDb level depScaling
 
     enteredAt :: Database -> IM.IntMap Int
     enteredAt depDb =
@@ -2757,7 +2779,7 @@ referenceMagnitude = abs . getReferenceProductAmount
 {- | Run sensitivity analysis on a process: compute the baseline scaling
 vector @x₀@ once, then resolve every 'Perturbation' to a (consumer column,
 sparse perturbation) spec and dispatch all valid specs to 'perturbABatch'
-in a __single__ MUMPS multi-RHS call.
+in a __single__ solve of all their right-hand sides.
 
 The 'perDelta' is __relative__: the resolved coefficient @a@ is multiplied
 by @(1 + delta)@, so the absolute Δ passed to the kernel is @a * delta@.
@@ -2781,25 +2803,16 @@ computeSensitivities ::
     IO (Either ServiceError (U.Vector Double, [(Perturbation, Either Text (U.Vector Double))]))
 computeSensitivities db sharedSolver processId perts = case demandFor db processId of
     Left err -> pure (Left err)
-    Right demandVec -> do
-        -- The baseline solve and factorization retrieval hit MUMPS through the FFI
-        -- and can throw via exceptions (singular A, allocation failure, …). Wrap
-        -- them so the documented 'Left' branch of the signature is reachable,
-        -- instead of letting raw exceptions escape to the caller.
-        eBaseline <- try @SomeException (solveWithSharedSolver sharedSolver demandVec)
-        case eBaseline of
-            Left ex ->
-                pure $
-                    Left $
-                        MatrixError $
-                            "baseline solve failed: " <> T.pack (show ex)
+    Right demandVec ->
+        supplyFor db sharedSolver demandVec >>= \case
+            Left err -> pure (Left err)
             Right baselineX -> do
                 -- Resolve each perturbation up-front. Resolution errors graft onto
                 -- the final result; resolved specs go to the batch (a Left becomes
                 -- a no-op empty spec so the batch preserves indexing).
                 let resolved = map (resolveSpec db) perts
                 smResults <-
-                    perturbABatch (solveMultiWithSharedSolver sharedSolver . map Demand) baselineX (map (fromRight (0, [])) resolved)
+                    perturbABatch (suppliesFor db sharedSolver) baselineX (map (fromRight (0, [])) resolved)
                 let combined = zipWith3 step perts resolved smResults
                     step p (Left e) _ = (p, Left e)
                     step p (Right _) sm = (p, sm)
@@ -2979,12 +2992,13 @@ goWithSubsAndDeps ::
     -- | recursion depth
     Int ->
     IO (Either ServiceError [SharedSolver.CrossDBSolution])
-goWithSubsAndDeps unitCfg depLookup thisDb thisDbName rootDb solver demands allSubs depth = do
-    scalings <- SharedSolver.solveMultiWithSharedSolver solver demands
-    eApply <- applySubstitutionsAt unitCfg depLookup thisDb thisDbName rootDb solver scalings allSubs
-    case eApply of
-        Left e -> pure (Left e)
-        Right (scalings', virtualLks) -> propagate scalings' virtualLks
+goWithSubsAndDeps unitCfg depLookup thisDb thisDbName rootDb solver demands allSubs depth =
+    solveMultiWithSharedSolver solver demands >>= \case
+        Left why -> pure (Left (MatrixError (SharedSolver.refusal thisDb solver why)))
+        Right scalings ->
+            applySubstitutionsAt unitCfg depLookup thisDb thisDbName rootDb solver scalings allSubs >>= \case
+                Left e -> pure (Left e)
+                Right (scalings', virtualLks) -> propagate scalings' virtualLks
   where
     propagate scalings' virtualLks = do
         let localInvs = map (applyBiosphereMatrix thisDb) scalings'
@@ -3077,14 +3091,16 @@ computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db rootDbName sol
                             "substitution consumer must live in root database (got: " <> cDb <> ")"
             Nothing -> case demandFor db pid of
                 Left e -> pure (Left e)
-                Right demandVec -> do
-                    originalX <- solveWithSharedSolver solver demandVec
-                    res <- applySubstitutionsAt unitCfg depLookup db (ThisDb rootDbName) rootDb solver [originalX] subs
-                    pure $ case res of
-                        Left e -> Left e
-                        Right ([x'], links) -> Right (x', links)
-                        Right (x' : _, links) -> Right (x', links) -- unreachable: K=1
-                        Right ([], _) -> Right (originalX, []) -- unreachable
+                Right demandVec ->
+                    supplyFor db solver demandVec >>= \case
+                        Left e -> pure (Left e)
+                        Right originalX -> do
+                            res <- applySubstitutionsAt unitCfg depLookup db (ThisDb rootDbName) rootDb solver [originalX] subs
+                            pure $ case res of
+                                Left e -> Left e
+                                Right ([x'], links) -> Right (x', links)
+                                Right (x' : _, links) -> Right (x', links) -- unreachable: K=1
+                                Right ([], _) -> Right (originalX, []) -- unreachable
   where
     rootDb = RootDb rootDbName
     firstNonRootAnchor =
@@ -3288,7 +3304,7 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
     -- failing 'from' wins when both refs are unresolvable. A 'OneEdge' sub
     -- swaps the supplier on its single consumer column; an 'AllConsumers'
     -- sub swaps it on every consumer at once via one global rank-1 update.
-    solve = solveMultiWithSharedSolver solver . map Demand
+    solve = suppliesFor thisDb solver
     step (xs, links) sub = case subScope sub of
         OneEdge cRef -> do
             let (_, cPidText) = parseSubRef rootDb cRef

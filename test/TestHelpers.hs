@@ -128,10 +128,7 @@ Lifted from the ad-hoc @mkSolver@ bodies in 'CrossDBSubstitutionSpec' and
 -}
 mkSolverFromDb :: Database -> Text -> IO SS.SharedSolver
 mkSolverFromDb db name =
-    let tech =
-            [ (fromIntegral i, fromIntegral j, v)
-            | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-            ]
+    let tech = dbTechnosphereTriples db
         n = fromIntegral (dbActivityCount db)
      in SS.createSharedSolver name tech n
 
@@ -308,7 +305,7 @@ install manager name db = do
     solver <-
         SS.createSharedSolver
             name
-            [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
+            (dbTechnosphereTriples db)
             (fromIntegral (dbActivityCount db))
     atomically $
         modifyTVar' (DM.dmLoadedDbs manager) $

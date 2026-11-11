@@ -11,7 +11,6 @@ import Data.List (sort)
 import qualified Data.Map.Strict as M
 import Data.Text (Text, pack)
 import Data.UUID (nil)
-import qualified Data.Vector.Unboxed as U
 import GoldenData
 import Matrix (computeScalingVector)
 import qualified Search.BM25 as BM25
@@ -399,10 +398,7 @@ spec = do
     describe "getPathTo" $ do
         it "finds path from X to Z and computes correct total_ratio" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            let techTriples =
-                    [ (fromIntegral i, fromIntegral j, v)
-                    | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-                    ]
+            let techTriples = dbTechnosphereTriples db
                 actCount = fromIntegral (dbActivityCount db)
             solver <- createSharedSolver "test" techTriples actCount
             let rootPid = processIdToText db 0
@@ -417,10 +413,7 @@ spec = do
 
         it "returns Left when target is not in supply chain" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            let techTriples =
-                    [ (fromIntegral i, fromIntegral j, v)
-                    | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-                    ]
+            let techTriples = dbTechnosphereTriples db
                 actCount = fromIntegral (dbActivityCount db)
             solver <- createSharedSolver "test" techTriples actCount
             let rootPid = processIdToText db 0

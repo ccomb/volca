@@ -2,10 +2,9 @@
 
 {- | Pure numeric edge cases for the matrix pipeline.
 
-These exercise the *pure* helpers in "Matrix" – the ones that run without
-touching MUMPS – so we can keep them in the fast unit-test tier. The
-MUMPS-backed paths are already covered by MatrixConstructionSpec /
-CoalescingSolverSpec via the per-database loaders.
+These exercise the helpers of "Matrix" that solve nothing. The paths that
+solve are covered by MatrixConstructionSpec and SharedSolverSpec through the
+per-database loaders.
 -}
 module NumericEdgesSpec (spec) where
 

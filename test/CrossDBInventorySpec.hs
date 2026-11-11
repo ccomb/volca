@@ -138,10 +138,7 @@ spec = do
     describe "computeInventoryMatrixBatchWithDepsCached" $ do
         it "matches local-only batch for a DB with no cross-DB links" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            let techTriples =
-                    [ (fromIntegral i, fromIntegral j, v)
-                    | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-                    ]
+            let techTriples = dbTechnosphereTriples db
                 actCount = fromIntegral (dbActivityCount db)
             solver <- createSharedSolver "SAMPLE.min3" techTriples actCount
             let pids = [0]
@@ -160,10 +157,7 @@ spec = do
 
         it "empty pid list returns empty result without solving" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            let techTriples =
-                    [ (fromIntegral i, fromIntegral j, v)
-                    | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-                    ]
+            let techTriples = dbTechnosphereTriples db
                 actCount = fromIntegral (dbActivityCount db)
             solver <- createSharedSolver "SAMPLE.min3-empty" techTriples actCount
             let noDeps _ = pure Nothing

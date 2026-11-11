@@ -3,70 +3,33 @@
 VoLCA is licensed under the Apache License, Version 2.0 (see [LICENSE](LICENSE)).
 This document inventories the third-party software bundled with, or linked into,
 a VoLCA distribution, and travels in every downloaded archive. See also
-[NOTICE](NOTICE) for the abridged summary. Component versions are pinned in
-`versions.env`.
+[NOTICE](NOTICE) for the abridged summary.
 
-## MUMPS 5.8.1 – CeCILL-C
+## Native libraries
 
-The MUMPS sequential sparse direct solver is statically linked into the VoLCA
-binary via the `mumps-hs` FFI bindings.
+The binary also carries C libraries, which differ from one platform to the
+next. Their license texts are in the [`licenses/`](licenses) folder, which
+travels with the binary.
 
-- **License**: CeCILL-C (LGPL-compatible French free-software license).
-  Full text: <http://www.cecill.info/licences/Licence_CeCILL-C_V1-en.txt>
-- **Upstream**: <https://mumps-solver.org/>
-- **Copyright**: 1991–2024 CERFACS, CNRS, ENS Lyon, INP Toulouse, Inria,
-  Mumps Technologies, University of Bordeaux.
-- **Source**: fetchable from the upstream URL above. CeCILL-C §5.3.1 entitles
-  you to request the unmodified source at no more than the cost of transfer.
+| Library | Linked into | License | Text |
+|---|---|---|---|
+| GMP (GNU MP) | Linux, macOS, Windows | LGPL-3.0-or-later | [GMP.txt](licenses/GMP.txt), [LGPL-3.0.txt](licenses/LGPL-3.0.txt), [GPL-3.0.txt](licenses/GPL-3.0.txt) |
+| Zstandard | Linux, macOS, Windows | BSD-3-Clause | [zstd.txt](licenses/zstd.txt) |
+| zlib | Linux, Windows | Zlib | [zlib.txt](licenses/zlib.txt) |
+| musl | Linux | MIT | [musl.txt](licenses/musl.txt) |
+| libffi | Linux | MIT | [libffi.txt](licenses/libffi.txt) |
+| ncurses | Linux | X11 | [ncurses.txt](licenses/ncurses.txt) |
+| MinGW-w64 runtime | Windows | ZPL-2.1 and others | [mingw-w64-runtime.txt](licenses/mingw-w64-runtime.txt) |
 
-The MUMPS distribution embeds two further components covered by their own
-licenses:
+GMP is offered under either the LGPL or the GPL; VoLCA takes it under the
+LGPL, version 3 or later. Its source code is at <https://gmplib.org/>, and
+VoLCA's own source code and build script are public, so the binary can be
+rebuilt against a modified GMP.
 
-### PORD – public domain
-
-Ordering library by Jürgen Schulze, included in `MUMPS_5.8.1/PORD/`. Released
-into the public domain.
-
-### AMD variants and `*_TRUNCATED_RRQR` – BSD 3-Clause
-
-Approximate Minimum Degree ordering and rank-revealing QR variants distributed
-with MUMPS. BSD 3-Clause license; copyright held by the respective authors as
-declared in the source headers.
-
-## OpenBLAS – BSD 3-Clause
-
-OpenBLAS supplies BLAS and LAPACK. It is built from upstream sources and linked
-statically into the binary on Linux and macOS arm64; on Windows it ships as a
-DLL beside the binary (see below). The macOS Intel binary loads Homebrew's
-OpenBLAS at run time and does not redistribute it.
-
-- **License**: BSD 3-Clause, full text at the end of this document.
-- **Upstream**: <https://github.com/OpenMathLib/OpenBLAS>
-
-## GCC runtime – GPLv3 with the GCC Runtime Library Exception
-
-libgfortran, libquadmath and libgcc, carried as OpenBLAS is: in the binary,
-beside it on Windows, from Homebrew on macOS Intel. The Exception covers this
-binary: its Fortran parts are compiled by GCC, and the rest is compiled by GHC
-and clang, which are not works based on GCC - either branch of the Exception's
-definition of an Eligible Compilation Process. Nothing further is owed.
-Texts: <https://gcc.gnu.org/onlinedocs/gcc/Copying.html> and
-<https://www.gnu.org/licenses/gcc-exception-3.1.html>.
-
-## Runtime DLLs shipped beside the binary, Windows only
-
-The Windows zip carries the MSYS2 ucrt64 runtime DLLs the binary loads
-(`libgfortran-5`, `libquadmath-0`, `libgcc_s_seh-1`, `libstdc++-6`, `libgomp-1`,
-`libwinpthread-1`, `libopenblas`). Its `licenses/` directory is MSYS2's own
-`share/licenses` copied whole, so it holds the texts for those DLLs and for the
-rest of the toolchain installed alongside them. Copied rather than curated: the
-DLLs' terms are certainly in there, and no list here can go stale.
-
-## mumps-hs – Apache-2.0
-
-Haskell FFI bindings to MUMPS, maintained inside this repository
-(`mumps-hs/`). Apache-2.0; copyright Christophe Combelles. See
-`mumps-hs/LICENSE`.
+On macOS, zlib, libffi and ncurses are the system's own libraries, loaded
+from the system and not distributed with the binary. The compiler's runtime
+code linked on Linux, libgcc, is under the GCC Runtime Library Exception,
+which sets no condition on the binary.
 
 ## Haskell direct dependencies
 
@@ -105,6 +68,7 @@ build when this table and `volca.cabal` disagree.
 | network-uri | BSD-3-Clause | <https://hackage.haskell.org/package/network-uri> |
 | openapi3 | BSD-3-Clause | <https://hackage.haskell.org/package/openapi3> |
 | optparse-applicative | BSD-3-Clause | <https://hackage.haskell.org/package/optparse-applicative> |
+| primitive | BSD-3-Clause | <https://hackage.haskell.org/package/primitive> |
 | process | BSD-3-Clause | bundled with GHC |
 | random | BSD-3-Clause | bundled with GHC |
 | scientific | BSD-3-Clause | <https://hackage.haskell.org/package/scientific> |
@@ -142,36 +106,3 @@ that reconciliation at release time and update any drifted entries.
 `scripts/check-licenses-table.sh` only compares the names, which is what
 changes when a dependency comes or goes. A package that relicenses keeps its
 name, so the reconciliation above is still the only thing that catches it.
-
-## OpenBLAS license
-
-Copyright (c) 2011-2014, The OpenBLAS Project
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-1. Redistributions of source code must retain the above copyright
-   notice, this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright
-   notice, this list of conditions and the following disclaimer in
-   the documentation and/or other materials provided with the
-   distribution.
-
-3. Neither the name of the OpenBLAS project nor the names of its
-   contributors may be used to endorse or promote products derived
-   from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-POSSIBILITY OF SUCH DAMAGE.

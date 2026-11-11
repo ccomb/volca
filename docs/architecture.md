@@ -49,12 +49,12 @@ of the system; the CLI and REPL are just thin HTTP clients.
    └─────┬─────────────────────────────────────────────────┬─────────┘
          │ at load                                         │ at solve
    ┌─────▼──────────────────────────────────┐     ┌────────▼──────────┐
-   │  INGESTION                             │     │  NATIVE           │
+   │  INGESTION                             │     │  SOLVER           │
    │  Parsers : EcoSpold2 · EcoSpold1 ·     │     │  Direct sparse    │
-   │   SimaPro CSV · ILCD · Brightway .xlsx │     │  MUMPS solver     │
-   │  Methods : ILCD / CSV / olca packages  │     │  (Fortran)        │
-   │  Archives : zip · 7z · gz · xz         │     │  via mumps-hs     │
-   │  Cache : Data.Store, schema-invalidated│     │  (FFI / cbits)    │
+   │   SimaPro CSV · ILCD · Brightway .xlsx │     │  LU, in Haskell   │
+   │  Methods : ILCD / CSV / olca packages  │     │  (Matrix.Sparse)  │
+   │  Archives : zip · 7z · gz · xz         │     │  immutable        │
+   │  Cache : Data.Store, schema-invalidated│     │  factors          │
    └────────────────────────────────────────┘     └───────────────────┘
 
    ┌──────────────────── CROSS-CUTTING ───────────────────────────────┐
@@ -94,9 +94,10 @@ figures live in the README's Performance table (single source for benchmarks).
 
 HTTP request → `API.Auth` → Servant handler (`API.Routes`) → `Service` → `SharedSolver`.
 
-The **MUMPS LU factorisation is lazy**: it is computed only on the first `solve`,
-guarded by an `MVar` for thread safety, then reused for the whole lifetime of the
-server. We solve the scaling vector `s`, then the inventory `g = B·s`, then
+The **LU factorisation is lazy**: it is computed only on the first `solve`,
+guarded by an `MVar` so that it is computed once, then reused for the whole
+lifetime of the server. The factors are immutable, so any number of requests
+solve on them at the same time. We solve the scaling vector `s`, then the inventory `g = B·s`, then
 `Method.Mapping` applies the characterisation factors (CFs) to obtain the LCIA score.
 
 Equations solved:
@@ -143,11 +144,11 @@ a small amount of **mutable runtime state** (`Database.Manager` + `SharedSolver`
  │  │  LCIA HELPERS  dbFlowsByName · dbFlowsByCAS · dbSynonymDB (runtime) │ │
  │  └─────────────────────────────────────────────────────────────────────┘ │
  │                                                                          │
- │  ┌──────────────  SharedSolver  (mutable · runtime only)  ─────────────┐ │
- │  │  solverLock             : MVar ()      serialises factorisation     │ │
- │  │  solverFactorizationVar : MVar (Maybe MatrixFactorization)          │ │
+ │  ┌──────────────  SharedSolver  (runtime only)  ───────────────────────┐ │
+ │  │  solverFactors : MVar (Maybe Factors)                               │ │
  │  │      └─ lazy LU factorisation of the (I − A) system matrix,         │ │
- │  │         computed on first solve, then reused for the process life   │ │
+ │  │         computed on first solve, then reused for the process life;  │ │
+ │  │         immutable once computed, so solves need no lock             │ │
  │  └─────────────────────────────────────────────────────────────────────┘ │
  │                                                                          │
  │  ldConfig : DatabaseConfig                                               │
@@ -160,7 +161,7 @@ are rebuilt on load – cheap compared to parsing.
 
 ### Computation pipeline
 
-A single impact request walks the LCA equations left to right. The MUMPS
+A single impact request walks the LCA equations left to right. The LU
 factorisation is built once (lazily) and every later request reuses it.
 
 ```
@@ -171,7 +172,7 @@ factorisation is built once (lazily) and every later request reuses it.
   f   final demand vector  (1.0 at the target activity, 0 elsewhere)
     │
     │  SharedSolver.solveWithSharedSolver          A = technosphere matrix
-    │     ⇒  (I − A) · s = f       solved by MUMPS LU factorisation (reused)
+    │     ⇒  (I − A) · s = f       solved by the LU factorisation (reused)
     ▼
   s   scaling vector        (how much each activity must run)
     │
@@ -271,9 +272,9 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 | `Database/MatrixBuild.hs`   | Sparse A / B matrix construction, normalisation (all numerical work) |
 | `Database.hs`               | Composes the matrix builders, adds progress reporting               |
 | `Types.hs`                  | Domain model (Activity, Flow, Exchange, Database) – sum types        |
-| `Matrix.hs`                 | Matrix LCA computations via the MUMPS solver                        |
-| `SharedSolver.hs`           | Lazy thread-safe LU factorisation, caches, back-substitution        |
-| `mumps-hs/`                 | FFI bindings to the MUMPS direct sparse solver (Fortran)            |
+| `Matrix.hs`                 | Matrix LCA computations: demand, inventory, sensitivity             |
+| `SharedSolver.hs`           | A database's factorisation, computed once on first solve and shared |
+| `Matrix/Sparse.hs`, `Matrix/Sparse/` | Direct sparse solver: loops, elimination order, LU, substitution |
 | `EcoSpold/`, `SimaPro/`, `ILCD/`, `BrightwayExcel/`, `OlcaSchema/` | One namespace per database format, each with a `Parser` (read, wired into `Database/Loader.hs`) and a `Writer` (export, wired into `Database/Export.hs`) |
 | `Method/Parser*.hs`         | Method collection loading (ILCD, CSV, SimaPro, olca)                |
 | `Method/FlowResolver.hs`    | Parses ILCD flow XMLs to enrich MethodCFs (name, compartment, CAS)  |
@@ -290,8 +291,8 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 
 ## Structuring principles
 
-- **Pure core, effects at the edges** – parsers, the MUMPS FFI and I/O are confined;
-  the computation is pure.
+- **Pure core, effects at the edges** – parsers and I/O are confined; the
+  computation is pure, the solver included.
 - **Impossible states made impossible** – loading statuses, domain model and states
   as sum types, with no `wildcard` pattern on sums.
 - **Zero crashes** – `Either Text a` / `Maybe` propagated; no `error`, `undefined`,

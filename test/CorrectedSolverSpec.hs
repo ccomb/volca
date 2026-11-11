@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | A solver corrected by a few columns of its matrix answers as a new
@@ -5,18 +6,16 @@ factorisation of the changed matrix would.
 -}
 module CorrectedSolverSpec (spec) where
 
-import Control.Exception (bracket)
+import Control.Monad ((<=<))
 import Data.Either (isLeft)
 import qualified Data.Map.Strict as M
-import Data.Text (Text)
-import qualified Data.UUID as UUID
-import Data.UUID.V4 (nextRandom)
 import qualified Data.Vector.Unboxed as U
-import Matrix (Demand (..), clearCachedSolver)
+import Matrix (Demand (..))
 import Matrix.Dense (factorLU, solveLU)
-import SharedSolver (SharedSolver, correctedFor, createSharedSolver, solveMultiWithSharedSolver, solveWithSharedSolver)
+import SharedSolver (SharedSolver, Uncorrected (..), correctedFor, createSharedSolver, solveMultiWithSharedSolver, solveWithSharedSolver)
 import Test.Hspec
 import Test.QuickCheck
+import Types (SparseTriple (..))
 
 spec :: Spec
 spec = do
@@ -42,16 +41,26 @@ spec = do
             withNumTests 50 . forAll changedMatrix $ \(n, before, after, moved, demands) -> ioProperty $
                 withSolver n before $ \loaded -> withSolver n after $ \fresh -> do
                     corrected <- either (fail . show) pure =<< correctedFor loaded (change before after moved)
-                    expected <- solveMultiWithSharedSolver fresh (map Demand demands)
-                    got <- solveMultiWithSharedSolver corrected (map Demand demands)
-                    one <- traverse (solveWithSharedSolver corrected . Demand) demands
+                    expected <- either (fail . show) pure =<< solveMultiWithSharedSolver fresh (map Demand demands)
+                    got <- either (fail . show) pure =<< solveMultiWithSharedSolver corrected (map Demand demands)
+                    one <- traverse (either (fail . show) pure <=< solveWithSharedSolver corrected . Demand) demands
                     pure (conjoin [close e g | (e, g) <- zip expected got <> zip expected one])
 
         it "refuses a change that makes the matrix singular" $
             -- M = I; taking 1 off the first column's diagonal leaves it empty.
             withSolver 2 M.empty $
-                \loaded -> isLeft <$> correctedFor loaded [(0, [(0, -1)])] `shouldReturn` True
+                \loaded -> either refused (const False) <$> correctedFor loaded [(0, [(0, -1)])] `shouldReturn` True
+
+        it "leaves a loaded matrix with no answer for a column that moved to a new factorisation" $
+            -- Processes 0 and 1 take all of each other; the change halves what 1 takes of 0.
+            withSolver 2 (M.fromList [((0, 1), 1), ((1, 0), 1)]) $
+                \loaded -> either Just (const Nothing) <$> correctedFor loaded [(1, [(0, 0.5)])] `shouldReturn` Just LoadedUnsolved
   where
+    refused :: Uncorrected -> Bool
+    refused = \case
+        Refused _ -> True
+        LoadedUnsolved -> False
+
     close :: U.Vector Double -> U.Vector Double -> Property
     close expected got =
         counterexample (show (expected, got)) $
@@ -80,11 +89,7 @@ change before after moved =
   where
     rows j = [i | (i, j') <- M.keys (M.union before after), j' == j]
 
--- | A solver of I − A under a name of its own, its factorisation destroyed afterwards.
+-- | A solver of I − A.
 withSolver :: Int -> M.Map (Int, Int) Double -> (SharedSolver -> IO a) -> IO a
-withSolver n entries act = do
-    name <- ("corrected-" <>) . UUID.toText <$> nextRandom
-    bracket (solver name) (const (clearCachedSolver name)) act
-  where
-    solver :: Text -> IO SharedSolver
-    solver name = createSharedSolver name [(i, j, v) | ((i, j), v) <- M.toList entries] n
+withSolver n entries act =
+    createSharedSolver "corrected" (U.fromList [SparseTriple (fromIntegral i) (fromIntegral j) v | ((i, j), v) <- M.toList entries]) n >>= act

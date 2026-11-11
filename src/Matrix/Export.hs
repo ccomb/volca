@@ -14,10 +14,11 @@ module Matrix.Export (
 ) where
 
 import Database (filterByName, flowSearchFields)
-import Matrix (Demand (..), Vector, applySparseMatrix, buildDemandVector, referenceSign, solveSparseLinearSystem, toList)
+import Matrix (Demand (..), Vector, applySparseMatrix, buildDemandVector, referenceSign, solveOnce, toList, unsolvableText)
 import Progress (ProgressLevel (..), reportProgress)
 import Types
 
+import Data.Bifunctor (first)
 import Data.Int (Int32)
 import qualified Data.IntMap.Strict as IM
 import qualified Data.List as L
@@ -58,29 +59,24 @@ activity written as several coproduct rows.
 -}
 extractMatrixDebugInfo :: Database -> ProcessId -> Maybe Text -> IO (Either Text MatrixDebugInfo)
 extractMatrixDebugInfo database targetProcessId flowFilter =
-    either
-        (pure . Left)
-        (fmap Right . withDemand . unDemand)
-        (buildDemandVector database targetProcessId)
+    pure $ do
+        demand <- buildDemandVector database targetProcessId
+        supplyVec <- first (unsolvableText database) (solveOnce database demand)
+        Right (debugInfo (unDemand demand) supplyVec)
   where
-    withDemand :: Vector -> IO MatrixDebugInfo
-    withDemand demandVec = do
+    debugInfo :: Vector -> Vector -> MatrixDebugInfo
+    debugInfo demandVec supplyVec =
         let activities = dbActivities database
             bioFlows = dbBioFlows database
             techTriples = dbTechnosphereTriples database
             bioTriples = dbBiosphereTriples database
             activityIndexVec = dbActivityIndex database
             bioFlowUUIDs = dbBiosphereOrder database
-            activityCount = dbActivityCount database
             bioFlowCount = dbBiosphereCount database
 
             demandList = toList demandVec
 
-            techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
-            activityCountInt = fromIntegral activityCount
-
-        supplyVec <- solveSparseLinearSystem techTriplesInt activityCountInt demandVec
-        let bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
+            bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
             bioFlowCountInt = fromIntegral bioFlowCount
             inventoryVec = applySparseMatrix bioTriplesInt bioFlowCountInt supplyVec
             inventoryList = toList inventoryVec
@@ -99,8 +95,7 @@ extractMatrixDebugInfo database targetProcessId flowFilter =
                             map fst (filterByName filterText (flowSearchFields . BioKind . snd) candidates)
                         matchingFlowIndicesInt32 = map fromIntegral matchingFlowIndices :: [Int32]
                      in U.filter (\(SparseTriple row _ _) -> row `elem` matchingFlowIndicesInt32) bioTriples
-        return
-            MatrixDebugInfo
+         in MatrixDebugInfo
                 { mdActivities = activities
                 , mdBioFlows = bioFlows
                 , mdTechTriples = techTriples

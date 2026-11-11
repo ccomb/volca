@@ -1176,9 +1176,8 @@ scoreChunk scope chunk = do
 
 {- | Run a scoring computation once one of the instance's slots is free.
 
-The solver takes one request at a time already, so past a couple of requests
-in flight, more of them finish no sooner: they only hold more of their
-solutions in memory while they wait. Enough of them at once exhaust the heap
+Every request in flight holds its solutions in memory, and past the number of
+processor cores more of them finish no sooner. Enough of them at once exhaust the heap
 and take the process down for every caller, where a request that waits its
 turn loses nothing. Waiting rather than refusing, because the request is
 legitimate and the answer would be the same a few seconds later.
@@ -1425,10 +1424,8 @@ attachment dbName report =
     headerSafe c = isAscii c && not (isControl c) && c /= '"' && c /= '\\'
 
 {- | How many activities a batch solves before it builds their entries. It
-bounds what the request holds, not what the solver allocates: the dense
-right-hand-side block is already bounded inside the solver by
-'Matrix.multiRhsChunkSize', and every chunk here reuses the one cached
-factorization.
+bounds what the request holds: one solution per activity of the chunk, each as
+long as the database has processes.
 -}
 scoringChunk :: Int
 scoringChunk = 512

@@ -24,7 +24,6 @@ import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as U
 import Servant (ServerError, errBody, errHTTPCode, getResponse, runHandler)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (setEnv, unsetEnv)
@@ -82,7 +81,6 @@ import Types (
     Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
-    SparseTriple (..),
     StatedAmount (StatedAmount),
     SupplierClaim (..),
     TechRole (..),
@@ -605,7 +603,7 @@ withDb build mkConfig act =
             createDirectoryIfMissing True dataDir
             dbm <- initDatabaseManager defaultConfig NoCache
             db <- build
-            solver <- createSharedSolver "authored" (triplesOf db) (fromIntegral (dbActivityCount db))
+            solver <- createSharedSolver "authored" (dbTechnosphereTriples db) (fromIntegral (dbActivityCount db))
             let config = mkConfig "authored" dataDir
                 loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = config, ldSupplierMapping = Nothing}
             atomically $ do
@@ -623,8 +621,6 @@ withDb build mkConfig act =
                     , aeReader = Nothing
                     , aeAuthor = Nothing
                     }
-  where
-    triplesOf db = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
 
 uploadedConfig :: Text -> FilePath -> DatabaseConfig
 uploadedConfig name dataDir =

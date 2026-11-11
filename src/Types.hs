@@ -1660,14 +1660,6 @@ getSize x = case size of
     ConstSize n -> n
     VarSize f -> f x
 
--- | Pre-computed matrix factorization for fast inventory calculations
-data MatrixFactorization = MatrixFactorization
-    { mfSystemMatrix :: !(VU.Vector SparseTriple) -- Cached (I - A) system matrix (unboxed)
-    , mfActivityCount :: !Int32 -- Matrix dimension
-    , mfDatabaseId :: !Text -- Database identifier for per-database cache lookup
-    }
-    deriving (Generic, NFData, Store)
-
 {- | Index for looking up activities by their reference product attributes
 Used for: (1) upstream link resolution for SimaPro data, (2) future product search
 -}

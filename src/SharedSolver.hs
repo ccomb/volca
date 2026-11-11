@@ -3,25 +3,27 @@
 
 {- |
 Module      : SharedSolver
-Description : Shared MUMPS solver with lazy factorization and thread synchronization
+Description : The solver of a loaded database, factorised at its first solve
 
-Implements lazy factorization: the MUMPS solver is not built at startup, but
-on the first solve request. This eliminates ~3s x N databases of startup
-latency while keeping sub-second solves after the first query.
+A database is not factorised when it loads but at the first demand made of
+it, so that loading many databases costs nothing for those never asked. The
+factors are then a value every request reads at once: demands are solved side
+by side, on as many cores as the machine has.
 -}
 module SharedSolver (
     -- * Shared solver types
-    SharedSolver (solverDbName),
+    SharedSolver,
 
     -- * Solver management
     createSharedSolver,
+    Uncorrected (..),
     correctedFor,
 
     -- * Concurrent solving
     solveWithSharedSolver,
     solveMultiWithSharedSolver,
     getFactorization,
-    ensureFactorization,
+    refusal,
 
     -- * Cached scaling / inventory
     computeScalingVectorCached,
@@ -42,10 +44,11 @@ module SharedSolver (
 ) where
 
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar, readMVar, withMVar)
-import Control.Exception (SomeException, try)
-import Data.Bifunctor (first)
-import Data.Coerce (coerce)
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
+import Control.DeepSeq (force)
+import Control.Exception (evaluate)
+import Control.Monad (when)
+import Data.Bifunctor (bimap, first)
 import Data.List (transpose)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -53,7 +56,9 @@ import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes)
 import qualified Data.Set as S
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Vector.Unboxed as U
+import EcoSpold.Common (acrossCapabilities)
 import Matrix (
     Demand (..),
     DepDemands,
@@ -62,32 +67,25 @@ import Matrix (
     accumulateDepDemandsWith,
     applyBiosphereMatrix,
     buildDemandVector,
+    countingSolve,
     depDemandsToVector,
-    precomputeMatrixFactorization,
-    solveSparseLinearSystem,
-    solveSparseLinearSystemWithFactorization,
-    solveSparseLinearSystemWithFactorizationMulti,
+    unsolvableText,
  )
 import Matrix.Dense (LU, factorLU, solveLU)
+import Matrix.Sparse (Extent (..), Factors, Unsolvable, extent, factorize, solve)
 import Method.Mapping (LongTermMode (..))
 import Progress
 import Types
 import UnitConversion (UnitConfig)
 
-{- | Shared solver with lazy factorization and thread synchronization.
-  Factorization happens on first solve, not at startup.
--}
+-- | The solver of one database. Its factors are computed at the first solve.
 data SharedSolver = SharedSolver
-    { solverLock :: MVar ()
-    -- ^ Serialize access to solver
-    , solverFactorizationVar :: MVar (Maybe MatrixFactorization)
-    -- ^ Lazy: Nothing until first solve
-    , solverTechTriples :: [(Int, Int, Double)]
-    -- ^ Technosphere matrix data
+    { solverFactors :: MVar (Maybe Factors)
+    -- ^ Nothing until the first solve, and empty while that solve factorises
+    , solverTriples :: U.Vector SparseTriple
+    -- ^ The technosphere, as the database holds it
     , solverActivityCount :: Int
-    -- ^ Number of activities
     , solverDbName :: Text
-    -- ^ Database name (for solver cache key)
     , solverCorrection :: Maybe Correction
     -- ^ The columns a request moved, carried into every solve
     }
@@ -112,91 +110,111 @@ corrected Nothing y = y
 corrected (Just (Correction columns zs s)) y =
     foldl' (\x (w, z) -> U.zipWith (\xi zi -> xi - w * zi) x z) y (zip (U.toList (solveLU s (U.fromList (map (y U.!) columns)))) zs)
 
+-- | Why the loaded solver was not corrected.
+data Uncorrected
+    = {- | The loaded matrix has no answer for a column that moved, so it says
+      nothing of the changed one, which may well have answers: that takes a
+      factorisation of the changed matrix.
+      -}
+      LoadedUnsolved
+    | -- | The correction is refused, and why.
+      Refused Text
+    deriving (Eq, Show)
+
 {- | The solver of the loaded matrix with these columns changed: each column
 with the entries of M = I − A it adds, by row. It shares the loaded solver's
-factorisation and lock, so nothing is factorised again and the solver cache,
-keyed by name, still holds the loaded one alone. Refused when the changed
-matrix is singular.
+factors, so nothing is factorised again. Refused when the changed matrix is
+singular.
 -}
-correctedFor :: SharedSolver -> [(Int, [(Int, Double)])] -> IO (Either Text SharedSolver)
-correctedFor SharedSolver{solverCorrection = Just _} _ = pure (Left "a corrected solver is not corrected again")
-correctedFor base change = do
-    let columns = map fst change
-        k = length columns
-    zs <- solveMultiWithSharedSolver base [Demand (U.accum (+) (U.replicate (solverActivityCount base) 0) entries) | (_, entries) <- change]
-    let s = U.fromList [(if i == j then 1 else 0) + z U.! c | (i, c) <- zip [0 :: Int ..] columns, (j, z) <- zip [0 ..] zs]
-    pure $ (\lu -> base{solverCorrection = Just (Correction columns zs lu)}) <$> first ("these values make the technosphere singular: " <>) (factorLU k s)
-
--- | Create a shared solver. No factorization happens here – deferred to first solve.
-createSharedSolver :: Text -> [(Int, Int, Double)] -> Int -> IO SharedSolver
-createSharedSolver dbName techTriples activityCount = do
-    reportProgress Info $ "Creating shared solver for '" ++ show dbName ++ "' (factorization deferred)"
-    lock <- newMVar ()
-    factVar <- newMVar Nothing
-    return $ SharedSolver lock factVar techTriples activityCount dbName Nothing
-
-{- | Compute the factorization and cache it. Assumes 'solverLock' is held and
-the cache is empty (i.e. only called on a miss). Shared by the first-solve
-path and 'ensureFactorization'.
--}
-computeAndStoreFactorization :: SharedSolver -> IO MatrixFactorization
-computeAndStoreFactorization solver = do
-    reportProgress Info $ "Factorizing '" ++ show (solverDbName solver) ++ "' on first use"
-    fact <-
-        precomputeMatrixFactorization
-            (solverDbName solver)
-            (solverTechTriples solver)
-            (solverActivityCount solver)
-    modifyMVar_ (solverFactorizationVar solver) (const (pure (Just fact)))
-    pure fact
-
--- | Solve using shared solver. On first call, triggers lazy factorization.
-solveWithSharedSolver :: SharedSolver -> Demand -> IO Vector
-solveWithSharedSolver solver (Demand demandVector) =
-    fmap (corrected (solverCorrection solver)) . withMVar (solverLock solver) $ \_ ->
-        readMVar (solverFactorizationVar solver) >>= \case
-            Just fact -> do
-                reportProgress Solver "Using cached factorization for sub-second solve"
-                solveSparseLinearSystemWithFactorization fact demandVector
-            Nothing ->
-                try (computeAndStoreFactorization solver >>= flip solveSparseLinearSystemWithFactorization demandVector)
-                    >>= either fallback pure
+correctedFor :: SharedSolver -> [(Int, [(Int, Double)])] -> IO (Either Uncorrected SharedSolver)
+correctedFor SharedSolver{solverCorrection = Just _} _ = pure (Left (Refused "a corrected solver is not corrected again"))
+correctedFor base change =
+    solveMultiWithSharedSolver base [Demand (U.accum (+) (U.replicate (solverActivityCount base) 0) entries) | (_, entries) <- change] >>= \case
+        Left _ -> pure (Left LoadedUnsolved)
+        Right zs -> pure $ bimap (Refused . ("these values make the technosphere singular: " <>)) (\lu -> base{solverCorrection = Just (Correction columns zs lu)}) (factorLU (length columns) (capacitance zs))
   where
-    fallback e = do
-        reportProgress Solver $ "Factorization failed: " ++ show (e :: SomeException) ++ " – using fallback solver"
-        solveSparseLinearSystem (solverTechTriples solver) (solverActivityCount solver) demandVector
+    columns :: [Int]
+    columns = map fst change
+    -- S, row by row.
+    capacitance :: [Vector] -> Vector
+    capacitance zs = U.fromList [(if i == j then 1 else 0) + z U.! c | (i, c) <- zip [0 :: Int ..] columns, (j, z) <- zip [0 :: Int ..] zs]
 
--- | Read the cached factorization without solving. Returns Nothing until the first solve.
-getFactorization :: SharedSolver -> IO (Maybe MatrixFactorization)
-getFactorization solver = readMVar (solverFactorizationVar solver)
-
-{- | Force the factorization if not yet computed, then return it.
-Safe to call from multiple threads: the solverLock serializes first-time factorization.
+{- | The solver of a technosphere of so many activities. Nothing is factorised
+here: the first solve does it.
 -}
-ensureFactorization :: SharedSolver -> IO MatrixFactorization
-ensureFactorization solver = withMVar (solverLock solver) $ \_ ->
-    readMVar (solverFactorizationVar solver) >>= \case
-        Just fact -> pure fact
-        Nothing -> computeAndStoreFactorization solver
+createSharedSolver :: Text -> U.Vector SparseTriple -> Int -> IO SharedSolver
+createSharedSolver dbName techTriples activityCount = do
+    reportProgress Info $ "Creating shared solver for '" ++ T.unpack dbName ++ "' (factorization deferred)"
+    factors <- newMVar Nothing
+    pure (SharedSolver factors techTriples activityCount dbName Nothing)
 
-{- | Solve with multiple RHS vectors in one MUMPS call, using the cached factorization.
-Forces factorization on first call. Subsequent calls reuse the cached LU.
+-- | The factors, if a solve has computed them yet.
+getFactorization :: SharedSolver -> IO (Maybe Factors)
+getFactorization = readMVar . solverFactors
+
+{- | The factors, computed by whoever asks first. The cell is empty while they
+are computed, so whoever asks meanwhile waits for them where it would have
+factorised a second time, and a factorisation that is interrupted leaves the
+cell as it found it.
 -}
-solveMultiWithSharedSolver :: SharedSolver -> [Demand] -> IO [Vector]
-solveMultiWithSharedSolver solver demandVecs = do
-    fact <- ensureFactorization solver
-    map (corrected (solverCorrection solver)) <$> solveSparseLinearSystemWithFactorizationMulti fact (coerce demandVecs)
+factorsOf :: SharedSolver -> IO Factors
+factorsOf solver = getFactorization solver >>= maybe (modifyMVar (solverFactors solver) (fmap (\factors -> (Just factors, factors)) . maybe factorised pure)) pure
+  where
+    factorised :: IO Factors
+    factorised = do
+        factors <- withProgressTiming Solver ("Factorizing '" ++ T.unpack (solverDbName solver) ++ "' on first use") (evaluate (force (factorize (solverActivityCount solver) (solverTriples solver))))
+        described (extent factors)
+        pure factors
+    described :: Extent -> IO ()
+    described held = do
+        reportProgress Solver $
+            (show (solverActivityCount solver) ++ " activities, " ++ show (loopCount held) ++ " loops of which the largest holds " ++ show (largestLoop held))
+                ++ (", " ++ show (factorEntries held + linkEntries held) ++ " entries kept, smallest pivot " ++ show (smallestPivot held))
+        when (refusedProcesses held > 0) . reportProgress Warning $
+            show (refusedProcesses held) ++ " activities of '" ++ T.unpack (solverDbName solver) ++ "' cannot be solved for: a demand whose supply chain reaches one of them is refused"
+        when (smallestPivot held < trusted) . reportProgress Warning $
+            "'" ++ T.unpack (solverDbName solver) ++ "' is close to having no solution: the answers that pass through its smallest pivot have lost more than six digits"
+    -- A pivot starts from 1 or more: under this it has lost more than six of its sixteen digits.
+    trusted :: Double
+    trusted = 1e-6
 
-{- | Compute the scaling vector for @pid@, routing through the shared solver's
-lazy factorization cache. Same shape as 'Matrix.computeScalingVector' but
-amortizes factorization across every call in a server's lifetime – the
-right default for endpoint handlers.
+-- | One demand answered from the factors, the solver's correction carried in.
+answered :: SharedSolver -> Factors -> Demand -> Either Unsolvable Vector
+answered solver factors (Demand demand) = corrected (solverCorrection solver) <$> solve factors demand
+
+{- | Solve for one demand, factorising first if nobody has yet. A demand is
+refused when its supply chain reaches a process that cannot be solved for.
+-}
+solveWithSharedSolver :: SharedSolver -> Demand -> IO (Either Unsolvable Vector)
+solveWithSharedSolver solver demand = countingSolve $ do
+    factors <- factorsOf solver
+    evaluate (force (answered solver factors demand))
+
+{- | Solve for several demands, shared out over the cores, answering in their
+order. One demand refused refuses them all.
+-}
+solveMultiWithSharedSolver :: SharedSolver -> [Demand] -> IO (Either Unsolvable [Vector])
+solveMultiWithSharedSolver _ [] = pure (Right [])
+solveMultiWithSharedSolver solver demands = countingSolve $ do
+    factors <- factorsOf solver
+    -- Each answer is computed where it is asked for: handed back unevaluated,
+    -- they would all be computed afterwards, on the one thread that reads them.
+    sequence <$> acrossCapabilities (evaluate . force . answered solver factors) demands
+
+{- | Why a solver refused a demand, for whoever made it: the database, since a
+supply chain crosses several, and the process in the way.
+-}
+refusal :: Database -> SharedSolver -> Unsolvable -> Text
+refusal db solver why = "Database '" <> solverDbName solver <> "' has no answer to this demand: " <> unsolvableText db why
+
+{- | Compute the scaling vector for @pid@ with the solver the server keeps for
+its database, so that the factorisation is paid once for every demand.
 -}
 computeScalingVectorCached :: Database -> SharedSolver -> ProcessId -> IO (Either Text Vector)
 computeScalingVectorCached db solver pid =
     either
         (pure . Left)
-        (fmap Right . solveWithSharedSolver solver)
+        (fmap (first (refusal db solver)) . solveWithSharedSolver solver)
         (buildDemandVector db pid)
 
 -- | Inventory for @pid@ using the shared-solver factorization cache.
@@ -339,9 +357,9 @@ goWithDeps ::
     -- | recursion depth
     Int ->
     IO (Either Text [CrossDBSolution])
-goWithDeps unitConfig depLookup db dbName solver demands depth = do
-    scalings <- solveMultiWithSharedSolver solver demands
-    goWithDepsFromScalings unitConfig depLookup db dbName [] scalings depth
+goWithDeps unitConfig depLookup db dbName solver demands depth =
+    solveMultiWithSharedSolver solver demands
+        >>= either (pure . Left . refusal db solver) (\scalings -> goWithDepsFromScalings unitConfig depLookup db dbName [] scalings depth)
 
 {- | Propagate pre-computed root scalings into the dep-DB graph. Same body as
 the dep-propagation half of 'goWithDeps' but skips the root solve – the

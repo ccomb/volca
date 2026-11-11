@@ -52,7 +52,7 @@ spec = do
                     let sub = Substitution (processIdToText db aPid) (processIdToText db bPid) AllConsumers
                     gRes <- computeScalingVectorWithSubstitutionsCrossDB defaultUnitConfig noDeps db "root" solver 0 [sub]
                     refSolver <- createSharedSolver "ref" (relocateRow db aPid bPid) (fromIntegral (dbActivityCount db))
-                    xRef <- solveWithSharedSolver refSolver =<< either (fail . show) pure (buildDemandVector db 0)
+                    xRef <- either (fail . show) pure =<< solveWithSharedSolver refSolver =<< either (fail . show) pure (buildDemandVector db 0)
                     case gRes of
                         Right (xGlobal, links) -> do
                             links `shouldBe` []
@@ -116,7 +116,7 @@ spec = do
                         sub = Substitution (processIdToText root aPid) ("dep::" <> processIdToText dep bPid) AllConsumers
                     gRes <- computeScalingVectorWithSubstitutionsCrossDB defaultUnitConfig lookup_ root "root" rootSolver 0 [sub]
                     refSolver <- createSharedSolver "ref" (deleteRow root aPid) (fromIntegral (dbActivityCount root))
-                    xRef <- solveWithSharedSolver refSolver =<< either (fail . show) pure (buildDemandVector root 0)
+                    xRef <- either (fail . show) pure =<< solveWithSharedSolver refSolver =<< either (fail . show) pure (buildDemandVector root 0)
                     case gRes of
                         Right (xGlobal, links) -> do
                             length links `shouldBe` nConsumers
@@ -138,36 +138,23 @@ mkSolver :: Database -> T.Text -> IO SharedSolver
 mkSolver db name =
     createSharedSolver
         name
-        [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
+        (dbTechnosphereTriples db)
         (fromIntegral (dbActivityCount db))
 
 {- | Technosphere triples with @from@'s row relocated onto @to@ (κ = 1), i.e.
 every consumer that sourced @from@ now sources @to@ by the same amount.
 This is the ground-truth matrix a global swap must reproduce.
 -}
-relocateRow :: Database -> ProcessId -> ProcessId -> [(Int, Int, Double)]
+relocateRow :: Database -> ProcessId -> ProcessId -> U.Vector SparseTriple
 relocateRow db aPid bPid =
-    let aIdx = fromIntegral aPid :: Int
-        bIdx = fromIntegral bPid :: Int
-        merged =
-            M.fromListWith
-                (+)
-                [ ((if fromIntegral i == aIdx then bIdx else fromIntegral i, fromIntegral j), v)
-                | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-                ]
-     in [(i, j, v) | ((i, j), v) <- M.toList merged]
+    U.map (\(SparseTriple i j v) -> SparseTriple (if i == fromIntegral aPid then fromIntegral bPid else i) j v) (dbTechnosphereTriples db)
 
 {- | Technosphere triples with @from@'s row deleted: the ground-truth root
 matrix after a cross-DB global swap, which only removes @from@ on the root
 side (the demand is carried to the dep supplier by virtual links).
 -}
-deleteRow :: Database -> ProcessId -> [(Int, Int, Double)]
-deleteRow db aPid =
-    let aIdx = fromIntegral aPid :: Int
-     in [ (fromIntegral i, fromIntegral j, v)
-        | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-        , fromIntegral i /= aIdx
-        ]
+deleteRow :: Database -> ProcessId -> U.Vector SparseTriple
+deleteRow db aPid = U.filter (\(SparseTriple i _ _) -> i /= fromIntegral aPid) (dbTechnosphereTriples db)
 
 {- | First supplier with an off-diagonal consumer, paired with any other
 activity as the replacement. SAMPLE.min3 is single-unit, so κ = 1 holds.

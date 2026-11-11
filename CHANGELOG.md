@@ -61,6 +61,34 @@
   water came back as the Dutch one, and moved the water use score by 45 %. An
   input whose stated location differs from its linked dataset's now carries
   the linked dataset's, the one its score was computed with.
+- A demand whose supply chain reaches a process that no amount can satisfy is
+  refused, with 422 and a sentence that names the database and the process.
+  Two processes that each take all of what the other makes are the plain
+  case: nothing is left of either to meet a demand. Such a database used to
+  answer with finite numbers that meant nothing, without a word. A demand
+  that does not reach these processes is answered as before, and a database
+  that holds some says how many when it is first solved. A request that
+  scores several activities at once is refused as a whole when one of them
+  is, and so is the computed quality report of such a database, which scores
+  them all.
+
+### Changed
+
+- The engine solves a database with a solver of its own, written in the
+  engine's language, in place of the Fortran library it called. A database is
+  ready to answer several times sooner after it loads or is edited, an answer
+  comes several times sooner too, and the solver holds a fraction of the
+  memory. Requests on one database no longer wait for one another: the solver
+  took one at a time, and now answers as many as there are processor cores.
+  Scores move in their last digits only.
+- Building the engine no longer takes a Fortran compiler nor a linear algebra
+  library: a C compiler and the Haskell toolchain are enough. The Windows
+  download no longer holds the runtime libraries that sat beside `volca.exe`.
+- The C libraries the binary is linked with are credited, which they never
+  were: GMP and Zstandard everywhere, musl, libffi, ncurses and zlib on Linux,
+  zlib and the MinGW-w64 runtime on Windows. `/api/v1/licenses` lists those of
+  its own platform, and the download and the image carry their license texts
+  in a `licenses/` folder, beside `NOTICE` and the inventory.
 
 ## [0.17.0] - 2026-11-07
 

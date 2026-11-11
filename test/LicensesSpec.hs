@@ -9,6 +9,7 @@ import Data.Text (Text)
 import qualified Data.Vector as V
 import Network.HTTP.Types (hContentType, statusCode)
 import Network.Wai (responseHeaders, responseStatus)
+import System.Info (os)
 import Test.Hspec
 
 import API.Licenses (licensesJson, licensesResponse)
@@ -27,19 +28,11 @@ spec = describe "/api/v1/licenses payload" $ do
         let lic = lookupPath ["engine", "license"] =<< decode licensesJson
         lic `shouldBe` Just (String "Apache-2.0")
 
-    it "exposes a non-empty components list" $ do
-        let cs = lookupPath ["components"] =<< decode licensesJson
-        case cs of
-            Just (Array v) -> V.length v `shouldSatisfy` (>= 4)
-            _ -> expectationFailure "components is missing or not an array"
+    it "names GMP under the LGPL on every platform" $
+        licenseOf "GMP (GNU MP)" `shouldBe` Just (String "LGPL-3.0-or-later")
 
-    it "lists MUMPS as a CeCILL-C component" $ do
-        let mumps = do
-                Array cs <- lookupPath ["components"] =<< decode licensesJson
-                find (componentNamed "MUMPS") (V.toList cs)
-        mumps `shouldSatisfy` isJust
-        let licField = lookupPath ["license"] =<< mumps
-        licField `shouldBe` Just (String "CeCILL-C")
+    it "names musl only where the binary is built on it" $
+        isJust (licenseOf "musl") `shouldBe` (os == "linux")
 
     it "points clients at the Haskell-deps markdown" $ do
         let url = lookupPath ["haskell_dependencies_url"] =<< decode licensesJson
@@ -52,6 +45,13 @@ spec = describe "/api/v1/licenses payload" $ do
 
 -- helpers
 
+-- | The license of the named component, when the payload lists it.
+licenseOf :: Text -> Maybe Value
+licenseOf name = do
+    Array components <- lookupPath ["components"] =<< decode licensesJson
+    named <- V.find ((== Just (String name)) . lookupPath ["name"]) components
+    lookupPath ["license"] named
+
 isJust :: Maybe a -> Bool
 isJust (Just _) = True
 isJust Nothing = False
@@ -60,12 +60,3 @@ lookupPath :: [Text] -> Value -> Maybe Value
 lookupPath [] v = Just v
 lookupPath (k : ks) (Object o) = lookupPath ks =<< KM.lookup (Key.fromText k) o
 lookupPath _ _ = Nothing
-
-componentNamed :: Text -> Value -> Bool
-componentNamed expected v = case lookupPath ["name"] v of
-    Just (String n) -> n == expected
-    _ -> False
-
-find :: (a -> Bool) -> [a] -> Maybe a
-find _ [] = Nothing
-find p (x : xs) = if p x then Just x else find p xs

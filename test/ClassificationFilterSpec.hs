@@ -24,7 +24,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.UUID as UUID
-import qualified Data.Vector.Unboxed as U
 import Servant (ServerError (..), runHandler)
 import Test.Hspec
 
@@ -58,7 +57,6 @@ import Types (
     Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
-    SparseTriple (..),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
@@ -312,7 +310,7 @@ loadedFixture = do
     solver <-
         createSharedSolver
             fixtureName
-            [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
+            (dbTechnosphereTriples db)
             (fromIntegral (dbActivityCount db))
     let loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = fixtureConfig, ldSupplierMapping = Nothing}
     atomically $ do

@@ -21,6 +21,10 @@ common warnings
   -- per-package setting (ghc-options beat the project optimization flag), so
   -- it lives in the project file, not here.
   --
+  -- The modules under Matrix.Sparse are the exception: each sets -O2 for
+  -- itself, because at -O0 their loops box every number and a suite that
+  -- factorises real technospheres would spend its time there.
+  --
   -- -Wunused-packages keeps the dependency list honest: every package here is
   -- fetched and built by the whole CI matrix, so one that nothing imports is
   -- paid for on every row of it, every pull request. -Wredundant-constraints
@@ -58,6 +62,9 @@ library
                      , Matrix
                      , Matrix.Export
                      , Matrix.Dense
+                     , Matrix.Sparse
+                     , Matrix.Sparse.Arrays
+                     , Matrix.Sparse.Order
                      , SharedSolver
                      , Database
                      , Database.Manager
@@ -205,8 +212,8 @@ library
                      , http-media
                      , network-uri
                      , vector
+                     , primitive
                      , random
-                     , mumps-hs
                      , base64-bytestring
                      , toml-reader
                      , process
@@ -226,11 +233,8 @@ executable volca
   main-is:             Main.hs
   hs-source-dirs:      app
   -- Drop ELF sections nothing references; pairs with cabal.project's
-  -- split-sections to actually shrink the linked exe. Not on darwin: ld64's
-  -- equivalent, -dead_strip, splits sections into atoms at symbol boundaries,
-  -- and a local assembler label is not a symbol, so it can drop hand-written
-  -- kernel code that a neighbouring atom jumps into. Statically linked
-  -- OpenBLAS is full of those; see gen-cabal-config.sh's darwin flags.
+  -- split-sections to actually shrink the linked exe. Not on darwin, whose
+  -- linker does not know the flag.
   if !os(darwin)
     ghc-options:       -optl-Wl,--gc-sections
   build-depends:       base >=4.14 && <5
@@ -334,8 +338,7 @@ test-suite lca-tests
                      , ExplainCFSpec
                      , LongTermExclusionSpec
                      , SharedSolverSpec
-                     , CoalescingSolverSpec
-                     , BlasThreadsSpec
+                     , SparseSolverSpec
                      , FlowResolverSpec
                      , SynonymExtractSpec
                      , ConfigSpec
@@ -478,7 +481,7 @@ test-suite lca-tests
                      , text
                      , containers
                      , vector
-                     , mumps-hs
+                     , primitive
                      , bytestring
                      , zip-archive
                      , crypton

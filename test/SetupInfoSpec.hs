@@ -9,7 +9,6 @@ import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
-import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
@@ -188,7 +187,7 @@ I/O.
 -}
 installLoaded :: DatabaseManager -> Text -> Database -> IO ()
 installLoaded manager name db = do
-    let triples = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
+    let triples = dbTechnosphereTriples db
         config = stubConfig{dcName = name, dcDisplayName = name}
     solver <- createSharedSolver name triples (fromIntegral (dbActivityCount db))
     let loaded = LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = config, ldSupplierMapping = Nothing}
