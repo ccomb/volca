@@ -135,7 +135,16 @@ spec = do
         it "counts one loop for processes that feed each other, and the entries left between the others" $
             -- 0 and 1 feed each other, 2 takes from both.
             extent (factorize 3 (U.fromList [SparseTriple 0 1 0.5, SparseTriple 1 0 0.5, SparseTriple 0 2 0.1, SparseTriple 1 2 0.1]))
-                `shouldBe` Extent{loopCount = 1, largestLoop = 2, factorEntries = 2, linkEntries = 2}
+                `shouldBe` Extent{loopCount = 1, largestLoop = 2, factorEntries = 2, linkEntries = 2, refusedProcesses = 0, smallestPivot = 0.75}
+
+    describe "the same answer on every machine" $
+        it "solves a fixed system to the last bit" $
+            -- Every sum is taken in one order, whatever the processor: an answer
+            -- that moves in its last digit here moved because the order did.
+            let n = 12
+                fixed = U.fromList [SparseTriple (fromIntegral row) (fromIntegral column) (1 / fromIntegral (7 + 3 * row + 5 * column)) | row <- [0 .. n - 1], column <- [0 .. n - 1], row /= column, (row + 2 * column) `mod` 3 /= 0]
+             in (U.toList <$> solve (factorize n fixed) (U.generate n (\i -> fromIntegral (i `mod` 4))))
+                    `shouldBe` Right [0.49579634680026435, 1.4776871521607156, 2.429059433469893, 3.354520803607369, 0.352736845331329, 1.3273682290636128, 2.2820944402782373, 3.2837988226807213, 0.2679518525491004, 1.2362573567723893, 2.2387044538119447, 3.227906667278556]
 
 {- | A technosphere of up to sixty processes and a demand. Each process takes
 less than one unit in all for each unit it makes, so the system has an answer

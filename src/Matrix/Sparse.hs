@@ -84,7 +84,7 @@ the place of their row, always an earlier one, and their value.
 -}
 data Links = Links !Lists !(PrimArray Double)
 
--- | How much a factorisation holds.
+-- | How much a factorisation holds, and how far its answers can be trusted.
 data Extent = Extent
     { loopCount :: !Int
     -- ^ The sets of several processes that feed each other
@@ -94,21 +94,31 @@ data Extent = Extent
     -- ^ The entries off the diagonal that the factors of all of them hold
     , linkEntries :: !Int
     -- ^ The entries left as they were, between two knots
+    , refusedProcesses :: !Int
+    -- ^ The processes that cannot be solved for
+    , smallestPivot :: !Double
+    {- ^ The smallest pivot divided by, in absolute value, infinite when there
+    is none. A diagonal starts from 1 or more, so a pivot of 1e-6 has lost six
+    of the sixteen digits a number carries.
+    -}
     }
     deriving (Eq, Show)
 
 extent :: Factors -> Extent
-extent factors = foldl' counted (Extent 0 0 0 (held links)) (knots factors)
+extent factors = foldl' counted (Extent 0 0 0 (held links) 0 (1 / 0)) (knots factors)
   where
     links :: Lists
     Links links _ = between factors
     held :: Lists -> Int
     held = sizeofPrimArray . listItem
+    -- The pivots are kept as one over each: the largest of those is the smallest pivot.
+    dividedBy :: Extent -> Double -> Extent
+    dividedBy so inverse = so{smallestPivot = min (smallestPivot so) (1 / abs inverse)}
     counted :: Extent -> Knot -> Extent
-    counted so (Alone _) = so
-    counted so (Refused _ _) = so
+    counted so (Alone inverse) = so `dividedBy` inverse
+    counted so (Refused processes _) = so{refusedProcesses = refusedProcesses so + processes}
     counted so (Looped processes lu) =
-        so
+        (so `dividedBy` foldlPrimArray' (\most inverse -> max most (abs inverse)) 0 (reciprocal lu))
             { loopCount = loopCount so + 1
             , largestLoop = max (largestLoop so) processes
             , factorEntries = factorEntries so + held (lower lu) + held (upper lu)
