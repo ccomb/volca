@@ -169,11 +169,17 @@ fn eliminate(b: &Columns, floor: &[f64], cut: Cut) -> Result<(Raw, usize), Stop>
     let mut tail: Option<Tail> = None;
     for j in 0..n {
         let limit = tail.as_ref().map_or(j, |t| t.first);
+        let walk = Walk {
+            limit,
+            stamp: j,
+            lp: &f.lp,
+            li: &f.li,
+        };
         let mut top = n;
         for (i, v) in b.column(j) {
             x[i] = v;
             if search.mark[i] != j {
-                top = search.from(i, limit, j, &f.lp, &f.li, top);
+                top = search.from(i, &walk, top);
             }
         }
         let reached = &search.reach[top..n];
@@ -309,6 +315,18 @@ struct Search {
     resume: Vec<usize>,
 }
 
+/// What the search of one column walks through.
+struct Walk<'a> {
+    /// Columns from here on are not finished: they are reached but not walked
+    /// through.
+    limit: usize,
+    /// What marks a column as reached in this search, and in no earlier one.
+    stamp: usize,
+    /// Where the multipliers of each finished column start, and their rows.
+    lp: &'a [u64],
+    li: &'a [u32],
+}
+
 impl Search {
     fn new(n: usize) -> Result<Search, Failure> {
         Ok(Search {
@@ -320,17 +338,14 @@ impl Search {
     }
 
     /// Adds `root` and all it reaches to `reach[top..]` and returns the new
-    /// `top`. Columns from `limit` on are not finished: they are reached but
-    /// not walked through.
-    fn from(
-        &mut self,
-        root: usize,
-        limit: usize,
-        stamp: usize,
-        lp: &[u64],
-        li: &[u32],
-        mut top: usize,
-    ) -> usize {
+    /// `top`.
+    fn from(&mut self, root: usize, walk: &Walk, mut top: usize) -> usize {
+        let Walk {
+            limit,
+            stamp,
+            lp,
+            li,
+        } = *walk;
         let start = |node: usize| if node < limit { lp[node] as usize } else { 0 };
         let mut depth = 0;
         self.stack[0] = root as u32;

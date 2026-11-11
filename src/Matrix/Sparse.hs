@@ -33,14 +33,14 @@ import GHC.ForeignPtr (mallocPlainForeignPtrAlignedBytes)
 import Types (SparseTriple (..))
 
 -- | The factors of a matrix the solver accepted.
-data Factors
-    = Factors
-        -- | The factors as the solver wrote them
-        !(ForeignPtr Word8)
-        -- | How many bytes that is
-        !Int
-        -- | The size of the matrix
-        !Int
+data Factors = Factors
+    { factorBlock :: !(ForeignPtr Word8)
+    -- ^ The factors as the solver wrote them
+    , factorBytes :: !Int
+    -- ^ How many bytes that is
+    , factorSize :: !Int
+    -- ^ The size of the matrix
+    }
 
 -- | Why a matrix has no factors: a verdict on the matrix, the same at every try.
 data Refused
@@ -100,7 +100,7 @@ factorize n triples
                         bytes <- fromIntegral <$> (peekByteOff found 8 :: IO Word64)
                         block <- mallocPlainForeignPtrAlignedBytes bytes 8 `onException` c_discard owned
                         exported <- withForeignPtr block $ \p -> c_export owned p (fromIntegral bytes)
-                        pure $ if exported == 0 then Right (Right (Factors block bytes n)) else Left (failure exported at)
+                        pure $ if exported == 0 then Right (Right Factors{factorBlock = block, factorBytes = bytes, factorSize = n}) else Left (failure exported at)
                     1 -> pure (Right (Left (TinyPivot (fromIntegral at) value)))
                     2 -> pure (Right (Left (Unreliable value)))
                     _ -> pure (Left (failure code at))
@@ -111,7 +111,7 @@ factorize n triples
 without writing to them: requests solve with the same ones at the same time.
 -}
 solve :: Factors -> [U.Vector Double] -> IO (Either Text [U.Vector Double])
-solve (Factors block bytes n) rhs
+solve Factors{factorBlock = block, factorBytes = bytes, factorSize = n} rhs
     | any ((/= n) . U.length) rhs = pure (Left ("a right-hand side needs one number for each of the " <> T.pack (show n) <> " columns of the matrix"))
     | otherwise =
         -- The engine's vectors can move while foreign code runs: the numbers go through memory that cannot.
