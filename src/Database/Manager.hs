@@ -4051,8 +4051,10 @@ solverFor dbName db =
 say why the settings give none. The solver is the loaded one when no entry of
 the technosphere moved, and the loaded one corrected by the columns that moved
 when they are few enough for the correction to stay small. Otherwise it is one
-of its own, factorised for this action and dropped with it; these are made one
-at a time, which bounds how many such factors are alive at once.
+of its own, factorised for this action and garbage once the action ends. These
+actions run one at a time, so only one such set of factors is in use at any
+moment; the memory of the earlier ones is the garbage collector's to take
+back, as for any value.
 -}
 withSettings :: forall a. DatabaseManager -> Text -> (Database, SharedSolver) -> [Setting] -> (Database -> SharedSolver -> IO a) -> IO (Either Text a)
 withSettings manager dbName (before, loaded) settings act = do
@@ -4065,7 +4067,7 @@ withSettings manager dbName (before, loaded) settings act = do
         change
             | correctable (length change) ->
                 correctedFor loaded change >>= either (pure . Left . (<> inputsOf change)) (fmap Right . act after)
-            | otherwise -> fmap Right . withMVar (dmFactorisationLock manager) $ \() -> solverFor dbName after >>= act after
+            | otherwise -> fmap Right . withMVar (dmFactorisationLock manager) $ \() -> solverFor (dbName <> ", at the settings of one request") after >>= act after
 
     {- A correction beats a new factorisation while it stays small: its k dense
     columns under 64 MB, and k itself bounded, since its k×k elimination grows

@@ -92,7 +92,7 @@ data SharedSolver = SharedSolver
     , solverActivityCount :: Int
     -- ^ Number of activities
     , solverDbName :: Text
-    -- ^ Database name
+    -- ^ What the log calls this solver: its database, and what sets it apart from the loaded one
     , solverColumnName :: Int -> Text
     -- ^ How a refusal names the column it points at
     , solverCorrection :: Maybe Correction
