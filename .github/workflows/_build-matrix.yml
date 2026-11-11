@@ -336,7 +336,8 @@ jobs:
           #   resulting binary will not exec on arm64 even after ad-hoc
           #   sign, so any test that spawns volca times out. Skip strip+UPX
           #   for the CI test run (the artifact is larger but usable).
-          # - Linux: nothing special needed.
+          # - Linux: --static has to be asked for, the script links a
+          #   dynamic binary without it.
           # --werror on Linux only: -Wall-clean is a project rule, but only the
           # Linux compile is verified warning-free (it mirrors the local ci.sh
           # gate). Windows/macOS keep -Wall without -Werror so a platform-only
