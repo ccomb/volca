@@ -10,9 +10,9 @@ import Data.Primitive.PrimArray (primArrayFromList, primArrayToList)
 import qualified Data.Set as S
 import qualified Data.Vector.Unboxed as U
 import Matrix.Dense (factorLU, solveLU)
-import Matrix.Sparse (Unsolvable (..), factorize, solve)
+import Matrix.Sparse (Extent (..), Unsolvable (..), extent, factorize, solve)
 import Matrix.Sparse.Arrays (Lists (..))
-import Matrix.Sparse.Order (Elimination (..), eliminate)
+import Matrix.Sparse.Order (Elimination (..), eliminate, loops)
 import Test.Hspec
 import Test.QuickCheck
 import Types (SparseTriple (..))
@@ -40,6 +40,29 @@ spec = do
         it "orders nothing when there is nothing" $
             primArrayToList (pivotOrder (eliminate (listsOf []))) `shouldBe` []
 
+    describe "the loops of a pattern" $ do
+        it "put together the nodes that lead to each other and no others, suppliers first" $
+            forAll shape $ \(n, columns) ->
+                let sets = linesOf (loops (listsOf columns))
+                    setOf = M.fromList [(node, nth) | (nth, set) <- zip [0 :: Int ..] sets, node <- set]
+                    entries = [(row, column) | (column, rows) <- zip [0 ..] columns, row <- rows, row >= 0, row < n]
+                    reach = M.fromList [(node, leadsTo entries node) | node <- [0 .. n - 1]]
+                    together a b = (S.member b <$> M.lookup a reach) == Just True && (S.member a <$> M.lookup b reach) == Just True
+                 in sort (concat sets)
+                        === [0 .. n - 1]
+                        .&&. map sort sets
+                            === sets
+                        .&&. [(a, b) | a <- [0 .. n - 1], b <- [0 .. n - 1], (M.lookup a setOf == M.lookup b setOf) /= together a b]
+                            === []
+                        .&&. [(row, column) | (row, column) <- entries, M.lookup row setOf > M.lookup column setOf]
+                            === []
+        it "find no loop where there is no entry" $
+            linesOf (loops (listsOf [[], [], []])) `shouldBe` [[0], [1], [2]]
+        it "follow a chain far deeper than a recursion could go" $
+            -- Each process takes from the next, and the last from the first.
+            let n = 200000
+             in linesOf (loops (listsOf ([[column + 1] | column <- [0 .. n - 2]] <> [[0]]))) `shouldBe` [[0 .. n - 1]]
+
     describe "a technosphere factorised" $ do
         it "answers as a dense elimination of the same system" $
             forAll asked $ \(n, triples, demand) ->
@@ -53,6 +76,16 @@ spec = do
                         let used = U.accum (+) (U.replicate n 0) [(fromIntegral row, value * supplied U.! fromIntegral column) | SparseTriple row column value <- triples]
                          in property (close (U.zipWith (-) supplied used) (U.fromList demand))
                     Left why -> counterexample (show why) False
+        it "answers the same whatever numbers the processes carry" $
+            forAll (asked >>= \system@(n, _, _) -> (,) system <$> shuffle [0 .. n - 1]) $ \((n, triples, demand), names) ->
+                let named = U.fromList names
+                    rename = fromIntegral . (named U.!) . fromIntegral
+                    renamed = [SparseTriple (rename row) (rename column) value | SparseTriple row column value <- triples]
+                 in case (solve (factorize n (U.fromList triples)) (U.fromList demand), solve (factorize n (U.fromList renamed)) (U.replicate n 0 U.// zip names demand)) of
+                        (Right supplied, Right shuffled) ->
+                            let largest = U.foldl' max 0 (U.map abs supplied)
+                             in counterexample (show (supplied, shuffled)) (U.and (U.zipWith (\x y -> abs (x - y) <= 1e-12 * (1 + largest)) supplied (U.backpermute shuffled named)))
+                        refused -> counterexample (show refused) False
         it "adds up the coefficients that name the same entry" $
             solve (factorize 2 (U.fromList [SparseTriple 0 1 0.2, SparseTriple 0 1 0.3])) (U.fromList [0, 1])
                 `shouldBe` solve (factorize 2 (U.fromList [SparseTriple 0 1 0.5])) (U.fromList [0, 1])
@@ -80,6 +113,30 @@ spec = do
         it "answers a demand of nothing with nothing, whatever the matrix" $
             solve (factorize 1 (U.fromList [SparseTriple 0 0 1])) (U.fromList [0]) `shouldBe` Right (U.fromList [0])
 
+    describe "a technosphere with one loop that cannot be solved" $ do
+        -- Processes 0 and 1 feed each other whole. Process 0 also takes from
+        -- 5, and 2 takes from 0; 3 takes from 4 and has nothing to do with them.
+        let stuck = factorize 6 (U.fromList [SparseTriple 0 1 1, SparseTriple 1 0 1, SparseTriple 5 0 0.5, SparseTriple 0 2 0.5, SparseTriple 4 3 0.5])
+            only at = U.generate 6 (\i -> if i == at then 1 else 0)
+        it "answers a demand that stays clear of the loop" $
+            solve stuck (only 3) `shouldBe` Right (U.fromList [0, 0, 0, 1, 0.5, 0])
+        it "answers a demand for what the loop takes from, when nothing is asked of the loop" $
+            solve stuck (only 5) `shouldBe` Right (only 5)
+        it "refuses a demand for a process of the loop" $
+            solve stuck (only 0) `shouldBe` Left (Singular 1)
+        it "refuses a demand that reaches the loop through its supply chain" $
+            solve stuck (only 2) `shouldBe` Left (Singular 1)
+        it "refuses a demand that reaches a single process that cannot be solved for, and no other" $
+            -- Process 0 takes back all it makes, 1 takes from it, 2 from nobody.
+            let lone = factorize 3 (U.fromList [SparseTriple 0 0 1, SparseTriple 0 1 0.5])
+             in (solve lone (U.fromList [0, 1, 0]), solve lone (U.fromList [0, 0, 1])) `shouldBe` (Left (Singular 0), Right (U.fromList [0, 0, 1]))
+
+    describe "what a factorisation holds" $ do
+        it "counts one loop for processes that feed each other, and the entries left between the others" $
+            -- 0 and 1 feed each other, 2 takes from both.
+            extent (factorize 3 (U.fromList [SparseTriple 0 1 0.5, SparseTriple 1 0 0.5, SparseTriple 0 2 0.1, SparseTriple 1 2 0.1]))
+                `shouldBe` Extent{loopCount = 1, largestLoop = 2, factorEntries = 2, linkEntries = 2}
+
 {- | A technosphere of up to sixty processes and a demand. Each process takes
 less than one unit in all for each unit it makes, so the system has an answer
 and no pivot comes near zero; rows are drawn with repeats, so some entries
@@ -94,7 +151,8 @@ asked = do
   where
     inputs :: Int -> Int -> Gen [SparseTriple]
     inputs n column = do
-        count <- chooseInt (0, min n 8)
+        -- Few inputs leave many processes outside any loop, many tie them all into one.
+        count <- oneof [chooseInt (0, 1), chooseInt (0, min n 8)]
         rows <- vectorOf count (chooseInt (0, n - 1))
         weights <- vectorOf count (choose (-1, 1))
         let share = 0.9 / max 1e-9 (sum (map abs weights))
@@ -128,6 +186,18 @@ linesOf (Lists starts items) = zipWith (\from to -> take (to - from) (drop from 
   where
     bounds :: [Int]
     bounds = primArrayToList starts
+
+-- | Every node a node leads to, itself included, a column leading to the rows it holds.
+leadsTo :: [(Int, Int)] -> Int -> S.Set Int
+leadsTo entries = go . S.singleton
+  where
+    go :: S.Set Int -> S.Set Int
+    go seen
+        | wider == seen = seen
+        | otherwise = go wider
+      where
+        wider :: S.Set Int
+        wider = seen <> S.fromList [row | (row, column) <- entries, column `S.member` seen]
 
 -- | A node eliminated, the rows under it and the columns right of it then.
 data Step = Step Int [Int] [Int]

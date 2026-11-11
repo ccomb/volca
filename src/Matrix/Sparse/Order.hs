@@ -16,9 +16,10 @@ in what is left to eliminate, would create the fewest new entries.
 module Matrix.Sparse.Order (
     Elimination (..),
     eliminate,
+    loops,
 ) where
 
-import Control.Monad (unless, when, (>=>))
+import Control.Monad (unless, void, when, (>=>))
 import Control.Monad.ST (ST, runST)
 import Data.Primitive.PrimArray
 import Data.Primitive.SmallArray
@@ -58,6 +59,162 @@ eliminate columns = runST $ do
   where
     size :: Int
     size = lineCount columns
+
+{- | The loops of a square pattern given by columns: the largest sets of nodes
+in which each leads to every other, a node leading to the rows its column
+holds. Line @k@ of the result lists the nodes of one set in increasing order.
+
+A set comes after every set its columns hold a row of. Numbered set after
+set, the matrix then has nothing under its diagonal blocks: each set is
+solved from the sets after it, and only a set of several nodes needs
+eliminating.
+
+A row outside the square is not part of the pattern.
+-}
+loops :: Lists -> Lists
+loops columns = runST $ do
+    search <-
+        Search
+            <$> filled size unreached
+            <*> newPrimArray size
+            <*> newPrimArray size
+            <*> newPrimArray size
+            <*> emptyStack size
+            <*> emptyStack size
+            <*> filled 1 0
+            <*> filled 1 0
+    forRange 0 size $ \root -> do
+        state <- readPrimArray (reached search) root
+        when (state == unreached) (enter columns search root >> explore columns search)
+    sets <- readPrimArray (setCount search) 0
+    -- "The set of each node" turned round reads "the nodes of each set".
+    transposed sets . Lists (generatePrimArray (size + 1) id) <$> unsafeFreezePrimArray (setOf search)
+  where
+    size :: Int
+    size = lineCount columns
+
+{- | A walk through the pattern, one path at a time. A node that leads back to
+an earlier node of its path is in a loop with it, so each node keeps the
+earliest it is known to lead back to; a node that leads back no further than
+itself closes a set, made of everything reached since it.
+-}
+data Search s = Search
+    { reached :: !(MutablePrimArray s Int)
+    -- ^ Per node: 'unreached', then its rank among the nodes reached, then 'closed'
+    , lowest :: !(MutablePrimArray s Int)
+    -- ^ Per node reached, the lowest rank it is known to lead back to
+    , cursor :: !(MutablePrimArray s Int)
+    -- ^ Per node reached, the entry of its column to follow next
+    , setOf :: !(MutablePrimArray s Int)
+    -- ^ Per node closed, the number of its set
+    , path :: !(Stack s)
+    -- ^ The nodes being followed, each reached from the one before
+    , open :: !(Stack s)
+    -- ^ The nodes reached and not closed, in the order they were reached
+    , nextRank :: !(MutablePrimArray s Int)
+    -- ^ One cell
+    , setCount :: !(MutablePrimArray s Int)
+    -- ^ One cell
+    }
+
+unreached :: Int
+unreached = -1
+
+-- | Above every rank, so that leading to a closed node leads back nowhere.
+closed :: Int
+closed = maxBound
+
+-- | Items piled up, and in one cell how many.
+data Stack s = Stack !(MutablePrimArray s Int) !(MutablePrimArray s Int)
+
+emptyStack :: Int -> ST s (Stack s)
+emptyStack capacity = Stack <$> newPrimArray capacity <*> filled 1 0
+
+depth :: Stack s -> ST s Int
+depth (Stack _ held) = readPrimArray held 0
+{-# INLINE depth #-}
+
+push :: Stack s -> Int -> ST s ()
+push (Stack items held) item = do
+    count <- readPrimArray held 0
+    writePrimArray items count item
+    writePrimArray held 0 (count + 1)
+
+-- | Take the last item off. The stack must hold one.
+pull :: Stack s -> ST s Int
+pull (Stack items held) = do
+    count <- subtract 1 <$> readPrimArray held 0
+    writePrimArray held 0 count
+    readPrimArray items count
+
+-- | The last item, left where it is. The stack must hold one.
+lastOf :: Stack s -> ST s Int
+lastOf (Stack items held) = readPrimArray held 0 >>= readPrimArray items . subtract 1
+
+enter :: Lists -> Search s -> Int -> ST s ()
+enter columns search node = do
+    rank <- readPrimArray (nextRank search) 0
+    writePrimArray (nextRank search) 0 (rank + 1)
+    writePrimArray (reached search) node rank
+    writePrimArray (lowest search) node rank
+    writePrimArray (cursor search) node (max 0 (indexPrimArray (listStart columns) node))
+    push (path search) node
+    push (open search) node
+
+-- | A node is found to lead back to a rank.
+leadsBack :: Search s -> Int -> Int -> ST s ()
+leadsBack search node rank = do
+    known <- readPrimArray (lowest search) node
+    when (rank < known) (writePrimArray (lowest search) node rank)
+{-# INLINE leadsBack #-}
+
+{- | Follow the path to its end, entry after entry. Kept as a loop over the
+path held in an array: a supply chain is thousands of processes deep, deeper
+than a recursion should go.
+-}
+explore :: forall s. Lists -> Search s -> ST s ()
+explore columns search = go
+  where
+    size :: Int
+    size = lineCount columns
+    go :: ST s ()
+    go = do
+        left <- depth (path search)
+        when (left > 0) $ do
+            node <- lastOf (path search)
+            at <- readPrimArray (cursor search) node
+            if at < min (sizeofPrimArray (listItem columns)) (indexPrimArray (listStart columns) (node + 1))
+                then do
+                    writePrimArray (cursor search) node (at + 1)
+                    follow node (indexPrimArray (listItem columns) at)
+                else leave search node
+            go
+    follow :: Int -> Int -> ST s ()
+    follow node next = when (next >= 0 && next < size) $ do
+        state <- readPrimArray (reached search) next
+        if state == unreached then enter columns search next else leadsBack search node state
+
+{- | A node has nothing left to follow. It leaves the path, and the node before
+it leads back wherever it does.
+-}
+leave :: forall s. Search s -> Int -> ST s ()
+leave search node = do
+    void (pull (path search))
+    back <- readPrimArray (lowest search) node
+    left <- depth (path search)
+    when (left > 0) (lastOf (path search) >>= \previous -> leadsBack search previous back)
+    rank <- readPrimArray (reached search) node
+    when (back == rank) $ do
+        set <- readPrimArray (setCount search) 0
+        writePrimArray (setCount search) 0 (set + 1)
+        close set
+  where
+    close :: Int -> ST s ()
+    close set = do
+        member <- pull (open search)
+        writePrimArray (reached search) member closed
+        writePrimArray (setOf search) member set
+        unless (member == node) (close set)
 
 {- | The entries of each line still to eliminate, one array per line so that a
 line can grow without moving the others. A line keeps the members eliminated
