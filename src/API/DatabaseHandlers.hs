@@ -581,6 +581,7 @@ computedQualityReportToAPI mLimit r =
         , cqaScoreOutliers = checkToAPI mLimit (CQ.cqScoreOutliers r)
         , cqaZeroScores = checkToAPI mLimit (CQ.cqZeroScores r)
         , cqaNegativeScores = checkToAPI mLimit (CQ.cqNegativeScores r)
+        , cqaUnsolvable = checkToAPI mLimit (CQ.cqUnsolvable r)
         }
 
 -- | Project one domain check onto the wire, capping its list at @limit@.

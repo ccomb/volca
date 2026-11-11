@@ -66,6 +66,10 @@ data ComputedQualityReport = ComputedQualityReport
     , cqScoreOutliers :: !QualityCheck
     , cqZeroScores :: !QualityCheck
     , cqNegativeScores :: !QualityCheck
+    , cqUnsolvable :: !QualityCheck
+    {- ^ Activities with no score to judge: the solver has no answer for their
+    supply chain, and each offender says why
+    -}
     }
     deriving (Show, Eq)
 
@@ -82,19 +86,22 @@ they produce no outlier findings at all.
 minGroupSize :: Int
 minGroupSize = 20
 
--- | Run every computed check over the scored catalogue.
-computedQualityReport :: Text -> Text -> [ScoredEntry] -> ComputedQualityReport
-computedQualityReport dbName collection entries =
+{- | Run every computed check over the scored catalogue, beside the activities
+that got no score because the solver has no answer for them.
+-}
+computedQualityReport :: Text -> Text -> [ScoredEntry] -> [QualityOffender] -> ComputedQualityReport
+computedQualityReport dbName collection entries unsolvable =
     ComputedQualityReport
         { cqDbName = dbName
         , cqCollection = collection
-        , cqProcessCount = length entries
+        , cqProcessCount = length entries + length unsolvable
         , -- Every outlier shares one severity, so the generic worst-first order
           -- would fall back to names; the maintainer wants the wildest
           -- deviation on top – that is where the unit slip sits.
           cqScoreOutliers = QualityCheck True (map fst (sortOn (Down . snd) outlierOffenders))
         , cqZeroScores = QualityCheck True (worstFirst zeroOffenders)
         , cqNegativeScores = QualityCheck True (worstFirst negativeOffenders)
+        , cqUnsolvable = QualityCheck True (worstFirst unsolvable)
         }
   where
     worstFirst = sortOn (\o -> (qoSeverity o, qoActivityName o))

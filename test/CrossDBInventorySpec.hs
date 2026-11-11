@@ -147,7 +147,7 @@ spec = do
             localInvs <- either (fail . show) pure . sequence =<< traverse (computeInventoryMatrixCached db solver) pids
             withDepsE <- computeInventoryMatrixBatchWithDepsCached defaultUnitConfig noDeps db "SAMPLE.min3" solver pids
 
-            case withDepsE of
+            case sequence withDepsE of
                 Left err -> expectationFailure (T.unpack err)
                 Right withDepsSols -> do
                     length withDepsSols `shouldBe` length localInvs
@@ -162,9 +162,7 @@ spec = do
             solver <- createSharedSolver "SAMPLE.min3-empty" techTriples actCount
             let noDeps _ = pure Nothing
             res <- computeInventoryMatrixBatchWithDepsCached defaultUnitConfig noDeps db "SAMPLE.min3-empty" solver []
-            case res of
-                Right sols -> length sols `shouldBe` 0
-                Left err -> expectationFailure (T.unpack err)
+            length res `shouldBe` 0
 
     describe "inventoryContributions (cross-DB characterization surface)" $ do
         -- Synthetic data: simulate the shape of a cross-DB-merged Inventory

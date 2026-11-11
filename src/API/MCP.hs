@@ -2951,7 +2951,8 @@ result against a single 'ScoringSet' into a columnar JSON payload
 hoists the constant metadata once and packs each activity as a flat
 array of scalars -- typically ~6× smaller than a row-shaped JSON for a
 batch of 24+ activities. Unresolved process IDs land in
-@notFound@ \/ @invalid@. The chosen scoring set is required to be
+@not_found@ \/ @invalid@, refused ones in @unscorable@ \/ @unsolvable@. The
+chosen scoring set is required to be
 unambiguous; see 'resolveSingleScoringSet' for the rules.
 -}
 callScoreActivities :: DatabaseManager -> Maybe HostingConfig -> Maybe Text -> RequestId -> KeyMap Value -> IO Value

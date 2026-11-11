@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.2** speaks wire formats **2 to 111** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.14.2** speaks wire formats **2 to 112** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1756,7 +1756,8 @@ Score many processes in one call (every category of a collection each).
 
 Returns a `BatchScores`: ``results`` holds one
 `ScoredActivity` per process the engine could compute, while
-``not_found`` / ``invalid`` list the ids it could not resolve; inspect
+``not_found`` / ``invalid`` list the ids it could not resolve and
+``unsolvable`` those it has no answer for, each with why; inspect
 them, a partial result is not an error. ``top_flows`` caps the top
 contributors per category; ``exclude_long_term`` drops long-term
 emissions from the totals. Left without a ``collection``, the call runs
@@ -2805,8 +2806,10 @@ Result of `Client.score_activities` scoring many processes at once.
 computed; ``not_found`` and ``invalid`` list the process ids it could not
 resolve, and ``unscorable`` those that resolve but name an activity the
 engine refuses to score (its quality report's ``unallocated`` check says
-why; wire revision 14, empty from an older engine). A non-empty list is a
-partial result to inspect, not a failure.
+why; wire revision 14, empty from an older engine). ``unsolvable`` lists
+those the solver has no answer for, each with why (wire revision 112,
+empty from an older engine, which refused the whole batch instead). A
+non-empty list is a partial result to inspect, not a failure.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -2814,8 +2817,26 @@ partial result to inspect, not a failure.
 | `not_found` | `list[str]` | _required_ |
 | `invalid` | `list[str]` | _required_ |
 | `unscorable` | `list[str]` | _required_ |
+| `unsolvable` | `list[UnsolvableActivity]` | list() |
 | `basis` | `ScoreBasis \| None` | None |
 | `reading_notice` | `str \| None` | None |
+
+### `UnsolvableActivity`
+
+A process of a batch that resolves but has no answer, and why.
+
+Its supply chain reaches a process the solver cannot answer for (for
+instance two processes that each take all of what the other makes), or
+its demand cannot be put to a database it reaches. ``parameter_set`` is the position
+of the set it has no answer at, when the batch gave sets: values change
+the matrix, so a process may have an answer at one set and none at
+another.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `process_id` | `str` | _required_ |
+| `reason` | `str` | _required_ |
+| `parameter_set` | `int \| None` | None |
 
 ### `BioExchange`
 

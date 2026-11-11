@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- |
@@ -16,12 +15,12 @@ module SharedSolver (
 
     -- * Solver management
     createSharedSolver,
-    Uncorrected (..),
     correctedFor,
 
     -- * Concurrent solving
     solveWithSharedSolver,
     solveMultiWithSharedSolver,
+    solveWhereAsked,
     getFactorization,
     refusal,
 
@@ -45,10 +44,11 @@ module SharedSolver (
 
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
-import Control.DeepSeq (force)
+import Control.DeepSeq (NFData, force)
 import Control.Exception (evaluate)
 import Control.Monad (when)
-import Data.Bifunctor (bimap, first)
+import Data.Bifunctor (first)
+import Data.Either (rights)
 import Data.List (transpose)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
@@ -110,28 +110,21 @@ corrected Nothing y = y
 corrected (Just (Correction columns zs s)) y =
     foldl' (\x (w, z) -> U.zipWith (\xi zi -> xi - w * zi) x z) y (zip (U.toList (solveLU s (U.fromList (map (y U.!) columns)))) zs)
 
--- | Why the loaded solver was not corrected.
-data Uncorrected
-    = {- | The loaded matrix has no answer for a column that moved, so it says
-      nothing of the changed one, which may well have answers: that takes a
-      factorisation of the changed matrix.
-      -}
-      LoadedUnsolved
-    | -- | The correction is refused, and why.
-      Refused Text
-    deriving (Eq, Show)
-
 {- | The solver of the loaded matrix with these columns changed: each column
 with the entries of M = I − A it adds, by row. It shares the loaded solver's
-factors, so nothing is factorised again. Refused when the changed matrix is
-singular.
+factors, so nothing is factorised again. None when the loaded matrix has no
+answer for a column that moved, which says nothing of the changed matrix, or
+when the changed matrix is singular, which leaves some demands with answers:
+either way only a factorisation of the changed matrix tells which. None for a
+solver already corrected, which is not corrected again.
 -}
-correctedFor :: SharedSolver -> [(Int, [(Int, Double)])] -> IO (Either Uncorrected SharedSolver)
-correctedFor SharedSolver{solverCorrection = Just _} _ = pure (Left (Refused "a corrected solver is not corrected again"))
-correctedFor base change =
-    solveMultiWithSharedSolver base [Demand (U.accum (+) (U.replicate (solverActivityCount base) 0) entries) | (_, entries) <- change] >>= \case
-        Left _ -> pure (Left LoadedUnsolved)
-        Right zs -> pure $ bimap (Refused . ("these values make the technosphere singular: " <>)) (\lu -> base{solverCorrection = Just (Correction columns zs lu)}) (factorLU (length columns) (capacitance zs))
+correctedFor :: SharedSolver -> [(Int, [(Int, Double)])] -> IO (Maybe SharedSolver)
+correctedFor SharedSolver{solverCorrection = Just _} _ = pure Nothing
+correctedFor base change = do
+    corrections <- solveMultiWithSharedSolver base [Demand (U.accum (+) (U.replicate (solverActivityCount base) 0) entries) | (_, entries) <- change]
+    pure $ case corrections of
+        Left _ -> Nothing
+        Right zs -> either (const Nothing) (\lu -> Just base{solverCorrection = Just (Correction columns zs lu)}) (factorLU (length columns) (capacitance zs))
   where
     columns :: [Int]
     columns = map fst change
@@ -191,15 +184,25 @@ solveWithSharedSolver solver demand = countingSolve $ do
     evaluate (force (answered solver factors demand))
 
 {- | Solve for several demands, shared out over the cores, answering in their
-order. One demand refused refuses them all.
+order, or refuse them all for the first the solver refuses. 'solveWhereAsked'
+answers or refuses each on its own.
 -}
 solveMultiWithSharedSolver :: SharedSolver -> [Demand] -> IO (Either Unsolvable [Vector])
-solveMultiWithSharedSolver _ [] = pure (Right [])
-solveMultiWithSharedSolver solver demands = countingSolve $ do
+solveMultiWithSharedSolver solver = fmap sequence . solveWhereAsked solver id . map Right
+
+{- | Solve for the demands that are there, each one already refused left in
+its place, and each one the solver refuses given what @why@ makes of it. One
+answer per demand, in their order, whatever is refused: nothing is taken out
+of the list to be put back afterwards.
+-}
+solveWhereAsked :: (NFData e) => SharedSolver -> (Unsolvable -> e) -> [Either e Demand] -> IO [Either e Vector]
+solveWhereAsked _ _ [] = pure []
+solveWhereAsked solver why demands = countingSolve $ do
     factors <- factorsOf solver
     -- Each answer is computed where it is asked for: handed back unevaluated,
-    -- they would all be computed afterwards, on the one thread that reads them.
-    sequence <$> acrossCapabilities (evaluate . force . answered solver factors) demands
+    -- they would all be computed afterwards, on the one thread that reads them,
+    -- and a refusal would hold on to whatever @why@ reads, a whole database.
+    acrossCapabilities (either (pure . Left) (evaluate . force . first why . answered solver factors)) demands
 
 {- | Why a solver refused a demand, for whoever made it: the database, since a
 supply chain crosses several, and the process in the way.
@@ -297,10 +300,12 @@ every level of the dependency DAG:
 * Recurse into the dep DB's own cross-DB links (Agribalyse → Ecoinvent, etc.).
 * Sum local + all dep contributions per root by 'M.unionWith (+)'.
 
-Returns one 'CrossDBSolution' per pid: the merged inventory plus the per-DB
-scaling vectors that produced it. The regional LCIA path uses the scalings
-to sum per-DB regional dot products; callers that only need the inventory
-extract 'csInventory'.
+Returns one 'CrossDBSolution' per pid, in their order: the merged inventory
+plus the per-DB scaling vectors that produced it. The regional LCIA path uses
+the scalings to sum per-DB regional dot products; callers that only need the
+inventory extract 'csInventory'. A pid with no answer is refused alone, with
+why: its supply chain reaches a process that cannot be solved for, or it
+cannot be put to a database it reaches.
 
 Depth is capped at 10 as a safety net against pathological data (cyclic links).
 -}
@@ -312,13 +317,9 @@ computeInventoryMatrixBatchWithDepsCached ::
     Text ->
     SharedSolver ->
     [ProcessId] ->
-    IO (Either Text [CrossDBSolution])
-computeInventoryMatrixBatchWithDepsCached _ _ _ _ _ [] = pure (Right [])
+    IO [Either Text CrossDBSolution]
 computeInventoryMatrixBatchWithDepsCached unitConfig depLookup db dbName solver pids =
-    either
-        (pure . Left)
-        (\demands -> goWithDeps unitConfig depLookup db dbName solver demands 0)
-        (traverse (buildDemandVector db) pids)
+    goWithDeps unitConfig depLookup db dbName solver (map (buildDemandVector db) pids) 0
 
 -- | Single-process convenience wrapper. One-element batch.
 computeInventoryMatrixWithDepsCached ::
@@ -333,9 +334,8 @@ computeInventoryMatrixWithDepsCached ::
 computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver pid = do
     res <- computeInventoryMatrixBatchWithDepsCached unitConfig depLookup db dbName solver [pid]
     pure $ case res of
-        Left err -> Left err
-        Right (sol : _) -> Right sol
-        Right [] ->
+        sol : _ -> sol
+        [] ->
             -- unreachable: a single-pid batch always returns a singleton list.
             -- Surface as Left rather than fabricate an empty 'CrossDBSolution'
             -- with no 'csScalings' (the type now forbids it via NonEmpty).
@@ -352,14 +352,14 @@ goWithDeps ::
     -- | THIS DB's name (recorded in the 'csScalings' entry contributed at this level)
     Text ->
     SharedSolver ->
-    -- | K demand vectors, length = dbActivityCount db
-    [Demand] ->
+    -- | K demand vectors, length = dbActivityCount db, or why a root has none
+    [Either Text Demand] ->
     -- | recursion depth
     Int ->
-    IO (Either Text [CrossDBSolution])
+    IO [Either Text CrossDBSolution]
 goWithDeps unitConfig depLookup db dbName solver demands depth =
-    solveMultiWithSharedSolver solver demands
-        >>= either (pure . Left . refusal db solver) (\scalings -> goWithDepsFromScalings unitConfig depLookup db dbName [] scalings depth)
+    solveWhereAsked solver (refusal db solver) demands
+        >>= \scalings -> goWithDepsFromScalings unitConfig depLookup db dbName [] scalings depth
 
 {- | Propagate pre-computed root scalings into the dep-DB graph. Same body as
 the dep-propagation half of 'goWithDeps' but skips the root solve – the
@@ -374,6 +374,10 @@ require threading per-DB extras through 'resolveDep' – out of scope.
 Each returned 'CrossDBSolution' is built bottom-up: the current DB
 contributes its 'Reached' entry, then dep DBs append theirs through
 'resolveDep', in the name order of 'allDepDbs', each followed by its own.
+
+One answer per root, in their order. A root refused here or in any database
+its supply chain reaches is refused with the first reason met, its own
+database's before its dependencies', and the other roots are answered.
 -}
 goWithDepsFromScalings ::
     UnitConfig ->
@@ -383,44 +387,30 @@ goWithDepsFromScalings ::
     Text ->
     -- | virtual links to inject at this level (root only)
     [CrossDBLink] ->
-    -- | K pre-computed root scaling vectors
-    [Vector] ->
+    -- | K pre-computed root scaling vectors, or why a root has none
+    [Either Text Vector] ->
     -- | recursion depth
     Int ->
-    IO (Either Text [CrossDBSolution])
+    IO [Either Text CrossDBSolution]
 goWithDepsFromScalings unitConfig depLookup db dbName extraLinks scalings depth = do
-    let localInvs = map (applyBiosphereMatrix db) scalings
-        baseSolutions =
-            zipWith
-                (\inv s -> CrossDBSolution inv (NE.singleton (Reached dbName db s)) IncludeLongTerm)
-                localInvs
-                scalings
+    let baseSolutions = map (fmap (\s -> CrossDBSolution (applyBiosphereMatrix db s) (NE.singleton (Reached dbName db s)) IncludeLongTerm)) scalings
     if depth >= maxDepsDepth
-        then pure (Right baseSolutions)
+        then pure baseSolutions
         else do
-            let perRootDepDemands = map (accumulateDepDemandsWith db extraLinks) scalings
-                allDepDbs = depDbsOf perRootDepDemands
+            let perRootDepDemands = map (fmap (accumulateDepDemandsWith db extraLinks)) scalings
+                allDepDbs = depDbsOf (rights perRootDepDemands)
             if null allDepDbs
-                then pure (Right baseSolutions)
+                then pure baseSolutions
                 else do
-                    depResults <-
-                        mapConcurrently
-                            (resolveDep unitConfig depLookup perRootDepDemands depth (length scalings))
-                            allDepDbs
-                    pure $ case sequence depResults of
-                        Left err -> Left err
-                        Right depSolsByDb ->
-                            -- Each dep returns @[Maybe CrossDBSolution]@ of
-                            -- length K. Absent-dep entries (depLookup
-                            -- returned Nothing) are 'Nothing' and drop out
-                            -- of the merge – an absent dep contributes
-                            -- nothing to inventory or csScalings.
-                            let perRootDepSols = map catMaybes (transpose depSolsByDb)
-                             in Right $
-                                    zipWith
-                                        mergeSolutions
-                                        baseSolutions
-                                        perRootDepSols
+                    -- Each dep answers every root, refused ones included, in
+                    -- the roots' order, so a column of the transpose is one
+                    -- root's. An absent dep answers 'Nothing', which drops out
+                    -- of the merge: it adds nothing to inventory or csScalings.
+                    depSolsByDb <- mapConcurrently (resolveDep unitConfig depLookup perRootDepDemands depth) allDepDbs
+                    pure (zipWith withDeps baseSolutions (transpose depSolsByDb))
+  where
+    withDeps :: Either Text CrossDBSolution -> [Either Text (Maybe CrossDBSolution)] -> Either Text CrossDBSolution
+    withDeps base deps = mergeSolutions <$> base <*> (catMaybes <$> sequence deps)
 
 {- | Merge a base 'CrossDBSolution' (this DB's own contribution) with the
 list of dep-DB solutions resolved at this level. Inventories are summed
@@ -443,20 +433,21 @@ root's demands. Shared by every dep resolver (inventory, contributions, and
 the substitution-aware path in 'Service').
 -}
 prepareDepDemandVecs :: UnitConfig -> Text -> Database -> [DepDemands] -> Either Text [Demand]
-prepareDepDemandVecs unitConfig depDbName depDb =
-    traverse (depDemandsToVector unitConfig depDbName depDb . M.findWithDefault M.empty depDbName)
+prepareDepDemandVecs unitConfig depDbName depDb = traverse (depDemandVector unitConfig depDbName depDb)
+
+-- | One root's demand on @depDbName@, as a demand vector of that database.
+depDemandVector :: UnitConfig -> Text -> Database -> DepDemands -> Either Text Demand
+depDemandVector unitConfig depDbName depDb = depDemandsToVector unitConfig depDbName depDb . M.findWithDefault M.empty depDbName
 
 resolveDep ::
     UnitConfig ->
     DepSolverLookup ->
-    [DepDemands] ->
+    [Either Text DepDemands] ->
     -- | current depth (for recursion)
     Int ->
-    -- | K (so absent-dep returns the right number of 'Nothing' padding)
-    Int ->
     Text ->
-    IO (Either Text [Maybe CrossDBSolution])
-resolveDep unitConfig depLookup perRootDepDemands depth k depDbName = do
+    IO [Either Text (Maybe CrossDBSolution)]
+resolveDep unitConfig depLookup perRootDepDemands depth depDbName = do
     depM <- depLookup depDbName
     case depM of
         Nothing ->
@@ -465,10 +456,7 @@ resolveDep unitConfig depLookup perRootDepDemands depth k depDbName = do
             -- before the inventory union / csScalings concat, exactly
             -- equivalent to an empty 'CrossDBSolution' but without
             -- materialising one (which the NonEmpty type forbids).
-            pure (Right (replicate k Nothing))
+            pure (map (const (Right Nothing)) perRootDepDemands)
         Just (depDb, depSolver) ->
-            case prepareDepDemandVecs unitConfig depDbName depDb perRootDepDemands of
-                Left err -> pure (Left err)
-                Right depDemandVecs -> do
-                    sols <- goWithDeps unitConfig depLookup depDb depDbName depSolver depDemandVecs (depth + 1)
-                    pure $ fmap (map Just) sols
+            map (fmap Just)
+                <$> goWithDeps unitConfig depLookup depDb depDbName depSolver (map (>>= depDemandVector unitConfig depDbName depDb) perRootDepDemands) (depth + 1)

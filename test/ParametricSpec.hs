@@ -18,8 +18,8 @@ takes bread in grams.
 module ParametricSpec (spec) where
 
 import API.MCP (callTool, noRequestId)
-import API.Routes (ScoreLines (..), activityLCIABatchH, batchImpactsH, postReducedModel)
-import API.Types (ActivityForAPI (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), ExchangeContribution (..), ExchangeWithUnit (..), FreeParameter (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), ReducedModel (..), ReducedModelRequest (..), Substitution (..), SubstitutionRequest (..), SubstitutionScope (..), toSelector)
+import API.Routes (ScoreLines (..), activityLCIABatchH, batchImpactsH, computedQualityReportH, postReducedModel)
+import API.Types (ActivityForAPI (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), ComputedQualityReportAPI (..), ExchangeContribution (..), ExchangeWithUnit (..), FreeParameter (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), QualityCheckAPI (..), QualityOffenderAPI (..), ReducedModel (..), ReducedModelRequest (..), Substitution (..), SubstitutionRequest (..), SubstitutionScope (..), UnsolvableEntry (..), toSelector)
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
@@ -151,7 +151,7 @@ spec = describe "a database at other values of its parameters" $ do
 
     it "factorises again for values that undo a loop the loaded database has no answer for" $ do
         -- Loaded, two processes take all of each other; at 0.5 each leaves half of what it makes.
-        loop <- build "loop" (M.restrictKeys chainFlows (S.fromList (map (snd . link) [0, 1]))) loopActivities (M.singleton "yield" (input 1))
+        loop <- build "loop" (M.restrictKeys chainFlows (S.fromList (map (snd . link) [0, 1]))) (loopActivities 1) (M.singleton "yield" (input 1))
         first' <- pidOf loop (link 0)
         manager <- bakeryManager
         let settings = [Setting Nothing "yield" 0.5]
@@ -233,6 +233,25 @@ spec = describe "a database at other values of its parameters" $ do
         manager <- scoringManager
         batch <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing Nothing IncludeLongTerm (BatchImpactsRequest [processIdText (aBin, pWaste), processIdText (aBread, pBread)] []))
         [(bieProductAmount e, bieProductUnit e) | e <- birResults batch] `shouldBe` [(Just (-1), Just "kg"), (Just 1, Just "kg")]
+
+    it "refuses in a batch only what a loop leaves without an answer, at the set that closes it" $ do
+        -- At 0.5 each link leaves half of what it makes; at 1 nothing is left of
+        -- either. The third link buys nothing, and is answered at every set.
+        manager <- scoringManager
+        install manager "looping" =<< looping 0.5
+        let processes = map (processIdText . link) [0, 1, 2]
+        batch <- answer manager (batchImpactsH "looping" (CollectionName "co2") Nothing Nothing IncludeLongTerm (BatchImpactsRequest processes [[], [ParameterValue Nothing "yield" 1]]))
+        [(bieParameterSet e, bieProcessId e) | e <- birResults batch] `shouldBe` [(Just 0, p) | p <- processes] ++ [(Just 1, processIdText (link 2))]
+        [(ueParameterSet u, ueProcessId u) | u <- birUnsolvable batch] `shouldBe` [(Just 1, p) | p <- take 2 processes]
+        map ueReason (birUnsolvable batch) `shouldSatisfy` all ("Database 'looping' has no answer to this demand: " `T.isPrefixOf`)
+
+    it "lists in the computed quality report what a loop leaves without an answer, and judges the rest" $ do
+        manager <- scoringManager
+        install manager "looped" =<< looping 1
+        report <- answer manager (computedQualityReportH "looped" (Just "co2") Nothing)
+        cqaProcessCount report `shouldBe` 3
+        sort (map qoaProcessId (qcaOffenders (cqaUnsolvable report))) `shouldBe` sort (map (processIdText . link) [0, 1])
+        map qoaSeverity (qcaOffenders (cqaUnsolvable report)) `shouldBe` [DangerSev, DangerSev]
 
     it "refuses a batch one of whose sets it cannot compute, naming the set" $ do
         manager <- scoringManager
@@ -788,13 +807,24 @@ chainActivities =
         | i <- [0 .. 129]
         ]
 
--- | Two links that each buy @yield@ of the other: at 1, nothing is left of what either makes.
-loopActivities :: M.Map (UUID, UUID) Activity
-loopActivities =
+{- | Two links that each buy @yield@ of the other, written at this amount: at 1,
+nothing is left of what either makes.
+-}
+loopActivities :: Double -> M.Map (UUID, UUID) Activity
+loopActivities amount =
     M.fromList
-        [ (link i, activity "link" [reference (snd (link i)), withFormula (formulaOf "yield") (line (snd (link other)) 1 Input){techActivityLinkId = Just (fst (link other))}])
+        [ (link i, activity "link" [reference (snd (link i)), withFormula (formulaOf "yield") (line (snd (link other)) amount Input){techActivityLinkId = Just (fst (link other))}])
         | (i, other) <- [(0, 1), (1, 0)]
         ]
+
+-- | The two links of 'loopActivities', loaded at this yield, and a third that buys nothing.
+looping :: Double -> IO Database
+looping yield =
+    build
+        "looping"
+        (M.restrictKeys chainFlows (S.fromList (map (snd . link) [0, 1, 2])))
+        (M.insert (link 2) (activity "link" [reference (snd (link 2))]) (loopActivities yield))
+        (M.singleton "yield" (input yield))
 
 -- | The bakery's parameters with a few more for the formula check: units, and two that read each other.
 withCheckParameters :: Database -> Database

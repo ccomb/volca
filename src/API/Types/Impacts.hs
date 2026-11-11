@@ -346,8 +346,28 @@ instance NFData FlowContributionEntry
 
 instance NFData ScoringIndicator
 
+{- | An activity of a batch that resolved but got no score, and why: its
+supply chain reaches a process the solver cannot answer for, or its demand
+cannot be put to a database it reaches (a unit with no conversion to the
+supplier's, or an activity with no column in the matrix).
+-}
+data UnsolvableEntry = UnsolvableEntry
+    { ueProcessId :: Text
+    -- ^ As the request wrote it
+    , ueParameterSet :: Maybe Int
+    {- ^ The position of the parameter set it has no answer at, when the request
+    gave sets: values change the matrix, so an activity may have an answer at
+    one set and none at another
+    -}
+    , ueReason :: Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped UnsolvableEntry)
+
+instance NFData UnsolvableEntry
+
 {- | Batch impacts response: one entry per successfully computed process,
-plus lists of process ids that could not be resolved.
+plus lists of process ids that could not be resolved or solved for.
 -}
 data BatchImpactsResponse = BatchImpactsResponse
     { birResults :: [BatchImpactsEntry]
@@ -357,6 +377,8 @@ data BatchImpactsResponse = BatchImpactsResponse
     {- ^ Ids that resolve but name an activity the allocation gate refused; the
     quality report's @unallocated@ check says why for each
     -}
+    , birUnsolvable :: [UnsolvableEntry]
+    -- ^ Activities that resolve but have no answer, each with why; the others of the batch are scored all the same
     , birBasis :: ScoreBasis
     -- ^ What every score of the batch rests on; each entry's parameter set is a position in its parameter sets
     , birReadingNotice :: Maybe Text

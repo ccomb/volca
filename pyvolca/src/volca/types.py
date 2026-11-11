@@ -800,6 +800,27 @@ class ScoredActivity:
 
 
 @dataclass
+class UnsolvableActivity:
+    """A process of a batch that resolves but has no answer, and why.
+
+    Its supply chain reaches a process the solver cannot answer for (for
+    instance two processes that each take all of what the other makes), or
+    its demand cannot be put to a database it reaches. ``parameter_set`` is the position
+    of the set it has no answer at, when the batch gave sets: values change
+    the matrix, so a process may have an answer at one set and none at
+    another.
+    """
+
+    process_id: str
+    reason: str
+    parameter_set: int | None = None
+
+    @classmethod
+    def from_json(cls, d: dict) -> "UnsolvableActivity":
+        return cls(process_id=d["processId"], reason=d["reason"], parameter_set=d.get("parameterSet"))
+
+
+@dataclass
 class BatchScores:
     """Result of :meth:`Client.score_activities` scoring many processes at once.
 
@@ -807,14 +828,17 @@ class BatchScores:
     computed; ``not_found`` and ``invalid`` list the process ids it could not
     resolve, and ``unscorable`` those that resolve but name an activity the
     engine refuses to score (its quality report's ``unallocated`` check says
-    why; wire revision 14, empty from an older engine). A non-empty list is a
-    partial result to inspect, not a failure.
+    why; wire revision 14, empty from an older engine). ``unsolvable`` lists
+    those the solver has no answer for, each with why (wire revision 112,
+    empty from an older engine, which refused the whole batch instead). A
+    non-empty list is a partial result to inspect, not a failure.
     """
 
     results: list[ScoredActivity]
     not_found: list[str]
     invalid: list[str]
     unscorable: list[str]
+    unsolvable: list[UnsolvableActivity] = field(default_factory=list)
     basis: ScoreBasis | None = None
     """What every score of the batch rests on, said once (wire revision 99);
     ``None`` from an older engine."""
@@ -840,6 +864,7 @@ class BatchScores:
             not_found=d["notFound"],
             invalid=d["invalid"],
             unscorable=d.get("unscorable", []),
+            unsolvable=[UnsolvableActivity.from_json(u) for u in d.get("unsolvable", [])],
             basis=ScoreBasis.maybe(d.get("basis")),
             reading_notice=d.get("readingNotice"),
         )
