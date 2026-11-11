@@ -158,7 +158,7 @@ mod tests {
         let cols = [0, 1, 2, 0, 1, 1];
         let vals = [1.0, 1.0, 1.0, -0.5, -0.25, -0.125];
         match factorize(3, &rows, &cols, &vals).unwrap() {
-            Verdict::Accepted(factors, _) => factors,
+            Verdict::Accepted(factors, _) => *factors,
             Verdict::Refused(refusal) => panic!("{refusal:?}"),
         }
     }

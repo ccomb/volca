@@ -44,13 +44,20 @@ pub struct Found {
     factors: *mut Factors,
     /// Done: how many bytes `volca_lu_export` writes.
     bytes: u64,
-    /// Tiny pivot: its column. Bad entry: its position among the entries.
+    /// Done: the column whose pivot kept the smallest share of the diagonal
+    /// entry it started from, when the matrix has a column. Tiny pivot: its
+    /// column. Bad entry: its position among the entries.
     at: u64,
-    /// Tiny pivot: the pivot. Unreliable: the share of a row left unexplained.
+    /// Done: that share. Tiny pivot: the pivot. Unreliable: the share of a
+    /// row left unexplained.
     value: f64,
+    /// Done: how many columns were eliminated as one full block.
+    dense: u64,
+    /// Done: the share of a row that the trial solve left unexplained.
+    error: f64,
 }
 
-const _: () = assert!(size_of::<Found>() == 32);
+const _: () = assert!(size_of::<Found>() == 48);
 
 /// The `len` items at `ptr`, or none: an empty list may come with any pointer.
 ///
@@ -116,11 +123,19 @@ pub unsafe extern "C" fn volca_lu_factorize(
         bytes: 0,
         at: 0,
         value: 0.0,
+        dense: 0,
+        error: 0.0,
     };
     guarded(|| match lu::factorize(n, rows, cols, vals) {
-        Ok(Verdict::Accepted(factors, _)) => {
+        Ok(Verdict::Accepted(factors, report)) => {
+            if let Some((Original(column), share)) = report.weakest {
+                found.at = column as u64;
+                found.value = share;
+            }
+            found.dense = report.dense_columns as u64;
+            found.error = report.probe_error;
             found.bytes = factors.byte_len() as u64;
-            found.factors = Box::into_raw(Box::new(factors));
+            found.factors = Box::into_raw(factors);
             DONE
         }
         Ok(Verdict::Refused(Refusal::TinyPivot { column, pivot })) => {
@@ -262,6 +277,8 @@ mod tests {
         bytes: 0,
         at: 0,
         value: 0.0,
+        dense: 0,
+        error: 0.0,
     };
 
     /// A full matrix of this many columns, one on the diagonal and little off
@@ -299,6 +316,9 @@ mod tests {
             )
         };
         assert_eq!(answer, DONE);
+        assert!(found.dense > 0 && (found.at as usize) < n);
+        assert!((found.value - 1.0).abs() < 0.01, "{}", found.value);
+        assert!(found.error < 1e-13, "{}", found.error);
         let mut block = vec![0u64; found.bytes as usize / 8];
         // SAFETY: the factors just received, given once, and room for them.
         let answer = unsafe {

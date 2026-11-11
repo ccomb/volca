@@ -11,6 +11,8 @@ ones at once.
 -}
 module Matrix.Sparse (
     Factors,
+    Report (..),
+    report,
     Refused (..),
     factorize,
     solve,
@@ -37,10 +39,29 @@ data Factors
     = Factors
         -- | The factors as the solver wrote them
         !(ForeignPtr Word8)
-        -- | How many bytes that is
-        !Int
         -- | The size of the matrix
         !Int
+        !Report
+
+-- | What a factorization measured on its way to its factors.
+data Report = Report
+    { factorBytes :: !Int
+    -- ^ The memory the factors take
+    , denseColumns :: !Int
+    -- ^ How many columns were eliminated as one full block
+    , weakestPivot :: !(Maybe (Int, Double))
+    {- ^ The column (counted from 0) whose pivot kept the smallest share of the
+    diagonal entry it started from, and that share: how close the matrix came
+    to a 'TinyPivot'. None for a matrix without columns.
+    -}
+    , trialError :: !Double
+    -- ^ The share of a row that a trial solve left unexplained
+    }
+    deriving (Eq, Show)
+
+-- | What the factorization that made these factors measured.
+report :: Factors -> Report
+report (Factors _ _ measured) = measured
 
 -- | Why a matrix has no factors: a verdict on the matrix, the same at every try.
 data Refused
@@ -55,7 +76,7 @@ data Refused
 -- | Factors the solver still owns, to export or to discard once.
 data Owned
 
--- | What a factorization says beyond its code: four fields of eight bytes.
+-- | What a factorization says beyond its code: six fields of eight bytes.
 data Found
 
 foreign import ccall safe "volca_lu_factorize"
@@ -90,7 +111,7 @@ factorize n triples
             -- A negative index becomes one above two billion, which the solver refuses as outside the matrix.
             U.imapM_ (\k (SparseTriple i j v) -> pokeElemOff rows k (fromIntegral i) >> pokeElemOff cols k (fromIntegral j) >> pokeElemOff vals k v) triples
             -- Masked from the call to the export: a request cancelled in between would leave factors nobody frees.
-            allocaBytes 32 $ \found -> mask_ $ do
+            allocaBytes 48 $ \found -> mask_ $ do
                 code <- c_factorize (fromIntegral n) (fromIntegral count) rows cols vals found
                 at <- peekByteOff found 16 :: IO Word64
                 value <- peekByteOff found 24
@@ -98,9 +119,12 @@ factorize n triples
                     0 -> do
                         owned <- peekByteOff found 0
                         bytes <- fromIntegral <$> (peekByteOff found 8 :: IO Word64)
+                        dense <- fromIntegral <$> (peekByteOff found 32 :: IO Word64)
+                        trial <- peekByteOff found 40
                         block <- mallocPlainForeignPtrAlignedBytes bytes 8 `onException` c_discard owned
                         exported <- withForeignPtr block $ \p -> c_export owned p (fromIntegral bytes)
-                        pure $ if exported == 0 then Right (Right (Factors block bytes n)) else Left (failure exported at)
+                        let weakest = if n == 0 then Nothing else Just (fromIntegral at, value)
+                        pure $ if exported == 0 then Right (Right (Factors block n (Report bytes dense weakest trial))) else Left (failure exported at)
                     1 -> pure (Right (Left (TinyPivot (fromIntegral at) value)))
                     2 -> pure (Right (Left (Unreliable value)))
                     _ -> pure (Left (failure code at))
@@ -111,7 +135,7 @@ factorize n triples
 without writing to them: requests solve with the same ones at the same time.
 -}
 solve :: Factors -> [U.Vector Double] -> IO (Either Text [U.Vector Double])
-solve (Factors block bytes n) rhs
+solve (Factors block n Report{factorBytes = bytes}) rhs
     | any ((/= n) . U.length) rhs = pure (Left ("a right-hand side needs one number for each of the " <> T.pack (show n) <> " columns of the matrix"))
     | otherwise =
         -- The engine's vectors can move while foreign code runs: the numbers go through memory that cannot.

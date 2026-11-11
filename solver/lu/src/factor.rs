@@ -41,10 +41,14 @@ pub struct Report {
     pub free_columns: usize,
     /// Largest share of a row that the trial solve left unexplained.
     pub probe_error: f64,
+    /// The column whose pivot kept the smallest share of the diagonal entry it
+    /// started from, and that share: how close the matrix came to a refusal.
+    /// None for a matrix without columns.
+    pub weakest: Option<(Original, f64)>,
 }
 
 pub enum Verdict {
-    Accepted(Factors, Report),
+    Accepted(Box<Factors>, Report),
     Refused(Refusal),
 }
 
@@ -73,6 +77,7 @@ fn factorize_cut(
         }
     };
     let free_columns = order.free;
+    let weakest = weakest(&raw.diag, &floor).map(|(at, share)| (order.old_at(at), share));
     let factors = Factors::new(raw, order.into_new())?;
     let probe_error = probe(&m, &factors)?;
     if probe_error > UNRELIABLE {
@@ -83,8 +88,20 @@ fn factorize_cut(
         dense_columns,
         free_columns,
         probe_error,
+        weakest,
     };
-    Ok(Verdict::Accepted(factors, report))
+    Ok(Verdict::Accepted(Box::new(factors), report))
+}
+
+/// Where a pivot kept the smallest share of the diagonal entry it started
+/// from, and that share. A diagonal that started at zero had nothing to keep.
+fn weakest(diag: &[f64], floor: &[f64]) -> Option<(usize, f64)> {
+    let share = |(pivot, floor): (&f64, &f64)| pivot.abs() * TINY / floor;
+    diag.iter()
+        .zip(floor)
+        .map(share)
+        .enumerate()
+        .min_by(|a, b| a.1.total_cmp(&b.1))
 }
 
 /// The matrix with rows and columns in elimination order, and for each column
@@ -435,7 +452,7 @@ mod tests {
 
     fn accepted(n: usize, (rows, cols, vals): &Entries, cut: Cut) -> (Factors, Report) {
         match factorize_cut(n, rows, cols, vals, cut).unwrap() {
-            Verdict::Accepted(factors, report) => (factors, report),
+            Verdict::Accepted(factors, report) => (*factors, report),
             Verdict::Refused(refusal) => panic!("{refusal:?}"),
         }
     }
@@ -598,6 +615,24 @@ mod tests {
                 other => panic!("{other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn the_report_names_the_pivot_that_kept_least_of_its_diagonal() {
+        // 0 stands alone. Whichever of 1 and 2 goes second keeps 1 - 0.9 * 0.9.
+        let close = |i: usize, j: usize| match (i, j) {
+            (1, 2) | (2, 1) => -0.9,
+            _ if i == j => 1.0,
+            _ => 0.0,
+        };
+        for cut in [NO_BLOCK, ALL_BLOCK] {
+            let (_, report) = accepted(3, &entries(3, close), cut);
+            let (column, share) = report.weakest.unwrap();
+            assert!(column == Original(1) || column == Original(2), "{column:?}");
+            assert!((share - 0.19).abs() < 1e-15, "{share}");
+        }
+        let (_, none) = accepted(0, &entries(0, |_, _| 0.0), CUT);
+        assert_eq!(none.weakest, None);
     }
 
     #[test]
