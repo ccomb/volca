@@ -58,6 +58,7 @@ import Service (
     getReferenceProductName,
     referenceMagnitude,
     resolveScorable,
+    solved,
  )
 import SharedSolver (DepSolverLookup, Reached (..), SharedSolver, computeInventoryMatrixWithDepsCached, solveWithSharedSolver)
 import qualified SharedSolver
@@ -202,8 +203,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                     return $ Right $ reduce params noCutoffs (rowsFromDirect db activity)
                 ScopeSupplyChain -> case demandFor db processId of
                     Left err -> return (Left err)
-                    Right demandVec -> do
-                        supplyVec <- solveWithSharedSolver solver demandVec
+                    Right demandVec -> solved (solveWithSharedSolver solver demandVec) $ \supplyVec -> do
                         let af = emptyFilter (apMaxDepth params)
                         eResp <-
                             buildSupplyChainFromScalingVectorCrossDB

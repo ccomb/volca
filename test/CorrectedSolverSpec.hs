@@ -5,14 +5,10 @@ factorisation of the changed matrix would.
 -}
 module CorrectedSolverSpec (spec) where
 
-import Control.Exception (bracket)
 import Data.Either (isLeft)
 import qualified Data.Map.Strict as M
-import Data.Text (Text)
-import qualified Data.UUID as UUID
-import Data.UUID.V4 (nextRandom)
 import qualified Data.Vector.Unboxed as U
-import Matrix (Demand (..), clearCachedSolver)
+import Matrix (Demand (..))
 import Matrix.Dense (factorLU, solveLU)
 import SharedSolver (SharedSolver, correctedFor, createSharedSolver, solveMultiWithSharedSolver, solveWithSharedSolver)
 import Test.Hspec
@@ -42,9 +38,9 @@ spec = do
             withNumTests 50 . forAll changedMatrix $ \(n, before, after, moved, demands) -> ioProperty $
                 withSolver n before $ \loaded -> withSolver n after $ \fresh -> do
                     corrected <- either (fail . show) pure =<< correctedFor loaded (change before after moved)
-                    expected <- solveMultiWithSharedSolver fresh (map Demand demands)
-                    got <- solveMultiWithSharedSolver corrected (map Demand demands)
-                    one <- traverse (solveWithSharedSolver corrected . Demand) demands
+                    expected <- either (fail . show) pure =<< solveMultiWithSharedSolver fresh (map Demand demands)
+                    got <- either (fail . show) pure =<< solveMultiWithSharedSolver corrected (map Demand demands)
+                    one <- either (fail . show) pure . sequence =<< traverse (solveWithSharedSolver corrected . Demand) demands
                     pure (conjoin [close e g | (e, g) <- zip expected got <> zip expected one])
 
         it "refuses a change that makes the matrix singular" $
@@ -80,11 +76,6 @@ change before after moved =
   where
     rows j = [i | (i, j') <- M.keys (M.union before after), j' == j]
 
--- | A solver of I − A under a name of its own, its factorisation destroyed afterwards.
+-- | A solver of I − A.
 withSolver :: Int -> M.Map (Int, Int) Double -> (SharedSolver -> IO a) -> IO a
-withSolver n entries act = do
-    name <- ("corrected-" <>) . UUID.toText <$> nextRandom
-    bracket (solver name) (const (clearCachedSolver name)) act
-  where
-    solver :: Text -> IO SharedSolver
-    solver name = createSharedSolver name [(i, j, v) | ((i, j), v) <- M.toList entries] n
+withSolver n entries act = createSharedSolver "corrected" [(i, j, v) | ((i, j), v) <- M.toList entries] n >>= act

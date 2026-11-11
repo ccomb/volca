@@ -990,8 +990,6 @@ sudo dnf install gcc gcc-c++ gcc-gfortran make python3 curl zlib-devel openblas-
 sudo pacman -S base-devel gcc-fortran python curl zlib openblas blas lapack
 ```
 
-The BLAS the engine runs on should be OpenBLAS, as in every packaged build: the engine pins it to one thread, and `BlasThreadsSpec` fails on a build that reaches another BLAS, which has no thread count to pin.
-
 Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/) and Rust (through [rustup](https://rustup.rs) or your distribution's `cargo` package; `solver/Cargo.toml` names the oldest version that builds), then:
 
 ```bash

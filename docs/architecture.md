@@ -51,10 +51,10 @@ of the system; the CLI and REPL are just thin HTTP clients.
    ┌─────▼──────────────────────────────────┐     ┌────────▼──────────┐
    │  INGESTION                             │     │  NATIVE           │
    │  Parsers : EcoSpold2 · EcoSpold1 ·     │     │  Direct sparse    │
-   │   SimaPro CSV · ILCD · Brightway .xlsx │     │  MUMPS solver     │
-   │  Methods : ILCD / CSV / olca packages  │     │  (Fortran)        │
-   │  Archives : zip · 7z · gz · xz         │     │  via mumps-hs     │
-   │  Cache : Data.Store, schema-invalidated│     │  (FFI / cbits)    │
+   │   SimaPro CSV · ILCD · Brightway .xlsx │     │  solver (Rust)    │
+   │  Methods : ILCD / CSV / olca packages  │     │  in solver/       │
+   │  Archives : zip · 7z · gz · xz         │     │  via Matrix.Sparse│
+   │  Cache : Data.Store, schema-invalidated│     │  (FFI)            │
    └────────────────────────────────────────┘     └───────────────────┘
 
    ┌──────────────────── CROSS-CUTTING ───────────────────────────────┐
@@ -94,9 +94,9 @@ figures live in the README's Performance table (single source for benchmarks).
 
 HTTP request → `API.Auth` → Servant handler (`API.Routes`) → `Service` → `SharedSolver`.
 
-The **MUMPS LU factorisation is lazy**: it is computed only on the first `solve`,
-guarded by an `MVar` for thread safety, then reused for the whole lifetime of the
-server. We solve the scaling vector `s`, then the inventory `g = B·s`, then
+The **LU factorisation is lazy**: the first `solve` computes it while the requests
+arriving meanwhile wait on an `MVar`, then every request reads the same factors, at
+the same time, for as long as the database stays loaded. We solve the scaling vector `s`, then the inventory `g = B·s`, then
 `Method.Mapping` applies the characterisation factors (CFs) to obtain the LCIA score.
 
 Equations solved:
@@ -160,7 +160,7 @@ are rebuilt on load – cheap compared to parsing.
 
 ### Computation pipeline
 
-A single impact request walks the LCA equations left to right. The MUMPS
+A single impact request walks the LCA equations left to right. The
 factorisation is built once (lazily) and every later request reuses it.
 
 ```
@@ -171,7 +171,7 @@ factorisation is built once (lazily) and every later request reuses it.
   f   final demand vector  (1.0 at the target activity, 0 elsewhere)
     │
     │  SharedSolver.solveWithSharedSolver          A = technosphere matrix
-    │     ⇒  (I − A) · s = f       solved by MUMPS LU factorisation (reused)
+    │     ⇒  (I − A) · s = f       solved by the LU factorisation (reused)
     ▼
   s   scaling vector        (how much each activity must run)
     │
@@ -271,7 +271,8 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 | `Database/MatrixBuild.hs`   | Sparse A / B matrix construction, normalisation (all numerical work) |
 | `Database.hs`               | Composes the matrix builders, adds progress reporting               |
 | `Types.hs`                  | Domain model (Activity, Flow, Exchange, Database) – sum types        |
-| `Matrix.hs`                 | Matrix LCA computations via the MUMPS solver                        |
+| `Matrix.hs`                 | Matrix LCA computations on the sparse solver                        |
+| `Matrix/Sparse.hs`, `solver/` | The sparse direct solver, in Rust, and the Haskell that calls it  |
 | `SharedSolver.hs`           | Lazy thread-safe LU factorisation, caches, back-substitution        |
 | `mumps-hs/`                 | FFI bindings to the MUMPS direct sparse solver (Fortran)            |
 | `EcoSpold/`, `SimaPro/`, `ILCD/`, `BrightwayExcel/`, `OlcaSchema/` | One namespace per database format, each with a `Parser` (read, wired into `Database/Loader.hs`) and a `Writer` (export, wired into `Database/Export.hs`) |
@@ -290,7 +291,7 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 
 ## Structuring principles
 
-- **Pure core, effects at the edges** – parsers, the MUMPS FFI and I/O are confined;
+- **Pure core, effects at the edges** – parsers, the solver FFI and I/O are confined;
   the computation is pure.
 - **Impossible states made impossible** – loading statuses, domain model and states
   as sum types, with no `wildcard` pattern on sums.

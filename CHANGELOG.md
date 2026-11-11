@@ -62,6 +62,16 @@
   image ask nothing new of whoever runs them. A bare `cabal build` in a fresh
   checkout wants `./build.sh --prepare` first, where `./gen-version.sh` used to
   be enough.
+- The engine solves a database with a sparse solver of its own, the Rust
+  library under `solver/`, where it called MUMPS. Requests on one database now
+  compute at the same time: they used to take the solver one after another. A
+  database that cannot be solved, such as two activities each taking a
+  kilogram of the other's product to make a kilogram of its own, is refused
+  with the name of an activity of the loop, where MUMPS answered finite
+  numbers that were wrong and said nothing. The log says, at the first solve
+  of a database, how large its factors are and how far a trial solve was off.
+  The build still compiles MUMPS and OpenBLAS and links them into the
+  published binaries, where nothing calls them any more.
 
 ## [0.17.0] - 2026-11-07
 

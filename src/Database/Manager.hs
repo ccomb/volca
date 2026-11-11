@@ -189,7 +189,7 @@ import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.QSem (QSem, newQSem)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, bracket, try)
+import Control.Exception (SomeException, try)
 import qualified Control.Exception
 import Control.Lens ((&), (?~))
 import Control.Monad (filterM, forM, forM_, unless, void, when, (<=<))
@@ -235,14 +235,13 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
-import Data.UUID.V4 (nextRandom)
 import Database (Geographies, buildDatabaseWithMatrices, readGeographies)
 import qualified Database.Child as Child
 import Database.Cutoffs (GapIndex, gapIndexMoved, gapIndexOf)
 import qualified Database.Loader as Loader
 import Database.MatrixBuild (technosphereChange)
 import qualified Database.Quality as Quality
-import Matrix (clearCachedSolver)
+import Matrix (byPosition)
 import Method.ChemSynonyms (ChemSynonyms, emptyChemSynonyms, loadChemSynonyms)
 import qualified Method.Coverage as Coverage
 import qualified Method.Explain as Explain
@@ -302,7 +301,7 @@ import Parametric (Setting, parameterised)
 import Progress (ProgressLevel (..), reportError, reportProgress, reportProgressWithTiming, withLogScope)
 import qualified Search.BM25 as BM25
 import Servant.API (FromHttpApiData)
-import SharedSolver (SharedSolver, correctedFor, createSharedSolver)
+import SharedSolver (SharedSolver, correctedFor, createSharedSolver, namingColumns)
 import qualified SharedSolver
 import SubstanceRegistry (CASNumber (..), KeyNormalizers (..), NormName (..), SubstanceEdge, casBindingsFromEdges, normalizeCAS, parseSubstanceEdges)
 import SynonymDB (BridgeDirection (..), SynEdge (..), SynonymDB (..), buildFromCSV, emptySynonymDB, excludeJunkSynonyms, excludeOverFrequentSynonyms, loadFromCSVFileWithCache, mergeSynonymDBs, normalizeName, oversizedClasses, reopenedBridges, synonymCount, uncoveredUnitSuffixes)
@@ -3260,7 +3259,6 @@ the runtime indexes, and the solver, since every matrix row moved.
 withRuntime :: Text -> SynonymDB -> Database -> IO (Database, SharedSolver)
 withRuntime dbName synonymDB rebuilt = do
     let db = BM25.addBM25Index (initializeRuntimeFields rebuilt synonymDB)
-    clearCachedSolver dbName
     solver <- solverFor dbName db
     pure (db, solver)
 
@@ -3516,7 +3514,7 @@ dependency set ('dbDependsOn'), not the full set of loaded DBs. Updates
 'dbCrossDBLinks' and 'dbLinkingStats' in place in the LoadedDatabase record;
 the dependency set itself is left untouched (strict pin: it changes only via
 explicit add/remove-dependency). Does NOT rebuild the technosphere matrix or
-invalidate the MUMPS factorization: cross-DB links are consumed only at
+invalidate the factorization: cross-DB links are consumed only at
 solve time.
 
 Side-effect: persists the updated 'Database' back to its matrix-cache file
@@ -3934,8 +3932,7 @@ unloadDatabase manager dbName = withLogScope dbName $ do
                 modifyTVar' (dmLoadedDbs manager) (M.delete dbName)
                 modifyTVar' (dmIndexedDbs manager) (M.delete dbName)
 
-            -- Clear cached solvers and flow mappings
-            clearCachedSolver dbName
+            -- Clear flow mappings
             clearMethodMappingCacheForDb manager dbName
 
             -- Force garbage collection to release memory
@@ -4039,22 +4036,26 @@ deleteMatrixCache name sourcePath = do
         reportProgress Info $ "Deleted cache: " ++ zstdFile
 
 {- | The solver for a database, over the technosphere triples it holds.
-Factorization is lazy, so this costs nothing until the first query.
+Factorization is lazy, so this costs nothing until the first query. A matrix
+it refuses is refused at an activity called by its name.
 -}
 solverFor :: Text -> Database -> IO SharedSolver
 solverFor dbName db =
-    createSharedSolver
-        dbName
-        [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
-        (fromIntegral (dbActivityCount db))
+    namingColumns (\column -> maybe (byPosition column) activityName (activities V.!? column))
+        <$> createSharedSolver
+            dbName
+            [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
+            (fromIntegral (dbActivityCount db))
+  where
+    activities :: V.Vector Activity
+    activities = dbActivities db
 
 {- | Run with the loaded database at these settings and a solver for it, or
 say why the settings give none. The solver is the loaded one when no entry of
 the technosphere moved, and the loaded one corrected by the columns that moved
 when they are few enough for the correction to stay small. Otherwise it is one
-under a name of its own whose factorisation is destroyed when the action ends:
-factorisations are cached by name, so the loaded database's own is never
-replaced.
+of its own, factorised for this action and dropped with it; these are made one
+at a time, which bounds how many such factors are alive at once.
 -}
 withSettings :: forall a. DatabaseManager -> Text -> (Database, SharedSolver) -> [Setting] -> (Database -> SharedSolver -> IO a) -> IO (Either Text a)
 withSettings manager dbName (before, loaded) settings act = do
@@ -4067,9 +4068,7 @@ withSettings manager dbName (before, loaded) settings act = do
         change
             | correctable (length change) ->
                 correctedFor loaded change >>= either (pure . Left . (<> inputsOf change)) (fmap Right . act after)
-            | otherwise -> fmap Right . withMVar (dmFactorisationLock manager) $ \() -> do
-                name <- (\tag -> dbName <> "#" <> UUID.toText tag) <$> nextRandom
-                bracket (solverFor name after) (const (clearCachedSolver name)) (act after)
+            | otherwise -> fmap Right . withMVar (dmFactorisationLock manager) $ \() -> solverFor dbName after >>= act after
 
     {- A correction beats a new factorisation while it stays small: its k dense
     columns under 64 MB, and k itself bounded, since its k×k elimination grows
@@ -4801,7 +4800,6 @@ restageLoadedDatabase manager dbName ld = do
     atomically $ do
         modifyTVar' (dmLoadedDbs manager) (M.delete dbName)
         modifyTVar' (dmStagedDbs manager) (M.insert dbName staged)
-    clearCachedSolver dbName
     clearMethodMappingCacheForDb manager dbName
     return staged
 

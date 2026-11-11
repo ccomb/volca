@@ -59,7 +59,7 @@ spec modules are `*Spec.hs` under `test/` and auto-discovered. New behavior need
 | Area | Modules | Role |
 |------|---------|------|
 | Domain | `Types` | Central domain types (Activity, Exchange, Flow, …) |
-| Solve | `Matrix`, `SharedSolver` | Sparse technosphere/biosphere matrices; MUMPS-backed LCI solve |
+| Solve | `Matrix`, `SharedSolver` | Sparse technosphere/biosphere matrices; LCI solve on the sparse solver of `solver/` |
 | Formats | `EcoSpold.*`, `SimaPro.*`, `ILCD.*`, `BrightwayExcel.*`, `Method.Parser*` | One namespace per database format, each with a `Parser` (wired into `Database.Loader`) and a `Writer` (wired into `Database.Export`); method readers are `Method.Parser*` |
 | Methods | `Method.Mapping`, `Method.FlowResolver`, `Method.ChemSynonyms` | CF mapping (UUID→name→synonym→CAS cascade), flow resolution |
 | Database | `Database.*` (`Loader`, `CrossLinking`, `MatrixBuild`, `Manager`) | Load, cross-link, build matrices, manage lifecycle |

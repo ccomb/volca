@@ -33,7 +33,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             solver <- mkSolverFromDb db "SAMPLE.min3"
             let demand = buildDemandVector db 0
-            x <- solveWithSharedSolver solver =<< either (fail . show) pure demand
+            x <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demand
             r <- perturbA (solveMultiWithSharedSolver solver . map Demand) x 0 []
             case r of
                 Right x' -> U.toList x' `shouldBe` U.toList x
@@ -195,7 +195,7 @@ spec = do
                     ]
                 n = fromIntegral (dbActivityCount db)
             demand <- unDemand <$> either (fail . show) pure (buildDemandVector db 0)
-            xRef <- solveSparseLinearSystem scaledTriples n demand
+            xRef <- either (fail . show) pure =<< solveSparseLinearSystem scaledTriples n demand
 
             -- Compare element-wise within tight numerical tolerance.
             let near a b = abs (a - b) < 1e-10

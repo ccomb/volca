@@ -19,7 +19,7 @@ module CopySpec (spec) where
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Data.JournalFile (noOrigin)
 import qualified Data.Map.Strict as M
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (isJust)
 import Data.Store (decodeEx, encode)
 import Data.Text (Text, isInfixOf)
 import qualified Data.Text as T
@@ -44,7 +44,7 @@ import Matrix (buildDemandVector)
 import SharedSolver (
     SharedSolver,
     createSharedSolver,
-    getFactorization,
+    factorized,
     solveWithSharedSolver,
  )
 import System.FilePath ((</>))
@@ -184,12 +184,11 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
             copySolver = ldSharedSolver (loaded M.! "mycopy")
 
         -- Force the source solver's lazy factorization via a first solve.
-        _ <- solveWithSharedSolver srcSolver =<< either (fail . show) pure (buildDemandVector srcDb 0)
-        -- MatrixFactorization has no Show instance, so assert on the Bool.
-        getFactorization srcSolver >>= (`shouldBe` True) . isJust
+        _ <- either (fail . show) pure =<< solveWithSharedSolver srcSolver =<< either (fail . show) pure (buildDemandVector srcDb 0)
+        factorized srcSolver `shouldReturn` True
 
         -- A shared MVar would have warmed the copy too; a distinct one stays empty.
-        getFactorization copySolver >>= (`shouldBe` True) . isNothing
+        factorized copySolver `shouldReturn` False
 
     it "refuses to overwrite an existing database name" $ do
         manager <- initDatabaseManager defaultConfig NoCache

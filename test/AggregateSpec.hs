@@ -5,7 +5,7 @@
 Exercised end-to-end against SAMPLE.min3 – a three-step chain where
 activity X consumes 0.6 kg of product Y per kg of product X, and Y
 consumes 0.4 kg of product Z per kg of Y, so the scaling vector for one
-kg of X is (1, 0.6, 0.24). ScopeDirect needs no MUMPS solve; the other
+kg of X is (1, 0.6, 0.24). ScopeDirect needs no solve; the other
 scopes are driven by mkSolverFromDb. Emphasis on the filter / group-by /
 aggregate-function semantics that the HTTP layer relies on for
 correctness.

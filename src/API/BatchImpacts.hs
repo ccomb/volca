@@ -93,7 +93,7 @@ runActivityLCIABatch dbm hosting dbName pid coll mSub ltMode scoreLines =
     runBare dbm hosting (activityLCIABatchH dbName pid (CollectionName coll) mSub ltMode scoreLines)
 
 {- | Score N activities against every method in a collection in one
-multi-RHS MUMPS solve plus parallel characterization. Unresolved process
+multi-RHS solve plus parallel characterization. Unresolved process
 IDs land in 'birNotFound' / 'birInvalid' / 'birUnscorable' of the response,
 not in 'BatchError'.
 -}

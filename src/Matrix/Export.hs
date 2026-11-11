@@ -26,6 +26,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import Data.Traversable (for)
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 
@@ -60,10 +61,10 @@ extractMatrixDebugInfo :: Database -> ProcessId -> Maybe Text -> IO (Either Text
 extractMatrixDebugInfo database targetProcessId flowFilter =
     either
         (pure . Left)
-        (fmap Right . withDemand . unDemand)
+        (withDemand . unDemand)
         (buildDemandVector database targetProcessId)
   where
-    withDemand :: Vector -> IO MatrixDebugInfo
+    withDemand :: Vector -> IO (Either Text MatrixDebugInfo)
     withDemand demandVec = do
         let activities = dbActivities database
             bioFlows = dbBioFlows database
@@ -79,40 +80,41 @@ extractMatrixDebugInfo database targetProcessId flowFilter =
             techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
             activityCountInt = fromIntegral activityCount
 
-        supplyVec <- solveSparseLinearSystem techTriplesInt activityCountInt demandVec
-        let bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
-            bioFlowCountInt = fromIntegral bioFlowCount
-            inventoryVec = applySparseMatrix bioTriplesInt bioFlowCountInt supplyVec
-            inventoryList = toList inventoryVec
+        solution <- solveSparseLinearSystem techTriplesInt activityCountInt demandVec
+        for solution $ \supplyVec -> do
+            let bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
+                bioFlowCountInt = fromIntegral bioFlowCount
+                inventoryVec = applySparseMatrix bioTriplesInt bioFlowCountInt supplyVec
+                inventoryList = toList inventoryVec
 
-            filteredBioTriples = case flowFilter of
-                Nothing -> bioTriples
-                Just filterText ->
-                    -- The filter read the way a flow search reads a query: the
-                    -- words in any order, punctuation of the name left to the name.
-                    let candidates =
-                            [ (idx, flow)
-                            | (uuid, idx) <- zip (V.toList bioFlowUUIDs) ([0 ..] :: [Int])
-                            , Just flow <- [M.lookup uuid bioFlows]
-                            ]
-                        matchingFlowIndices =
-                            map fst (filterByName filterText (flowSearchFields . BioKind . snd) candidates)
-                        matchingFlowIndicesInt32 = map fromIntegral matchingFlowIndices :: [Int32]
-                     in U.filter (\(SparseTriple row _ _) -> row `elem` matchingFlowIndicesInt32) bioTriples
-        return
-            MatrixDebugInfo
-                { mdActivities = activities
-                , mdBioFlows = bioFlows
-                , mdTechTriples = techTriples
-                , mdBioTriples = filteredBioTriples
-                , mdActivityIndex = activityIndexVec
-                , mdBioFlowUUIDs = bioFlowUUIDs
-                , mdTargetProcessId = targetProcessId
-                , mdDatabase = database
-                , mdSupplyVector = supplyVec
-                , mdDemandVector = demandList
-                , mdInventoryVector = inventoryList
-                }
+                filteredBioTriples = case flowFilter of
+                    Nothing -> bioTriples
+                    Just filterText ->
+                        -- The filter read the way a flow search reads a query: the
+                        -- words in any order, punctuation of the name left to the name.
+                        let candidates =
+                                [ (idx, flow)
+                                | (uuid, idx) <- zip (V.toList bioFlowUUIDs) ([0 ..] :: [Int])
+                                , Just flow <- [M.lookup uuid bioFlows]
+                                ]
+                            matchingFlowIndices =
+                                map fst (filterByName filterText (flowSearchFields . BioKind . snd) candidates)
+                            matchingFlowIndicesInt32 = map fromIntegral matchingFlowIndices :: [Int32]
+                         in U.filter (\(SparseTriple row _ _) -> row `elem` matchingFlowIndicesInt32) bioTriples
+            return
+                MatrixDebugInfo
+                    { mdActivities = activities
+                    , mdBioFlows = bioFlows
+                    , mdTechTriples = techTriples
+                    , mdBioTriples = filteredBioTriples
+                    , mdActivityIndex = activityIndexVec
+                    , mdBioFlowUUIDs = bioFlowUUIDs
+                    , mdTargetProcessId = targetProcessId
+                    , mdDatabase = database
+                    , mdSupplyVector = supplyVec
+                    , mdDemandVector = demandList
+                    , mdInventoryVector = inventoryList
+                    }
 
 -- | Export matrix debug CSVs
 exportMatrixDebugCSVs :: FilePath -> MatrixDebugInfo -> IO ()

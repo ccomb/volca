@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Service where
 
@@ -9,7 +8,6 @@ import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), Ac
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Exception (SomeException, try)
 import Control.Monad (foldM, guard, mfilter)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.Aeson (Value, object, toJSON, (.=))
@@ -320,6 +318,12 @@ here without being resolved is the only way to get a 'Left'.
 demandFor :: Database -> ProcessId -> Either ServiceError Demand
 demandFor db processId =
     either (Left . MatrixError) Right (buildDemandVector db processId)
+
+{- | Carry on with what a solve answered, or answer its refusal as the matrix
+error it is.
+-}
+solved :: IO (Either Text a) -> (a -> IO (Either ServiceError b)) -> IO (Either ServiceError b)
+solved solve next = solve >>= either (pure . Left . MatrixError) next
 
 -- | Rich activity info (returns same format as API)
 getActivityInfo :: Database -> Text -> Either ServiceError Value
@@ -815,8 +819,7 @@ buildActivityGraph :: Database -> SharedSolver -> Text -> Double -> IO (Either S
 buildActivityGraph db sharedSolver queryText cutoffPercent =
     case resolveActivityAndProcessId db queryText >>= \(pid, _) -> (,) pid <$> demandFor db pid of
         Left err -> pure (Left err)
-        Right (processId, demandVec) -> do
-            supplyVec <- solveWithSharedSolver sharedSolver demandVec
+        Right (processId, demandVec) -> solved (solveWithSharedSolver sharedSolver demandVec) $ \supplyVec -> do
             let supplyList = toList supplyVec
                 threshold = sum (map abs supplyList) * (cutoffPercent / 100.0)
                 significantActivities = selectSignificantActivities threshold processId supplyList
@@ -1993,8 +1996,7 @@ getSupplyChain unitCfg geographies depLookup indexFor db dbName sharedSolver pro
             -- no column is refused here, by name.
             case demandFor db processId of
                 Left err -> return $ Left err
-                Right demandVec -> do
-                    supplyVec <- solveWithSharedSolver sharedSolver demandVec
+                Right demandVec -> solved (solveWithSharedSolver sharedSolver demandVec) $ \supplyVec ->
                     buildSupplyChainFromScalingVectorCrossDB
                         unitCfg
                         geographies
@@ -2630,9 +2632,8 @@ resolveOneDep unitCfg geographies depLookup scf statedFor depth visited call
             Nothing -> pure (Right mempty) -- unloaded dep DB: silent skip (matches LCIA path)
             Just (depDb, depSolver) -> case depDemandsToVector unitCfg depDbName depDb (dcDemands call) of
                 Left err -> pure (Left (MatrixError err))
-                Right demandVec -> do
+                Right demandVec -> solved (solveWithSharedSolver depSolver demandVec) $ \depScaling -> do
                     let level = DepLevel (enteredAt depDb) statedFor
-                    depScaling <- solveWithSharedSolver depSolver demandVec
                     let local =
                             collectSupplyChainEntries
                                 geographies
@@ -2757,7 +2758,7 @@ referenceMagnitude = abs . getReferenceProductAmount
 {- | Run sensitivity analysis on a process: compute the baseline scaling
 vector @x₀@ once, then resolve every 'Perturbation' to a (consumer column,
 sparse perturbation) spec and dispatch all valid specs to 'perturbABatch'
-in a __single__ MUMPS multi-RHS call.
+in a __single__ call to the solver.
 
 The 'perDelta' is __relative__: the resolved coefficient @a@ is multiplied
 by @(1 + delta)@, so the absolute Δ passed to the kernel is @a * delta@.
@@ -2766,8 +2767,8 @@ A positive entry in @perturb@ adds @u·e_col^T@ to @(I-A)@, which decreases
 
 Per-perturbation errors (missing technosphere link, singular update,
 cross-DB qualified id in V1) are returned alongside the perturbation –
-they do not abort the sweep. Only the baseline solve and the global
-process-id resolution can fail at the outer 'ServiceError' level.
+they do not abort the sweep. Only the solver and the global process-id
+resolution can fail at the outer 'ServiceError' level.
 
 V1: @perConsumer@ and @perSupplier@ must live in the root DB (no
 @\"dbName::pid\"@ form). Cross-DB perturbations require generalizing
@@ -2781,29 +2782,15 @@ computeSensitivities ::
     IO (Either ServiceError (U.Vector Double, [(Perturbation, Either Text (U.Vector Double))]))
 computeSensitivities db sharedSolver processId perts = case demandFor db processId of
     Left err -> pure (Left err)
-    Right demandVec -> do
-        -- The baseline solve and factorization retrieval hit MUMPS through the FFI
-        -- and can throw via exceptions (singular A, allocation failure, …). Wrap
-        -- them so the documented 'Left' branch of the signature is reachable,
-        -- instead of letting raw exceptions escape to the caller.
-        eBaseline <- try @SomeException (solveWithSharedSolver sharedSolver demandVec)
-        case eBaseline of
-            Left ex ->
-                pure $
-                    Left $
-                        MatrixError $
-                            "baseline solve failed: " <> T.pack (show ex)
-            Right baselineX -> do
-                -- Resolve each perturbation up-front. Resolution errors graft onto
-                -- the final result; resolved specs go to the batch (a Left becomes
-                -- a no-op empty spec so the batch preserves indexing).
-                let resolved = map (resolveSpec db) perts
-                smResults <-
-                    perturbABatch (solveMultiWithSharedSolver sharedSolver . map Demand) baselineX (map (fromRight (0, [])) resolved)
-                let combined = zipWith3 step perts resolved smResults
-                    step p (Left e) _ = (p, Left e)
-                    step p (Right _) sm = (p, sm)
-                pure $ Right (baselineX, combined)
+    Right demandVec -> solved (solveWithSharedSolver sharedSolver demandVec) $ \baselineX -> do
+        -- Resolve each perturbation up-front. Resolution errors graft onto
+        -- the final result; resolved specs go to the batch (a Left becomes
+        -- a no-op empty spec so the batch preserves indexing).
+        let resolved = map (resolveSpec db) perts
+            step p (Left e) _ = (p, Left e)
+            step p (Right _) sm = (p, sm)
+        solved (perturbABatch (solveMultiWithSharedSolver sharedSolver . map Demand) baselineX (map (fromRight (0, [])) resolved)) $
+            pure . Right . (,) baselineX . zipWith3 step perts resolved
 
 resolveSpec :: Database -> Perturbation -> Either Text (Int, [(Int, Double)])
 resolveSpec db p = do
@@ -2979,8 +2966,7 @@ goWithSubsAndDeps ::
     -- | recursion depth
     Int ->
     IO (Either ServiceError [SharedSolver.CrossDBSolution])
-goWithSubsAndDeps unitCfg depLookup thisDb thisDbName rootDb solver demands allSubs depth = do
-    scalings <- SharedSolver.solveMultiWithSharedSolver solver demands
+goWithSubsAndDeps unitCfg depLookup thisDb thisDbName rootDb solver demands allSubs depth = solved (SharedSolver.solveMultiWithSharedSolver solver demands) $ \scalings -> do
     eApply <- applySubstitutionsAt unitCfg depLookup thisDb thisDbName rootDb solver scalings allSubs
     case eApply of
         Left e -> pure (Left e)
@@ -3077,8 +3063,7 @@ computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db rootDbName sol
                             "substitution consumer must live in root database (got: " <> cDb <> ")"
             Nothing -> case demandFor db pid of
                 Left e -> pure (Left e)
-                Right demandVec -> do
-                    originalX <- solveWithSharedSolver solver demandVec
+                Right demandVec -> solved (solveWithSharedSolver solver demandVec) $ \originalX -> do
                     res <- applySubstitutionsAt unitCfg depLookup db (ThisDb rootDbName) rootDb solver [originalX] subs
                     pure $ case res of
                         Left e -> Left e

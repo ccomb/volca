@@ -121,8 +121,8 @@ emptyIndexes = Indexes M.empty M.empty M.empty M.empty
 * @bioTriples@: (flowRow=0, activityCol, value) sparse entries to emit on
   the single biosphere flow @flowUUID@. Empty for DBs that emit nothing.
 
-The technosphere matrix is left empty – the MUMPS layer adds the identity
-on each diagonal so (I - 0)·x = d trivially yields x = d.
+The technosphere matrix is left empty – the solve adds the identity on
+each diagonal so (I - 0)·x = d trivially yields x = d.
 -}
 mkDB :: Int -> [Text] -> [(Int, Double)] -> Database
 mkDB offset locs bioTriples =

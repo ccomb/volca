@@ -2448,8 +2448,8 @@ classic vector path ('computeLCIAScoreFromTables'). Otherwise switches to
 the matrix path ('computeRegionalizedLCIAScore').
 
 The caller is expected to provide both an 'Inventory' (cheap if already
-computed for other purposes) and a scaling 'Vector' (cheap if the MUMPS
-factorization is cached). Pass them both and let this function pick.
+computed for other purposes) and a scaling 'Vector' (cheap once the
+database has factorized). Pass them both and let this function pick.
 
 Returns 'Either' so the regionalized path can surface integrity errors
 (scaling/weights length mismatch, weights absent) explicitly. Coverage

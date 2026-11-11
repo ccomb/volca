@@ -207,7 +207,6 @@ library
                      , network-uri
                      , vector
                      , random
-                     , mumps-hs
                      , base64-bytestring
                      , toml-reader
                      , process
@@ -341,8 +340,7 @@ test-suite lca-tests
                      , ExplainCFSpec
                      , LongTermExclusionSpec
                      , SharedSolverSpec
-                     , CoalescingSolverSpec
-                     , BlasThreadsSpec
+                     , ConcurrentSolveSpec
                      , FlowResolverSpec
                      , SynonymExtractSpec
                      , ConfigSpec
@@ -485,7 +483,6 @@ test-suite lca-tests
                      , text
                      , containers
                      , vector
-                     , mumps-hs
                      , bytestring
                      , zip-archive
                      , crypton
