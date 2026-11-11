@@ -11,8 +11,7 @@ installed. Test, benchmark, setup and build-tool dependencies are not linked,
 so they are not followed.
 
 Fails, naming the package, when one has no license file: shipping its code
-without its notice is what the licenses forbid. A package that installs none
-gets its text in licenses/haskell-overrides/<name>/ of this repository.
+without its notice is what the licenses forbid.
 """
 
 import glob
@@ -22,16 +21,14 @@ import shutil
 import subprocess
 import sys
 
-OVERRIDES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "licenses", "haskell-overrides")
-
 
 def library_depends(unit):
     """The unit ids a unit's library links, or None for a unit that is not
     a library. A package built as a whole (a custom Setup) lists its
     components in one unit."""
     if "components" in unit:
-        lib = unit["components"].get("lib")
-        return None if lib is None else lib.get("depends", [])
+        libs = [c for name, c in unit["components"].items() if name == "lib" or name.startswith("lib:")]
+        return [d for c in libs for d in c.get("depends", [])] if libs else None
     name = unit.get("component-name", "lib")
     return unit.get("depends", []) if name == "lib" or name.startswith("lib:") else None
 
@@ -108,24 +105,16 @@ def main():
                 sys.exit(f"{nv}: more than one GHC doc folder: {sorted(found)}")
         else:
             found = set(glob.glob(os.path.join(store, unit["id"], "share", "doc")))
-        packages.setdefault(nv, (unit["pkg-name"], set()))[1].update(
-            f for folder in found for f in license_files(folder)
-        )
+        packages.setdefault(nv, set()).update(f for folder in found for f in license_files(folder))
 
-    missing = []
-    for nv, (name, files) in packages.items():
-        override = os.path.join(OVERRIDES, name)
-        if not files and os.path.isdir(override):
-            files.update(license_files(override))
-        if not files:
-            missing.append(nv)
+    missing = sorted(nv for nv, files in packages.items() if not files)
     if missing:
-        for nv in sorted(missing):
-            print(f"No license file for {nv}: add its text to licenses/haskell-overrides/<name>/", file=sys.stderr)
+        for nv in missing:
+            print(f"No license file for {nv}: the package installed none", file=sys.stderr)
         sys.exit(1)
 
     shutil.rmtree(out, ignore_errors=True)
-    for nv, (_, files) in sorted(packages.items()):
+    for nv, files in sorted(packages.items()):
         os.makedirs(os.path.join(out, nv))
         for f in files:
             shutil.copy(f, os.path.join(out, nv, os.path.basename(f)))

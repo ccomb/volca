@@ -676,9 +676,10 @@ def _newest_engine_binary(dist_newstyle: Path) -> Path | None:
     cabal names the directory above `build/` after the optimization level:
     `opt/` at -O2, `noopt/` at -O0, and nothing at all at -O1. Matching only
     one of the three is how these tests came to skip themselves silently for
-    months: CI downloads the engine artefact into `dist-newstyle/`, the level
+    months: CI unzipped the engine artefact into `dist-newstyle/`, the level
     moved, and the glob stopped matching a binary that was sitting right
-    there. `**` matches all three and the next one too.
+    there. `**` matches all three and the next one too. CI now names the
+    binary in VOLCA_ENGINE_BIN instead.
     """
     pattern = "build/*/ghc-*/volca-*/x/volca/**/build/volca/volca"
     found = [p for p in dist_newstyle.rglob(pattern) if p.is_file()]

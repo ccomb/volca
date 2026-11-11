@@ -3,9 +3,10 @@ name: Build matrix
 # Reusable workflow consumed by build.yml (PR trigger) and release.yml
 # (tag trigger). Single source of truth for the 4-platform build steps.
 #
-# `release: true` switches the upload from a raw binary (used by build.yml
-# for debugging) to a versioned tarball/zip (consumed by release.yml's
-# publish job).
+# Both modes stage the binary with its licenses. `release: true` uploads that
+# folder as a versioned tarball/zip (consumed by release.yml's publish job)
+# instead of as the folder itself (used by build.yml for debugging and by
+# whoever tests against a pull request's engine).
 
 on:
   workflow_call:
