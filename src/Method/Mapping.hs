@@ -2693,7 +2693,7 @@ another way. 'Method.Mapping.inventoryContributions' cannot do this: it reads
 a total inventory that has forgotten where each kilogram was emitted, and
 resolves one factor per flow UUID.
 
-Takes the same per-database triples as 'sumRegionalizedLCIAScoreCrossDB',
+Takes the same participants as 'sumRegionalizedLCIAScoreCrossDB',
 including its flat fallback for a dependency whose flow mappings caught none
 of this method's regional factors, and returns what
 'Method.Mapping.inventoryContributions' returns: the rows, and the non-zero
@@ -3742,7 +3742,7 @@ flows. Read from the root alone it would send a dependency's located emissions
 through the flat matvec, with the world factor the method does not state for
 them.
 
-Callers pass the per-DB triples as a 'NonEmpty' with the ROOT triple at
+Callers pass the participants as a 'NonEmpty' with the ROOT one at
 'NE.head'. The non-regional matvec is keyed off the root entry's
 'msBatched'; the regional cross-DB sum walks every entry. The 'NonEmpty'
 constraint makes the impossible state (no DBs participated) unrepresentable.
