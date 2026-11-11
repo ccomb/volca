@@ -24,9 +24,11 @@ on:
 
 # Cancel any older in-flight runs for the same PR when a new commit is
 # pushed. Keeps queue depth bounded – Windows cold builds are 30 min
-# and there is no point burning runners on superseded code.
+# and there is no point burning runners on superseded code. A build of
+# main is grouped by its commit, so it is neither cancelled nor queued
+# behind another: every commit of main has its own binaries to download.
 concurrency:
-  group: build-${{ github.head_ref || github.ref }}
+  group: build-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
   cancel-in-progress: true
 
 jobs:
