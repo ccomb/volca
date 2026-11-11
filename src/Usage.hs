@@ -58,6 +58,7 @@ import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.OpenApi (ToParamSchema, ToSchema (..))
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -65,10 +66,11 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 import GHC.Generics (Generic)
-import Network.HTTP.Types (HeaderName, RequestHeaders)
+import Network.HTTP.Types (HeaderName, RequestHeaders, hCookie)
 import Servant (FromHttpApiData, ToHttpApiData)
 
 import API.JsonOptions (Stripped (..))
+import API.Terms (acceptedFromCookie)
 import Data.JournalFile (Author (..))
 import Progress (ProgressLevel (..), reportProgress)
 import Types (CountedRelease (..), codeSchema, parseCode)
@@ -239,14 +241,16 @@ authorOf headers = Author <$> readerOf headers <*> mfilter (not . T.null) (TE.de
 data Caller = Caller
     { callerReader :: Maybe Text
     , callerAuthor :: Maybe Author
+    , callerAcceptedTerms :: S.Set Text
+    -- ^ The terms its @volca_terms@ cookie says were accepted, as an HTTP request reads them
     }
 
 callerOf :: RequestHeaders -> Caller
-callerOf headers = Caller (readerOf headers) (authorOf headers)
+callerOf headers = Caller (readerOf headers) (authorOf headers) (acceptedFromCookie (lookup hCookie headers))
 
 -- | A request no server in front of the engine named, as on the desktop.
 anonymous :: Caller
-anonymous = Caller Nothing Nothing
+anonymous = Caller Nothing Nothing S.empty
 
 -- | What the engine knows of the database and the process a computation ran on.
 data Lookup = Lookup
