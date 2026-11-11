@@ -12,6 +12,7 @@ cbits/*.o
 
 # Documentation and notes (except README)
 *.txt
+!/licenses/*.txt
 /scripts/*
 !/scripts/build_chem_synonyms.py
 !/scripts/propose_flow_bridges.py

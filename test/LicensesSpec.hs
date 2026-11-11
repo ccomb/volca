@@ -9,6 +9,7 @@ import Data.Text (Text)
 import qualified Data.Vector as V
 import Network.HTTP.Types (hContentType, statusCode)
 import Network.Wai (responseHeaders, responseStatus)
+import System.Info (os)
 import Test.Hspec
 
 import API.Licenses (licensesJson, licensesResponse)
@@ -27,9 +28,11 @@ spec = describe "/api/v1/licenses payload" $ do
         let lic = lookupPath ["engine", "license"] =<< decode licensesJson
         lic `shouldBe` Just (String "Apache-2.0")
 
-    it "keeps the components key clients decode, with nothing to list" $ do
-        let cs = lookupPath ["components"] =<< decode licensesJson
-        cs `shouldBe` Just (Array V.empty)
+    it "names GMP under the LGPL on every platform" $
+        licenseOf "GMP (GNU MP)" `shouldBe` Just (String "LGPL-3.0-or-later")
+
+    it "names musl only where the binary is built on it" $
+        isJust (licenseOf "musl") `shouldBe` (os == "linux")
 
     it "points clients at the Haskell-deps markdown" $ do
         let url = lookupPath ["haskell_dependencies_url"] =<< decode licensesJson
@@ -41,6 +44,13 @@ spec = describe "/api/v1/licenses payload" $ do
             `shouldBe` Just "application/json; charset=utf-8"
 
 -- helpers
+
+-- | The license of the named component, when the payload lists it.
+licenseOf :: Text -> Maybe Value
+licenseOf name = do
+    Array components <- lookupPath ["components"] =<< decode licensesJson
+    named <- V.find ((== Just (String name)) . lookupPath ["name"]) components
+    lookupPath ["license"] named
 
 isJust :: Maybe a -> Bool
 isJust (Just _) = True

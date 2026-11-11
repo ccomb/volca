@@ -500,8 +500,8 @@ jobs:
           mkdir staging
           cp "$VOLCA_BIN" staging/
           # The licences of the libraries linked into the binary ask for
-          # their notices to travel with it.
-          cp THIRD_PARTY_LICENSES.md staging/
+          # their notices and texts to travel with it.
+          cp -r LICENSE NOTICE THIRD_PARTY_LICENSES.md licenses staging/
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             ARTIFACT="volca-${VERSION}-${NAME}.zip"
             # 7z is preinstalled on the Windows runner image but lives at

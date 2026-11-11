@@ -163,6 +163,10 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 COPY --from=haskell-builder /build/output/volca /usr/local/bin/volca
+# The licences of the libraries linked into the binary ask for their notices
+# and texts to travel with it.
+COPY LICENSE NOTICE THIRD_PARTY_LICENSES.md /usr/share/licenses/volca/
+COPY licenses/ /usr/share/licenses/volca/licenses/
 
 WORKDIR /app
 

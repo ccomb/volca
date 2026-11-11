@@ -75,10 +75,12 @@
   Scores move in their last digits only.
 - Building the engine no longer takes a Fortran compiler nor a linear algebra
   library: a C compiler and the Haskell toolchain are enough. The Windows
-  download holds `volca.exe` alone, without the runtime libraries that sat
-  beside it. The components list of `/api/v1/licenses` is empty, since those
-  libraries were all it named; the Haskell libraries stay listed in
-  `THIRD_PARTY_LICENSES.md`.
+  download no longer holds the runtime libraries that sat beside `volca.exe`.
+- The C libraries the binary is linked with are credited, which they never
+  were: GMP and Zstandard everywhere, musl, libffi, ncurses and zlib on Linux,
+  zlib and the MinGW-w64 runtime on Windows. `/api/v1/licenses` lists those of
+  its own platform, and the download and the image carry their license texts
+  in a `licenses/` folder, beside `NOTICE` and the inventory.
 
 ## [0.17.0] - 2026-11-07
 

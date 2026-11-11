@@ -5,6 +5,32 @@ This document inventories the third-party software bundled with, or linked into,
 a VoLCA distribution, and travels in every downloaded archive. See also
 [NOTICE](NOTICE) for the abridged summary.
 
+## Native libraries
+
+The binary also carries C libraries, which differ from one platform to the
+next. Their license texts are in the [`licenses/`](licenses) folder, which
+travels with the binary.
+
+| Library | Linked into | License | Text |
+|---|---|---|---|
+| GMP (GNU MP) | Linux, macOS, Windows | LGPL-3.0-or-later | [GMP.txt](licenses/GMP.txt), [LGPL-3.0.txt](licenses/LGPL-3.0.txt), [GPL-3.0.txt](licenses/GPL-3.0.txt) |
+| Zstandard | Linux, macOS, Windows | BSD-3-Clause | [zstd.txt](licenses/zstd.txt) |
+| zlib | Linux, Windows | Zlib | [zlib.txt](licenses/zlib.txt) |
+| musl | Linux | MIT | [musl.txt](licenses/musl.txt) |
+| libffi | Linux | MIT | [libffi.txt](licenses/libffi.txt) |
+| ncurses | Linux | X11 | [ncurses.txt](licenses/ncurses.txt) |
+| MinGW-w64 runtime | Windows | ZPL-2.1 and others | [mingw-w64-runtime.txt](licenses/mingw-w64-runtime.txt) |
+
+GMP is offered under either the LGPL or the GPL; VoLCA takes it under the
+LGPL, version 3 or later. Its source code is at <https://gmplib.org/>, and
+VoLCA's own source code and build script are public, so the binary can be
+rebuilt against a modified GMP.
+
+On macOS, zlib, libffi and ncurses are the system's own libraries, loaded
+from the system and not distributed with the binary. The compiler's runtime
+code linked on Linux, libgcc, is under the GCC Runtime Library Exception,
+which sets no condition on the binary.
+
 ## Haskell direct dependencies
 
 The following table covers the libraries the shipped binary links: the direct

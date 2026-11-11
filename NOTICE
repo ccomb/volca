@@ -8,5 +8,14 @@ This product includes third-party software. A detailed inventory with
 license names is in THIRD_PARTY_LICENSES.md and at the runtime endpoint
 /api/v1/licenses.
 
-The third-party components are Haskell libraries – predominantly
-BSD 3-Clause and MIT (full table in THIRD_PARTY_LICENSES.md).
+The third-party components are Haskell libraries, predominantly
+BSD 3-Clause and MIT (full table in THIRD_PARTY_LICENSES.md), and the C
+libraries the binary is linked with:
+
+  GMP – GNU Lesser General Public License, version 3 or later
+  Zstandard – BSD 3-Clause
+  zlib – zlib license (Linux, Windows)
+  musl, libffi, ncurses – MIT and X11 (Linux)
+  MinGW-w64 runtime – ZPL 2.1 and others (Windows)
+
+Their license texts are in the licenses/ folder.

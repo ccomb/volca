@@ -38,8 +38,10 @@ awk '
     }
 ' volca.cabal | grep -vx 'volca' | sort -u > "$work/cabal"
 
-# The package column of the table, minus its header row.
-grep -oE '^\| [A-Za-z0-9][A-Za-z0-9-]*' THIRD_PARTY_LICENSES.md \
+# The package column of the Haskell table, minus its header row. The other
+# tables of the file name native libraries, which volca.cabal does not declare.
+awk '/^## /{inside = ($0 == "## Haskell direct dependencies")} inside' THIRD_PARTY_LICENSES.md \
+    | grep -oE '^\| [A-Za-z0-9][A-Za-z0-9-]*' \
     | cut -c3- | grep -vx 'Package' | sort -u > "$work/table"
 
 missing=$(comm -23 "$work/cabal" "$work/table")
