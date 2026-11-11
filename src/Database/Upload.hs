@@ -16,6 +16,8 @@ module Database.Upload (
     -- * Upload handling
     handleUpload,
     extractArchiveFile,
+    firstExtraction,
+    InstallAdvice (..),
     archiveExtensions,
     detectArchiveFormat,
     detectDatabaseFormat,
@@ -43,7 +45,8 @@ module Database.Upload (
 ) where
 
 import Codec.Archive.Zip (findEntryByPath, toArchiveOrFail)
-import Control.Exception (SomeException, try)
+import Control.Applicative ((<|>))
+import Control.Exception (IOException, SomeException, displayException, try)
 import Control.Monad (filterM, forM)
 import Data.Aeson (FromJSON (..), ToJSON (..), withText)
 import qualified Data.Aeson as A
@@ -63,8 +66,9 @@ import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (makeRelative, takeDirectory, takeExtension, takeFileName, (</>))
 import System.IO (IOMode (ReadMode), withFile)
+import System.IO.Error (isDoesNotExistError)
 import System.Info (os)
-import System.Process (readProcessWithExitCode)
+import System.Process (CmdSpec (..), CreateProcess (cmdspec), proc, readCreateProcessWithExitCode)
 
 import qualified Method.Parser.OlcaSchema as OlcaSchema
 import Method.ParserCSV (isLabelRow)
@@ -425,8 +429,7 @@ extract7z archiveData targetDir = do
     -- Checks for bundled binary first, then system paths
     commands <- get7zCommands
 
-    -- Try each command until one works
-    result <- tryCommands commands tempArchive targetDir
+    result <- firstExtraction "7z" install7z [proc cmd ["x", "-y", "-o" ++ targetDir, tempArchive] | cmd <- commands]
 
     -- Clean up temp file
     _ <- try @SomeException $ removeFile tempArchive
@@ -477,42 +480,20 @@ extract7z archiveData targetDir = do
             , "7za" -- p7zip standalone
             ]
 
-    tryCommands :: [FilePath] -> FilePath -> FilePath -> IO (Either Text ())
-    tryCommands [] _ _ =
-        return $
-            Left $
-                T.concat
-                    [ "7z extraction failed. Please install 7-Zip:\n"
-                    , if os == "mingw32" || os == "windows"
-                        then "  Windows: Download from https://7-zip.org/"
-                        else "  Linux: apt install 7zip (or p7zip-full)\n  macOS: brew install p7zip"
-                    ]
-    tryCommands (cmd : rest) archive target = do
-        result <- tryExtractWith cmd archive target
-        case result of
-            Right () -> return $ Right ()
-            Left _ -> tryCommands rest archive target
-
-    tryExtractWith :: FilePath -> FilePath -> FilePath -> IO (Either Text ())
-    tryExtractWith cmd archive target = do
-        result <-
-            try @SomeException $
-                readProcessWithExitCode cmd ["x", "-y", "-o" ++ target, archive] ""
-        case result of
-            Left _ -> return $ Left "command not found"
-            Right (ExitSuccess, _, _) -> return $ Right ()
-            Right (ExitFailure _, _, stderr) -> return $ Left (T.pack stderr)
+    install7z :: InstallAdvice
+    install7z
+        | os == "mingw32" || os == "windows" = InstallAdvice "Please install 7-Zip:\n  Windows: Download from https://7-zip.org/"
+        | otherwise = InstallAdvice "Please install 7-Zip:\n  Linux: apt install 7zip (or p7zip-full)\n  macOS: brew install p7zip"
 
 {- | Extract ZIP archive using external commands
 The Haskell libarchive package produces null-byte files for ZIP extraction
 -}
 extractZip :: BL.ByteString -> FilePath -> IO (Either Text ())
 extractZip archiveData targetDir = do
-    let tempArchive = targetDir </> ".temp.zip"
     BL.writeFile tempArchive archiveData
 
     commands <- getUnzipCommands
-    result <- tryZipCommands commands tempArchive targetDir
+    result <- firstExtraction "ZIP" installUnzip commands
 
     _ <- try @SomeException $ removeFile tempArchive
 
@@ -525,46 +506,61 @@ extractZip archiveData targetDir = do
                 then return $ Left "ZIP extraction produced no files."
                 else return $ Right ()
   where
-    getUnzipCommands :: IO [(FilePath, [String] -> [String])]
+    tempArchive :: FilePath
+    tempArchive = targetDir </> ".temp.zip"
+
+    getUnzipCommands :: IO [CreateProcess]
     getUnzipCommands = do
         mDataDir <- lookupEnv "VOLCA_DATA_DIR"
         let bundled7z = case mDataDir of
                 Just d ->
                     if isWindows
-                        then [(d </> "7z.exe", args7z), (d </> "7z", args7z)]
-                        else [(d </> "7zz", args7z), (d </> "7z", args7z)]
+                        then [d </> "7z.exe", d </> "7z"]
+                        else [d </> "7zz", d </> "7z"]
                 Nothing -> []
         return $
             if isWindows
-                then [("tar", argsTar)] ++ bundled7z ++ [("7z", args7z), ("7z.exe", args7z)]
-                else [("unzip", argsUnzip)] ++ bundled7z ++ [("7zz", args7z), ("7z", args7z)]
+                then proc "tar" ["-xf", tempArchive, "-C", targetDir] : map sevenZip (bundled7z ++ ["7z", "7z.exe"])
+                else proc "unzip" ["-o", "-q", tempArchive, "-d", targetDir] : map sevenZip (bundled7z ++ ["7zz", "7z"])
 
+    isWindows :: Bool
     isWindows = os == "mingw32" || os == "windows"
 
-    argsUnzip [archive, target] = ["-o", "-q", archive, "-d", target]
-    argsUnzip _ = []
-    argsTar [archive, target] = ["-xf", archive, "-C", target]
-    argsTar _ = []
-    args7z [archive, target] = ["x", "-y", "-o" ++ target, archive]
-    args7z _ = []
+    sevenZip :: FilePath -> CreateProcess
+    sevenZip cmd = proc cmd ["x", "-y", "-o" ++ targetDir, tempArchive]
 
-    tryZipCommands :: [(FilePath, [String] -> [String])] -> FilePath -> FilePath -> IO (Either Text ())
-    tryZipCommands [] _ _ =
-        return $
-            Left $
-                T.concat
-                    [ "ZIP extraction failed. Please install an extraction tool:\n"
-                    , if isWindows
-                        then "  Windows: tar should be built-in, or install 7-Zip from https://7-zip.org/"
-                        else "  Linux: apt install unzip\n  macOS: brew install unzip (usually pre-installed)"
-                    ]
-    tryZipCommands ((cmd, mkArgs) : rest) archive target = do
-        let args = mkArgs [archive, target]
-        result <- try @SomeException $ readProcessWithExitCode cmd args ""
-        case result of
-            Left _ -> tryZipCommands rest archive target
-            Right (ExitSuccess, _, _) -> return $ Right ()
-            Right (ExitFailure _, _, _) -> tryZipCommands rest archive target
+    installUnzip :: InstallAdvice
+    installUnzip
+        | isWindows = InstallAdvice "Please install an extraction tool:\n  Windows: tar should be built-in, or install 7-Zip from https://7-zip.org/"
+        | otherwise = InstallAdvice "Please install an extraction tool:\n  Linux: apt install unzip\n  macOS: brew install unzip (usually pre-installed)"
+
+-- | What to tell a reader who has none of the tools an archive needs.
+newtype InstallAdvice = InstallAdvice Text
+
+{- | Run each extraction command in turn until one succeeds. A command that
+is not there is not installed, and the next is tried in silence. One that
+starts and fails, or cannot be run, has a reason, and when no command
+succeeds the first such reason is the answer: a full disk or a damaged
+archive is not cured by installing another tool, and the tools tried after
+the first mostly say the same thing again. The advice to install one stands
+only when none was there.
+-}
+firstExtraction :: Text -> InstallAdvice -> [CreateProcess] -> IO (Either Text ())
+firstExtraction kind (InstallAdvice advice) = go Nothing
+  where
+    go :: Maybe Text -> [CreateProcess] -> IO (Either Text ())
+    go said [] = pure . Left $ maybe (kind <> " extraction failed. " <> advice) ((kind <> " extraction failed: ") <>) said
+    go said (command : rest) =
+        try @IOException (readCreateProcessWithExitCode command "") >>= \case
+            Left e
+                | isDoesNotExistError e -> go said rest
+                | otherwise -> go (said <|> Just (tool command <> " could not be run: " <> T.pack (displayException e))) rest
+            Right (ExitSuccess, _, _) -> pure (Right ())
+            Right (ExitFailure code, out, err) -> go (said <|> Just (tool command <> " stopped with code " <> T.pack (show code) <> ": " <> T.strip (T.pack (if null err then out else err)))) rest
+    tool :: CreateProcess -> Text
+    tool command = case cmdspec command of
+        RawCommand cmd _ -> T.pack (takeFileName cmd)
+        ShellCommand line -> T.pack line
 
 -- | Extract tar.gz/tar.xz archives using system tar command
 extractArchive :: ArchiveFormat -> BL.ByteString -> FilePath -> IO (Either Text ())
@@ -582,22 +578,18 @@ extractArchive format archiveData targetDir = do
             ArchiveUnknown -> ".tar"
     let tempArchive = targetDir </> ".temp" <> ext
     BL.writeFile tempArchive archiveData
-    result <-
-        try @SomeException $
-            readProcessWithExitCode "tar" ["-xf", tempArchive, "-C", targetDir] ""
+    result <- firstExtraction formatName (InstallAdvice "Please install tar.") [proc "tar" ["-xf", tempArchive, "-C", targetDir]]
     _ <- try @SomeException $ removeFile tempArchive
     case result of
-        Left e ->
-            return $ Left $ "Failed to extract " <> formatName <> " archive: " <> T.pack (show e)
-        Right (ExitSuccess, _, _) -> do
+        Left err -> return $ Left err
+        Right () -> do
             files <- listDirectory targetDir
             let actualFiles = filter (not . isPrefixOf ".temp") files
             if null actualFiles
                 then return $ Left $ formatName <> " extraction produced no files."
                 else return $ Right ()
-        Right (ExitFailure _, _, stderr) ->
-            return $ Left $ formatName <> " extraction failed: " <> T.pack stderr
   where
+    formatName :: Text
     formatName = case format of
         ArchiveGzip -> "tar.gz"
         ArchiveXz -> "tar.xz"
