@@ -59,7 +59,10 @@
   case: nothing is left of either to meet a demand. Such a database used to
   answer with finite numbers that meant nothing, without a word. A demand
   that does not reach these processes is answered as before, and a database
-  that holds some says how many when it is first solved.
+  that holds some says how many when it is first solved. A request that
+  scores several activities at once is refused as a whole when one of them
+  is, and so is the computed quality report of such a database, which scores
+  them all.
 
 ### Changed
 
