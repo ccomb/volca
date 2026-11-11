@@ -34,7 +34,7 @@ cch :: Double -> CategoryScore
 cch = CategoryScore "Climate change" "kg CO2 eq"
 
 reportOf :: [ScoredEntry] -> ComputedQualityReport
-reportOf = computedQualityReport "testdb" "EF-3.1"
+reportOf entries = computedQualityReport "testdb" "EF-3.1" entries []
 
 {- | Honest scores spread over 10..34 – wide enough for a non-degenerate MAD,
 tight enough on the log scale that none of the crowd flags itself.

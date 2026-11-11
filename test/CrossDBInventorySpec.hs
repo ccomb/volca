@@ -114,7 +114,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             let n = fromIntegral (dbActivityCount db) :: Int
                 perRoot = [M.empty, M.empty, M.empty] :: [DepDemands]
-            case SharedSolver.prepareDepDemandVecs defaultUnitConfig "SAMPLE.min3" db perRoot of
+            case sequence (SharedSolver.prepareDepDemandVecs defaultUnitConfig "SAMPLE.min3" db (map Right perRoot)) of
                 Right vecs -> do
                     length vecs `shouldBe` 3
                     map (U.length . unDemand) vecs `shouldBe` replicate 3 n
@@ -128,7 +128,7 @@ spec = do
                     -- Two roots: the first demands of another dep, the second of this one.
                     let otherDep = M.singleton "some-other-db" (M.singleton supplierKey StatedAmount{saUnit = refUnit, saAmount = 7.5})
                         thisDep = M.singleton "SAMPLE.min3" (M.singleton supplierKey StatedAmount{saUnit = refUnit, saAmount = 7.5})
-                    case SharedSolver.prepareDepDemandVecs defaultUnitConfig "SAMPLE.min3" db [otherDep, thisDep] of
+                    case sequence (SharedSolver.prepareDepDemandVecs defaultUnitConfig "SAMPLE.min3" db [Right otherDep, Right thisDep]) of
                         Right [Demand absent, Demand present] -> do
                             U.all (== 0.0) absent `shouldBe` True
                             present U.! supplierIdx `shouldBe` 7.5
@@ -147,7 +147,7 @@ spec = do
             localInvs <- either (fail . show) pure . sequence =<< traverse (computeInventoryMatrixCached db solver) pids
             withDepsE <- computeInventoryMatrixBatchWithDepsCached defaultUnitConfig noDeps db "SAMPLE.min3" solver pids
 
-            case withDepsE of
+            case sequence withDepsE of
                 Left err -> expectationFailure (T.unpack err)
                 Right withDepsSols -> do
                     length withDepsSols `shouldBe` length localInvs
@@ -162,9 +162,7 @@ spec = do
             solver <- createSharedSolver "SAMPLE.min3-empty" techTriples actCount
             let noDeps _ = pure Nothing
             res <- computeInventoryMatrixBatchWithDepsCached defaultUnitConfig noDeps db "SAMPLE.min3-empty" solver []
-            case res of
-                Right sols -> length sols `shouldBe` 0
-                Left err -> expectationFailure (T.unpack err)
+            length res `shouldBe` 0
 
     describe "inventoryContributions (cross-DB characterization surface)" $ do
         -- Synthetic data: simulate the shape of a cross-DB-merged Inventory

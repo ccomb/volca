@@ -69,9 +69,9 @@ spec = describe "cross-DB regional LCIA via sensitivity propagation" $ do
                 rootDb
                 "root"
                 []
-                [rootScaling]
+                [Right rootScaling]
                 0
-        case eSol of
+        case sequence eSol of
             Left err -> expectationFailure ("goWithDepsFromScalings failed: " <> show err)
             Right [] -> expectationFailure "goWithDepsFromScalings returned empty list"
             Right (sol : _) -> do
@@ -117,9 +117,9 @@ spec = describe "cross-DB regional LCIA via sensitivity propagation" $ do
                 rootDb
                 "root"
                 []
-                [doubledRoot]
+                [Right doubledRoot]
                 0
-        case eSol of
+        case sequence eSol of
             Left err -> expectationFailure ("goWithDepsFromScalings failed: " <> show err)
             Right [] -> expectationFailure "goWithDepsFromScalings returned empty list"
             Right (sol : _) -> do

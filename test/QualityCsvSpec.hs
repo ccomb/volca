@@ -125,6 +125,7 @@ computed =
         , cqaScoreOutliers = finding "score outliers"
         , cqaZeroScores = quiet
         , cqaNegativeScores = finding "negative scores"
+        , cqaUnsolvable = finding "unsolvable"
         }
 
 -- | The rendered lines, CRLF and the trailing blank dropped.
@@ -192,4 +193,4 @@ spec = describe "Quality report CSV" $ do
 
     it "renders the computed report with the same columns and its own checks" $
         checkColumn (computedQualityReportCsv computed)
-            `shouldBe` ["check", "score_outliers", "negative_scores"]
+            `shouldBe` ["check", "score_outliers", "negative_scores", "unsolvable"]

@@ -132,6 +132,8 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
         , "rows" .= map entryRow (birResults bir)
         , "not_found" .= birNotFound bir
         , "invalid" .= birInvalid bir
+        , "unscorable" .= birUnscorable bir
+        , "unsolvable" .= birUnsolvable bir
         , "basis" .= birBasis bir
         ]
             ++ ["reading_notice" .= notice | Just notice <- [readingNotice [ss]]]

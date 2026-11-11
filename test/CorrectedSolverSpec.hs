@@ -41,8 +41,8 @@ spec = do
             withNumTests 50 . forAll changedMatrix $ \(n, before, after, moved, demands) -> ioProperty $
                 withSolver n before $ \loaded -> withSolver n after $ \fresh -> do
                     corrected <- either (fail . show) pure =<< correctedFor loaded (change before after moved)
-                    expected <- either (fail . show) pure =<< solveMultiWithSharedSolver fresh (map Demand demands)
-                    got <- either (fail . show) pure =<< solveMultiWithSharedSolver corrected (map Demand demands)
+                    expected <- either (fail . show) pure . sequence =<< solveMultiWithSharedSolver fresh (map Demand demands)
+                    got <- either (fail . show) pure . sequence =<< solveMultiWithSharedSolver corrected (map Demand demands)
                     one <- traverse (either (fail . show) pure <=< solveWithSharedSolver corrected . Demand) demands
                     pure (conjoin [close e g | (e, g) <- zip expected got <> zip expected one])
 

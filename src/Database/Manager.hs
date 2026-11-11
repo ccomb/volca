@@ -343,7 +343,6 @@ import Types (
     UnitDB,
     UnresolvedProduct (..),
     UsageCount (..),
-    activityName,
     allocationKeyText,
     bfCompartmentName,
     bfCompartmentSub,
@@ -4043,9 +4042,11 @@ solverFor dbName db =
 say why the settings give none. The solver is the loaded one when no entry of
 the technosphere moved, and the loaded one corrected by the columns that moved
 when they are few enough for the correction to stay small. Otherwise, and when
-the loaded matrix has no answer for a column that moved, it is a solver of its
-own, factorised for this action and dropped with it. One such action runs at a
-time: each holds a whole factorisation beside the loaded one.
+the correction is refused, it is a solver of its own, factorised for this
+action and dropped with it. A refused correction says the changed matrix is
+singular, and only its factorisation tells which demands that leaves without
+an answer, so that the others are answered. One such
+action runs at a time: each holds a whole factorisation beside the loaded one.
 -}
 withSettings :: forall a. DatabaseManager -> Text -> (Database, SharedSolver) -> [Setting] -> (Database -> SharedSolver -> IO a) -> IO (Either Text a)
 withSettings manager dbName (before, loaded) settings act = do
@@ -4060,7 +4061,7 @@ withSettings manager dbName (before, loaded) settings act = do
                 correctedFor loaded change >>= \case
                     Right solver -> Right <$> act after solver
                     Left LoadedUnsolved -> factorised after
-                    Left (Refused why) -> pure (Left (why <> inputsOf change))
+                    Left (Refused _) -> factorised after
             | otherwise -> factorised after
 
     factorised :: Database -> IO (Either Text a)
@@ -4071,9 +4072,6 @@ withSettings manager dbName (before, loaded) settings act = do
     as k³ where a factorisation does not. -}
     correctable :: Int -> Bool
     correctable k = k <= 128 && k * fromIntegral (dbActivityCount before) * 8 <= 64 * 1024 * 1024
-
-    inputsOf :: [(Int, [(Int, Double)])] -> Text
-    inputsOf change = " (the inputs of " <> T.intercalate ", " [activityName (dbActivities before V.! column) | (column, _) <- change] <> ")"
 
 {- | Install a loaded database and the index built from it under one name.
 

@@ -68,9 +68,12 @@
   answer with finite numbers that meant nothing, without a word. A demand
   that does not reach these processes is answered as before, and a database
   that holds some says how many when it is first solved. A request that
-  scores several activities at once is refused as a whole when one of them
-  is, and so is the computed quality report of such a database, which scores
-  them all.
+  scores several activities at once refuses only those: each comes back in
+  its `unsolvable` list with the sentence, and the others are scored. The
+  computed quality report of such a database lists them under a check of
+  their own, `unsolvable`, and judges the rest. At parameter values that
+  make a loop of this kind, the activities that reach it are refused in the
+  same way, and the others answered. Wire revision 112.
 
 ### Changed
 

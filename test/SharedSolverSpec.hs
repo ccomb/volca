@@ -75,8 +75,7 @@ spec = do
             together `shouldBe` inTurn
 
     describe "a demand that reaches processes with no answer" $ do
-        -- "left" and "right" each take all of what the other makes; "buyer" buys from "left", "apart" buys nothing.
-        db <- runIO (handBuilt (M.fromList [(1, mkActivity "left" [reference (made 1), boughtFrom 2 1]), (2, mkActivity "right" [reference (made 2), boughtFrom 1 1]), (3, mkActivity "buyer" [reference (made 3), boughtFrom 1 0.5]), (4, mkActivity "apart" [reference (made 4)])]))
+        db <- runIO loopedDb
         solver <- runIO (mkSolverFromDb db "looped")
         it "is refused as an error of the request, in a sentence naming the database and a process of the loop" $ do
             answer <- Service.supplyFor db solver =<< demandOf db 3
@@ -90,6 +89,25 @@ spec = do
             demand <- demandOf db 4
             answer <- Service.supplyFor db solver demand
             either (const Nothing) Just answer `shouldBe` Just (unDemand demand)
+        it "refuses only itself when asked beside demands that do not reach them" $ do
+            demands <- traverse (demandOf db) [3, 4, 1]
+            answers <- SS.solveMultiWithSharedSolver solver demands
+            case (answers, demands) of
+                ([Left _, Right apart, Left _], [_, asked, _]) -> apart `shouldBe` unDemand asked
+                _ -> expectationFailure ("expected the second answered and the others refused: " <> show (map isRight answers))
+
+    describe "a batch whose roots reach another database" $
+        it "refuses the root that reaches a loop there, and answers the other" $ do
+            -- The root's first process buys from "left" of the looped database; its second buys nothing.
+            looped <- loopedDb
+            loopedSolver <- mkSolverFromDb looped "looped"
+            root <- (\db -> linkDatabases db looped "looped" 1) <$> handBuilt (M.fromList [(1, mkActivity "consumer" [reference (made 1)]), (2, mkActivity "apart" [reference (made 2)])])
+            rootSolver <- mkSolverFromDb root "R"
+            pids <- traverse (pidOf root) [1, 2]
+            sols <- SS.computeInventoryMatrixBatchWithDepsCached defaultUnitConfig (mkDepLookupFromMap (M.singleton "looped" (looped, loopedSolver))) root "R" rootSolver pids
+            case sols of
+                [Left why, Right _] -> why `shouldSatisfy` T.isPrefixOf "Database 'looped' has no answer to this demand: "
+                _ -> expectationFailure ("expected the first refused and the second answered: " <> show (map (either Just (const Nothing)) sols))
 
     -- -----------------------------------------------------------------------
     -- Which databases a cross-database solve reaches, and in what order
@@ -99,8 +117,8 @@ spec = do
         -- followed by its own chain, and siblings come in name order.
         (rootDb, lookupDep, rootSolver) <- runIO chainOfFour
         it "lists them root first, each dependency followed by its own chain" $ do
-            sols <- SS.goWithDepsFromScalings defaultUnitConfig lookupDep rootDb "R" [] [U.fromList [1]] 0
-            map reachedNames <$> either (fail . show) pure sols `shouldReturn` [["R", "a", "c", "b"]]
+            sols <- SS.goWithDepsFromScalings defaultUnitConfig lookupDep rootDb "R" [] [Right (U.fromList [1])] 0
+            map reachedNames <$> either (fail . show) pure (sequence sols) `shouldReturn` [["R", "a", "c", "b"]]
 
         it "lists them in the same order on the substitution path" $ do
             sol <- Service.inventoryWithSubsAndDeps defaultUnitConfig lookupDep rootDb "R" rootSolver 0 []
@@ -153,8 +171,15 @@ boughtFrom n amount = (techInput (made n) amount){techActivityLinkId = Just (mak
 
 -- | One unit of what the process of a number makes.
 demandOf :: Database -> Word32 -> IO Demand
-demandOf db n =
-    maybe (fail ("no process " <> show n)) (either (fail . show) pure . buildDemandVector db) (findProcessId db (maker n) (made n))
+demandOf db n = either (fail . show) pure . buildDemandVector db =<< pidOf db n
+
+-- | The process of a number.
+pidOf :: Database -> Word32 -> IO ProcessId
+pidOf db n = maybe (fail ("no process " <> show n)) pure (findProcessId db (maker n) (made n))
+
+-- | "left" and "right" each take all of what the other makes; "buyer" buys from "left", "apart" buys nothing.
+loopedDb :: IO Database
+loopedDb = handBuilt (M.fromList [(1, mkActivity "left" [reference (made 1), boughtFrom 2 1]), (2, mkActivity "right" [reference (made 2), boughtFrom 1 1]), (3, mkActivity "buyer" [reference (made 3), boughtFrom 1 0.5]), (4, mkActivity "apart" [reference (made 4)])])
 
 -- ---------------------------------------------------------------------------
 -- Helper: build solver + DB for SAMPLE.min3, with factorization pre-triggered

@@ -32,8 +32,10 @@ the client works against it except the revision-gated capabilities (see
 ``Client._require_wire``), which check the engine's advertised revision
 before sending anything."""
 
-KNOWN_WIRE = 111
-"""The newest wire revision this pyvolca understands (revision 111 added
+KNOWN_WIRE = 112
+"""The newest wire revision this pyvolca understands (revision 112 added the
+``unsolvable`` processes of a batch, each with why, where the whole batch was
+refused; revision 111 added
 ``via`` and ``source`` to a database's history and ``source`` to every write
 that takes a ``note``; revision 110 removed
 ``characterized_share`` from the scoring tools and ``reads`` from a usage line,

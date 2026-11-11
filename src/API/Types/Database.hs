@@ -324,6 +324,7 @@ data ComputedQualityReportAPI = ComputedQualityReportAPI
     , cqaScoreOutliers :: QualityCheckAPI
     , cqaZeroScores :: QualityCheckAPI
     , cqaNegativeScores :: QualityCheckAPI
+    , cqaUnsolvable :: QualityCheckAPI
     }
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped ComputedQualityReportAPI)

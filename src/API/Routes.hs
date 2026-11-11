@@ -13,7 +13,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, httpOrigin, runApp)
 import Config (DatabaseConfig (..))
 import qualified Config
@@ -30,6 +30,7 @@ import Data.Aeson
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BSL
 import Data.Char (isAscii, isControl)
+import Data.Either (partitionEithers)
 import Data.Foldable (asum)
 import Data.Indexing (groupInOrder)
 import Data.Int (Int32)
@@ -57,6 +58,7 @@ import Database.Edit (authorContext, editExchanges)
 import Database.Journal (statedFrom)
 import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), getDatabase, getMergedUnitConfig)
 import qualified Database.Manager as DM
+import Database.Quality (QualityOffender (..))
 import Database.Requirements (ReleaseSubstitution)
 import Database.SystemModel (Traced (..), tracedRule)
 import EcoSpold.Common (acrossCapabilities)
@@ -382,23 +384,21 @@ solutionWithDeps dbName db solver pid = do
         Right sol -> pure sol
         Left err -> throwError err422{errBody = BSL.fromStrict $ T.encodeUtf8 err}
 
--- | Batch variant of 'solutionWithDeps'.
-solutionsWithDeps :: Text -> Database -> SharedSolver -> [ProcessId] -> AppM [SharedSolver.CrossDBSolution]
+{- | Batch variant of 'solutionWithDeps': one solution per pid, in their
+order, or why that pid has none. A pid refused refuses no other.
+-}
+solutionsWithDeps :: Text -> Database -> SharedSolver -> [ProcessId] -> AppM [Either Text SharedSolver.CrossDBSolution]
 solutionsWithDeps dbName db solver pids = do
     dbManager <- asks aeDbManager
     unitCfg <- liftIO $ getMergedUnitConfig dbManager
-    res <-
-        liftIO $
-            SharedSolver.computeInventoryMatrixBatchWithDepsCached
-                unitCfg
-                (DM.mkDepSolverLookup dbManager)
-                db
-                dbName
-                solver
-                pids
-    case res of
-        Right sols -> pure sols
-        Left err -> throwError err422{errBody = BSL.fromStrict $ T.encodeUtf8 err}
+    liftIO $
+        SharedSolver.computeInventoryMatrixBatchWithDepsCached
+            unitCfg
+            (DM.mkDepSolverLookup dbManager)
+            db
+            dbName
+            solver
+            pids
 
 {- | Per-method static context, prepared ONCE per batch request and reused
 across every pid in that request. Carries the precomputed mapping stats
@@ -1120,7 +1120,9 @@ data BatchTarget = BatchTarget
     }
 
 {- | Solve one chunk of a batch and turn it into entries, with the time its
-solve took.
+solve took. Each target gives one row: refused when the solver has no answer
+for it, which refuses no other, or else the entry, whose building can still
+fail on the tables of the database and the method (see 'batchImpactsH').
 
 Chunking is what keeps a large batch from being a large heap. A solution
 carries a dense scaling vector the width of the database beside its inventory,
@@ -1131,22 +1133,25 @@ holds that many, and the solutions of a finished chunk are free to go. Every
 chunk still reuses the one cached factorization, so this bounds the memory
 without changing the speed.
 -}
-scoreChunk :: BatchScope -> [BatchTarget] -> AppM (NominalDiffTime, [Either Text BatchImpactsEntry])
+scoreChunk :: BatchScope -> [BatchTarget] -> AppM (NominalDiffTime, [Either UnsolvableEntry (Either Text BatchImpactsEntry)])
 scoreChunk scope chunk = do
     dbManager <- asks aeDbManager
     t0 <- liftIO getCurrentTime
     sols0 <- solutionsWithDeps (bsDbName scope) (bsDb scope) (bsSolver scope) (map btProcessId chunk)
-    sols <- liftIO $ acrossCapabilities (Impact.withLongTermPolicy dbManager (bsLongTerm scope)) sols0
+    sols <- liftIO $ acrossCapabilities (traverse (Impact.withLongTermPolicy dbManager (bsLongTerm scope))) sols0
     t1 <- liftIO getCurrentTime
-    entries <- liftIO $ acrossCapabilities (entryOf dbManager) (zip chunk sols)
-    pure (diffUTCTime t1 t0, entries)
+    rows <- liftIO $ acrossCapabilities (\(target, sol) -> either (pure . Left . unsolved target) (fmap Right . entryOf dbManager target) sol) (zip chunk sols)
+    pure (diffUTCTime t1 t0, rows)
   where
+    unsolved :: BatchTarget -> Text -> UnsolvableEntry
+    unsolved target = UnsolvableEntry (btRequestedId target) (bsParameterSet scope)
+
     {- An entry is forced where it is built. Every field of it is lazy, and the
     score of a category is a closure over the solution's inventory, so an
     unforced chunk hands the next one its predecessor's solutions to hold on to
     and the bound above buys nothing. -}
-    entryOf :: DatabaseManager -> (BatchTarget, SharedSolver.CrossDBSolution) -> IO (Either Text BatchImpactsEntry)
-    entryOf dbManager (target, sol) =
+    entryOf :: DatabaseManager -> BatchTarget -> SharedSolver.CrossDBSolution -> IO (Either Text BatchImpactsEntry)
+    entryOf dbManager target sol =
         evaluate . force . fmap (named target)
             =<< buildLCIABatchResultCached
                 dbManager
@@ -1258,7 +1263,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
                 , bsParameterSet = Nothing
                 }
         -- One set after another: a set's database lives while its rows are built, and no longer.
-        atSet :: Int -> [ParameterValue] -> AppM [(NominalDiffTime, [Either Text BatchImpactsEntry])]
+        atSet :: Int -> [ParameterValue] -> AppM [(NominalDiffTime, [Either UnsolvableEntry (Either Text BatchImpactsEntry)])]
         atSet i values =
             withValues (inSet i) dbName loaded values $ \db' solver' ->
                 traverse
@@ -1270,10 +1275,11 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
         [] -> traverse (scoreChunk scope) (Matrix.chunksOf scoringChunk valid)
         sets -> concat <$> zipWithM atSet [0 ..] sets
     let solveTime = sum (map fst solved)
-        entriesE = concatMap snd solved
+        (unsolvable, entriesE) = partitionEithers (concatMap snd solved)
     -- All-or-nothing on purpose: an integrity error is a property of the
     -- (db, method) tables, not of one activity, so every entry would fail
-    -- identically. Unresolvable pids stay per-entry (birNotFound/birInvalid).
+    -- identically. Unresolvable pids stay per-entry (birNotFound/birInvalid),
+    -- and so do those the solver has no answer for (birUnsolvable).
     entries <- either scoringError pure (sequence entriesE)
     t2 <- liftIO getCurrentTime
     -- No substitution in a batch: what it may read is the dependencies.
@@ -1287,14 +1293,16 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
                 <> ": "
                 <> show (length valid)
                 <> " activities"
-                <> ( if null notFound && null invalid
+                <> ( if null notFound && null invalid && null unsolvable
                         then ""
                         else
                             " ("
                                 <> show (length notFound)
                                 <> " not_found, "
                                 <> show (length invalid)
-                                <> " invalid)"
+                                <> " invalid, "
+                                <> show (length unsolvable)
+                                <> " unsolvable)"
                    )
                 <> " – solve "
                 <> showFFloat (Just 2) (realToFrac solveTime :: Double) ""
@@ -1308,6 +1316,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
             , birNotFound = notFound
             , birInvalid = invalid
             , birUnscorable = unscorable
+            , birUnsolvable = unsolvable
             , birBasis = basis
             , birReadingNotice = readingNotice (mcScoringSets collection)
             }
@@ -1387,7 +1396,14 @@ computedQualityReportH dbName mCollection mLimit = do
             | e <- birResults response
             , Just act <- [M.lookup (bieProcessId e) entriesByPid]
             ]
-    pure (DBHandlers.computedQualityReportToAPI mLimit (CQ.computedQualityReport dbName (DM.unCollectionName collection) scored))
+        -- No score to judge, which breaks the score of everything that buys
+        -- from them: a finding of its own rather than a quiet gap.
+        unsolvable =
+            [ QualityOffender DangerSev (ueProcessId u) (activityName act) (activityLocation act) (refProductName act) (ueReason u)
+            | u <- birUnsolvable response
+            , Just act <- [M.lookup (ueProcessId u) entriesByPid]
+            ]
+    pure (DBHandlers.computedQualityReportToAPI mLimit (CQ.computedQualityReport dbName (DM.unCollectionName collection) scored unsolvable))
 
 {- | The same two reports as a downloadable file. They answer the question the
 JSON answers, in the shape the person asking it works in: a spreadsheet, or a
@@ -1675,7 +1691,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 110: the @characterized_share@ of the scoring tools and the
+(revision 112: the @unsolvable@ activities of a batch of scores, each with
+why the solver has no answer for it, where the whole batch was refused, and
+the @unsolvable@ check of the computed quality report;
+revision 110: the @characterized_share@ of the scoring tools and the
 @reads@ of a usage line removed, as 0.16 announced;
 revision 109: giving a missing product a supplier wherever the database
 asks for it, at @db/{dbName}/missing-suppliers/supply@;
@@ -1916,7 +1935,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 111
+currentWireVersion = 112
 
 getVersion :: AppM Value
 getVersion = do
@@ -2393,12 +2412,11 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
                     db
                     dbName
                     []
-                    [x]
+                    [Right x]
                     0
             pure $ case eSol of
-                Left err -> Left err
-                Right (sol : _) -> Right sol
-                Right [] -> Left "cross-DB propagation returned empty result"
+                sol : _ -> sol
+                [] -> Left "cross-DB propagation returned empty result"
         buildEntry baselineLcia (p, eitherX) = case eitherX of
             Left err -> pure (PerturbedEntry p (Left err))
             Right x' -> do
@@ -2537,7 +2555,7 @@ supplierAnswers frame@SupplierFrame{sfName = dbName, sfDatabase = db, sfSolver =
         -- One more unit of each of a database's suppliers: the scores, and the scaling of that database it solves to.
         solved :: Database -> Text -> SharedSolver -> Int -> [ProcessId] -> AppM [([Double], U.Vector Double)]
         solved sdb name ssolver depth supplied = fmap concat . forM (Matrix.chunksOf 64 supplied) $ \chunk -> do
-            sols <- either unprocessable pure =<< liftIO (SharedSolver.goWithDeps unitCfg depLookup sdb name ssolver (map (unitDemand sdb) chunk) depth)
+            sols <- either unprocessable pure . sequence =<< liftIO (SharedSolver.goWithDeps unitCfg depLookup sdb name ssolver (map (Right . unitDemand sdb) chunk) depth)
             forM sols $ \sol -> do
                 scores <- methodScores frame =<< liftIO (Impact.withLongTermPolicy dbManager ltMode (shapedLike rootShape sol))
                 pure (scores, reachedScaling (NE.head (SharedSolver.csScalings sol)))

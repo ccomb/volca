@@ -78,6 +78,7 @@ computedQualityReportCsv r =
         [ ("score_outliers", cqaScoreOutliers r)
         , ("zero_scores", cqaZeroScores r)
         , ("negative_scores", cqaNegativeScores r)
+        , ("unsolvable", cqaUnsolvable r)
         ]
 
 {- | The findings of a report as rows, checks in report order. A check with

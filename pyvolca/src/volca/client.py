@@ -3152,7 +3152,8 @@ class Client:
 
         Returns a :class:`BatchScores`: ``results`` holds one
         :class:`ScoredActivity` per process the engine could compute, while
-        ``not_found`` / ``invalid`` list the ids it could not resolve; inspect
+        ``not_found`` / ``invalid`` list the ids it could not resolve and
+        ``unsolvable`` those it has no answer for, each with why; inspect
         them, a partial result is not an error. ``top_flows`` caps the top
         contributors per category; ``exclude_long_term`` drops long-term
         emissions from the totals. Left without a ``collection``, the call runs
@@ -3218,7 +3219,7 @@ class Client:
         batches = [process_ids[i : i + chunk] for i in range(0, len(process_ids), chunk)]
         with ThreadPoolExecutor(workers) as pool:
             scored = list(pool.map(lambda ids: self.score_activities(ids, collection=collection, top_flows=0, exclude_long_term=exclude_long_term), batches))
-        unscored = [pid for b in scored for pid in b.not_found + b.invalid + b.unscorable]
+        unscored = [pid for b in scored for pid in b.not_found + b.invalid + b.unscorable + [u.process_id for u in b.unsolvable]]
         return [
             {
                 "process_id": s.process_id,
