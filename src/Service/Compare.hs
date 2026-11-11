@@ -54,6 +54,7 @@ module Service.Compare (
     compareDatabases,
     limitComparison,
     scorePairs,
+    scoreUnits,
     changesPresent,
     applicableChanges,
 
@@ -75,6 +76,7 @@ import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (listToMaybe)
+import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -91,6 +93,7 @@ import API.Types (
     ChangesApplied (..),
     ChangesPresence (..),
     ChangesQuery (..),
+    ChosenUnit (..),
     DatabaseComparison (..),
     ExchangeChange (..),
     LineChange (..),
@@ -101,11 +104,14 @@ import API.Types (
     Quantity (..),
     ScorePair (..),
     ScorePairs (..),
+    ScoreUnit (..),
+    ScoreUnits (..),
     SetApartPair (..),
     SummaryChange (..),
     Supplier (..),
     UncomparedLine (..),
     UncomparedReason (..),
+    UnitScale (..),
     WasteSide (..),
     unresolvedFlowName,
  )
@@ -121,7 +127,7 @@ import Database.Author (
     lineSelector,
     retextsAuthoredIdentity,
  )
-import Service (ReferenceProductInfo (..), ServiceError, TargetRef (..), buildCrossDBLinkMap, crossDBLinkIndex, crossDBLinksOf, mkActivitySummary, referenceProductOf, resolveActivityAndProcessId, resolveTarget)
+import Service (ReferenceProductInfo (..), ServiceError (ActivityNotFound), TargetRef (..), buildCrossDBLinkMap, crossDBLinkIndex, crossDBLinksOf, mkActivitySummary, referenceProductOf, resolveActivityAndProcessId, resolveTarget)
 import Types (
     Activity (..),
     BioDirection,
@@ -151,7 +157,7 @@ import Types (
     processIdToRef,
     processIdToText,
  )
-import UnitConversion (UnitConfig, UnitDef (..), UnitReading (..), readUnit)
+import UnitConversion (UnitConfig (ucUnits), UnitDef (..), UnitReading (..), canonicalUnitFor, readUnit, unitKey)
 
 -- | The two things compared, named so that swapping them shows at the call.
 data Sides a = Sides
@@ -832,25 +838,90 @@ scorePairs units dbs =
 
 -- | What a score of the other activity is multiplied by to be per one unit of the base one's reference product.
 perBaseUnit :: UnitConfig -> Sides ProcessIn -> Either PairRefusal Double
-perBaseUnit units sides = do
-    Sides baseUnit otherUnit <- traverse referenceUnit sides
-    Sides baseDef otherDef <- traverse definition (Sides baseUnit otherUnit)
+perBaseUnit units sides = traverse referenceUnit sides >>= onto units
+
+{- | What a score per one other unit is multiplied by to be per one base unit:
+a score per tonne times 0.001 is a score per kilogram, one per megajoule times
+3.6 is one per kilowatt hour.
+-}
+onto :: UnitConfig -> Sides Text -> Either PairRefusal Double
+onto units (Sides baseUnit otherUnit) = do
+    baseDef <- unitDefinition units baseUnit
+    otherDef <- unitDefinition units otherUnit
     if
         | udDimension baseDef /= udDimension otherDef -> Left (DifferentMeasures baseUnit otherUnit)
         | udFactor baseDef == 0 -> Left (ZeroFactor baseUnit)
         | udFactor otherDef == 0 -> Left (ZeroFactor otherUnit)
         | otherwise -> Right (udFactor baseDef / udFactor otherDef)
+
+-- | The unit a process's score is per: the one its database registers for its reference product.
+referenceUnit :: ProcessIn -> Either PairRefusal Text
+referenceUnit p = do
+    reference <- maybe (Left NoReferenceProduct) Right (L.find exchangeIsReference (exchanges (inActivity p)))
+    maybe (Left UnregisteredUnit) (Right . unitName) (getUnitForExchange (dbUnits (inDatabase p)) reference)
+
+unitDefinition :: UnitConfig -> Text -> Either PairRefusal UnitDef
+unitDefinition units unit = case readUnit units unit of
+    ReadExact def -> Right def
+    ReadRespelt _ def -> Right def
+    ReadAmbiguous{} -> Left (AmbiguousUnit unit)
+    ReadUnknown -> Left (UnknownUnit unit)
+
+{- | The score of each asked process of the database put per one @target@, or
+set apart with why it cannot be. Each process is named by the id it was asked
+by. A target the table cannot read is said once, and sets every process apart
+under that reason rather than refusing the question, so a reader still has the
+units of the processes to choose from.
+-}
+scoreUnits :: UnitConfig -> Text -> Database -> [Text] -> ScoreUnits
+scoreUnits units target db asked =
+    ScoreUnits
+        { susUnit = unitKey units target
+        , susReading = either NotUnderstood (Understood . sameMeasure units target) chosen
+        , susProcesses = [scale processId p | (processId, Right p) <- attempts]
+        , susNotFound = [processId | (processId, Left err) <- attempts, namesNothing err]
+        , susInvalid = [processId | (processId, Left err) <- attempts, not (namesNothing err)]
+        }
   where
-    referenceUnit :: ProcessIn -> Either PairRefusal Text
-    referenceUnit p = do
-        reference <- maybe (Left NoReferenceProduct) Right (L.find exchangeIsReference (exchanges (inActivity p)))
-        maybe (Left UnregisteredUnit) (Right . unitName) (getUnitForExchange (dbUnits (inDatabase p)) reference)
-    definition :: Text -> Either PairRefusal UnitDef
-    definition unit = case readUnit units unit of
-        ReadExact def -> Right def
-        ReadRespelt _ def -> Right def
-        ReadAmbiguous{} -> Left (AmbiguousUnit unit)
-        ReadUnknown -> Left (UnknownUnit unit)
+    -- A unit of factor zero reads, but nothing can be put per it.
+    chosen :: Either PairRefusal UnitDef
+    chosen = unitDefinition units target >>= \def -> if udFactor def == 0 then Left (ZeroFactor target) else Right def
+    attempts :: [(Text, Either ServiceError ProcessIn)]
+    attempts = [(processId, resolveProcess db processId) | processId <- asked]
+    -- As the batch scores sort ids: any other failure is an id unusable as sent.
+    namesNothing :: ServiceError -> Bool
+    namesNothing = \case
+        ActivityNotFound _ -> True
+        _ -> False
+    scale :: Text -> ProcessIn -> ScoreUnit
+    scale processId p =
+        ScoreUnit
+            { suProcessId = processId
+            , suActivityName = activityName (inActivity p)
+            , suLocation = activityLocation (inActivity p)
+            , suProductUnit = either (const Nothing) Just productUnit
+            , suScale = either SetApart Scaled (chosen *> (productUnit >>= onto units . Sides target))
+            }
+      where
+        productUnit :: Either PairRefusal Text
+        productUnit = referenceUnit p
+
+{- | The units the table measures what @target@ measures in, one spelling per
+factor, smallest first. Of the spellings sharing a factor, the target's own
+comes first, then the quantity's reference unit, then the shortest: a reader
+picking a unit wants @t@, not every alias of a tonne.
+-}
+sameMeasure :: UnitConfig -> Text -> UnitDef -> [Text]
+sameMeasure units target targetDef = map (L.minimumBy (comparing preference) . fmap snd) (NE.groupAllWith fst candidates)
+  where
+    candidates :: [(Double, Text)]
+    candidates = [(udFactor def, spelling) | (spelling, def) <- M.toList (ucUnits units), udDimension def == udDimension targetDef, udFactor def /= 0]
+    own :: Text
+    own = unitKey units target
+    reference :: Maybe Text
+    reference = canonicalUnitFor units target
+    preference :: Text -> (Bool, Bool, Int, Text)
+    preference spelling = (spelling /= own, Just spelling /= reference, T.length spelling, spelling)
 
 -- | Keep the first @n@ entries of each list. The counts still cover them all.
 limitComparison :: Int -> DatabaseComparison -> DatabaseComparison

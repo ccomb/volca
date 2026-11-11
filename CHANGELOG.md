@@ -11,6 +11,14 @@
   history and in the changes report an export carries, and a replay ignores
   them. A change made over HTTP is not thereby the work of a person: a script
   driven by an assistant comes through HTTP too. Wire revision 111.
+- Scores of a few activities can be read per one unit of the reader's
+  choosing, so that activities counted in different units compare.
+  `POST /api/v1/db/{name}/score-units` takes that unit and the activities, and
+  answers for each what its scores are multiplied by: a score per tonne times
+  0.001 reads per kilogram. An activity measured in another quantity, litres
+  against kilograms, is set apart with the reason, and the answer lists the
+  other units the chosen one could be swapped for. The scores themselves come
+  from the batch impacts as before.
 
 ### Fixed
 
