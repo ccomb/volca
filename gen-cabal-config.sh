@@ -55,6 +55,16 @@ else
     VOLCA_SPLIT_SECTIONS="  split-sections: True"
 fi
 
+# The sparse solver reads and writes its arrays unchecked, which is what makes
+# it fast and what would let a wrong index reach a neighbour's memory without a
+# word. Where the build only has to run the suite, every such access is
+# checked instead, so the suite stops on the first one out of bounds.
+if [ "$VOLCA_OPT_LEVEL" -eq 0 ]; then
+    VOLCA_BOUNDS_CHECK="-fcheck-prim-bounds "
+else
+    VOLCA_BOUNDS_CHECK=""
+fi
+
 # Parallelism preamble shared by every LINK_MODE.
 # Lives in cabal.project.local (not cabal.project) so that Docker builds –
 # which copy only volca.cabal + mumps-hs/ into the build context and write a
@@ -102,7 +112,11 @@ case "$LINK_MODE" in
         # executable fails to link with undefined dgemm_ / _gfortran_* symbols.
         MUMPS_STATIC_DEPS=""
         if [ -f "$MUMPS_LIB_DIR/libdmumps_seq.a" ] && [ ! -e "$MUMPS_LIB_DIR/libdmumps_seq.so" ]; then
-            MUMPS_STATIC_DEPS="  ghc-options: -optl-lopenblas -optl-lgfortran"
+            MUMPS_STATIC_DEPS="-optl-lopenblas -optl-lgfortran"
+        fi
+        DYNAMIC_GHC_OPTIONS=""
+        if [ -n "$VOLCA_BOUNDS_CHECK$MUMPS_STATIC_DEPS" ]; then
+            DYNAMIC_GHC_OPTIONS="  ghc-options: $VOLCA_BOUNDS_CHECK$MUMPS_STATIC_DEPS"
         fi
         cat >> "$OUTPUT" << EOF
 optimization: 2
@@ -113,7 +127,7 @@ extra-include-dirs: $MUMPS_INCLUDE_DIR
 package volca
   optimization: $VOLCA_OPT_LEVEL
 $VOLCA_SPLIT_SECTIONS
-$MUMPS_STATIC_DEPS
+$DYNAMIC_GHC_OPTIONS
 EOF
         ;;
 
@@ -161,7 +175,7 @@ extra-include-dirs: $MUMPS_INCLUDE_DIR
 package volca
   optimization: $VOLCA_OPT_LEVEL
 $VOLCA_SPLIT_SECTIONS
-  ghc-options: $MUSL_LINK_FLAGS
+  ghc-options: $VOLCA_BOUNDS_CHECK$MUSL_LINK_FLAGS
 EOF
         ;;
 
@@ -262,7 +276,7 @@ package mumps-hs
 package volca
   optimization: $VOLCA_OPT_LEVEL
 $VOLCA_SPLIT_SECTIONS
-  ghc-options: $DARWIN_LINK_FLAGS
+  ghc-options: $VOLCA_BOUNDS_CHECK$DARWIN_LINK_FLAGS
 EOF
         ;;
 
@@ -301,7 +315,7 @@ extra-include-dirs: $MUMPS_INCLUDE_DIR
 package volca
   optimization: $VOLCA_OPT_LEVEL
 $VOLCA_SPLIT_SECTIONS
-  ghc-options: -optl-Wl,--allow-multiple-definition -optl-L$GCC_LIB_DIR -optl-L$MSYS2_LIB_DIR -optl-L$MUMPS_LIB_DIR -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran -optl-lgcc -optl-lquadmath -optl-lmingwex -optl-lpthread -optl-lmsvcrt
+  ghc-options: $VOLCA_BOUNDS_CHECK-optl-Wl,--allow-multiple-definition -optl-L$GCC_LIB_DIR -optl-L$MSYS2_LIB_DIR -optl-L$MUMPS_LIB_DIR -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran -optl-lgcc -optl-lquadmath -optl-lmingwex -optl-lpthread -optl-lmsvcrt
 
 -- MSYS2's pkg-config finds zlib, so the zlib package would link the shared
 -- zlib1.dll, which a user's machine does not have: volca.exe then fails to
