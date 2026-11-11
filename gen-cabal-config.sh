@@ -229,7 +229,11 @@ EOF
         # kernel code reached by a jump from a neighbouring atom can be dropped,
         # leaving a hole that faults when execution lands in it. Nothing here
         # proves that has happened; the few kilobytes are not worth the risk.
-        DARWIN_TAIL_FLAGS="-optl-lpthread -optl-lm -optl-mmacosx-version-min=${DEPLOYMENT_TARGET} -optl-Wl,-dead_strip_dylibs"
+        #
+        # The solver archive asks for -liconv, -lSystem, -lc and -lm. The
+        # linker brings the system library and the C one itself; the other two
+        # are named.
+        DARWIN_TAIL_FLAGS="-optl-lpthread -optl-lm -optl-liconv -optl-mmacosx-version-min=${DEPLOYMENT_TARGET} -optl-Wl,-dead_strip_dylibs"
 
         if [[ "$(uname -m)" == "arm64" ]]; then
             : "${OPENBLAS_LIB_DIR:?OPENBLAS_LIB_DIR is required for darwin arm64 (path to a libopenblas.a built with USE_OPENMP=0 – see .github/actions/setup-haskell-env)}"
