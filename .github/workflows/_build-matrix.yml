@@ -553,13 +553,15 @@ jobs:
             for dll in $WINDOWS_RUNTIME_DLLS; do
               cp "/ucrt64/bin/$dll" "$stage/"
             done
-            if ! (cd "$stage" && PATH="/c/Windows/System32:/c/Windows" "./$(basename "$exe")" "$@"); then
+            # Started from here: Windows looks for a program's DLLs beside the
+            # program, and the suite reads its fixtures from the repository.
+            if ! PATH="/c/Windows/System32:/c/Windows" "$stage/$(basename "$exe")" "$@"; then
               echo "::error::$(basename "$exe") does not start with MSYS2 off the PATH."
               return 1
             fi
           }
           starts_alone "$(cabal list-bin exe:volca)" --version
-          starts_alone "$(cabal list-bin test:lca-tests)" --match MatrixSparse
+          starts_alone "$(cabal list-bin test:lca-tests)" --match MatrixSparse --fail-on=empty
 
       - name: Verify static MUMPS link (Linux)
         # Regression guard: the shipped tarball must not depend on
