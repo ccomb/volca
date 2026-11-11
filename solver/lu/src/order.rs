@@ -8,7 +8,7 @@ use faer::sparse::linalg::amd;
 
 /// Where each row and column goes. The two directions are kept apart by type:
 /// `new_of` takes the caller's numbering, `old_at` a position in the factors.
-pub struct Order {
+pub(crate) struct Order {
     to_old: Vec<u32>,
     to_new: Vec<u32>,
     /// How many columns, placed first, change no other when eliminated.
@@ -22,6 +22,11 @@ impl Order {
 
     pub fn new_of(&self, Original(i): Original) -> usize {
         self.to_new[i] as usize
+    }
+
+    /// Where each of the caller's rows goes, which is all a solve needs.
+    pub fn into_new(self) -> Vec<u32> {
+        self.to_new
     }
 }
 

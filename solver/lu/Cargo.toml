@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+bytemuck = "1.25"
 faer = { version = "0.24.4", default-features = false, features = ["std", "sparse-linalg"] }
 
 [lints]
