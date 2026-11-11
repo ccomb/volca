@@ -98,6 +98,9 @@
   zlib and the MinGW-w64 runtime on Windows. `/api/v1/licenses` lists those of
   its own platform, and the download and the image carry their license texts
   in a `licenses/` folder, beside `NOTICE` and the inventory.
+- The download and the image carry the license files of every Haskell library
+  linked into the engine, in `licenses/haskell/`, one folder per library. They
+  named only the direct dependencies, without their texts.
 
 ## [0.17.0] - 2026-11-07
 

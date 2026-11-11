@@ -33,12 +33,13 @@ which sets no condition on the binary.
 
 ## Haskell direct dependencies
 
-The following table covers the libraries the shipped binary links: the direct
-`build-depends` of `volca.cabal`'s `library` and `executable` stanzas. Test and
-benchmark dependencies are out of scope, and so are transitive ones, whose
-licenses are uniformly BSD-style or MIT and can be re-derived from a fresh
-`cabal-plan license-report` run. `scripts/check-licenses-table.sh` fails the
-build when this table and `volca.cabal` disagree.
+The following table covers the direct `build-depends` of `volca.cabal`'s
+`library` and `executable` stanzas; test and benchmark dependencies never reach
+a user. The license files of every Haskell package linked into the binary,
+direct or not, travel with it in `licenses/haskell/`, one folder per package,
+which `scripts/collect-haskell-licenses.py` writes from the build plan.
+`scripts/check-licenses-table.sh` fails the build when this table and
+`volca.cabal` disagree.
 
 | Package | License | Source |
 |---|---|---|

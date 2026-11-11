@@ -98,10 +98,11 @@ runs:
       uses: actions/cache/restore@v4
       with:
         path: ~/.ghcup
-        # -v5: the saved tree is now slimmed (see the trim at the end of the
-        # install step). Old -v4 snapshots are the full ~2-3 GB tree whose
-        # restore times out on macOS – bumping forces a fresh lean save.
-        key: ghcup-${{ inputs.matrix-name }}-ghc${{ inputs.ghc-version }}-v5
+        # -v6: the saved tree keeps the license files of GHC's own packages
+        # (see the trim at the end of the install step); -v5 snapshots had
+        # lost them. -v5 itself replaced the full ~2-3 GB tree, whose restore
+        # timed out on macOS.
+        key: ghcup-${{ inputs.matrix-name }}-ghc${{ inputs.ghc-version }}-v6
 
     # Bootstrap or restore GHCup into ~/.ghcup. We avoid haskell-actions/setup
     # because it symlinks to the runner's preinstalled /usr/local/.ghcup,
@@ -157,10 +158,12 @@ runs:
         # are needed to *build* a non-profiled binary:
         #   cache/   ghcup's downloaded install tarballs (already unpacked)
         #   tmp/     leftover unpack scratch dirs
-        #   share/doc GHC's bundled HTML/PDF documentation
+        #   share/doc/ghc-<ver>  GHC's bundled HTML/PDF documentation. The
+        #             per-package folders beside it stay: they hold the
+        #             license texts the packaged binary ships.
         #   *.p_o / *_p.a  profiling objects/libs (CI never builds profiled)
         # Runs on warm restores too – a near-noop, since the saved tree is
         # already slim. Best-effort: missing paths must not fail the build.
         rm -rf "$HOME/.ghcup/cache" "$HOME/.ghcup/tmp" || true
-        rm -rf "$HOME/.ghcup/ghc/$GHC_VER/share/doc" || true
+        rm -rf "$HOME/.ghcup/ghc/$GHC_VER/share/doc/ghc-$GHC_VER" || true
         find "$HOME/.ghcup/ghc/$GHC_VER" \( -name '*.p_o' -o -name '*_p.a' \) -delete 2>/dev/null || true

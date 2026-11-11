@@ -18,6 +18,7 @@ cbits/*.o
 !/scripts/propose_flow_bridges.py
 !/scripts/check-data-version.sh
 !/scripts/check-licenses-table.sh
+!/scripts/collect-haskell-licenses.py
 node_modules/
 
 # Generated source

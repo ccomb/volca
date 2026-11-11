@@ -140,6 +140,10 @@ RUN mkdir -p /build/output \
          || { echo "ERROR: PT_GNU_STACK MemSiz=$STACK_MEMSZ on shipped binary, expected 8 MiB (0x800000) – threads would fall back to musl's 128 KB of stack."; exit 1; }; } \
     && file /build/output/volca
 
+# The license files of every Haskell package linked into the binary, which
+# the final stage ships beside it.
+RUN cd /build && python3 volca/scripts/collect-haskell-licenses.py /build/output/licenses/haskell
+
 # Stage 2: small runtime image. The volca binary is fully static (no libc
 # needed) so `scratch` would work, but Alpine gives us /etc/passwd, a shell
 # for debugging, and the few utilities volca shells out to (7z for SimaPro
@@ -167,6 +171,7 @@ COPY --from=haskell-builder /build/output/volca /usr/local/bin/volca
 # and texts to travel with it.
 COPY LICENSE NOTICE THIRD_PARTY_LICENSES.md /usr/share/licenses/volca/
 COPY licenses/ /usr/share/licenses/volca/licenses/
+COPY --from=haskell-builder /build/output/licenses/haskell/ /usr/share/licenses/volca/licenses/haskell/
 
 WORKDIR /app
 

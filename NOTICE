@@ -9,8 +9,8 @@ license names is in THIRD_PARTY_LICENSES.md and at the runtime endpoint
 /api/v1/licenses.
 
 The third-party components are Haskell libraries, predominantly
-BSD 3-Clause and MIT (full table in THIRD_PARTY_LICENSES.md), and the C
-libraries the binary is linked with:
+BSD 3-Clause and MIT, whose license files are in the licenses/haskell/
+folder, and the C libraries the binary is linked with:
 
   GMP – GNU Lesser General Public License, version 3 or later
   Zstandard – BSD 3-Clause

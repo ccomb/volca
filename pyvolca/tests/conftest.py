@@ -8,6 +8,7 @@ hand-written wrapper's operationId exists in the engine's current surface.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Callable
@@ -644,7 +645,8 @@ def readme_namespace() -> dict[str, Any]:
 
 @pytest.fixture(scope="session")
 def live_spec() -> dict[str, Any] | None:
-    """The OpenAPI spec dumped from the currently-built engine binary.
+    """The OpenAPI spec dumped from the engine binary VOLCA_ENGINE_BIN names,
+    else from the one last built in this checkout.
 
     Returns None when no binary is there at all, so a checkout that has
     never built the engine skips the drift tests rather than failing. A
@@ -657,7 +659,8 @@ def live_spec() -> dict[str, Any] | None:
     # .../volca-public/pyvolca/tests/conftest.py
     #                   ^~~~~~~~~ 2 levels up = pyvolca dir
     volca_public = here.parent.parent.parent
-    binary = _newest_engine_binary(volca_public / "dist-newstyle")
+    named = os.environ.get("VOLCA_ENGINE_BIN")
+    binary = Path(named) if named else _newest_engine_binary(volca_public / "dist-newstyle")
     if binary is None:
         return None
     try:
@@ -673,9 +676,10 @@ def _newest_engine_binary(dist_newstyle: Path) -> Path | None:
     cabal names the directory above `build/` after the optimization level:
     `opt/` at -O2, `noopt/` at -O0, and nothing at all at -O1. Matching only
     one of the three is how these tests came to skip themselves silently for
-    months: CI downloads the engine artefact into `dist-newstyle/`, the level
+    months: CI unzipped the engine artefact into `dist-newstyle/`, the level
     moved, and the glob stopped matching a binary that was sitting right
-    there. `**` matches all three and the next one too.
+    there. `**` matches all three and the next one too. CI now names the
+    binary in VOLCA_ENGINE_BIN instead.
     """
     pattern = "build/*/ghc-*/volca-*/x/volca/**/build/volca/volca"
     found = [p for p in dist_newstyle.rglob(pattern) if p.is_file()]
