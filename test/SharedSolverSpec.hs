@@ -12,7 +12,7 @@ import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
 import Database.Manager (solverFor)
 import GoldenData
-import Matrix (Demand (..), buildDemandVector)
+import Matrix (Demand (..), buildDemandVector, computeScalingVector)
 import qualified Service
 import SharedSolver (SharedSolver, createSharedSolver, factorized, solveWithSharedSolver)
 import qualified SharedSolver as SS
@@ -49,6 +49,12 @@ spec = do
             Service.computeSensitivities db solver 0 [] >>= \case
                 Left (Service.MatrixError said) -> said `shouldSatisfy` (\s -> any (`T.isInfixOf` s) ["wheat", "flour"] && "singular" `T.isInfixOf` s)
                 Left other -> expectationFailure (show other)
+                Right _ -> expectationFailure "a technosphere that cannot be solved was answered"
+
+        it "is refused by that name too when solved once, with no solver kept" $ do
+            db <- wheatAndFlour
+            computeScalingVector db 0 >>= \case
+                Left said -> said `shouldSatisfy` (\s -> any (`T.isInfixOf` s) ["wheat", "flour"])
                 Right _ -> expectationFailure "a technosphere that cannot be solved was answered"
 
         it "is refused again without factorizing again" $ do

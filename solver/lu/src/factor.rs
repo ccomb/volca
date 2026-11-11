@@ -41,10 +41,17 @@ pub struct Report {
     pub free_columns: usize,
     /// Largest share of a row that the trial solve left unexplained.
     pub probe_error: f64,
-    /// The column whose pivot kept the smallest share of the diagonal entry it
-    /// started from, and that share: how close the matrix came to a refusal.
-    /// None for a matrix without columns.
-    pub weakest: Option<(Original, f64)>,
+    /// How close the matrix came to a refusal. None for a matrix without
+    /// columns.
+    pub weakest: Option<Weakest>,
+}
+
+/// The pivot that kept the smallest share of the diagonal entry it started
+/// from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Weakest {
+    pub column: Original,
+    pub share: f64,
 }
 
 pub enum Verdict {
@@ -77,7 +84,7 @@ fn factorize_cut(
         }
     };
     let free_columns = order.free;
-    let weakest = weakest(&raw.diag, &floor).map(|(at, share)| (order.old_at(at), share));
+    let weakest = weakest(&raw.diag, &floor, |at| order.old_at(at));
     let factors = Factors::new(raw, order.into_new())?;
     let probe_error = probe(&m, &factors)?;
     if probe_error > UNRELIABLE {
@@ -93,15 +100,20 @@ fn factorize_cut(
     Ok(Verdict::Accepted(Box::new(factors), report))
 }
 
-/// Where a pivot kept the smallest share of the diagonal entry it started
-/// from, and that share. A diagonal that started at zero had nothing to keep.
-fn weakest(diag: &[f64], floor: &[f64]) -> Option<(usize, f64)> {
+/// The pivot that kept the smallest share of the diagonal entry it started
+/// from, its column named by `original`. A diagonal that started at zero had
+/// nothing to keep.
+fn weakest(diag: &[f64], floor: &[f64], original: impl Fn(usize) -> Original) -> Option<Weakest> {
     let share = |(pivot, floor): (&f64, &f64)| pivot.abs() * TINY / floor;
     diag.iter()
         .zip(floor)
         .map(share)
         .enumerate()
         .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(at, share)| Weakest {
+            column: original(at),
+            share,
+        })
 }
 
 /// The matrix with rows and columns in elimination order, and for each column
@@ -186,11 +198,17 @@ fn eliminate(b: &Columns, floor: &[f64], cut: Cut) -> Result<(Raw, usize), Stop>
     let mut tail: Option<Tail> = None;
     for j in 0..n {
         let limit = tail.as_ref().map_or(j, |t| t.first);
+        let walk = Walk {
+            limit,
+            stamp: j,
+            lp: &f.lp,
+            li: &f.li,
+        };
         let mut top = n;
         for (i, v) in b.column(j) {
             x[i] = v;
             if search.mark[i] != j {
-                top = search.from(i, limit, j, &f.lp, &f.li, top);
+                top = search.from(i, &walk, top);
             }
         }
         let reached = &search.reach[top..n];
@@ -326,6 +344,18 @@ struct Search {
     resume: Vec<usize>,
 }
 
+/// What the search of one column walks through.
+struct Walk<'a> {
+    /// Columns from here on are not finished: they are reached but not walked
+    /// through.
+    limit: usize,
+    /// What marks a column as reached in this search, and in no earlier one.
+    stamp: usize,
+    /// Where the multipliers of each finished column start, and their rows.
+    lp: &'a [u64],
+    li: &'a [u32],
+}
+
 impl Search {
     fn new(n: usize) -> Result<Search, Failure> {
         Ok(Search {
@@ -337,17 +367,14 @@ impl Search {
     }
 
     /// Adds `root` and all it reaches to `reach[top..]` and returns the new
-    /// `top`. Columns from `limit` on are not finished: they are reached but
-    /// not walked through.
-    fn from(
-        &mut self,
-        root: usize,
-        limit: usize,
-        stamp: usize,
-        lp: &[u64],
-        li: &[u32],
-        mut top: usize,
-    ) -> usize {
+    /// `top`.
+    fn from(&mut self, root: usize, walk: &Walk, mut top: usize) -> usize {
+        let Walk {
+            limit,
+            stamp,
+            lp,
+            li,
+        } = *walk;
         let start = |node: usize| if node < limit { lp[node] as usize } else { 0 };
         let mut depth = 0;
         self.stack[0] = root as u32;
@@ -627,7 +654,7 @@ mod tests {
         };
         for cut in [NO_BLOCK, ALL_BLOCK] {
             let (_, report) = accepted(3, &entries(3, close), cut);
-            let (column, share) = report.weakest.unwrap();
+            let Weakest { column, share } = report.weakest.unwrap();
             assert!(column == Original(1) || column == Original(2), "{column:?}");
             assert!((share - 0.19).abs() < 1e-15, "{share}");
         }

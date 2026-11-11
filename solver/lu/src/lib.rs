@@ -15,7 +15,7 @@ mod order;
 mod solve;
 
 pub use block::{Factors, View};
-pub use factor::{Report, Verdict, factorize};
+pub use factor::{Report, Verdict, Weakest, factorize};
 pub use solve::scratch_len;
 
 /// A row or column as the caller numbers it, before any reordering.

@@ -9,7 +9,7 @@ module ConcurrentSolveSpec (spec) where
 import Control.Concurrent.Async (concurrently, mapConcurrently)
 import Data.Text (Text)
 import qualified Data.Vector.Unboxed as U
-import Matrix (Demand (..), Vector, fromList, readSolveCounter, solveSparseLinearSystem)
+import Matrix (Demand (..), Vector, byPosition, fromList, readSolveCounter, solveSparseLinearSystem)
 import Matrix.Dense (factorLU, solveLU)
 import SharedSolver (SharedSolver, solveMultiWithSharedSolver, solveWithSharedSolver)
 import Test.Hspec
@@ -60,7 +60,7 @@ spec = do
             afterOne <- readSolveCounter
             _ <- solveMultiWithSharedSolver solver [Demand demand, Demand demand]
             afterSeveral <- readSolveCounter
-            _ <- solveSparseLinearSystem (technosphere db) (activityCount db) demand
+            _ <- solveSparseLinearSystem byPosition (technosphere db) (activityCount db) demand
             afterFresh <- readSolveCounter
             [afterOne > before, afterSeveral > afterOne, afterFresh > afterSeveral]
                 `shouldBe` [True, True, True]

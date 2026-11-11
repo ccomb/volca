@@ -92,7 +92,7 @@ data SharedSolver = SharedSolver
     , solverActivityCount :: Int
     -- ^ Number of activities
     , solverDbName :: Text
-    -- ^ Database name
+    -- ^ What the log calls this solver: its database, and what sets it apart from the loaded one
     , solverColumnName :: Int -> Text
     -- ^ How a refusal names the column it points at
     , solverCorrection :: Maybe Correction
@@ -183,8 +183,8 @@ measured solver found =
         ++ "a trial solve off by "
         ++ show (Sparse.trialError found)
   where
-    weakest :: (Int, Double) -> String
-    weakest (column, share) = "the weakest pivot keeps " ++ show share ++ " of its diagonal at " ++ T.unpack (solverColumnName solver column) ++ ", "
+    weakest :: Sparse.Pivot -> String
+    weakest pivot = "the weakest pivot keeps " ++ show (Sparse.pivotShare pivot) ++ " of its diagonal at " ++ T.unpack (solverColumnName solver (Sparse.pivotColumn pivot)) ++ ", "
 
 -- | Solve for one demand. The first call factorizes.
 solveWithSharedSolver :: SharedSolver -> Demand -> IO (Either Text Vector)

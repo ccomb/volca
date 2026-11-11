@@ -144,10 +144,10 @@ a small amount of **mutable runtime state** (`Database.Manager` + `SharedSolver`
  │  └─────────────────────────────────────────────────────────────────────┘ │
  │                                                                          │
  │  ┌──────────────  SharedSolver  (mutable · runtime only)  ─────────────┐ │
- │  │  solverLock             : MVar ()      serialises factorisation     │ │
- │  │  solverFactorizationVar : MVar (Maybe MatrixFactorization)          │ │
+ │  │  solverFactors : MVar (Maybe (Either Refused Factors))              │ │
  │  │      └─ lazy LU factorisation of the (I − A) system matrix,         │ │
- │  │         computed on first solve, then reused for the process life   │ │
+ │  │         computed on first solve, then read by every later one; a    │ │
+ │  │         refusal is kept the same way                                │ │
  │  └─────────────────────────────────────────────────────────────────────┘ │
  │                                                                          │
  │  ldConfig : DatabaseConfig                                               │

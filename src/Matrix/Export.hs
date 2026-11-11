@@ -14,7 +14,7 @@ module Matrix.Export (
 ) where
 
 import Database (filterByName, flowSearchFields)
-import Matrix (Demand (..), Vector, applySparseMatrix, buildDemandVector, referenceSign, solveSparseLinearSystem, toList)
+import Matrix (Demand (..), Vector, applySparseMatrix, buildDemandVector, byActivityName, referenceSign, solveSparseLinearSystem, toList)
 import Progress (ProgressLevel (..), reportProgress)
 import Types
 
@@ -80,7 +80,7 @@ extractMatrixDebugInfo database targetProcessId flowFilter =
             techTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList techTriples]
             activityCountInt = fromIntegral activityCount
 
-        solution <- solveSparseLinearSystem techTriplesInt activityCountInt demandVec
+        solution <- solveSparseLinearSystem (byActivityName database) techTriplesInt activityCountInt demandVec
         for solution $ \supplyVec -> do
             let bioTriplesInt = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList bioTriples]
                 bioFlowCountInt = fromIntegral bioFlowCount
