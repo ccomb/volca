@@ -1040,7 +1040,8 @@ description r = case r of
         \that drill-down. Unresolved process IDs land in not_found / invalid, \
         \those whose allocation is refused in unscorable, and those the solver \
         \has no answer for (a loop that consumes all it makes) in unsolvable, \
-        \each with its reason; the other activities are ranked all the same. \
+        \one line per reason listing its process_ids; the other activities are \
+        \ranked all the same. \
         \'basis' says once what every score rests on, as score_activity does; \
         \a row's parameter set is a position in its 'parameterSets'. Under a \
         \set that weighs (list_scoring_sets), 'reading_notice' says the ranking \

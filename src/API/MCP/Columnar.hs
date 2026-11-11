@@ -32,9 +32,11 @@ import API.Types (
     LCIABatchResult (..),
     LCIAResult (..),
     ScoringIndicator (..),
+    UnsolvableEntry (..),
     WithheldCutoffs (..),
  )
 import Data.Aeson (Value (..), object, toJSON, (.=))
+import Data.Indexing (groupInOrder)
 import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe (isJust, mapMaybe, maybeToList)
@@ -133,7 +135,7 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
         , "not_found" .= birNotFound bir
         , "invalid" .= birInvalid bir
         , "unscorable" .= birUnscorable bir
-        , "unsolvable" .= birUnsolvable bir
+        , "unsolvable" .= unsolvable
         , "basis" .= birBasis bir
         ]
             ++ ["reading_notice" .= notice | Just notice <- [readingNotice [ss]]]
@@ -141,6 +143,13 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
             ++ cutoffPairs
   where
     setName = ssName ss
+    -- One line per reason and set, naming every process it holds back: a loop
+    -- holds back all that reach it, under the one sentence.
+    unsolvable :: [Value]
+    unsolvable =
+        [ object ["reason" .= reason, "parameter_set" .= set, "process_ids" .= pids]
+        | ((reason, set), pids) <- M.toList (groupInOrder [((ueReason u, ueParameterSet u), ueProcessId u) | u <- birUnsolvable bir])
+        ]
     cutoffCount :: LCIABatchResult -> Int
     cutoffCount lbr = length (lbrCutoffInputs lbr) + sum (map wcCount (lbrWithheldCutoffs lbr))
     -- The lists stand once per row that met any, keyed by its process id, beside the count in its row.

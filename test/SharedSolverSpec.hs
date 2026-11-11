@@ -91,7 +91,7 @@ spec = do
             either (const Nothing) Just answer `shouldBe` Just (unDemand demand)
         it "refuses only itself when asked beside demands that do not reach them" $ do
             demands <- traverse (demandOf db) [3, 4, 1]
-            answers <- SS.solveMultiWithSharedSolver solver demands
+            answers <- SS.solveWhereAsked solver id (map Right demands)
             case (answers, demands) of
                 ([Left _, Right apart, Left _], [_, asked, _]) -> apart `shouldBe` unDemand asked
                 _ -> expectationFailure ("expected the second answered and the others refused: " <> show (map isRight answers))

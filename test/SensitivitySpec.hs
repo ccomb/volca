@@ -36,7 +36,7 @@ spec = do
             solver <- mkSolverFromDb db "SAMPLE.min3"
             let demand = buildDemandVector db 0
             x <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demand
-            r <- perturbA (fmap (first (T.pack . show) . sequence) . solveMultiWithSharedSolver solver . map Demand) x 0 []
+            r <- perturbA (fmap (first (T.pack . show)) . solveMultiWithSharedSolver solver . map Demand) x 0 []
             case r of
                 Right x' -> U.toList x' `shouldBe` U.toList x
                 Left e -> expectationFailure ("perturbA failed: " <> T.unpack e)

@@ -299,7 +299,7 @@ import Parametric (Setting, parameterised)
 import Progress (ProgressLevel (..), reportError, reportProgress, reportProgressWithTiming, withLogScope)
 import qualified Search.BM25 as BM25
 import Servant.API (FromHttpApiData)
-import SharedSolver (SharedSolver, Uncorrected (..), correctedFor, createSharedSolver)
+import SharedSolver (SharedSolver, correctedFor, createSharedSolver)
 import qualified SharedSolver
 import SubstanceRegistry (CASNumber (..), KeyNormalizers (..), NormName (..), SubstanceEdge, casBindingsFromEdges, normalizeCAS, parseSubstanceEdges)
 import SynonymDB (BridgeDirection (..), SynEdge (..), SynonymDB (..), buildFromCSV, emptySynonymDB, excludeJunkSynonyms, excludeOverFrequentSynonyms, loadFromCSVFileWithCache, mergeSynonymDBs, normalizeName, oversizedClasses, reopenedBridges, synonymCount, uncoveredUnitSuffixes)
@@ -4058,10 +4058,7 @@ withSettings manager dbName (before, loaded) settings act = do
         [] -> Right <$> act after loaded
         change
             | correctable (length change) ->
-                correctedFor loaded change >>= \case
-                    Right solver -> Right <$> act after solver
-                    Left LoadedUnsolved -> factorised after
-                    Left (Refused _) -> factorised after
+                correctedFor loaded change >>= maybe (factorised after) (fmap Right . act after)
             | otherwise -> factorised after
 
     factorised :: Database -> IO (Either Text a)

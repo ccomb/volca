@@ -19,6 +19,7 @@ import API.Types (
     LCIAResult (..),
     ScoreBasis (..),
     ScoringIndicator (..),
+    UnsolvableEntry (..),
  )
 import Data.Aeson (Value (..), object, toJSON, (.=))
 import Data.Aeson.Key (fromText)
@@ -190,6 +191,17 @@ spec = do
 
         it "says once what every score of the batch rests on" $
             KM.lookup (fromText "basis") km `shouldBe` Just (toJSON basis)
+
+        it "lists what the solver has no answer for once per reason and set, with the processes it holds back" $ do
+            let loop = "Database 'ei' has no answer to this demand: the supply chain reaches \"left\" (FR)"
+                Object refused = toColumnarBatch False Nothing "ei" "EF31" pefSet bir{birUnsolvable = [UnsolvableEntry "pidC" Nothing loop, UnsolvableEntry "pidD" Nothing loop, UnsolvableEntry "pidC" (Just 1) loop]}
+            KM.lookup (fromText "unsolvable") refused
+                `shouldBe` Just
+                    ( toJSON
+                        [ object ["reason" .= loop, "parameter_set" .= (Nothing :: Maybe Int), "process_ids" .= ["pidC", "pidD" :: Text]]
+                        , object ["reason" .= loop, "parameter_set" .= Just (1 :: Int), "process_ids" .= ["pidC" :: Text]]
+                        ]
+                    )
 
         it "hoists functional_unit to top level when all rows share one" $
             KM.lookup (fromText "functional_unit") km `shouldBe` Just (String "1 m³ wood")

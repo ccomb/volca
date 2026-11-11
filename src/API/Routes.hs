@@ -1140,7 +1140,7 @@ scoreChunk scope chunk = do
     sols0 <- solutionsWithDeps (bsDbName scope) (bsDb scope) (bsSolver scope) (map btProcessId chunk)
     sols <- liftIO $ acrossCapabilities (traverse (Impact.withLongTermPolicy dbManager (bsLongTerm scope))) sols0
     t1 <- liftIO getCurrentTime
-    rows <- liftIO $ acrossCapabilities (\(target, sol) -> either (pure . Left . unsolved target) (fmap Right . entryOf dbManager target) sol) (zip chunk sols)
+    rows <- liftIO $ acrossCapabilities (\(target, sol) -> either (fmap Left . evaluate . force . unsolved target) (fmap Right . entryOf dbManager target) sol) (zip chunk sols)
     pure (diffUTCTime t1 t0, rows)
   where
     unsolved :: BatchTarget -> Text -> UnsolvableEntry
@@ -1149,7 +1149,8 @@ scoreChunk scope chunk = do
     {- An entry is forced where it is built. Every field of it is lazy, and the
     score of a category is a closure over the solution's inventory, so an
     unforced chunk hands the next one its predecessor's solutions to hold on to
-    and the bound above buys nothing. -}
+    and the bound above buys nothing. A refused entry too: unforced, it holds
+    the scope, and with it the database of its parameter set. -}
     entryOf :: DatabaseManager -> BatchTarget -> SharedSolver.CrossDBSolution -> IO (Either Text BatchImpactsEntry)
     entryOf dbManager target sol =
         evaluate . force . fmap (named target)

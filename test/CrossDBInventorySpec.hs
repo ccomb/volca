@@ -114,7 +114,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             let n = fromIntegral (dbActivityCount db) :: Int
                 perRoot = [M.empty, M.empty, M.empty] :: [DepDemands]
-            case sequence (SharedSolver.prepareDepDemandVecs defaultUnitConfig "SAMPLE.min3" db (map Right perRoot)) of
+            case SharedSolver.prepareDepDemandVecs defaultUnitConfig "SAMPLE.min3" db perRoot of
                 Right vecs -> do
                     length vecs `shouldBe` 3
                     map (U.length . unDemand) vecs `shouldBe` replicate 3 n
@@ -128,7 +128,7 @@ spec = do
                     -- Two roots: the first demands of another dep, the second of this one.
                     let otherDep = M.singleton "some-other-db" (M.singleton supplierKey StatedAmount{saUnit = refUnit, saAmount = 7.5})
                         thisDep = M.singleton "SAMPLE.min3" (M.singleton supplierKey StatedAmount{saUnit = refUnit, saAmount = 7.5})
-                    case sequence (SharedSolver.prepareDepDemandVecs defaultUnitConfig "SAMPLE.min3" db [Right otherDep, Right thisDep]) of
+                    case SharedSolver.prepareDepDemandVecs defaultUnitConfig "SAMPLE.min3" db [otherDep, thisDep] of
                         Right [Demand absent, Demand present] -> do
                             U.all (== 0.0) absent `shouldBe` True
                             present U.! supplierIdx `shouldBe` 7.5

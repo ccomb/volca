@@ -328,7 +328,7 @@ supplyFor db solver demand = first (MatrixError . SharedSolver.refusal db solver
 
 -- | The same for several demands at once, the refusal in words: what a rank-one update solves with.
 suppliesFor :: Database -> SharedSolver -> Solve
-suppliesFor db solver = fmap (first (SharedSolver.refusal db solver) . sequence) . solveMultiWithSharedSolver solver . map Demand
+suppliesFor db solver = fmap (first (SharedSolver.refusal db solver)) . solveMultiWithSharedSolver solver . map Demand
 
 -- | Rich activity info (returns same format as API)
 getActivityInfo :: Database -> Text -> Either ServiceError Value
@@ -2992,9 +2992,8 @@ goWithSubsAndDeps ::
     -- | recursion depth
     Int ->
     IO (Either ServiceError [SharedSolver.CrossDBSolution])
-goWithSubsAndDeps unitCfg depLookup thisDb thisDbName rootDb solver demands allSubs depth = do
-    answers <- solveMultiWithSharedSolver solver demands
-    case sequence answers of
+goWithSubsAndDeps unitCfg depLookup thisDb thisDbName rootDb solver demands allSubs depth =
+    solveMultiWithSharedSolver solver demands >>= \case
         Left why -> pure (Left (MatrixError (SharedSolver.refusal thisDb solver why)))
         Right scalings ->
             applySubstitutionsAt unitCfg depLookup thisDb thisDbName rootDb solver scalings allSubs >>= \case
@@ -3054,7 +3053,7 @@ resolveDepWithSubs unitCfg depLookup rootDb perRootDepDemands allSubs depth depD
             -- contributes 'Nothing' at every root; dropped before merge.
             pure (Right (replicate (length perRootDepDemands) Nothing))
         Just (depDb, depSolver) ->
-            case sequence (SharedSolver.prepareDepDemandVecs unitCfg depDbName depDb (map Right perRootDepDemands)) of
+            case SharedSolver.prepareDepDemandVecs unitCfg depDbName depDb perRootDepDemands of
                 Left err -> pure (Left (MatrixError err))
                 Right depDemandVecs -> do
                     sols <- goWithSubsAndDeps unitCfg depLookup depDb (ThisDb depDbName) rootDb depSolver depDemandVecs allSubs (depth + 1)

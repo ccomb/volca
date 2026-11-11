@@ -15,12 +15,12 @@ module SharedSolver (
 
     -- * Solver management
     createSharedSolver,
-    Uncorrected (..),
     correctedFor,
 
     -- * Concurrent solving
     solveWithSharedSolver,
     solveMultiWithSharedSolver,
+    solveWhereAsked,
     getFactorization,
     refusal,
 
@@ -44,10 +44,10 @@ module SharedSolver (
 
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
-import Control.DeepSeq (force)
+import Control.DeepSeq (NFData, force)
 import Control.Exception (evaluate)
 import Control.Monad (when)
-import Data.Bifunctor (bimap, first)
+import Data.Bifunctor (first)
 import Data.Either (rights)
 import Data.List (transpose)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -110,29 +110,21 @@ corrected Nothing y = y
 corrected (Just (Correction columns zs s)) y =
     foldl' (\x (w, z) -> U.zipWith (\xi zi -> xi - w * zi) x z) y (zip (U.toList (solveLU s (U.fromList (map (y U.!) columns)))) zs)
 
--- | Why the loaded solver was not corrected.
-data Uncorrected
-    = {- | The loaded matrix has no answer for a column that moved, so it says
-      nothing of the changed one, which may well have answers: that takes a
-      factorisation of the changed matrix.
-      -}
-      LoadedUnsolved
-    | -- | The correction is refused, and why.
-      Refused Text
-    deriving (Eq, Show)
-
 {- | The solver of the loaded matrix with these columns changed: each column
 with the entries of M = I − A it adds, by row. It shares the loaded solver's
-factors, so nothing is factorised again. Refused when the changed matrix is
-singular.
+factors, so nothing is factorised again. None when the loaded matrix has no
+answer for a column that moved, which says nothing of the changed matrix, or
+when the changed matrix is singular, which leaves some demands with answers:
+either way only a factorisation of the changed matrix tells which. None for a
+solver already corrected, which is not corrected again.
 -}
-correctedFor :: SharedSolver -> [(Int, [(Int, Double)])] -> IO (Either Uncorrected SharedSolver)
-correctedFor SharedSolver{solverCorrection = Just _} _ = pure (Left (Refused "a corrected solver is not corrected again"))
+correctedFor :: SharedSolver -> [(Int, [(Int, Double)])] -> IO (Maybe SharedSolver)
+correctedFor SharedSolver{solverCorrection = Just _} _ = pure Nothing
 correctedFor base change = do
     corrections <- solveMultiWithSharedSolver base [Demand (U.accum (+) (U.replicate (solverActivityCount base) 0) entries) | (_, entries) <- change]
-    pure $ case sequence corrections of
-        Left _ -> Left LoadedUnsolved
-        Right zs -> bimap (Refused . ("these values make the technosphere singular: " <>)) (\lu -> base{solverCorrection = Just (Correction columns zs lu)}) (factorLU (length columns) (capacitance zs))
+    pure $ case corrections of
+        Left _ -> Nothing
+        Right zs -> either (const Nothing) (\lu -> Just base{solverCorrection = Just (Correction columns zs lu)}) (factorLU (length columns) (capacitance zs))
   where
     columns :: [Int]
     columns = map fst change
@@ -192,25 +184,25 @@ solveWithSharedSolver solver demand = countingSolve $ do
     evaluate (force (answered solver factors demand))
 
 {- | Solve for several demands, shared out over the cores, answering in their
-order. Each demand is answered or refused on its own: one whose supply chain
-reaches a process that cannot be solved for is refused, and the others are
-answered all the same.
+order, or refuse them all for the first the solver refuses. 'solveWhereAsked'
+answers or refuses each on its own.
 -}
-solveMultiWithSharedSolver :: SharedSolver -> [Demand] -> IO [Either Unsolvable Vector]
-solveMultiWithSharedSolver solver = solveWhereAsked solver id . map Right
+solveMultiWithSharedSolver :: SharedSolver -> [Demand] -> IO (Either Unsolvable [Vector])
+solveMultiWithSharedSolver solver = fmap sequence . solveWhereAsked solver id . map Right
 
 {- | Solve for the demands that are there, each one already refused left in
 its place, and each one the solver refuses given what @why@ makes of it. One
 answer per demand, in their order, whatever is refused: nothing is taken out
 of the list to be put back afterwards.
 -}
-solveWhereAsked :: SharedSolver -> (Unsolvable -> e) -> [Either e Demand] -> IO [Either e Vector]
+solveWhereAsked :: (NFData e) => SharedSolver -> (Unsolvable -> e) -> [Either e Demand] -> IO [Either e Vector]
 solveWhereAsked _ _ [] = pure []
 solveWhereAsked solver why demands = countingSolve $ do
     factors <- factorsOf solver
     -- Each answer is computed where it is asked for: handed back unevaluated,
-    -- they would all be computed afterwards, on the one thread that reads them.
-    acrossCapabilities (either (pure . Left) (fmap (first why) . evaluate . force . answered solver factors)) demands
+    -- they would all be computed afterwards, on the one thread that reads them,
+    -- and a refusal would hold on to whatever @why@ reads, a whole database.
+    acrossCapabilities (either (pure . Left) (evaluate . force . first why . answered solver factors)) demands
 
 {- | Why a solver refused a demand, for whoever made it: the database, since a
 supply chain crosses several, and the process in the way.
@@ -440,9 +432,12 @@ vectors, performing unit conversion. Picks out @depDbName@'s share of each
 root's demands. Shared by every dep resolver (inventory, contributions, and
 the substitution-aware path in 'Service').
 -}
-prepareDepDemandVecs :: UnitConfig -> Text -> Database -> [Either Text DepDemands] -> [Either Text Demand]
-prepareDepDemandVecs unitConfig depDbName depDb =
-    map (>>= depDemandsToVector unitConfig depDbName depDb . M.findWithDefault M.empty depDbName)
+prepareDepDemandVecs :: UnitConfig -> Text -> Database -> [DepDemands] -> Either Text [Demand]
+prepareDepDemandVecs unitConfig depDbName depDb = traverse (depDemandVector unitConfig depDbName depDb)
+
+-- | One root's demand on @depDbName@, as a demand vector of that database.
+depDemandVector :: UnitConfig -> Text -> Database -> DepDemands -> Either Text Demand
+depDemandVector unitConfig depDbName depDb = depDemandsToVector unitConfig depDbName depDb . M.findWithDefault M.empty depDbName
 
 resolveDep ::
     UnitConfig ->
@@ -464,4 +459,4 @@ resolveDep unitConfig depLookup perRootDepDemands depth depDbName = do
             pure (map (const (Right Nothing)) perRootDepDemands)
         Just (depDb, depSolver) ->
             map (fmap Just)
-                <$> goWithDeps unitConfig depLookup depDb depDbName depSolver (prepareDepDemandVecs unitConfig depDbName depDb perRootDepDemands) (depth + 1)
+                <$> goWithDeps unitConfig depLookup depDb depDbName depSolver (map (>>= depDemandVector unitConfig depDbName depDb) perRootDepDemands) (depth + 1)

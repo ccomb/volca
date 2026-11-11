@@ -364,6 +364,8 @@ data UnsolvableEntry = UnsolvableEntry
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped UnsolvableEntry)
 
+instance NFData UnsolvableEntry
+
 {- | Batch impacts response: one entry per successfully computed process,
 plus lists of process ids that could not be resolved or solved for.
 -}
