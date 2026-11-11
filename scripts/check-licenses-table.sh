@@ -40,7 +40,7 @@ awk '
         split(line, field, /[ \t]/)                         # drop the version constraint
         if (field[1] != "") print field[1]
     }
-' volca.cabal | grep -vxE 'volca|mumps-hs' | sort -u > "$work/cabal"
+' volca.cabal | grep -vx volca | sort -u > "$work/cabal"
 
 # The package column of the table, minus its header row. A crate is written
 # between backquotes, which keeps its rows out of this list.

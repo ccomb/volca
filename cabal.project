@@ -1,5 +1,4 @@
 packages: .
-          ./mumps-hs
 
 allow-newer: true
 

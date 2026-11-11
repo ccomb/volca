@@ -977,17 +977,17 @@ All API routes are prefixed with `/api/v1/`. A dash (–) means the feature is o
 
 ### Linux
 
-Install dependencies, then build. MUMPS is built from source by `build-mumps.sh` if no system package is found:
+Install dependencies, then build:
 
 ```bash
 # Debian/Ubuntu
-sudo apt install build-essential gfortran python3 curl zlib1g-dev libopenblas-dev upx-ucl
+sudo apt install build-essential python3 curl zlib1g-dev upx-ucl
 
 # Fedora
-sudo dnf install gcc gcc-c++ gcc-gfortran make python3 curl zlib-devel openblas-devel blas-devel lapack-devel
+sudo dnf install gcc gcc-c++ python3 curl zlib-devel
 
 # Arch Linux
-sudo pacman -S base-devel gcc-fortran python curl zlib openblas blas lapack
+sudo pacman -S base-devel python curl zlib
 ```
 
 Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/) and Rust (through [rustup](https://rustup.rs) or your distribution's `cargo` package; `solver/Cargo.toml` names the oldest version that builds), then:
@@ -1037,22 +1037,17 @@ xcode-select --install
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
-# Native deps. gcc brings gfortran + libgfortran/libquadmath; openblas
-# provides BLAS/LAPACK (Accelerate.framework's LAPACK ABI does not match
-# what MUMPS emits). dylibbundler is needed only for the Tauri desktop bundle.
-brew install ghcup gcc openblas python3 curl node rust elm upx
+# Native deps. dylibbundler is needed only for the Tauri desktop bundle.
+brew install ghcup python3 curl node rust elm upx
 
 # Haskell toolchain
 ghcup install ghc 9.12.4 --set
 ghcup install cabal latest
 source ~/.ghcup/env
 
-./build.sh              # Build (compiles MUMPS from source, ~3 min one-time)
+./build.sh              # Build
 ./build.sh --test       # Build and run tests
 ```
-
-MUMPS sources are pinned via `MUMPS_VERSION` in `versions.env` and built
-into `deps/mumps/` (cached across runs).
 
 ### Windows (MSYS2)
 
@@ -1061,19 +1056,15 @@ into `deps/mumps/` (cached across runs).
    ```bash
    pacman -S \
      mingw-w64-ucrt-x86_64-gcc \
-     mingw-w64-ucrt-x86_64-gcc-fortran \
-     mingw-w64-ucrt-x86_64-openblas \
-     mingw-w64-ucrt-x86_64-cmake \
-     mingw-w64-ucrt-x86_64-make \
      mingw-w64-ucrt-x86_64-rust \
      mingw-w64-ucrt-x86_64-python \
      mingw-w64-ucrt-x86_64-upx \
-     make python git curl tar
+     python git curl
    ```
 3. Install [GHCup](https://www.haskell.org/ghcup/) for the compiler toolchain
 4. Run:
    ```bash
-   ./build.sh            # Same script as Linux/macOS – builds MUMPS from source
+   ./build.sh            # Same script as Linux/macOS
    ```
 
 ### Docker
@@ -1117,8 +1108,8 @@ VoLCA is licensed under the **Apache License 2.0** – see [LICENSE](LICENSE).
 
 Third-party components bundled with or linked into VoLCA are inventoried in
 [NOTICE](NOTICE) and [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). The
-notable ones are MUMPS (CeCILL-C, version pinned in `versions.env`),
-OpenBLAS (BSD-3), the GCC runtime (GPLv3 with the Runtime Library Exception),
+notable ones are the GCC runtime (GPLv3 with the Runtime Library Exception),
+the Rust crates of the sparse solver (MIT, Apache-2.0 and BSD-3),
 and a number of Haskell libraries (predominantly BSD-3 and MIT).
 
 A running engine also exposes the same inventory as JSON at

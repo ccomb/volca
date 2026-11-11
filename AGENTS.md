@@ -68,8 +68,8 @@ spec modules are `*Spec.hs` under `test/` and auto-discovered. New behavior need
 | API | `API.Resources`, `API.Routes`, `API.MCP` | `API.Resources` holds the resource registry (one `Resource` per operation); REST routes, MCP tools and OpenAPI derive from it |
 | CLI | `CLI.*`, `app/Main.hs` | Arg parsing, commands, HTTP client, REPL; entrypoint (server/client/repl modes) |
 
-A Python client lives in `pyvolca/` (own `pyproject.toml`); the MUMPS binding in
-`mumps-hs/`. The core is otherwise pure Haskell.
+A Python client lives in `pyvolca/` (own `pyproject.toml`); the sparse solver, in
+Rust, in `solver/`. The core is otherwise pure Haskell.
 
 ## Where to start
 

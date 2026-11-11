@@ -29,7 +29,6 @@ jobs:
             src/**/*.hs
             app/**/*.hs
             test/**/*.hs
-            mumps-hs/**/*.hs
 
   # The same gate for the solver's Rust, format and lints, under the Rust that
   # versions.env pins: both change what they ask for between versions.

@@ -15,11 +15,11 @@
 
 # ALPINE_VERSION is the single source of truth – set in versions.env and
 # passed by docker/docker-build.sh. No default here on purpose: a stale
-# fallback is exactly how OPENBLAS_VERSION drifted out of sync before.
+# fallback is how a pin drifts out of sync.
 ARG ALPINE_VERSION
 FROM alpine:${ALPINE_VERSION} AS haskell-builder
 
-# musl toolchain + everything MUMPS / GHC need to build statically.
+# musl toolchain + everything GHC and cargo need to build statically.
 # `*-static` packages ship the .a variants required by `executable-static`.
 RUN apk add --no-cache \
     bash \
@@ -32,14 +32,12 @@ RUN apk add --no-cache \
     perl \
     python3 \
     make \
-    cmake \
     pkgconfig \
     linux-headers \
     musl-dev \
     libc-dev \
     gcc \
     g++ \
-    gfortran \
     cargo \
     gmp-dev \
     gmp-static \
@@ -54,59 +52,8 @@ RUN apk add --no-cache \
     xz-static \
     upx
 
-# Copy build scripts and version pins
+# Version pins
 COPY versions.env /tmp/
-COPY build-mumps.sh /tmp/
-
-# Build OpenBLAS from source. Alpine's `lapack-dev` / `blas-dev` ship .so
-# only, so a static link can't resolve `-llapack` / `-lblas`. OpenBLAS
-# bundles both BLAS and LAPACK into a single libopenblas.a – one source
-# build replaces both.
-#
-# Knobs:
-#   NO_SHARED=1            archive-only, no .so
-#   USE_THREAD=1,
-#   USE_OPENMP=0           pthread parallelism (matches link flags)
-#   DYNAMIC_ARCH=1         ship kernel sets for ~12 microarchitectures
-#                          (Nehalem, Sandybridge, Haswell, Skylake-X,
-#                          Zen, Zen3, …); pick at runtime. For LCA
-#                          workloads MUMPS factorization is heavy on
-#                          dense BLAS3 (dgemm, dtrsm) on frontal
-#                          matrices – hardware-tuned kernels matter:
-#                          AVX-512 / Zen-tuned routines run 30–80 %
-#                          faster than the AVX2 baseline. The ~13 MB
-#                          binary cost compresses well under UPX.
-#   TARGET=GENERIC         build-host fallback kernel; runtime still
-#                          dispatches via DYNAMIC_ARCH.
-#
-# We deliberately do NOT pass NO_LAPACKE=1 / NO_CBLAS=1: they only shrink
-# the intermediate libopenblas.a, not the final exe (the Haskell →
-# MUMPS → Fortran path never resolves cblas_/LAPACKE_ symbols, so
-# archive resolution already drops those objects at link time). Adding
-# them also breaks OpenBLAS's bundled tests (which reference cblas_*),
-# making the default `make` target fail.
-RUN . /tmp/versions.env \
-    && curl -fsSL "https://github.com/OpenMathLib/OpenBLAS/releases/download/v${OPENBLAS_VERSION}/OpenBLAS-${OPENBLAS_VERSION}.tar.gz" \
-        | tar -xz -C /tmp \
-    && cd "/tmp/OpenBLAS-${OPENBLAS_VERSION}" \
-    && make -j"$(nproc)" \
-        NO_SHARED=1 \
-        USE_THREAD=1 USE_OPENMP=0 \
-        DYNAMIC_ARCH=1 \
-        TARGET=GENERIC \
-    && make PREFIX=/build/openblas NO_SHARED=1 install \
-    && cd / && rm -rf "/tmp/OpenBLAS-${OPENBLAS_VERSION}"
-
-# Build MUMPS from source against musl, linking BLAS/LAPACK from our
-# locally-built OpenBLAS. `-fPIC` is OK in static archives; what we need
-# to avoid is OS-installed glibc archives, which we don't have here at all.
-RUN . /tmp/versions.env && \
-    MUMPS_VERSION="$MUMPS_VERSION" \
-    OUTPUT_DIR="/build/mumps" \
-    BUILD_DIR="/tmp/mumps-build" \
-    BLAS_LIBS="-L/build/openblas/lib -lopenblas" \
-    /tmp/build-mumps.sh && \
-    rm -rf /tmp/mumps-build
 
 # Install ghcup; on Alpine it auto-selects the musl-targeted GHC bindist.
 ENV GHCUP_INSTALL_BASE_PREFIX=/opt
@@ -129,21 +76,17 @@ RUN cargo build --release --locked --manifest-path /build/volca/solver/Cargo.tom
 
 # Copy ONLY dependency specification files first (for layer caching)
 COPY volca.cabal /build/volca/
-COPY mumps-hs/ /build/mumps-hs/
 COPY gen-cabal-config.sh /build/volca/
 
-# Set up cabal.project with mumps-hs as local package, LINK_MODE=musl.
+# Set up cabal.project, LINK_MODE=musl.
 # This project is written here rather than copied, so it inherits nothing
 # from the repository's own cabal.project: the hold on
 # insert-ordered-containers has to be repeated, and allow-newer above
 # would let the breaking version in otherwise.
-RUN echo "packages: ./volca ./mumps-hs" > /build/cabal.project \
+RUN echo "packages: ./volca" > /build/cabal.project \
     && echo "allow-newer: true" >> /build/cabal.project \
     && echo "constraints: insert-ordered-containers < 0.3" >> /build/cabal.project \
-    && MUMPS_LIB_DIR="/build/mumps/lib" \
-    MUMPS_INCLUDE_DIR="/build/mumps/include" \
-    OPENBLAS_LIB_DIR="/build/openblas/lib" \
-    LINK_MODE="musl" \
+    && LINK_MODE="musl" \
     OUTPUT_DIR="/build" \
     /build/volca/gen-cabal-config.sh
 
@@ -171,10 +114,7 @@ RUN cd /build/volca && GIT_HASH="$GIT_HASH" GIT_TAG="$GIT_TAG" ./gen-version.sh
 # compile at the global optimization: 2 whatever this is, so they have no
 # business depending on it.
 ARG VOLCA_OPT_LEVEL=2
-RUN MUMPS_LIB_DIR="/build/mumps/lib" \
-    MUMPS_INCLUDE_DIR="/build/mumps/include" \
-    OPENBLAS_LIB_DIR="/build/openblas/lib" \
-    LINK_MODE="musl" \
+RUN LINK_MODE="musl" \
     OUTPUT_DIR="/build" \
     VOLCA_OPT_LEVEL="$VOLCA_OPT_LEVEL" \
     /build/volca/gen-cabal-config.sh
@@ -202,13 +142,12 @@ RUN mkdir -p /build/output \
     # bakes an 8 MiB PT_GNU_STACK header into the ELF; musl reads it at
     # startup as __default_stacksize. If a future linker-flag refactor
     # drops it – or UPX strips it – every pthread falls back to musl's
-    # hardcoded 128 KB and OpenBLAS DYNAMIC_ARCH Fortran workers SIGSEGV
-    # on the first BLAS3 call inside MUMPS factorization (exit 139).
-    # Fail the build loudly here rather than rediscover it from a
-    # production crash log a third time.
+    # hardcoded 128 KB, which foreign code called from Haskell can
+    # overrun (SIGSEGV, exit 139). Fail the build loudly here rather
+    # than rediscover it from a production crash log.
     && { STACK_MEMSZ=$(readelf -l /build/output/volca | grep -A1 GNU_STACK | tail -n1 | awk '{print $2}'); \
          echo "$STACK_MEMSZ" | grep -qE '^0x0*800000$' \
-         || { echo "ERROR: PT_GNU_STACK MemSiz=$STACK_MEMSZ on shipped binary, expected 8 MiB (0x800000) – musl default pthread stack would fall back to 128 KB; OpenBLAS workers will SIGSEGV in MUMPS factorization. See PR #60/#61."; exit 1; }; } \
+         || { echo "ERROR: PT_GNU_STACK MemSiz=$STACK_MEMSZ on shipped binary, expected 8 MiB (0x800000) – musl default pthread stack would fall back to 128 KB, which foreign code can overrun. See PR #60/#61."; exit 1; }; } \
     && file /build/output/volca
 
 # Stage 2: small runtime image. The volca binary is fully static (no libc

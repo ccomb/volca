@@ -10,20 +10,7 @@ runtime endpoint /api/v1/licenses.
 
 The notable third-party components are:
 
-  * MUMPS 5.8.1 (sequential sparse direct solver) – CeCILL-C
-    https://mumps-solver.org/
-
-  * mumps-hs (Haskell FFI bindings to MUMPS) – Apache-2.0
-
-  * PORD (ordering library bundled with MUMPS) – public domain
-
-  * AMD ordering routines and *_TRUNCATED_RRQR variants (bundled with MUMPS)
-    – BSD 3-Clause
-
-  * OpenBLAS (BLAS and LAPACK) – BSD 3-Clause
-
-  * GCC runtime (libgfortran, libquadmath, libgcc) – GPLv3 with the GCC
-    Runtime Library Exception
+  * GCC runtime (libgcc) – GPLv3 with the GCC Runtime Library Exception
 
   * faer (dense linear algebra and ordering, used by the sparse solver) – MIT,
     its minimum-degree ordering ported from AMD – BSD 3-Clause
@@ -34,34 +21,3 @@ The notable third-party components are:
 
   * Numerous Haskell libraries – predominantly BSD 3-Clause and MIT
     (full table in THIRD_PARTY_LICENSES.md)
-
-==============================================================================
-MUMPS – required CeCILL-C copyright notice
-==============================================================================
-
-MUMPS is a software application for the direct solution of large sparse
-systems of linear equations on distributed memory parallel computers.
-
-  Copyright 1991–2024 CERFACS, CNRS, ENS Lyon, INP Toulouse, Inria,
-  Mumps Technologies, University of Bordeaux.
-
-This software is governed by the CeCILL-C license under French law and abiding
-by the rules of distribution of free software. You can use, modify and/or
-redistribute the software under the terms of the CeCILL-C license as
-circulated by CEA, CNRS and Inria at http://www.cecill.info.
-
-The unmodified MUMPS source code is available from the upstream project at
-https://mumps-solver.org/. CeCILL-C §5.3.1 entitles you to request it at no
-more than the cost of transfer.
-
-When citing MUMPS in academic work, please reference:
-
-  [1] P. R. Amestoy, I. S. Duff, J.-Y. L'Excellent and J. Koster.
-      A fully asynchronous multifrontal solver using distributed dynamic
-      scheduling. SIAM Journal on Matrix Analysis and Applications,
-      Vol 23, No 1, pp 15–41 (2001).
-
-  [2] P. R. Amestoy, A. Buttari, J.-Y. L'Excellent and T. Mary.
-      Performance and scalability of the block low-rank multifrontal
-      factorization on multicore architectures. ACM Transactions on
-      Mathematical Software, Vol 45, Issue 1, Article 2, pp 1–26 (2019).

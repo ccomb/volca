@@ -122,11 +122,9 @@ jobs:
       # The MSYS2 ucrt64 runtime volca.exe loads. Named once because two steps
       # need the same list: the per-PR check that they exist, and the release
       # packaging that copies them into the zip. A rename upstream (a gcc major
-      # bump moving libgcc_s_seh-1, say) then fails on the PR that first sees
-      # it, not at tag time.
-      WINDOWS_RUNTIME_DLLS: >-
-        libgfortran-5.dll libquadmath-0.dll libgcc_s_seh-1.dll
-        libwinpthread-1.dll libstdc++-6.dll libgomp-1.dll libopenblas.dll
+      # bump renaming one, say) then fails on the PR that first sees it, not at
+      # tag time.
+      WINDOWS_RUNTIME_DLLS: libwinpthread-1.dll
       # Skip the brew formula refresh and post-install cleanup on every
       # invocation – the runner image is ephemeral, the disk savings
       # do not matter, and the refresh alone can add 30-60s.
@@ -175,7 +173,6 @@ jobs:
           # Alpine's BusyBox ash is more lenient but the slash form works for both.
           . ./versions.env
           echo "ghc=$GHC_VERSION" >> "$GITHUB_OUTPUT"
-          echo "mumps=$MUMPS_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Read engine version from cabal
         id: cabal-version
@@ -196,111 +193,20 @@ jobs:
           install-upx: 'true'
           cache-ghcup: 'true'
 
-      # MUMPS sourcing has three layers, tried in order:
-      #
-      #  1. Download a prebuilt archive from the matching `mumps-prebuilt-*`
-      #     GH Release. This is the fast path – populated once per
-      #     (MUMPS_VERSION, MUMPS_PREBUILT_REVISION) tuple by
-      #     `prebuild-mumps.yml`, downloaded in ~5 s here. Everyone benefits
-      #     including cold-cache runs.
-      #  2. GH Actions cache (`deps/mumps` keyed on MUMPS_VERSION +
-      #     hashFiles('build-mumps.sh')). Salvages a previous source build
-      #     within the 7-day cache eviction window if step 1 missed.
-      #  3. Source build via `build-mumps.sh` (build.sh's existing fallback).
-      #     Only runs if both 1 and 2 missed – typically right after a
-      #     MUMPS_VERSION/REVISION bump where the prebuilt release does not
-      #     exist yet.
-      #
-      # build.sh's MUMPS detection at src ~line 282 prefers
-      # $LOCAL_MUMPS_DIR/lib/libdmumps_seq.a when present, so any of the
-      # three paths populating deps/mumps/ is picked up automatically.
-
-      - name: Download prebuilt MUMPS (if release exists)
-        id: download-mumps
-        if: needs.preflight.outputs.skip != 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          source versions.env
-          # Retry `gh release view` so a transient API hiccup isn't read as a
-          # missing asset. Prints the asset list (rc 0) on a successful query;
-          # rc 1 only when every attempt failed (API error or release absent).
-          # Kept identical in the cabal-store probe step below.
-          gh_list_assets() {
-            local tag="$1" out
-            for attempt in 1 2 3; do
-              if out=$(gh release view "$tag" -R "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name' 2>/dev/null); then
-                printf '%s\n' "$out"; return 0
-              fi
-              echo "::notice::Querying release $tag failed (attempt $attempt/3) – retrying in 4s" >&2
-              sleep 4
-            done
-            return 1
-          }
-          TAG="mumps-prebuilt-${MUMPS_VERSION}-r${MUMPS_PREBUILT_REVISION:-1}"
-          PLATFORM='${{ matrix.name }}'
-          ASSET="mumps-prebuilt-${PLATFORM}.tar.gz"
-          # Probe the asset, not just the release: a newly-added platform's
-          # asset may be absent from an existing release (e.g. first macos-intel
-          # build before prebuild-mumps.yml has published its tarball). Missing
-          # asset → fall through to the source build instead of failing here.
-          #
-          # Distinguish a genuine absence from a transient API failure: piping
-          # `gh ... 2>/dev/null` straight into grep conflates the two, so a
-          # flaky `gh release view` silently downgraded the job to the slow
-          # source build even when the asset existed (observed on macos-arm64
-          # against a release that had it). Retry the query; only a *successful*
-          # query with the asset missing is a real miss.
-          if ! assets=$(gh_list_assets "$TAG"); then
-            echo "::warning::Could not query release $TAG after retries (API error or release absent) – falling back to source build (or cache)."
-            echo "populated=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if ! grep -qx "$ASSET" <<<"$assets"; then
-            echo "::warning::Prebuilt MUMPS asset $ASSET (tag $TAG) absent on the release – falling back to source build (or cache). Trigger prebuild-mumps.yml to populate."
-            echo "populated=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Download into a step-local dir so this step's SHA256SUMS doesn't
-          # collide with the one downloaded by the cabal-store step below.
-          DL=mumps-dl
-          rm -rf "$DL" && mkdir -p "$DL"
-          gh release download "$TAG" -R "${GITHUB_REPOSITORY}" -p "$ASSET" -p SHA256SUMS -D "$DL"
-          (cd "$DL" && grep " $ASSET\$" SHA256SUMS | sha256sum -c -)
-          mkdir -p deps
-          tar xzf "$DL/$ASSET" -C deps
-          test -f deps/mumps/lib/libdmumps_seq.a
-          rm -rf "$DL"
-          echo "Prebuilt MUMPS $TAG/$ASSET extracted to deps/mumps/"
-          echo "populated=true" >> "$GITHUB_OUTPUT"
-
-      # Cache restore + save are split (instead of using actions/cache@v4
-      # with save-always, which is deprecated). The save step runs with
-      # `if: always()` so a downstream test failure or hang does not
-      # discard a 30-min cold cabal compile that did succeed.
-
-      - name: Restore MUMPS local build (fallback when prebuilt missing)
-        id: cache-mumps
-        if: needs.preflight.outputs.skip != 'true' && steps.download-mumps.outputs.populated != 'true'
-        uses: actions/cache/restore@v4
-        with:
-          path: deps/mumps
-          # Hashing build-mumps.sh in addition to MUMPS_VERSION so an edit
-          # to the build recipe invalidates the cache (e.g., new gfortran
-          # detection logic, additional flags). Without this the old build
-          # is silently reused even when its inputs no longer match.
-          key: mumps-${{ matrix.name }}-${{ steps.versions.outputs.mumps }}-${{ hashFiles('build-mumps.sh') }}
-
-      # Cabal store sourcing has the same three layers as MUMPS above:
+      # Cabal store sourcing has three layers, tried in order:
       #   1. Download from the matching `cabal-store-prebuilt-*` GH Release
       #      (~30 s). Populated by `prebuild-cabal-store.yml` once per
-      #      (volca.cabal+mumps-hs.cabal+cabal.project, GHC, REV) tuple.
+      #      (volca.cabal+cabal.project, GHC, REV) tuple.
       #      Carries only ~/.cabal/store – dist-newstyle is per-PR and
       #      always rebuilt incrementally on top.
       #   2. Existing actions/cache restore (~/.cabal/store + dist-newstyle).
       #      Salvages a previous source build within the 7-day window.
       #   3. Cabal builds deps from scratch (~10–20 min, the cold path).
+      #
+      # Cache restore + save are split (instead of using actions/cache@v4
+      # with save-always, which is deprecated). The save step runs with
+      # `if: always()` so a downstream test failure or hang does not
+      # discard a 30-min cold cabal compile that did succeed.
 
       - name: Download prebuilt cabal store (if release exists)
         id: download-cabal
@@ -311,7 +217,11 @@ jobs:
         run: |
           source versions.env
           # Retry `gh release view` so a transient API hiccup isn't read as a
-          # missing asset (see the MUMPS step above – kept identical here).
+          # missing asset: piping `gh ... 2>/dev/null` straight into grep
+          # conflates the two, and a flaky query then downgrades the job to
+          # the slow source build even when the asset exists. Prints the asset
+          # list (rc 0) on a successful query; rc 1 only when every attempt
+          # failed (API error or release absent).
           gh_list_assets() {
             local tag="$1" out
             for attempt in 1 2 3; do
@@ -330,12 +240,12 @@ jobs:
           # never affect the dependency closure, so a release bump must NOT
           # invalidate the store (otherwise every `vX.Y.Z` PR forces a full
           # 5-platform re-prebuild). Keep this filter identical in both files.
-          HASH8=$( { grep -vE '^(version|synopsis|description):' volca.cabal; cat mumps-hs/mumps-hs.cabal cabal.project; } | sha256sum | cut -c1-8)
+          HASH8=$( { grep -vE '^(version|synopsis|description):' volca.cabal; cat cabal.project; } | sha256sum | cut -c1-8)
           REV="${CABAL_PREBUILT_REVISION:-1}"
           TAG="cabal-store-prebuilt-ghc${GHC_VERSION}-${HASH8}-r${REV}"
           PLATFORM='${{ matrix.name }}'
           ASSET="cabal-store-${PLATFORM}.tar.gz"
-          # Probe the asset, not just the release (see MUMPS step): a newly-added
+          # Probe the asset, not just the release: a newly-added
           # platform's asset may be missing from an existing release. Missing
           # asset → fall through to the source build instead of failing here.
           if ! assets=$(gh_list_assets "$TAG"); then
@@ -348,8 +258,6 @@ jobs:
             echo "populated=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Download into a step-local dir to avoid SHA256SUMS collision with
-          # the MUMPS download step above.
           DL=cabal-dl
           rm -rf "$DL" && mkdir -p "$DL"
           gh release download "$TAG" -R "${GITHUB_REPOSITORY}" -p "$ASSET" -p SHA256SUMS -D "$DL"
@@ -379,7 +287,7 @@ jobs:
             ~/.cabal/store
             C:\cabal\store
             dist-newstyle
-          key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}-v2
+          key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'cabal.project') }}-v2
           # Two-level fallback: same GHC first (object files reusable), then
           # any GHC for the same matrix entry (cabal will re-resolve and
           # rebuild the deps closure but reuse what it can – better than
@@ -389,7 +297,7 @@ jobs:
           # paths, while we now force CABAL_DIR=~/.cabal – the dist-newstyle
           # plan would reference paths cabal can no longer resolve.
           restore-keys: |
-            cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}-
+            cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'cabal.project') }}-
             cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-
             cabal-${{ matrix.name }}-
 
@@ -445,7 +353,7 @@ jobs:
           elif [[ "$RUNNER_OS" == "macOS" ]]; then
             ./build.sh --test --no-optimize
           else
-            ./build.sh --test --werror
+            ./build.sh --test --werror --static
           fi
 
       - name: Show the test suite log
@@ -464,7 +372,7 @@ jobs:
           # A suite that dies on a signal writes nothing at all, so the log
           # above ends mid-sentence and names no cause. Re-run the binary for
           # its exit status: 128+signal says which one, and 139 (SIGSEGV) in
-          # particular is what a stack overrun in a BLAS kernel looks like.
+          # particular is what a stack overrun in foreign code looks like.
           BIN=$(cabal list-bin lca-tests 2>/dev/null || true)
           if [[ -n "$BIN" && -x "$BIN" ]]; then
             "$BIN" >/dev/null 2>&1 || echo "test binary exit status: $?"
@@ -473,8 +381,8 @@ jobs:
           # debugger and print every thread's stack from where it stopped.
           if [[ "$RUNNER_OS" == "macOS" && -n "$BIN" && -x "$BIN" ]] && command -v lldb >/dev/null; then
             # `image lookup` on the faulting address names the object file the
-            # code came from, which is what says whether this is OpenBLAS,
-            # MUMPS or our own code. The backtrace alone only gives a local
+            # code came from, which is what says whether this is a library's
+            # code or our own. The backtrace alone only gives a local
             # assembler label, which belongs to no library in particular.
             # -k, not -o: in batch mode the -o list stops at the signal and
             # only the -k commands run once the process has crashed. Passing
@@ -539,9 +447,11 @@ jobs:
             printf '%s\n' "${!seen[@]}"
           }
           starts_alone() {
-            local exe="$1" stage dll
+            local exe="$1" stage dll loaded
             shift
-            for dll in $(msys2_dlls "$exe"); do
+            loaded=$(msys2_dlls "$exe")
+            echo "$(basename "$exe") loads from MSYS2: ${loaded//$'\n'/ }"
+            for dll in $loaded; do
               if [[ " $WINDOWS_RUNTIME_DLLS " != *" $dll "* ]]; then
                 echo "::error::$(basename "$exe") loads $dll, which the release zip does not carry."
                 return 1
@@ -562,29 +472,23 @@ jobs:
           starts_alone "$(cabal list-bin exe:volca)" --version
           starts_alone "$(cabal list-bin test:lca-tests)" --match MatrixSparse --fail-on=empty
 
-      - name: Verify static MUMPS link (Linux)
-        # Regression guard: the shipped tarball must not depend on
-        # libdmumps_seq.so / libmumps_common_seq.so / libpord_seq.so /
-        # libmpiseq_seq.so at runtime – end users would have to apt-install
-        # libmumps-seq separately, which breaks the standalone-binary UX.
-        # Catches the case where build-mumps.sh (or someone's local edit)
-        # introduces dynamic MUMPS deps, including any future variant that
-        # enables Scotch and ends up linking the system libscotch.so.
+      - name: Verify the Linux binary is static
+        # Regression guard: the shipped tarball must run on any Linux, whatever
+        # libraries it has. A binary that loads one at run time starts on this
+        # runner and fails on a user's machine.
         if: needs.preflight.outputs.skip != 'true' && matrix.os == 'linux'
         run: |
           VOLCA_BIN=$(cabal list-bin exe:volca)
-          # Decompress UPX wrapper so ldd can read the dynamic section
-          # (UPX strips section headers; ldd otherwise reports
-          # "not a dynamic executable" regardless of actual linkage).
-          cp "$VOLCA_BIN" /tmp/volca-ldd-check
-          upx -d /tmp/volca-ldd-check >/dev/null 2>&1 || true
-          deps=$(ldd /tmp/volca-ldd-check 2>/dev/null | grep -E 'libdmumps_seq|libmumps_common_seq|libpord_seq|libmpiseq_seq|libscotch' || true)
-          if [[ -n "$deps" ]]; then
-            echo "::error::Binary has dynamic MUMPS/Scotch dependencies – static link regressed:"
-            echo "$deps"
+          # Decompress the UPX wrapper first: a compressed binary reads as
+          # static whatever it was linked as.
+          cp "$VOLCA_BIN" /tmp/volca-static-check
+          upx -d /tmp/volca-static-check >/dev/null 2>&1 || true
+          if ! file /tmp/volca-static-check | grep -q 'statically linked'; then
+            echo "::error::The binary is not statically linked:"
+            file /tmp/volca-static-check
             exit 1
           fi
-          echo "OK: no MUMPS shared library dependencies in the shipped binary."
+          echo "OK: the shipped binary is statically linked."
 
       - name: Optimize macOS binary (strip + ad-hoc sign)
         # Tests above ran on the unstripped binary because UPX'd Mach-O on
@@ -602,7 +506,7 @@ jobs:
           ls -lh "$VOLCA_BIN"
 
       - name: Verify standalone macOS binary
-        # Regression guard, the macOS counterpart of the Linux ldd check above:
+        # Regression guard, the macOS counterpart of the Linux check above:
         # the shipped tarball must load on a Mac with no Homebrew. A binary
         # linked against /opt/homebrew (or /usr/local on Intel) aborts at dyld
         # with "Library not loaded", which `--version` on this runner cannot
@@ -611,10 +515,7 @@ jobs:
         # Only /usr/lib and /System/Library are guaranteed present on a stock
         # macOS, so anything else in LC_LOAD_DYLIB is a dependency the user
         # does not have.
-        # arm64 only: macOS x86_64 still links OpenBLAS dynamically, so it would
-        # fail this check by design. See the OpenBLAS step in
-        # .github/actions/setup-haskell-env for why no recipe works there.
-        if: needs.preflight.outputs.skip != 'true' && matrix.name == 'macos-arm64'
+        if: needs.preflight.outputs.skip != 'true' && matrix.os == 'macos'
         run: |
           VOLCA_BIN=$(cabal list-bin exe:volca)
           # otool's first line is the binary's own path; drop it, keep the
@@ -627,22 +528,6 @@ jobs:
             exit 1
           fi
           echo "OK: no non-system dylib dependencies in the shipped binary."
-
-      - name: Save MUMPS local build
-        # Only save when build.sh actually ran a source build (i.e. neither
-        # the prebuilt download nor the cache restore populated deps/mumps).
-        # Without this gate we'd try to save the prebuilt download as if it
-        # were a cache entry, which both wastes cycles and pollutes the
-        # cache key namespace.
-        if: |
-          always() &&
-          needs.preflight.outputs.skip != 'true' &&
-          steps.download-mumps.outputs.populated != 'true' &&
-          steps.cache-mumps.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: deps/mumps
-          key: ${{ steps.cache-mumps.outputs.cache-primary-key }}
 
       - name: Save GHCup install (Linux/macOS)
         # always() so a downstream test or optimize failure doesn't discard
@@ -685,7 +570,7 @@ jobs:
             ~/.cabal/store
             C:\cabal\store
             dist-newstyle
-          key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'mumps-hs/mumps-hs.cabal', 'cabal.project') }}-v2
+          key: cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-${{ hashFiles('volca.cabal', 'cabal.project') }}-v2
 
       - name: Package release tarball
         if: needs.preflight.outputs.skip != 'true' && inputs.release
@@ -698,16 +583,14 @@ jobs:
           NAME='${{ matrix.name }}'
           mkdir staging
           cp "$VOLCA_BIN" staging/
-          # OpenBLAS is BSD-3, whose binary-redistribution clause asks for the
-          # copyright notice to travel with the artifact – true on every platform,
-          # statically linked or not. On Windows the file also covers the GCC
-          # runtime DLLs copied below.
+          # The BSD and MIT licences of what is linked in ask for their
+          # copyright notices to travel with the artifact, on every platform.
           cp THIRD_PARTY_LICENSES.md staging/
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             # volca.exe links the MSYS2 ucrt64 runtime dynamically (gen-cabal-config.sh's
             # windows mode). Those DLLs sit on the build machine's PATH but nowhere on a
             # user's, so a zip holding only volca.exe fails at load with
-            # "libgfortran-5.dll introuvable". Ship them beside the binary – Windows
+            # "libwinpthread-1.dll introuvable". Ship them beside the binary – Windows
             # searches the .exe's own directory first. The per-PR check above has
             # already confirmed each one exists; re-checked here so an absence can
             # never turn into a silent partial zip.
@@ -729,7 +612,7 @@ jobs:
               fi
               cp "$UCRT_BIN/$dll" staging/
             done
-            # GPLv3 asks for the licence text to travel with the binaries. MSYS2
+            # Their licences ask for the text to travel with the binaries. MSYS2
             # installs each package's own texts under share/licenses, so copy those
             # rather than transcribing them into the repo and letting them rot.
             if [[ ! -d "$UCRT_BIN/../share/licenses" ]]; then

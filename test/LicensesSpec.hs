@@ -33,13 +33,13 @@ spec = describe "/api/v1/licenses payload" $ do
             Just (Array v) -> V.length v `shouldSatisfy` (>= 4)
             _ -> expectationFailure "components is missing or not an array"
 
-    it "lists MUMPS as a CeCILL-C component" $ do
-        let mumps = do
+    it "lists the ordering the solver takes from AMD as a BSD-3-Clause component" $ do
+        let ordering = do
                 Array cs <- lookupPath ["components"] =<< decode licensesJson
-                find (componentNamed "MUMPS") (V.toList cs)
-        mumps `shouldSatisfy` isJust
-        let licField = lookupPath ["license"] =<< mumps
-        licField `shouldBe` Just (String "CeCILL-C")
+                find (componentNamed "AMD ordering (ported in faer)") (V.toList cs)
+        ordering `shouldSatisfy` isJust
+        let licField = lookupPath ["license"] =<< ordering
+        licField `shouldBe` Just (String "BSD-3-Clause")
 
     it "points clients at the Haskell-deps markdown" $ do
         let url = lookupPath ["haskell_dependencies_url"] =<< decode licensesJson

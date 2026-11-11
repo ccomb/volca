@@ -3,7 +3,7 @@
 # =============================================================================
 # volca build script
 # =============================================================================
-# This script builds volca with MUMPS_SEQ direct solver.
+# This script builds volca and the Rust archive of its sparse solver.
 # Works on Linux, macOS, and Windows (via MSYS2).
 #
 # Usage:
@@ -20,7 +20,7 @@
 #   --coverage          Run tests with coverage and generate HTML report (implies --test)
 #   --werror            Treat warnings as errors (-Werror) when compiling – the
 #                       strict gate CI uses; -Wall-clean is a hard project rule
-#   --static            Build a statically-linked binary
+#   --static            Build a statically-linked binary (Alpine only)
 #   --prepare           Stop before cabal: build the solver archive, generate
 #                       the modules and write the cabal configuration, which is
 #                       what a bare `cabal build` needs and cannot make. The
@@ -224,7 +224,7 @@ echo ""
 
 # --optimize-only: skip the entire build/test pipeline and just optimize the
 # binary produced by an earlier run. Needs `cabal` (to locate the binary),
-# `strip`, and `upx` – but none of the heavy build deps (gcc, MUMPS, ...).
+# `strip`, and `upx` – but none of the heavy build deps (gcc, cargo, ...).
 if [[ "$OPTIMIZE_ONLY" == "true" ]]; then
     if ! command -v cabal &>/dev/null; then
         log_error "--optimize-only requires cabal in PATH to locate the binary"
@@ -256,13 +256,13 @@ MISSING_DEPS=false
 
 # Required build tools (platform-specific)
 if [[ "$OS" == "windows" ]]; then
-    for cmd in gcc make cmake python3 curl tar git; do
+    for cmd in gcc python3 git; do
         if ! check_command "$cmd"; then
             MISSING_DEPS=true
         fi
     done
 else
-    for cmd in gcc g++ make python3 curl tar; do
+    for cmd in gcc g++ python3; do
         if ! check_command "$cmd"; then
             MISSING_DEPS=true
         fi
@@ -313,129 +313,26 @@ if [[ "$OS" != "windows" ]]; then
     fi
 fi
 
-# Check for MUMPS sequential solver
-MUMPS_FOUND=false
-MUMPS_BUILT_LOCALLY=false
-LOCAL_MUMPS_DIR="$SCRIPT_DIR/deps/mumps"
-
-# Always prefer a locally-built MUMPS (deps/mumps/) – consistent version on all platforms
-if [[ -f "$LOCAL_MUMPS_DIR/lib/libdmumps_seq.a" ]]; then
-    MUMPS_FOUND=true
-    MUMPS_BUILT_LOCALLY=true
-    MUMPS_LIB_DIR="$LOCAL_MUMPS_DIR/lib"
-    MUMPS_INCLUDE_DIR="$LOCAL_MUMPS_DIR/include"
-    log_success "MUMPS found (local build): $MUMPS_LIB_DIR"
-elif [[ "$OS" == "windows" ]]; then
-    # MSYS2 packages
-    if [[ -f "/ucrt64/lib/libdmumps_seq.a" ]] || [[ -f "/ucrt64/lib/libdmumps.a" ]]; then
-        MUMPS_FOUND=true
-        MUMPS_LIB_DIR="/ucrt64/lib"
-        MUMPS_INCLUDE_DIR="/ucrt64/include"
-        log_success "MUMPS found: $MUMPS_LIB_DIR"
-    fi
-elif [[ "$OS" == "macos" ]]; then
-    # Homebrew
-    if brew --prefix mumps &>/dev/null; then
-        MUMPS_PREFIX=$(brew --prefix mumps)
-        MUMPS_FOUND=true
-        MUMPS_LIB_DIR="$MUMPS_PREFIX/lib"
-        MUMPS_INCLUDE_DIR="$MUMPS_PREFIX/include"
-        log_success "MUMPS found: $MUMPS_LIB_DIR"
-    fi
-else
-    # Linux: check system install. Use the multiarch path so the same
-    # check works on amd64 (/usr/lib/x86_64-linux-gnu) and arm64
-    # (/usr/lib/aarch64-linux-gnu); fall back to /usr/lib for distros
-    # that don't use multiarch.
-    SYS_LIBDIR=/usr/lib/$(gcc -print-multiarch 2>/dev/null)
-    [[ -d "$SYS_LIBDIR" ]] || SYS_LIBDIR=/usr/lib
-    if [[ -f "$SYS_LIBDIR/libdmumps_seq.so" ]] || [[ -f "$SYS_LIBDIR/libdmumps_seq.a" ]]; then
-        MUMPS_FOUND=true
-        MUMPS_LIB_DIR="$SYS_LIBDIR"
-        MUMPS_INCLUDE_DIR="/usr/include"
-        log_success "MUMPS_SEQ found (system): $MUMPS_LIB_DIR"
-    fi
-fi
-
-# Source build fallback when no system/brew/MSYS2 package is found
-if [[ "$MUMPS_FOUND" != "true" ]]; then
-    log_info "MUMPS not found; building ${MUMPS_VERSION} from source (this may take a few minutes)..."
-    if [[ "$OS" == "windows" ]]; then
-        # Ensure Fortran compiler is present (build tool, not the library we're compiling)
-        if ! command -v gfortran &>/dev/null; then
-            log_info "gfortran not found, installing via pacman..."
-            pacman -S --noconfirm mingw-w64-ucrt-x86_64-gcc-fortran
-        fi
-        # Detect available BLAS; install OpenBLAS if nothing is found
-        if [[ -f "/ucrt64/lib/libopenblas.a" ]]; then
-            BLAS_FLAGS="-lopenblas"
-        elif [[ -f "/ucrt64/lib/liblapack.a" ]] && [[ -f "/ucrt64/lib/libblas.a" ]]; then
-            BLAS_FLAGS="-llapack -lblas"
-        else
-            log_info "No BLAS library found, installing OpenBLAS via pacman..."
-            pacman -S --noconfirm mingw-w64-ucrt-x86_64-openblas
-            BLAS_FLAGS="-lopenblas"
-        fi
-    elif [[ "$OS" == "macos" ]]; then
-        # gfortran ships with the Homebrew gcc package
-        if ! command -v gfortran &>/dev/null; then
-            log_info "gfortran not found, installing gcc via brew..."
-            brew install gcc
-        fi
-        # Use Homebrew openblas – works uniformly on Intel and Apple Silicon
-        if ! brew --prefix openblas &>/dev/null; then
-            log_info "openblas not found, installing via brew..."
-            brew install openblas
-        fi
-        OPENBLAS_PREFIX=$(brew --prefix openblas)
-        BLAS_FLAGS="-L${OPENBLAS_PREFIX}/lib -lopenblas"
-        export CPPFLAGS="-I${OPENBLAS_PREFIX}/include ${CPPFLAGS:-}"
-    else
-        BLAS_FLAGS="-lopenblas"
-    fi
-    MUMPS_VERSION="$MUMPS_VERSION" \
-    OUTPUT_DIR="$LOCAL_MUMPS_DIR" \
-    BUILD_DIR="$SCRIPT_DIR/deps/build" \
-    BLAS_LIBS="$BLAS_FLAGS" \
-    "$SCRIPT_DIR/build-mumps.sh"
-    MUMPS_FOUND=true
-    MUMPS_BUILT_LOCALLY=true
-    MUMPS_LIB_DIR="$LOCAL_MUMPS_DIR/lib"
-    MUMPS_INCLUDE_DIR="$LOCAL_MUMPS_DIR/include"
-fi
-
-if [[ "$MUMPS_FOUND" != "true" ]]; then
-    MISSING_DEPS=true
-    log_error "MUMPS sequential solver not found"
-    if [[ "$OS" == "windows" ]]; then
-        log_error "Install with: pacman -S mingw-w64-ucrt-x86_64-mumps"
-    elif [[ "$OS" == "macos" ]]; then
-        log_error "Install with: brew install mumps"
-    else
-        log_error "Install with: sudo apt install libmumps-seq-dev"
-    fi
-fi
-
 if [[ "$MISSING_DEPS" == "true" ]]; then
     log_error "Missing required dependencies. Please install them and try again."
     echo ""
     if [[ "$OS" == "windows" ]]; then
         echo "On Windows (MSYS2 UCRT64):"
-        echo "  pacman -S mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-mumps make python git"
+        echo "  pacman -S mingw-w64-ucrt-x86_64-gcc python git"
         echo ""
     elif [[ "$OS" == "macos" ]]; then
         echo "On macOS:"
-        echo "  brew install gcc python3 curl node mumps"
+        echo "  brew install python3 curl node"
         echo ""
     else
         echo "On Debian/Ubuntu:"
-        echo "  sudo apt install build-essential python3 curl zlib1g-dev libmumps-seq-dev"
+        echo "  sudo apt install build-essential python3 curl zlib1g-dev"
         echo ""
         echo "On Fedora:"
-        echo "  sudo dnf install gcc gcc-c++ make python3 curl zlib-devel MUMPS-devel"
+        echo "  sudo dnf install gcc gcc-c++ python3 curl zlib-devel"
         echo ""
         echo "On Arch Linux:"
-        echo "  sudo pacman -S base-devel python curl zlib mumps"
+        echo "  sudo pacman -S base-devel python curl zlib"
         echo ""
     fi
     echo "For Haskell toolchain:"
@@ -504,27 +401,22 @@ fi
 # Generate Version.hs with build info
 BUILD_TARGET="$OS" ./gen-version.sh
 
-# Write cabal.project.local with library paths
+# Write cabal.project.local with library paths. One link mode per platform;
+# gen-cabal-config.sh says what each one names on the link line.
 if [[ "$OS" == "windows" ]]; then
     LINK_MODE="windows"
-    # MSYS2/GCC discovery + POSIX→Windows MUMPS path conversion live in
-    # gen-cabal-config.sh's windows branch.
-elif [[ "$OS" == "macos" ]] && [[ "$MUMPS_BUILT_LOCALLY" == "true" ]]; then
-    # Darwin's ld64 doesn't support GNU -Wl,-Bstatic / -Bdynamic, so the static
-    # mode below can't be used as-is. The darwin branch of gen-cabal-config.sh
-    # says the rest, including why arm64 and x86_64 differ there.
+elif [[ "$OS" == "macos" ]]; then
     LINK_MODE="darwin"
-elif [[ -f /etc/alpine-release ]] && { [[ "$STATIC_BUILD" == "true" ]] || [[ "$MUMPS_BUILT_LOCALLY" == "true" ]]; }; then
-    # Alpine host (musl libc): fully-static binary linked against musl +
-    # OpenBLAS-from-source. The only fully-portable Linux static path we
-    # still support.
+elif [[ "$STATIC_BUILD" != "true" ]]; then
+    LINK_MODE="dynamic"
+elif [[ -f /etc/alpine-release ]]; then
+    # musl resolves name lookups inside a static binary, where glibc loads
+    # the host's libraries at run time: Alpine is the one place a fully
+    # static Linux binary can be built.
     LINK_MODE="musl"
-    : "${OPENBLAS_LIB_DIR:?OPENBLAS_LIB_DIR required for musl builds (path to libopenblas.a – build via prebuild-openblas or apk add openblas-static + headers)}"
-elif [[ "$STATIC_BUILD" == "true" ]]; then
+else
     log_error "--static is only supported on Alpine/musl. Use the Docker build or run inside an Alpine container."
     exit 1
-else
-    LINK_MODE="dynamic"
 fi
 
 # A build run from a working copy is not shipped, so it defaults below the -O2
@@ -577,8 +469,6 @@ for conf in dist-newstyle/packagedb/ghc-*/volca-*-inplace.conf; do
     fi
 done
 
-MUMPS_LIB_DIR="$MUMPS_LIB_DIR" \
-MUMPS_INCLUDE_DIR="$MUMPS_INCLUDE_DIR" \
 LINK_MODE="$LINK_MODE" \
 VOLCA_OPT_LEVEL="$OPT_LEVEL" \
 ./gen-cabal-config.sh
@@ -645,7 +535,6 @@ if [[ "$RUN_TESTS" == "true" ]]; then
             if [[ -n "$HPC_FLAGS" ]]; then
                 hpc markup "$TIX_FILE" $HPC_FLAGS \
                     --srcdir="$SCRIPT_DIR" \
-                    --srcdir="$SCRIPT_DIR/mumps-hs" \
                     --destdir="$COVERAGE_DIR" \
                     --fun-entry-count
                 hpc report "$TIX_FILE" $HPC_FLAGS
@@ -706,7 +595,7 @@ if [[ -n "$VOLCA_BIN" ]]; then
     if [[ "$STATIC_BUILD" == "true" ]]; then
         echo ""
         echo "Verify static linking with: ldd $VOLCA_BIN"
-        echo "(should show no MUMPS entries)"
+        echo "(should name no shared library)"
     fi
     echo ""
 fi

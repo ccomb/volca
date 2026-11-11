@@ -274,7 +274,6 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 | `Matrix.hs`                 | Matrix LCA computations on the sparse solver                        |
 | `Matrix/Sparse.hs`, `solver/` | The sparse direct solver, in Rust, and the Haskell that calls it  |
 | `SharedSolver.hs`           | Lazy thread-safe LU factorisation, caches, back-substitution        |
-| `mumps-hs/`                 | FFI bindings to the MUMPS direct sparse solver (Fortran)            |
 | `EcoSpold/`, `SimaPro/`, `ILCD/`, `BrightwayExcel/`, `OlcaSchema/` | One namespace per database format, each with a `Parser` (read, wired into `Database/Loader.hs`) and a `Writer` (export, wired into `Database/Export.hs`) |
 | `Method/Parser*.hs`         | Method collection loading (ILCD, CSV, SimaPro, olca)                |
 | `Method/FlowResolver.hs`    | Parses ILCD flow XMLs to enrich MethodCFs (name, compartment, CAS)  |

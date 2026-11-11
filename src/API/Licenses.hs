@@ -2,9 +2,9 @@
 
 {- | Licenses & third-party attribution payload served at @/api/v1/licenses@.
 
-CeCILL-C §6.4 requires that the bundled MUMPS notice be easily accessible
-from the application interface. Apache-2.0 §4(d) requires that we propagate
-attribution for every component we redistribute. This module exposes the
+Apache-2.0 §4(d) requires that we propagate attribution for every component
+we redistribute, and the BSD and MIT licences of what is linked in ask for
+their notices to travel with the binary. This module exposes the
 canonical inventory as a stable JSON shape so any client (web SPA, desktop,
 MCP, pyvolca) can fetch and render it without duplicating the data.
 
@@ -52,42 +52,7 @@ licensesValue =
 componentList :: [Value]
 componentList =
     [ component
-        "MUMPS"
-        (Just "5.8.1")
-        "CeCILL-C"
-        (Just "Copyright 1991-2024 CERFACS, CNRS, ENS Lyon, INP Toulouse, Inria, Mumps Technologies, University of Bordeaux.")
-        (Just "https://mumps-solver.org/")
-        Nothing
-    , component
-        "mumps-hs"
-        Nothing
-        "Apache-2.0"
-        (Just "Copyright (c) 2024-present Christophe Combelles")
-        (Just "https://github.com/ccomb/volca/tree/main/mumps-hs")
-        Nothing
-    , component
-        "PORD (bundled in MUMPS)"
-        Nothing
-        "Public domain"
-        (Just "Juergen Schulze")
-        Nothing
-        Nothing
-    , component
-        "AMD ordering and *_TRUNCATED_RRQR variants (bundled in MUMPS)"
-        Nothing
-        "BSD-3-Clause"
-        Nothing
-        Nothing
-        Nothing
-    , component
-        "OpenBLAS (BLAS and LAPACK)"
-        Nothing
-        "BSD-3-Clause"
-        (Just "Copyright (c) 2011-2014, The OpenBLAS Project")
-        (Just "https://github.com/OpenMathLib/OpenBLAS")
-        Nothing
-    , component
-        "GCC runtime (libgfortran, libquadmath, libgcc)"
+        "GCC runtime (libgcc)"
         Nothing
         "GPL-3.0-or-later WITH GCC-exception-3.1"
         Nothing
