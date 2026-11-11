@@ -2945,7 +2945,7 @@ configuredScoringSets dbm collName = do
 {- | Handler for the 'score_activities' MCP tool.
 
 Ranks N activities against every method in a collection in one
-multi-RHS MUMPS solve plus parallel characterization, then projects the
+solve of all their demands plus parallel characterization, then projects the
 result against a single 'ScoringSet' into a columnar JSON payload
 (@{scoringSet, scoringUnit, functionalUnit, columns, rows}@). The shape
 hoists the constant metadata once and packs each activity as a flat

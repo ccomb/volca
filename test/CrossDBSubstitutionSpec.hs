@@ -106,9 +106,6 @@ spec = do
 -- | Build a fresh 'SharedSolver' from a database's technosphere triples.
 mkSolver :: Database -> T.Text -> IO SharedSolver
 mkSolver db name =
-    let tech =
-            [ (fromIntegral i, fromIntegral j, v)
-            | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-            ]
+    let tech = dbTechnosphereTriples db
         n = fromIntegral (dbActivityCount db)
      in createSharedSolver name tech n

@@ -29,7 +29,6 @@ import Test.Hspec
 
 import API.Types (ParameterValue (..), ScenarioAPI (..))
 import Config (DatabaseConfig (..), defaultConfig)
-import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
 import Database.Edit (copyDatabase, refusalMessage)
 import Database.Manager (
@@ -70,7 +69,6 @@ import Types (
     Release (..),
     ScenarioValue (..),
     SimpleDatabase (..),
-    SparseTriple (..),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
@@ -185,7 +183,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
 
         -- Force the source solver's lazy factorization via a first solve.
         _ <- solveWithSharedSolver srcSolver =<< either (fail . show) pure (buildDemandVector srcDb 0)
-        -- MatrixFactorization has no Show instance, so assert on the Bool.
+        -- The factors have no Show instance, so assert on the Bool.
         getFactorization srcSolver >>= (`shouldBe` True) . isJust
 
         -- A shared MVar would have warmed the copy too; a distinct one stays empty.
@@ -361,7 +359,7 @@ installLoaded manager name db = do
 
 mkSolver :: Text -> Database -> IO SharedSolver
 mkSolver name db =
-    let triples = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
+    let triples = dbTechnosphereTriples db
      in createSharedSolver name triples (fromIntegral (dbActivityCount db))
 
 mkConfig :: Text -> DatabaseConfig

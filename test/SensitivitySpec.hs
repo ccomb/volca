@@ -15,11 +15,13 @@ import API.Types (LCIAResult (..), Perturbation (..), PerturbedEntry (..))
 import Data.Aeson (Value (..), decode, encode)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
+import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector.Unboxed as U
-import Matrix (Demand (..), applyShermanMorrison, buildDemandVector, perturbA, solveSparseLinearSystem)
+import Matrix (Demand (..), applyShermanMorrison, buildDemandVector, perturbA)
+import Matrix.Sparse (factorize, solve)
 import Service (computeSensitivities)
 import SharedSolver (solveMultiWithSharedSolver, solveWithSharedSolver)
 import Test.Hspec
@@ -33,8 +35,8 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             solver <- mkSolverFromDb db "SAMPLE.min3"
             let demand = buildDemandVector db 0
-            x <- solveWithSharedSolver solver =<< either (fail . show) pure demand
-            r <- perturbA (solveMultiWithSharedSolver solver . map Demand) x 0 []
+            x <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demand
+            r <- perturbA (fmap (first (T.pack . show)) . solveMultiWithSharedSolver solver . map Demand) x 0 []
             case r of
                 Right x' -> U.toList x' `shouldBe` U.toList x
                 Left e -> expectationFailure ("perturbA failed: " <> T.unpack e)
@@ -179,23 +181,19 @@ spec = do
 
             -- Ground truth: 'dbTechnosphereTriples' stores positive A_ij for input
             -- exchanges (Database.hs:163-165). We scale the (supplier=1, consumer=0)
-            -- entry by (1+delta) and pass the modified triples to solveSparseLinearSystem
-            -- (which negates internally to build I - A').
+            -- entry by (1+delta) and factorise the modified triples on their own
+            -- (the factorisation builds I - A').
             let consumerCol = 0 :: Int
                 supplierRow = 1 :: Int
                 techTriples = U.toList (dbTechnosphereTriples db)
                 scaledTriples =
-                    [ ( fromIntegral i
-                      , fromIntegral j
-                      , if i == fromIntegral supplierRow && j == fromIntegral consumerCol
-                            then v * (1 + delta)
-                            else v
-                      )
-                    | SparseTriple i j v <- techTriples
-                    ]
+                    U.fromList
+                        [ SparseTriple i j (if i == fromIntegral supplierRow && j == fromIntegral consumerCol then v * (1 + delta) else v)
+                        | SparseTriple i j v <- techTriples
+                        ]
                 n = fromIntegral (dbActivityCount db)
             demand <- unDemand <$> either (fail . show) pure (buildDemandVector db 0)
-            xRef <- solveSparseLinearSystem scaledTriples n demand
+            xRef <- either (fail . show) pure (solve (factorize n scaledTriples) demand)
 
             -- Compare element-wise within tight numerical tolerance.
             let near a b = abs (a - b) < 1e-10

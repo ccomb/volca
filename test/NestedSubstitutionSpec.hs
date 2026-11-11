@@ -59,7 +59,7 @@ spec = do
             solver <- mkSolver db "root"
             let pid = 0
                 demandVec = buildDemandVector db pid
-            baselineX <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
+            baselineX <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             let qualifiedPid = "other-db::aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
                 sub =
                     Substitution
@@ -81,7 +81,7 @@ spec = do
             solver <- mkSolver db "root"
             let pid = 0
                 demandVec = buildDemandVector db pid
-            baselineX <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
+            baselineX <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             let noDeps _ = pure Nothing
             res <- applySubstitutionsAt defaultUnitConfig noDeps db (ThisDb "root") (RootDb "root") solver [baselineX] []
             case res of
@@ -98,7 +98,7 @@ spec = do
             solver <- mkSolver db "dep"
             let pid = 0
                 demandVec = buildDemandVector db pid
-            baselineX <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
+            baselineX <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             let qualifiedToRoot = "root::aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
                 sub =
                     Substitution
@@ -122,7 +122,7 @@ spec = do
             solver <- mkSolver db "dep"
             let pid = 0
                 demandVec = buildDemandVector db pid
-            baselineX <- solveWithSharedSolver solver =<< either (fail . show) pure demandVec
+            baselineX <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demandVec
             let bareRootPid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
                 sub =
                     Substitution
@@ -279,7 +279,7 @@ spec = do
             let lookup_ = mkDepLookupFromMap (M.singleton "dep" (dep, depSolver))
                 pid = 0
                 demandVec = buildDemandVector root pid
-            scaling <- solveWithSharedSolver rootSolver =<< either (fail . show) pure demandVec
+            scaling <- either (fail . show) pure =<< solveWithSharedSolver rootSolver =<< either (fail . show) pure demandVec
             eResp <-
                 buildSupplyChainFromScalingVectorCrossDB
                     defaultUnitConfig
@@ -323,7 +323,7 @@ spec = do
                 writtenForTen act = act{exchanges = map (\ex -> if exchangeIsReference ex then ex{techAmount = 10 * techAmount ex} else ex) (exchanges act)}
             rootSolver <- mkSolverFromDb root "root"
             depSolver <- mkSolverFromDb dep "dep"
-            scaling <- solveWithSharedSolver rootSolver =<< either (fail . show) pure (buildDemandVector root pid)
+            scaling <- either (fail . show) pure =<< solveWithSharedSolver rootSolver =<< either (fail . show) pure (buildDemandVector root pid)
             let chain db =
                     either (fail . show) (pure . M.fromList . map (\e -> (sceProcessId e, sceQuantity e)) . scrSupplyChain)
                         =<< buildSupplyChainFromScalingVectorCrossDB
@@ -367,10 +367,7 @@ everything =
 -- | Build a fresh 'SharedSolver' from a database's technosphere triples.
 mkSolver :: Database -> T.Text -> IO SharedSolver
 mkSolver db name =
-    let tech =
-            [ (fromIntegral i, fromIntegral j, v)
-            | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-            ]
+    let tech = dbTechnosphereTriples db
         n = fromIntegral (dbActivityCount db)
      in createSharedSolver name tech n
 

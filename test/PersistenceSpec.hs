@@ -33,7 +33,6 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
-import qualified Data.Vector.Unboxed as U
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile)
 import System.Environment (setEnv, unsetEnv)
 import System.FilePath (takeDirectory, (</>))
@@ -98,7 +97,6 @@ import Types (
     Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
-    SparseTriple (..),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
@@ -741,7 +739,7 @@ install manager name db config = do
 
 mkSolver :: Text -> Database -> IO SharedSolver
 mkSolver name db =
-    let triples = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
+    let triples = dbTechnosphereTriples db
      in createSharedSolver name triples (fromIntegral (dbActivityCount db))
 
 baseConfig :: Text -> DatabaseConfig

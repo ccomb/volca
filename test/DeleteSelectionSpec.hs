@@ -65,7 +65,6 @@ import Types (
     Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
-    SparseTriple (..),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
@@ -429,7 +428,7 @@ installLoaded manager name db = do
 
 mkSolver :: Text -> Database -> IO SharedSolver
 mkSolver name db =
-    let triples = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
+    let triples = dbTechnosphereTriples db
      in createSharedSolver name triples (fromIntegral (dbActivityCount db))
 
 mkConfig :: Text -> DatabaseConfig

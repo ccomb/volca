@@ -146,7 +146,6 @@ import Database.RelinkMapping (SupplierMapping (..))
 import Database.SystemModel (parseSystemModel, severalProducts)
 import Database.Upload (DatabaseFormat (..), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
-import Matrix (clearCachedSolver)
 import Parametric (editedParameters)
 import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
@@ -1172,9 +1171,6 @@ commitMutation ::
 commitMutation manager dbName loaded edited home = do
     synonymDB <- getMergedSynonymDB manager
     let withRuntime = BM25.addBM25Index (initializeRuntimeFields edited synonymDB)
-    -- The solver cached under this name has the pre-edit dimensions; drain and
-    -- destroy it before installing the rebuilt one, as the delete path does.
-    clearCachedSolver dbName
     solver <- solverFor dbName withRuntime
     let loaded' = loaded{ldDatabase = withRuntime, ldSharedSolver = solver}
         indexedDb = buildIndexedDatabaseFromDB dbName synonymDB withRuntime

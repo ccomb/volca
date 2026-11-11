@@ -18,7 +18,6 @@ module SubstitutionSpec (spec) where
 import API.Types (Substitution (..), SubstitutionScope (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
-import qualified Data.Vector.Unboxed as U
 import qualified Matrix
 import Service (inventoryWithSubsAndDeps)
 import SharedSolver (
@@ -94,9 +93,6 @@ spec = do
 -- | Build a fresh 'SharedSolver' from a database's technosphere triples.
 mkSolver :: Database -> T.Text -> IO SharedSolver
 mkSolver db name =
-    let tech =
-            [ (fromIntegral i, fromIntegral j, v)
-            | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)
-            ]
+    let tech = dbTechnosphereTriples db
         n = fromIntegral (dbActivityCount db)
      in createSharedSolver name tech n

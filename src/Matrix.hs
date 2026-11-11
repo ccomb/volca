@@ -1,35 +1,17 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 {- |
 Module      : Matrix
-Description : Matrix-based LCA calculations using MUMPS sparse direct solver
+Description : The matrix side of an assessment: demands, scalings, inventories
 
-This module implements matrix-based Life Cycle Assessment (LCA) calculations using
-the MUMPS sequential direct solver for high-performance sparse linear algebra.
-It solves the fundamental LCA equation: (I - A)^-1 * f = s, where:
+Solves the equation of a supply chain, @(I - A) s = f@, where @A@ is the
+technosphere (activities by activities), @f@ the final demand and @s@ the
+scaling of each activity, then reads the inventory off the biosphere,
+@g = B s@ (flows by activities).
 
-- I is the identity matrix
-- A is the technosphere matrix (activities x activities)
-- f is the final demand vector
-- s is the supply vector (scaling factors)
-
-The biosphere inventory is then calculated as: B * s = g, where:
-- B is the biosphere matrix (flows x activities)
-- g is the final inventory vector
-
-Key features:
-- Uses MUMPS direct solver (LU factorization) for numerical stability
-- Handles sparse matrices efficiently with coordinate triplet format
-- Supports large-scale problems (tested with 15K+ activities)
-
-Performance characteristics:
-- Matrix assembly: O(nnz) where nnz is number of non-zero entries
-- MUMPS factorization: O(n^1.5) for sparse LCA matrices
-- Forward/backward solve: O(n log n)
-- Memory usage: ~50-100 MB for typical Ecoinvent database
+The system itself is factorised and solved by "Matrix.Sparse".
 -}
 module Matrix (
     Vector,
@@ -56,35 +38,21 @@ module Matrix (
     applyShermanMorrisonV,
     buildDemandVector,
     referenceSign,
-    solveSparseLinearSystem,
+    solveOnce,
+    unsolvableText,
     applySparseMatrix,
     fromList,
     toList,
-    precomputeMatrixFactorization,
-    solveSparseLinearSystemWithFactorization,
-    solveSparseLinearSystemWithFactorizationMulti,
-    clearCachedSolver,
     chunksOf,
+    countingSolve,
     readSolveCounter,
 ) where
 
-import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar, withMVar)
-import Control.Concurrent.STM (
-    STM,
-    TQueue,
-    TVar,
-    atomically,
-    flushTQueue,
-    newTQueueIO,
-    newTVarIO,
-    readTQueue,
-    readTVar,
-    writeTQueue,
-    writeTVar,
- )
-import Control.Exception (SomeException, catch, throwIO, toException, try)
-import Control.Monad (forM_, unless, void, when)
+import Control.DeepSeq (force)
+import Control.Exception (evaluate)
+import Control.Monad (forM_, when)
+import Data.Bifunctor (first)
+import Data.Functor ((<&>))
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Data.Int (Int32)
 import qualified Data.Map as M
@@ -92,11 +60,10 @@ import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as U
 import qualified Data.Vector.Unboxed.Mutable as MU
-import Numerical.MUMPS (MUMPSSolver, mumpsAnalyzeAndFactorize, mumpsBlasThreads, mumpsCreate, mumpsDestroy, mumpsSolve, mumpsSolveMulti)
-import Progress
+import Matrix.Sparse (Unsolvable (..))
+import qualified Matrix.Sparse as Sparse
 import System.IO.Unsafe (unsafePerformIO) -- Used only for NOINLINE global singletons
 import Types
 import qualified UnitConversion
@@ -122,66 +89,12 @@ type SupplierDemands = M.Map ProcessRef StatedAmount
 -- | Per-dependency-DB supplier demands, keyed by source database name.
 type DepDemands = M.Map Text SupplierDemands
 
-{- | Per-database coalescing solver. A single worker thread owns the MUMPS
-handle and drains a queue of solve requests, batching whatever has piled up
-into one 'mumpsSolveMulti' call per round. Concurrent requests on the same
-database therefore amortize one triangular descent/remontée across all
-in-flight demands rather than queuing behind each other.
-
-The MUMPS handle stays single-threaded (its mutable RHS/SOL workspace is the
-real reason concurrent solves on a shared handle are unsafe – not MUMPS_SEQ
-per se), but request *latency under contention* drops because K simultaneous
-requests collapse into one solve.
--}
-data CoalescingSolver = CoalescingSolver
-    { csMumps :: !MUMPSSolver
-    , csSize :: !Int
-    , csInbox :: !(TQueue WorkerMsg)
-    , csAlive :: !(TVar Bool)
-    }
-
--- | Worker mailbox message: either a solve request or a shutdown signal.
-data WorkerMsg
-    = WSolve ![Vector] !(MVar (Either SomeException [Vector]))
-    | WStop !(MVar ())
-
-{- | Global cache for pre-factorized MUMPS solvers per database.
-Each entry owns a worker thread that serializes the MUMPS handle and
-coalesces concurrent requests into multi-RHS calls.
--}
-{-# NOINLINE cachedSolver #-}
-cachedSolver :: MVar (M.Map Text CoalescingSolver)
-cachedSolver = unsafePerformIO $ newMVar M.empty
-
-{- | Global mutex for MUMPS factorization/creation/destruction operations.
-MUMPS_SEQ has global Fortran state that is NOT thread-safe for concurrent
-create/factorize/destroy calls.
--}
-{-# NOINLINE mumpsFactorizationMutex #-}
-mumpsFactorizationMutex :: MVar ()
-mumpsFactorizationMutex = unsafePerformIO $ newMVar ()
-
-{- | Global mutex for the @mumpsSolveMulti@ FFI call. MUMPS_SEQ is built on
-Fortran modules with SAVE'd state that two concurrent @mumps_solve@ calls
-corrupt even when each call targets its own factorized handle. The FFI
-import is annotated @safe@ (see mumps-hs FFI), so the GHC runtime is free
-to schedule multiple OS threads inside MUMPS at once – exactly the race
-the SAVE'd state can't survive. Empirically this manifests as a silent
-SIGKILL mid-solve when several DBs' coalescing workers run @mumpsSolveMulti@
-concurrently. Holding this mutex around the FFI call serializes those
-solves across DBs while leaving the per-DB coalescing workers intact.
--}
-{-# NOINLINE mumpsSolveMutex #-}
-mumpsSolveMutex :: MVar ()
-mumpsSolveMutex = unsafePerformIO $ newMVar ()
-
 {- | Count of matrix solves performed since the process started.
 
 A solve is the expensive thing this server does, and the only work that can
 outlast a request: an analysis started just before an idle deadline must not
 have the process exit under it. Callers therefore only ever ask whether the
-number moved between two moments, never what it means, so the double count on
-a fallback path (a batch solve that degrades to per-demand solves) is harmless.
+number moved between two moments, never what it means.
 -}
 {-# NOINLINE solveCounter #-}
 solveCounter :: IORef Int
@@ -205,258 +118,12 @@ stands far above real work, since solves take seconds and timeouts minutes.
 countingSolve :: IO a -> IO a
 countingSolve act = bumpSolveCounter *> act <* bumpSolveCounter
 
--- ---------------------------------------------------------------------------
--- Coalescing solver: per-database worker that batches concurrent requests
--- into one mumpsSolveMulti call.
--- ---------------------------------------------------------------------------
-
-{- | Fork a worker thread bound to the given factorized MUMPS handle and
-return the handle paired with its inbox + liveness flag. The worker owns
-the MUMPS instance for the rest of its lifetime; only it touches the
-mutable RHS/SOL workspace.
--}
-spawnCoalescingSolver :: MUMPSSolver -> Int -> IO CoalescingSolver
-spawnCoalescingSolver solver n = do
-    inbox <- newTQueueIO
-    alive <- newTVarIO True
-    void $ forkIO (workerLoop solver inbox)
-    pure $ CoalescingSolver solver n inbox alive
-
-{- | Submit a batch of demand vectors to the worker and block until the
-solution comes back. Throws if the solver has been shut down (csAlive
-flipped before we managed to enqueue) or if the underlying MUMPS call
-raises – caller decides whether to fall back.
--}
-submitBatch :: CoalescingSolver -> [Vector] -> IO [Vector]
-submitBatch _ [] = pure []
-submitBatch cs demands = do
-    rv <- newEmptyMVar
-    accepted <- atomically (offer cs (WSolve demands rv))
-    unless accepted $
-        throwIO (userError "MUMPS solver shut down before request was accepted")
-    result <- takeMVar rv
-    case result of
-        Left e -> throwIO e
-        Right sols -> pure sols
-
--- | Single-RHS convenience wrapper around 'submitBatch'.
-submitOne :: CoalescingSolver -> Vector -> IO Vector
-submitOne cs demand = do
-    sols <- submitBatch cs [demand]
-    case sols of
-        [v] -> pure v
-        _ -> throwIO (userError "MUMPS coalescing solver: unexpected batch cardinality")
-
--- | Atomic check-then-write: only enqueue if the solver is still alive.
-offer :: CoalescingSolver -> WorkerMsg -> STM Bool
-offer cs msg = do
-    alive <- readTVar (csAlive cs)
-    if alive
-        then writeTQueue (csInbox cs) msg >> pure True
-        else pure False
-
-{- | Drain pending requests, run them as one multi-RHS solve, demux the
-result back to each requester. On exception, every request in the batch
-sees the same error. Exits cleanly when a 'WStop' is observed.
-
-Note on MUMPS_SEQ thread-safety: the per-DB worker is the only thread that
-touches its MUMPS handle's mutable RHS/SOL workspace, so intra-DB races on
-the workspace can't happen. Inter-DB races are a separate hazard: MUMPS_SEQ
-modules carry SAVE'd Fortran state that corrupts under concurrent
-@mumps_solve@ calls even on distinct handles. 'mumpsSolveMutex' (acquired
-inside 'solveChunk') serializes that boundary.
--}
-workerLoop :: MUMPSSolver -> TQueue WorkerMsg -> IO ()
-workerLoop solver inbox = do
-    first <- atomically $ readTQueue inbox
-    rest <- atomically $ flushTQueue inbox
-    let (solves, stops) = partitionMsgs (first : rest)
-    runSolves solver solves
-    forM_ stops $ \ack -> putMVar ack ()
-    if null stops
-        then workerLoop solver inbox
-        else drainShutdown inbox
-
-{- | After observing a stop signal, flush anything that snuck in and
-reply with a shutdown error so requesters never deadlock. Racing
-submitters that committed before 'csAlive' flipped end up here.
--}
-drainShutdown :: TQueue WorkerMsg -> IO ()
-drainShutdown inbox = do
-    leftover <- atomically $ flushTQueue inbox
-    forM_ leftover $ \case
-        WSolve _ rv ->
-            putMVar rv (Left $ toException $ userError "MUMPS solver shut down")
-        WStop ack -> putMVar ack ()
-
--- | Run a batch as one multi-RHS solve (chunked to bound scratch memory).
-runSolves ::
-    MUMPSSolver ->
-    [([Vector], MVar (Either SomeException [Vector]))] ->
-    IO ()
-runSolves _ [] = pure ()
-runSolves solver pendings = do
-    let flatRhs = concatMap fst pendings
-        sizes = map (length . fst) pendings
-    outcome <- try $ runMultiSolveChunked solver flatRhs
-    case outcome of
-        Left (e :: SomeException) ->
-            forM_ pendings $ \(_, rv) -> putMVar rv (Left e)
-        Right allSols ->
-            forM_ (zip pendings (splitBySizes sizes allSols)) $ \((_, rv), sols) ->
-                putMVar rv (Right sols)
-
--- | Chunked multi-RHS solve, mirroring the original chunking budget.
-runMultiSolveChunked :: MUMPSSolver -> [Vector] -> IO [Vector]
-runMultiSolveChunked solver demands =
-    concat <$> mapM (solveChunk solver) (chunksOf multiRhsChunkSize demands)
-
-solveChunk :: MUMPSSolver -> [Vector] -> IO [Vector]
-solveChunk solver chunk = do
-    let rhsList = map (VS.fromList . toList) chunk
-    solutions <- withMVar mumpsSolveMutex $ \_ -> mumpsSolveMulti solver rhsList
-    pure $ map (VS.convert :: VS.Vector Double -> Vector) solutions
-
--- | Split a flat list of solutions back into per-request slices.
-splitBySizes :: [Int] -> [a] -> [[a]]
-splitBySizes [] _ = []
-splitBySizes (n : ns) xs =
-    let (h, t) = splitAt n xs in h : splitBySizes ns t
-
-partitionMsgs ::
-    [WorkerMsg] ->
-    ([([Vector], MVar (Either SomeException [Vector]))], [MVar ()])
-partitionMsgs = foldr step ([], [])
-  where
-    step (WSolve d rv) (ss, ts) = ((d, rv) : ss, ts)
-    step (WStop ack) (ss, ts) = (ss, ack : ts)
-
-{- | Clear cached solver for a database (call when unloading).
-
-Removes the entry from the cache atomically (so new submissions fall back),
-flips the 'csAlive' flag so any racing submitter that already had a handle
-on the 'CoalescingSolver' record sees it dead and throws, signals the worker
-to drain its inbox, then destroys the MUMPS instance under the global
-factorization mutex (matching the create-side serialization).
--}
-clearCachedSolver :: Text -> IO ()
-clearCachedSolver dbName = do
-    mCs <- modifyMVar cachedSolver $ \cache ->
-        case M.lookup dbName cache of
-            Just cs -> pure (M.delete dbName cache, Just cs)
-            Nothing -> pure (cache, Nothing)
-    forM_ mCs $ \cs -> do
-        ack <- newEmptyMVar
-        -- Mark dead and submit the stop signal in one transaction so any
-        -- racing submitter either observes !alive (throws, no enqueue) or
-        -- commits before the stop and gets a shutdown reply from the worker.
-        atomically $ do
-            writeTVar (csAlive cs) False
-            writeTQueue (csInbox cs) (WStop ack)
-        takeMVar ack
-        withMVar mumpsFactorizationMutex $ \_ -> mumpsDestroy (csMumps cs)
-
--- | Aggregate duplicate matrix entries by summing values for same (i,j) coordinates
-aggregateMatrixEntries :: [(Int, Int, Double)] -> [(Int, Int, Double)]
-aggregateMatrixEntries entries =
-    let groupedEntries = M.fromListWith (+) [((i, j), val) | (i, j, val) <- entries]
-     in [(i, j, val) | ((i, j), val) <- M.toList groupedEntries]
-
 -- Vector operations
 fromList :: [Double] -> Vector
 fromList = U.fromList
 
 toList :: Vector -> [Double]
 toList = U.toList
-
-{- |
-Fast solver using the globally cached pre-factorized MUMPS solver.
-
-This function uses the cached solver with pre-computed LU factorization,
-eliminating both matrix assembly and factorization time for concurrent requests.
-Achieves sub-second inventory calculations after server startup.
-
-The solver is looked up by database ID from the per-database cache, enabling
-instant switching between databases without re-factorization.
--}
-solveSparseLinearSystemWithFactorization :: MatrixFactorization -> Vector -> IO Vector
-solveSparseLinearSystemWithFactorization factorization demandVec = countingSolve $ do
-    let dbId = mfDatabaseId factorization
-    cachedSolvers <- readMVar cachedSolver
-    case M.lookup dbId cachedSolvers of
-        Nothing -> do
-            reportMatrixOperation $ "No cached factorization found for database '" ++ T.unpack dbId ++ "', falling back to matrix assembly"
-            fallbackFreshSolve factorization demandVec
-        Just cs -> do
-            reportMatrixOperation $ "Using cached solver for database '" ++ T.unpack dbId ++ "' (" ++ show (csSize cs) ++ " activities) - ultra-fast solve"
-            withProgressTiming Solver "MUMPS cached solve" $ do
-                result <-
-                    catch
-                        (Just <$> submitOne cs demandVec)
-                        ( \e -> do
-                            reportMatrixOperation $ "MUMPS cached solver failed: " ++ show (e :: SomeException)
-                            reportMatrixOperation "Falling back to fresh solver for this request"
-                            pure Nothing
-                        )
-                case result of
-                    Just vec -> pure vec
-                    Nothing -> fallbackFreshSolve factorization demandVec
-
--- | Cold-path fallback: rebuild (I-A) and solve from scratch via MUMPS.
-fallbackFreshSolve :: MatrixFactorization -> Vector -> IO Vector
-fallbackFreshSolve factorization demandVec =
-    let systemMatrix = mfSystemMatrix factorization
-        n = mfActivityCount factorization
-        techTriples =
-            U.toList $
-                U.filter (\(SparseTriple i j _) -> i /= j) $
-                    U.map (\(SparseTriple i j val) -> SparseTriple i j (-val)) systemMatrix
-     in solveSparseLinearSystemMUMPS
-            [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- techTriples]
-            (fromIntegral n)
-            demandVec
-
-{- |
-Batch variant: solve (I - A) * xᵢ = dᵢ for every demand vector dᵢ in one MUMPS
-multi-RHS call per chunk. The request is submitted to the per-database
-coalescing worker, which may merge it with other in-flight requests into a
-single 'mumpsSolveMulti' call before chunking.
-
-Chunk size caps the n·k·8-byte scratch buffer: for Ecoinvent (n≈18k), K_MAX=64
-→ ~9 MB per call. Larger batches (whether from this caller or coalesced from
-several callers) are split transparently across chunks.
-
-Falls back to per-demand solves via 'solveSparseLinearSystemWithFactorization'
-if the cached solver is absent or the multi-solve raises an exception.
--}
-solveSparseLinearSystemWithFactorizationMulti :: MatrixFactorization -> [Vector] -> IO [Vector]
-solveSparseLinearSystemWithFactorizationMulti _ [] = pure []
-solveSparseLinearSystemWithFactorizationMulti factorization demandVecs = countingSolve $ do
-    let dbId = mfDatabaseId factorization
-        k = length demandVecs
-    cachedSolvers <- readMVar cachedSolver
-    case M.lookup dbId cachedSolvers of
-        Nothing -> do
-            reportMatrixOperation $
-                "No cached factorization for '"
-                    ++ T.unpack dbId
-                    ++ "' – batch falling back to per-demand solve"
-            mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs
-        Just cs -> do
-            reportMatrixOperation $ "Multi-RHS solve for '" ++ T.unpack dbId ++ "' (k=" ++ show k ++ ")"
-            catch
-                (withProgressTiming Solver "MUMPS multi-RHS solve" (submitBatch cs demandVecs))
-                ( \e -> do
-                    reportMatrixOperation $
-                        "Multi-RHS solve failed ("
-                            ++ show (e :: SomeException)
-                            ++ ") – falling back to per-demand solve"
-                    mapM (solveSparseLinearSystemWithFactorization factorization) demandVecs
-                )
-
--- | Cap MUMPS scratch allocation at n·K·8 bytes per call (~10 MB on Ecoinvent).
-multiRhsChunkSize :: Int
-multiRhsChunkSize = 64
 
 {- | Split a list into successive chunks of at most @n@ elements (a non-positive
 @n@ yields the whole list as a single chunk).
@@ -466,46 +133,6 @@ chunksOf n xs
     | n <= 0 = [xs]
     | null xs = []
     | otherwise = let (h, t) = splitAt n xs in h : chunksOf n t
-
-{- |
-Solve the fundamental LCA equation (I - A) * x = b using MUMPS direct solver.
-
-This function:
-1. Constructs the (I - A) system matrix from technosphere triplets
-2. Uses MUMPS LU factorization for numerical stability
-3. Returns the supply vector (scaling factors) for all activities
-
-Performance: ~3s for 14,457 activities with 116K technosphere entries
--}
-
--- | Uses global mutex: MUMPS_SEQ create/factorize/destroy have global Fortran state.
-solveSparseLinearSystemMUMPS :: [(Int, Int, Double)] -> Int -> Vector -> IO Vector
-solveSparseLinearSystemMUMPS techTriples n demandVec = countingSolve $ withMVar mumpsFactorizationMutex $ \_ -> do
-    let identityTriples = [(i, i, 1.0) | i <- [0 .. n - 1]]
-        systemTechTriples = [(i, j, -value) | (i, j, value) <- techTriples]
-        allTriples = aggregateMatrixEntries (identityTriples ++ systemTechTriples)
-        (rows, cols, vals) = unzip3 allTriples
-        nnz = length allTriples
-
-    reportMatrixOperation $ "Matrix assembly completed - starting MUMPS direct solve for " ++ show n ++ " activities"
-
-    withProgressTiming Solver "MUMPS solve" $ do
-        solver <- mumpsCreate n nnz rows cols vals
-        mumpsAnalyzeAndFactorize solver
-        let rhsVec = VS.fromList $ toList demandVec
-        solutionVS <- mumpsSolve solver rhsVec
-        mumpsDestroy solver
-
-        let solutionVec = VS.convert solutionVS :: Vector
-        when (U.any (\x -> isInfinite x || isNaN x) solutionVec) $ do
-            reportMatrixOperation "ERROR: Solution contains infinity or NaN values"
-            reportMatrixOperation "Matrix is singular - likely missing reference flows or treatment activities"
-
-        return solutionVec
-
--- | Solve linear system (I - A) * x = b using MUMPS direct solver (wrapper)
-solveSparseLinearSystem :: [(Int, Int, Double)] -> Int -> Vector -> IO Vector
-solveSparseLinearSystem = solveSparseLinearSystemMUMPS
 
 -- | Efficient sparse matrix multiplication: result = A * vector
 applySparseMatrix :: [(Int, Int, Double)] -> Int -> Vector -> Vector
@@ -529,15 +156,29 @@ Returns the supply vector where x[i] is the scaling factor for activity i
 -}
 computeScalingVector :: Database -> ProcessId -> IO (Either Text Vector)
 computeScalingVector db rootProcessId =
-    either (pure . Left) solve (buildDemandVector db rootProcessId)
+    either (pure . Left) (countingSolve . evaluate . force . first (unsolvableText db) . solveOnce db) (buildDemandVector db rootProcessId)
+
+{- | Solve a database's system for one demand, factorising it for that demand
+alone. A server keeps its factors from one demand to the next: see
+"SharedSolver".
+-}
+solveOnce :: Database -> Demand -> Either Unsolvable Vector
+solveOnce db (Demand demand) = Sparse.solve (Sparse.factorize (fromIntegral (dbActivityCount db)) (dbTechnosphereTriples db)) demand
+
+{- | Why a demand got no answer, said to whoever asked, the process in the way
+named as the database names it.
+-}
+unsolvableText :: Database -> Unsolvable -> Text
+unsolvableText db = \case
+    Singular column -> "the supply chain reaches " <> named column <> ", and nothing is left of what that process makes once its own supply chain has taken its share: there is no amount of it that meets a demand"
+    NotFinite column -> "the supply chain reaches " <> named column <> ", one of whose inputs has an amount that is not a finite number"
+    OutOfRange place -> "technosphere entry " <> T.pack (show place) <> " names a process the database does not hold"
+    WrongLength entries -> "the demand has " <> T.pack (show entries) <> " entries for " <> T.pack (show (dbActivityCount db)) <> " processes"
   where
-    solve :: Demand -> IO (Either Text Vector)
-    solve demandVec =
-        Right
-            <$> solveSparseLinearSystem
-                [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
-                (fromIntegral (dbActivityCount db))
-                (unDemand demandVec)
+    named :: Int -> Text
+    named column = maybe ("the process at column " <> T.pack (show column)) (described . fromIntegral) (V.findIndex (== fromIntegral column) (dbActivityIndex db))
+    described :: ProcessId -> Text
+    described pid = maybe "" (\activity -> "\"" <> activityName activity <> "\" (" <> activityLocation activity <> "), ") (getActivity db pid) <> "process " <> processIdToText db pid
 
 {- |
 Apply the biosphere matrix to a scaling vector: g = B * x.
@@ -667,10 +308,10 @@ perturbA solve x col perturb
     | otherwise = (>>= applyShermanMorrison x col) <$> solveRankOneZ solve (U.length x) perturb
 
 {- | Solve the system for several right-hand sides at once, answering in their
-order: the one way the rank-1 paths reach a solver, so a solver that corrects
-its answers is never bypassed.
+order, or say why one of them has no answer: the one way the rank-1 paths
+reach a solver, so a solver that corrects its answers is never bypassed.
 -}
-type Solve = [Vector] -> IO [Vector]
+type Solve = [Vector] -> IO (Either Text [Vector])
 
 {- | Solve @z = inv(I-A) * u@ for a sparse supplier-axis perturbation @u@.
 Shared by the per-edge ('perturbA') and global ('perturbGlobal') rank-1 paths
@@ -678,9 +319,10 @@ so the back-sub plumbing lives in one place.
 -}
 solveRankOneZ :: Solve -> Int -> [(Int, Double)] -> IO (Either T.Text Vector)
 solveRankOneZ solve n perturb =
-    solve [U.accum (+) (U.replicate n 0.0) perturb] >>= \case
-        [z] -> pure (Right z)
-        zs -> pure (Left ("the solver answered " <> T.pack (show (length zs)) <> " vectors for one"))
+    solve [U.accum (+) (U.replicate n 0.0) perturb] <&> \case
+        Left why -> Left why
+        Right [z] -> Right z
+        Right zs -> Left ("the solver answered " <> T.pack (show (length zs)) <> " vectors for one")
 
 {- | Apply the Sherman-Morrison rank-1 formula given the precomputed
 z = inv(I-A) * u, with the left projection fixed at the basis column
@@ -731,16 +373,12 @@ perturbGlobal solve x u v
 
 {- |
 Batched 'perturbA': computes z_k = inv(I-A) * u_k for every non-empty
-perturbation in __one__ MUMPS multi-RHS solve, then applies the
-Sherman-Morrison formula per-k in pure Haskell.
+perturbation in one call to the solver, then applies the Sherman-Morrison
+formula to each.
 
-This is the right entry point for sensitivity sweeps – the per-perturbation
-back-substitution is the only thing that touches the global MUMPS lock, so
-batching collapses N serialized back-subs into one chunked multi-RHS call
-(see 'solveSparseLinearSystemWithFactorizationMulti').
-
-Empty perturbations short-circuit to @Right x@ without consuming a solve slot.
-Order of results matches the input.
+Empty perturbations short-circuit to @Right x@ without being solved for, and
+when the solver refuses the batch every perturbation solved for carries the
+refusal. Order of results matches the input.
 -}
 perturbABatch ::
     -- | The solver of the system @x@ solves
@@ -760,13 +398,12 @@ perturbABatch solve x specs = do
             , not (null p)
             ]
         us = [u | (_, _, u) <- nonEmpty]
-    zs <- if null us then pure [] else solve us
+    solved <- if null us then pure (Right []) else solve us
     let resultsByIdx :: M.Map Int (Either T.Text Vector)
         resultsByIdx =
-            M.fromList
-                [ (idx, applyShermanMorrison x col z)
-                | ((idx, col, _), z) <- zip nonEmpty zs
-                ]
+            M.fromList $ case solved of
+                Left why -> [(idx, Left why) | (idx, _, _) <- nonEmpty]
+                Right zs -> [(idx, applyShermanMorrison x col z) | ((idx, col, _), z) <- zip nonEmpty zs]
     pure $ map (\(idx, _) -> M.findWithDefault (Right x) idx resultsByIdx) indexed
 
 {- |
@@ -982,45 +619,3 @@ buildDemandVector db rootProcessId =
             <> " is not in the activity index ("
             <> T.pack (show n)
             <> " processes), so it names no column to put the functional unit in"
-
-{- | Say how many threads the BLAS runs the solves on. A BLAS other than OpenBLAS
-is not pinned, so its count is not ours to state.
--}
-describeBlasThreads :: Maybe Int -> String
-describeBlasThreads = maybe "BLAS is not OpenBLAS, its threads are left as it starts them" (\threads -> "OpenBLAS on " ++ show threads ++ " thread(s)")
-
-{- |
-Pre-compute matrix factorization for concurrent inventory calculations.
-
-This function builds the (I - A) system matrix from technosphere triplets and
-factorizes it. Loading a database does not call it: 'SharedSolver' asks for the
-factorization at the first solve and keeps it for the lifetime of the server, so
-the first request after a load pays it and every later one reuses it.
--}
-precomputeMatrixFactorization :: Text -> [(Int, Int, Double)] -> Int -> IO MatrixFactorization
-precomputeMatrixFactorization dbName techTriples n = withMVar mumpsFactorizationMutex $ \_ -> do
-    let identityTriples = [(i, i, 1.0) | i <- [0 .. n - 1]]
-        systemTechTriples = [(i, j, -value) | (i, j, value) <- techTriples]
-        systemMatrix = aggregateMatrixEntries (identityTriples ++ systemTechTriples)
-        (rows, cols, vals) = unzip3 systemMatrix
-        nnz = length systemMatrix
-
-    reportMatrixOperation $ "Pre-computing factorization for database '" ++ T.unpack dbName ++ "' (" ++ show n ++ " activities, " ++ show nnz ++ " entries)"
-
-    solver <- mumpsCreate n nnz rows cols vals
-    mumpsAnalyzeAndFactorize solver
-    blasThreads <- mumpsBlasThreads
-
-    cs <- spawnCoalescingSolver solver n
-    modifyMVar_ cachedSolver $ \solvers -> pure $ M.insert dbName cs solvers
-
-    reportMatrixOperation $ "MUMPS solver for database '" ++ T.unpack dbName ++ "' factorized and cached, " ++ describeBlasThreads blasThreads
-
-    let factorization =
-            MatrixFactorization
-                { mfSystemMatrix = U.fromList [SparseTriple (fromIntegral i) (fromIntegral j) v | (i, j, v) <- systemMatrix]
-                , mfActivityCount = fromIntegral n
-                , mfDatabaseId = dbName
-                }
-
-    return factorization

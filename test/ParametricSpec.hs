@@ -33,7 +33,7 @@ import Data.Either (isLeft)
 import Data.List (nub, sort, sortOn, transpose)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -58,7 +58,7 @@ import qualified Method.Types as MT
 import Parametric (Check (..), ParameterRefusal (..), Setting (..), checkFormula, describeParameterRefusal, editedParameters, instantiate, parameterised)
 import Servant (ServerError (..), runHandler)
 import Service (convertActivityForAPI, withholdBatch)
-import SharedSolver (CrossDBSolution (..), SharedSolver (solverDbName), computeInventoryMatrixWithDepsCached, computeScalingVectorCached)
+import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached, computeScalingVectorCached, getFactorization)
 import SynonymDB (emptySynonymDB)
 import System.Mem.StableName (makeStableName)
 import Test.Hspec
@@ -125,8 +125,9 @@ spec = describe "a database at other values of its parameters" $ do
         manager <- bakeryManager
         let settings = [Setting Nothing "yield" 2, Setting (Just bread) "mix_fr" 0, Setting (Just bread) "mix_de" 1]
         loaded <- mkSolverFromDb bakery "bakery-loaded"
-        (solvedBy, corrected) <- either (fail . T.unpack) pure =<< withSettings manager "bakery-loaded" (bakery, loaded) settings (\db solver -> (solverDbName solver,) <$> computeScalingVectorCached db solver bread)
-        solvedBy `shouldBe` "bakery-loaded"
+        corrected <- either (fail . T.unpack) pure =<< withSettings manager "bakery-loaded" (bakery, loaded) settings (\db solver -> computeScalingVectorCached db solver bread)
+        -- The loaded solver did the work: it is factorised now, which a solver made for these values would have left undone.
+        (isJust <$> getFactorization loaded) `shouldReturn` True
         atSettings <- either (fail . T.unpack) (pure . snd) (parameterised bakeryUnits bakery settings)
         fresh <- mkSolverFromDb atSettings "bakery-fresh"
         expected <- either (fail . T.unpack) pure =<< computeScalingVectorCached atSettings fresh bread
@@ -141,8 +142,8 @@ spec = describe "a database at other values of its parameters" $ do
         manager <- bakeryManager
         let settings = [Setting Nothing "yield" 1.01]
         loaded <- mkSolverFromDb chain "chain-loaded"
-        (solvedBy, got) <- either (fail . T.unpack) pure =<< withSettings manager "chain-loaded" (chain, loaded) settings (\db solver -> (solverDbName solver,) <$> computeScalingVectorCached db solver top)
-        solvedBy `shouldNotBe` "chain-loaded"
+        got <- either (fail . T.unpack) pure =<< withSettings manager "chain-loaded" (chain, loaded) settings (\db solver -> computeScalingVectorCached db solver top)
+        (isNothing <$> getFactorization loaded) `shouldReturn` True
         atSettings <- either (fail . T.unpack) (pure . snd) (parameterised bakeryUnits chain settings)
         fresh <- mkSolverFromDb atSettings "chain-fresh"
         expected <- either (fail . T.unpack) pure =<< computeScalingVectorCached atSettings fresh top

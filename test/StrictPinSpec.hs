@@ -31,7 +31,6 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
-import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (buildIndexedDatabaseFromDB)
 import Database.Edit (copyDatabase)
@@ -68,7 +67,6 @@ import Types (
     Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
-    SparseTriple (..),
     SupplierClaim (..),
     TechRole (..),
     TechnosphereFlow (..),
@@ -348,7 +346,7 @@ buildOrFail (SimpleParts acts flows units) = do
 
 mkSolver :: Text -> Database -> IO SharedSolver
 mkSolver name db =
-    let triples = [(fromIntegral i, fromIntegral j, v) | SparseTriple i j v <- U.toList (dbTechnosphereTriples db)]
+    let triples = dbTechnosphereTriples db
      in createSharedSolver name triples (fromIntegral (dbActivityCount db))
 
 consumerConfig :: FilePath -> DatabaseConfig

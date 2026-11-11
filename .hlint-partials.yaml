@@ -132,19 +132,12 @@
 
 # The global mutable boxes: one `MVar`, `IORef` or `TVar` per top-level name,
 # each allocated once behind a NOINLINE pragma, which is the idiom this has to
-# be written in. Two of them are process-wide locks, because the solver holds
-# Fortran state that is not thread-safe and the factorization and the solve
-# call must not overlap; one is a cache of already-factorized solvers, whose
-# own serialisation is done by each entry's worker thread rather than by the
-# box; the counter and the log buffers are read from every thread. Nothing
-# here computes: `newMVar`, `newIORef`, `newTVarIO`.
+# be written in. The counter and the log buffers are read from every thread.
+# Nothing here computes: `newMVar`, `newIORef`, `newTVarIO`.
 - ignore:
     name: "Avoid restricted function"
     within:
-      [ Matrix.cachedSolver
-      , Matrix.mumpsFactorizationMutex
-      , Matrix.mumpsSolveMutex
-      , Matrix.solveCounter
+      [ Matrix.solveCounter
       , Progress.progressOutputMutex
       , Progress.logBufferRef
       , Progress.logScopesRef
