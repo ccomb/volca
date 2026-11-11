@@ -1003,9 +1003,9 @@ Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/), then:
 - `--clean` / `--all` – discard `dist-newstyle/` before building
 - `--coverage` – run tests with coverage and emit an HTML report
 - `--static` – produce a statically-linked binary (Linux only)
-- `--no-optimize` – skip `strip` and UPX. Use this when downstream
-  tooling needs to rewrite the binary's dynamic load commands
-  (`dylibbundler`, `install_name_tool` for the macOS `.app`).
+- `--no-optimize` – skip `strip` and UPX, leaving the binary as linked.
+  The macOS test run of CI uses it, then strips and signs with
+  `--optimize-only`.
 
 A build that ships splits every object into one ELF section per top-level
 symbol so the executable can be pruned to size, and that link is the one the
