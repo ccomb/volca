@@ -1,0 +1,16 @@
+[package]
+name = "ffi"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "volca_solver"
+crate-type = ["staticlib"]
+
+[dependencies]
+lu = { path = "../lu" }
+
+[lints]
+workspace = true

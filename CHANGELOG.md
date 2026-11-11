@@ -54,6 +54,15 @@
   input whose stated location differs from its linked dataset's now carries
   the linked dataset's, the one its score was computed with.
 
+### Changed
+
+- Building the engine from its sources now needs Rust. `build.sh` compiles a
+  small Rust library under `solver/` with cargo and links it into the engine;
+  nothing in the engine calls it yet. The published binaries and the Docker
+  image ask nothing new of whoever runs them. A bare `cabal build` in a fresh
+  checkout wants `./build.sh --prepare` first, where `./gen-version.sh` used to
+  be enough.
+
 ## [0.17.0] - 2026-11-07
 
 ### Added

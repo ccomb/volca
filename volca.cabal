@@ -58,6 +58,7 @@ library
                      , Matrix
                      , Matrix.Export
                      , Matrix.Dense
+                     , Matrix.Sparse
                      , SharedSolver
                      , Database
                      , Database.Manager
@@ -218,6 +219,11 @@ library
                      , unicode-transforms
                      , transformers
                      , crypton
+  -- The solver's Rust half: one static archive that cargo builds from solver/
+  -- before cabal runs, which build.sh does. Where it is, and the system
+  -- libraries it asks for on each platform, is said in cabal.project.local,
+  -- which gen-cabal-config.sh writes.
+  extra-libraries:     volca_solver
 
   default-language:    Haskell2010
 
@@ -282,6 +288,7 @@ test-suite lca-tests
                      , InventorySpec
                      , IndexInjectivitySpec
                      , MatrixExportSpec
+                     , MatrixSparseSpec
                      , MethodSpec
                      , MethodPatchSpec
                      , MethodConfigScoringSpec

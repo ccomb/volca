@@ -18,6 +18,7 @@
 roots = [
   "^Main\\.main$",       # executable entry point
   "^Paths_volca\\.",     # cabal-generated module
+  "^Version\\.solverArchive$", # read by nothing on purpose, see gen-version.sh
 
   # ---------------------------------------------------------------------------
   # Public library API exported for out-of-repo consumers.

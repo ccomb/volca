@@ -5,8 +5,10 @@
 optimization: 2
 
 -- MUMPS_SEQ paths (Debian/Ubuntu: apt install libmumps-seq-dev)
+-- and the solver archive cargo leaves under solver/, by its absolute path
 extra-lib-dirs:
     /usr/lib/x86_64-linux-gnu
+    /path/to/volca/solver/target/release
 
 extra-include-dirs:
     /usr/include

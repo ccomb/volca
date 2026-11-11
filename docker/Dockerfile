@@ -40,6 +40,7 @@ RUN apk add --no-cache \
     gcc \
     g++ \
     gfortran \
+    cargo \
     gmp-dev \
     gmp-static \
     libffi-dev \
@@ -119,6 +120,12 @@ RUN . /tmp/versions.env && \
     sh
 
 WORKDIR /build
+
+# The solver's Rust half, which cabal links like a C library. Copied and built
+# on its own, so that a change to the Haskell sources reuses the layer, and
+# first, so that the directory cabal is told to look in exists by then.
+COPY solver/ /build/volca/solver/
+RUN cargo build --release --locked --manifest-path /build/volca/solver/Cargo.toml -p ffi
 
 # Copy ONLY dependency specification files first (for layer caching)
 COPY volca.cabal /build/volca/

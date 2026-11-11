@@ -21,6 +21,10 @@
 #   --werror            Treat warnings as errors (-Werror) when compiling – the
 #                       strict gate CI uses; -Wall-clean is a hard project rule
 #   --static            Build a statically-linked binary
+#   --prepare           Stop before cabal: build the solver archive, generate
+#                       the modules and write the cabal configuration, which is
+#                       what a bare `cabal build` needs and cannot make. The
+#                       other options still decide what that configuration says
 #   --no-optimize       Skip strip + UPX (preserves dylib load commands so
 #                       downstream tooling like dylibbundler / install_name_tool
 #                       can rewrite them – required for the macOS .app)
@@ -145,6 +149,7 @@ COVERAGE=false
 STATIC_BUILD=false
 SKIP_OPTIMIZE=false
 OPTIMIZE_ONLY=false
+PREPARE_ONLY=false
 WERROR=false
 
 # -----------------------------------------------------------------------------
@@ -187,6 +192,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --optimize-only)
             OPTIMIZE_ONLY=true
+            shift
+            ;;
+        --prepare)
+            PREPARE_ONLY=true
             shift
             ;;
         *)
@@ -267,6 +276,16 @@ for cmd in ghc cabal; do
         log_warn "Install GHC and Cabal via ghcup: https://www.haskell.org/ghcup/"
     fi
 done
+
+# Rust toolchain, for the solver archive
+if ! check_command cargo; then
+    MISSING_DEPS=true
+    if [[ "$OS" == "windows" ]]; then
+        log_warn "Install Rust with: pacman -S mingw-w64-ucrt-x86_64-rust"
+    else
+        log_warn "Install Rust via rustup (https://rustup.rs) or your distribution's cargo package"
+    fi
+fi
 
 # UPX (needed for binary compression)
 if ! check_command "upx"; then
@@ -421,6 +440,9 @@ if [[ "$MISSING_DEPS" == "true" ]]; then
     fi
     echo "For Haskell toolchain:"
     echo "  curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh"
+    echo ""
+    echo "For Rust toolchain (not on Windows, where it comes from pacman):"
+    echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
     exit 1
 fi
 
@@ -434,6 +456,12 @@ log_info "Checking tool versions..."
 GHC_ACTUAL=$(ghc --numeric-version)
 check_version "GHC" "$GHC_ACTUAL" "$GHC_VERSION"
 
+# Check Rust version. Only a warning: two of the platforms take the Rust of
+# a distribution that rolls, and cargo itself refuses a compiler older than
+# the one solver/Cargo.toml asks for.
+RUST_ACTUAL=$(rustc --version | awk '{print $2}')
+check_version "Rust" "$RUST_ACTUAL" "$RUST_VERSION" || true
+
 echo ""
 
 # -----------------------------------------------------------------------------
@@ -443,7 +471,7 @@ echo ""
 if [[ "$CLEAN_BUILD" == "true" ]] || [[ "$FORCE_REBUILD" == "true" ]]; then
     log_info "Cleaning build artifacts..."
     cd "$SCRIPT_DIR"
-    rm -rf dist-newstyle cabal.project.local
+    rm -rf dist-newstyle cabal.project.local solver/target
     log_success "Clean complete"
     echo ""
 fi
@@ -454,6 +482,14 @@ fi
 
 log_info "Building volca..."
 cd "$SCRIPT_DIR"
+
+# The solver's Rust half. Cabal links it like any C library, so it has to be
+# built before cabal looks for it, and before gen-version.sh, which records
+# its checksum. The note cargo prints names the system libraries the archive
+# asks of the final link; gen-cabal-config.sh says which of them each link
+# mode has to name.
+log_info "Building the solver archive..."
+cargo rustc --release --locked --manifest-path solver/Cargo.toml -p ffi --lib -- --print native-static-libs
 
 # Generate Version.hs with build info
 BUILD_TARGET="$OS" ./gen-version.sh
@@ -537,6 +573,11 @@ LINK_MODE="$LINK_MODE" \
 VOLCA_OPT_LEVEL="$OPT_LEVEL" \
 ./gen-cabal-config.sh
 
+if [[ "$PREPARE_ONLY" == "true" ]]; then
+    log_success "Ready for cabal"
+    exit 0
+fi
+
 # If --no-optimize was requested but a previous build left a UPX'd binary
 # in dist-newstyle, delete it so cabal re-links a clean (decompressible)
 # copy. cabal-install caches the link product and would otherwise re-use
@@ -571,6 +612,10 @@ echo ""
 if [[ "$RUN_TESTS" == "true" ]]; then
     log_info "Running tests..."
     cd "$SCRIPT_DIR"
+    # The solver's own tests first: they take a second, and a failure there
+    # says more than the same failure seen through the engine. With --release
+    # so that they reuse the dependencies the archive was just built from.
+    cargo test --release --locked --manifest-path solver/Cargo.toml
     if [[ "$COVERAGE" == "true" ]]; then
         log_info "Coverage enabled – instrumenting code..."
         cabal test --enable-coverage --test-show-details=streaming "${STRICT_OPTS[@]}"

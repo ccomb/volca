@@ -1,0 +1,4 @@
+# What the host built for itself. The image builds its own against musl, and
+# a copied solver/target would sit where the image's solver layer put its own.
+solver/target
+dist-newstyle

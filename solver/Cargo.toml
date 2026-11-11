@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["lu", "ffi"]
+
+[workspace.package]
+edition = "2024"
+# The version the engine's build pins in versions.env, without its patch level.
+rust-version = "1.91"
+publish = false
+
+# What the Haskell side forbids, forbidden here too: no call that can abort on
+# a value it did not expect, and no unsafe block without the reason it holds.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+undocumented_unsafe_blocks = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

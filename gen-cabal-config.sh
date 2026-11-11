@@ -1,5 +1,6 @@
 #!/bin/bash
-# Generate cabal.project.local for building volca with MUMPS_SEQ.
+# Generate cabal.project.local for building volca with MUMPS_SEQ and the
+# solver's Rust archive.
 # Shared between build.sh and Dockerfile.
 #
 # Optional env vars:
@@ -9,7 +10,8 @@
 #   OUTPUT_DIR              Where to write cabal.project.local (default: current dir)
 #   VOLCA_OPT_LEVEL         0, 1 or 2 (default 2) - see the block below
 #
-# Output: writes cabal.project.local in OUTPUT_DIR
+# Output: writes cabal.project.local in OUTPUT_DIR, and
+# solver/target/archive.project beside this script
 
 set -e
 
@@ -17,6 +19,17 @@ MUMPS_LIB_DIR="${MUMPS_LIB_DIR:-/usr/lib/x86_64-linux-gnu}"
 MUMPS_INCLUDE_DIR="${MUMPS_INCLUDE_DIR:-/usr/include}"
 LINK_MODE="${LINK_MODE:-dynamic}"
 OUTPUT="${OUTPUT_DIR:-.}/cabal.project.local"
+
+# The archive `cargo build --release` leaves under solver/, which volca.cabal
+# names in extra-libraries. Absolute, because cabal reads a relative
+# extra-lib-dirs from each package's own directory, and the projects that
+# build the engine as a dependency of theirs sit somewhere else.
+#
+# Each mode below says which system libraries the archive needs named on the
+# link line. `cargo rustc --release -p ffi --lib -- --print native-static-libs`
+# lists what it asks for on a platform; the linker brings some of them itself.
+SOLVER_TARGET_DIR="$(cd "$(dirname "$0")" && pwd)/solver/target"
+SOLVER_LIB_DIR="$SOLVER_TARGET_DIR/release"
 
 # Optimization level for volca's own code, as a per-package override of the
 # global `optimization: 2` (which must stay 2 so the prebuilt cabal store's
@@ -80,6 +93,8 @@ fi
 # suite, both of which depend on the library, can no longer link it. Nothing
 # here runs a repl, and HLS is unaffected because it loads local components
 # from source. If you want one, build that invocation with --enable-shared.
+# That does not bring back a repl on the library itself: the solver archive is
+# static, and the interpreter of a dynamic GHC loads no static library.
 # In a checkout built before this line existed, delete dist-newstyle first:
 # the stale .so is still there, and a repl would quietly load it.
 cat > "$OUTPUT" << 'EOF'
@@ -104,10 +119,14 @@ case "$LINK_MODE" in
         if [ -f "$MUMPS_LIB_DIR/libdmumps_seq.a" ] && [ ! -e "$MUMPS_LIB_DIR/libdmumps_seq.so" ]; then
             MUMPS_STATIC_DEPS="  ghc-options: -optl-lopenblas -optl-lgfortran"
         fi
+        # The solver archive needs nothing named here: the C compiler that
+        # links brings the unwinder and the C library, and GHC's own runtime
+        # already names the rest of what the archive asks for.
         cat >> "$OUTPUT" << EOF
 optimization: 2
 
 extra-lib-dirs: $MUMPS_LIB_DIR
+                $SOLVER_LIB_DIR
 extra-include-dirs: $MUMPS_INCLUDE_DIR
 
 package volca
@@ -148,6 +167,10 @@ EOF
         # OpenBLAS's blas_server.c was a no-op: the relevant block sits
         # under #ifdef NEED_STACKATTR, which blas_server.c #undef's
         # unconditionally on Linux.)
+        #
+        # The solver archive asks for -lgcc_s and -lc. Neither is named: a
+        # static link takes the unwinder from libgcc_eh and the C library by
+        # itself, and Alpine has no static libgcc_s to find.
         MUSL_LINK_FLAGS="-optl-L$MUMPS_LIB_DIR -optl-L$OPENBLAS_LIB_DIR -optl-Wl,--gc-sections -optl-Wl,-z,stack-size=8388608 -optl-Wl,--start-group -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran $QUADMATH_FLAG -optl-Wl,--end-group -optl-lpthread -optl-lm"
         cat >> "$OUTPUT" << EOF
 optimization: 2
@@ -156,6 +179,7 @@ executable-static: True
 
 extra-lib-dirs: $MUMPS_LIB_DIR
                 $OPENBLAS_LIB_DIR
+                $SOLVER_LIB_DIR
 extra-include-dirs: $MUMPS_INCLUDE_DIR
 
 package volca
@@ -253,6 +277,7 @@ optimization: 2
 split-sections: True
 
 extra-lib-dirs: $MUMPS_LIB_DIR
+                $SOLVER_LIB_DIR
 extra-include-dirs: $MUMPS_INCLUDE_DIR
 
 package mumps-hs
@@ -290,18 +315,25 @@ EOF
         case "$MUMPS_INCLUDE_DIR" in
             /[a-zA-Z]/*) MUMPS_INCLUDE_DIR=$(win_path "$MUMPS_INCLUDE_DIR") ;;
         esac
+        SOLVER_LIB_DIR=$(cygpath -m "$SOLVER_LIB_DIR")
+        # The solver archive is built by MSYS2's Rust, so that it shares the C
+        # library and the unwinder of everything else on this line. Of what it
+        # asks for, two things are named nowhere else: the unwinder itself
+        # (-lgcc_eh, placed before the -lgcc and -lpthread it leans on) and
+        # -luserenv.
         cat >> "$OUTPUT" << EOF
 optimization: 2
 split-sections: True
 
 extra-lib-dirs: $MUMPS_LIB_DIR
               , $MSYS2_LIB_DIR
+              , $SOLVER_LIB_DIR
 extra-include-dirs: $MUMPS_INCLUDE_DIR
 
 package volca
   optimization: $VOLCA_OPT_LEVEL
 $VOLCA_SPLIT_SECTIONS
-  ghc-options: -optl-Wl,--allow-multiple-definition -optl-L$GCC_LIB_DIR -optl-L$MSYS2_LIB_DIR -optl-L$MUMPS_LIB_DIR -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran -optl-lgcc -optl-lquadmath -optl-lmingwex -optl-lpthread -optl-lmsvcrt
+  ghc-options: -optl-Wl,--allow-multiple-definition -optl-L$GCC_LIB_DIR -optl-L$MSYS2_LIB_DIR -optl-L$MUMPS_LIB_DIR -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran -optl-lgcc_eh -optl-lgcc -optl-lquadmath -optl-lmingwex -optl-lpthread -optl-lmsvcrt -optl-luserenv
 
 -- MSYS2's pkg-config finds zlib, so the zlib package would link the shared
 -- zlib1.dll, which a user's machine does not have: volca.exe then fails to
@@ -317,5 +349,10 @@ EOF
         exit 1
         ;;
 esac
+
+# The same directory, for a project elsewhere that compiles the engine as one
+# of its own packages and keeps its own configuration: it imports this file.
+mkdir -p "$SOLVER_TARGET_DIR"
+echo "extra-lib-dirs: $SOLVER_LIB_DIR" > "$SOLVER_TARGET_DIR/archive.project"
 
 echo "Generated $OUTPUT (mode=$LINK_MODE)"

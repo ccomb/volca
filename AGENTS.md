@@ -28,7 +28,7 @@ See `README.md` for the full feature spec.
 ## Commands
 
 ```bash
-./gen-version.sh        # Generate src/Version.hs and src/Builtin/Literals.hs (git metadata, built-in reference data and methods) – REQUIRED before a native build
+./build.sh --prepare    # Stop before cabal: the solver archive, src/Version.hs, src/Builtin/Literals.hs and cabal.project.local, which a bare cabal needs and cannot make – REQUIRED before one in a fresh checkout
 ./build.sh              # Build the engine, at -O1: this binary is going to be run
 ./build.sh --test       # Build + run the test suite, at -O0: it only has to pass
 ./build.sh --coverage   # Build + tests + HTML coverage report
@@ -37,9 +37,11 @@ VOLCA_EXE=$(cabal list-bin exe:volca) cabal test lca-tests --test-options="--mat
 ```
 
 **Build and test through `./build.sh --test`, not through `cabal` directly.** It
-settles four things a bare `cabal test` leaves to you: it runs `./gen-version.sh`;
-it compiles volca's own modules at `-O0`, since a test binary only has to pass and
-cabal's own default is `-O1`; it builds `exe:volca`; and it exports `VOLCA_EXE` so
+settles five things a bare `cabal test` leaves to you: it builds the solver's Rust
+archive under `solver/` with cargo, which cabal links but cannot build, and runs
+its Rust tests; it runs `./gen-version.sh`; it compiles volca's own modules at
+`-O0`, since a test binary only has to pass and cabal's own default is `-O1`; it
+builds `exe:volca`; and it exports `VOLCA_EXE` so
 `ServerSpec` and `RoutesSpec` do not spawn a `cabal list-bin` from inside `cabal
 test`. Skip it on a tree the script has not built and those two report `volca
 executable not found`; on Windows they do worse, the spawned cabal blocking on the
@@ -134,6 +136,7 @@ writing it or reading someone else's.
   - CI fails any PR with unformatted Haskell.
   - A repo pre-commit hook auto-formats staged `.hs` – enable once per clone: `git config core.hooksPath .githooks`.
   - Claude Code also auto-formats `.hs` on edit (`.claude/settings.json`).
+- The solver's Rust under `solver/` follows the same rules as the Haskell, held by the compiler and by CI: `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` under the Rust pinned in `versions.env` (`RUST_VERSION`). The workspace lints refuse `unwrap`, `expect`, `panic!` and `unreachable!` outside tests, the `lu` crate forbids `unsafe`, and the `ffi` crate, the boundary with Haskell, is the only place it may appear, each block with a `SAFETY` comment.
 
 ### Documentation
 - **Re-read this file + README before each PR.** Update them when: (a) you hit a statement contradicting the code, (b) a new convention appears, (c) a command or a config key changes. NON-trigger: adding a module, tool, or endpoint that follows the stated conventions – the rules cover it, no list to grow.

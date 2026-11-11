@@ -992,12 +992,14 @@ sudo pacman -S base-devel gcc-fortran python curl zlib openblas blas lapack
 
 The BLAS the engine runs on should be OpenBLAS, as in every packaged build: the engine pins it to one thread, and `BlasThreadsSpec` fails on a build that reaches another BLAS, which has no thread count to pin.
 
-Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/), then:
+Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/) and Rust (through [rustup](https://rustup.rs) or your distribution's `cargo` package; `solver/Cargo.toml` names the oldest version that builds), then:
 
 ```bash
 ./build.sh              # Build
 ./build.sh --test       # Build and run tests
 ```
+
+The solver is a Rust library under `solver/`, which `build.sh` builds with cargo before cabal links it.
 
 `build.sh` also accepts:
 
@@ -1065,6 +1067,7 @@ into `deps/mumps/` (cached across runs).
      mingw-w64-ucrt-x86_64-openblas \
      mingw-w64-ucrt-x86_64-cmake \
      mingw-w64-ucrt-x86_64-make \
+     mingw-w64-ucrt-x86_64-rust \
      mingw-w64-ucrt-x86_64-python \
      mingw-w64-ucrt-x86_64-upx \
      make python git curl tar
@@ -1093,11 +1096,12 @@ docker run -p 8080:8080 -v /path/to/data:/data volca
 cabal test lca-tests --test-options="--match /Inventory/"
 ```
 
-`./build.sh --test` is the way in: it generates `src/Version.hs`, compiles at
-`-O0`, builds the `volca` executable and names it to the specs that start a
-server. A bare `cabal test` from a fresh clone does none of those: it stops on
-the missing `src/Version.hs`, and once that is generated the specs that want the
-executable stop too. `AGENTS.md` says the rest.
+`./build.sh --test` is the way in: it builds the solver archive and runs its
+Rust tests, generates `src/Version.hs`, compiles at `-O0`, builds the `volca`
+executable and names it to the specs that start a server. A bare `cabal test`
+from a fresh clone does none of those: it stops on the missing solver archive
+and the missing `src/Version.hs`, and once those are there the specs that want
+the executable stop too. `AGENTS.md` says the rest.
 
 Tests cover matrix construction (sign convention), inventory calculation (golden values), parsers (EcoSpold1/2, ILCD, SimaPro, Brightway Excel, classification fields), and matrix export format compliance.
 

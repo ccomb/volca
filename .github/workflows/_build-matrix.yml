@@ -393,6 +393,15 @@ jobs:
             cabal-${{ matrix.name }}-ghc${{ steps.versions.outputs.ghc }}-
             cabal-${{ matrix.name }}-
 
+      # The solver archive's build tree. Cargo decides by itself what in it is
+      # still good, so a key that is too wide costs a rebuild and nothing else.
+      - name: Cache the solver build
+        if: needs.preflight.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: solver/target
+          key: solver-${{ matrix.name }}-${{ hashFiles('solver/Cargo.lock', 'versions.env') }}
+
       - name: Build and test
         if: needs.preflight.outputs.skip != 'true'
         # PR/smoke builds compile volca's own code at -O0 (gen-cabal-config.sh
@@ -499,6 +508,58 @@ jobs:
             exit 1
           fi
           echo "OK: every runtime DLL present, and $(find /ucrt64/share/licenses -type f | wc -l) licence file(s) available to ship."
+
+      - name: Verify the Windows binaries start on the runtime the zip carries
+        # The suite ran inside MSYS2, where every DLL of /ucrt64/bin is on the
+        # PATH: a binary that loads one the zip does not carry passes there and
+        # fails on a user's machine. So read what each binary loads, and start
+        # it beside the listed DLLs with MSYS2 off the PATH, which is what that
+        # machine does.
+        #
+        # The test suite too, on the one test that calls into the solver
+        # archive: nothing in volca.exe calls it yet, so the linker leaves the
+        # archive out of it and its imports say nothing about Rust.
+        if: needs.preflight.outputs.skip != 'true' && matrix.os == 'windows'
+        run: |
+          [[ -f /d/ghcup/env ]] && source /d/ghcup/env
+          # The MSYS2 DLLs a binary loads, by itself and through the ones it
+          # loads. A name absent from /ucrt64/bin is a Windows system DLL.
+          msys2_dlls() {
+            local -A seen=()
+            local queue=("$1") current dll
+            while ((${#queue[@]} > 0)); do
+              current="${queue[0]}"
+              queue=("${queue[@]:1}")
+              while read -r dll; do
+                [[ -z "$dll" || -n "${seen[$dll]:-}" || ! -f "/ucrt64/bin/$dll" ]] && continue
+                seen[$dll]=1
+                queue+=("/ucrt64/bin/$dll")
+              # objdump is a native Windows program: its lines end in CR.
+              done < <(objdump -p "$current" | sed -n 's/\r$//; s/^[[:space:]]*DLL Name:[[:space:]]*//p')
+            done
+            printf '%s\n' "${!seen[@]}"
+          }
+          starts_alone() {
+            local exe="$1" stage dll
+            shift
+            for dll in $(msys2_dlls "$exe"); do
+              if [[ " $WINDOWS_RUNTIME_DLLS " != *" $dll "* ]]; then
+                echo "::error::$(basename "$exe") loads $dll, which the release zip does not carry."
+                return 1
+              fi
+            done
+            stage=$(mktemp -d)
+            cp "$exe" "$stage/"
+            for dll in $WINDOWS_RUNTIME_DLLS; do
+              cp "/ucrt64/bin/$dll" "$stage/"
+            done
+            if ! (cd "$stage" && PATH="/c/Windows/System32:/c/Windows" "./$(basename "$exe")" "$@"); then
+              echo "::error::$(basename "$exe") does not start with MSYS2 off the PATH."
+              return 1
+            fi
+          }
+          starts_alone "$(cabal list-bin exe:volca)" --version
+          starts_alone "$(cabal list-bin test:lca-tests)" --match MatrixSparse
 
       - name: Verify static MUMPS link (Linux)
         # Regression guard: the shipped tarball must not depend on

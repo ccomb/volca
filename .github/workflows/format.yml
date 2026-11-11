@@ -30,3 +30,17 @@ jobs:
             app/**/*.hs
             test/**/*.hs
             mumps-hs/**/*.hs
+
+  # The same gate for the solver's Rust, format and lints, under the Rust that
+  # versions.env pins: both change what they ask for between versions.
+  cargo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust
+        run: |
+          source versions.env
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component rustfmt,clippy
+          rustup default "$RUST_VERSION"
+      - run: cargo fmt --manifest-path solver/Cargo.toml --all --check
+      - run: cargo clippy --locked --manifest-path solver/Cargo.toml --all-targets -- -D warnings

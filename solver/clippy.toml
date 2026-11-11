@@ -1,0 +1,4 @@
+# A test that meets a value it did not expect should stop at that line.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

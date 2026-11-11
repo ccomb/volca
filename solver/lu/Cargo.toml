@@ -1,0 +1,12 @@
+[package]
+name = "lu"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+faer = { version = "0.24.4", default-features = false, features = ["std", "sparse-linalg"] }
+
+[lints]
+workspace = true

@@ -29,6 +29,7 @@ runs:
           mingw-w64-ucrt-x86_64-cmake
           mingw-w64-ucrt-x86_64-make
           mingw-w64-ucrt-x86_64-libxml2
+          mingw-w64-ucrt-x86_64-rust
           ${{ inputs.install-upx == 'true' && 'mingw-w64-ucrt-x86_64-python' || '' }}
           ${{ inputs.install-upx == 'true' && 'mingw-w64-ucrt-x86_64-upx' || '' }}
           make python git curl tar
@@ -69,6 +70,9 @@ runs:
     # .a variants required by `executable-static`. github-cli is needed for
     # the workflow's `gh release download` steps.
     #
+    # cargo is Alpine's own, not rustup's: the solver archive it builds is
+    # then compiled against the musl it will be linked with.
+    #
     # IMPORTANT ordering invariant: this step installs bash on the Alpine
     # image. Every later step on the musl path uses `shell: bash`; this
     # step itself must use `shell: sh` (bash isn't there yet). Do not reorder.
@@ -79,7 +83,7 @@ runs:
         apk add --no-cache \
           bash coreutils binutils curl file git tar xz perl python3 make cmake pkgconfig \
           linux-headers musl-dev libc-dev \
-          gcc g++ gfortran \
+          gcc g++ gfortran cargo \
           gmp-dev gmp-static libffi-dev \
           ncurses-dev ncurses-static \
           zlib-dev zlib-static \
@@ -101,6 +105,17 @@ runs:
       if: inputs.matrix-os == 'macos'
       shell: bash
       run: brew install gcc openblas ${{ inputs.install-upx == 'true' && 'upx' || '' }}
+
+    # Rust for the solver archive, at the version versions.env pins. The
+    # runner image ships rustup; the Linux and Windows rows take their
+    # distribution's Rust instead, in the two package lists above.
+    - name: Install Rust (macOS)
+      if: inputs.matrix-os == 'macos'
+      shell: bash
+      run: |
+        source versions.env
+        rustup toolchain install "$RUST_VERSION" --profile minimal
+        rustup default "$RUST_VERSION"
 
     # Not on macOS x86_64, where neither recipe produces a working library and
     # the leg keeps its dynamic link to Homebrew. DYNAMIC_ARCH pulls in the
