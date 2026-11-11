@@ -21,9 +21,9 @@
 #   --werror            Treat warnings as errors (-Werror) when compiling – the
 #                       strict gate CI uses; -Wall-clean is a hard project rule
 #   --static            Build a statically-linked binary
-#   --no-optimize       Skip strip + UPX (preserves dylib load commands so
-#                       downstream tooling like dylibbundler / install_name_tool
-#                       can rewrite them – required for the macOS .app)
+#   --no-optimize       Skip strip + UPX, leaving the binary as linked. The
+#                       macOS test run of CI uses it and strips afterwards
+#                       with --optimize-only
 #   --optimize-only     Skip the entire build: just strip + UPX + (re-)sign the
 #                       binary produced by a previous run. Used in CI to ship a
 #                       small artifact AFTER tests have run on the unstripped
