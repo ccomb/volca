@@ -35,13 +35,13 @@ import GHC.ForeignPtr (mallocPlainForeignPtrAlignedBytes)
 import Types (SparseTriple (..))
 
 -- | The factors of a matrix the solver accepted.
-data Factors
-    = Factors
-        -- | The factors as the solver wrote them
-        !(ForeignPtr Word8)
-        -- | The size of the matrix
-        !Int
-        !Report
+data Factors = Factors
+    { factorBlock :: !(ForeignPtr Word8)
+    -- ^ The factors as the solver wrote them
+    , factorSize :: !Int
+    -- ^ The size of the matrix
+    , factorReport :: !Report
+    }
 
 -- | What a factorization measured on its way to its factors.
 data Report = Report
@@ -61,7 +61,7 @@ data Report = Report
 
 -- | What the factorization that made these factors measured.
 report :: Factors -> Report
-report (Factors _ _ measured) = measured
+report = factorReport
 
 -- | Why a matrix has no factors: a verdict on the matrix, the same at every try.
 data Refused
@@ -124,7 +124,7 @@ factorize n triples
                         block <- mallocPlainForeignPtrAlignedBytes bytes 8 `onException` c_discard owned
                         exported <- withForeignPtr block $ \p -> c_export owned p (fromIntegral bytes)
                         let weakest = if n == 0 then Nothing else Just (fromIntegral at, value)
-                        pure $ if exported == 0 then Right (Right (Factors block n (Report bytes dense weakest trial))) else Left (failure exported at)
+                        pure $ if exported == 0 then Right (Right Factors{factorBlock = block, factorSize = n, factorReport = Report bytes dense weakest trial}) else Left (failure exported at)
                     1 -> pure (Right (Left (TinyPivot (fromIntegral at) value)))
                     2 -> pure (Right (Left (Unreliable value)))
                     _ -> pure (Left (failure code at))
@@ -135,7 +135,7 @@ factorize n triples
 without writing to them: requests solve with the same ones at the same time.
 -}
 solve :: Factors -> [U.Vector Double] -> IO (Either Text [U.Vector Double])
-solve (Factors block n Report{factorBytes = bytes}) rhs
+solve Factors{factorBlock = block, factorSize = n, factorReport = Report{factorBytes = bytes}} rhs
     | any ((/= n) . U.length) rhs = pure (Left ("a right-hand side needs one number for each of the " <> T.pack (show n) <> " columns of the matrix"))
     | otherwise =
         -- The engine's vectors can move while foreign code runs: the numbers go through memory that cannot.

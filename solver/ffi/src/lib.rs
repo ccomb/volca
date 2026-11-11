@@ -59,18 +59,22 @@ pub struct Found {
 
 const _: () = assert!(size_of::<Found>() == 48);
 
-/// The `len` items at `ptr`, or none: an empty list may come with any pointer.
+/// The `len` items at `ptr`. An empty list may come with any pointer. One that
+/// has items and no address to read them at is the caller's mistake: taken for
+/// an empty list, it would be answered as if the work had been done.
 ///
 /// # Safety
 ///
 /// With `len` above zero, `ptr` is null or points to `len` initialized items
 /// that nothing writes for as long as the result is used.
-unsafe fn list<'a, T>(ptr: *const T, len: usize) -> &'a [T] {
-    if len == 0 || ptr.is_null() || !ptr.is_aligned() {
-        &[]
+unsafe fn list<'a, T>(ptr: *const T, len: usize) -> Option<&'a [T]> {
+    if len == 0 {
+        Some(&[])
+    } else if ptr.is_null() || !ptr.is_aligned() {
+        None
     } else {
         // SAFETY: not null, aligned, and the rest is what the caller promises.
-        unsafe { std::slice::from_raw_parts(ptr, len) }
+        Some(unsafe { std::slice::from_raw_parts(ptr, len) })
     }
 }
 
@@ -80,12 +84,14 @@ unsafe fn list<'a, T>(ptr: *const T, len: usize) -> &'a [T] {
 ///
 /// With `len` above zero, `ptr` is null or points to `len` initialized items
 /// that nothing else reads or writes for as long as the result is used.
-unsafe fn list_mut<'a, T>(ptr: *mut T, len: usize) -> &'a mut [T] {
-    if len == 0 || ptr.is_null() || !ptr.is_aligned() {
-        &mut []
+unsafe fn list_mut<'a, T>(ptr: *mut T, len: usize) -> Option<&'a mut [T]> {
+    if len == 0 {
+        Some(&mut [])
+    } else if ptr.is_null() || !ptr.is_aligned() {
+        None
     } else {
         // SAFETY: not null, aligned, and the rest is what the caller promises.
-        unsafe { std::slice::from_raw_parts_mut(ptr, len) }
+        Some(unsafe { std::slice::from_raw_parts_mut(ptr, len) })
     }
 }
 
@@ -106,14 +112,6 @@ pub unsafe extern "C" fn volca_lu_factorize(
     vals: *const f64,
     found: *mut Found,
 ) -> u32 {
-    // SAFETY: the caller's first promise.
-    let (rows, cols, vals) = unsafe {
-        (
-            list(rows, entries),
-            list(cols, entries),
-            list(vals, entries),
-        )
-    };
     // SAFETY: the caller's second promise.
     let Some(found) = (unsafe { found.as_mut() }) else {
         return BAD_SHAPE;
@@ -125,6 +123,17 @@ pub unsafe extern "C" fn volca_lu_factorize(
         value: 0.0,
         dense: 0,
         error: 0.0,
+    };
+    // SAFETY: the caller's first promise.
+    let lists = unsafe {
+        (
+            list(rows, entries),
+            list(cols, entries),
+            list(vals, entries),
+        )
+    };
+    let (Some(rows), Some(cols), Some(vals)) = lists else {
+        return BAD_SHAPE;
     };
     guarded(|| match lu::factorize(n, rows, cols, vals) {
         Ok(Verdict::Accepted(factors, report)) => {
@@ -173,7 +182,9 @@ pub unsafe extern "C" fn volca_lu_export(factors: *mut Factors, block: *mut u8, 
     // SAFETY: the caller's first promise: this is the one owner of the factors.
     let factors = unsafe { Box::from_raw(factors) };
     // SAFETY: the caller's second promise.
-    let block = unsafe { list_mut(block, len) };
+    let Some(block) = (unsafe { list_mut(block, len) }) else {
+        return BAD_SHAPE;
+    };
     guarded(|| match factors.write(block) {
         Ok(()) => DONE,
         Err(failure) => code(failure),
@@ -221,12 +232,15 @@ pub unsafe extern "C" fn volca_lu_solve(
     scratch_len: usize,
 ) -> u32 {
     // SAFETY: the caller's promises, one for each list.
-    let (block, rhs, scratch) = unsafe {
+    let lists = unsafe {
         (
             list(block, len),
             list_mut(rhs, rhs_len),
             list_mut(scratch, scratch_len),
         )
+    };
+    let (Some(block), Some(rhs), Some(scratch)) = lists else {
+        return BAD_SHAPE;
     };
     guarded(
         || match View::read(block).and_then(|factors| factors.solve(rhs, scratch)) {
@@ -399,6 +413,51 @@ mod tests {
             )
         };
         assert_eq!(answer, BAD_BLOCK);
+    }
+
+    /// The one-by-one matrix holding 2, factorized and exported.
+    fn block_of_two() -> Vec<u64> {
+        let mut found = EMPTY;
+        // SAFETY: three lists of one item, and a `Found` of this test's own.
+        let answer = unsafe {
+            volca_lu_factorize(1, 1, [0].as_ptr(), [0].as_ptr(), [2.0].as_ptr(), &mut found)
+        };
+        assert_eq!(answer, DONE);
+        let mut block = vec![0u64; found.bytes as usize / 8];
+        // SAFETY: the factors just received, given once, and room for them.
+        let answer = unsafe {
+            volca_lu_export(
+                found.factors,
+                block.as_mut_ptr().cast(),
+                found.bytes as usize,
+            )
+        };
+        assert_eq!(answer, DONE);
+        block
+    }
+
+    #[test]
+    fn numbers_with_no_address_are_not_taken_for_none() {
+        let block = block_of_two();
+        let mut scratch = vec![0.0; volca_lu_scratch_len(1, 1)];
+        let mut numbers = [4.0f64, 4.0];
+        let between_two = numbers.as_mut_ptr().wrapping_byte_add(1);
+        for rhs in [std::ptr::null_mut(), between_two] {
+            // SAFETY: a block and working space of this test's own, and one
+            // number announced where the function may read none.
+            let answer = unsafe {
+                volca_lu_solve(
+                    block.as_ptr().cast(),
+                    block.len() * 8,
+                    rhs,
+                    1,
+                    scratch.as_mut_ptr(),
+                    scratch.len(),
+                )
+            };
+            assert_eq!(answer, BAD_SHAPE);
+        }
+        assert_eq!(numbers, [4.0, 4.0]);
     }
 
     /// Whether the processor holds the upper halves of its wide vector
