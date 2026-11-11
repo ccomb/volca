@@ -163,7 +163,7 @@ require_msys2_ucrt64() {
 # Usage: show_help "$0"
 show_help() {
     local script="$1"
-    sed -n '3,27p' "$script" | sed 's/^# //' | sed 's/^#//'
+    sed -n '3,/^$/p' "$script" | sed 's/^# //' | sed 's/^#//'
     exit 0
 }
 
