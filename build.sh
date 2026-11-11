@@ -491,6 +491,16 @@ cd "$SCRIPT_DIR"
 log_info "Building the solver archive..."
 cargo rustc --release --locked --manifest-path solver/Cargo.toml -p ffi --lib -- --print native-static-libs
 
+# On Windows the Rust compiler names its hidden symbols in a directive section
+# of each object, and the linker that comes with GHC stops on a directive it
+# does not know ("-exclude-symbols:... is not allowed in .drectve"). Those
+# directives only matter when a DLL is built, which this archive never goes
+# into. -D keeps the archive the same from one build to the next, for the
+# checksum taken just below.
+if [[ "$OS" == "windows" ]]; then
+    objcopy -D --remove-section=.drectve solver/target/release/libvolca_solver.a
+fi
+
 # Generate Version.hs with build info
 BUILD_TARGET="$OS" ./gen-version.sh
 

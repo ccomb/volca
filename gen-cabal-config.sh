@@ -317,10 +317,10 @@ EOF
         esac
         SOLVER_LIB_DIR=$(cygpath -m "$SOLVER_LIB_DIR")
         # The solver archive is built by MSYS2's Rust, so that it shares the C
-        # library and the unwinder of everything else on this line. Of what it
-        # asks for, two things are named nowhere else: the unwinder itself
-        # (-lgcc_eh, placed before the -lgcc and -lpthread it leans on) and
-        # -luserenv.
+        # library and the unwinder of everything else on this line. The system
+        # libraries it asks for close the line, as the Rust compiler lists
+        # them. It does not list the unwinder, which it needs all the same:
+        # -lgcc_eh, placed before the -lgcc and -lpthread it leans on.
         cat >> "$OUTPUT" << EOF
 optimization: 2
 split-sections: True
@@ -333,7 +333,7 @@ extra-include-dirs: $MUMPS_INCLUDE_DIR
 package volca
   optimization: $VOLCA_OPT_LEVEL
 $VOLCA_SPLIT_SECTIONS
-  ghc-options: -optl-Wl,--allow-multiple-definition -optl-L$GCC_LIB_DIR -optl-L$MSYS2_LIB_DIR -optl-L$MUMPS_LIB_DIR -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran -optl-lgcc_eh -optl-lgcc -optl-lquadmath -optl-lmingwex -optl-lpthread -optl-lmsvcrt -optl-luserenv
+  ghc-options: -optl-Wl,--allow-multiple-definition -optl-L$GCC_LIB_DIR -optl-L$MSYS2_LIB_DIR -optl-L$MUMPS_LIB_DIR -optl-ldmumps_seq -optl-lmumps_common_seq -optl-lpord_seq -optl-lmpiseq_seq -optl-lopenblas -optl-lgfortran -optl-lgcc_eh -optl-lgcc -optl-lquadmath -optl-lmingwex -optl-lpthread -optl-lmsvcrt -optl-lkernel32 -optl-lntdll -optl-luserenv -optl-lws2_32 -optl-ldbghelp
 
 -- MSYS2's pkg-config finds zlib, so the zlib package would link the shared
 -- zlib1.dll, which a user's machine does not have: volca.exe then fails to
