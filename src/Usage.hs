@@ -237,12 +237,14 @@ authorHandleHeader = "Volca-Author-Handle"
 authorOf :: RequestHeaders -> Maybe Author
 authorOf headers = Author <$> readerOf headers <*> mfilter (not . T.null) (TE.decodeUtf8Lenient <$> lookup authorHandleHeader headers)
 
--- | Who the server in front of the engine says sent a request: the reader it counts, and the author a change is signed by.
+{- | Who sent a request: the reader and the author the server in front of the
+engine vouches for, and the terms the client's own cookie names.
+-}
 data Caller = Caller
     { callerReader :: Maybe Text
     , callerAuthor :: Maybe Author
     , callerAcceptedTerms :: S.Set Text
-    -- ^ The terms its @volca_terms@ cookie says were accepted, as an HTTP request reads them
+    -- ^ The terms the @volca_terms@ cookie names as accepted. The client sets it and no server vouches for it, as for an HTTP request: it opens a database's terms, never proves who accepted them.
     }
 
 callerOf :: RequestHeaders -> Caller
