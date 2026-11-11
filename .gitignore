@@ -13,11 +13,13 @@ cbits/*.o
 # Documentation and notes (except README)
 *.txt
 !/licenses/*.txt
+!/licenses/haskell-overrides/**
 /scripts/*
 !/scripts/build_chem_synonyms.py
 !/scripts/propose_flow_bridges.py
 !/scripts/check-data-version.sh
 !/scripts/check-licenses-table.sh
+!/scripts/collect-haskell-licenses.py
 node_modules/
 
 # Generated source

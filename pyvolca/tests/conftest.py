@@ -8,6 +8,7 @@ hand-written wrapper's operationId exists in the engine's current surface.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Callable
@@ -644,7 +645,8 @@ def readme_namespace() -> dict[str, Any]:
 
 @pytest.fixture(scope="session")
 def live_spec() -> dict[str, Any] | None:
-    """The OpenAPI spec dumped from the currently-built engine binary.
+    """The OpenAPI spec dumped from the engine binary VOLCA_ENGINE_BIN names,
+    else from the one last built in this checkout.
 
     Returns None when no binary is there at all, so a checkout that has
     never built the engine skips the drift tests rather than failing. A
@@ -657,7 +659,8 @@ def live_spec() -> dict[str, Any] | None:
     # .../volca-public/pyvolca/tests/conftest.py
     #                   ^~~~~~~~~ 2 levels up = pyvolca dir
     volca_public = here.parent.parent.parent
-    binary = _newest_engine_binary(volca_public / "dist-newstyle")
+    named = os.environ.get("VOLCA_ENGINE_BIN")
+    binary = Path(named) if named else _newest_engine_binary(volca_public / "dist-newstyle")
     if binary is None:
         return None
     try:

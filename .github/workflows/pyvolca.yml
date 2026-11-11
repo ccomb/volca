@@ -56,9 +56,9 @@ jobs:
         run: pyright
 
       - name: Download the engine this pull request builds
-        # test_drift.py's live_spec fixture finds the engine under
-        # <repo>/dist-newstyle/build/.../volca and compares its
-        # `volca dump-openapi` with the in-tree wrapper list. That engine has
+        # test_drift.py's live_spec fixture runs the engine VOLCA_ENGINE_BIN
+        # names and compares its `volca dump-openapi` with the in-tree
+        # wrapper list. That engine has
         # to be this pull request's: one that adds an operation together with
         # its wrapper fails against main's, which does not have the operation
         # yet. build.yml builds every pull request and uploads
@@ -109,20 +109,22 @@ jobs:
             echo "::error::build.yml has not uploaded this pull request's engine after 45 minutes."
             exit 1
           fi
-          # actions/upload-artifact@v4 strips the longest common parent
-          # path, so the engine binary lands at <arch>/ghc-*/volca-*/...
-          # rather than the dist-newstyle/build/<arch>/... that
-          # conftest.py's live_spec fixture rglobs for. Recreate the
-          # parent prefix so the fixture finds the binary.
-          mkdir -p dist-newstyle/build
           gh api "repos/$REPO/actions/artifacts/$ARTEFACT/zip" > engine.zip
-          unzip -q engine.zip -d dist-newstyle/build
+          unzip -q engine.zip -d engine
           rm engine.zip
-          find dist-newstyle -name volca -type f -exec chmod +x {} +
+          # The binary sits at the root of the artefact, beside its licenses;
+          # an artefact older than that keeps it under cabal's build tree.
+          mapfile -t found < <(find "$PWD/engine" -type f -name volca)
+          if [[ ${#found[@]} -ne 1 ]]; then
+            echo "::error::Expected one engine binary in the artefact, found ${#found[@]}."
+            exit 1
+          fi
+          chmod +x "${found[0]}"
+          echo "VOLCA_ENGINE_BIN=${found[0]}" >> "$GITHUB_ENV"
 
       - name: Run tests
         # test_drift.py uses the live_spec fixture which auto-skips when
-        # no engine binary is found under dist-newstyle/. So the previous
+        # no engine binary is named or built. So the previous
         # step's best-effort download determines whether drift runs or
         # skips, with no need for an --ignore here.
         run: pytest -v
