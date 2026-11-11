@@ -137,9 +137,10 @@ pub unsafe extern "C" fn volca_lu_factorize(
     };
     guarded(|| match lu::factorize(n, rows, cols, vals) {
         Ok(Verdict::Accepted(factors, report)) => {
-            if let Some((Original(column), share)) = report.weakest {
+            if let Some(weakest) = report.weakest {
+                let Original(column) = weakest.column;
                 found.at = column as u64;
-                found.value = share;
+                found.value = weakest.share;
             }
             found.dense = report.dense_columns as u64;
             found.error = report.probe_error;

@@ -183,8 +183,8 @@ measured solver found =
         ++ "a trial solve off by "
         ++ show (Sparse.trialError found)
   where
-    weakest :: (Int, Double) -> String
-    weakest (column, share) = "the weakest pivot keeps " ++ show share ++ " of its diagonal at " ++ T.unpack (solverColumnName solver column) ++ ", "
+    weakest :: Sparse.Pivot -> String
+    weakest pivot = "the weakest pivot keeps " ++ show (Sparse.pivotShare pivot) ++ " of its diagonal at " ++ T.unpack (solverColumnName solver (Sparse.pivotColumn pivot)) ++ ", "
 
 -- | Solve for one demand. The first call factorizes.
 solveWithSharedSolver :: SharedSolver -> Demand -> IO (Either Text Vector)

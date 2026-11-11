@@ -41,10 +41,17 @@ pub struct Report {
     pub free_columns: usize,
     /// Largest share of a row that the trial solve left unexplained.
     pub probe_error: f64,
-    /// The column whose pivot kept the smallest share of the diagonal entry it
-    /// started from, and that share: how close the matrix came to a refusal.
-    /// None for a matrix without columns.
-    pub weakest: Option<(Original, f64)>,
+    /// How close the matrix came to a refusal. None for a matrix without
+    /// columns.
+    pub weakest: Option<Weakest>,
+}
+
+/// The pivot that kept the smallest share of the diagonal entry it started
+/// from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Weakest {
+    pub column: Original,
+    pub share: f64,
 }
 
 pub enum Verdict {
@@ -77,7 +84,7 @@ fn factorize_cut(
         }
     };
     let free_columns = order.free;
-    let weakest = weakest(&raw.diag, &floor).map(|(at, share)| (order.old_at(at), share));
+    let weakest = weakest(&raw.diag, &floor, |at| order.old_at(at));
     let factors = Factors::new(raw, order.into_new())?;
     let probe_error = probe(&m, &factors)?;
     if probe_error > UNRELIABLE {
@@ -93,15 +100,20 @@ fn factorize_cut(
     Ok(Verdict::Accepted(Box::new(factors), report))
 }
 
-/// Where a pivot kept the smallest share of the diagonal entry it started
-/// from, and that share. A diagonal that started at zero had nothing to keep.
-fn weakest(diag: &[f64], floor: &[f64]) -> Option<(usize, f64)> {
+/// The pivot that kept the smallest share of the diagonal entry it started
+/// from, its column named by `original`. A diagonal that started at zero had
+/// nothing to keep.
+fn weakest(diag: &[f64], floor: &[f64], original: impl Fn(usize) -> Original) -> Option<Weakest> {
     let share = |(pivot, floor): (&f64, &f64)| pivot.abs() * TINY / floor;
     diag.iter()
         .zip(floor)
         .map(share)
         .enumerate()
         .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(at, share)| Weakest {
+            column: original(at),
+            share,
+        })
 }
 
 /// The matrix with rows and columns in elimination order, and for each column
@@ -642,7 +654,7 @@ mod tests {
         };
         for cut in [NO_BLOCK, ALL_BLOCK] {
             let (_, report) = accepted(3, &entries(3, close), cut);
-            let (column, share) = report.weakest.unwrap();
+            let Weakest { column, share } = report.weakest.unwrap();
             assert!(column == Original(1) || column == Original(2), "{column:?}");
             assert!((share - 0.19).abs() < 1e-15, "{share}");
         }

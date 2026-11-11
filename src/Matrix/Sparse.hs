@@ -12,6 +12,7 @@ ones at once.
 module Matrix.Sparse (
     Factors,
     Report (..),
+    Pivot (..),
     report,
     Refused (..),
     factorize,
@@ -49,13 +50,22 @@ data Report = Report
     -- ^ The memory the factors take
     , denseColumns :: !Int
     -- ^ How many columns were eliminated as one full block
-    , weakestPivot :: !(Maybe (Int, Double))
-    {- ^ The column (counted from 0) whose pivot kept the smallest share of the
-    diagonal entry it started from, and that share: how close the matrix came
-    to a 'TinyPivot'. None for a matrix without columns.
+    , weakestPivot :: !(Maybe Pivot)
+    {- ^ The pivot that kept the smallest share of the diagonal entry it
+    started from: how close the matrix came to a 'TinyPivot'. None for a
+    matrix without columns.
     -}
     , trialError :: !Double
     -- ^ The share of a row that a trial solve left unexplained
+    }
+    deriving (Eq, Show)
+
+-- | A pivot the elimination divided by.
+data Pivot = Pivot
+    { pivotColumn :: !Int
+    -- ^ Its column, counted from 0
+    , pivotShare :: !Double
+    -- ^ What it kept of the diagonal entry it started from
     }
     deriving (Eq, Show)
 
@@ -123,8 +133,9 @@ factorize n triples
                         trial <- peekByteOff found 40
                         block <- mallocPlainForeignPtrAlignedBytes bytes 8 `onException` c_discard owned
                         exported <- withForeignPtr block $ \p -> c_export owned p (fromIntegral bytes)
-                        let weakest = if n == 0 then Nothing else Just (fromIntegral at, value)
-                        pure $ if exported == 0 then Right (Right Factors{factorBlock = block, factorSize = n, factorReport = Report bytes dense weakest trial}) else Left (failure exported at)
+                        let weakest = if n == 0 then Nothing else Just Pivot{pivotColumn = fromIntegral at, pivotShare = value}
+                            measured = Report{factorBytes = bytes, denseColumns = dense, weakestPivot = weakest, trialError = trial}
+                        pure $ if exported == 0 then Right (Right Factors{factorBlock = block, factorSize = n, factorReport = measured}) else Left (failure exported at)
                     1 -> pure (Right (Left (TinyPivot (fromIntegral at) value)))
                     2 -> pure (Right (Left (Unreliable value)))
                     _ -> pure (Left (failure code at))
