@@ -209,6 +209,7 @@ import qualified Data.Indexing as Indexing
 import Data.List (find, intercalate, isPrefixOf, nub, sort, sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Map.Lazy as ML
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
@@ -1128,9 +1129,14 @@ collectionVocabulary manager collection cmap method = do
         Just vocabulary -> pure vocabulary
         Nothing -> do
             siblings <- maybe [method] mcMethods <$> getMethodCollection manager (unCollectionName collection)
-            vocabulary <- Control.Exception.evaluate (methodVocabulary cmap (concatMap methodFactors siblings))
-            atomically $ cacheIfCurrent manager collection siblings (modifyTVar' (dmMethodVocabularyCache manager) (M.insert collection vocabulary))
-            pure vocabulary
+            -- Published before it is computed, and never over another's: the
+            -- methods of a collection prepared together then share one pass
+            -- over its factors, where each used to make its own.
+            let mine = methodVocabulary cmap (concatMap methodFactors siblings)
+                cache = dmMethodVocabularyCache manager
+            atomically $ do
+                cacheIfCurrent manager collection siblings (modifyTVar cache (ML.insertWith (\_ theirs -> theirs) collection mine))
+                M.findWithDefault mine collection <$> readTVar cache
 
 {- | Build the LCIA lookup tables for one method against a database: resolve the
 CF→flow mappings, stack them into the broadcast/CAS/regional tables, and

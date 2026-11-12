@@ -1250,10 +1250,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
                 Service.NoSuchLine _ -> False
             ]
     t0 <- liftIO getCurrentTime
-    -- One method after the other, as the load-time warm-up does: when nothing
-    -- is prepared yet, the methods together cost five times the processor time
-    -- and finish barely sooner, and on a few cores they finish later.
-    ctxs <- liftIO $ mapM (prepMethodCtx dbManager dbName collectionName db) (mcMethods collection)
+    ctxs <- liftIO $ mapConcurrently (prepMethodCtx dbManager dbName collectionName db) (mcMethods collection)
     let scope =
             BatchScope
                 { bsDbName = dbName
