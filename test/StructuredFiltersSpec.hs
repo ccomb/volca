@@ -10,6 +10,7 @@ module StructuredFiltersSpec (spec) where
 
 import Data.Text (Text)
 import Database (findActivitiesByFields, locationAnswers, locationIs)
+import Search.BM25 (addBM25Index)
 import Test.Hspec
 import TestHelpers (loadSampleDatabase, shippedGeographies)
 import Types
@@ -18,6 +19,16 @@ spec :: Spec
 spec = do
     exactProductFilter
     geographyFilter
+    blankName
+
+blankName :: Spec
+blankName = describe "a blank name" $
+    it "filters nothing, exact or not, indexed or not, like a name left out" $ do
+        plain <- loadSampleDatabase "SAMPLE.ilcd"
+        let names db name exact = map (activityName . snd) (findActivitiesByFields shippedGeographies db name Nothing Nothing [] exact)
+            everything = names plain Nothing False
+        everything `shouldNotBe` []
+        [names db (Just blank) exact | db <- [plain, addBM25Index plain], blank <- ["", "  "], exact <- [False, True]] `shouldBe` replicate 8 everything
 
 geographyFilter :: Spec
 geographyFilter = describe "a geography filter names a place" $ do

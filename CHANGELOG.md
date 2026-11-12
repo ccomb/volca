@@ -22,6 +22,10 @@
 
 ### Fixed
 
+- A search for activities whose name is empty, or only spaces, now lists every
+  activity, as a search that gives no name does. It listed none, which an
+  assistant calling `search_activities` with `"name": ""` read as an empty
+  database.
 - A reader who accepted a database's terms of use in the browser is no longer
   asked for them again by an MCP call made on their behalf. An MCP request
   that carries the `volca_terms` cookie now counts the terms it names as
