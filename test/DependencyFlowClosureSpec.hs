@@ -13,12 +13,14 @@ nothing said so.
 -}
 module DependencyFlowClosureSpec (spec, install) where
 
-import Control.Concurrent.STM (readTVarIO)
+import Control.Concurrent.Async (wait, withAsync)
+import Control.Concurrent.STM (atomically, modifyTVar', newEmptyTMVarIO, putTMVar, readTVarIO)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
+import System.Timeout (timeout)
 import Test.Hspec
 
 import Config (defaultConfig)
@@ -184,6 +186,21 @@ spec = do
                 root = withOwnFlows [listingChromium 510 "Chromium III"] (mkDB 100 ["FR"] [])
                 dep = withOwnFlows [listingChromium 511 "Chromium VI"] (mkDB 1 ["FR"] [])
             M.member "chromium" (unFlowsByName (clByName (flowClosure root [dep]))) `shouldBe` False
+
+        it "awaits a match already under way instead of running it again" $ do
+            -- The slot stands for the load-time warm-up matching this method.
+            -- A score arriving meanwhile must take what that match hands over:
+            -- a match gives one row per factor, found or not, so an empty
+            -- answer for this one-factor method can only come from the slot.
+            (manager, root) <- setup []
+            let method = mkMethod "Water use" [namedCF "Water, river" 6.98]
+            slot <- newEmptyTMVarIO
+            atomically $
+                modifyTVar' (DM.dmMethodMappingInflight manager) (M.insert ("root", collection, methodId method) slot)
+            withAsync (DM.mapMethodToFlowsCached manager "root" collection root method) $ \waiting -> do
+                timeout 100000 (length <$> wait waiting) >>= (`shouldBe` Nothing)
+                atomically (putTMVar slot (Right []))
+                wait waiting >>= (`shouldBe` 0) . length
 
         it "drops a dependent's cached mapping when the dependency changes" $ do
             (manager, root) <- setup []

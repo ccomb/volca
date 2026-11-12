@@ -22,6 +22,14 @@
 
 ### Fixed
 
+- A score asked right after a database is loaded no longer repeats the
+  engine's own preparation of the methods. Loading a database starts matching
+  each method's factors to its flows; a score arriving meanwhile used to match
+  again the method under way, and to read the whole collection once per
+  method to learn where it writes its factors. It now waits for the first and
+  reads the collection once. On a large database with EF 3.1, on a machine
+  with many cores, that request takes half the time and a third to a half of
+  the processor time.
 - A search for activities whose name is empty, or only spaces, now lists every
   activity, as a search that gives no name does. It listed none, which an
   assistant calling `search_activities` with `"name": ""` read as an empty
