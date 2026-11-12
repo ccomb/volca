@@ -783,6 +783,12 @@ data DatabaseManager = DatabaseManager
     instead of each rebuilding the same tables. The slot is removed when the
     build finishes, so a failed build is retried rather than cached.
     -}
+    , dmMethodMappingInflight :: !(TVar (Map (Text, CollectionName, UUID) (TMVar (Either SomeException [(MethodCF, Maybe Resolution)]))))
+    {- ^ Single-flight slots guarding 'dmMethodMappingCache' builds, as
+    'dmMethodTablesInflight' guards the tables: a score arriving while the
+    load-time warm-up is matching a method awaits that match instead of
+    running it a second time beside it.
+    -}
     , dmMethodSetTablesCache :: !(TVar (Map (Text, CollectionName, [UUID]) MethodSetTables))
     {- ^ Cached stacked CF tables for multi-method scoring.
     Key is (dbName, collection, sortedMethodIds) so subset-arbitrary requests
@@ -1024,14 +1030,17 @@ mapMethodToFlowsCached manager dbName collection db method = do
     cache <- readTVarIO (dmMethodMappingCache manager)
     case M.lookup key cache of
         Just cached -> return cached
-        Nothing -> do
-            closure <- getFlowClosure manager dbName db
-            cmap <- getMergedCompartmentMap manager
-            vocabulary <- collectionVocabulary manager collection cmap method
-            let ctx = mapContextFor closure (fromMaybe emptySynonymDB (dbSynonymDB db)) (Placing cmap vocabulary)
-            result <- mapMethodFlows ctx method
-            atomically $ cacheIfCurrent manager collection [method] (modifyTVar' (dmMethodMappingCache manager) (M.insert key result))
-            return result
+        Nothing ->
+            singleFlight
+                (dmMethodMappingInflight manager)
+                key
+                (cacheIfCurrent manager collection [method] . modifyTVar' (dmMethodMappingCache manager) . M.insert key)
+                $ do
+                    closure <- getFlowClosure manager dbName db
+                    cmap <- getMergedCompartmentMap manager
+                    vocabulary <- collectionVocabulary manager collection cmap method
+                    let ctx = mapContextFor closure (fromMaybe emptySynonymDB (dbSynonymDB db)) (Placing cmap vocabulary)
+                    mapMethodFlows ctx method
 
 {- | Cache what was built from some methods unless a change has since replaced
 one of them. A change to a collection drops what was built from it, but a build
@@ -1412,6 +1421,7 @@ clearMethodMappingCache manager = atomically $ do
     writeTVar (dmMethodTablesCache manager) M.empty
     writeTVar (dmMethodVocabularyCache manager) M.empty
     writeTVar (dmMethodTablesInflight manager) M.empty
+    writeTVar (dmMethodMappingInflight manager) M.empty
     writeTVar (dmMethodSetTablesCache manager) M.empty
     writeTVar (dmMethodIndexCache manager) M.empty
     writeTVar (dmMergedFlowMetadataCache manager) Nothing
@@ -1429,6 +1439,7 @@ clearMethodCachesFor manager collection = atomically $ do
     modifyTVar' (dmMethodMappingCache manager) (M.filterWithKey keep)
     modifyTVar' (dmMethodTablesCache manager) (M.filterWithKey keep)
     modifyTVar' (dmMethodTablesInflight manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodMappingInflight manager) (M.filterWithKey keep)
     modifyTVar' (dmMethodSetTablesCache manager) (M.filterWithKey keep)
     modifyTVar' (dmMethodIndexCache manager) (M.filterWithKey keep)
     modifyTVar' (dmMethodVocabularyCache manager) (M.delete collection)
@@ -1451,6 +1462,7 @@ clearMethodMappingCacheForDb manager dbName = atomically $ do
     modifyTVar' (dmMethodMappingCache manager) (M.filterWithKey keep)
     modifyTVar' (dmMethodTablesCache manager) (M.filterWithKey keep)
     modifyTVar' (dmMethodTablesInflight manager) (M.filterWithKey keep)
+    modifyTVar' (dmMethodMappingInflight manager) (M.filterWithKey keep)
     modifyTVar' (dmMethodSetTablesCache manager) (M.filterWithKey keep)
     modifyTVar' (dmMethodIndexCache manager) (M.filterWithKey keep)
     modifyTVar' (dmFlowClosureCache manager) (M.filterWithKey (\dn _ -> not (S.member dn stale)))
@@ -1721,6 +1733,7 @@ newManager ManagerSeed{..} = do
     methodTablesCacheVar <- newTVarIO M.empty
     methodVocabularyCacheVar <- newTVarIO M.empty
     methodTablesInflightVar <- newTVarIO M.empty
+    methodMappingInflightVar <- newTVarIO M.empty
     methodSetTablesCacheVar <- newTVarIO M.empty
     methodIndexCacheVar <- newTVarIO M.empty
     mergedFlowMetadataCacheVar <- newTVarIO Nothing
@@ -1757,6 +1770,7 @@ newManager ManagerSeed{..} = do
             , dmMethodTablesCache = methodTablesCacheVar
             , dmMethodVocabularyCache = methodVocabularyCacheVar
             , dmMethodTablesInflight = methodTablesInflightVar
+            , dmMethodMappingInflight = methodMappingInflightVar
             , dmMethodSetTablesCache = methodSetTablesCacheVar
             , dmMethodIndexCache = methodIndexCacheVar
             , dmChemSynonyms = msChemSynonyms

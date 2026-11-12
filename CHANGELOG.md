@@ -22,6 +22,12 @@
 
 ### Fixed
 
+- A score asked right after a database is loaded no longer competes with the
+  engine's own preparation of the methods. Loading a database starts matching
+  each method's factors to its flows; a score arriving meanwhile used to start
+  that matching again, for every method at once, instead of waiting for the
+  work under way. On a large database with EF 3.1 that request now takes a
+  fifth of the processor time, and answers sooner on a machine with few cores.
 - An archive that cannot be unpacked now says why. When `unzip` or 7-Zip ran
   and stopped, on a full disk or a damaged archive, the engine still asked to
   install an extraction tool, and the reader went looking for one they had.
