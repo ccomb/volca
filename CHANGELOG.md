@@ -22,6 +22,11 @@
 
 ### Fixed
 
+- A reader who accepted a database's terms of use in the browser is no longer
+  asked for them again by an MCP call made on their behalf. An MCP request
+  that carries the `volca_terms` cookie now counts the terms it names as
+  accepted, the way an HTTP request already did; a cookie naming an older text
+  of the terms still counts for nothing.
 - An archive that cannot be unpacked now says why. When `unzip` or 7-Zip ran
   and stopped, on a full disk or a damaged archive, the engine still asked to
   install an extraction tool, and the reader went looking for one they had.
