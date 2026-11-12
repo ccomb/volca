@@ -22,6 +22,7 @@ import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Text.Encoding (encodeUtf8)
 import qualified Data.UUID as UUID
 import Network.HTTP.Types (Method, methodGet, methodPost, status200, statusCode)
 import Network.HTTP.Types.Header (HeaderName, hContentType, hCookie)
@@ -34,7 +35,7 @@ import API.Terms (acceptedFromCookie, databasesNamed, termsMiddleware)
 import DependencyLicenceSpec (climate, collection, dependency, managerOn, root, rootPid)
 import qualified Method.Types as M
 import Types
-import Usage (Caller (..))
+import Usage (Caller (..), anonymous, callerOf)
 
 termsOf :: Text -> Licence
 termsOf text = LicenceOwn OwnLicence{ownText = text, ownRefused = S.empty, ownAttribution = AttributionRequired, ownAcceptance = AcceptanceAsked NotCounted}
@@ -168,14 +169,16 @@ spec = do
 
     describe "the MCP tools" $ do
         let asked = termsOf "Terms of the dependency"
-            callOn manager reader tool =
-                callTool (Caller reader Nothing) manager [] Nothing Nothing noRequestId tool $
+            callAs caller manager tool =
+                callTool caller manager [] Nothing Nothing noRequestId tool $
                     KM.fromList
                         [ ("database", String "root")
                         , ("process_id", String rootPid)
                         , ("method_id", String (UUID.toText (M.methodId climate)))
                         , ("collection", String collection)
                         ]
+            callOn manager reader = callAs anonymous{callerReader = reader} manager
+            carrying licence = callerOf [(hCookie, "volca_session=x; volca_terms=" <> encodeUtf8 (fingerprintOf licence))]
         it "refuse a database whose dependency asks terms, with them" $ do
             manager <- managerOn root dependency asked
             reply <- callOn manager (Just "ana") "get_impacts"
@@ -198,9 +201,18 @@ spec = do
             errorText <$> callOn manager (Just "ana") "get_impacts" `shouldReturn` Nothing
             isJust . errorText <$> callOn manager (Just "bob") "get_impacts" `shouldReturn` True
 
+        it "answer a request whose cookie carries the accepted terms, as an HTTP request is" $ do
+            manager <- managerOn root dependency asked
+            errorText <$> callAs (carrying asked) manager "get_impacts" `shouldReturn` Nothing
+
+        it "still ask for them when the cookie carries an older text" $ do
+            manager <- managerOn root dependency asked
+            reply <- callAs (carrying (termsOf "Older terms of the dependency")) manager "get_impacts"
+            fmap ("Terms of the dependency" `T.isInfixOf`) (errorText reply) `shouldBe` Just True
+
         it "refuse to accept the terms of a database the engine does not know" $ do
             manager <- managerOn root dependency asked
-            reply <- callTool (Caller (Just "ana") Nothing) manager [] Nothing Nothing noRequestId "accept_terms" (KM.fromList [("database", String "roto")])
+            reply <- callTool anonymous{callerReader = Just "ana"} manager [] Nothing Nothing noRequestId "accept_terms" (KM.fromList [("database", String "roto")])
             errorText reply `shouldBe` Just "Database not found: roto"
 
         it "answer as before when nothing asks terms" $ do

@@ -58,6 +58,7 @@ import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.OpenApi (ToParamSchema, ToSchema (..))
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -65,10 +66,11 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 import GHC.Generics (Generic)
-import Network.HTTP.Types (HeaderName, RequestHeaders)
+import Network.HTTP.Types (HeaderName, RequestHeaders, hCookie)
 import Servant (FromHttpApiData, ToHttpApiData)
 
 import API.JsonOptions (Stripped (..))
+import API.Terms (acceptedFromCookie)
 import Data.JournalFile (Author (..))
 import Progress (ProgressLevel (..), reportProgress)
 import Types (CountedRelease (..), codeSchema, parseCode)
@@ -235,18 +237,22 @@ authorHandleHeader = "Volca-Author-Handle"
 authorOf :: RequestHeaders -> Maybe Author
 authorOf headers = Author <$> readerOf headers <*> mfilter (not . T.null) (TE.decodeUtf8Lenient <$> lookup authorHandleHeader headers)
 
--- | Who the server in front of the engine says sent a request: the reader it counts, and the author a change is signed by.
+{- | Who sent a request: the reader and the author the server in front of the
+engine vouches for, and the terms the client's own cookie names.
+-}
 data Caller = Caller
     { callerReader :: Maybe Text
     , callerAuthor :: Maybe Author
+    , callerAcceptedTerms :: S.Set Text
+    -- ^ The terms the @volca_terms@ cookie names as accepted. The client sets it and no server vouches for it, as for an HTTP request: it opens a database's terms, never proves who accepted them.
     }
 
 callerOf :: RequestHeaders -> Caller
-callerOf headers = Caller (readerOf headers) (authorOf headers)
+callerOf headers = Caller (readerOf headers) (authorOf headers) (acceptedFromCookie (lookup hCookie headers))
 
 -- | A request no server in front of the engine named, as on the desktop.
 anonymous :: Caller
-anonymous = Caller Nothing Nothing
+anonymous = Caller Nothing Nothing S.empty
 
 -- | What the engine knows of the database and the process a computation ran on.
 data Lookup = Lookup

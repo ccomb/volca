@@ -674,9 +674,9 @@ callTool _ _ _ mHosting _ rid name _
 -- handler, so no tool can answer as if the caller had asked for no filter.
 callTool _ _ presets _ _ rid _ args
     | Left err <- presetFilters presets args = return $ toolError rid err
-callTool caller@(Caller reader _) dbManager presets mHosting mBaseUrl rid name args = do
+callTool caller dbManager presets mHosting mBaseUrl rid name args = do
     terms <- DM.termsToAccept dbManager (databasesOfCall name args)
-    accepted <- DM.acceptedTerms dbManager reader
+    accepted <- (callerAcceptedTerms caller <>) <$> DM.acceptedTerms dbManager (callerReader caller)
     licences <- requestedLicences dbManager args
     case (missingTerms accepted terms, licenceRefusalFor name licences) of
         (missing@(_ : _), _) -> pure (toolError rid (termsRefusalText missing))
@@ -752,7 +752,7 @@ licenceOfDatabase :: [NamedLicence] -> Licence
 licenceOfDatabase = maybe LicenceUnstated nlLicence . find ((== "database") . nlArgument)
 
 dispatchTool :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> R.Resource -> KeyMap Value -> Licence -> IO Value
-dispatchTool (Caller reader by) dbManager presets mHosting mBaseUrl rid resource args licence = case resource of
+dispatchTool Caller{callerReader = reader, callerAuthor = by} dbManager presets mHosting mBaseUrl rid resource args licence = case resource of
     R.ListDatabases -> callListDatabases dbManager rid
     R.AcceptTerms -> callAcceptTerms reader dbManager rid args
     R.LoadDatabase -> callLoadDatabase dbManager mHosting rid args
