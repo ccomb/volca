@@ -28,8 +28,8 @@
   again the method under way, and to read the whole collection once per
   method to learn where it writes its factors. It now waits for the first and
   reads the collection once. On a large database with EF 3.1, on a machine
-  with many cores, that request takes half the time and a third of the
-  processor time.
+  with many cores, that request takes half the time and a third to a half of
+  the processor time.
 - An archive that cannot be unpacked now says why. When `unzip` or 7-Zip ran
   and stopped, on a full disk or a damaged archive, the engine still asked to
   install an extraction tool, and the reader went looking for one they had.

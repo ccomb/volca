@@ -190,9 +190,9 @@ spec = do
         it "awaits a match already under way instead of running it again" $ do
             -- The slot stands for the load-time warm-up matching this method.
             -- A score arriving meanwhile must take what that match hands over:
-            -- the factor below resolves to a flow, so an empty answer can only
-            -- have come from the slot.
-            (manager, root) <- setup [rootRiverWater]
+            -- a match gives one row per factor, found or not, so an empty
+            -- answer for this one-factor method can only come from the slot.
+            (manager, root) <- setup []
             let method = mkMethod "Water use" [namedCF "Water, river" 6.98]
             slot <- newEmptyTMVarIO
             atomically $
