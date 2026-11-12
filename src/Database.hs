@@ -197,6 +197,8 @@ for case-insensitive full-name equality.
 -}
 findActivityNameCandidates :: Database -> Maybe Text -> Bool -> [(ProcessId, Activity)]
 findActivityNameCandidates db Nothing _ = allActivities (dbActivities db)
+-- A blank name names no activity in particular: it filters nothing, as a name left out.
+findActivityNameCandidates db (Just name) exact | T.null (T.strip name) = findActivityNameCandidates db Nothing exact
 findActivityNameCandidates db (Just name) True = exactNameMatches (dbActivities db) name
 findActivityNameCandidates db (Just name) False =
     case dbBM25Index db of
