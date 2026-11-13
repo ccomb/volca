@@ -131,7 +131,7 @@ spec = do
 
         it "errors when multiple are configured and caller picks none, with each call that would work" $
             resolveSingleScoringSet [] [pefSet, ecsSet, ecsSet{ssName = "Carbon footprint"}]
-                `shouldBe` Left "This collection has several scoring sets, and score_activities scores one per call. Name one: \"scoring_sets\":[\"PEF\"], \"scoring_sets\":[\"ECS\"] or \"scoring_sets\":[\"Carbon footprint\"]."
+                `shouldBe` Left "This collection has several scoring sets, and score_activities scores one per call. Name one: \"scoring_sets\":[\"PEF\"] or \"scoring_sets\":[\"ECS\"] or \"scoring_sets\":[\"Carbon footprint\"]."
 
         it "accepts the configured set the caller named" $
             resolveSingleScoringSet ["PEF"] [pefSet, ecsSet] `shouldBe` Right pefSet

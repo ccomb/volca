@@ -85,14 +85,13 @@ resolveSingleScoringSet wantedNames configured = case wantedNames of
   where
     -- Each argument that would work, written as the call takes it: a model
     -- told only the names guessed an indicator or a collection instead.
+    calls :: Text
     calls = case map argument configured of
         [] -> "This collection has none."
         [one] -> "Name it: " <> one <> "."
-        many -> "Name one: " <> alternatives many <> "."
+        many -> "Name one: " <> T.intercalate " or " many <> "."
+    argument :: ScoringSet -> Text
     argument s = "\"scoring_sets\":" <> TL.toStrict (encodeToLazyText [ssName s])
-    alternatives [a, b] = a <> " or " <> b
-    alternatives (a : rest) = a <> ", " <> alternatives rest
-    alternatives [] = ""
 
 -- ---------------------------------------------------------------------------
 -- Columnar projection
