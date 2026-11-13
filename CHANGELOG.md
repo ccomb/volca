@@ -118,6 +118,12 @@
 - The download and the image carry the license files of every Haskell library
   linked into the engine, in `licenses/haskell/`, one folder per library. They
   named only the direct dependencies, without their texts.
+- The MCP tools and their parameters describe themselves in fewer words, every
+  fact kept: a client loads all of them into its model's context before the
+  first question, and now spends about a fifth less of it on them. The
+  advice to show a `web_url` as a link is given once, in the server's
+  instructions, instead of in each tool. The OpenAPI document carries the same
+  shorter texts.
 
 ## [0.17.0] - 2026-11-07
 
