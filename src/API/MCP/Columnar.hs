@@ -36,6 +36,7 @@ import API.Types (
     WithheldCutoffs (..),
  )
 import Data.Aeson (Value (..), object, toJSON, (.=))
+import Data.Aeson.Text (encodeToLazyText)
 import Data.Indexing (groupInOrder)
 import qualified Data.List as L
 import qualified Data.Map as M
@@ -43,6 +44,7 @@ import Data.Maybe (isJust, mapMaybe, maybeToList)
 import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import Method.Scoring (readingNotice)
 import Method.Types (ScoringSet (..))
 
@@ -56,8 +58,8 @@ unit, one list of indicator columns), so:
 
   * Caller passes one name in 'scoring_sets' → that one (validated).
   * Caller passes none, exactly one set is configured → that one.
-  * Caller passes none, several sets are configured → error listing the
-    options. We don't pick arbitrarily to avoid silent ambiguity.
+  * Caller passes none, several sets are configured → error writing each
+    argument that would work. We don't pick arbitrarily to avoid silent ambiguity.
   * Caller passes several names → error: only one is supported.
   * No sets configured at all → error.
 -}
@@ -66,24 +68,31 @@ resolveSingleScoringSet wantedNames configured = case wantedNames of
     [] -> case configured of
         [] -> Left "No scoring sets configured on this collection."
         [s] -> Right s
-        ss ->
-            Left $
-                "Multiple scoring sets are configured ("
-                    <> T.intercalate ", " (map ssName ss)
-                    <> "); pass scoring_sets: [\"<one>\"] to pick one. score_activities returns a columnar shape that covers a single scoring set per call."
+        _ -> Left ("This collection has several scoring sets, and score_activities scores one per call. " <> calls)
     [w] -> case L.find (\s -> ssName s == w) configured of
         Just s -> Right s
         Nothing ->
             Left $
-                "Unknown scoring set: "
+                "There is no scoring set named "
                     <> w
-                    <> ". Configured on this collection: "
-                    <> T.intercalate ", " (map ssName configured)
+                    <> " on this collection. A scoring set weighs the collection's indicators into one score: it is neither an indicator nor a collection. "
+                    <> calls
     ws ->
         Left $
             "score_activities accepts at most one scoring set in 'scoring_sets'; got ["
                 <> T.intercalate ", " ws
                 <> "]. The columnar response shape covers a single scoring set per call."
+  where
+    -- Each argument that would work, written as the call takes it: a model
+    -- told only the names guessed an indicator or a collection instead.
+    calls = case map argument configured of
+        [] -> "This collection has none."
+        [one] -> "Name it: " <> one <> "."
+        many -> "Name one: " <> alternatives many <> "."
+    argument s = "\"scoring_sets\":" <> TL.toStrict (encodeToLazyText [ssName s])
+    alternatives [a, b] = a <> " or " <> b
+    alternatives (a : rest) = a <> ", " <> alternatives rest
+    alternatives [] = ""
 
 -- ---------------------------------------------------------------------------
 -- Columnar projection
