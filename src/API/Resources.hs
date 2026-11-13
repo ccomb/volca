@@ -556,14 +556,19 @@ fromMcpName name = find ((== name) . mcpName) allResources
 -- Projection: human-readable description (shared across surfaces)
 -- ---------------------------------------------------------------------------
 
+{- | Closes the description of each tool whose answer carries a 'web_url'.
+The server's instructions ("API.MCP") say it too, but a client may show its
+model the tool list alone, and models left without it print bare ids.
+-}
+webUrlTip :: Text
+webUrlTip = " Show each 'web_url' as a clickable link: it opens the VoLCA page."
+
 {- | Description of the resource operation.
 
 These strings are consumed as-is by the MCP tool metadata and stamped onto
 the published OpenAPI operation. A client loads every one of them into its
 model's context before the first question, so they are written terse: each
-fact a caller needs, once, in as few words as hold it. What every tool
-shares, such as showing a 'web_url' as a link, is said once in the server's
-instructions ("API.MCP").
+fact a caller needs, once, in as few words as hold it.
 -}
 description :: Resource -> Text
 description r = case r of
@@ -610,7 +615,8 @@ description r = case r of
         \matériaux, énergie, transport, empreinte carbone, empreinte \
         \environnementale, impact environnemental, occupation des sols, surface \
         \agricole, prairie, pâturage, intrants, filière, chaîne amont. Names are \
-        \mostly English: translate first (pomme de terre: potato, acier: steel). \
+        \mostly English: translate into their language first (pomme de terre: \
+        \potato, acier: steel). \
         \Nothing fits: try the database's own wording, or a broader word."
     SearchFlows ->
         "LCA / ACV: search flows by name. 'kind': biosphere (substance exchanged \
@@ -681,6 +687,7 @@ description r = case r of
         \no loaded database supplies count as zero: 'cutoff_notice' opens the \
         \answer, 'cutoff_inputs' lists them, 'withheld_cutoffs' counts those a \
         \licence hides."
+            <> webUrlTip
     ComputeSensitivity ->
         "LCA / ACV: sensitivity: score relative perturbations of technosphere \
         \coefficients. Each (consumer, supplier, delta) multiplies A_ij by \
@@ -689,6 +696,7 @@ description r = case r of
         \update) stays in its entry, the sweep goes on. Rank-1 updates on the \
         \cached factorization, ~4 ms each. Root database only. 'basis' as on \
         \score_activity."
+            <> webUrlTip
     GetReducedModel ->
         "LCA / ACV: an activity's scores as a function of some input parameters, \
         \to run many values outside the engine (Monte Carlo, Sobol). Parameters as \
@@ -743,6 +751,7 @@ description r = case r of
         \'kg CO2 eq'-like expression, amount brought to base unit), energy_content \
         \(across dimensions by energy density). 'match.refusal': \
         \different_dimensions, no_base_unit, energy_bridge_failed."
+            <> webUrlTip
     GetFlowFactors ->
         "LCA / ACV: which impact categories count one elementary flow, with what \
         \factor, in every loaded collection (or one): 'does this emission count \
@@ -754,15 +763,18 @@ description r = case r of
         \so it counts though no single factor answers. 'noFactor': methods giving \
         \no factor anywhere. All 'factors' empty: the flow adds nothing to any \
         \score, whatever its amount."
+            <> webUrlTip
     GetContributingFlows ->
         "LCA / ACV: elementary flows (emissions, resources) weighing most in one \
         \impact category: 'which emissions drive my climate change score?'. Flow \
         \'match_kind': how its factor was found (rungs on explain_cf), null if \
         \none reaches it. 'basis' as on score_activity."
+            <> webUrlTip
     GetContributingActivities ->
         "LCA / ACV: upstream activities weighing most in one impact category: \
         \'which suppliers drive my climate change score?'. Exact matrix \
         \computation, valid for cyclic chains. 'basis' as on score_activity."
+            <> webUrlTip
     GetScoreContributingFlows ->
         "LCA / ACV: elementary flows weighing most in one score of a scoring set \
         \(one number weighing a collection's indicators; list_scoring_sets): \
@@ -770,12 +782,14 @@ description r = case r of
         \over indicators, so flows add up to score_activity's score. 'cf_value': \
         \what one unit of the flow adds. A score that is not a weighted sum of \
         \indicators has no split: refused. 'basis' as on score_activity."
+            <> webUrlTip
     GetScoreContributingActivities ->
         "LCA / ACV: upstream activities weighing most in one score of a scoring \
         \set (list_scoring_sets): 'which suppliers drive my single score?'. \
         \Contribution = weighted sum over indicators, so activities add up to \
         \score_activity's score. A score that is not a weighted sum of indicators \
         \has no split: refused. 'basis' as on score_activity."
+            <> webUrlTip
     ListGeographies ->
         "LCA / ACV: a database's geography codes, with display names and parent \
         \regions. 'geo' is search_activities' geography filter."
@@ -875,6 +889,7 @@ description r = case r of
         \copied, edited, allocated otherwise or patched; method collection, \
         \whether a modified copy; substitutions and parameter values sent). Quote \
         \it with the number: scores compare only on the same basis."
+            <> webUrlTip
     ScoreActivities ->
         "LCA / ACV: rank N activities on one scoring set, one call. Columnar JSON \
         \{scoring_set, scoring_unit, functional_unit?, columns, rows, not_found, \
@@ -894,6 +909,7 @@ description r = case r of
         \comparison. Collection with several sets: pass scoring_sets: \
         \[\"<one>\"]. 'parameter_sets': each activity scored at each set, \
         \'parameter_set' column after 'process_id'."
+            <> webUrlTip
     ListScoringSets ->
         "LCA / ACV: formula-based scoring sets of loaded collections, each \
         \aggregating category scores into weighted or normalized 'score' values \
@@ -922,8 +938,8 @@ description r = case r of
         \100%, on some coproducts only, or outside 0-100%; outright duplicates \
         \(name, location, reference product); non-finite amounts, zero reference \
         \amount; missing metadata (description, classification, location, unit \
-        \unknown to the registry); undeclared geography (read off the name, \
-        \SimaPro's whole-database 'Unspecified', or loader-filled); amounts \
+        \unknown to the registry); undeclared geography, read off the name (SimaPro \
+        \writes 'Unspecified' in whole databases) or filled by the loader; amounts \
         \disagreeing with their formulas, unevaluable formulas \
         \(mathematicalRelation); names merging under SimaPro's 80-character cut; \
         \exchanges missing the pedigree their database carries; reference products \
