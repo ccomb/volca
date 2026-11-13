@@ -2933,15 +2933,6 @@ lookupActivityName dbManager dbName pidText = do
             Left _ -> Nothing
         Nothing -> Nothing
 
-{- | Return every 'ScoringSet' configured on a collection (full record, not
-just names). Empty list when the collection is not loaded -- the same
-defensive shape as 'configuredScoringSetNames'.
--}
-configuredScoringSets :: DatabaseManager -> Text -> IO [ScoringSet]
-configuredScoringSets dbm collName = do
-    loaded <- readTVarIO (dmLoadedMethods dbm)
-    pure $ maybe [] mcScoringSets (M.lookup collName loaded)
-
 {- | Handler for the 'score_activities' MCP tool.
 
 Ranks N activities against every method in a collection in one
@@ -2965,8 +2956,11 @@ callScoreActivities dbManager mHosting mBaseUrl rid args =
         parameterSets <- except (parseArrayArg "parameter_sets" Nothing args :: Either Text [[ParameterValue]])
         let summaryOnly = fromMaybe False (boolArg "summary_only" args)
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-        configured <- liftIO $ configuredScoringSets dbManager coll
-        chosen <- except (resolveSingleScoringSet wantedSets configured)
+        -- The set is chosen before the batch runs, so an unknown collection
+        -- is refused here, by name, rather than read as one without sets.
+        loaded <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
+        mc <- maybe (throwE (collectionNotLoadedMessage coll (M.keys loaded))) pure (M.lookup coll loaded)
+        chosen <- except (resolveSingleScoringSet wantedSets (mcScoringSets mc))
         res <- liftIO $ BI.runBatchImpacts dbManager mHosting dbName coll Nothing ltMode pids parameterSets
         case res of
             Left e -> throwE (batchErrorMsg e)

@@ -22,6 +22,10 @@
 
 ### Fixed
 
+- `score_activities` asked for a method collection the engine has not loaded
+  now says so and lists the loaded ones, as `score_activity` does. It used to
+  answer that the collection had no scoring sets, which sent an assistant
+  looking for a set instead of a collection.
 - A score asked right after a database is loaded no longer repeats the
   engine's own preparation of the methods. Loading a database starts matching
   each method's factors to its flows; a score arriving meanwhile used to match

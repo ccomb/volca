@@ -7,7 +7,7 @@ including the reply to a name the registry does not declare.
 -}
 module MCPDispatchSpec (spec) where
 
-import Control.Concurrent.STM (atomically, modifyTVar')
+import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Monad (forM_)
 import Data.Aeson (Value (..), decodeStrict)
 import Data.Aeson.Key (Key, fromText, toText)
@@ -23,6 +23,7 @@ import Test.Hspec
 
 import API.MCP (RequestId (..), RpcRequest (..), callTool, handleInitialize, mcpCountsAsActivity, noRequestId, toolDefinitions, webUrlBase)
 import API.Resources (allResources, mcpName)
+import API.Routes (collectionNotLoadedMessage)
 import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), ReadOnly (..), ServerName (..), defaultConfig)
 import qualified Data.UUID as UUID
 import Database.Manager (CachePolicy (..), DatabaseManager (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
@@ -359,6 +360,19 @@ spec = describe "MCP database load/unload tools" $ do
             resp <- call "get_characterization_coverage"
             isError resp `shouldBe` True
             resultText resp `shouldSatisfy` maybe False ("Database not loaded:" `T.isInfixOf`)
+
+    -- A collection named wrong is the caller's mistake to correct: the reply
+    -- says so and lists the loaded ones, as score_activity's does, rather than
+    -- reporting a collection without scoring sets.
+    describe "batch scoring tool" $ do
+        it "names the loaded collections when the collection is unknown" $ do
+            manager <- initDatabaseManager defaultConfig NoCache
+            resp <-
+                callTool anonymous manager [] Nothing Nothing noRequestId "score_activities" $
+                    KM.fromList [("database", String "no-such-db"), ("collection", String "TRACI"), ("process_ids", Array mempty)]
+            loaded <- M.keys <$> readTVarIO (dmLoadedMethods manager)
+            isError resp `shouldBe` True
+            resultText resp `shouldBe` Just (collectionNotLoadedMessage "TRACI" loaded)
 
     -- A preset narrows a search. A tool that advertises the parameter and then
     -- ignores an unresolvable one answers with the whole database, which reads
