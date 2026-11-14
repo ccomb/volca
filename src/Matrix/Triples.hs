@@ -2,7 +2,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- | The entries of a sparse matrix, and those entries held column after column.
@@ -15,6 +14,7 @@ module Matrix.Triples (
 ) where
 
 import Control.DeepSeq (NFData)
+import Control.Monad (forM_)
 import Data.Int (Int32)
 import Data.Store (Size (..), Store (..))
 import qualified Data.Vector.Generic as VG
@@ -132,20 +132,23 @@ byColumn triples
     columnAt :: Int -> Int
     columnAt k = case VU.unsafeIndex triples k of SparseTriple _ j _ -> fromIntegral j
 
-    columns :: VU.Vector Int
-    columns = VU.generate (VU.length triples) columnAt
+    places :: [Int]
+    places = [0 .. VU.length triples - 1]
 
     -- Where the first entry of each column goes.
     starts :: VU.Vector Int
-    starts = VU.prescanl' (+) 0 (VU.accumulate (+) (VU.replicate (VU.maximum columns + 1) 0) (VU.map (,1) columns))
+    starts = VU.prescanl' (+) 0 $ VU.create $ do
+        counts <- VUM.replicate (foldl' (\widest k -> max widest (columnAt k)) 0 places + 1) 0
+        forM_ places $ \k -> VUM.modify counts (+ 1) (columnAt k)
+        pure counts
 
     -- The entry each place takes: a counting sort, which keeps the order within a column.
     order :: VU.Vector Int
     order = VU.create $ do
         next <- VU.thaw starts
-        places <- VUM.new (VU.length triples)
-        VU.iforM_ columns $ \k j -> do
-            place <- VUM.read next j
-            VUM.write places place k
-            VUM.write next j (place + 1)
-        pure places
+        taken <- VUM.new (VU.length triples)
+        forM_ places $ \k -> do
+            place <- VUM.read next (columnAt k)
+            VUM.write taken place k
+            VUM.write next (columnAt k) (place + 1)
+        pure taken
