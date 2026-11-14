@@ -319,8 +319,8 @@ data BatchImpactsEntry = BatchImpactsEntry
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped BatchImpactsEntry)
 
-{- | A batch entry and everything it reaches, forceable. A chunk of a large
-batch is forced where it is built so the solutions behind it can go; every
+{- | A batch entry and everything it reaches, forceable. Each entry of a
+batch is forced where it is built so the solution behind it can go; every
 field here is evaluated on the way out anyway, so this moves the work rather
 than adding any.
 -}

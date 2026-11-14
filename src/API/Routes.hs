@@ -46,7 +46,7 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Time (NominalDiffTime, diffUTCTime, getCurrentTime)
+import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.Validation as V
 import qualified Data.Vector as V
@@ -93,6 +93,7 @@ import SharedSolver (Reached (..), SharedSolver)
 import qualified SharedSolver
 import Tree (buildLoopAwareTree)
 import Types
+import UnitConversion (UnitConfig)
 import Usage (BootId, ProcessKey (..), UsageKind (..), UsageLog, UsagePage, forgetUsage, readUsage)
 import qualified Version
 
@@ -383,22 +384,6 @@ solutionWithDeps dbName db solver pid = do
     case res of
         Right sol -> pure sol
         Left err -> throwError err422{errBody = BSL.fromStrict $ T.encodeUtf8 err}
-
-{- | Batch variant of 'solutionWithDeps': one solution per pid, in their
-order, or why that pid has none. A pid refused refuses no other.
--}
-solutionsWithDeps :: Text -> Database -> SharedSolver -> [ProcessId] -> AppM [Either Text SharedSolver.CrossDBSolution]
-solutionsWithDeps dbName db solver pids = do
-    dbManager <- asks aeDbManager
-    unitCfg <- liftIO $ getMergedUnitConfig dbManager
-    liftIO $
-        SharedSolver.computeInventoryMatrixBatchWithDepsCached
-            unitCfg
-            (DM.mkDepSolverLookup dbManager)
-            db
-            dbName
-            solver
-            pids
 
 {- | Per-method static context, prepared ONCE per batch request and reused
 across every pid in that request. Carries the precomputed mapping stats
@@ -1093,7 +1078,7 @@ withLines lines' result =
                 [ExchangeContribution{ecPosition = n, ecContribution = c, ecSharePct = if lrScore result /= 0 then c / lrScore result * 100 else 0} | (n, c) <- lines']
         }
 
-{- | Everything one chunk of a batch needs and no chunk changes: the database
+{- | Everything one target of a batch needs and no target changes: the database
 being scored, the collection scoring it, and the per-method contexts prepared
 once for the whole request.
 -}
@@ -1119,38 +1104,41 @@ data BatchTarget = BatchTarget
     , btActivity :: !Activity
     }
 
-{- | Solve one chunk of a batch and turn it into entries, with the time its
-solve took. Each target gives one row: refused when the solver has no answer
-for it, which refuses no other, or else the entry, whose building can still
-fail on the tables of the database and the method (see 'batchImpactsH').
+{- | Score the targets of a batch, each one from its solve to its entry before
+the next is started, as many at a time as the machine has cores. Each target
+gives one row: refused when the solver has no answer for it, which refuses no
+other, or else the entry, whose building can still fail on the tables of the
+database and the method (see 'batchImpactsH').
 
-Chunking is what keeps a large batch from being a large heap. A solution
-carries a dense scaling vector the width of the database beside its inventory,
-hundreds of kilobytes for a database of any size, where the entry built from it
-carries one number per method. Solving the whole request before building the
-first entry therefore held every solution at once; solving a chunk at a time
-holds that many, and the solutions of a finished chunk are free to go. Every
-chunk still reuses the one cached factorization, so this bounds the memory
-without changing the speed.
+A solution carries a dense scaling vector the width of the database beside its
+inventory, hundreds of kilobytes for a database of any size, where the entry
+built from it carries one number per method. Solving several targets before
+building their entries holds that many solutions at once, long enough for the
+collector to move them among the data it keeps: scoring a whole database then
+stopped every few requests for a collection of everything the engine holds.
+One target at a time, a request holds one solution per core whatever it asks
+for, and a solution is gone before the collector has to keep it.
 -}
-scoreChunk :: BatchScope -> [BatchTarget] -> AppM (NominalDiffTime, [Either UnsolvableEntry (Either Text BatchImpactsEntry)])
-scoreChunk scope chunk = do
+scoreTargets :: BatchScope -> [BatchTarget] -> AppM [Either UnsolvableEntry (Either Text BatchImpactsEntry)]
+scoreTargets scope targets = do
     dbManager <- asks aeDbManager
-    t0 <- liftIO getCurrentTime
-    sols0 <- solutionsWithDeps (bsDbName scope) (bsDb scope) (bsSolver scope) (map btProcessId chunk)
-    sols <- liftIO $ acrossCapabilities (traverse (Impact.withLongTermPolicy dbManager (bsLongTerm scope))) sols0
-    t1 <- liftIO getCurrentTime
-    rows <- liftIO $ acrossCapabilities (\(target, sol) -> either (fmap Left . evaluate . force . unsolved target) (fmap Right . entryOf dbManager target) sol) (zip chunk sols)
-    pure (diffUTCTime t1 t0, rows)
+    unitCfg <- liftIO $ getMergedUnitConfig dbManager
+    liftIO $ acrossCapabilities (rowOf dbManager unitCfg) targets
   where
+    rowOf :: DatabaseManager -> UnitConfig -> BatchTarget -> IO (Either UnsolvableEntry (Either Text BatchImpactsEntry))
+    rowOf dbManager unitCfg target =
+        SharedSolver.computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) (bsDb scope) (bsDbName scope) (bsSolver scope) (btProcessId target)
+            >>= traverse (Impact.withLongTermPolicy dbManager (bsLongTerm scope))
+            >>= either (fmap Left . evaluate . force . unsolved target) (fmap Right . entryOf dbManager target)
+
     unsolved :: BatchTarget -> Text -> UnsolvableEntry
     unsolved target = UnsolvableEntry (btRequestedId target) (bsParameterSet scope)
 
     {- An entry is forced where it is built. Every field of it is lazy, and the
     score of a category is a closure over the solution's inventory, so an
-    unforced chunk hands the next one its predecessor's solutions to hold on to
-    and the bound above buys nothing. A refused entry too: unforced, it holds
-    the scope, and with it the database of its parameter set. -}
+    unforced entry holds on to its solution and the bound above buys nothing.
+    A refused entry too: unforced, it holds the scope, and with it the
+    database of its parameter set. -}
     entryOf :: DatabaseManager -> BatchTarget -> SharedSolver.CrossDBSolution -> IO (Either Text BatchImpactsEntry)
     entryOf dbManager target sol =
         evaluate . force . fmap (named target)
@@ -1191,8 +1179,8 @@ legitimate and the answer would be the same a few seconds later.
 withScoringSlot :: DatabaseManager -> AppM a -> AppM a
 withScoringSlot dm = maybe id (\slots -> bracket_ (liftIO (waitQSem slots)) (liftIO (signalQSem slots))) (dmScoringSlots dm)
 
-{- | Top-level multi-activity batch impacts, a chunk of activities per solve,
-parallel characterization. Used by the Servant POST routes and by
+{- | Top-level multi-activity batch impacts, each activity solved and
+characterized on its own, as many at a time as there are cores. Used by the Servant POST routes and by
 API.BatchImpacts. Given a method of the collection, only that one is scored:
 characterization costs per method, so one category of a large database comes
 back several times faster than the whole collection.
@@ -1264,19 +1252,18 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
                 , bsParameterSet = Nothing
                 }
         -- One set after another: a set's database lives while its rows are built, and no longer.
-        atSet :: Int -> [ParameterValue] -> AppM [(NominalDiffTime, [Either UnsolvableEntry (Either Text BatchImpactsEntry)])]
+        atSet :: Int -> [ParameterValue] -> AppM [Either UnsolvableEntry (Either Text BatchImpactsEntry)]
         atSet i values =
             withValues (inSet i) dbName loaded values $ \db' solver' ->
-                traverse
-                    (scoreChunk scope{bsDb = db', bsSolver = solver', bsParameterSet = Just i})
-                    (Matrix.chunksOf scoringChunk [target{btActivity = dbActivities db' V.! fromIntegral (btProcessId target)} | target <- valid])
+                scoreTargets
+                    scope{bsDb = db', bsSolver = solver', bsParameterSet = Just i}
+                    [target{btActivity = dbActivities db' V.! fromIntegral (btProcessId target)} | target <- valid]
         inSet :: Int -> ServerError -> ServerError
         inSet i e = e{errBody = "parameter set " <> BSL.fromStrict (T.encodeUtf8 (T.pack (show i))) <> ": " <> errBody e}
     solved <- withScoringSlot dbManager $ case birParameterSets req of
-        [] -> traverse (scoreChunk scope) (Matrix.chunksOf scoringChunk valid)
+        [] -> scoreTargets scope valid
         sets -> concat <$> zipWithM atSet [0 ..] sets
-    let solveTime = sum (map fst solved)
-        (unsolvable, entriesE) = partitionEithers (concatMap snd solved)
+    let (unsolvable, entriesE) = partitionEithers solved
     -- All-or-nothing on purpose: an integrity error is a property of the
     -- (db, method) tables, not of one activity, so every entry would fail
     -- identically. Unresolvable pids stay per-entry (birNotFound/birInvalid),
@@ -1305,10 +1292,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
                                 <> show (length unsolvable)
                                 <> " unsolvable)"
                    )
-                <> " – solve "
-                <> showFFloat (Just 2) (realToFrac solveTime :: Double) ""
-                <> "s, "
-                <> "total "
+                <> " – "
                 <> showFFloat (Just 2) (realToFrac (diffUTCTime t2 t0) :: Double) ""
                 <> "s"
     pure
@@ -1323,8 +1307,8 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
             }
 
 {- | Computed quality checks over the whole catalogue: score every entry of a
-loaded database against one method collection – chunked multi-RHS solves on
-the cached factorization, warm method tables – then judge the numbers with
+loaded database against one method collection – one solve per entry on the
+cached factorization, warm method tables – then judge the numbers with
 the pure 'Database.ComputedQuality' checks. The structural quality report
 runs on staged data too; this one needs matrices and methods, so it is a
 separate report with the same finding shape.
@@ -1439,13 +1423,6 @@ attachment dbName report =
     prefix = if T.null kept then "" else kept <> "-"
     kept = T.filter headerSafe dbName
     headerSafe c = isAscii c && not (isControl c) && c /= '"' && c /= '\\'
-
-{- | How many activities a batch solves before it builds their entries. It
-bounds what the request holds: one solution per activity of the chunk, each as
-long as the database has processes.
--}
-scoringChunk :: Int
-scoringChunk = 512
 
 -- ---------------------------------------------------------------------------
 -- Pure helpers shared by handlers
