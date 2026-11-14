@@ -2,6 +2,7 @@
 
 module MatrixConstructionSpec (spec) where
 
+import CrossDBRegionalLCIAFixture (flowUUID, mkDB)
 import Data.Either (isLeft)
 import Data.List (elemIndex)
 import qualified Data.Map as M
@@ -10,7 +11,7 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import Database (buildDatabaseWithMatrices)
-import Matrix (Demand (..), buildDemandVector, computeInventoryMatrix)
+import Matrix (Demand (..), applyBiosphereMatrix, buildDemandVector, computeInventoryMatrix)
 import Test.Hspec
 import TestHelpers
 import Types
@@ -56,6 +57,15 @@ spec = do
 
             -- Should have at least 2 technosphere exchanges
             length techTriples `shouldSatisfy` (>= 2)
+
+    describe "Biosphere entries column after column" $ do
+        it "puts entries given out of order back by column, keeping their order within one" $
+            VU.toList (columnTriples (byColumn (VU.fromList [SparseTriple 0 2 1, SparseTriple 0 0 2, SparseTriple 1 2 3, SparseTriple 1 0 4])))
+                `shouldBe` [SparseTriple 0 0 2, SparseTriple 1 0 4, SparseTriple 0 2 1, SparseTriple 1 2 3]
+
+        it "reads an inventory from entries given out of order, past a process nothing asks of" $
+            applyBiosphereMatrix (mkDB 0 ["FR", "DE", "IT"] [(2, 5), (0, 1), (2, 7), (1, 3)]) (VU.fromList [1, 0, 2])
+                `shouldBe` M.singleton flowUUID 25
 
     describe "Biosphere Matrix Construction" $ do
         it "stores emissions as POSITIVE values" $ do

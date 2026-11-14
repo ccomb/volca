@@ -63,6 +63,7 @@ library
                      , Matrix.Export
                      , Matrix.Dense
                      , Matrix.Sparse
+                     , Matrix.Triples
                      , Matrix.Sparse.Arrays
                      , Matrix.Sparse.Order
                      , SharedSolver

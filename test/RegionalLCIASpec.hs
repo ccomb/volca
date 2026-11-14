@@ -39,6 +39,8 @@ import Types (
     ReferenceConvention (..),
     SparseTriple (..),
     Unit (..),
+    byColumn,
+    dbBiosphereTriples,
     emptyProductIndex,
     noDates,
  )
@@ -126,7 +128,7 @@ mkDB locsAndEmissions =
             , dbUnits = M.singleton (unitId kgUnit) kgUnit
             , dbIndexes = emptyIdx
             , dbTechnosphereTriples = U.empty
-            , dbBiosphereTriples = triples
+            , dbBiosphere = byColumn triples
             , dbActivityIndex = actIdx
             , dbBiosphereOrder = V.singleton flowUUID
             , dbActivityCount = fromIntegral n
@@ -197,9 +199,10 @@ withUniversalFlow db =
         { dbBioFlows = M.insert methaneUUID methaneFlow (dbBioFlows db)
         , dbBiosphereOrder = dbBiosphereOrder db <> V.singleton methaneUUID
         , dbBiosphereCount = 2
-        , dbBiosphereTriples =
-            dbBiosphereTriples db
-                <> U.fromList [SparseTriple 1 (fromIntegral c) 1 | c <- [0 .. fromIntegral (dbActivityCount db) - 1 :: Int]]
+        , dbBiosphere =
+            byColumn $
+                dbBiosphereTriples db
+                    <> U.fromList [SparseTriple 1 (fromIntegral c) 1 | c <- [0 .. fromIntegral (dbActivityCount db) - 1 :: Int]]
         }
 
 universalMapping :: Double -> [(MethodCF, Maybe Resolution)]

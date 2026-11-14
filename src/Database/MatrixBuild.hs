@@ -383,7 +383,7 @@ withActivities unitConfig db changed
             db
                 { dbActivities = activities
                 , dbTechnosphereTriples = replaced (dbTechnosphereTriples db) tech
-                , dbBiosphereTriples = replaced (dbBiosphereTriples db) bio
+                , dbBiosphere = byColumn (replaced (dbBiosphereTriples db) bio)
                 , dbCrossDBLinks = map followed (dbCrossDBLinks db)
                 }
   where
