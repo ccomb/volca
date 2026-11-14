@@ -34,7 +34,8 @@
   batch solved all its activities before it scored the first, so every
   solution stayed in memory for the whole request, and the engine paused for
   two seconds or more every few requests to sort through everything it holds.
-  Each activity is now solved and scored before the next one starts. On a
+  Each processor core now solves and scores one activity before it takes the
+  next, and the cores still work side by side. On a
   large database scored 256 activities per request, those pauses come three
   to four times less often and the peak of memory is 0.4 to 0.7 GB lower; where
   the pauses were half the time, the whole run takes half as long. The scores

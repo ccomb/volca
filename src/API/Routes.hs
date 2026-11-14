@@ -1307,8 +1307,8 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
             }
 
 {- | Computed quality checks over the whole catalogue: score every entry of a
-loaded database against one method collection – chunked multi-RHS solves on
-the cached factorization, warm method tables – then judge the numbers with
+loaded database against one method collection – one solve per entry on the
+cached factorization, warm method tables – then judge the numbers with
 the pure 'Database.ComputedQuality' checks. The structural quality report
 runs on staged data too; this one needs matrices and methods, so it is a
 separate report with the same finding shape.
