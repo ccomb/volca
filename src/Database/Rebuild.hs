@@ -67,6 +67,7 @@ import Types (
     TechnosphereFlow (..),
     UUID,
     WasteFlow (..),
+    byColumn,
     findProcessId,
     findProcessIdByActivityUUID,
     parseProcessRef,
@@ -223,7 +224,7 @@ rebuildFromActivities unitConfig db activities =
                         , dbActivities = itActivities tables
                         , dbIndexes = indexes
                         , dbTechnosphereTriples = techTriples
-                        , dbBiosphereTriples = bioTriples
+                        , dbBiosphere = byColumn bioTriples
                         , dbActivityIndex = V.generate (fromIntegral (itActivityCount tables)) fromIntegral
                         , dbBiosphereOrder = bioFlowUUIDs
                         , dbActivityCount = itActivityCount tables

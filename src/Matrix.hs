@@ -186,28 +186,22 @@ Apply the biosphere matrix to a scaling vector: g = B * x.
 Converts the scaling vector (activity scaling factors) into a biosphere inventory
 (environmental flows) by multiplying with the biosphere intervention matrix.
 
-Walks 'dbBiosphereTriples' as an unboxed 'U.Vector' directly. The previous
-implementation went via @U.toList bioTriples@ → list of boxed
-@(Int,Int,Double)@ tuples → 'applySparseMatrix', allocating ~150 MB per pid
-on agribalyse's ~4.5M biosphere triples. Profiling on a 633-pid batch run
-attributed 56% of total allocation and 14% of CPU to that path
-(@applyBiosphereMatrix.inventoryVec@). With the list intermediate gone, the
-matvec is a tight 'U.forM_' over contiguous memory.
+Reads the columns of the processes the scaling vector asks something of, and
+no other: a supply chain reaches a small part of a database, and reading every
+entry of B for each process scored took nearly all the time of scoring a
+database whose biosphere is large.
 -}
 applyBiosphereMatrix :: Database -> Vector -> Inventory
 applyBiosphereMatrix db supplyVec =
     let bioFlowCount = fromIntegral (dbBiosphereCount db) :: Int
-        bioTriples = dbBiosphereTriples db
         bioFlows = dbBiosphereOrder db
-        supplyLen = U.length supplyVec
         inventoryVec = U.create $ do
             mv <- MU.replicate bioFlowCount 0.0
-            U.forM_ bioTriples $ \(SparseTriple i j v) -> do
-                let !ci = fromIntegral i :: Int
-                    !cj = fromIntegral j :: Int
-                when (cj < supplyLen) $ do
+            U.iforM_ supplyVec $ \j x -> when (x /= 0) $
+                U.forM_ (entriesOfColumn (dbBiosphere db) j) $ \(SparseTriple i _ v) -> do
+                    let !ci = fromIntegral i :: Int
                     old <- MU.unsafeRead mv ci
-                    MU.unsafeWrite mv ci (old + v * U.unsafeIndex supplyVec cj)
+                    MU.unsafeWrite mv ci (old + v * x)
             pure mv
         invLen = U.length inventoryVec
      in M.fromList

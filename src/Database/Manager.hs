@@ -351,6 +351,7 @@ import Types (
     computeMinimalSelectedDeps,
     crossDBBySource,
     crossDBRedundantSources,
+    dbBiosphereTriples,
     deduplicateAttributeFallbacks,
     deduplicateFallbacks,
     deduplicateSupplierAmbiguities,

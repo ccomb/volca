@@ -12,6 +12,7 @@
 module Types (
     module Types,
     UUID,
+    module Matrix.Triples,
 ) where
 
 import API.JsonOptions (Stripped (..))
@@ -40,10 +41,9 @@ import Data.Time.LocalTime (TimeOfDay)
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
-import qualified Data.Vector.Generic as VG
-import qualified Data.Vector.Generic.Mutable as VGM
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
+import Matrix.Triples
 
 import Control.Lens ((&), (.~), (?~))
 import Data.Containers.ListUtils (nubOrdOn)
@@ -1588,72 +1588,6 @@ data Indexes = Indexes
     }
     deriving (Generic, NFData, Store)
 
-{- | Sparse matrix coordinate triplet (row, col, value)
-Using Int32 for matrix indices to support large databases (up to 2 billion activities)
-Unboxed to eliminate per-element boxing overhead (~48 bytes → 16 bytes per triple)
-With ~800K triples, this saves ~25MB + significant GC pressure
--}
-data SparseTriple = SparseTriple {-# UNPACK #-} !Int32 {-# UNPACK #-} !Int32 {-# UNPACK #-} !Double
-    deriving (Eq, Show, Generic)
-
--- Manual Unbox instance for SparseTriple to enable VU.Vector storage
-newtype instance VU.MVector s SparseTriple = MV_SparseTriple (VU.MVector s (Int32, Int32, Double))
-newtype instance VU.Vector SparseTriple = V_SparseTriple (VU.Vector (Int32, Int32, Double))
-
-instance VGM.MVector VU.MVector SparseTriple where
-    {-# INLINE basicLength #-}
-    {-# INLINE basicUnsafeSlice #-}
-    {-# INLINE basicOverlaps #-}
-    {-# INLINE basicUnsafeNew #-}
-    {-# INLINE basicInitialize #-}
-    {-# INLINE basicUnsafeRead #-}
-    {-# INLINE basicUnsafeWrite #-}
-    basicLength (MV_SparseTriple v) = VGM.basicLength v
-    basicUnsafeSlice i n (MV_SparseTriple v) = MV_SparseTriple $ VGM.basicUnsafeSlice i n v
-    basicOverlaps (MV_SparseTriple v1) (MV_SparseTriple v2) = VGM.basicOverlaps v1 v2
-    basicUnsafeNew n = MV_SparseTriple <$> VGM.basicUnsafeNew n
-    basicInitialize (MV_SparseTriple v) = VGM.basicInitialize v
-    basicUnsafeRead (MV_SparseTriple v) i = do
-        (r, c, val) <- VGM.basicUnsafeRead v i
-        return $ SparseTriple r c val
-    basicUnsafeWrite (MV_SparseTriple v) i (SparseTriple r c val) =
-        VGM.basicUnsafeWrite v i (r, c, val)
-
-instance VG.Vector VU.Vector SparseTriple where
-    {-# INLINE basicUnsafeFreeze #-}
-    {-# INLINE basicUnsafeThaw #-}
-    {-# INLINE basicLength #-}
-    {-# INLINE basicUnsafeSlice #-}
-    {-# INLINE basicUnsafeIndexM #-}
-    basicUnsafeFreeze (MV_SparseTriple v) = V_SparseTriple <$> VG.basicUnsafeFreeze v
-    basicUnsafeThaw (V_SparseTriple v) = MV_SparseTriple <$> VG.basicUnsafeThaw v
-    basicLength (V_SparseTriple v) = VG.basicLength v
-    basicUnsafeSlice i n (V_SparseTriple v) = V_SparseTriple $ VG.basicUnsafeSlice i n v
-    basicUnsafeIndexM (V_SparseTriple v) i = do
-        (r, c, val) <- VG.basicUnsafeIndexM v i
-        return $ SparseTriple r c val
-
-instance VU.Unbox SparseTriple
-
--- Store instance for cache serialization
-instance Store SparseTriple where
-    size = ConstSize 16 -- Int32 (4) + Int32 (4) + Double (8)
-    poke (SparseTriple r c v) = poke r >> poke c >> poke v
-    peek = SparseTriple <$> peek <*> peek <*> peek
-
--- NFData derived via Generic
-instance NFData SparseTriple
-
--- | Store instance for VU.Vector SparseTriple (store has no built-in instance for custom Unbox types)
-instance Store (VU.Vector SparseTriple) where
-    size = VarSize $ \v -> 8 + VU.length v * 16
-    poke v = do
-        poke (VU.length v)
-        VU.mapM_ poke v
-    peek = do
-        n <- peek
-        VU.replicateM n peek
-
 -- | Compute serialized size for a Store value
 getSize :: (Store a) => a -> Int
 getSize x = case size of
@@ -1810,6 +1744,10 @@ data Redefinition = Redefinition
 data RedefinitionContext = OfDatabase | OfProcess !UUID | OfImpactCategory !UUID | OfOtherContext !Text !(Maybe UUID)
     deriving (Eq, Show, Generic, NFData, Store)
 
+-- | The entries of B, biosphere flows × activities, as the vector they are held in.
+dbBiosphereTriples :: Database -> VU.Vector SparseTriple
+dbBiosphereTriples = columnTriples . dbBiosphere
+
 -- | Complete database with indexes for efficient searches
 data Database = Database
     { -- UUID interning tables for ProcessId ↔ (UUID, UUID) conversion
@@ -1825,7 +1763,7 @@ data Database = Database
     , dbIndexes :: !Indexes
     , -- Pre-computed sparse matrices for efficient LCA calculations (unboxed for memory efficiency)
       dbTechnosphereTriples :: !(VU.Vector SparseTriple) -- A matrix: activities × activities (sparse, unboxed)
-    , dbBiosphereTriples :: !(VU.Vector SparseTriple) -- B matrix: biosphere flows × activities (sparse, unboxed)
+    , dbBiosphere :: !ByColumn -- B matrix: biosphere flows × activities, column after column
     , dbActivityIndex :: !(V.Vector Int32) -- ProcessId → matrix index mapping (direct vector indexing)
     , dbBiosphereOrder :: !(V.Vector UUID) -- Ordered vector of biosphere flow UUIDs – B-matrix row order
     , dbActivityCount :: !Int32 -- Number of activities (matrix dimension)
@@ -1949,7 +1887,7 @@ instance Store Database where
                 , dbUnits = units
                 , dbIndexes = indexes
                 , dbTechnosphereTriples = techTriples
-                , dbBiosphereTriples = bioTriples
+                , dbBiosphere = byColumn bioTriples
                 , dbActivityIndex = activityIndex
                 , dbBiosphereOrder = biosphereOrder
                 , dbActivityCount = activityCount

@@ -171,7 +171,7 @@ import Progress (ProgressLevel (..), reportProgress)
 import SubstanceRegistry (nonEmptyCAS, normalizeCAS)
 import qualified SubstanceRegistry as SR
 import SynonymDB
-import Types (Activity (..), BioFlowDB, BiosphereFlow (..), Database (..), FlowClosure (..), FlowsByCAS (..), FlowsByName (..), Medium (..), ProcessId, SparseTriple (..), Unit (..), UnitDB, ownFlowClosure, parseMedium)
+import Types (Activity (..), BioFlowDB, BiosphereFlow (..), Database (..), FlowClosure (..), FlowsByCAS (..), FlowsByName (..), Medium (..), ProcessId, SparseTriple (..), Unit (..), UnitDB, dbBiosphereTriples, ownFlowClosure, parseMedium)
 import qualified Types as VT
 import UnitConversion (UnitConfig, convertOntoFactorBasis, convertUnit, isKnownUnit, normalizeToCanonical, unitKey)
 

@@ -40,6 +40,14 @@
   to four times less often and the peak of memory is 0.4 to 0.7 GB lower; where
   the pauses were half the time, the whole run takes half as long. The scores
   are the same to the last digit.
+- Scoring an activity no longer reads the emissions of every process of its
+  database. The engine read all of them for each activity scored, and kept
+  only those of the processes the activity draws on. It now reads those alone.
+  On a database of 23,000 processes holding ten million emission values,
+  scoring 10,000 activities takes 17 seconds where it took 91. The scores are
+  the same to the last digit; on a database changed since it was loaded, the
+  last digit of a score can move, as the changed values are now summed in
+  their process's place and no longer after all the others.
 - A search for activities whose name is empty, or only spaces, now lists every
   activity, as a search that gives no name does. It listed none, which an
   assistant calling `search_activities` with `"name": ""` read as an empty
