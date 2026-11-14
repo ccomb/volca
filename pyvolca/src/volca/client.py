@@ -3489,7 +3489,7 @@ class Client:
         if note is not None:
             self._require_wire(79, f"{feature}(note=...)", engine_hint="0.16.0")
         if source is not None:
-            self._require_wire(111, f"{feature}(source=...)", engine_hint="0.17.1")
+            self._require_wire(111, f"{feature}(source=...)", engine_hint="0.18.0")
         return {
             **({"note": note} if note is not None else {}),
             **({"source": source} if source is not None else {}),
