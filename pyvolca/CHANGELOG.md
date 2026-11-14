@@ -18,6 +18,32 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
+## [0.14.3] - 2026-11-14
+
+This release speaks wire revisions 2 to 112. Nothing pyvolca offers is removed
+or changed in meaning, so a script written for 0.14.2 runs unchanged. Each
+capability below checks the revision it needs and names engine 0.18.0 when it
+is missing.
+
+### Added
+
+- Every write that takes a `note` also takes a `source`, where its figures
+  come from: `{"document": ..., "page": 7, "passage": ...}`, page and passage
+  optional. `database_history()` gives each change its `source` and its
+  `via`, the surface it came through, `"mcp"` or `"http"` (wire revision 111).
+- `score_activities()` lists in `BatchScores.unsolvable` the processes the
+  solver has no answer for, each an `UnsolvableActivity` with the reason, and
+  scores the others; an older engine refused the whole batch (wire revision
+  112).
+
+### Fixed
+
+- `ensure_database()` loads a closed upload that was edited, relinked by a
+  mapping or divided by a system model. Engine 0.18.0 answers 404 for the
+  setup of such a database, which 0.14.2 raised on; an older engine answered
+  with a setup that left that work out, and pyvolca returned the database
+  without it.
+
 ## [0.14.2] - 2026-11-07
 
 This release speaks wire revisions 2 to 110. Nothing pyvolca offers is removed
