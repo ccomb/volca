@@ -129,17 +129,18 @@ spec = do
         it "errors when nothing is configured" $
             resolveSingleScoringSet [] [] `shouldBe` Left "No scoring sets configured on this collection."
 
-        it "errors when multiple are configured and caller picks none" $
-            case resolveSingleScoringSet [] [pefSet, ecsSet] of
-                Left msg -> T.isPrefixOf "Multiple scoring sets are configured (PEF, ECS)" msg `shouldBe` True
-                Right _ -> expectationFailure "expected Left"
+        it "errors when multiple are configured and caller picks none, with each call that would work" $
+            resolveSingleScoringSet [] [pefSet, ecsSet, ecsSet{ssName = "Carbon footprint"}]
+                `shouldBe` Left "This collection has several scoring sets, and score_activities scores one per call. Name one: \"scoring_sets\":[\"PEF\"] or \"scoring_sets\":[\"ECS\"] or \"scoring_sets\":[\"Carbon footprint\"]."
 
         it "accepts the configured set the caller named" $
             resolveSingleScoringSet ["PEF"] [pefSet, ecsSet] `shouldBe` Right pefSet
 
-        it "errors when the requested name is unknown, listing what's configured" $
-            resolveSingleScoringSet ["typo"] [pefSet, ecsSet]
-                `shouldBe` Left "Unknown scoring set: typo. Configured on this collection: PEF, ECS"
+        it "errors when the requested name is unknown, saying what a scoring set is and each call that would work" $ do
+            resolveSingleScoringSet ["Climate change"] [pefSet, ecsSet]
+                `shouldBe` Left "There is no scoring set named Climate change on this collection. A scoring set weighs the collection's indicators into one score: it is neither an indicator nor a collection. Name one: \"scoring_sets\":[\"PEF\"] or \"scoring_sets\":[\"ECS\"]."
+            resolveSingleScoringSet ["PEF"] []
+                `shouldBe` Left "There is no scoring set named PEF on this collection. A scoring set weighs the collection's indicators into one score: it is neither an indicator nor a collection. This collection has none."
 
         it "errors when caller passes more than one name" $
             case resolveSingleScoringSet ["PEF", "ECS"] [pefSet, ecsSet] of

@@ -22,6 +22,14 @@
 
 ### Fixed
 
+- `score_activities` asked for a method collection the engine has not loaded
+  now says so and lists the loaded ones, as `score_activity` does. It used to
+  answer that the collection had no scoring sets, which sent an assistant
+  looking for a set instead of a collection. Given no scoring set where the
+  collection has several, or a name that is not one of them, it now writes
+  each `scoring_sets` argument that would work, and says that a scoring set is
+  neither an indicator nor a collection: an assistant told only the names
+  passed an indicator's name instead, and every one of its calls failed.
 - A score asked right after a database is loaded no longer repeats the
   engine's own preparation of the methods. Loading a database starts matching
   each method's factors to its flows; a score arriving meanwhile used to match
