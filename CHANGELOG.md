@@ -30,6 +30,15 @@
   reads the collection once. On a large database with EF 3.1, on a machine
   with many cores, that request takes half the time and a third to a half of
   the processor time.
+- Scoring many activities in a row stops less often to tidy its memory. A
+  batch solved all its activities before it scored the first, so every
+  solution stayed in memory for the whole request, and the engine paused for
+  two seconds or more every few requests to sort through everything it holds.
+  Each activity is now solved and scored before the next one starts. On a
+  large database scored 256 activities per request, those pauses come three
+  to four times less often and the peak of memory is 0.4 to 0.7 GB lower; where
+  the pauses were half the time, the whole run takes half as long. The scores
+  are the same to the last digit.
 - A search for activities whose name is empty, or only spaces, now lists every
   activity, as a search that gives no name does. It listed none, which an
   assistant calling `search_activities` with `"name": ""` read as an empty
