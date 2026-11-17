@@ -458,10 +458,10 @@ spec = describe "MCP database load/unload tools" $ do
             activity <- callOnSampleWith "get_activity" [("process_id", emitter), ("flow", String " ")]
             exchangeFlowNames activity `shouldSatisfy` ((> 1) . length)
 
-    it "says what the quantities of an inventory are for" $ do
-        resp <- callOnSampleWith "get_inventory" [("process_id", String "dd000004-0000-0000-0000-000000000000")]
-        jsonField "functional_unit" resp
-            `shouldBe` Just (object ["amount" .= (1 :: Int), "unit" .= ("kg" :: Text), "product" .= ("product D" :: Text)])
+        it "states what the quantities of the inventory are for" $ do
+            resp <- callOnSampleWith "get_inventory" [("process_id", emitter)]
+            jsonField "functional_unit" resp
+                `shouldBe` Just (object ["amount" .= (1 :: Int), "unit" .= ("kg" :: Text), "product" .= ("product D" :: Text)])
 
     -- A kind the engine cannot read must be refused, never dropped: a dropped
     -- filter answers with every kind, which reads as "they are all of that

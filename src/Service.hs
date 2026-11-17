@@ -2050,7 +2050,7 @@ getSupplyChain unitCfg geographies depLookup indexFor db dbName sharedSolver pro
 {- | Find the shortest supply chain path from a root process to the first upstream activity
 whose name contains the given substring (case-insensitive).
 Returns path steps ordered root → target, each with its quantity per unit of the
-root's reference product (the scaling factor) and local_step_ratio (upstream ÷
+root's reference product (the scaling factor) and localStepRatio (upstream ÷
 downstream scaling factors). The unit is one of the product, not the amount the
 root declares, so a root written for 10 does not inflate its suppliers tenfold.
 -}

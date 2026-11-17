@@ -650,8 +650,8 @@ description r = case r of
         \default, filter_consumer_not drops edges inside the family. Byproduct \
         \edges stay negative. filter_classification: \"System=Value[:exact]\" \
         \(default contains). Amounts are for 1 unit of the reference product; see \
-        \'functionalUnit': 'filteredTotalPerUnit', and 'quantityPerUnit' per \
-        \group. Inputs no loaded database supplies count as zero, in \
+        \'functionalUnit'. They are 'filteredTotalPerUnit' and, per group, \
+        \'quantityPerUnit'. Inputs no loaded database supplies count as zero, in \
         \'cutoffInputs'; 'withheldCutoffs' counts those a licence hides."
     GetSupplyChain ->
         "LCA / ACV: flat list of all upstream activities (chaîne amont, filière, \
