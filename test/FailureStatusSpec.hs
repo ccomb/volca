@@ -11,8 +11,10 @@ below is given a name that exists nowhere, on a writable instance.
 module FailureStatusSpec (spec) where
 
 import API.Types (DeriveRequest (..), UploadChunk (..))
+import Control.Exception (AsyncException (HeapOverflow), Exception, SomeException, toException)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
+import qualified Data.Text as T
 import Test.Hspec
 import TestHelpers (withScratchDataDir)
 
@@ -23,6 +25,7 @@ import API.DatabaseHandlers (
     deleteMethodHandler,
     deleteRefData,
     deriveDatabaseHandler,
+    faultSentence,
     finalizeDatabaseHandler,
     loadDatabaseHandler,
     loadRefData,
@@ -95,8 +98,21 @@ noUploadsLeft =
         , hcMaxConcurrentScoring = Nothing
         }
 
+-- | The kill a stopping server sends its request threads, around what stopped it.
+newtype KilledByThreadManager = KilledByThreadManager (Maybe SomeException)
+    deriving (Show)
+
+instance Exception KilledByThreadManager
+
 spec :: Spec
 spec = describe "A failed request" $ do
+    it "says the memory ran out, not the kill the stopping server sent" $ do
+        let sentence :: (Exception e) => e -> String
+            sentence = T.unpack . faultSentence "Server exception" . toException
+        sentence (KilledByThreadManager (Just (toException HeapOverflow))) `shouldContain` "more memory"
+        sentence HeapOverflow `shouldContain` "more memory"
+        sentence (userError "disk full") `shouldBe` "Server exception: user error (disk full)"
+
     it "answers 400 with the engine's reason, on every route that used to say it in a 200" $
         withScratchDataDir $ do
             env <- envWith Nothing

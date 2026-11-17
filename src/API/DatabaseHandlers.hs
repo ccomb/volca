@@ -69,6 +69,7 @@ module API.DatabaseHandlers (
     removeDependencyHandler,
     setDataPathHandler,
     finalizeDatabaseHandler,
+    faultSentence,
 
     -- * Reference data handlers
     RefDataKind (..),
@@ -1619,6 +1620,20 @@ formatToText UnknownFormat = "unknown"
 -- Setup Page Handlers
 --------------------------------------------------------------------------------
 
+{- | What to tell the user of a fault a handler caught, after a word on what
+failed. Running out of the memory the engine may use reaches a handler as the
+kill its server sends while stopping, wrapped around the overflow, so it is
+recognised by how it shows, whatever wraps it.
+-}
+faultSentence :: Text -> SomeException -> Text
+faultSentence what ex
+    | "heap overflow" `T.isInfixOf` shown =
+        "This database needs more memory than the engine may use on this machine. \
+        \The engine is stopping: restart it, and open this database on a machine with more memory."
+    | otherwise = what <> ": " <> shown
+  where
+    shown = T.pack (show ex)
+
 {- | Get database setup info
 Returns completeness, missing suppliers, and dependency suggestions
 -}
@@ -1628,7 +1643,7 @@ getDatabaseSetupHandler dbName = do
     eitherResult <- liftIO $ try $ getDatabaseSetupInfo dbManager dbName
     case eitherResult of
         Left (ex :: SomeException) ->
-            throwError $ err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ "Setup failed: " <> T.pack (show ex)}
+            throwError $ err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ faultSentence "Setup failed" ex}
         Right (Left (SetupNotFound msg)) -> throwError $ err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
         -- Same 404 + "Database not loaded: " body as a read route asked about an
         -- unloaded database, so typed-error recovery on the client keeps working.
@@ -1678,7 +1693,7 @@ finalizeDatabaseHandler dbName = do
     dbManager <- asks aeDbManager
     loaded <-
         liftIO (try (finalizeDatabase dbManager dbName)) >>= \case
-            Left (ex :: SomeException) -> failWith err500 ("Server exception: " <> T.pack (show ex))
+            Left (ex :: SomeException) -> failWith err500 (faultSentence "Server exception" ex)
             Right result -> either (failWith err400) pure result
     status <- liftIO (loadedStatus dbManager loaded)
     pure (ActivateResponse True ("Finalized database: " <> dcDisplayName (ldConfig loaded)) (Just status))
