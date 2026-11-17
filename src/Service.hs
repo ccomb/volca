@@ -2048,8 +2048,10 @@ getSupplyChain unitCfg geographies depLookup indexFor db dbName sharedSolver pro
 
 {- | Find the shortest supply chain path from a root process to the first upstream activity
 whose name contains the given substring (case-insensitive).
-Returns path steps ordered root → target, each with cumulative quantity, scaling factor,
-and local_step_ratio (upstream ÷ downstream scaling factors).
+Returns path steps ordered root → target, each with its quantity per unit of the
+root's reference product (the scaling factor) and local_step_ratio (upstream ÷
+downstream scaling factors). The unit is one of the product, not the amount the
+root declares, so a root written for 10 does not inflate its suppliers tenfold.
 -}
 getPathTo :: Database -> SharedSolver -> Text -> NamePattern -> IO (Either ServiceError Value)
 getPathTo db solver pidText target = do
@@ -2063,8 +2065,7 @@ getPathTo db solver pidText target = do
                     case eVec of
                         Left err -> return $ Left err
                         Right supplyVec ->
-                            let rootRefMagnitude = referenceMagnitude rootAct
-                                adj = buildAdjacencyFromTriples (dbTechnosphereTriples db)
+                            let adj = buildAdjacencyFromTriples (dbTechnosphereTriples db)
                                 mPath =
                                     bfsToPattern
                                         (fromIntegral rootPid)
@@ -2093,7 +2094,7 @@ getPathTo db solver pidText target = do
                                                         , "activityName" .= activityName act
                                                         , "location" .= activityLocation act
                                                         , "unit" .= activityUnit act
-                                                        , "cumulativeQuantity" .= (sf * rootRefMagnitude)
+                                                        , "cumulativeQuantityPerUnit" .= sf
                                                         , "scalingFactor" .= sf
                                                         ]
                                                  in object $ case mRatio of
@@ -2116,7 +2117,8 @@ getPathTo db solver pidText target = do
                                                     ]
                                          in Right $
                                                 object
-                                                    [ "path" .= steps
+                                                    [ "functionalUnit" .= functionalUnitIn db rootAct
+                                                    , "path" .= steps
                                                     , "path_length" .= length pids
                                                     , "total_ratio" .= totalRatio
                                                     ]
