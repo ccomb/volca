@@ -494,6 +494,16 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
         withinTolerance 1.0e-9 (0.5 / 3.6) (M.findWithDefault 0 "product Y" rows) `shouldBe` True
         withinTolerance 1.0e-9 (-1.0) (M.findWithDefault 0 "waste W" rows) `shouldBe` True
 
+    -- The same purchase through every scope: the scaling carries the direction
+    -- of one unit and the divisor only its size, so a sign or a divisor that
+    -- one scope applied twice would part it from the others.
+    it "counts what a treatment written for 3.6 kg buys the same in every scope" $ do
+        let acts = M.fromList [((tA, wW), treatmentBuyingY ReferenceProduct (-3.6)), ((pA, yY), supplierOfY)]
+        direct <- M.findWithDefault 0 "product Y" <$> directRowsOf "every-scope-direct" (tA, wW) acts
+        consumption <- consumptionTotalOf "every-scope-consumption" (tA, wW) acts
+        supplyChain <- aggFilteredTotalPerUnit <$> aggregatedOf (Agg.emptyAggregateParams Agg.ScopeSupplyChain) "every-scope-supply-chain" (tA, wW) acts
+        mapM_ (\quantity -> withinTolerance 1.0e-9 (0.5 / 3.6) quantity `shouldBe` True) [direct, consumption, supplyChain]
+
     it "intra-DB ILCD (positive ReferenceInput) scores +6" $ do
         score <-
             scoreIntra

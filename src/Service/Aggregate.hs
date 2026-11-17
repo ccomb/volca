@@ -199,57 +199,58 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
     case resolveScorable db pidText of
         Left err -> return (Left err)
         Right (processId, activity) ->
-            case apScope params of
-                ScopeDirect ->
-                    -- Nothing is solved: the exchanges are read as the dataset writes them, put per unit.
-                    return $ Right $ reduce params (functionalUnitIn db activity) noCutoffs (rowsFromDirect db activity)
-                ScopeSupplyChain -> case demandFor db processId of
-                    Left err -> return (Left err)
-                    Right demandVec -> do
-                        eSupply <- supplyFor db solver demandVec
-                        case eSupply of
-                            Left err -> return (Left err)
-                            Right supplyVec -> do
-                                let af = emptyFilter (apMaxDepth params)
-                                eResp <-
-                                    buildSupplyChainFromScalingVectorCrossDB
-                                        unitConfig
-                                        geographies
-                                        depLookup
-                                        indexFor
-                                        db
-                                        dbName
-                                        processId
-                                        supplyVec
-                                        []
-                                        af
-                                return $ fmap (\resp -> (reduce params (functionalUnitIn db activity) (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
-                ScopeBiosphere -> do
-                    solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
-                    case solE of
-                        Left err -> return (Left (MatrixError err))
-                        Right sol
-                            | dep : _ <- withheldOf (SharedSolver.csScalings sol) -> return (Left (Withheld (includedSentence dbName dep)))
-                            | otherwise -> do
-                                cutoffs <- cutoffsOf indexFor S.empty (NE.toList (SharedSolver.csScalings sol))
-                                let export = convertToInventoryExport db flowDB unitDB processId activity cutoffs (SharedSolver.csInventory sol)
-                                return $ Right $ reduce params (functionalUnitIn db activity) cutoffs (rowsFromBiosphere export)
-                ScopeConsumption -> do
-                    -- ponytail: reuses the biosphere solve, whose inventory half is
-                    -- discarded here; a scaling-only cross-DB walk is the upgrade
-                    -- path if profiling ever complains.
-                    solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
-                    case solE of
-                        Left err -> return (Left (MatrixError err))
-                        Right sol -> do
-                            let (root :| deps) = SharedSolver.csScalings sol
-                                (hidden, shown) = L.partition (withholds . reachedName) deps
-                            cutoffs <- cutoffsOf indexFor (S.fromList (map reachedName hidden)) (root : deps)
-                            return $
-                                Right
-                                    (reduce params (functionalUnitIn db activity) cutoffs (rowsFromConsumption (root :| shown)))
-                                        { aggWithheldDatabases = consumptionLines hidden
-                                        }
+            let functionalUnit = functionalUnitIn db activity
+             in case apScope params of
+                    ScopeDirect ->
+                        -- Nothing is solved: the exchanges are read as the dataset writes them, put per unit.
+                        return $ Right $ reduce params functionalUnit noCutoffs (rowsFromDirect db activity)
+                    ScopeSupplyChain -> case demandFor db processId of
+                        Left err -> return (Left err)
+                        Right demandVec -> do
+                            eSupply <- supplyFor db solver demandVec
+                            case eSupply of
+                                Left err -> return (Left err)
+                                Right supplyVec -> do
+                                    let af = emptyFilter (apMaxDepth params)
+                                    eResp <-
+                                        buildSupplyChainFromScalingVectorCrossDB
+                                            unitConfig
+                                            geographies
+                                            depLookup
+                                            indexFor
+                                            db
+                                            dbName
+                                            processId
+                                            supplyVec
+                                            []
+                                            af
+                                    return $ fmap (\resp -> (reduce params functionalUnit (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
+                    ScopeBiosphere -> do
+                        solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
+                        case solE of
+                            Left err -> return (Left (MatrixError err))
+                            Right sol
+                                | dep : _ <- withheldOf (SharedSolver.csScalings sol) -> return (Left (Withheld (includedSentence dbName dep)))
+                                | otherwise -> do
+                                    cutoffs <- cutoffsOf indexFor S.empty (NE.toList (SharedSolver.csScalings sol))
+                                    let export = convertToInventoryExport db flowDB unitDB processId activity cutoffs (SharedSolver.csInventory sol)
+                                    return $ Right $ reduce params functionalUnit cutoffs (rowsFromBiosphere export)
+                    ScopeConsumption -> do
+                        -- ponytail: reuses the biosphere solve, whose inventory half is
+                        -- discarded here; a scaling-only cross-DB walk is the upgrade
+                        -- path if profiling ever complains.
+                        solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
+                        case solE of
+                            Left err -> return (Left (MatrixError err))
+                            Right sol -> do
+                                let (root :| deps) = SharedSolver.csScalings sol
+                                    (hidden, shown) = L.partition (withholds . reachedName) deps
+                                cutoffs <- cutoffsOf indexFor (S.fromList (map reachedName hidden)) (root : deps)
+                                return $
+                                    Right
+                                        (reduce params functionalUnit cutoffs (rowsFromConsumption (root :| shown)))
+                                            { aggWithheldDatabases = consumptionLines hidden
+                                            }
   where
     withholds :: Text -> Bool
     withholds name = name /= dbName && name `S.member` apWithheld params
@@ -356,8 +357,8 @@ does, because each consumption event is one row.
 Signs pass through untouched: inputs are stored positive, byproduct
 outputs negative, and a treatment-convention column flips both its
 coefficient and its scaling, so their product stays sign-correct. The
-dependencies' scalings are per unit of the root's product as well, so
-their rows need no conversion either.
+dependencies' scalings are already per unit of the root's product, so their
+rows are counted the same way as the root's.
 Filtering on positive values here would silently drop real inputs of
 treatment activities.
 

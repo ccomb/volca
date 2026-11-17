@@ -312,7 +312,8 @@ spec = do
         it "does not multiply any edge by the amount the root is written for" $ do
             -- X written for 10 kg instead of 1 says how much one run makes, not
             -- how much one kilogram takes: the edges, the dependency's 0.12
-            -- included, stay what one kilogram takes.
+            -- included, stay what one kilogram takes. The matrices are left as
+            -- built, so only a multiplier by the declared amount could move the total.
             (rootDb, depLookup) <- loadLinkedPair
             agg <- runAggWith depLookup (withActivityWrittenForTen 0 rootDb) consumption
             API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 1.26
@@ -353,6 +354,15 @@ spec = do
             db <- rebuilt . withActivityWrittenForTen 0 =<< loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db supplyChain{Agg.apFilterName = Just "product Y"}
             API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.06
+
+        it "counts the consumption as the supply chain does once the root is written for 10" $ do
+            -- Rebuilt, the scalings are those of one kilogram of a root that makes
+            -- ten per run: Y 0.06 and Z 0.024, whichever scope adds them up.
+            db <- rebuilt . withActivityWrittenForTen 0 =<< loadSampleDatabase "SAMPLE.min3"
+            fromConsumption <- runAgg db consumption
+            fromSupplyChain <- runAgg db supplyChain
+            API.aggFilteredTotalPerUnit fromSupplyChain `shouldBeCloseTo` 0.084
+            API.aggFilteredTotalPerUnit fromConsumption `shouldBeCloseTo` API.aggFilteredTotalPerUnit fromSupplyChain
 
         it "states its functional unit on every scope" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
