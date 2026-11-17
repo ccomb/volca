@@ -16,6 +16,10 @@
   machine's memory where it needed 25, and it reloads from its cache in
   4 seconds where it took 31. Nothing changes in what the engine answers or
   exports.
+- The first load of an ILCD package builds each process as soon as its file is
+  read, where it first read every file and kept them all. The same package now
+  loads the first time in 6 GB of the machine's memory where it needed 14, and
+  in under 4 minutes where it took nearly 6.
 
 ### Fixed
 
