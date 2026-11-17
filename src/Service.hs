@@ -2783,15 +2783,17 @@ getReferenceProductAmount :: Activity -> Double
 getReferenceProductAmount activity =
     maybe 1.0 exchangeAmount (L.find exchangeIsReference (nonPlainExchanges activity))
 
-{- | The amount a chain stated per one unit of an activity is multiplied by.
+{- | The amount the exchanges of an activity are divided by to count for one unit.
 
-A magnitude, never a sign: which way one unit of the activity runs is carried
-by the functional unit ('Matrix.referenceSign'), so a multiplier carrying it a
-second time would report every input a treatment draws as a quantity it
-produces.
+A magnitude, never a sign: a treatment declared as a negative output keeps its
+reference row negative, which is the direction of one unit of it. A reference
+of zero divides by one, so its rows stay as written instead of turning into
+infinity.
 -}
-referenceMagnitude :: Activity -> Double
-referenceMagnitude = abs . getReferenceProductAmount
+perUnitDivisor :: Activity -> Double
+perUnitDivisor activity = case abs (getReferenceProductAmount activity) of
+    0 -> 1
+    magnitude -> magnitude
 
 {- | Run sensitivity analysis on a process: compute the baseline scaling
 vector @x₀@ once, then resolve every 'Perturbation' to a (consumer column,

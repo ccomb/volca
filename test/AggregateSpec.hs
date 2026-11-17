@@ -24,7 +24,7 @@ import qualified API.Types as API
 import Database.Cutoffs (gapIndexOf)
 import qualified Service.Aggregate as Agg
 import qualified SharedSolver as SS
-import TestHelpers (loadSampleDatabase, mkDepLookupFromMap, mkSolverFromDb, shippedGeographies, withActivityWrittenForTen)
+import TestHelpers (loadSampleDatabase, mkDepLookupFromMap, mkSolverFromDb, rebuilt, shippedGeographies, withActivityWrittenFor, withActivityWrittenForTen)
 import Types (CrossDBLink (..), Database (..), ExchangeKind (..), processIdToText)
 import qualified Types
 import qualified UnitConversion as UC
@@ -178,7 +178,7 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db direct{Agg.apFilterName = Just "definitely-not-a-flow-name"}
             API.aggFilteredCount agg `shouldBe` 0
-            API.aggFilteredTotal agg `shouldBe` 0
+            API.aggFilteredTotalPerUnit agg `shouldBe` 0
 
         it "AggShare populates the share field per bucket, AggSum leaves it Nothing" $ do
             -- The only currently observable effect of apAggregate is on
@@ -193,7 +193,7 @@ spec = do
 
         it "aggCount on a group equals the number of rows in that group" $ do
             -- The audit found no test wired aggCount into the contract.
-            -- Counts are integers, aggQuantity is a sum – distinct fields.
+            -- Counts are integers, aggQuantityPerUnit is a sum – distinct fields.
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db direct{Agg.apGroupBy = Just "unit"}
             -- The sum of per-bucket counts equals the global filtered count.
@@ -239,14 +239,14 @@ spec = do
             agg <- runAgg db supplyChain
             API.aggScope agg `shouldBe` "supply_chain"
             API.aggFilteredCount agg `shouldBe` 2
-            API.aggFilteredTotal agg `shouldBeCloseTo` 0.84
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.84
             API.aggFilteredUnit agg `shouldBe` Just "kg"
 
         it "max_depth=1 keeps only the direct supplier" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db supplyChain{Agg.apMaxDepth = Just 1}
             API.aggFilteredCount agg `shouldBe` 1
-            API.aggFilteredTotal agg `shouldBeCloseTo` 0.6
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.6
 
     describe "ScopeConsumption on SAMPLE.min3" $ do
         it "yields one row per scaled technosphere edge" $ do
@@ -255,32 +255,32 @@ spec = do
             agg <- runAgg db consumption
             API.aggScope agg `shouldBe` "consumption"
             API.aggFilteredCount agg `shouldBe` 2
-            API.aggFilteredTotal agg `shouldBeCloseTo` 0.84
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.84
             API.aggFilteredUnit agg `shouldBe` Just "kg"
 
         it "filter_consumer restricts to what the matching activities eat (grass-by-cows shape)" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db consumption{Agg.apFilterConsumer = Just "product Y"}
             API.aggFilteredCount agg `shouldBe` 1
-            API.aggFilteredTotal agg `shouldBeCloseTo` 0.24
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.24
 
         it "filter_consumer_not excludes edges into the matching consumers" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db consumption{Agg.apFilterConsumerNot = ["product Y"]}
             API.aggFilteredCount agg `shouldBe` 1
-            API.aggFilteredTotal agg `shouldBeCloseTo` 0.6
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.6
 
         it "filter_name matches the supplier's reference product" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db consumption{Agg.apFilterName = Just "product Z"}
             API.aggFilteredCount agg `shouldBe` 1
-            API.aggFilteredTotal agg `shouldBeCloseTo` 0.24
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.24
 
         it "filter_target_name matches the supplier activity's name" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db consumption{Agg.apFilterTargetName = Just "production of product Z"}
             API.aggFilteredCount agg `shouldBe` 1
-            API.aggFilteredTotal agg `shouldBeCloseTo` 0.24
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.24
 
         it "group_by=consumer_name buckets edges by eater, largest first" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
@@ -289,8 +289,8 @@ spec = do
                 `shouldBe` ["production of product X", "production of product Y"]
             case API.aggGroups agg of
                 [gx, gy] -> do
-                    API.aggQuantity gx `shouldBeCloseTo` 0.6
-                    API.aggQuantity gy `shouldBeCloseTo` 0.24
+                    API.aggQuantityPerUnit gx `shouldBeCloseTo` 0.6
+                    API.aggQuantityPerUnit gy `shouldBeCloseTo` 0.24
                 other -> expectationFailure ("expected 2 groups, got " <> show (length other))
 
         it "filter_consumer on ScopeDirect matches nothing (rows carry no consumer)" $ do
@@ -307,20 +307,21 @@ spec = do
             (rootDb, depLookup) <- loadLinkedPair
             agg <- runAggWith depLookup rootDb consumption
             API.aggFilteredCount agg `shouldBe` 4
-            API.aggFilteredTotal agg `shouldBeCloseTo` 1.26
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 1.26
 
-        it "states the dependency's edges for the root's reference amount too" $ do
-            -- X written for 10 kg instead of 1: every edge, the dependency's
-            -- 0.12 included, is ten times what one kilogram takes.
+        it "does not multiply any edge by the amount the root is written for" $ do
+            -- X written for 10 kg instead of 1 says how much one run makes, not
+            -- how much one kilogram takes: the edges, the dependency's 0.12
+            -- included, stay what one kilogram takes.
             (rootDb, depLookup) <- loadLinkedPair
             agg <- runAggWith depLookup (withActivityWrittenForTen 0 rootDb) consumption
-            API.aggFilteredTotal agg `shouldBeCloseTo` 12.6
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 1.26
 
         it "matches the cumulative supply_chain total (two independent paths)" $ do
             (rootDb, depLookup) <- loadLinkedPair
             aggC <- runAggWith depLookup rootDb consumption
             aggS <- runAggWith depLookup rootDb supplyChain
-            API.aggFilteredTotal aggC `shouldBeCloseTo` API.aggFilteredTotal aggS
+            API.aggFilteredTotalPerUnit aggC `shouldBeCloseTo` API.aggFilteredTotalPerUnit aggS
 
         it "group_by=flow_id qualifies the bridge and dep-side suppliers with the dep name" $ do
             (rootDb, depLookup) <- loadLinkedPair
@@ -335,7 +336,36 @@ spec = do
             (rootDb, depLookup) <- loadLinkedPair
             agg <- runAggWith depLookup rootDb consumption{Agg.apFilterConsumer = Just "product Y"}
             API.aggFilteredCount agg `shouldBe` 3
-            API.aggFilteredTotal agg `shouldBeCloseTo` 0.66
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.66
+
+    describe "every scope counts for one unit of the reference product" $ do
+        it "aggregates the direct exchanges per unit" $ do
+            -- X written for 10 kg still buys 0.6 kg of Y: one kilogram of it is
+            -- a tenth of that, and the reference row itself reads 1. Nothing is
+            -- solved, so the matrices need no rebuilding.
+            db <- withActivityWrittenForTen 0 <$> loadSampleDatabase "SAMPLE.min3"
+            bought <- runAgg db direct{Agg.apFilterName = Just "product Y"}
+            made <- runAgg db direct{Agg.apFilterIsReference = Just True}
+            API.aggFilteredTotalPerUnit bought `shouldBeCloseTo` 0.06
+            API.aggFilteredTotalPerUnit made `shouldBeCloseTo` 1
+
+        it "aggregates the supply chain per unit" $ do
+            db <- rebuilt . withActivityWrittenForTen 0 =<< loadSampleDatabase "SAMPLE.min3"
+            agg <- runAgg db supplyChain{Agg.apFilterName = Just "product Y"}
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.06
+
+        it "states its functional unit on every scope" $ do
+            db <- loadSampleDatabase "SAMPLE.min3"
+            states <- mapM (fmap API.aggFunctionalUnit . runAgg db) [direct, supplyChain, biosphere, consumption]
+            states `shouldBe` replicate 4 (API.FunctionalUnit "kg" "product X")
+
+        it "divides a zero declared amount by one" $ do
+            -- A reference written as 0 has no amount to divide by: the rows stay
+            -- as written rather than turning into NaN or infinity, in a database
+            -- built with that reference.
+            db <- rebuilt . withActivityWrittenFor 0 0 =<< loadSampleDatabase "SAMPLE.min3"
+            agg <- runAgg db direct{Agg.apFilterName = Just "product Y"}
+            API.aggFilteredTotalPerUnit agg `shouldBeCloseTo` 0.6
 
     describe "exchangeTypeScopeError (shared REST/MCP guard)" $ do
         it "allows the filter on scope=direct and an absent filter everywhere" $ do
@@ -359,5 +389,5 @@ spec = do
             db <- loadSampleDatabase "SAMPLE.min3"
             agg <- runAgg db biosphere{Agg.apFilterName = Just "definitely-not-emitted-here"}
             API.aggFilteredCount agg `shouldBe` 0
-            API.aggFilteredTotal agg `shouldBe` 0
+            API.aggFilteredTotalPerUnit agg `shouldBe` 0
             length (API.aggGroups agg) `shouldBe` 0

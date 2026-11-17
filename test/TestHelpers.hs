@@ -12,6 +12,7 @@ module TestHelpers (
     findFlowByName,
     mkDepLookupFromMap,
     linkDatabases,
+    withActivityWrittenFor,
     withActivityWrittenForTen,
     rebuilt,
     mkSolverFromDb,
@@ -181,10 +182,14 @@ where the declared amount and the unit a result is counted for part ways.
 The matrices stay as they were built; 'rebuilt' brings them in line.
 -}
 withActivityWrittenForTen :: ProcessId -> Database -> Database
-withActivityWrittenForTen pid db =
-    db{dbActivities = V.imap (\i act -> if i == fromIntegral pid then writtenForTen act else act) (dbActivities db)}
+withActivityWrittenForTen = withActivityWrittenFor 10
+
+-- | The same rewrite for any multiple of the reference amount, zero included.
+withActivityWrittenFor :: Double -> ProcessId -> Database -> Database
+withActivityWrittenFor n pid db =
+    db{dbActivities = V.imap (\i act -> if i == fromIntegral pid then written act else act) (dbActivities db)}
   where
-    writtenForTen act = act{activityLines = packExchanges (map (\ex -> if exchangeIsReference ex then ex{techAmount = 10 * techAmount ex} else ex) (exchanges act))}
+    written act = act{activityLines = packExchanges (map (\ex -> if exchangeIsReference ex then ex{techAmount = n * techAmount ex} else ex) (exchanges act))}
 
 -- | The same database with its matrices built again from the activities as they now stand.
 rebuilt :: Database -> IO Database

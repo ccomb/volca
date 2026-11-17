@@ -731,11 +731,13 @@ data ClassificationSystem = ClassificationSystem
 {- | Result of an /activity/{pid}/aggregate call.
 
 A SQL-group-by-style aggregation over exchanges, supply chain entries, or
-biosphere flows, depending on the requested scope.
+biosphere flows, depending on the requested scope. Every scope counts for one
+unit of the activity's reference product, which 'aggFunctionalUnit' names.
 -}
 data Aggregation = Aggregation
-    { aggScope :: Text -- echoed scope: "direct" | "supply_chain" | "biosphere"
-    , aggFilteredTotal :: Double -- total summed across all matching items (after filters)
+    { aggScope :: Text -- echoed scope: "direct" | "supply_chain" | "biosphere" | "consumption"
+    , aggFunctionalUnit :: FunctionalUnit -- what one unit of the amounts below is
+    , aggFilteredTotalPerUnit :: Double -- total summed across all matching items (after filters)
     , aggFilteredUnit :: Maybe Text -- Nothing when matched items have heterogeneous units
     , aggFilteredCount :: Int -- count of items matching the filters
     , aggGroups :: [AggregationGroup] -- one entry per group_by bucket (empty when group_by omitted)
@@ -749,7 +751,7 @@ data Aggregation = Aggregation
 -- | One bucket in an aggregation result.
 data AggregationGroup = AggregationGroup
     { aggKey :: Text
-    , aggQuantity :: Double
+    , aggQuantityPerUnit :: Double
     , aggUnit :: Maybe Text -- Nothing when group's items are heterogeneous
     , aggShare :: Maybe Double -- only set when aggregate=share
     , aggCount :: Int

@@ -35,6 +35,7 @@ import API.Types (
     Aggregation (..),
     AggregationGroup (..),
     ExchangeDetail (..),
+    FunctionalUnit,
     InventoryExport (..),
     InventoryFlowDetail (..),
     SupplyChainEntry (..),
@@ -54,9 +55,10 @@ import Service (
     buildSupplyChainFromScalingVectorCrossDB,
     convertToInventoryExport,
     demandFor,
+    functionalUnitIn,
     getActivityExchangeDetails,
     getReferenceProductName,
-    referenceMagnitude,
+    perUnitDivisor,
     resolveScorable,
     supplyFor,
  )
@@ -199,8 +201,8 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
         Right (processId, activity) ->
             case apScope params of
                 ScopeDirect ->
-                    -- Nothing is solved: the exchanges are read as the dataset writes them.
-                    return $ Right $ reduce params noCutoffs (rowsFromDirect db activity)
+                    -- Nothing is solved: the exchanges are read as the dataset writes them, put per unit.
+                    return $ Right $ reduce params (functionalUnitIn db activity) noCutoffs (rowsFromDirect db activity)
                 ScopeSupplyChain -> case demandFor db processId of
                     Left err -> return (Left err)
                     Right demandVec -> do
@@ -221,7 +223,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                                         supplyVec
                                         []
                                         af
-                                return $ fmap (\resp -> (reduce params (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
+                                return $ fmap (\resp -> (reduce params (functionalUnitIn db activity) (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
                 ScopeBiosphere -> do
                     solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
                     case solE of
@@ -231,7 +233,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                             | otherwise -> do
                                 cutoffs <- cutoffsOf indexFor S.empty (NE.toList (SharedSolver.csScalings sol))
                                 let export = convertToInventoryExport db flowDB unitDB processId activity cutoffs (SharedSolver.csInventory sol)
-                                return $ Right $ reduce params cutoffs (rowsFromBiosphere export)
+                                return $ Right $ reduce params (functionalUnitIn db activity) cutoffs (rowsFromBiosphere export)
                 ScopeConsumption -> do
                     -- ponytail: reuses the biosphere solve, whose inventory half is
                     -- discarded here; a scaling-only cross-DB walk is the upgrade
@@ -245,7 +247,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                             cutoffs <- cutoffsOf indexFor (S.fromList (map reachedName hidden)) (root : deps)
                             return $
                                 Right
-                                    (reduce params cutoffs (rowsFromConsumption (referenceMagnitude activity) (root :| shown)))
+                                    (reduce params (functionalUnitIn db activity) cutoffs (rowsFromConsumption (root :| shown)))
                                         { aggWithheldDatabases = consumptionLines hidden
                                         }
   where
@@ -289,12 +291,13 @@ rowsFromDirect :: Database -> Activity -> [AggRow]
 rowsFromDirect db act =
     map mkRow (getActivityExchangeDetails db act (const True))
   where
+    divisor = perUnitDivisor act
     mkRow (ExchangeDetail ex flow _flowUnit _unit exUnitName target) =
         AggRow
             { rowName = apiFlowName flow
             , rowFlowId = UUID.toText (exchangeFlowId ex)
             , rowUnit = exUnitName
-            , rowQuantity = exchangeAmount ex
+            , rowQuantity = exchangeAmount ex / divisor
             , rowIsInput = Just (exchangeIsInput ex)
             , rowIsReference = Just (exchangeIsReference ex)
             , rowTargetName = fmap prsActivityName target
@@ -344,19 +347,17 @@ rowsFromBiosphere export =
 
 {- | One row per scaled technosphere edge across the whole chain: for each
 coefficient A[supplier, consumer] whose consumer has a non-zero scaling
-s_consumer, the quantity is @coefficient × s_consumer × multiplier@ – the
-total amount of the supplier's product consumed by that consumer for the
-functional unit. Summing filtered edges never double-counts a
+s_consumer, the quantity is @coefficient × s_consumer@ – the total amount of
+the supplier's product consumed by that consumer for one unit of the root's
+product. Summing filtered edges never double-counts a
 transformation chain the way summing cumulative supply-chain productions
 does, because each consumption event is one row.
 
 Signs pass through untouched: inputs are stored positive, byproduct
 outputs negative, and a treatment-convention column flips both its
 coefficient and its scaling, so their product stays sign-correct. The
-multiplier is the root's reference amount as a magnitude, the direction
-of one unit of the root being carried by its scaling already. It applies to
-the dependencies' rows too: their scalings are per unit of the root's product
-as well.
+dependencies' scalings are per unit of the root's product as well, so
+their rows need no conversion either.
 Filtering on positive values here would silently drop real inputs of
 treatment activities.
 
@@ -367,17 +368,17 @@ supplier-side fields that live in the dependency database (target name,
 classifications) are left empty rather than resolved – a classification
 or target-name filter therefore never matches a bridge edge.
 -}
-rowsFromConsumption :: Double -> NonEmpty Reached -> [AggRow]
-rowsFromConsumption rootRefMagnitude (Reached rootDbName rootDb rootScaling :| deps) =
+rowsFromConsumption :: NonEmpty Reached -> [AggRow]
+rowsFromConsumption (Reached rootDbName rootDb rootScaling :| deps) =
     dbRows False rootDbName rootDb rootScaling
         <> concatMap (\(Reached depName depDb depScaling) -> dbRows True depName depDb depScaling) deps
   where
     dbRows qualifyPids dbN db' s =
-        internalEdges qualifyPids dbN db' s rootRefMagnitude <> bridgeEdges db' s rootRefMagnitude
+        internalEdges qualifyPids dbN db' s <> bridgeEdges db' s
 
     -- Matrix indices double as ProcessIds, same convention as
     -- 'Service.collectSupplyChainEntries'.
-    internalEdges qualifyPids dbN db' s mult =
+    internalEdges qualifyPids dbN db' s =
         VU.foldr step [] (dbTechnosphereTriples db')
       where
         step (SparseTriple supplierIdx consumerIdx v) acc =
@@ -391,7 +392,7 @@ rowsFromConsumption rootRefMagnitude (Reached rootDbName rootDb rootScaling :| d
                     { rowName = fromMaybe (activityName supplier) (getReferenceProductName (dbTechFlows db') supplier)
                     , rowFlowId = if qualifyPids then qualifyRef dbN pidText else pidText
                     , rowUnit = activityUnit supplier
-                    , rowQuantity = v * sj * mult
+                    , rowQuantity = v * sj
                     , rowIsInput = Nothing
                     , rowIsReference = Nothing
                     , rowTargetName = Just (activityName supplier)
@@ -401,7 +402,7 @@ rowsFromConsumption rootRefMagnitude (Reached rootDbName rootDb rootScaling :| d
                     , rowClassifications = activityClassification supplier
                     }
 
-    bridgeEdges db' s mult =
+    bridgeEdges db' s =
         mapMaybe bridgeRow (dbCrossDBLinks db')
       where
         bridgeRow link = do
@@ -417,7 +418,7 @@ rowsFromConsumption rootRefMagnitude (Reached rootDbName rootDb rootScaling :| d
                             { rowName = cdlFlowName link
                             , rowFlowId = supplierRefText link
                             , rowUnit = cdlExchangeUnit link
-                            , rowQuantity = cdlCoefficient link * sj / normFactor * mult
+                            , rowQuantity = cdlCoefficient link * sj / normFactor
                             , rowIsInput = Nothing
                             , rowIsReference = Nothing
                             , rowTargetName = Nothing
@@ -503,8 +504,8 @@ groupKey key r = case key of
         Nothing -> n
 
 -- | Combine rows into an Aggregation.
-reduce :: AggregateParams -> Cutoffs -> [AggRow] -> Aggregation
-reduce p cutoffs rowsAll =
+reduce :: AggregateParams -> FunctionalUnit -> Cutoffs -> [AggRow] -> Aggregation
+reduce p functionalUnit cutoffs rowsAll =
     let matched = filter (filterRow p) rowsAll
         total = sum (map rowQuantity matched)
         fnCount = length matched
@@ -517,7 +518,8 @@ reduce p cutoffs rowsAll =
                  in map (mkGroup total) grouped
      in Aggregation
             { aggScope = scopeText (apScope p)
-            , aggFilteredTotal = total
+            , aggFunctionalUnit = functionalUnit
+            , aggFilteredTotalPerUnit = total
             , aggFilteredUnit = unit
             , aggFilteredCount = fnCount
             , aggGroups = sortGroups groups
@@ -531,14 +533,14 @@ reduce p cutoffs rowsAll =
             gunit = homogeneousUnit rs
          in AggregationGroup
                 { aggKey = key
-                , aggQuantity = gqty
+                , aggQuantityPerUnit = gqty
                 , aggUnit = gunit
                 , aggShare = case apAggregate p of
                     AggShare -> if total == 0 then Just 0 else Just (gqty / total)
                     _ -> Nothing
                 , aggCount = length rs
                 }
-    sortGroups = L.sortBy (\a b -> compare (abs (aggQuantity b)) (abs (aggQuantity a)))
+    sortGroups = L.sortBy (\a b -> compare (abs (aggQuantityPerUnit b)) (abs (aggQuantityPerUnit a)))
 
 scopeText :: AggScope -> Text
 scopeText ScopeDirect = "direct"
