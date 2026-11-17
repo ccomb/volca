@@ -2971,7 +2971,7 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId activity method -> do
         dbManager <- asks aeDbManager
         let functionalUnit = Service.functionalUnitIn db activity
-        let lim = fromMaybe 20 limitParam
+            lim = fromMaybe 20 limitParam
             ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
         (mFlows, _) <- liftIO $ DM.getMergedFlowMetadata dbManager
         sol <-
@@ -3003,7 +3003,7 @@ getContributingActivities dbName processIdText collectionName methodIdText limit
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId activity method -> do
         dbManager <- asks aeDbManager
         let functionalUnit = Service.functionalUnitIn db activity
-        let lim = fromMaybe 10 limitParam
+            lim = fromMaybe 10 limitParam
             ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
         sol <-
             solutionWithDeps dbName db sharedSolver actProcessId

@@ -101,11 +101,17 @@ spec = describe "an activity's reference product" $ do
             (_, named) <- resolved db cheese
             functionalUnitOf (dbTechFlows db) (dbUnits db) named `shouldBe` FunctionalUnit "kg" "Cheese"
 
-        it "falls back to the activity's name and unit when the reference product is unnamed" $ do
+        it "falls back to the activity's name when the reference product is unnamed" $ do
             db <- database 0
             (_, stray) <- resolved db strayReference
             functionalUnitOf (dbTechFlows db) (dbUnits db) stray
-                `shouldBe` FunctionalUnit (activityUnit stray) (activityName stray)
+                `shouldBe` FunctionalUnit "kg" (activityName stray)
+
+        it "falls back to the activity's name and unit when it has no reference exchange" $ do
+            db <- database 0
+            (_, bare) <- resolved db noReference
+            functionalUnitOf (dbTechFlows db) (dbUnits db) bare
+                `shouldBe` FunctionalUnit (activityUnit bare) (activityName bare)
 
         it "falls back to the activity's unit when the reference exchange has a unit with no name" $ do
             let electricity = uuid 400
@@ -114,6 +120,25 @@ spec = describe "an activity's reference product" $ do
             functionalUnitOf
                 (M.singleton electricity (mkTechFlow electricity "electricity"))
                 (M.singleton blank (Unit blank "" "" ""))
+                (mkActivity "power plant" [declared])
+                `shouldBe` FunctionalUnit "kg" "electricity"
+
+        it "falls back to the activity's unit when the reference exchange has the parser's placeholder unit" $ do
+            let electricity = uuid 400
+                placeholder = uuid 2
+                declared = (techLine electricity 3.6 ReferenceProduct Nothing){techUnitId = placeholder}
+            functionalUnitOf
+                (M.singleton electricity (mkTechFlow electricity "electricity"))
+                (M.singleton placeholder (Unit placeholder "UNKNOWN_UNIT" "?" ""))
+                (mkActivity "power plant" [declared])
+                `shouldBe` FunctionalUnit "kg" "electricity"
+
+        it "falls back to the activity's unit when the reference exchange's unit is not in the unit table" $ do
+            let electricity = uuid 400
+                declared = (techLine electricity 3.6 ReferenceProduct Nothing){techUnitId = uuid 2}
+            functionalUnitOf
+                (M.singleton electricity (mkTechFlow electricity "electricity"))
+                M.empty
                 (mkActivity "power plant" [declared])
                 `shouldBe` FunctionalUnit "kg" "electricity"
 

@@ -1681,8 +1681,7 @@ summaryProduct :: Maybe ReferenceProductInfo -> ReferenceProductInfo
 summaryProduct = fromMaybe (ReferenceProductInfo "" 1.0 "")
 
 {- | The functional unit a score is reported against: one unit of the
-activity's reference product, named in the unit its matrix column was
-normalised to.
+activity's reference product.
 
 Never the amount the source declared. "Database.MatrixBuild" divides every
 coefficient of a column by that amount, so a coproduct a source states at
@@ -1691,23 +1690,27 @@ as 3.6 mj is still scored per megajoule. Reporting the declared amount here
 described the block, not the number beside it.
 
 A reference product the tech-flow table does not name takes the activity's
-name, and a reference exchange with no unit the activity's reference unit, as
-the root of a supply chain does: a functional unit is never empty text, and a
-score is never refused for lacking one.
+name. A reference exchange whose unit the table lacks, or holds only as an
+empty name or the placeholder a parser writes for a blank one, takes the
+activity's reference unit. A functional unit is never empty text or a
+placeholder, and a score is never refused for lacking one.
 -}
 functionalUnitOf :: TechFlowDB -> UnitDB -> Activity -> FunctionalUnit
 functionalUnitOf flows units activity =
     FunctionalUnit
-        { fuUnit = named (rpUnit <$> reference) (activityUnit activity)
-        , fuProduct = named (rpName <$> reference) (activityName activity)
+        { fuUnit = fromMaybe (activityUnit activity) referenceUnit
+        , fuProduct = fromMaybe (activityName activity) (getReferenceProductName flows activity >>= unlessEmpty)
         }
   where
-    reference :: Maybe ReferenceProductInfo
-    reference = referenceProductOf flows units activity
+    referenceUnit :: Maybe Text
+    referenceUnit = do
+        ex <- L.find exchangeIsReference (nonPlainExchanges activity)
+        unit <- getUnitForExchange units ex
+        guard (not (isPlaceholderUnit unit))
+        unlessEmpty (unitName unit)
 
-    named :: Maybe Text -> Text -> Text
-    named (Just found) _ | not (T.null found) = found
-    named _ fallback = fallback
+    unlessEmpty :: Text -> Maybe Text
+    unlessEmpty text = text <$ guard (not (T.null text))
 
 -- | The functional unit of an activity of a database.
 functionalUnitIn :: Database -> Activity -> FunctionalUnit

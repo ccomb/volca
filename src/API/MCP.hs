@@ -1512,8 +1512,6 @@ data ImpactsResult = ImpactsResult
     , irContribs :: ![FlowContribution]
     -- ^ Sorted descending by absolute contribution.
     , irUnknownUuids :: ![UUID.UUID]
-    , irFunctionalUnit :: !FunctionalUnit
-    -- ^ What one score is for, per 'Service.functionalUnitOf'.
     , irWithheld :: ![Impact.PartScore]
     {- ^ The part of each dependency whose licence keeps what weighs in its
     scores: its flows are not in 'irContribs', which add up to the score with
@@ -1624,7 +1622,6 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
             , irTables = tables
             , irContribs = contribs
             , irUnknownUuids = unknownUuids
-            , irFunctionalUnit = raFunctionalUnit ra
             , irWithheld = withheld
             , irInventoryWithheld = inventoryWithheld
             , irCutoffs = cutoffs
@@ -1684,7 +1681,7 @@ callGetImpacts dbManager mBaseUrl licence rid args =
             ra = lrResolved req
             score = loScore (irOutcome ir)
             stats = irMappingStats ir
-            functionalUnit = irFunctionalUnit ir
+            functionalUnit = raFunctionalUnit ra
             contribs = irContribs ir
             -- Under a licence that keeps what weighs in its scores, the score
             -- stays and its flows go, as 'Service.withholdContributors' does.
@@ -2523,9 +2520,11 @@ resolveMethod dbManager mCollection methodIdText =
             bimap methodRefusalMessage (first DM.CollectionName) . selectMethod mCollection uuid
                 <$> DM.getLoadedMethods dbManager
 
-{- | Raw text + its parsed 'ProcessId' + the looked-up 'Activity'. Bundled so
-the three entities (which must always agree) cannot drift apart: the only
-way to build a 'ResolvedActivity' is through 'resolveActivityAndProcessId'.
+{- | Raw text + its parsed 'ProcessId' + the looked-up 'Activity' + the
+functional unit derived from that activity. Bundled so the four (which must
+always agree) cannot drift apart: 'loadLcaRequest' and 'loadScoreRequest'
+are the only builders, and each derives the unit from the activity it just
+resolved.
 -}
 data ResolvedActivity = ResolvedActivity
     { raText :: !Text
@@ -2603,7 +2602,7 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
                 object $
                     [ "method" .= methodName method
                     , "unit" .= methodUnit method
-                    , "functional_unit" .= irFunctionalUnit ir
+                    , "functional_unit" .= raFunctionalUnit ra
                     , "total_score" .= score
                     , "has_negative_contributions" .= hasNeg
                     , "basis" .= irBasis ir

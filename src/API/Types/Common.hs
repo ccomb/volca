@@ -471,7 +471,7 @@ instance ToSchema ExchangeKind where
                     & enum_ ?~ map (toJSON . exchangeKindName) [minBound .. maxBound]
 
 {- | What every computed number of a response is for: one unit of the reference
-product of the process asked, in the unit its matrix column was normalised to.
+product of the process asked.
 
 The type has no amount, so a functional unit other than one cannot be built.
 The wire still says it, so a caller reads the whole sentence from the response
