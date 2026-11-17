@@ -26,14 +26,21 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .types import ServerVersion
 
-REQUIRED_WIRE = 2
-"""The oldest JSON wire-format revision this pyvolca accepts. Everything in
-the client works against it except the revision-gated capabilities (see
-``Client._require_wire``), which check the engine's advertised revision
-before sending anything."""
+REQUIRED_WIRE = 113
+"""The oldest JSON wire-format revision this pyvolca accepts. Revision 113
+renamed the fields whose numbers changed basis and this client reads only the
+new names, so an older engine is refused. The revision-gated capabilities (see
+``Client._require_wire``) check the engine's advertised revision before
+sending anything."""
 
-KNOWN_WIRE = 112
-"""The newest wire revision this pyvolca understands (revision 112 added the
+KNOWN_WIRE = 113
+"""The newest wire revision this pyvolca understands (revision 113 counted the
+supply chain, the path to a supplier and every scope of an aggregate for one
+unit of the reference product, as impacts and inventories already were, renamed
+the fields holding them ``quantity_per_unit``, ``cumulative_quantity_per_unit``
+and ``filtered_total_per_unit``, and replaced the text a score's
+``functional_unit`` was by a :class:`~volca.types.FunctionalUnit` that every
+computed response carries; revision 112 added the
 ``unsolvable`` processes of a batch, each with why, where the whole batch was
 refused; revision 111 added
 ``via`` and ``source`` to a database's history and ``source`` to every write
@@ -257,7 +264,7 @@ def warn_renamed(old: str, new: str) -> None:
     )
 
 
-MIN_ENGINE_HINT = "0.9.1"
+MIN_ENGINE_HINT = "0.19.0"
 """First engine release that advertises :data:`REQUIRED_WIRE`. Used only for the
 error message and the release preflight; it is not, by itself, a runtime gate
 (the engine's ``wireVersion`` is)."""
@@ -285,7 +292,7 @@ def check(sv: ServerVersion) -> None:
         raise VoLCAError(
             f"This engine (v{sv.version}) speaks an older wire than pyvolca "
             f"needs (wire {spoken} < {REQUIRED_WIRE}). Upgrade the engine to "
-            f">= v{MIN_ENGINE_HINT}, or `pip install 'pyvolca<0.7.2'`."
+            f">= v{MIN_ENGINE_HINT}, or `pip install 'pyvolca<0.15'`."
         )
     if w > KNOWN_WIRE:
         warnings.warn(

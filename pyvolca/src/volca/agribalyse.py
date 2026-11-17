@@ -49,7 +49,12 @@ class Allocation:
 
 @dataclass
 class Decomposition:
-    """Reverse-engineered transformation parameters for one Agribalyse process."""
+    """Reverse-engineered transformation parameters for one Agribalyse process.
+
+    Every amount is for one unit of the process's reference product, whatever
+    amount the dataset declares: what ``/aggregate`` counts, and the coproducts
+    divided the same way.
+    """
 
     pattern: str                               # "wrapper_wfldb" | "direct" | "layered"
     raw_material_name: str | None
@@ -220,18 +225,30 @@ def get_direct_energy(client: "Client", process_id: str) -> tuple[float, float]:
         is_input=True,
         filter_name="Electricity",
         filter_unit="kWh",
-    ).filtered_total
+    ).filtered_total_per_unit
     heat = client.aggregate(
         process_id,
         scope="direct",
         is_input=True,
         filter_name="Heat",
         filter_unit="MJ",
-    ).filtered_total
+    ).filtered_total_per_unit
     return elec, heat
 
 
 _UNIT_TO_KG = {"kg": 1.0, "ton": 1000.0, "g": 0.001}
+
+
+def _per_unit_divisor(activity: ActivityDetail) -> float:
+    """What the engine divides an activity's exchanges by to count them for one
+    unit of its reference product: the magnitude of the amount the dataset
+    declares, one when it declares none or zero.
+
+    ``/aggregate`` answers per unit in every scope, while the exchanges of
+    ``get_activity`` are as declared, so a figure read off the exchanges needs
+    this divisor to sit beside one read from ``/aggregate``.
+    """
+    return abs(activity.product_amount or 0.0) or 1.0
 
 
 def _kg_equiv(entry: SupplyChainEntry) -> float:
@@ -374,7 +391,7 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
             max_depth=sc_depth,
             is_input=True,
             **kw,  # type: ignore[arg-type]
-        ).filtered_total
+        ).filtered_total_per_unit
 
     def agg_total(**kw: object) -> float:
         if pattern == "layered" and operations:
@@ -388,7 +405,7 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
                     max_depth=2,
                     is_input=True,
                     **kw,  # type: ignore[arg-type]
-                ).filtered_total
+                ).filtered_total_per_unit
                 for op in operations
             )
         return agg_total_single(target_pid, **kw)
@@ -404,11 +421,12 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
             aggregate="sum_quantity",
         )
         raw_name = raw.groups[0].key if raw.groups else None
-        raw_kg = raw.groups[0].quantity if raw.groups else 0.0
+        raw_kg = raw.groups[0].quantity_per_unit if raw.groups else 0.0
 
     # Technosphere outputs only: the /aggregate primitive lumps biosphere
     # emissions (NOx, water, heat waste…) into "direct" exchanges, so walk
     # the typed exchange list and discriminate by class instead.
+    per_unit = _per_unit_divisor(act)
     grouped: dict[tuple[str, str], float] = {}
     for e in act.exchanges:
         if (
@@ -417,7 +435,7 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
             and not e.is_reference
         ):
             key = (e.flow_name, e.unit)
-            grouped[key] = grouped.get(key, 0.0) + e.amount
+            grouped[key] = grouped.get(key, 0.0) + e.amount / per_unit
     co_products = [(name, qty, unit) for (name, unit), qty in grouped.items()]
 
     # Agribalyse uses allocation-based modelling, so co-products rarely

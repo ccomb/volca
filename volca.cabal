@@ -1,6 +1,6 @@
 cabal-version:       2.4
 name:                volca
-version:             0.18.1-dev
+version:             0.19.0-dev
 build-type:          Simple
 
 license:             Apache-2.0

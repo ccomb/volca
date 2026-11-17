@@ -45,9 +45,9 @@ def _version_body(wire: int | None) -> dict:
 def test_check_rejects_too_old_wire(wire: int | None) -> None:
     with pytest.raises(VoLCAError) as exc:
         _compat.check(_sv(wire))
-    # names the engine to upgrade to, and an older-pyvolca fallback
+    # names the engine to upgrade to, and the last pyvolca that reads an older one
     assert f"v{_compat.MIN_ENGINE_HINT}" in str(exc.value)
-    assert "pyvolca<0.7.2" in str(exc.value)
+    assert "pyvolca<0.15" in str(exc.value)
 
 
 def test_check_message_distinguishes_absent_from_zero() -> None:
@@ -114,10 +114,13 @@ def test_refresh_stubs_is_gated(make_response) -> None:
     assert session.get.call_count == 1  # version checked; openapi.json never fetched
 
 
-def test_refresh_stubs_rechecks_the_wire(make_response, monkeypatch) -> None:
+def test_refresh_stubs_rechecks_the_wire(make_response, monkeypatch, feature_gates_only) -> None:
     """The documented "engine was upgraded" path must re-read the live wire:
     a client that first met an older engine would otherwise keep refusing
-    wire-gated capabilities from a stale cache after an in-place upgrade."""
+    wire-gated capabilities from a stale cache after an in-place upgrade.
+
+    The floor is lowered (``feature_gates_only``) so that the wire a client
+    meets first differs from the one it meets after the upgrade."""
     monkeypatch.setattr("volca._stub_gen.write_stubs_for_spec", lambda spec: None)
     c, session = _client_with_version(make_response, wire=_compat.REQUIRED_WIRE)
     c._ensure_compatible()
@@ -145,7 +148,7 @@ def test_preloaded_operations_skip_the_gate(mocked_client) -> None:
     assert client._checked is False
 
 
-def test_search_flows_kind_refuses_an_engine_that_would_drop_it(make_response) -> None:
+def test_search_flows_kind_refuses_an_engine_that_would_drop_it(make_response, feature_gates_only) -> None:
     """An engine before wire 9 ignores the unknown query key and answers with
     every kind, which reads as "no flow of that kind exists". Refuse instead."""
     c, session = _client_with_version(make_response, wire=8)

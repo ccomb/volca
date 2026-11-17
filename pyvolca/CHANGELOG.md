@@ -18,6 +18,38 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
+## [0.15.0] - Unreleased
+
+This release speaks wire revision 113 only, and needs engine 0.19.0. An older
+engine is refused when the client first talks to it. Use pyvolca 0.14.3 with
+an older engine.
+
+### Changed
+
+- The supply chain, the path to a supplier and every scope of an aggregate
+  count for one unit of the product asked, as impacts and inventory already
+  did. For a process whose declared amount is not 1 the numbers change: a
+  process written for 10 kg of cheese used to answer for those 10 kg, except
+  in the `biosphere` scope of an aggregate, which already counted for one
+  unit.
+- The attributes holding these numbers are renamed:
+  `SupplyChainEntry.quantity` and `AggregateGroup.quantity` become
+  `quantity_per_unit`, `PathStep.cumulative_quantity` becomes
+  `cumulative_quantity_per_unit`, and `AggregateResult.filtered_total`
+  becomes `filtered_total_per_unit`. The old names are not kept as aliases,
+  against the usual rule for a rename: an alias would give a script written
+  for the old numbers the new ones under the old name, and it would run
+  without complaint. It now stops on the missing attribute.
+- Every computed result carries `functional_unit`, a `FunctionalUnit` with the
+  `amount`, `unit` and `product` it counts for. It replaces the text that
+  `LCIAResult.functional_unit` was, and sits on each result of a batch, on
+  `SupplyChain`, `PathResult`, `AggregateResult` and `InventoryResult`.
+- `agribalyse.decompose()` sets every amount against one unit of the process.
+  Its coproducts are read from the activity, as the dataset writes them, and
+  are now divided by the amount the process declares, so they stay on the
+  basis of the energies and masses the engine counts, which are now for one
+  unit.
+
 ## [0.14.3] - 2026-11-14
 
 This release speaks wire revisions 2 to 112. Nothing pyvolca offers is removed

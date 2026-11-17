@@ -628,7 +628,9 @@ description r = case r of
     GetActivity ->
         "LCA / ACV: one activity in detail: name, location, exchanges, reference \
         \product, metadata, parameters its formulas read (own and database's), \
-        \input uncertainty. exchange_type / is_input / flow filter exchanges. \
+        \input uncertainty. Amounts are as the dataset declares them, where \
+        \computed tools are for 1 unit (see 'functionalUnit'). \
+        \exchange_type / is_input / flow filter exchanges. \
         \Metadata (description, documentation, source) comes with every filter; \
         \without hundreds of exchanges: exchange_type=technosphere, \
         \is_input=false."

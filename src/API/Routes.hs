@@ -1673,7 +1673,13 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 112: the @unsolvable@ activities of a batch of scores, each with
+(revision 113: every computed response counts for one unit of the reference
+product and names it in @functionalUnit@ (amount, unit, product), which
+replaces the text the scores carried; the supply chain, the path to a supplier
+and every scope of an aggregate moved to that basis, and the fields holding
+their numbers were renamed @quantityPerUnit@, @cumulativeQuantityPerUnit@ and
+@filteredTotalPerUnit@, so a client written for the old numbers stops;
+revision 112: the @unsolvable@ activities of a batch of scores, each with
 why the solver has no answer for it, where the whole batch was refused, and
 the @unsolvable@ check of the computed quality report;
 revision 110: the @characterized_share@ of the scoring tools and the
@@ -1917,7 +1923,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 112
+currentWireVersion = 113
 
 getVersion :: AppM Value
 getVersion = do

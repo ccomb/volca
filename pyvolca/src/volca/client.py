@@ -2590,6 +2590,11 @@ class Client:
         always the unit written on the exchange that consumes it. Read it off
         the entry rather than off the activity you started from.
 
+        Every ``quantity_per_unit`` is for one unit of the root's reference
+        product (``functional_unit``), whatever amount the root declares;
+        ``min_quantity`` drops the entries whose absolute value is at or below
+        it.
+
         Args:
             max_depth: Max hops from root. 1 = direct inputs only.
             classification_filters: Restrict entries to those matching any
@@ -2653,6 +2658,11 @@ class Client:
         aggregate: AggregateOp | str | None = None,
     ) -> AggregateResult:
         """SQL-group-by aggregation over direct exchanges, supply chain, or biosphere flows.
+
+        Every scope counts for one unit of the activity's reference product
+        (``functional_unit`` of the result), so the ``direct`` exchanges are
+        the dataset's amounts divided by the amount it declares: the totals and
+        the groups are ``filtered_total_per_unit`` and ``quantity_per_unit``.
 
         Args:
             scope: :class:`AggregateScope` member (``DIRECT`` / ``SUPPLY_CHAIN``
@@ -2791,8 +2801,10 @@ class Client:
         """Find the shortest upstream path from process to first activity whose name matches target.
 
         Returns a PathResult whose path is ordered root → target. Each step
-        includes cumulative_quantity, scaling_factor, and (except the root)
-        local_step_ratio.
+        includes cumulative_quantity_per_unit, scaling_factor, and (except the
+        root) local_step_ratio. The quantities are for one unit of the root's
+        reference product, the ``functional_unit`` of the result, whatever
+        amount the root declares.
         """
         return PathResult.from_json(
             self._call("get_path_to", process_id=process_id, target=target)
@@ -2984,9 +2996,9 @@ class Client:
         """Compute the life-cycle inventory (cumulative biosphere flows) for an activity.
 
         Returns an :class:`InventoryResult` with the per-elementary-flow
-        totals scaled to one functional unit of the activity's reference
-        product. Use :meth:`get_impacts` to apply a characterization method
-        to the inventory; use :meth:`aggregate` with ``scope="biosphere"``
+        totals for one unit of the activity's reference product, its
+        ``functional_unit``. Use :meth:`get_impacts` to apply a
+        characterization method to the inventory; use :meth:`aggregate` with ``scope="biosphere"``
         for grouped views.
 
         Args:

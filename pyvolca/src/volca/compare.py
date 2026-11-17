@@ -26,8 +26,8 @@ class ActivityDiffRow:
     """One matched or unmatched flow in an activity comparison."""
 
     key: str                 # flow_id (or the group_by key used)
-    left: float | None       # quantity in the left activity; None if only on right
-    right: float | None      # quantity in the right activity; None if only on left
+    left: float | None       # per unit of the left activity's product; None if only on right
+    right: float | None      # per unit of the right activity's product; None if only on left
     unit: str | None
 
     @property
@@ -104,12 +104,12 @@ def compare_activities(
         rg = right_map.get(key)
         unit = (lg.unit if lg else None) or (rg.unit if rg else None)
         if lg is not None and rg is not None:
-            matched.append(ActivityDiffRow(key=key, left=lg.quantity, right=rg.quantity, unit=unit))
+            matched.append(ActivityDiffRow(key=key, left=lg.quantity_per_unit, right=rg.quantity_per_unit, unit=unit))
         elif lg is not None:
-            left_only.append(ActivityDiffRow(key=key, left=lg.quantity, right=None, unit=unit))
+            left_only.append(ActivityDiffRow(key=key, left=lg.quantity_per_unit, right=None, unit=unit))
         else:
             assert rg is not None
-            right_only.append(ActivityDiffRow(key=key, left=None, right=rg.quantity, unit=unit))
+            right_only.append(ActivityDiffRow(key=key, left=None, right=rg.quantity_per_unit, unit=unit))
 
     return ActivityDiff(
         scope=scope,
