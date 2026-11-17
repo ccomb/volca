@@ -28,9 +28,9 @@ from volca import (
 from volca.agribalyse import decompose
 
 
-def _cheese_written_for_ten() -> ActivityDetail:
-    """A process using electricity directly, written for 10 kg of cheese, whose
-    whey coproduct is written at 4 kg."""
+def _cheese_written_for_ten(whey_role: TechRole = TechRole.AVOIDED_PRODUCT) -> ActivityDetail:
+    """A process using electricity directly, written for 10 kg of cheese, with
+    4 kg of whey among its outputs."""
 
     def line(name: str, amount: float, unit: str, role: TechRole) -> TechnosphereExchange:
         return TechnosphereExchange(
@@ -45,7 +45,7 @@ def _cheese_written_for_ten() -> ActivityDetail:
         exchanges=[
             line("cheese", 10.0, "kg", TechRole.REFERENCE_PRODUCT),
             line("Electricity, medium voltage", 5.0, "kWh", TechRole.INPUT),
-            line("whey", 4.0, "kg", TechRole.COPRODUCT),
+            line("whey", 4.0, "kg", whey_role),
         ],
     )
 
@@ -89,3 +89,19 @@ def test_coproducts_are_the_engine_per_unit_amounts() -> None:
     assert result.co_products == [("whey", pytest.approx(0.4 / 0.9), "kg")]
     assert result.electricity_mj == 0.5
     assert result.raw_material_kg == 1.0
+
+
+def test_an_unallocated_coproduct_is_read_for_one_declared_unit() -> None:
+    """The engine refuses to put a block with an unallocated coproduct per
+    unit, so decompose must not ask it to: the whey reads 4 kg / 10 kg."""
+    client = MagicMock()
+    client.get_activity.return_value = _cheese_written_for_ten(TechRole.COPRODUCT)
+    client.aggregate.side_effect = lambda _pid, **kw: (
+        pytest.fail("outputs of an unallocated block asked of the engine")
+        if kw.get("is_input") is False
+        else _engine(**kw)
+    )
+
+    result = decompose(client, "cheese_cheese")
+
+    assert result.co_products == [("whey", pytest.approx(0.4), "kg")]

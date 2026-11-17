@@ -903,14 +903,14 @@ buildLCIABatchResultCached ::
     Database ->
     ProcessId ->
     Activity ->
-    FunctionalUnit ->
     MethodCollection ->
     SharedSolver.CrossDBSolution ->
     [MethodCtx] ->
     Int ->
     IO (Either Text LCIABatchResult)
-buildLCIABatchResultCached dbManager dbName collectionName db actPid activity functionalUnit collection sol ctxs topFlows = do
+buildLCIABatchResultCached dbManager dbName collectionName db actPid activity collection sol ctxs topFlows = do
     let index = legacyIndex (mcScoringSets collection)
+        functionalUnit = Service.functionalUnitIn db activity
         methods = map mctxMethod ctxs
         inventory = SharedSolver.csInventory sol
     scoreMap <- batchedScoresFor dbManager dbName collectionName db sol methods
@@ -1098,13 +1098,12 @@ data BatchScope = BatchScope
     }
 
 {- | One activity a batch asks about: the id as the caller wrote it, the id it
-resolved to, the activity that id names, and what its scores are for.
+resolved to, and the activity that id names.
 -}
 data BatchTarget = BatchTarget
     { btRequestedId :: !Text
     , btProcessId :: !ProcessId
     , btActivity :: !Activity
-    , btFunctionalUnit :: !FunctionalUnit
     }
 
 {- | Score the targets of a batch, each one from its solve to its entry before
@@ -1152,7 +1151,6 @@ scoreTargets scope targets = do
                 (bsDb scope)
                 (btProcessId target)
                 (btActivity target)
-                (btFunctionalUnit target)
                 (bsCollection scope)
                 sol
                 (bsContexts scope)
@@ -1221,7 +1219,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
             [ (pidText, Service.resolveScorable db pidText)
             | pidText <- birProcessIds req
             ]
-        valid = [BatchTarget pidText pidNum act (Service.functionalUnitIn db act) | (pidText, Right (pidNum, act)) <- resolved]
+        valid = [BatchTarget pidText pidNum act | (pidText, Right (pidNum, act)) <- resolved]
         notFound = [pidText | (pidText, Left (Service.ActivityNotFound _)) <- resolved]
         unscorable = [pidText | (pidText, Left (Service.NotScorable _)) <- resolved]
         -- An under-specified id is unusable as sent, like a malformed one, and

@@ -1946,7 +1946,11 @@ class ActivityDetail:
     as declared by the dataset. A computed response (score, inventory, supply
     chain, aggregate) counts for one unit of the reference product instead, its
     ``functional_unit``, so an exchange amount is not comparable with one of
-    those until it is divided by ``product_amount``.
+    those as it stands. The engine divides it by the size of what the process
+    makes net of what it consumes of its own product, which is
+    ``product_amount`` unless the process eats part of its own output, and
+    keeps its sign; ``aggregate(scope="direct")`` gives the exchanges so
+    divided.
 
     ``native_id`` is the identifier the source file gave the dataset block this
     process was read from - SimaPro's ``Process identifier``, the number an

@@ -296,6 +296,7 @@ rowsFromDirect :: Database -> ProcessId -> [AggRow]
 rowsFromDirect db processId =
     map mkRow (getActivityExchangeDetails db (dbActivities db V.! fromIntegral processId) (const True))
   where
+    divisor :: Double
     divisor = abs (activityNormalizationFactor db processId)
     mkRow (ExchangeDetail ex flow _flowUnit _unit exUnitName target) =
         AggRow

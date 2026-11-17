@@ -28,6 +28,7 @@ from .types import (
     MatchMode,
     SupplyChainEntry,
     TechnosphereExchange,
+    TechRole,
 )
 
 if TYPE_CHECKING:
@@ -53,7 +54,9 @@ class Decomposition:
 
     Every amount is for one unit of the process's reference product, whatever
     amount the dataset declares: what ``/aggregate`` counts, the coproducts
-    included.
+    included. For a ``wrapper_wfldb`` process the energies and the raw
+    material are read on the WFLDB core it wraps, so they are for one unit of
+    that core's product, while the coproducts stay the wrapper's own.
     """
 
     pattern: str                               # "wrapper_wfldb" | "direct" | "layered"
@@ -417,12 +420,18 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
     # other figure here. One call per unit the coproducts are written in, so a
     # coproduct listed in two units is never summed across them.
     co_products: list[tuple[str, float, str]] = []
-    coproduct_units = sorted({
-        e.unit
-        for e in act.exchanges
+    outputs_written = [
+        e for e in act.exchanges
         if isinstance(e, TechnosphereExchange) and not e.is_input and not e.is_reference
-    })
-    for unit in coproduct_units:
+    ]
+    if any(e.role is TechRole.COPRODUCT for e in outputs_written):
+        # An unallocated coproduct keeps the block out of the matrix, so the
+        # engine refuses to put it per unit; its declared output, as the
+        # matrix would read a zero one, is then the only basis there is.
+        declared = abs(act.product_amount or 0.0) or 1.0
+        co_products = [(e.flow_name, e.amount / declared, e.unit) for e in outputs_written]
+        outputs_written = []
+    for unit in sorted({e.unit for e in outputs_written}):
         outputs = client.aggregate(
             process_id,
             scope="direct",
