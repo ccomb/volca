@@ -4,14 +4,17 @@
 
 module Database where
 
+import Control.Monad (forM_)
 import Data.Indexing (groupInOrder)
 import qualified Data.IntSet as IS
 import qualified Data.Map as M
+import qualified Data.Map.Strict as MS
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector.Unboxed.Mutable as VUM
 import Database.CrossLinking (placelessLocations)
 import Database.MatrixBuild
 import Method.Types (Location (..))
@@ -120,9 +123,6 @@ buildIndexesWithProcessIds activityVec processIdTable =
         activityUUIDs = [actUUID | (actUUID, _) <- V.toList processIdTable]
         activities = V.toList activityVec
         activityPairs = zip activityUUIDs activities
-        -- The process id table is in row order, so the row of each activity is
-        -- its position in it.
-        rows = zip [0 ..] activities
 
         nameIdx =
             M.fromListWith
@@ -134,11 +134,7 @@ buildIndexesWithProcessIds activityVec processIdTable =
                 (++)
                 [(activityLocation activity, [uuid]) | (uuid, activity) <- activityPairs]
 
-        flowIdx =
-            M.fromListWith
-                (++)
-                [ (exchangeFlowId ex, [pid]) | (pid, activity) <- rows, ex <- exchanges activity
-                ]
+        flowIdx = flowIndex activityVec
 
         unitIdx =
             M.fromListWith
@@ -151,6 +147,32 @@ buildIndexesWithProcessIds activityVec processIdTable =
             , idxByFlow = flowIdx
             , idxByUnit = unitIdx
             }
+
+{- | The rows using each flow, one entry per line. The activities come in row
+order, so the row of each is its position.
+
+The lines are counted first, then each row number is written at its place in
+one array every flow has a slice of. Collecting a list per flow first would
+hold forty bytes a line where the index keeps four, and a database of
+aggregated inventories has tens of millions of lines.
+-}
+flowIndex :: V.Vector Activity -> FlowIndex
+flowIndex activities = M.map (\(_, start, count) -> VU.slice start count filled) slices
+  where
+    -- The activities are walked twice, never a list of their lines: one
+    -- shared by both walks would stay alive between them, whole.
+    flowsOf = map exchangeFlowId . exchanges
+    counts = V.foldl' (\seen -> foldl' (\seen' flow -> MS.insertWith (+) flow (1 :: Int) seen') seen . flowsOf) M.empty activities
+    -- Each flow's rank, where its slice starts, and how many lines it holds.
+    ((_, total), slices) = M.mapAccum (\(rank, start) count -> ((rank + 1, start + count), (rank :: Int, start, count))) (0, 0) counts
+    filled = VU.create $ do
+        rowsOf <- VUM.new total
+        written <- VUM.replicate (M.size counts) 0
+        V.iforM_ activities $ \row activity -> forM_ (flowsOf activity) $ \flow -> forM_ (M.lookup flow slices) $ \(rank, start, _) -> do
+            done <- VUM.read written rank
+            VUM.write rowsOf (start + done) (fromIntegral row)
+            VUM.write written rank (done + 1)
+        pure rowsOf
 
 {- | Build ProductIndex for product-based lookups
 Used for: (1) SimaPro upstream link resolution, (2) future product search

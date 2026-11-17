@@ -858,7 +858,7 @@ buildUnitGroups units =
 -- | Get flow usage count across all activities
 getFlowUsageCount :: Database -> UUID -> Int
 getFlowUsageCount db flowUUID =
-    maybe 0 length (M.lookup flowUUID (idxByFlow $ dbIndexes db))
+    maybe 0 U.length (M.lookup flowUUID (idxByFlow $ dbIndexes db))
 
 {- | Get flows used by an activity as lightweight summaries. Each exchange
 lookup is resolved against the appropriate side (tech vs bio) and wrapped
@@ -1866,7 +1866,7 @@ producerCount db flow = case flow of
 activitiesTouching :: Database -> UUID -> [(ProcessId, Activity)]
 activitiesTouching db flowUUID =
     [ (pid, act)
-    | pid <- maybe [] (S.toList . S.fromList) (M.lookup flowUUID (idxByFlow (dbIndexes db)))
+    | pid <- maybe [] (S.toList . S.fromList . U.toList) (M.lookup flowUUID (idxByFlow (dbIndexes db)))
     , Just act <- [getActivity db pid]
     ]
 

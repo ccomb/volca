@@ -284,6 +284,7 @@ test-suite lca-tests
                      , RefDataUploadSpec
                      , RelinkMappingSpec
                      , MatrixConstructionSpec
+                     , FlowIndexSpec
                      , WasteTreatmentSignSpec
                      , InventorySpec
                      , IndexInjectivitySpec

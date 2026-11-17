@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- A database whose processes each list thousands of elementary flows, as a
+  package of aggregated inventories does, takes less memory once loaded: the
+  index of the processes using each flow is ten times smaller. Database caches
+  are rebuilt once on the first load after the upgrade.
+
 ## [0.18.0] - 2026-11-14
 
 ### Added
