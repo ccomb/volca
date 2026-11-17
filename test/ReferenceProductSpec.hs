@@ -11,7 +11,6 @@ import Data.Aeson (object, toJSON, (.=))
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
@@ -36,7 +35,6 @@ import Service (
     ActivityFilterCore (..),
     ConsumerFilter (..),
     Edges (..),
-    ServiceError (NotScorable),
     SortOrder (..),
     convertActivityForAPI,
     convertToInventoryExport,
@@ -44,7 +42,6 @@ import Service (
     getConsumers,
     mkActivitySummary,
     resolveActivityAndProcessId,
-    scorableFunctionalUnit,
  )
 import Service.Compare (Sides (..), compareDatabases)
 import TestHelpers (mkActivity, mkTechFlow, shippedGeographies)
@@ -97,28 +94,28 @@ spec = describe "an activity's reference product" $ do
                 (M.singleton electricity (mkTechFlow electricity "electricity"))
                 (M.singleton megajoule (Unit megajoule "MJ" "MJ" ""))
                 (mkActivity "power plant" [declaredFor36])
-                `shouldBe` Just (FunctionalUnit "MJ" "electricity")
+                `shouldBe` FunctionalUnit "MJ" "electricity"
 
-        it "names nothing without a reference product" $ do
+        it "names the reference product the tech-flow table holds" $ do
             db <- database 0
-            activities <- mapM (fmap snd . resolved db) [cheese, noReference]
-            map (functionalUnitOf (dbTechFlows db) (dbUnits db)) activities
-                `shouldBe` [Just (FunctionalUnit "kg" "Cheese"), Nothing]
-
-        it "names nothing when the reference product has no name to give" $ do
-            db <- database 0
-            (_, stray) <- resolved db strayReference
-            functionalUnitOf (dbTechFlows db) (dbUnits db) stray `shouldBe` Nothing
-
-        it "is refused as unscorable, never filled with empty text, when the reference names no product" $ do
-            db <- database 0
-            (_, stray) <- resolved db strayReference
             (_, named) <- resolved db cheese
-            case (scorableFunctionalUnit db named, scorableFunctionalUnit db stray) of
-                (Right fu, Left (NotScorable why)) -> do
-                    fu `shouldBe` FunctionalUnit "kg" "Cheese"
-                    T.unpack why `shouldContain` "cheese ripening"
-                other -> expectationFailure ("unexpected: " <> show other)
+            functionalUnitOf (dbTechFlows db) (dbUnits db) named `shouldBe` FunctionalUnit "kg" "Cheese"
+
+        it "falls back to the activity's name and unit when the reference product is unnamed" $ do
+            db <- database 0
+            (_, stray) <- resolved db strayReference
+            functionalUnitOf (dbTechFlows db) (dbUnits db) stray
+                `shouldBe` FunctionalUnit (activityUnit stray) (activityName stray)
+
+        it "falls back to the activity's unit when the reference exchange has a unit with no name" $ do
+            let electricity = uuid 400
+                blank = uuid 2
+                declared = (techLine electricity 3.6 ReferenceProduct Nothing){techUnitId = blank}
+            functionalUnitOf
+                (M.singleton electricity (mkTechFlow electricity "electricity"))
+                (M.singleton blank (Unit blank "" "" ""))
+                (mkActivity "power plant" [declared])
+                `shouldBe` FunctionalUnit "kg" "electricity"
 
         it "is sent as amount 1, unit and product" $
             toJSON (FunctionalUnit "MJ" "electricity")

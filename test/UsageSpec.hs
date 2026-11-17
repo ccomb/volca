@@ -40,9 +40,11 @@ import Usage
 ecoinvent :: Release
 ecoinvent = Release{releaseName = "ecoinvent", releaseVersion = "3.12", releaseSystemModel = Just "Allocation, cut-off by classification"}
 
--- | What the fixture's root database calls its process and the product it makes.
+{- | What the fixture's root database calls its process: its tech-flow table is
+empty, so the product goes unnamed.
+-}
 rootNaming :: ProcessNaming
-rootNaming = ProcessNaming{pnActivityName = "act-FR", pnProductName = Just "product", pnLocation = "FR"}
+rootNaming = ProcessNaming{pnActivityName = "act-FR", pnProductName = Nothing, pnLocation = "FR"}
 
 -- | A line numbered @n@, the rest of no interest to the bookkeeping.
 lineNo :: Int -> UsageLine

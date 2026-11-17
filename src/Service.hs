@@ -830,8 +830,7 @@ buildActivityGraph db sharedSolver queryText cutoffPercent =
     asked = do
         (pid, activity) <- resolveActivityAndProcessId db queryText
         demand <- demandFor db pid
-        functionalUnit <- scorableFunctionalUnit db activity
-        pure (pid, demand, functionalUnit)
+        pure (pid, demand, functionalUnitIn db activity)
 
     graphOf :: FunctionalUnit -> ProcessId -> U.Vector Double -> GraphExport
     graphOf functionalUnit processId supplyVec =
@@ -1691,27 +1690,28 @@ coefficient of a column by that amount, so a coproduct a source states at
 as 3.6 mj is still scored per megajoule. Reporting the declared amount here
 described the block, not the number beside it.
 
-'Nothing' for a reference exchange that names no product, as for no reference
-exchange at all: a functional unit is sent whole or not at all.
+A reference product the tech-flow table does not name takes the activity's
+name, and a reference exchange with no unit the activity's reference unit, as
+the root of a supply chain does: a functional unit is never empty text, and a
+score is never refused for lacking one.
 -}
-functionalUnitOf :: TechFlowDB -> UnitDB -> Activity -> Maybe FunctionalUnit
-functionalUnitOf flows units activity = do
-    ReferenceProductInfo{rpName = name, rpUnit = unit} <- referenceProductOf flows units activity
-    guard (not (T.null name || T.null unit))
-    pure FunctionalUnit{fuUnit = unit, fuProduct = name}
-
-{- | The functional unit of an activity a score is asked for. The allocation
-gate guarantees one reference exchange, so what can still be missing is the
-product it names or its unit; an answer without them is refused as any process
-that cannot be scored is, since no text of ours can stand for the product the
-number is for. Routes that do not pass the gate meet the no-reference case here.
--}
-scorableFunctionalUnit :: Database -> Activity -> Either ServiceError FunctionalUnit
-scorableFunctionalUnit db activity =
-    maybe (Left unnamed) Right (functionalUnitOf (dbTechFlows db) (dbUnits db) activity)
+functionalUnitOf :: TechFlowDB -> UnitDB -> Activity -> FunctionalUnit
+functionalUnitOf flows units activity =
+    FunctionalUnit
+        { fuUnit = named (rpUnit <$> reference) (activityUnit activity)
+        , fuProduct = named (rpName <$> reference) (activityName activity)
+        }
   where
-    unnamed :: ServiceError
-    unnamed = NotScorable ("Activity \"" <> activityName activity <> "\" cannot be scored: it has no reference product the database can name, with its unit")
+    reference :: Maybe ReferenceProductInfo
+    reference = referenceProductOf flows units activity
+
+    named :: Maybe Text -> Text -> Text
+    named (Just found) _ | not (T.null found) = found
+    named _ fallback = fallback
+
+-- | The functional unit of an activity of a database.
+functionalUnitIn :: Database -> Activity -> FunctionalUnit
+functionalUnitIn db = functionalUnitOf (dbTechFlows db) (dbUnits db)
 
 {- | Build an 'ActivitySummary' from a (ProcessId, Activity) pair. Encapsulates
 the reference-product + allocation + native-type projection shared by

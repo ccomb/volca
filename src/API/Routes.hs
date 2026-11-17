@@ -587,10 +587,6 @@ resolveOrThrow db processIdText = do
     either throwServiceError pure (Service.validateProcessIdInMatrixIndex db pid)
     pure (pid, act)
 
--- | What the scores of an activity 'resolveOrThrow' returned are for.
-functionalUnitOrThrow :: Database -> Activity -> AppM FunctionalUnit
-functionalUnitOrThrow db = either throwServiceError pure . Service.scorableFunctionalUnit db
-
 {- | Pure mapping from a domain 'Service.ServiceError' to the HTTP error it
 surfaces as. Every constructor is a client-supplied invariant breakage, so all
 map to 4xx/422 – never 5xx. Kept pure (and separate from 'throwServiceError')
@@ -983,7 +979,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode scoreLines = 
         badRequest "What each line adds to the score is given without substitutions: a substituted supplier answers no line of the activity."
     withRequestDatabase dbName mSub $ \db sharedSolver -> do
         (actProcessId, activity) <- resolveOrThrow db processIdText
-        functionalUnit <- functionalUnitOrThrow db activity
+        let functionalUnit = Service.functionalUnitIn db activity
         (methods, scoringSets) <- loadCollection collectionName
         t0 <- liftIO getCurrentTime
         sol <- crossDBSolutionFor dbName db sharedSolver actProcessId mSub >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
@@ -1222,10 +1218,10 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
             method <- loadMethodInCollection collectionName methodText
             pure whole{mcMethods = [method], mcScoringSets = []}
     let resolved =
-            [ (pidText, Service.resolveScorable db pidText >>= \(pidNum, act) -> (pidNum,act,) <$> Service.scorableFunctionalUnit db act)
+            [ (pidText, Service.resolveScorable db pidText)
             | pidText <- birProcessIds req
             ]
-        valid = [BatchTarget pidText pidNum act functionalUnit | (pidText, Right (pidNum, act, functionalUnit)) <- resolved]
+        valid = [BatchTarget pidText pidNum act (Service.functionalUnitIn db act) | (pidText, Right (pidNum, act)) <- resolved]
         notFound = [pidText | (pidText, Left (Service.ActivityNotFound _)) <- resolved]
         unscorable = [pidText | (pidText, Left (Service.NotScorable _)) <- resolved]
         -- An under-specified id is unusable as sent, like a malformed one, and
@@ -2356,7 +2352,7 @@ activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam 
     withRequestDatabase dbName mSub $ \db sharedSolver -> do
         method <- loadMethodInCollection collectionName methodIdText
         (processId, activity) <- resolveOrThrow db processIdText
-        functionalUnit <- functionalUnitOrThrow db activity
+        let functionalUnit = Service.functionalUnitIn db activity
         sol <- crossDBSolutionFor dbName db sharedSolver processId mSub
         ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
         cutoffs <- liftIO (Impact.licencedCutoffs dbManager ls)
@@ -2387,7 +2383,7 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
     (db, sharedSolver) <- requireDatabaseByName dbName
     method <- loadMethodInCollection collectionName methodIdText
     (processId, activity) <- resolveOrThrow db processIdText
-    functionalUnit <- functionalUnitOrThrow db activity
+    let functionalUnit = Service.functionalUnitIn db activity
     eRes <- liftIO $ Service.computeSensitivities db sharedSolver processId (srPerturbations senReq)
     (baselineX, perResults) <- either throwServiceError pure eRes
     unitCfg <- liftIO $ getMergedUnitConfig dbManager
@@ -2455,7 +2451,7 @@ postReducedModel dbName processIdText collectionName mExcludeLT ReducedModelRequ
     dbManager <- asks aeDbManager
     (db, solver) <- requireDatabaseByName dbName
     (root, rootActivity) <- resolveOrThrow db processIdText
-    functionalUnit <- functionalUnitOrThrow db rootActivity
+    let functionalUnit = Service.functionalUnitIn db rootActivity
     (methods, scoringSets) <- loadCollection collectionName
     unitCfg <- liftIO (getMergedUnitConfig dbManager)
     free <- either throwServiceError pure (traverse (\ParameterName{pnProcess = process, pnName = name} -> (,name) <$> traverse (fmap fst . Service.resolveActivityAndProcessId db) process) names)
@@ -2974,7 +2970,7 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId activity method -> do
         dbManager <- asks aeDbManager
-        functionalUnit <- functionalUnitOrThrow db activity
+        let functionalUnit = Service.functionalUnitIn db activity
         let lim = fromMaybe 20 limitParam
             ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
         (mFlows, _) <- liftIO $ DM.getMergedFlowMetadata dbManager
@@ -3006,7 +3002,7 @@ getContributingActivities dbName processIdText collectionName methodIdText limit
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId activity method -> do
         dbManager <- asks aeDbManager
-        functionalUnit <- functionalUnitOrThrow db activity
+        let functionalUnit = Service.functionalUnitIn db activity
         let lim = fromMaybe 10 limitParam
             ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
         sol <-
@@ -3092,7 +3088,7 @@ withActivityAndScore ScoreQuery{sqDbName = dbName, sqCollection = collectionName
     (methods, scoringSets) <- loadCollection collectionName
     rs <- either refused pure (Score.resolveScore methods scoringSets ref)
     (pid, activity) <- resolveOrThrow db processIdText
-    functionalUnit <- functionalUnitOrThrow db activity
+    let functionalUnit = Service.functionalUnitIn db activity
     sol <-
         solutionWithDeps dbName db sharedSolver pid
             >>= liftIO . Impact.withLongTermPolicy dbManager (longTermModeFromExclude (fromMaybe False mExcludeLT))

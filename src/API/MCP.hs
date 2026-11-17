@@ -2565,7 +2565,7 @@ loadLcaRequest dbManager args = do
     ld <- requireDatabase dbManager dbName
     (col, method) <- ExceptT (resolveMethod dbManager mCol methodIdText)
     (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
-    functionalUnit <- liftService (Service.scorableFunctionalUnit (ldDatabase ld) act)
+    let functionalUnit = Service.functionalUnitIn (ldDatabase ld) act
     pure
         LcaRequest
             { lrDbName = dbName
@@ -2701,7 +2701,7 @@ loadScoreRequest dbManager args = do
     mc <- maybe (throwE (collectionNotLoadedMessage collName (M.keys loaded))) pure (M.lookup collName loaded)
     rs <- except (first Score.refusalMessage (Score.resolveScore (mcMethods mc) (mcScoringSets mc) ref))
     (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
-    functionalUnit <- liftService (Service.scorableFunctionalUnit (ldDatabase ld) act)
+    let functionalUnit = Service.functionalUnitIn (ldDatabase ld) act
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     solved <-
         ExceptT $

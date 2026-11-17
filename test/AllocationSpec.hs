@@ -253,7 +253,7 @@ spec = do
         it "names one unit of the product, not the amount the block states" $ do
             let processes = NE.toList (allocate declaredOn block)
             map (Service.functionalUnitOf flows units) processes
-                `shouldBe` [Just (FunctionalUnit "kg" "cheese"), Just (FunctionalUnit "MJ" "whey"), Just (FunctionalUnit "kg" "cream")]
+                `shouldBe` [FunctionalUnit "kg" "cheese", FunctionalUnit "MJ" "whey", FunctionalUnit "kg" "cream"]
 
     describe "allocate normalises first, as the EcoSpold parsers used to" $ do
         it "drops a zero-amount coproduct the source states no share for" $ do

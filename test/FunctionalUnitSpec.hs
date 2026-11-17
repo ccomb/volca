@@ -9,11 +9,9 @@ everywhere.
 -}
 module FunctionalUnitSpec (spec) where
 
-import Control.Monad (void)
 import Data.Aeson (Value (..), object, toJSON, (.=))
 import Data.Aeson.Key (Key)
 import qualified Data.Aeson.KeyMap as KM
-import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
@@ -47,7 +45,7 @@ import Database.Manager (CollectionName (..))
 import DependencyLicenceSpec (climate, collection, dependency, managerOn, root, rootPid, runIn)
 import FlowContributionSpec (collectionName, mcpPayload, methodIdText, productD, runOk)
 import Method.Types (Method (..))
-import Types (Database (..), Licence (..))
+import Types (Licence (..))
 
 productDUnit :: FunctionalUnit
 productDUnit = FunctionalUnit "kg" "product D"
@@ -78,12 +76,14 @@ spec = describe "the functional unit of a computed answer" $ do
             )
             `shouldSatisfy` all (== productDUnit)
 
-    it "refuses a process whose reference names no product, in a batch and alone" $ do
-        manager <- managerOn root{dbTechFlows = M.empty} dependency LicenceUnstated
-        batch <- runIn manager (postImpactsBatch "root" (CollectionName collection) Nothing Nothing (BatchImpactsRequest [rootPid] []))
-        fmap (\b -> (birUnscorable b, length (birResults b))) batch `shouldBe` Right ([rootPid], 0)
-        alone <- runIn manager (getActivityLCIA "root" rootPid (CollectionName collection) (UUID.toText (methodId climate)) Nothing)
-        void alone `shouldBe` Left 422
+    it "is the activity's own name and unit for a process whose reference names no product" $ do
+        -- The fixture's root makes a product its tech-flow table does not hold.
+        manager <- managerOn root dependency LicenceUnstated
+        let collection' = CollectionName collection
+        alone <- runIn manager (getActivityLCIA "root" rootPid collection' (UUID.toText (methodId climate)) Nothing)
+        batch <- runIn manager (postImpactsBatch "root" collection' Nothing Nothing (BatchImpactsRequest [rootPid] []))
+        (fmap lrFunctionalUnit alone, fmap (map (lbrFunctionalUnit . bieImpacts) . birResults) batch)
+            `shouldBe` (Right (FunctionalUnit "kg" "act-FR"), Right [FunctionalUnit "kg" "act-FR"])
 
     it "is the object amount, unit, product under each MCP tool's own key" $ do
         let expectedJson = object ["amount" .= (1 :: Int), "unit" .= ("kg" :: Text), "product" .= ("product D" :: Text)]

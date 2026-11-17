@@ -349,6 +349,7 @@ spec = describe "a database at other values of its parameters" $ do
             callTool anonymous manager [] Nothing Nothing noRequestId "get_reduced_model" . KM.fromList $
                 [("database", String "bakery"), ("process_id", String loaf), ("collection", String "model"), ("parameters", toJSON names)]
         (Object <$> payloadOf reply) `shouldBe` Just (toJSON model)
+        (KM.lookup "functionalUnit" =<< payloadOf reply) `shouldBe` Just (toJSON (FunctionalUnit "kg" "loaf"))
 
     describe "a block split by its shares" $
         it "reads a named line as its source wrote it, so every formula still gives its amount" $ do
