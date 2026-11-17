@@ -242,6 +242,7 @@ data GraphExport = GraphExport
     { geNodes :: [GraphNode]
     , geEdges :: [GraphEdge]
     , geUnitGroups :: M.Map Text Text -- Unit to unit group mapping
+    , geFunctionalUnit :: FunctionalUnit -- What the cumulative amounts of the nodes are for
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped GraphExport)

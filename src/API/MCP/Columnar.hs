@@ -29,8 +29,8 @@ import API.MCP.Enrich (scoreActivityWebUrl)
 import API.Types (
     BatchImpactsEntry (..),
     BatchImpactsResponse (..),
+    FunctionalUnit,
     LCIABatchResult (..),
-    LCIAResult (..),
     ScoringIndicator (..),
     UnsolvableEntry (..),
     WithheldCutoffs (..),
@@ -39,7 +39,7 @@ import Data.Aeson (Value (..), object, toJSON, (.=))
 import Data.Indexing (groupInOrder)
 import qualified Data.List as L
 import qualified Data.Map as M
-import Data.Maybe (isJust, mapMaybe, maybeToList)
+import Data.Maybe (isJust, maybeToList)
 import Data.Ord (comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -95,7 +95,7 @@ the columnar JSON shape:
 @
 { "scoring_set":     "PEF"
 , "scoring_unit":    "µPts PEF"
-, "functional_unit": "1.00 cubic meter of ..."   -- only when all rows agree
+, "functional_unit": {"amount": 1, "unit": "m3", "product": "..."}   -- only when all rows agree
 , "columns": ["activity_name", "process_id", "web_url", "total", "acd", ...]
 , "rows":    [[...], [...], ...]
 , "not_found": [...]
@@ -169,11 +169,9 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
                    | let withheldRows = [(bieProcessId e, lbrWithheldCutoffs (bieImpacts e)) | e <- cutoffRows, not (null (lbrWithheldCutoffs (bieImpacts e)))]
                    , not (null withheldRows)
                    ]
-    rowFUOf :: BatchImpactsEntry -> Maybe Text
-    rowFUOf e = case lbrResults (bieImpacts e) of
-        r : _ -> Just (lrFunctionalUnit r)
-        [] -> Nothing
-    uniqueFUs = L.nub (mapMaybe rowFUOf (birResults bir))
+    rowFUOf :: BatchImpactsEntry -> FunctionalUnit
+    rowFUOf = lbrFunctionalUnit . bieImpacts
+    uniqueFUs = L.nub (map rowFUOf (birResults bir))
     -- When every resolved row shares a single FU, hoist it to top level
     -- and drop the per-row column. Otherwise emit the FU per row to keep
     -- the relabelling honest.
@@ -208,7 +206,7 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
         totalRaw = M.lookup "total" scoreMap
         total = maybe Null toJSON totalRaw
         fuCells
-            | isHeterogeneous = [maybe Null toJSON (rowFUOf e)]
+            | isHeterogeneous = [toJSON (rowFUOf e)]
             | otherwise = []
         tailCells
             | summaryOnly = [dominantIndicatorCell totalRaw indMap]

@@ -13,7 +13,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, httpOrigin, runApp)
 import Config (DatabaseConfig (..))
 import qualified Config
@@ -511,13 +511,14 @@ legacyIndex = maybe M.empty legacyReadings . legacySet
 
 -- | Assemble an LCIABatchResult from the post-characterization parts. Pure.
 mkLCIABatchResult ::
+    FunctionalUnit ->
     [LCIAResult] ->
     [(ScoringSet, ScoringEvaluation)] ->
     [ScoringSet] ->
     [CutoffWasteFlow] ->
     Cutoffs ->
     LCIABatchResult
-mkLCIABatchResult results evaluated scoringSets cutoffWaste cutoffs =
+mkLCIABatchResult functionalUnit results evaluated scoringSets cutoffWaste cutoffs =
     LCIABatchResult
         { lbrResults = results
         , lbrSingleScore = Nothing
@@ -533,6 +534,7 @@ mkLCIABatchResult results evaluated scoringSets cutoffWaste cutoffs =
         , lbrCutoffInputs = cutoffShown cutoffs
         , lbrWithheldCutoffs = cutoffWithheld cutoffs
         , lbrBasis = Nothing
+        , lbrFunctionalUnit = functionalUnit
         }
 
 {- | What the score of one activity rests on: the databases its solution
@@ -584,6 +586,10 @@ resolveOrThrow db processIdText = do
     (pid, act) <- either throwServiceError pure (Service.resolveScorable db processIdText)
     either throwServiceError pure (Service.validateProcessIdInMatrixIndex db pid)
     pure (pid, act)
+
+-- | What the scores of an activity 'resolveOrThrow' returned are for.
+functionalUnitOrThrow :: Database -> Activity -> AppM FunctionalUnit
+functionalUnitOrThrow db = either throwServiceError pure . Service.scorableFunctionalUnit db
 
 {- | Pure mapping from a domain 'Service.ServiceError' to the HTTP error it
 surfaces as. Every constructor is a client-supplied invariant breakage, so all
@@ -769,19 +775,18 @@ computeCategoryResult ::
     Impact.LicencedSolution ->
     -- | the cut-offs that solution met, read once for every method scored on it
     Cutoffs ->
-    Activity ->
+    FunctionalUnit ->
     Int ->
     Maybe (Either Text Double) ->
     Method ->
     IO (Either Text LCIAResult)
-computeCategoryResult dbManager dbName collection db ls cutoffs activity topFlows precomputedScore method = do
+computeCategoryResult dbManager dbName collection db ls cutoffs functionalUnit topFlows precomputedScore method = do
     (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
     mappings <- DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- DM.mapMethodToTablesCached dbManager dbName collection db method
     let sol = Impact.lsWhole ls
         inventory = SharedSolver.csInventory sol
         stats = computeMappingStats mappings
-        functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
     warnUnknownInventoryFlows ("LCIA " <> methodName method) mFlows inventory
     -- A Left is a scoring integrity error (see 'resolveBatchedScore') – it
     -- propagates instead of collapsing to a 0 the consumer can't tell from a
@@ -902,12 +907,13 @@ buildLCIABatchResultCached ::
     Database ->
     ProcessId ->
     Activity ->
+    FunctionalUnit ->
     MethodCollection ->
     SharedSolver.CrossDBSolution ->
     [MethodCtx] ->
     Int ->
     IO (Either Text LCIABatchResult)
-buildLCIABatchResultCached dbManager dbName collectionName db actPid activity collection sol ctxs topFlows = do
+buildLCIABatchResultCached dbManager dbName collectionName db actPid activity functionalUnit collection sol ctxs topFlows = do
     let index = legacyIndex (mcScoringSets collection)
         methods = map mctxMethod ctxs
         inventory = SharedSolver.csInventory sol
@@ -915,10 +921,9 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
     -- Split once: the licences divide the solution, not each method's score.
     ls <- Impact.licencedSolution dbManager SeeDetailedScores sol
     cutoffs <- Impact.licencedCutoffs dbManager ls
-    (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
+    (mFlows, _) <- DM.getMergedFlowMetadata dbManager
     warnUnknownInventoryFlows ("LCIA batch pid=" <> T.pack (show actPid)) mFlows inventory
-    let functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits activity
-        mkResultIO ctx = do
+    let mkResultIO ctx = do
             let method = mctxMethod ctx
             case resolveBatchedScore method scoreMap of
                 Left err -> pure (Left (err <> " (pid=" <> T.pack (show actPid) <> ")"))
@@ -955,7 +960,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
             let rawScoreMap = rawScoreMapByName results
             evaluated <- computeAllScoringSets (mcScoringSets collection) rawScoreMap
             licence <- fromMaybe LicenceUnstated <$> DM.databaseLicence dbManager dbName
-            pure (Right (Service.withholdBatch dbName licence (mkLCIABatchResult results evaluated (mcScoringSets collection) (Service.buildCutoffWaste db activity) cutoffs)))
+            pure (Right (Service.withholdBatch dbName licence (mkLCIABatchResult functionalUnit results evaluated (mcScoringSets collection) (Service.buildCutoffWaste db activity) cutoffs)))
 
 -- | Whether a score also says what each line of the activity adds to it.
 data ScoreLines = WithoutLines | WithLines
@@ -978,6 +983,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode scoreLines = 
         badRequest "What each line adds to the score is given without substitutions: a substituted supplier answers no line of the activity."
     withRequestDatabase dbName mSub $ \db sharedSolver -> do
         (actProcessId, activity) <- resolveOrThrow db processIdText
+        functionalUnit <- functionalUnitOrThrow db activity
         (methods, scoringSets) <- loadCollection collectionName
         t0 <- liftIO getCurrentTime
         sol <- crossDBSolutionFor dbName db sharedSolver actProcessId mSub >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
@@ -1005,7 +1011,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode scoreLines = 
         rawResultsE <-
             liftIO $
                 mapConcurrently
-                    (\m -> computeCategoryResult dbManager dbName collectionName db ls cutoffs activity 5 (Just (resolveBatchedScore m scoreMap)) m)
+                    (\m -> computeCategoryResult dbManager dbName collectionName db ls cutoffs functionalUnit 5 (Just (resolveBatchedScore m scoreMap)) m)
                     methods
         rawResults <- either scoringError pure (sequence rawResultsE)
         licence <- DBHandlers.servedLicence dbName
@@ -1033,7 +1039,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode scoreLines = 
                             <> "': "
                             <> intercalate ", " [T.unpack k <> "=" <> showFFloat (Just 6) v "" | (k, v) <- M.toList scores]
         basis <- liftIO (activityBasis dbManager collectionName sol mSub)
-        pure (Service.withholdBatch dbName licence (mkLCIABatchResult results evaluated scoringSets (Service.buildCutoffWaste db activity) cutoffs)){lbrBasis = Just basis}
+        pure (Service.withholdBatch dbName licence (mkLCIABatchResult functionalUnit results evaluated scoringSets (Service.buildCutoffWaste db activity) cutoffs)){lbrBasis = Just basis}
 
 {- | What each line of a process adds to each method's score, by method, each
 line by its position. One more unit of the process's product puts each line's
@@ -1096,12 +1102,13 @@ data BatchScope = BatchScope
     }
 
 {- | One activity a batch asks about: the id as the caller wrote it, the id it
-resolved to, and the activity that id names.
+resolved to, the activity that id names, and what its scores are for.
 -}
 data BatchTarget = BatchTarget
     { btRequestedId :: !Text
     , btProcessId :: !ProcessId
     , btActivity :: !Activity
+    , btFunctionalUnit :: !FunctionalUnit
     }
 
 {- | Score the targets of a batch, each one from its solve to its entry before
@@ -1149,6 +1156,7 @@ scoreTargets scope targets = do
                 (bsDb scope)
                 (btProcessId target)
                 (btActivity target)
+                (btFunctionalUnit target)
                 (bsCollection scope)
                 sol
                 (bsContexts scope)
@@ -1214,10 +1222,10 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
             method <- loadMethodInCollection collectionName methodText
             pure whole{mcMethods = [method], mcScoringSets = []}
     let resolved =
-            [ (pidText, Service.resolveScorable db pidText)
+            [ (pidText, Service.resolveScorable db pidText >>= \(pidNum, act) -> (pidNum,act,) <$> Service.scorableFunctionalUnit db act)
             | pidText <- birProcessIds req
             ]
-        valid = [BatchTarget pidText pidNum act | (pidText, Right (pidNum, act)) <- resolved]
+        valid = [BatchTarget pidText pidNum act functionalUnit | (pidText, Right (pidNum, act, functionalUnit)) <- resolved]
         notFound = [pidText | (pidText, Left (Service.ActivityNotFound _)) <- resolved]
         unscorable = [pidText | (pidText, Left (Service.NotScorable _)) <- resolved]
         -- An under-specified id is unusable as sent, like a malformed one, and
@@ -2348,10 +2356,11 @@ activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam 
     withRequestDatabase dbName mSub $ \db sharedSolver -> do
         method <- loadMethodInCollection collectionName methodIdText
         (processId, activity) <- resolveOrThrow db processIdText
+        functionalUnit <- functionalUnitOrThrow db activity
         sol <- crossDBSolutionFor dbName db sharedSolver processId mSub
         ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
         cutoffs <- liftIO (Impact.licencedCutoffs dbManager ls)
-        resultE <- liftIO $ computeCategoryResult dbManager dbName collectionName db ls cutoffs activity (fromMaybe 5 topFlowsParam) Nothing method
+        resultE <- liftIO $ computeCategoryResult dbManager dbName collectionName db ls cutoffs functionalUnit (fromMaybe 5 topFlowsParam) Nothing method
         result <- either scoringError pure resultE
         when (isNothing mSub) $ liftIO $ logLCIAResult result method
         licence <- DBHandlers.servedLicence dbName
@@ -2378,6 +2387,7 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
     (db, sharedSolver) <- requireDatabaseByName dbName
     method <- loadMethodInCollection collectionName methodIdText
     (processId, activity) <- resolveOrThrow db processIdText
+    functionalUnit <- functionalUnitOrThrow db activity
     eRes <- liftIO $ Service.computeSensitivities db sharedSolver processId (srPerturbations senReq)
     (baselineX, perResults) <- either throwServiceError pure eRes
     unitCfg <- liftIO $ getMergedUnitConfig dbManager
@@ -2404,7 +2414,7 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
                     Right sol -> do
                         ls <- Impact.licencedSolution dbManager SeeDetailedScores sol
                         cutoffs <- Impact.licencedCutoffs dbManager ls
-                        eLcia <- computeCategoryResult dbManager dbName collectionName db ls cutoffs activity 5 Nothing method
+                        eLcia <- computeCategoryResult dbManager dbName collectionName db ls cutoffs functionalUnit 5 Nothing method
                         pure $ case eLcia of
                             Left err -> PerturbedEntry p (Left err)
                             Right lcia -> PerturbedEntry p (Right (lcia, lrScore lcia - lrScore baselineLcia))
@@ -2418,7 +2428,7 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
     baselineCutoffs <- liftIO (Impact.licencedCutoffs dbManager baselineLs)
     eBaselineLcia <-
         liftIO $
-            computeCategoryResult dbManager dbName collectionName db baselineLs baselineCutoffs activity 5 Nothing method
+            computeCategoryResult dbManager dbName collectionName db baselineLs baselineCutoffs functionalUnit 5 Nothing method
     baselineLcia <- either scoringError pure eBaselineLcia
     perturbed <-
         liftIO $
@@ -2430,6 +2440,7 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
             , srPerturbed = perturbed
             , srCutoffInputs = cutoffShown baselineCutoffs
             , srWithheldCutoffs = cutoffWithheld baselineCutoffs
+            , srFunctionalUnit = functionalUnit
             }
 
 {- | A process's scores as a function of the parameters named, for a program to
@@ -2443,7 +2454,8 @@ postReducedModel dbName processIdText collectionName mExcludeLT ReducedModelRequ
     when (null names) $ badRequest "Name at least one parameter: the model is a function of those."
     dbManager <- asks aeDbManager
     (db, solver) <- requireDatabaseByName dbName
-    (root, _) <- resolveOrThrow db processIdText
+    (root, rootActivity) <- resolveOrThrow db processIdText
+    functionalUnit <- functionalUnitOrThrow db rootActivity
     (methods, scoringSets) <- loadCollection collectionName
     unitCfg <- liftIO (getMergedUnitConfig dbManager)
     free <- either throwServiceError pure (traverse (\ParameterName{pnProcess = process, pnName = name} -> (,name) <$> traverse (fmap fst . Service.resolveActivityAndProcessId db) process) names)
@@ -2466,6 +2478,7 @@ postReducedModel dbName processIdText collectionName mExcludeLT ReducedModelRequ
                 { rdmMethods = [ReducedMethod (methodId m) (methodName m) (methodUnit m) | m <- methods]
                 , rdmExcludeLongTerm = ltMode == ExcludeLongTerm
                 , rdmBaseline = baseline
+                , rdmFunctionalUnit = functionalUnit
                 , rdmParameters = parameters
                 , rdmProcesses = processes
                 , rdmSuppliers = [ModelSupplier (supplierText db s) (supplierDatabase dbName s) (saScores a) (saScalings a) | (s, a) <- answered]
@@ -2959,8 +2972,9 @@ getMethodCollectionComparison collection otherParam forcedPairs categoryParam li
 getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
 getContributingFlows dbName processIdText collectionName methodIdText limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
-    withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
+    withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId activity method -> do
         dbManager <- asks aeDbManager
+        functionalUnit <- functionalUnitOrThrow db activity
         let lim = fromMaybe 20 limitParam
             ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
         (mFlows, _) <- liftIO $ DM.getMergedFlowMetadata dbManager
@@ -2984,13 +2998,15 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
                 , cfrCutoffInputs = cutoffShown cutoffs
                 , cfrWithheldCutoffs = cutoffWithheld cutoffs
                 , cfrBasis = basis
+                , cfrFunctionalUnit = functionalUnit
                 }
 
 getContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
 getContributingActivities dbName processIdText collectionName methodIdText limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
-    withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId _ method -> do
+    withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId activity method -> do
         dbManager <- asks aeDbManager
+        functionalUnit <- functionalUnitOrThrow db activity
         let lim = fromMaybe 10 limitParam
             ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
         sol <-
@@ -3003,7 +3019,7 @@ getContributingActivities dbName processIdText collectionName methodIdText limit
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
         cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
         basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
-        liftIO $ activitiesResult dbManager dbName Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs, hdBasis = basis} lim (Impact.splitProcessParts withheld contributions)
+        liftIO $ activitiesResult dbManager dbName Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs, hdBasis = basis, hdFunctionalUnit = functionalUnit} lim (Impact.splitProcessParts withheld contributions)
 
 -- | What a list of contributions answers for, as the answer names it.
 data Heading = Heading
@@ -3013,6 +3029,8 @@ data Heading = Heading
     -- ^ The cut-offs of the solution the list is read from
     , hdBasis :: ScoreBasis
     -- ^ What the score the list adds up to rests on
+    , hdFunctionalUnit :: FunctionalUnit
+    -- ^ What the score the list adds up to is for
     }
 
 {- | The biggest contributing activities of a score, from every activity's
@@ -3041,6 +3059,7 @@ activitiesResult dbManager dbName heading lim Impact.ProcessParts{Impact.ppShown
             , carCutoffInputs = cutoffShown (hdCutoffs heading)
             , carWithheldCutoffs = cutoffWithheld (hdCutoffs heading)
             , carBasis = hdBasis heading
+            , carFunctionalUnit = hdFunctionalUnit heading
             }
   where
     score :: Double
@@ -3072,14 +3091,15 @@ withActivityAndScore ScoreQuery{sqDbName = dbName, sqCollection = collectionName
     (db, sharedSolver) <- requireDatabaseByName dbName
     (methods, scoringSets) <- loadCollection collectionName
     rs <- either refused pure (Score.resolveScore methods scoringSets ref)
-    (pid, _) <- resolveOrThrow db processIdText
+    (pid, activity) <- resolveOrThrow db processIdText
+    functionalUnit <- functionalUnitOrThrow db activity
     sol <-
         solutionWithDeps dbName db sharedSolver pid
             >>= liftIO . Impact.withLongTermPolicy dbManager (longTermModeFromExclude (fromMaybe False mExcludeLT))
     cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
     basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
     liftIO (k Score.Source{srcManager = dbManager, srcDbName = dbName, srcDatabase = db, srcCollection = collectionName} rs sol)
-        >>= either refused (pure . (,) (scoreHeading rs cutoffs basis))
+        >>= either refused (pure . (,) (scoreHeading rs cutoffs basis functionalUnit))
   where
     refused :: Score.ScoreRefusal -> AppM b
     refused = \case
@@ -3090,8 +3110,8 @@ withActivityAndScore ScoreQuery{sqDbName = dbName, sqCollection = collectionName
     utf8Body :: Text -> BSL.ByteString
     utf8Body = BSL.fromStrict . T.encodeUtf8
 
-scoreHeading :: Score.ResolvedScore -> Cutoffs -> ScoreBasis -> Heading
-scoreHeading rs cutoffs basis = Heading{hdName = Score.scoreTitle rs, hdUnit = Score.scoreUnit rs, hdCutoffs = cutoffs, hdBasis = basis}
+scoreHeading :: Score.ResolvedScore -> Cutoffs -> ScoreBasis -> FunctionalUnit -> Heading
+scoreHeading rs cutoffs basis functionalUnit = Heading{hdName = Score.scoreTitle rs, hdUnit = Score.scoreUnit rs, hdCutoffs = cutoffs, hdBasis = basis, hdFunctionalUnit = functionalUnit}
 
 getScoreContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
 getScoreContributingActivities dbName processIdText collectionName setName scoreName limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
@@ -3135,6 +3155,7 @@ getScoreContributingFlows dbName processIdText collectionName setName scoreName 
             , cfrCutoffInputs = cutoffShown (hdCutoffs heading)
             , cfrWithheldCutoffs = cutoffWithheld (hdCutoffs heading)
             , cfrBasis = hdBasis heading
+            , cfrFunctionalUnit = hdFunctionalUnit heading
             }
 
 getFlowDetail :: Text -> Text -> AppM FlowDetail

@@ -19,7 +19,7 @@ module ParametricSpec (spec) where
 
 import API.MCP (callTool, noRequestId)
 import API.Routes (ScoreLines (..), activityLCIABatchH, batchImpactsH, computedQualityReportH, postReducedModel)
-import API.Types (ActivityForAPI (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), ComputedQualityReportAPI (..), ExchangeContribution (..), ExchangeWithUnit (..), FreeParameter (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), QualityCheckAPI (..), QualityOffenderAPI (..), ReducedModel (..), ReducedModelRequest (..), Substitution (..), SubstitutionRequest (..), SubstitutionScope (..), UnsolvableEntry (..), toSelector)
+import API.Types (ActivityForAPI (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), ComputedQualityReportAPI (..), ExchangeContribution (..), ExchangeWithUnit (..), FreeParameter (..), FunctionalUnit (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), QualityCheckAPI (..), QualityOffenderAPI (..), ReducedModel (..), ReducedModelRequest (..), Substitution (..), SubstitutionRequest (..), SubstitutionScope (..), UnsolvableEntry (..), toSelector)
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
@@ -278,6 +278,7 @@ spec = describe "a database at other values of its parameters" $ do
         forM_ [IncludeLongTerm, ExcludeLongTerm] $ \policy -> do
             model <- answer manager (postReducedModel "bakery" loaf (CollectionName "model") (Just (policy == ExcludeLongTerm)) (ReducedModelRequest names))
             map mprName (rdmProcesses model) `shouldMatchList` ["bread", "flour", "loaf", "dough"]
+            rdmFunctionalUnit model `shouldBe` FunctionalUnit "kg" "loaf"
             forM_ sets $ \values -> do
                 engine <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") (Just (SubstitutionRequest [] (zipWith (\n v -> ParameterValue (pnProcess n) (pnName n) v) names values))) policy WithoutLines)
                 (scores, scoring) <- either (fail . T.unpack) pure (modelAt model values)

@@ -154,9 +154,8 @@ webUrlField :: Maybe Text -> Text -> [Pair]
 webUrlField mBase path = foldMap (\b -> ["web_url" .= (b <> path)]) mBase
 
 {- | Reduce a serialized 'LCIABatchResult' to its aggregates for bulk
-transport: hoist @functionalUnit@ to the top level (same value on
-every entry anyway) and drop the per-method @results@ array entirely.
-What stays: @singleScore@, @scoringResults@, @scoringIndicators@,
+transport: drop the per-method @results@ array entirely.
+What stays: @functionalUnit@, @singleScore@, @scoringResults@, @scoringIndicators@,
 @scoringUnits@, @availableNWsets@, @normWeightSetName@.
 
 A ranking caller has everything it needs in those aggregates. A caller
@@ -164,20 +163,19 @@ that wants per-method drill-down on a specific activity calls
 @score_activity@ on that one process_id.
 -}
 summarizeLCIAPanel :: Value -> Value
-summarizeLCIAPanel = overObject (KM.delete resultsKey . hoistFunctionalUnit)
+summarizeLCIAPanel = overObject (KM.delete resultsKey)
 
 -- ---------------------------------------------------------------------------
 -- payload slimming
 -- ---------------------------------------------------------------------------
 
-{- | Slim down a serialized 'LCIABatchResult' for MCP transport. Two
-edits, both purely about wire weight (no information lost):
+{- | Slim down a serialized 'LCIABatchResult' for MCP transport. Each
+edit is purely about wire weight (no information lost):
 
-  * Hoist @functionalUnit@ from @results[0]@ to the top level. Every
-    entry in @results@ shares the same value (one panel = one activity
-    = one functional unit), so repeating it 27 times is pure bloat.
-    The lifted copy lives next to @results@ and the per-entry copies
-    are removed.
+  * Drop @functionalUnit@ from every entry. Every entry in @results@
+    shares the one the panel carries beside @results@ (one panel = one
+    activity = one functional unit), so repeating it 27 times is pure
+    bloat.
   * Drop @web_url@ from every entry. The panel-level @web_url@ added
     by 'addWebUrl' already lands on the page that lists every method;
     a deep link per method would be redundant.
@@ -188,37 +186,15 @@ Defensive on the shape: missing @results@, empty @results@, or entries
 without a @functionalUnit@ are all passed through cleanly.
 -}
 slimLCIAPanel :: Value -> Value
-slimLCIAPanel = overObject (stripWebUrlFromEntries . hoistFunctionalUnit)
+slimLCIAPanel = overObject stripEntries
   where
-    stripWebUrlFromEntries = adjustKey resultsKey (overArray (overObject (KM.delete webUrlKey . KM.delete cutoffInputsKey . KM.delete withheldCutoffsKey . KM.delete basisKey)))
+    stripEntries = adjustKey resultsKey (overArray (overObject (KM.delete functionalUnitKey . KM.delete webUrlKey . KM.delete cutoffInputsKey . KM.delete withheldCutoffsKey . KM.delete basisKey)))
 
     -- Every method of a panel is read on one solution: its cut-offs and what it rests on stand once, beside the results.
     cutoffInputsKey, withheldCutoffsKey, basisKey :: Key.Key
     cutoffInputsKey = fromText "cutoffInputs"
     withheldCutoffsKey = fromText "withheldCutoffs"
     basisKey = fromText "basis"
-
-{- | Copy @results[0].functionalUnit@ to the top level of the panel and
-remove it from every entry. The value is constant across @results@ by
-construction (one panel = one activity = one functional unit), so the
-lifted copy carries the same information at a fraction of the bytes.
-
-A missing @results@, an empty @results@, or a first entry without a
-@functionalUnit@ all pass through cleanly -- nothing is invented.
--}
-hoistFunctionalUnit :: KeyMap Value -> KeyMap Value
-hoistFunctionalUnit km = case firstFunctionalUnit km of
-    Just fu -> KM.insert functionalUnitKey fu (stripFromEntries km)
-    Nothing -> km
-  where
-    stripFromEntries = adjustKey resultsKey (overArray (overObject (KM.delete functionalUnitKey)))
-
-firstFunctionalUnit :: KeyMap Value -> Maybe Value
-firstFunctionalUnit km = case KM.lookup resultsKey km of
-    Just (Array rs) -> case V.toList rs of
-        Object e : _ -> KM.lookup functionalUnitKey e
-        _ -> Nothing
-    _ -> Nothing
 
 -- ---------------------------------------------------------------------------
 -- scoring_sets filter

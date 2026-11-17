@@ -24,12 +24,17 @@ import API.MCP.Enrich (
     webUrlField,
  )
 import Control.Monad (forM_)
-import Data.Aeson (Value (..), object, (.=))
+import Data.Aeson (Value (..), object, toJSON, (.=))
 import Data.Aeson.Key (fromText)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Text (Text)
 import qualified Data.Vector as V
 import Test.Hspec
+
+import API.Types (FunctionalUnit (..))
+
+butter :: Value
+butter = toJSON (FunctionalUnit "kg" "butter")
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
@@ -129,16 +134,17 @@ spec = do
     describe "slimLCIAPanel" $ do
         let panelWithFnUnit =
                 object
-                    [ "results"
+                    [ "functionalUnit" .= butter
+                    , "results"
                         .= [ object
                                 [ "methodId" .= ("uuid-method-1" :: Text)
-                                , "functionalUnit" .= ("1.0 kg of butter" :: Text)
+                                , "functionalUnit" .= butter
                                 , "web_url" .= ("https://x/should-be-dropped" :: Text)
                                 , "score" .= (1.0 :: Double)
                                 ]
                            , object
                                 [ "methodId" .= ("uuid-method-2" :: Text)
-                                , "functionalUnit" .= ("1.0 kg of butter" :: Text)
+                                , "functionalUnit" .= butter
                                 , "web_url" .= ("https://x/should-be-dropped-too" :: Text)
                                 , "score" .= (2.0 :: Double)
                                 ]
@@ -146,10 +152,9 @@ spec = do
                     , "scoringResults" .= object []
                     ]
 
-        it "hoists functionalUnit from results[0] to the top level" $ do
+        it "keeps the panel's functionalUnit at the top level" $ do
             let Object km = slimLCIAPanel panelWithFnUnit
-            KM.lookup (fromText "functionalUnit") km
-                `shouldBe` Just (String "1.0 kg of butter")
+            KM.lookup (fromText "functionalUnit") km `shouldBe` Just butter
 
         it "drops functionalUnit from every entry in results" $ do
             let Object km = slimLCIAPanel panelWithFnUnit
@@ -171,7 +176,7 @@ spec = do
             slimLCIAPanel (object ["scoringResults" .= object []])
                 `shouldBe` object ["scoringResults" .= object []]
 
-        it "handles a panel with an empty results array (no fn unit to lift)" $ do
+        it "handles a panel with an empty results array" $ do
             let v = object ["results" .= ([] :: [Value]), "scoringResults" .= object []]
                 Object km = slimLCIAPanel v
             KM.lookup (fromText "functionalUnit") km `shouldBe` Nothing
@@ -184,15 +189,16 @@ spec = do
     describe "summarizeLCIAPanel" $ do
         let panel =
                 object
-                    [ "results"
+                    [ "functionalUnit" .= butter
+                    , "results"
                         .= [ object
                                 [ "methodId" .= ("m1" :: Text)
-                                , "functionalUnit" .= ("1.0 kg of butter" :: Text)
+                                , "functionalUnit" .= butter
                                 , "score" .= (1.0 :: Double)
                                 ]
                            , object
                                 [ "methodId" .= ("m2" :: Text)
-                                , "functionalUnit" .= ("1.0 kg of butter" :: Text)
+                                , "functionalUnit" .= butter
                                 , "score" .= (2.0 :: Double)
                                 ]
                            ]
@@ -204,10 +210,9 @@ spec = do
             let Object km = summarizeLCIAPanel panel
             KM.lookup (fromText "results") km `shouldBe` Nothing
 
-        it "hoists functionalUnit from results[0] to the top level" $ do
+        it "keeps the panel's functionalUnit at the top level" $ do
             let Object km = summarizeLCIAPanel panel
-            KM.lookup (fromText "functionalUnit") km
-                `shouldBe` Just (String "1.0 kg of butter")
+            KM.lookup (fromText "functionalUnit") km `shouldBe` Just butter
 
         it "preserves scoringResults and scoringIndicators" $ do
             let Object km = summarizeLCIAPanel panel
@@ -216,7 +221,7 @@ spec = do
             KM.lookup (fromText "scoringIndicators") km
                 `shouldBe` Just (object [])
 
-        it "handles an empty results array (no fn unit to hoist)" $ do
+        it "handles an empty results array" $ do
             let v = object ["results" .= ([] :: [Value]), "scoringResults" .= object []]
                 Object km = summarizeLCIAPanel v
             KM.lookup (fromText "functionalUnit") km `shouldBe` Nothing
@@ -256,10 +261,11 @@ spec = do
     describe "PR #79 – slimLCIAPanel NaN-score edge case" $ do
         let panelWithNaNScore =
                 object
-                    [ "results"
+                    [ "functionalUnit" .= butter
+                    , "results"
                         .= [ object
                                 [ "methodId" .= ("m-nan" :: Text)
-                                , "functionalUnit" .= ("1.0 kg" :: Text)
+                                , "functionalUnit" .= butter
                                 , "score" .= (0 / 0 :: Double)
                                 , "web_url" .= ("https://x/drop" :: Text)
                                 ]
@@ -267,10 +273,10 @@ spec = do
                     , "scoringResults" .= object []
                     ]
 
-        it "slimLCIAPanel leaves a NaN score alone (only drops web_url + hoists fnUnit)" $ do
+        it "slimLCIAPanel leaves a NaN score alone (only drops web_url and the per-entry fnUnit)" $ do
             let Object km = slimLCIAPanel panelWithNaNScore
-            -- top-level functionalUnit lifted, entry has no web_url anymore.
-            KM.lookup (fromText "functionalUnit") km `shouldBe` Just (String "1.0 kg")
+            -- the panel's functionalUnit stays, the entry has no web_url anymore.
+            KM.lookup (fromText "functionalUnit") km `shouldBe` Just butter
             case KM.lookup (fromText "results") km of
                 Just (Array rs) -> case V.toList rs of
                     [Object e] -> do

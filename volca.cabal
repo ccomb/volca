@@ -386,6 +386,7 @@ test-suite lca-tests
                      , BatchImpactsSpec
                      , AcrossCapabilitiesSpec
                      , FlowContributionSpec
+                     , FunctionalUnitSpec
                      , FlowFactorsSpec
                      , MCPEnrichSpec
                      , MCPColumnarSpec

@@ -470,6 +470,40 @@ instance ToSchema ExchangeKind where
                     & type_ ?~ OpenApiString
                     & enum_ ?~ map (toJSON . exchangeKindName) [minBound .. maxBound]
 
+{- | What every computed number of a response is for: one unit of the reference
+product of the process asked, in the unit its matrix column was normalised to.
+
+The type has no amount, so a functional unit other than one cannot be built.
+The wire still says it, so a caller reads the whole sentence from the response
+instead of from documentation.
+-}
+data FunctionalUnit = FunctionalUnit
+    { fuUnit :: !Text
+    , fuProduct :: !Text
+    }
+    deriving (Eq, Show, Generic)
+
+instance NFData FunctionalUnit
+
+instance ToJSON FunctionalUnit where
+    toJSON FunctionalUnit{fuUnit = unit, fuProduct = product'} =
+        object ["amount" .= (1 :: Int), "unit" .= unit, "product" .= product']
+
+instance ToSchema FunctionalUnit where
+    declareNamedSchema _ = do
+        textRef <- declareSchemaRef (Proxy :: Proxy Text)
+        pure $
+            NamedSchema (Just "FunctionalUnit") $
+                mempty
+                    & type_ ?~ OpenApiObject
+                    & properties
+                        .~ InsOrdHashMap.fromList
+                            [ ("amount", Inline (mempty & type_ ?~ OpenApiInteger & enum_ ?~ [toJSON (1 :: Int)]))
+                            , ("unit", textRef)
+                            , ("product", textRef)
+                            ]
+                    & required .~ ["amount", "unit", "product"]
+
 -- FromJSON instances needed for API conversion
 -- (FromJSON (SearchResults a) above)
 

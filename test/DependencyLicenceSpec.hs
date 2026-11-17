@@ -89,9 +89,15 @@ climate =
 collection :: Text
 collection = "dependency-test"
 
--- | A fixture database whose one process makes one unit of its own product.
+{- | A fixture database whose one process makes one unit of its own product,
+a product the database holds, so the score has a unit to be for.
+-}
 producing :: Int -> [(Int, Double)] -> Database
-producing offset emissions = db{dbActivities = V.map (\act -> act{activityLines = packExchanges [referenceOf offset]}) (dbActivities db)}
+producing offset emissions =
+    db
+        { dbActivities = V.map (\act -> act{activityLines = packExchanges [referenceOf offset]}) (dbActivities db)
+        , dbTechFlows = M.singleton (prodUUID offset) (TechnosphereFlow (prodUUID offset) "product" (unitId kgUnit) M.empty Nothing Nothing)
+        }
   where
     db :: Database
     db = mkDB offset ["FR"] emissions

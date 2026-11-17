@@ -899,7 +899,9 @@ description r = case r of
         \'process_id', 'web_url', 'total', 'cutoffs', <indicator keys...>]; \
         \'cutoffs' counts the row's chain inputs no loaded database supplies \
         \(scored zero, listed in 'cutoff_inputs_by_process_id'). \
-        \'functional_unit' top-level when all rows share it, else a column. No \
+        \'functional_unit' ({amount: 1, unit, product}: every score is for one \
+        \unit of the reference product) top-level when all rows share it, else \
+        \a column holding that object per row. No \
         \per-method scores: score_activity gives them. Unresolved IDs: not_found / \
         \invalid; refused allocation: unscorable; no solver answer (a loop \
         \consuming all it makes): unsolvable; one line per reason with its \

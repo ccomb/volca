@@ -7,9 +7,11 @@ exchange names a flow the database does not hold.
 -}
 module ReferenceProductSpec (spec) where
 
+import Data.Aeson (object, toJSON, (.=))
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.UUID (UUID)
 import qualified Data.UUID as UUID
 import Test.Hspec
@@ -23,6 +25,7 @@ import API.Types (
     ConsumerResult (..),
     ConsumersResponse (..),
     DatabaseComparison (..),
+    FunctionalUnit (..),
     InventoryExport (..),
     InventoryMetadata (..),
     SearchResults (..),
@@ -33,6 +36,7 @@ import Service (
     ActivityFilterCore (..),
     ConsumerFilter (..),
     Edges (..),
+    ServiceError (NotScorable),
     SortOrder (..),
     convertActivityForAPI,
     convertToInventoryExport,
@@ -40,9 +44,10 @@ import Service (
     getConsumers,
     mkActivitySummary,
     resolveActivityAndProcessId,
+    scorableFunctionalUnit,
  )
 import Service.Compare (Sides (..), compareDatabases)
-import TestHelpers (shippedGeographies)
+import TestHelpers (mkActivity, mkTechFlow, shippedGeographies)
 import Types (
     Activity (..),
     BioDirection (..),
@@ -83,11 +88,41 @@ spec = describe "an activity's reference product" $ do
                        , (Nothing, Nothing, Nothing)
                        ]
 
-    it "names the functional unit" $ do
-        db <- database 0
-        activities <- mapM (fmap snd . resolved db) [cheese, noReference, strayReference]
-        map (functionalUnitOf (dbTechFlows db) (dbUnits db)) activities
-            `shouldBe` ["1.00 kg of Cheese", "1.00  of ", "1.00 kg of "]
+    describe "its functional unit" $ do
+        it "names one unit of the reference product, not the declared amount" $ do
+            let electricity = uuid 400
+                megajoule = uuid 2
+                declaredFor36 = (techLine electricity 3.6 ReferenceProduct Nothing){techUnitId = megajoule}
+            functionalUnitOf
+                (M.singleton electricity (mkTechFlow electricity "electricity"))
+                (M.singleton megajoule (Unit megajoule "MJ" "MJ" ""))
+                (mkActivity "power plant" [declaredFor36])
+                `shouldBe` Just (FunctionalUnit "MJ" "electricity")
+
+        it "names nothing without a reference product" $ do
+            db <- database 0
+            activities <- mapM (fmap snd . resolved db) [cheese, noReference]
+            map (functionalUnitOf (dbTechFlows db) (dbUnits db)) activities
+                `shouldBe` [Just (FunctionalUnit "kg" "Cheese"), Nothing]
+
+        it "names nothing when the reference product has no name to give" $ do
+            db <- database 0
+            (_, stray) <- resolved db strayReference
+            functionalUnitOf (dbTechFlows db) (dbUnits db) stray `shouldBe` Nothing
+
+        it "is refused as unscorable, never filled with empty text, when the reference names no product" $ do
+            db <- database 0
+            (_, stray) <- resolved db strayReference
+            (_, named) <- resolved db cheese
+            case (scorableFunctionalUnit db named, scorableFunctionalUnit db stray) of
+                (Right fu, Left (NotScorable why)) -> do
+                    fu `shouldBe` FunctionalUnit "kg" "Cheese"
+                    T.unpack why `shouldContain` "cheese ripening"
+                other -> expectationFailure ("unexpected: " <> show other)
+
+        it "is sent as amount 1, unit and product" $
+            toJSON (FunctionalUnit "MJ" "electricity")
+                `shouldBe` object ["amount" .= (1 :: Int), "unit" .= ("MJ" :: Text), "product" .= ("electricity" :: Text)]
 
     it "heads an inventory export" $ do
         db <- database 0

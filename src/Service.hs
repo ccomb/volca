@@ -4,7 +4,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProbableMissEntry (..), ProbableMisses (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, selectorAPI, subAnchorRef, unresolvedFlowName)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), FunctionalUnit (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProbableMissEntry (..), ProbableMisses (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, selectorAPI, subAnchorRef, unresolvedFlowName)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
@@ -822,12 +822,19 @@ Uses efficient sparse matrix operations to extract connections.
 -}
 buildActivityGraph :: Database -> SharedSolver -> Text -> Double -> IO (Either ServiceError GraphExport)
 buildActivityGraph db sharedSolver queryText cutoffPercent =
-    case resolveActivityAndProcessId db queryText >>= \(pid, _) -> (,) pid <$> demandFor db pid of
+    case asked of
         Left err -> pure (Left err)
-        Right (processId, demandVec) -> fmap (graphOf processId) <$> supplyFor db sharedSolver demandVec
+        Right (processId, demandVec, functionalUnit) -> fmap (graphOf functionalUnit processId) <$> supplyFor db sharedSolver demandVec
   where
-    graphOf :: ProcessId -> U.Vector Double -> GraphExport
-    graphOf processId supplyVec =
+    asked :: Either ServiceError (ProcessId, Demand, FunctionalUnit)
+    asked = do
+        (pid, activity) <- resolveActivityAndProcessId db queryText
+        demand <- demandFor db pid
+        functionalUnit <- scorableFunctionalUnit db activity
+        pure (pid, demand, functionalUnit)
+
+    graphOf :: FunctionalUnit -> ProcessId -> U.Vector Double -> GraphExport
+    graphOf functionalUnit processId supplyVec =
         let supplyList = toList supplyVec
             threshold = sum (map abs supplyList) * (cutoffPercent / 100.0)
             significantActivities = selectSignificantActivities threshold processId supplyList
@@ -838,7 +845,7 @@ buildActivityGraph db sharedSolver queryText cutoffPercent =
                     (U.toList (dbTechnosphereTriples db))
             nodes = zipWith (mkGraphNode db) [0 ..] significantActivities
             unitGroups = buildUnitGroups (map gnUnit nodes)
-         in GraphExport nodes edges unitGroups
+         in GraphExport nodes edges unitGroups functionalUnit
 
 -- | Classify units into groups for edge width normalization
 buildUnitGroups :: [Text] -> M.Map Text Text
@@ -1683,12 +1690,28 @@ coefficient of a column by that amount, so a coproduct a source states at
 0.0686462 kg is still scored per kilogram, and a reference product ingested
 as 3.6 mj is still scored per megajoule. Reporting the declared amount here
 described the block, not the number beside it.
+
+'Nothing' for a reference exchange that names no product, as for no reference
+exchange at all: a functional unit is sent whole or not at all.
 -}
-functionalUnitOf :: TechFlowDB -> UnitDB -> Activity -> Text
-functionalUnitOf flows units activity = "1.00 " <> maybe "" rpUnit refProduct <> " of " <> maybe "" rpName refProduct
+functionalUnitOf :: TechFlowDB -> UnitDB -> Activity -> Maybe FunctionalUnit
+functionalUnitOf flows units activity = do
+    ReferenceProductInfo{rpName = name, rpUnit = unit} <- referenceProductOf flows units activity
+    guard (not (T.null name || T.null unit))
+    pure FunctionalUnit{fuUnit = unit, fuProduct = name}
+
+{- | The functional unit of an activity a score is asked for. The allocation
+gate guarantees one reference exchange, so what can still be missing is the
+product it names or its unit; an answer without them is refused as any process
+that cannot be scored is, since no text of ours can stand for the product the
+number is for. Routes that do not pass the gate meet the no-reference case here.
+-}
+scorableFunctionalUnit :: Database -> Activity -> Either ServiceError FunctionalUnit
+scorableFunctionalUnit db activity =
+    maybe (Left unnamed) Right (functionalUnitOf (dbTechFlows db) (dbUnits db) activity)
   where
-    refProduct :: Maybe ReferenceProductInfo
-    refProduct = referenceProductOf flows units activity
+    unnamed :: ServiceError
+    unnamed = NotScorable ("Activity \"" <> activityName activity <> "\" cannot be scored: it has no reference product the database can name, with its unit")
 
 {- | Build an 'ActivitySummary' from a (ProcessId, Activity) pair. Encapsulates
 the reference-product + allocation + native-type projection shared by
