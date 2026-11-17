@@ -2661,8 +2661,10 @@ class Client:
 
         Every scope counts for one unit of the activity's reference product
         (``functional_unit`` of the result), so the ``direct`` exchanges are
-        the dataset's amounts divided by the amount it declares: the totals and
-        the groups are ``filtered_total_per_unit`` and ``quantity_per_unit``.
+        the dataset's amounts divided by what the process makes net of what it
+        consumes of its own product, as every other scope divides them: the
+        totals and the groups are ``filtered_total_per_unit`` and
+        ``quantity_per_unit``.
 
         Args:
             scope: :class:`AggregateScope` member (``DIRECT`` / ``SUPPLY_CHAIN``

@@ -528,8 +528,10 @@ SQL-group-by aggregation over direct exchanges, supply chain, or biosphere flows
 
 Every scope counts for one unit of the activity's reference product
 (``functional_unit`` of the result), so the ``direct`` exchanges are
-the dataset's amounts divided by the amount it declares: the totals and
-the groups are ``filtered_total_per_unit`` and ``quantity_per_unit``.
+the dataset's amounts divided by what the process makes net of what it
+consumes of its own product, as every other scope divides them: the
+totals and the groups are ``filtered_total_per_unit`` and
+``quantity_per_unit``.
 
 Args:
     scope: `AggregateScope` member (``DIRECT`` / ``SUPPLY_CHAIN``
@@ -2797,8 +2799,9 @@ Result of a Client.aggregate() call.
 filters (the top-level number). ``groups`` is the per-bucket breakdown when
 ``group_by`` was set; empty otherwise. Every scope counts for one unit of
 the activity's reference product, ``functional_unit``, so the exchanges of
-``scope="direct"`` are the dataset's amounts divided by the amount it
-declares.
+``scope="direct"`` are the dataset's amounts divided by what the process
+makes net of what it consumes of its own product, as every other scope
+divides them.
 
 | Field | Type | Default |
 |-------|------|---------|

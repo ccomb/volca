@@ -607,7 +607,15 @@ class FunctionalUnit:
 
     @classmethod
     def from_json(cls, d: dict) -> "FunctionalUnit":
-        return cls(amount=float(d["amount"]), unit=d["unit"], product=d["product"])
+        amount = float(d["amount"])
+        # Every number pyvolca hands out is read as being for one unit; another
+        # amount would be a different meaning under the same attributes.
+        if amount != 1:
+            raise ValueError(
+                f"functional unit for {amount} {d['unit']} of {d['product']!r}: "
+                "this pyvolca reads results counted for 1 unit only"
+            )
+        return cls(amount=amount, unit=d["unit"], product=d["product"])
 
 
 @dataclass
@@ -2113,8 +2121,9 @@ class AggregateResult:
     filters (the top-level number). ``groups`` is the per-bucket breakdown when
     ``group_by`` was set; empty otherwise. Every scope counts for one unit of
     the activity's reference product, ``functional_unit``, so the exchanges of
-    ``scope="direct"`` are the dataset's amounts divided by the amount it
-    declares.
+    ``scope="direct"`` are the dataset's amounts divided by what the process
+    makes net of what it consumes of its own product, as every other scope
+    divides them.
     """
     scope: AggregateScope
     functional_unit: FunctionalUnit

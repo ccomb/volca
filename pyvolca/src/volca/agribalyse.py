@@ -52,8 +52,8 @@ class Decomposition:
     """Reverse-engineered transformation parameters for one Agribalyse process.
 
     Every amount is for one unit of the process's reference product, whatever
-    amount the dataset declares: what ``/aggregate`` counts, and the coproducts
-    divided the same way.
+    amount the dataset declares: what ``/aggregate`` counts, the coproducts
+    included.
     """
 
     pattern: str                               # "wrapper_wfldb" | "direct" | "layered"
@@ -241,18 +241,6 @@ def get_direct_energy(client: "Client", process_id: str) -> tuple[float, float]:
 _UNIT_TO_KG = {"kg": 1.0, "ton": 1000.0, "g": 0.001}
 
 
-def _per_unit_divisor(activity: ActivityDetail) -> float:
-    """What the engine divides an activity's exchanges by to count them for one
-    unit of its reference product: the magnitude of the amount the dataset
-    declares, one when it declares none or zero.
-
-    ``/aggregate`` answers per unit in every scope, while the exchanges of
-    ``get_activity`` are as declared, so a figure read off the exchanges needs
-    this divisor to sit beside one read from ``/aggregate``.
-    """
-    return abs(activity.product_amount or 0.0) or 1.0
-
-
 def _kg_equiv(entry: SupplyChainEntry) -> float:
     """Normalise a supply-chain entry's scaling factor to kg-equivalent.
 
@@ -425,20 +413,29 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
         raw_name = raw.groups[0].key if raw.groups else None
         raw_kg = raw.groups[0].quantity_per_unit if raw.groups else 0.0
 
-    # Technosphere outputs only: the /aggregate primitive lumps biosphere
-    # emissions (NOx, water, heat waste…) into "direct" exchanges, so walk
-    # the typed exchange list and discriminate by class instead.
-    per_unit = _per_unit_divisor(act)
-    grouped: dict[tuple[str, str], float] = {}
-    for e in act.exchanges:
-        if (
-            isinstance(e, TechnosphereExchange)
-            and not e.is_input
-            and not e.is_reference
-        ):
-            key = (e.flow_name, e.unit)
-            grouped[key] = grouped.get(key, 0.0) + e.amount / per_unit
-    co_products = [(name, qty, unit) for (name, unit), qty in grouped.items()]
+    # The amounts come from /aggregate, divided as the engine divides every
+    # other figure here; the typed exchange list only says which outputs are
+    # coproducts, since /aggregate lumps biosphere emissions (NOx, water,
+    # heat waste…) into "direct" exchanges.
+    # shortcut: an emission named exactly like a coproduct adds into it; drop
+    # the name match once Client.aggregate filters by exchange type.
+    coproduct_units = {
+        e.flow_name: e.unit
+        for e in act.exchanges
+        if isinstance(e, TechnosphereExchange) and not e.is_input and not e.is_reference
+    }
+    outputs = client.aggregate(
+        process_id,
+        scope="direct",
+        is_input=False,
+        filter_is_reference=False,
+        group_by="name",
+    ) if coproduct_units else None
+    co_products = [
+        (g.key, g.quantity_per_unit, g.unit or coproduct_units[g.key])
+        for g in (outputs.groups if outputs else [])
+        if g.key in coproduct_units
+    ]
 
     # Agribalyse uses allocation-based modelling, so co-products rarely
     # appear as technosphere outputs; the engine records each co-product's

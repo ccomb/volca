@@ -150,6 +150,10 @@ class TestPerUnitBasis:
         fu = FunctionalUnit.from_json({"amount": 1, "unit": "MJ", "product": "electricity"})
         assert fu == FunctionalUnit(1.0, "MJ", "electricity")
 
+    def test_functional_unit_refuses_another_amount(self):
+        with pytest.raises(ValueError, match="1 unit only"):
+            FunctionalUnit.from_json({"amount": 10, "unit": "kg", "product": "cheese"})
+
     def test_supply_chain_entry_reads_quantity_per_unit(self):
         entry = {
             "processId": "p", "databaseName": "db", "activityName": "n",

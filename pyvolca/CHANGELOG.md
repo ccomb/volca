@@ -31,7 +31,13 @@ an older engine.
   did. For a process whose declared amount is not 1 the numbers change: a
   process written for 10 kg of cheese used to answer for those 10 kg, except
   in the `biosphere` scope of an aggregate, which already counted for one
-  unit.
+  unit. The `direct` scope divides as the others do, by what the process
+  makes net of what it consumes of its own product: a process making 1 kg
+  and eating 0.1 kg of it is counted for one of the 0.9 kg it delivers.
+- Two helpers keep their names and return numbers on this new basis: the
+  `left`, `right` and `delta` of each `ActivityDiffRow` from the deprecated
+  `volca.compare_activities()`, and the electricity and heat of
+  `agribalyse.get_direct_energy()`.
 - The attributes holding these numbers are renamed:
   `SupplyChainEntry.quantity` and `AggregateGroup.quantity` become
   `quantity_per_unit`, `PathStep.cumulative_quantity` becomes
@@ -45,12 +51,12 @@ an older engine.
   `LCIAResult.functional_unit` was, and sits on each result of a batch, on
   `SupplyChain`, `PathResult`, `AggregateResult`, `InventoryResult`,
   `ContributingFlows`, `ContributingActivities`, `SensitivityResult` and
-  `ReducedModel`.
+  `ReducedModel`. A response that states another amount is refused with a
+  `ValueError` rather than read as if it were for one unit.
 - `agribalyse.decompose()` sets every amount against one unit of the process.
-  Its coproducts are read from the activity, as the dataset writes them, and
-  are now divided by the amount the process declares, so they stay on the
-  basis of the energies and masses the engine counts, which are now for one
-  unit.
+  Its coproducts, which it read from the activity as the dataset writes them,
+  now come from the engine's `direct` aggregate, so they stay on the basis of
+  the energies and masses the engine counts, which are now for one unit.
 
 ## [0.14.3] - 2026-11-14
 
