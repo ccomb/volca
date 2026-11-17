@@ -444,6 +444,7 @@ convertToInventoryExport db bioFlowDB unitDB processId rootActivity cutoffs inve
      in
         InventoryExport
             { ieMetadata = metadata
+            , ieFunctionalUnit = functionalUnitIn db rootActivity
             , ieFlows = flowDetails
             , ieStatistics = statistics
             , ieCutoffInputs = cutoffShown cutoffs

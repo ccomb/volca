@@ -1457,7 +1457,8 @@ callGetInventory dbManager rid args =
             pure $
                 toolSuccessJson rid $
                     object $
-                        [ "statistics" .= toJSON (ieStatistics inv)
+                        [ "functional_unit" .= ieFunctionalUnit inv
+                        , "statistics" .= toJSON (ieStatistics inv)
                         , "total_flows" .= imTotalFlows (ieMetadata kept)
                         , "matched_flows" .= imMatchedFlows (ieMetadata kept)
                         , "shown_flows" .= length topN

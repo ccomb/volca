@@ -146,6 +146,12 @@ spec = describe "an activity's reference product" $ do
             toJSON (FunctionalUnit "MJ" "electricity")
                 `shouldBe` object ["amount" .= (1 :: Int), "unit" .= ("MJ" :: Text), "product" .= ("electricity" :: Text)]
 
+    it "states the functional unit of an inventory" $ do
+        db <- database 0
+        exports <- mapM (inventoryOf db) [cheese, noReference, strayReference]
+        map ieFunctionalUnit exports
+            `shouldBe` [FunctionalUnit "kg" "Cheese", FunctionalUnit "kg" "cheese tasting", FunctionalUnit "kg" "cheese ripening"]
+
     it "heads an inventory export" $ do
         db <- database 0
         exports <- mapM (inventoryOf db) [cheese, noReference, strayReference]

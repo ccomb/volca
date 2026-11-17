@@ -131,6 +131,7 @@ data SearchCountsAPI = SearchCountsAPI
 -- | Inventory export data structures
 data InventoryExport = InventoryExport
     { ieMetadata :: InventoryMetadata
+    , ieFunctionalUnit :: FunctionalUnit -- What the flow quantities are for: one unit of the reference product
     , ieFlows :: [InventoryFlowDetail]
     , ieStatistics :: InventoryStatistics
     , ieCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them

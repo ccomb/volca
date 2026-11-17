@@ -649,13 +649,15 @@ description r = case r of
         \supplier, consumer), so sums are real consumption; gross throughput by \
         \default, filter_consumer_not drops edges inside the family. Byproduct \
         \edges stay negative. filter_classification: \"System=Value[:exact]\" \
-        \(default contains). Inputs no loaded database supplies count as zero, in \
+        \(default contains). Amounts are for 1 unit of the reference product; see \
+        \'functionalUnit': 'filteredTotalPerUnit', and 'quantityPerUnit' per \
+        \group. Inputs no loaded database supplies count as zero, in \
         \'cutoffInputs'; 'withheldCutoffs' counts those a licence hides."
     GetSupplyChain ->
         "LCA / ACV: flat list of all upstream activities (chaîne amont, filière, \
-        \intrants). 'quantity': cumulative amount per functional unit \
-        \(scaling_factor × root reference amount); step yield = supplier's \
-        \scaling_factor ÷ consumer's. Summing entries feeding each other \
+        \intrants). 'quantityPerUnit': cumulative amount for 1 unit of the \
+        \reference product (see 'functionalUnit'); step yield = supplier's \
+        \scalingFactor ÷ consumer's. Summing entries feeding each other \
         \(electricity high→medium→low voltage) counts twice: use aggregate \
         \scope=consumption for totals. 'unit' is the producer's reference unit, \
         \which SimaPro and Brightway Excel imports write in the dimension's \
@@ -668,10 +670,11 @@ description r = case r of
         \biosphere flows (emissions, extractions) as statistics and top flows by \
         \quantity. Use it, not get_impacts, for raw physical flows rather than \
         \weighted scores: land / pasture occupation (m²·year), water withdrawal \
-        \(m³), emissions (kg CO₂, kg CH₄, kg N), resource extraction. Inputs no \
-        \loaded database supplies count as zero: 'cutoff_notice' opens the answer, \
-        \'cutoff_inputs' lists them, 'withheld_cutoffs' counts those a licence \
-        \hides."
+        \(m³), emissions (kg CO₂, kg CH₄, kg N), resource extraction. Quantities \
+        \are for 1 unit of the reference product; see 'functional_unit'. Inputs \
+        \no loaded database supplies count as zero: 'cutoff_notice' opens the \
+        \answer, 'cutoff_inputs' lists them, 'withheld_cutoffs' counts those a \
+        \licence hides."
     GetImpacts ->
         "LCA / ACV: LCIA score of an activity for one impact category, with \
         \functional unit and top contributing flows. Answers empreinte carbone / \
@@ -800,9 +803,10 @@ description r = case r of
     GetPathTo ->
         "LCA / ACV: shortest supply-chain path from a process to the first \
         \upstream activity whose name matches a pattern. Each step: \
-        \cumulative_quantity, scaling_factor, local_step_ratio (upstream ÷ \
-        \downstream scaling factor); total_ratio, their product, is the end-to-end \
-        \conversion factor."
+        \cumulativeQuantityPerUnit (cumulative amount for 1 unit of the \
+        \reference product; see the top-level 'functionalUnit'), scalingFactor, \
+        \localStepRatio (upstream ÷ downstream scaling factor); total_ratio, \
+        \their product, is the end-to-end conversion factor."
     GetConsumers ->
         "LCA / ACV: every activity consuming a supplier, directly or not, as a \
         \flat list; crDepth 1 = direct consumer, 2 = consumer's consumer… Traces a \
@@ -1307,7 +1311,7 @@ params r = case r of
         , Param "name" "string" Optional "Filter by activity name"
         , Param "location" "string" Optional "Filter by geography/location: that location, plus every location inside it ('US' also matches 'US-WECC'), case-insensitive"
         , pLimit "Max results (default 100)"
-        , Param "min_quantity" "number" Optional "Min scaled quantity threshold"
+        , Param "min_quantity" "number" Optional "Min 'quantityPerUnit', absolute value: entries at or below it are dropped"
         , Param "max_depth" "integer" Optional "Max depth from root (1 = direct inputs only)"
         , Param "preset" "string" Optional "Classification preset (list_presets), expanded to its filters; unioned with explicit classification filters."
         , Param "classification" "string" Optional "Classification system name (e.g. 'Category', 'Category type')"
