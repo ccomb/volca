@@ -33,9 +33,11 @@ import Types (
     exchangeFlowId,
     exchangeFormula,
     exchangeIsReference,
+    exchanges,
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
     scaleExchange,
     toSimpleDatabase,
     withAmount,
@@ -121,7 +123,7 @@ activity name location exs =
         , activityLocation = location
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges = exs
+        , activityLines = packExchanges exs
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing

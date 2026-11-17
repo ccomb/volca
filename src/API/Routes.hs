@@ -1336,7 +1336,7 @@ computedQualityReportH dbName mCollection mLimit = do
                 [ (processRefText (ProcessRef a p), act)
                 | ((a, p), act) <- M.toList (sdbActivities simple)
                 ]
-        refProductName act = case filter exchangeIsReference (exchanges act) of
+        refProductName act = case filter exchangeIsReference (nonPlainExchanges act) of
             [ex] ->
                 asum
                     [ tfName <$> M.lookup (exchangeFlowId ex) (sdbTechFlows simple)

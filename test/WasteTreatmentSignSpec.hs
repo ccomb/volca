@@ -81,7 +81,7 @@ emptyActivity =
         , activityLocation = "GLO"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges = []
+        , activityLines = packExchanges []
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
@@ -142,7 +142,7 @@ treatment :: TechRole -> Double -> Activity
 treatment role amt =
     emptyActivity
         { activityName = "treatment of waste W"
-        , exchanges = [techEx wW amt role Nothing, co2Emission 2.0]
+        , activityLines = packExchanges [techEx wW amt role Nothing, co2Emission 2.0]
         }
 
 {- | The same treatment, buying 0.5 kg of product Y to do its job. What the
@@ -153,7 +153,7 @@ treatmentBuyingY :: TechRole -> Double -> Activity
 treatmentBuyingY role amt =
     emptyActivity
         { activityName = "treatment of waste W"
-        , exchanges = [techEx wW amt role Nothing, techEx yY 0.5 Input (Just pA), co2Emission 2.0]
+        , activityLines = packExchanges [techEx wW amt role Nothing, techEx yY 0.5 Input (Just pA), co2Emission 2.0]
         }
 
 -- | A plain producer of Y, with no waste of its own.
@@ -161,7 +161,7 @@ supplierOfY :: Activity
 supplierOfY =
     emptyActivity
         { activityName = "supplier of Y"
-        , exchanges = [techEx yY 1.0 ReferenceProduct Nothing]
+        , activityLines = packExchanges [techEx yY 1.0 ReferenceProduct Nothing]
         }
 
 {- | A producer of Y that also emits 3 kg of waste W. @waste@ supplies the
@@ -171,7 +171,7 @@ producer :: Exchange -> Activity
 producer waste =
     emptyActivity
         { activityName = "producer of Y"
-        , exchanges = [techEx yY 1.0 ReferenceProduct Nothing, waste]
+        , activityLines = packExchanges [techEx yY 1.0 ReferenceProduct Nothing, waste]
         }
 
 co2Flow :: BiosphereFlow
@@ -384,7 +384,7 @@ scoreWasteSentToSecond waste through role refAmount =
         (producer waste)
         ( M.fromList
             [ ((tA, wW), treatment role refAmount)
-            , ((tB, wW), (treatment role refAmount){activityName = "incineration of waste W", exchanges = [techEx wW refAmount role Nothing, co2Emission 5.0]})
+            , ((tB, wW), (treatment role refAmount){activityName = "incineration of waste W", activityLines = packExchanges [techEx wW refAmount role Nothing, co2Emission 5.0]})
             ]
         )
 

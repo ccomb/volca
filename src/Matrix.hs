@@ -541,7 +541,7 @@ inSupplierUnit unitConfig depDbName depDb supplierKey StatedAmount{saUnit = exch
         Nothing -> Right Nothing -- supplier absent in dep DB; drop
         Just pid ->
             let act = dbActivities depDb V.! fromIntegral pid
-                refExs = [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
+                refExs = [ex | ex <- nonPlainExchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
                 supplierUnit = case refExs of
                     (ex : _) -> getUnitNameForExchange (dbUnits depDb) ex
                     [] -> ""

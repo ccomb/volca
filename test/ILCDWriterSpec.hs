@@ -130,7 +130,7 @@ everyField db = db{sdbActivities = M.map filled (sdbActivities db)}
         a
             { activityNativeType = Just (ILCDProcessType "Unit process, black box")
             , activityDates = noDates{datesLastRevised = Just (fromGregorian 2024 9 6)}
-            , exchanges = map located (exchanges a)
+            , activityLines = packExchanges (map located (exchanges a))
             }
     located :: Exchange -> Exchange
     located ex = case ex of
@@ -646,7 +646,7 @@ multiOutputDb =
             "GLO"
             LocationDeclared
             "kg"
-            [TechnosphereExchange prod 1.0 moUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
+            (packExchanges [TechnosphereExchange prod 1.0 moUnitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing])
             M.empty
             Nothing
             Nothing
@@ -721,7 +721,7 @@ oneActivityDb bios exs =
             , activityLocation = "GLO"
             , activityLocationSource = LocationDeclared
             , activityUnit = "kg"
-            , exchanges = exs
+            , activityLines = packExchanges exs
             , activityParameters = M.empty
             , activityNativeType = Nothing
             , activityNativeId = Nothing

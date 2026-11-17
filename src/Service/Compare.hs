@@ -149,11 +149,13 @@ import Types (
     exchangeFlowId,
     exchangeIsReference,
     exchangeUnitId,
+    exchanges,
     flowKindCompartment,
     flowKindName,
     getActivity,
     getUnitForExchange,
     lookupExchangeFlow,
+    nonPlainExchanges,
     processIdToRef,
     processIdToText,
  )
@@ -857,7 +859,7 @@ onto units (Sides baseUnit otherUnit) = do
 -- | The unit a process's score is per: the one its database registers for its reference product.
 referenceUnit :: ProcessIn -> Either PairRefusal Text
 referenceUnit p = do
-    reference <- maybe (Left NoReferenceProduct) Right (L.find exchangeIsReference (exchanges (inActivity p)))
+    reference <- maybe (Left NoReferenceProduct) Right (L.find exchangeIsReference (nonPlainExchanges (inActivity p)))
     maybe (Left UnregisteredUnit) (Right . unitName) (getUnitForExchange (dbUnits (inDatabase p)) reference)
 
 unitDefinition :: UnitConfig -> Text -> Either PairRefusal UnitDef
@@ -954,7 +956,7 @@ activityKey match p = case match of
     SameNames -> byNames normalName <$> productName
     SameCutNames -> byNames cutName <$> productName
     SameProduct ->
-        byProduct . exchangeFlowId <$> L.find exchangeIsReference (exchanges act)
+        byProduct . exchangeFlowId <$> L.find exchangeIsReference (nonPlainExchanges act)
   where
     db :: Database
     db = inDatabase p

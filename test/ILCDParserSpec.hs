@@ -44,7 +44,7 @@ at loc act = act{activityLocation = loc}
 
 -- | The same activity, its input exchange stating where it wants its supplier.
 inputFrom :: Text -> Activity -> Activity
-inputFrom loc act = act{exchanges = map stating (exchanges act)}
+inputFrom loc act = act{activityLines = packExchanges (map stating (exchanges act))}
   where
     stating :: Exchange -> Exchange
     stating ex@TechnosphereExchange{} = ex{techLocation = readExchangeLocation loc}
@@ -69,23 +69,24 @@ activityWithRefExchange fid =
         , activityLocation = "GLO"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges =
-            [ TechnosphereExchange
-                { techFlowId = fid
-                , techAmount = 1.0
-                , techUnitId = UUID.nil
-                , techRole = ReferenceProduct
-                , techActivityLinkId = Nothing
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = ""
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            ]
+        , activityLines =
+            packExchanges
+                [ TechnosphereExchange
+                    { techFlowId = fid
+                    , techAmount = 1.0
+                    , techUnitId = UUID.nil
+                    , techRole = ReferenceProduct
+                    , techActivityLinkId = Nothing
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = ""
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                ]
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
@@ -105,23 +106,24 @@ activityWithInputExchange fid =
         , activityLocation = "GLO"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges =
-            [ TechnosphereExchange
-                { techFlowId = fid
-                , techAmount = 0.5
-                , techUnitId = UUID.nil
-                , techRole = Input
-                , techActivityLinkId = Nothing
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = ""
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            ]
+        , activityLines =
+            packExchanges
+                [ TechnosphereExchange
+                    { techFlowId = fid
+                    , techAmount = 0.5
+                    , techUnitId = UUID.nil
+                    , techRole = Input
+                    , techActivityLinkId = Nothing
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = ""
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                ]
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing

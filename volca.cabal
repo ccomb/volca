@@ -64,6 +64,7 @@ library
                      , Matrix.Dense
                      , Matrix.Sparse
                      , Matrix.Triples
+                     , PackedLines
                      , Matrix.Sparse.Arrays
                      , Matrix.Sparse.Order
                      , SharedSolver
@@ -285,6 +286,7 @@ test-suite lca-tests
                      , RelinkMappingSpec
                      , MatrixConstructionSpec
                      , FlowIndexSpec
+                     , PackedLinesSpec
                      , WasteTreatmentSignSpec
                      , InventorySpec
                      , IndexInjectivitySpec

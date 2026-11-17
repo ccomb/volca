@@ -161,14 +161,13 @@ flowIndex activities = M.map (\(_, start, count) -> VU.slice start count filled)
   where
     -- The activities are walked twice, never a list of their lines: one
     -- shared by both walks would stay alive between them, whole.
-    flowsOf = map exchangeFlowId . exchanges
-    counts = V.foldl' (\seen -> foldl' (\seen' flow -> MS.insertWith (+) flow (1 :: Int) seen') seen . flowsOf) M.empty activities
+    counts = V.foldl' (\seen -> foldl' (\seen' flow -> MS.insertWith (+) flow (1 :: Int) seen') seen . exchangeFlowIds) M.empty activities
     -- Each flow's rank, where its slice starts, and how many lines it holds.
     ((_, total), slices) = M.mapAccum (\(rank, start) count -> ((rank + 1, start + count), (rank :: Int, start, count))) (0, 0) counts
     filled = VU.create $ do
         rowsOf <- VUM.new total
         written <- VUM.replicate (M.size counts) 0
-        V.iforM_ activities $ \row activity -> forM_ (flowsOf activity) $ \flow -> forM_ (M.lookup flow slices) $ \(rank, start, _) -> do
+        V.iforM_ activities $ \row activity -> forM_ (exchangeFlowIds activity) $ \flow -> forM_ (M.lookup flow slices) $ \(rank, start, _) -> do
             done <- VUM.read written rank
             VUM.write rowsOf (start + done) (fromIntegral row)
             VUM.write written rank (done + 1)
@@ -427,7 +426,7 @@ applyStructuredFilters geographies db geoParam productParam classFilters exactMa
         -- here used to hide waste-treatment activities from product filters.
         getProductNames a' =
             [ tfName flow
-            | ex <- exchanges a'
+            | ex <- nonPlainExchanges a'
             , exchangeIsReference ex
             , Just flow <- [M.lookup (exchangeFlowId ex) (dbTechFlows db)]
             ]

@@ -43,6 +43,7 @@ import Types (
     dbBiosphereTriples,
     emptyProductIndex,
     noDates,
+    packExchanges,
  )
 import qualified Types as VT
 import UnitConversion (UnitConfig (..), defaultDimensionOrder, defaultUnitConfig, mkUnitConfig)
@@ -96,7 +97,7 @@ mkActivity loc =
         , activityLocation = loc
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges = []
+        , activityLines = packExchanges []
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing

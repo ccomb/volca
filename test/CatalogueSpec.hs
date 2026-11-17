@@ -22,7 +22,7 @@ import Config (DatabaseConfig (..), defaultConfig)
 import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), initDatabaseManager)
 import Service.Catalogue (PageWindow (..), catalogueEntries, catalogueFingerprint, catalogueMaxLimit, cataloguePage, measureOf)
 import TestHelpers (loadSampleDatabase, mkSolverFromDb)
-import Types (Activity (..), Database (..), Exchange (..), FileReading (..), GeographyPolicy (..), Licence (..), Reading (..), exchangeIsReference)
+import Types (Activity (..), Database (..), Exchange (..), FileReading (..), GeographyPolicy (..), Licence (..), Reading (..), exchangeIsReference, exchanges, packExchanges)
 import UnitConversion (UnitConfig, buildFromCSV, defaultUnitConfig)
 
 -- | A tonne beside the kilogram, and a piece that counts rather than weighs.
@@ -50,11 +50,11 @@ spec = do
             length (catalogueEntries defaultUnitConfig db) `shouldBe` V.length (dbActivities db)
         it "gives each entry its reference amount, a turned one included, and none without a reference" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
-            let turned = db{dbActivities = V.imap (\i a -> if i == 0 then a{exchanges = map negateReference (exchanges a)} else a) (dbActivities db)}
+            let turned = db{dbActivities = V.imap (\i a -> if i == 0 then a{activityLines = packExchanges (map negateReference (exchanges a))} else a) (dbActivities db)}
                 negateReference ex = case ex of
                     TechnosphereExchange{techAmount = amount} | exchangeIsReference ex -> ex{techAmount = negate amount}
                     _ -> ex
-                unreferenced = db{dbActivities = V.imap (\i a -> if i == 0 then a{exchanges = filter (not . exchangeIsReference) (exchanges a)} else a) (dbActivities db)}
+                unreferenced = db{dbActivities = V.imap (\i a -> if i == 0 then a{activityLines = packExchanges (filter (not . exchangeIsReference) (exchanges a))} else a) (dbActivities db)}
                 amounts = map ceProductAmount . catalogueEntries defaultUnitConfig
             take 1 (amounts turned) `shouldBe` map (fmap negate) (take 1 (amounts db))
             all (maybe False (> 0)) (amounts db) `shouldBe` True

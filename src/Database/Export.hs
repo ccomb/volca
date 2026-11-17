@@ -63,6 +63,8 @@ import Types (
     TechnosphereFlow (..),
     Unit (..),
     exchangeUnitId,
+    exchanges,
+    packExchanges,
     readingSign,
     scaleExchange,
     toSimpleDatabase,
@@ -200,7 +202,7 @@ namedAfterLinks units target (Dependencies deps) links sdb0 = foldl' answer (sdb
                        ]
         pure
             ( sdb
-                { sdbActivities = M.insert key activity{exchanges = before <> (written : after)} (sdbActivities sdb)
+                { sdbActivities = M.insert key activity{activityLines = packExchanges (before <> (written : after))} (sdbActivities sdb)
                 , sdbTechFlows = M.insertWith (\_ kept -> kept) (tfId supplied) (maybe supplied (const supplied{tfUnitId = unitId supplierUnit}) perSupplier) (sdbTechFlows sdb)
                 , sdbUnits = maybe unitsLinked (const (M.insertWith (\_ kept -> kept) (unitId supplierUnit) supplierUnit unitsLinked)) perSupplier
                 }

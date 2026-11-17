@@ -68,8 +68,10 @@ import Types (
     UUID,
     WasteFlow (..),
     byColumn,
+    exchanges,
     findProcessId,
     findProcessIdByActivityUUID,
+    packExchanges,
     parseProcessRef,
     processIdToRef,
     processRefText,
@@ -166,7 +168,7 @@ A location the line already states is the source's own word and is left alone.
 -}
 unlinkActivity :: M.Map (UUID, UUID) Activity -> M.Map (UUID, UUID) ExchangeLocation -> Activity -> Activity
 unlinkActivity survivors removed act =
-    act{exchanges = map unlinkExchange (exchanges act)}
+    act{activityLines = packExchanges (map unlinkExchange (exchanges act))}
   where
     dangling :: UUID -> UUID -> Bool
     dangling link flow = isNothing (producerKeyOf survivors (link, flow))

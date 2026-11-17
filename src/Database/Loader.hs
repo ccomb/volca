@@ -644,6 +644,8 @@ History of manual bumps:
      changes type, so a cache written just before would keep the cut-off.
 - 85: the index of the rows using each flow holds its row numbers in an
      array, where it held them in a list.
+- 86: the plain biosphere lines of an activity are held in columns, where
+     each was an exchange in a list.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -651,7 +653,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 85
+     in hi `xor` lo `xor` 86
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -690,7 +692,7 @@ datasetUUIDFromPath path =
 -- | Get reference product UUID from activity exchanges
 getReferenceProductUUID :: Activity -> UUID.UUID
 getReferenceProductUUID act =
-    case filter exchangeIsReference (exchanges act) of
+    case filter exchangeIsReference (nonPlainExchanges act) of
         (ref : _) -> exchangeFlowId ref
         [] -> UUID.nil -- No reference product found
 
@@ -1011,7 +1013,7 @@ rankedProducers keyOf unitDB activities techFlowDb =
     -- ('producerKeyOf'). A coproduct written on two rows makes one producer.
     madeBy :: UUID.UUID -> Activity -> [(UUID.UUID, Exchange)]
     madeBy prodUUID act =
-        [(prodUUID, ex) | ex <- exchanges act, exchangeIsReference ex]
+        [(prodUUID, ex) | ex <- nonPlainExchanges act, exchangeIsReference ex]
             <> nubOrdOn fst [(exchangeFlowId ex, ex) | keptWhole act, ex <- exchanges act, isCoproduct ex]
 
     producing :: UUID.UUID -> UUID.UUID -> Activity -> Exchange -> NameProducer
@@ -1141,7 +1143,7 @@ fixActivityExchanges :: ExchangeLinkContext -> Activity -> (Activity, UnlinkedSu
 fixActivityExchanges ctx act =
     let (fixedExchanges, summaries) = unzip $ map (fixExchangeLink ctx act) (exchanges act)
         combinedSummary = mconcat summaries
-     in (act{exchanges = fixedExchanges}, combinedSummary)
+     in (act{activityLines = packExchanges fixedExchanges}, combinedSummary)
 
 {- | Fix a single exchange's activity link by (flowName, location) match.
 
@@ -1466,7 +1468,7 @@ linkSoleProducers db = do
                 , Just producer <- M.lookup flow producers >>= sole ->
                     ex{techActivityLinkId = Just producer}
             _ -> ex
-        linked = M.map (\act -> act{exchanges = map linkToSole (exchanges act)}) (sdbActivities db)
+        linked = M.map (\act -> act{activityLines = packExchanges (map linkToSole (exchanges act))}) (sdbActivities db)
         count = length . concatMap (filter (isJust . exchangeActivityLinkId) . exchanges) . M.elems
     reportProgress Info $ printf "Linking within the database: %d input(s) without an activityLinkId bought the product of a single process here" (count linked - count (sdbActivities db))
     pure db{sdbActivities = linked}
@@ -1485,7 +1487,7 @@ fixActivityExchangesByName :: UC.UnitConfig -> UnitDB -> NameOnlyIndex -> TechFl
 fixActivityExchangesByName unitConfig unitDB idx techFlowDb act =
     let (fixedExchanges, summaries) = unzip $ map (fixExchangeLinkByName unitConfig unitDB idx techFlowDb (activityName act)) (exchanges act)
         combinedSummary = mconcat summaries
-     in (act{exchanges = fixedExchanges}, combinedSummary)
+     in (act{activityLines = packExchanges fixedExchanges}, combinedSummary)
 
 {- | A name-based supplier link is admissible only when the matrix builder could
 later convert the consumer's exchange unit to the supplier's reference-product
@@ -2394,7 +2396,7 @@ collectUnlinkedProductNames db =
         (+)
         [ (tfName flow, 1)
         | act <- M.elems (sdbActivities db)
-        , ex@TechnosphereExchange{} <- exchanges act
+        , ex@TechnosphereExchange{} <- nonPlainExchanges act
         , isSupplierDemand ex
         , not (hasInternalProducer db ex)
         , Just flow <- [M.lookup (exchangeFlowId ex) (sdbTechFlows db)]

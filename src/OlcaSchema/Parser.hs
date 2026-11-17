@@ -655,7 +655,7 @@ assemble cx p env notices lines' =
             , activityUnit = fromMaybe "" $ do
                 ref <- find (P.rxReference . lnRaw) lines'
                 unitName <$> M.lookup (lnUnit ref) (alUnitDB (cxAllocating cx))
-            , exchanges = map fst built
+            , activityLines = packExchanges (map fst built)
             , activityParameters = M.fromList [(P.paName q, parameter env q) | q <- M.elems (byName (P.prParameters p))]
             , activityNativeType = Nothing
             , activityNativeId = Nothing
@@ -665,7 +665,7 @@ assemble cx p env notices lines' =
 
     -- A process the gate will refuse for having no reference keeps its own id as its product.
     referenceFlow :: Activity -> UUID
-    referenceFlow a = fromMaybe (P.prId p) (listToMaybe [exchangeFlowId ex | ex <- exchanges a, exchangeIsReference ex])
+    referenceFlow a = fromMaybe (P.prId p) (listToMaybe [exchangeFlowId ex | ex <- nonPlainExchanges a, exchangeIsReference ex])
 
 {- | A product system as the engine keeps it: its reference row and target in
 the reference flow's unit when the reader can tell them, and why not

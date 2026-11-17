@@ -334,7 +334,7 @@ checkSimaProExportable db =
     referenceOffenders =
         [ (activityName act, n)
         | act <- M.elems (sdbActivities db)
-        , let n = length (filter exchangeIsReference (exchanges act))
+        , let n = length (filter exchangeIsReference (nonPlainExchanges act))
         , n /= 1
         ]
     mediumOffenders =
@@ -847,7 +847,7 @@ productsOf activities =
     S.fromList
         [ exchangeFlowId ex
         | act <- M.elems activities
-        , ex <- exchanges act
+        , ex <- nonPlainExchanges act
         , exchangeIsReference ex
         ]
 
@@ -927,7 +927,7 @@ serializeActivity cats consumer ProcessExport{peParameters = parameters, peLines
             | allocFraction == 0 = ex
             | otherwise = scaleExchange (1 / allocFraction) (withFormula Nothing ex)
         -- Each exchange with its formula, and its share's, as SimaPro writes them, where it has them.
-        unscaledExchanges = [(IM.lookup i formulas, withShare i (unscale ex)) | (i, ex) <- zip [0 ..] exchanges]
+        unscaledExchanges = [(IM.lookup i formulas, withShare i (unscale ex)) | (i, ex) <- zip [0 ..] (exchanges act)]
         withShare i ex = case ex of
             TechnosphereExchange{techShare = Just share} -> ex{techShare = Just share{dsFormula = IM.lookup i shares}}
             TechnosphereExchange{} -> ex

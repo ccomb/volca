@@ -74,6 +74,8 @@ import Types (
     exchangeIsReference,
     exchangePedigree,
     exchangeUnitId,
+    exchanges,
+    nonPlainExchanges,
     processRefText,
  )
 
@@ -323,7 +325,7 @@ qualityReport dbName db =
         [ offender DangerSev key act Nothing $
             T.pack (show n) <> " reference exchanges instead of exactly one"
         | (key, act) <- entries
-        , let n = length (filter exchangeIsReference (exchanges act))
+        , let n = length (filter exchangeIsReference (nonPlainExchanges act))
         , n /= 1
         ]
 
@@ -399,7 +401,7 @@ qualityReport dbName db =
     -- Same name, same place, same product, twice: one of them is stale. Entries
     -- without exactly one reference are skipped – check 1 already reports them,
     -- and grouping them by a missing product would invent duplicates.
-    referenceProductName act = case filter exchangeIsReference (exchanges act) of
+    referenceProductName act = case filter exchangeIsReference (nonPlainExchanges act) of
         [ex] -> Just (fromMaybe (UUID.toText (exchangeFlowId ex)) (techOrWasteFlowName (exchangeFlowId ex)))
         _ -> Nothing
     duplicateGroups =
@@ -421,7 +423,7 @@ qualityReport dbName db =
             (<>)
             [ (exchangeFlowId refEx, [(key, act)])
             | (key, act) <- entries
-            , [refEx] <- [filter exchangeIsReference (exchanges act)]
+            , [refEx] <- [filter exchangeIsReference (nonPlainExchanges act)]
             ]
 
     {- Two activities declaring one product at one location, which an input
@@ -443,7 +445,7 @@ qualityReport dbName db =
             (<>)
             [ ((exchangeFlowId refEx, activityLocation act), [(key, act)])
             | (key, act) <- entries
-            , [refEx] <- [filter exchangeIsReference (exchanges act)]
+            , [refEx] <- [filter exchangeIsReference (nonPlainExchanges act)]
             ]
     otherProducerNames as = case S.toAscList (S.fromList (map activityName as)) of
         names ->
@@ -643,7 +645,7 @@ qualityReport dbName db =
     unconsumedOffenders =
         [ offender InfoSev key act (Just prodName) "the reference product is never consumed within this database (expected for a final product)"
         | (key, act) <- entries
-        , [refEx] <- [filter exchangeIsReference (exchanges act)]
+        , [refEx] <- [filter exchangeIsReference (nonPlainExchanges act)]
         , exchangeFlowId refEx `S.notMember` usedFlowIds
         , let prodName = fromMaybe (UUID.toText (exchangeFlowId refEx)) (techOrWasteFlowName (exchangeFlowId refEx))
         ]
@@ -655,7 +657,7 @@ qualityReport dbName db =
     which is what a shortened or mistyped product name used to get.
     -}
     suppliedFlowIds =
-        S.fromList [exchangeFlowId ex | act <- acts, ex <- exchanges act, exchangeIsReference ex]
+        S.fromList [exchangeFlowId ex | act <- acts, ex <- nonPlainExchanges act, exchangeIsReference ex]
     needsSupplier ex = case ex of
         TechnosphereExchange{techRole = role} -> role `elem` [Input, ReferenceInput, AvoidedProduct]
         BiosphereExchange{} -> False

@@ -8,6 +8,14 @@
   package of aggregated inventories does, takes less memory once loaded: the
   index of the processes using each flow is ten times smaller. Database caches
   are rebuilt once on the first load after the upgrade.
+- Such a database also takes far less memory to hold and to load. Its
+  biosphere lines that carry no comment, no data quality score and no formula,
+  which is nearly all of them, are kept in columns where each was an object of
+  its own. A package of 4,600 aggregated processes and 29 million lines takes
+  1.7 GB once loaded where it took 5.5. Its first load needs 14 GB of the
+  machine's memory where it needed 25, and it reloads from its cache in
+  4 seconds where it took 31. Nothing changes in what the engine answers or
+  exports.
 
 ## [0.18.0] - 2026-11-14
 

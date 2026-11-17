@@ -102,9 +102,11 @@ import Types (
     TechnosphereFlow (..),
     UUID,
     Unit (..),
+    exchanges,
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
     processRefText,
  )
 import UnitConversion (defaultUnitConfig)
@@ -853,33 +855,34 @@ milkActivity name =
         , activityLocation = "FR"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges =
-            [ TechnosphereExchange
-                { techFlowId = supplierProdId
-                , techAmount = 1.0
-                , techUnitId = kgUnitId
-                , techRole = ReferenceProduct
-                , techActivityLinkId = Just supplierActId
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = ""
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            , BiosphereExchange
-                { bioFlowId = co2Id
-                , bioAmount = 1.2
-                , bioUnitId = kgUnitId
-                , bioDirection = Emission
-                , bioLocation = ""
-                , bioComment = Nothing
-                , bioPedigree = Nothing
-                , bioFormula = Nothing
-                }
-            ]
+        , activityLines =
+            packExchanges
+                [ TechnosphereExchange
+                    { techFlowId = supplierProdId
+                    , techAmount = 1.0
+                    , techUnitId = kgUnitId
+                    , techRole = ReferenceProduct
+                    , techActivityLinkId = Just supplierActId
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = ""
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                , BiosphereExchange
+                    { bioFlowId = co2Id
+                    , bioAmount = 1.2
+                    , bioUnitId = kgUnitId
+                    , bioDirection = Emission
+                    , bioLocation = ""
+                    , bioComment = Nothing
+                    , bioPedigree = Nothing
+                    , bioFormula = Nothing
+                    }
+                ]
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing

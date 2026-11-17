@@ -85,6 +85,8 @@ import Types (
     exchangeFlowId,
     exchangeIsProductOutput,
     exchangeIsReference,
+    exchanges,
+    packExchanges,
     processRefText,
     toSimpleDatabase,
     withFormula,
@@ -356,7 +358,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
                 let nameWhey ex
                         | named parent "Whey" ex && exchangeIsProductOutput ex = withFormula (Just ExchangeFormula{efName = Just "whey_out", efText = "3"}) ex
                         | otherwise = ex
-                    namedParent = parent{dbActivities = V.map (\a -> a{exchanges = map nameWhey (exchanges a)}) (dbActivities parent)}
+                    namedParent = parent{dbActivities = V.map (\a -> a{activityLines = packExchanges (map nameWhey (exchanges a))}) (dbActivities parent)}
                 child <- either (fail . T.unpack) pure =<< childOf defaultUnitConfig model namedParent
                 [parameterDefinition p | a <- V.toList (dbActivities child), Just p <- [M.lookup "whey_out" (activityParameters a)]]
                     `shouldBe` [CalculatedParameter "3" (Just 3)]

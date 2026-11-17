@@ -885,7 +885,7 @@ buildActivityMap alloc flowInfoMap techFlowDB bioFlowDB wasteFlowDB procs =
     productKey p activity =
         Data.Maybe.fromMaybe
             (maybe (iprUUID p) ierFlowRef (findRefExchange p))
-            (Data.Maybe.listToMaybe [exchangeFlowId ex | ex <- exchanges activity, exchangeIsReference ex])
+            (Data.Maybe.listToMaybe [exchangeFlowId ex | ex <- nonPlainExchanges activity, exchangeIsReference ex])
 
 findRefExchange :: ILCDProcessRaw -> Maybe ILCDExchangeRaw
 findRefExchange p =
@@ -904,7 +904,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
         , activityLocation = iprLocation p
         , activityLocationSource = declaredLocationSource (iprLocation p)
         , activityUnit = refUnit
-        , exchanges = map (mkExchange (iprRefFlowIdx p)) (iprExchanges p)
+        , activityLines = packExchanges (map (mkExchange (iprRefFlowIdx p)) (iprExchanges p))
         , activityParameters = M.empty
         , activityNativeType =
             if T.null (iprProcessType p)
@@ -1071,7 +1071,7 @@ buildSupplierIndex activities =
             (<>)
             [ (exchangeFlowId ex, (supplierOrder act actUUID prodUUID, producing act actUUID prodUUID) NE.:| [])
             | ((actUUID, prodUUID), act) <- M.toList activities
-            , ex <- exchanges act
+            , ex <- nonPlainExchanges act
             , exchangeIsReference ex
             ]
   where
@@ -1084,7 +1084,7 @@ buildSupplierIndex activities =
 
 fixActivityExchanges :: SupplierIndex -> Activity -> Activity
 fixActivityExchanges idx act =
-    act{exchanges = map fixEx (exchanges act)}
+    act{activityLines = packExchanges (map fixEx (exchanges act))}
   where
     -- Only relink plain @Input@ exchanges. @ReferenceInput@ is the activity's
     -- own waste-treatment reference flow – it appears in the supplier index

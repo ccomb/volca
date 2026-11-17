@@ -195,7 +195,7 @@ placedAtMakers :: SimpleDatabase -> ActivityMap
 placedAtMakers sdb = M.mapWithKey place (sdbActivities sdb)
   where
     maker = makerOf noDependencies sdb
-    place key act = act{exchanges = zipWith (placed key) [0 ..] (exchanges act)}
+    place key act = act{activityLines = packExchanges (zipWith (placed key) [0 ..] (exchanges act))}
     placed key i ex@TechnosphereExchange{} = case maker key (i, ex) of
         SoleMaker m -> ex{techLocation = readExchangeLocation (madeAt m)}
         OneOfMakers m -> ex{techLocation = readExchangeLocation (madeAt m)}
@@ -445,7 +445,7 @@ checkEcoSpold1Exportable db =
     refInputOffenders =
         [ activityName act
         | act <- M.elems (sdbActivities db)
-        , TechnosphereExchange{techRole = ReferenceInput} <- exchanges act
+        , TechnosphereExchange{techRole = ReferenceInput} <- nonPlainExchanges act
         ]
     flowOffenders =
         [ activityName act

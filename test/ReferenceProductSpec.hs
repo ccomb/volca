@@ -62,6 +62,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -205,7 +206,7 @@ activity name lines' =
         , activityLocation = "FR"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges = lines'
+        , activityLines = packExchanges lines'
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing

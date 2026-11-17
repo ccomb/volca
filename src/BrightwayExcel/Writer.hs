@@ -428,7 +428,7 @@ productsSpeltAlike units db =
     written =
         mapMaybe
             (`M.lookup` sdbTechFlows db)
-            (S.toList (S.fromList [exchangeFlowId ex | act <- M.elems (sdbActivities db), ex@TechnosphereExchange{} <- exchanges act]))
+            (S.toList (S.fromList [exchangeFlowId ex | act <- M.elems (sdbActivities db), ex@TechnosphereExchange{} <- nonPlainExchanges act]))
 
 {- | A 'Resource' biosphere exchange whose compartment would not re-parse as a
 resource: the writer never records the direction, so the parser reconstructs it

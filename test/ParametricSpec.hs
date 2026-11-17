@@ -467,7 +467,7 @@ spec = describe "a database at other values of its parameters" $ do
             inBread act = Just (act, Nothing)
             onLine i act = Just (act, Just (exchanges act !! i))
             -- The flour line, named, as EcoSpold 2 names a line other formulas read.
-            onNamedFlour i act = onLine i act{exchanges = [if j == 1 then withFormula (Just ExchangeFormula{efName = Just "Flour_kg", efText = "2 * yield"}) ex else ex | (j, ex) <- zip [0 :: Int ..] (exchanges act)]}
+            onNamedFlour i act = onLine i act{activityLines = packExchanges ([if j == 1 then withFormula (Just ExchangeFormula{efName = Just "Flour_kg", efText = "2 * yield"}) ex else ex | (j, ex) <- zip [0 :: Int ..] (exchanges act)])}
             valueOf = fmap checkValue
             problemOf = either Just (const Nothing)
 
@@ -887,7 +887,7 @@ activity name exs =
         , activityLocation = "FR"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges = exs
+        , activityLines = packExchanges exs
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing

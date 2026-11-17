@@ -156,7 +156,7 @@ readers give it.
 -}
 splitByMeasure :: [Activity] -> [TechnosphereFlow] -> ([Activity], [TechnosphereFlow])
 splitByMeasure activities flows =
-    ([a{exchanges = map moveExchange (exchanges a)} | a <- activities], [f{tfId = moved (tfId f) (tfUnitId f)} | f <- flows])
+    ([a{activityLines = packExchanges (map moveExchange (exchanges a))} | a <- activities], [f{tfId = moved (tfId f) (tfUnitId f)} | f <- flows])
   where
     measures :: M.Map UUID.UUID (S.Set UUID.UUID)
     measures = M.fromListWith S.union [(tfId f, S.singleton (tfUnitId f)) | f <- flows]
@@ -743,7 +743,7 @@ rawToActivity cfg own WorkbookParameters{wpGlobals = globals, wpGroups = groups}
             , activityLocation = location
             , activityLocationSource = declaredLocationSource location
             , activityUnit = refUnitName
-            , exchanges = exchanges'
+            , activityLines = packExchanges exchanges'
             , activityParameters = M.filterWithKey (\name _ -> S.member (T.toLower name) groupNames) defined
             , activityNativeType = Nothing
             , activityNativeId = Nothing

@@ -261,7 +261,7 @@ exportIEIndex filePath db = do
                 V.imap
                     ( \idx (_actUuid, prodUuid) ->
                         let activity = activities V.! idx
-                            refProduct = case [ex | ex <- exchanges activity, exchangeIsReference ex] of
+                            refProduct = case [ex | ex <- nonPlainExchanges activity, exchangeIsReference ex] of
                                 (ex : _) -> case M.lookup (exchangeFlowId ex) techFlows of
                                     Just flow -> tfName flow
                                     Nothing -> T.pack (show prodUuid)

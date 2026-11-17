@@ -175,7 +175,7 @@ location with.
 madeAt :: Activity -> Text
 madeAt act =
     fromMaybe (activityLocation act) $
-        listToMaybe [code | ex <- exchanges act, exchangeIsReference ex, Just code <- [statedCode (exchangeStatedLocation ex)]]
+        listToMaybe [code | ex <- nonPlainExchanges act, exchangeIsReference ex, Just code <- [statedCode (exchangeStatedLocation ex)]]
 
 {- | The products two or more activities of the file make and some row buys or
 avoids: the rows naming them have to say which maker they mean. A product no
@@ -189,7 +189,7 @@ namedProducts db = S.intersection shared asked
         S.fromList
             [ techFlowId ex
             | activity <- M.elems (sdbActivities db)
-            , ex@TechnosphereExchange{} <- exchanges activity
+            , ex@TechnosphereExchange{} <- nonPlainExchanges activity
             , buys (techRole ex)
             ]
 
@@ -199,7 +199,7 @@ makersByProduct db =
         S.union
         [ (exchangeFlowId ex, S.singleton act)
         | ((act, _), activity) <- M.toList (sdbActivities db)
-        , ex <- exchanges activity
+        , ex <- nonPlainExchanges activity
         , exchangeIsReference ex
         ]
 

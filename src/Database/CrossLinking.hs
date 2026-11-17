@@ -120,8 +120,8 @@ import Types (
     exchangeFlowId,
     exchangeIsReference,
     exchangeLocation,
-    exchanges,
     getActivity,
+    nonPlainExchanges,
     processRefText,
     referenceSignOf,
  )
@@ -587,7 +587,7 @@ buildSupplierEntries :: SimpleDatabase -> [(Text, SupplierEntry)]
 buildSupplierEntries db =
     [ (tfName flow, productEntry act actUUID prodUUID loc (tfName flow))
     | ((actUUID, prodUUID), act) <- M.toList (sdbActivities db)
-    , ex <- exchanges act
+    , ex <- nonPlainExchanges act
     , exchangeIsReference ex
     , Just flow <- [M.lookup (exchangeFlowId ex) (sdbTechFlows db)]
     , loc <- supplierLocations act ex
@@ -633,7 +633,7 @@ buildWasteTreatmentEntries :: SimpleDatabase -> [(UUID, Text, SupplierEntry)]
 buildWasteTreatmentEntries db =
     [ (wfId flow, wfName flow, treatmentEntry act actUUID prodUUID (wfName flow))
     | ((actUUID, prodUUID), act) <- M.toList (sdbActivities db)
-    , ex <- exchanges act
+    , ex <- nonPlainExchanges act
     , exchangeIsReference ex
     , Just flow <- [M.lookup (exchangeFlowId ex) (sdbWasteFlows db)]
     ]
@@ -684,7 +684,7 @@ buildSupplierEntriesFromDB db =
     [ (tfName flow, productEntry act actUUID prodUUID loc (tfName flow))
     | (pid, (actUUID, prodUUID)) <- zip ([0 ..] :: [Int]) (V.toList (dbProcessIdTable db))
     , Just act <- [getActivity db (fromIntegral pid)]
-    , ex <- exchanges act
+    , ex <- nonPlainExchanges act
     , exchangeIsReference ex
     , Just flow <- [M.lookup (exchangeFlowId ex) (dbTechFlows db)]
     , loc <- supplierLocations act ex
@@ -714,7 +714,7 @@ buildWasteTreatmentEntriesFromDB db =
     [ (wfId flow, wfName flow, treatmentEntry act actUUID prodUUID (wfName flow))
     | (pid, (actUUID, prodUUID)) <- zip ([0 ..] :: [Int]) (V.toList (dbProcessIdTable db))
     , Just act <- [getActivity db (fromIntegral pid)]
-    , ex <- exchanges act
+    , ex <- nonPlainExchanges act
     , exchangeIsReference ex
     , Just flow <- [M.lookup (exchangeFlowId ex) (dbWasteFlows db)]
     ]

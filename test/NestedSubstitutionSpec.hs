@@ -320,7 +320,7 @@ spec = do
             let root = linkDatabases rootRaw dep "dep" 0.1
                 pid = 0
                 tenfold = root{dbActivities = V.modify (\v -> MV.modify v writtenForTen (fromIntegral pid)) (dbActivities root)}
-                writtenForTen act = act{exchanges = map (\ex -> if exchangeIsReference ex then ex{techAmount = 10 * techAmount ex} else ex) (exchanges act)}
+                writtenForTen act = act{activityLines = packExchanges (map (\ex -> if exchangeIsReference ex then ex{techAmount = 10 * techAmount ex} else ex) (exchanges act))}
             rootSolver <- mkSolverFromDb root "root"
             depSolver <- mkSolverFromDb dep "dep"
             scaling <- either (fail . show) pure =<< solveWithSharedSolver rootSolver =<< either (fail . show) pure (buildDemandVector root pid)

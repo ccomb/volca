@@ -91,7 +91,7 @@ buildNode cfg pid activity visited depth = do
                 then pure (TreeLoop pid (activityName activity) depth)
                 else do
                     let visited' = S.insert pid visited
-                        techInputs = filter isTechnosphereInput (exchanges activity)
+                        techInputs = filter isTechnosphereInput (nonPlainExchanges activity)
                     children <- buildChildren cfg techInputs visited' (depth + 1)
                     pure $
                         if null children

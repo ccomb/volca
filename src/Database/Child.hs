@@ -47,8 +47,11 @@ import Types (
     exchangeFormula,
     exchangeIsProductOutput,
     exchangeUnitId,
+    exchanges,
     getUnitNameForExchange,
     noProperties,
+    nonPlainExchanges,
+    packExchanges,
     propertyName,
     ratioValue,
     readExchangeLocation,
@@ -125,7 +128,7 @@ childOf unitConfig model parent = case onParent model parent of
         alone :: [Exchange] -> Activity
         alone lines' =
             act
-                { exchanges = if not (M.null taken) && length (filter exchangeIsProductOutput lines') == 1 then map unshared lines' else lines'
+                { activityLines = packExchanges (if not (M.null taken) && length (filter exchangeIsProductOutput lines') == 1 then map unshared lines' else lines')
                 , activityParameters = M.union (activityParameters act) named
                 }
 
@@ -134,7 +137,7 @@ childOf unitConfig model parent = case onParent model parent of
         named =
             M.fromList
                 [ (name, Parameter{parameterDefinition = CalculatedParameter text (Just (exchangeAmount ex)), parameterUnit = Just (unitOf ex), parameterDescription = ""})
-                | ex <- exchanges act
+                | ex <- nonPlainExchanges act
                 , exchangeIsProductOutput ex
                 , M.member (exchangeFlowId ex) taken
                 , Just ExchangeFormula{efName = Just name, efText = text} <- [exchangeFormula ex]

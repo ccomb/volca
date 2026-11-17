@@ -72,9 +72,11 @@ import Types (
     TechnosphereFlow (..),
     UUID,
     Unit (..),
+    exchanges,
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
     toSimpleDatabase,
  )
 import UnitConversion (defaultUnitConfig)
@@ -407,7 +409,7 @@ mkTechFlow fid name =
 asTreatments :: SimpleParts -> SimpleParts
 asTreatments (SimpleParts acts flows units) = SimpleParts (M.map negatedReference acts) flows units
   where
-    negatedReference act = act{exchanges = map negated (exchanges act)}
+    negatedReference act = act{activityLines = packExchanges (map negated (exchanges act))}
     negated ex@TechnosphereExchange{techRole = ReferenceProduct, techAmount = amount} = ex{techAmount = negate amount}
     negated ex = ex
 
@@ -447,7 +449,7 @@ supplierDB offset products =
                         , activityLocation = "GLO"
                         , activityLocationSource = LocationDeclared
                         , activityUnit = "kg"
-                        , exchanges = [refOut]
+                        , activityLines = packExchanges [refOut]
                         , activityParameters = M.empty
                         , activityNativeType = Nothing
                         , activityNativeId = Nothing
@@ -517,7 +519,7 @@ consumerDB offset products =
                         , activityLocation = "GLO"
                         , activityLocationSource = LocationDeclared
                         , activityUnit = "kg"
-                        , exchanges = [refOut, unlinkedInput]
+                        , activityLines = packExchanges [refOut, unlinkedInput]
                         , activityParameters = M.empty
                         , activityNativeType = Nothing
                         , activityNativeId = Nothing

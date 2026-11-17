@@ -107,6 +107,8 @@ import Types (
     exchangeIsInput,
     exchangeIsProductOutput,
     exchangeIsReference,
+    exchanges,
+    nonPlainExchanges,
     parseProcessRef,
     processRefText,
     propertyName,
@@ -448,7 +450,7 @@ resolveModel model parent = case NE.nonEmpty (concatMap problemsOf taken <> over
         listToMaybe
             [ (act, ex)
             | act <- M.elems (M.takeWhileAntitone ((== a) . fst) (M.dropWhileAntitone ((< a) . fst) parent))
-            , ex <- exchanges act
+            , ex <- nonPlainExchanges act
             , exchangeIsProductOutput ex
             , exchangeFlowId ex == p
             ]
@@ -467,7 +469,7 @@ resolveModel model parent = case NE.nonEmpty (concatMap problemsOf taken <> over
     emptied =
         [ activityName block <> " has every product substituted: nothing is left to carry its burden"
         | (block, flows) <- M.elems (M.fromListWith (\(b, fs) (_, gs) -> (b, S.union fs gs)) [(prActivity (subCoproduct (sdRule sd)), (sdBlock sd, S.singleton (exchangeFlowId (sdCoproduct sd)))) | sd <- substituted])
-        , S.size flows >= length (filter exchangeIsProductOutput (exchanges block))
+        , S.size flows >= length (filter exchangeIsProductOutput (nonPlainExchanges block))
         ]
 
     said :: ModelSubstitution -> Text
@@ -481,7 +483,7 @@ buys (ProcessRef a p) ex = case ex of
 
 -- | A block: the only kind of process a model divides.
 severalProducts :: Activity -> Bool
-severalProducts act = length (filter exchangeIsProductOutput (exchanges act)) > 1
+severalProducts act = length (filter exchangeIsProductOutput (nonPlainExchanges act)) > 1
 
 {- | A substitution with the names a reader checks it by: the block, its
 coproduct, the process displaced and its product.
@@ -594,7 +596,7 @@ traceOf mop parent child =
     [ Traced{trProcess = k, trParent = parentKey k, trActivity = activityName act, trProduct = productName ref, trShare = share, trRule = rule, trParameters = moving}
     | (k, act) <- M.toList (sdbActivities simple)
     , let moving = M.findWithDefault [] (parentKey k) parametered
-    , ref <- take 1 (filter exchangeIsReference (exchanges act))
+    , ref <- take 1 (filter exchangeIsReference (nonPlainExchanges act))
     , Just (share, rule) <- [orParametered moving (ruled k act (exchangeDeclaredShare ref))]
     ]
   where
@@ -636,7 +638,7 @@ traceOf mop parent child =
     blockProducts :: M.Map UUID ((UUID, UUID), S.Set UUID)
     blockProducts =
         M.fromList
-            [ (activityId, (k, S.fromList (map exchangeFlowId (filter exchangeIsProductOutput (exchanges act)))))
+            [ (activityId, (k, S.fromList (map exchangeFlowId (filter exchangeIsProductOutput (nonPlainExchanges act)))))
             | (k@(activityId, _), act) <- M.toList (sdbActivities (toSimpleDatabase parent))
             , severalProducts act
             ]
