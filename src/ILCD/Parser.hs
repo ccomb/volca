@@ -21,6 +21,8 @@ import Amount (readAmount)
 import Control.Applicative ((<|>))
 import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
+import Control.DeepSeq (NFData, force)
+import Control.Exception (evaluate)
 import Control.Monad (foldM, forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
@@ -128,18 +130,18 @@ parseILCDDirectory unitConfig key dir = runExceptT $ do
     let (techFlowDB, bioFlowDB, wasteFlowDB, unitDB) = buildFlowAndUnitDB flowInfoMap flowPropMap unitGroupMap
     liftIO $ mapM_ (reportProgress Warning . T.unpack) (unplaceableMedia flowInfoMap)
 
-    -- Step 4: Parse process XMLs in parallel
+    -- Step 4: Parse process XMLs in parallel, each into its activities
     processFiles <- liftIO $ listXMLFiles (dir </> "processes")
     liftIO $ reportProgress Info $ printf "Parsing %d ILCD process files..." (length processFiles)
     liftIO reportColdLoad
-    claimedProcesses <- liftIO $ parseProcessFilesParallel processFiles
-    processes <- M.elems <$> ExceptT (oneDataSetPerUUID claimedProcesses)
+    let alloc = Allocating{alKey = fileReadingKey key, alUnitConfig = unitConfig, alUnitDB = unitDB}
+    claimedProcesses <- liftIO $ parseProcessFilesParallel (keyedActivities alloc flowInfoMap techFlowDB bioFlowDB wasteFlowDB) processFiles
+    processes <- ExceptT (oneDataSetPerUUID claimedProcesses)
 
-    liftIO $ reportProgress Info $ printf "Parsed %d processes, building activity map..." (length processes)
+    liftIO $ reportProgress Info $ printf "Parsed %d processes" (M.size processes)
 
     -- Step 5: Build ActivityMap
-    let alloc = Allocating{alKey = fileReadingKey key, alUnitConfig = unitConfig, alUnitDB = unitDB}
-        activityMap = buildActivityMap alloc flowInfoMap techFlowDB bioFlowDB wasteFlowDB processes
+    let activityMap = buildActivityMap processes
 
     literature <- ExceptT $ parseSources (dir </> "sources")
 
@@ -840,49 +842,58 @@ citationSections cited =
     , not (null names)
     ]
 
--- | Parse process files in parallel using worker pattern
-parseProcessFilesParallel :: [FilePath] -> IO [Claimed ILCDProcessRaw]
-parseProcessFilesParallel files = do
+{- | Parse process files in parallel using worker pattern, keeping of each
+file what @built@ makes of it.
+
+A file is built as soon as it is read, and in full, so that its raw form dies
+there. Kept until every file was read, the raw forms of a database of
+aggregated inventories weigh several times what its activities do.
+-}
+parseProcessFilesParallel :: forall a. (NFData a) => (ILCDProcessRaw -> a) -> [FilePath] -> IO [Claimed a]
+parseProcessFilesParallel built files = do
     numWorkers <- getNumCapabilities
     let workers = distributeFiles numWorkers files
     workerResults <- mapConcurrently parseWorker workers
     return (concat workerResults)
   where
-    parseWorker :: [FilePath] -> IO [Claimed ILCDProcessRaw]
-    parseWorker paths = do
-        results <- mapM parseOneFile paths
-        return [Claimed path (iprUUID raw) raw | (path, Just raw) <- results]
-    parseOneFile :: FilePath -> IO (FilePath, Maybe ILCDProcessRaw)
+    parseWorker :: [FilePath] -> IO [Claimed a]
+    parseWorker paths = Data.Maybe.catMaybes <$> mapM parseOneFile paths
+    parseOneFile :: FilePath -> IO (Maybe (Claimed a))
     parseOneFile path = do
         bytes <- readILCDFile path
         let parsed = parseProcessXML bytes
         forM_ (parsed >>= either Just (const Nothing) . iprLastRevised) $ \reason ->
             reportProgress Warning (path ++ ": timeStamp: " ++ T.unpack reason)
-        return (path, parsed)
+        -- The claim is evaluated too: left to be built later, it would hold the
+        -- raw form for its UUID.
+        traverse (\raw -> evaluate . Claimed path (iprUUID raw) =<< evaluate (force (built raw))) parsed
 
 --------------------------------------------------------------------------------
 -- Build ActivityMap from raw processes
 --------------------------------------------------------------------------------
 
-buildActivityMap ::
+-- | The activity map of a directory, out of what each of its processes gave.
+buildActivityMap :: M.Map UUID [((UUID, UUID), Activity)] -> ActivityMap
+buildActivityMap = M.fromList . concat . M.elems
+
+-- | The activities one process file gives, each under its key in the activity map.
+keyedActivities ::
     Allocating ->
     M.Map UUID ILCDFlowInfo ->
     TechFlowDB ->
     BioFlowDB ->
     WasteFlowDB ->
-    [ILCDProcessRaw] ->
-    ActivityMap
-buildActivityMap alloc flowInfoMap techFlowDB bioFlowDB wasteFlowDB procs =
-    M.fromList
-        [ ((iprUUID p, productKey p activity), activity)
-        | p <- procs
-        , activity <- NE.toList (allocate alloc (buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB (alUnitDB alloc) p))
-        ]
+    ILCDProcessRaw ->
+    [((UUID, UUID), Activity)]
+keyedActivities alloc flowInfoMap techFlowDB bioFlowDB wasteFlowDB p =
+    [ ((iprUUID p, productKey activity), activity)
+    | activity <- NE.toList (allocate alloc (buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB (alUnitDB alloc) p))
+    ]
   where
     -- The process is keyed on its reference product; a dataset the gate will
     -- refuse for having none keeps the flow its file points at, or its own id.
-    productKey :: ILCDProcessRaw -> Activity -> UUID
-    productKey p activity =
+    productKey :: Activity -> UUID
+    productKey activity =
         Data.Maybe.fromMaybe
             (maybe (iprUUID p) ierFlowRef (findRefExchange p))
             (Data.Maybe.listToMaybe [exchangeFlowId ex | ex <- nonPlainExchanges activity, exchangeIsReference ex])
