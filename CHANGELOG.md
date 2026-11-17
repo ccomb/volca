@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- The Docker image stops as soon as it is asked to. `docker stop` used to wait
+  its ten seconds out and then kill the engine, and a machine shutting down
+  with the container running waited for it up to a minute and a half: the
+  engine ran as the container's first process, to which a stop request is
+  never delivered. Stopping now takes a third of a second.
+
 ### Changed
 
 - A database whose processes each list thousands of elementary flows, as a

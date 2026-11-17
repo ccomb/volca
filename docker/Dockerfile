@@ -161,7 +161,8 @@ RUN apk add --no-cache \
     tzdata \
     7zip \
     musl-locales \
-    musl-locales-lang
+    musl-locales-lang \
+    tini
 
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
