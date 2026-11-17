@@ -526,6 +526,7 @@ def readme_namespace() -> dict[str, Any]:
         method="EF v3.1 – Climate change",
         unit="kg CO2 eq",
         total_score=0.823,
+        functional_unit=one_kg_of_flour,
         top_flows=[
             FlowContribution(
                 flow_name="Carbon dioxide, fossil",
@@ -540,6 +541,7 @@ def readme_namespace() -> dict[str, Any]:
         method="EF v3.1 – Climate change",
         unit="kg CO2 eq",
         total_score=0.823,
+        functional_unit=one_kg_of_flour,
         activities=[
             ActivityContribution(
                 process_id="cccc3333-aaaa-bbbb-cccc-111122223333_aaaa4444-eeee-ffff-aaaa-444455556666",

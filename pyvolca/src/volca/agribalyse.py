@@ -215,7 +215,9 @@ def classify_exchange(exchange: Exchange) -> str:
 
 
 def get_direct_energy(client: "Client", process_id: str) -> tuple[float, float]:
-    """Return ``(electricity_kWh, heat_MJ)`` summed over level-0 inputs.
+    """Return ``(electricity_kWh, heat_MJ)`` summed over level-0 inputs, for one
+    unit of the process's reference product (the basis ``/aggregate`` counts in,
+    whatever amount the process declares).
 
     Two /aggregate calls, nothing more.
     """

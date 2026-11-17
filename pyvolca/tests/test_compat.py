@@ -41,7 +41,7 @@ def _version_body(wire: int | None) -> dict:
 # -- check(): the pure policy -------------------------------------------------
 
 
-@pytest.mark.parametrize("wire", [None, 0])
+@pytest.mark.parametrize("wire", [None, 0, _compat.REQUIRED_WIRE - 1])
 def test_check_rejects_too_old_wire(wire: int | None) -> None:
     with pytest.raises(VoLCAError) as exc:
         _compat.check(_sv(wire))

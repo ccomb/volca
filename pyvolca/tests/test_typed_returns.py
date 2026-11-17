@@ -41,6 +41,8 @@ from volca import (
     PathResult,
     PathStep,
     Preset,
+    ReducedModel,
+    SensitivityResult,
     ServerVersion,
     Substitution,
     SupplyChain,
@@ -224,6 +226,37 @@ class TestPerUnitBasis:
             "mappedFlows": 1, "functionalUnit": self.FU,
         })
         assert result.functional_unit == self._unit()
+
+    def test_contributing_flows_carry_functional_unit(self):
+        result = ContributingFlows.from_json({
+            "method": "EF v3.1", "unit": "kg CO2 eq", "totalScore": 0.82, "functionalUnit": self.FU,
+        })
+        assert result.functional_unit == self._unit()
+
+    def test_contributing_activities_carry_functional_unit(self):
+        result = ContributingActivities.from_json({
+            "method": "EF v3.1", "unit": "kg CO2 eq", "totalScore": 0.82, "functionalUnit": self.FU,
+        })
+        assert result.functional_unit == self._unit()
+
+    def test_sensitivity_carries_functional_unit(self):
+        score = {
+            "methodId": "m", "methodName": "Climate change", "category": "Climate change",
+            "damageCategory": "Climate change", "score": 1.0, "unit": "kg CO2 eq",
+            "mappedFlows": 1, "functionalUnit": self.FU,
+        }
+        result = SensitivityResult.from_json({"baseline": score, "perturbed": [], "functionalUnit": self.FU})
+        assert result.functional_unit == self._unit()
+
+    def test_reduced_model_carries_functional_unit(self):
+        model = ReducedModel.from_json(
+            {
+                "functionalUnit": self.FU, "methods": [], "excludeLongTerm": False, "baseline": [],
+                "parameters": [], "processes": [], "suppliers": [], "scoringSets": [],
+            },
+            "root",
+        )
+        assert model.functional_unit == self._unit()
 
 
 class TestCharacterizationHasMore:
@@ -558,6 +591,7 @@ class TestContributingParsing:
     def test_contributing_flows_from_json(self):
         cf = ContributingFlows.from_json({
             "method": "EF v3.1", "unit": "kg CO2 eq", "totalScore": 0.82,
+            "functionalUnit": {"amount": 1, "unit": "kg", "product": "wheat"},
             "topFlows": [
                 {"flowName": "CO2", "contribution": 0.4, "sharePct": 48.0,
                  "flowId": "ef-co2", "category": "air", "cfValue": 1.0},
@@ -570,6 +604,7 @@ class TestContributingParsing:
     def test_contributing_activities_from_json(self):
         ca = ContributingActivities.from_json({
             "method": "EF v3.1", "unit": "kg CO2 eq", "totalScore": 0.82,
+            "functionalUnit": {"amount": 1, "unit": "kg", "product": "wheat"},
             "activities": [
                 {"processId": "p", "activityName": "Farm", "productName": "wheat",
                  "location": "FR", "contribution": 0.31, "sharePct": 38.2},

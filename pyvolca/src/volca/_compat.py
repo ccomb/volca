@@ -11,6 +11,11 @@ name that changes under a working script costs its author an afternoon of edits
 with nothing to point at, so a rename ships the new name and keeps the old one
 working as an alias that says what replaced it. :func:`warn_renamed` writes that
 sentence, and :data:`RENAMED_REMOVED_IN` says when the old name goes away.
+Release 0.15 is the one exception: it renames four attributes without an alias
+(``quantity`` on a supply chain entry and on an aggregate group,
+``cumulative_quantity`` on a path step, ``filtered_total`` on an aggregate),
+because an alias would hand a script written for the old numbers the new ones
+under the old name, and it would run without complaint.
 
 It is deliberately import-cheap (only the stdlib at runtime) so the release
 preflight can read :data:`MIN_ENGINE_HINT` without pulling in ``requests`` or
@@ -29,9 +34,10 @@ if TYPE_CHECKING:
 REQUIRED_WIRE = 113
 """The oldest JSON wire-format revision this pyvolca accepts. Revision 113
 renamed the fields whose numbers changed basis and this client reads only the
-new names, so an older engine is refused. The revision-gated capabilities (see
-``Client._require_wire``) check the engine's advertised revision before
-sending anything."""
+new names, so an older engine is refused as a whole when the client first talks
+to it. The per-capability gates of ``Client._require_wire`` that name a lower
+revision only matter to a client that opted out of that check with
+``VOLCA_SKIP_COMPAT_CHECK``; they stay for that case."""
 
 KNOWN_WIRE = 113
 """The newest wire revision this pyvolca understands (revision 113 counted the

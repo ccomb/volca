@@ -607,7 +607,7 @@ class FunctionalUnit:
 
     @classmethod
     def from_json(cls, d: dict) -> "FunctionalUnit":
-        return cls(amount=d["amount"], unit=d["unit"], product=d["product"])
+        return cls(amount=float(d["amount"]), unit=d["unit"], product=d["product"])
 
 
 @dataclass
@@ -696,8 +696,10 @@ class LCIABatchResult:
     it, a row no score reads among them, its ``category`` the row's label.
 
     ``functional_unit`` is what every score of the activity is for, said once
-    here as well as on each :class:`LCIAResult`. A batch of several activities
-    says it for each: they need not be counted in the same unit.
+    here as well as on each :class:`LCIAResult`. The result is for one
+    activity; a :class:`BatchScores` of several carries one of these per
+    :class:`ScoredActivity`, each with its own, since the activities need not
+    be counted in the same unit.
     """
 
     results: list[LCIAResult]
@@ -780,11 +782,13 @@ class SensitivityResult:
     """Sensitivity analysis: baseline impact plus one entry per perturbation.
 
     Returned by :meth:`Client.compute_sensitivity`. ``perturbed`` preserves
-    the order of the requested perturbations.
+    the order of the requested perturbations. ``functional_unit`` is what the
+    baseline and every perturbed score are for.
     """
 
     baseline: LCIAResult
     perturbed: list[PerturbedResult]
+    functional_unit: FunctionalUnit
     cutoff_inputs: list[CutoffInput] = field(default_factory=list)
     """Inputs no loaded database supplies, counted as zero in the baseline
     (wire revision 58)."""
@@ -797,6 +801,7 @@ class SensitivityResult:
         return cls(
             baseline=LCIAResult.from_json(d["baseline"]),
             perturbed=[PerturbedResult.from_json(p) for p in d["perturbed"]],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
             withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )
@@ -2327,12 +2332,14 @@ class ReducedModel:
     :meth:`evaluate` computes them for many sets of values without asking the
     engine again, loops among the processes the parameters move included.
     ``methods`` are the collection's, in the order of every score;
-    ``baseline`` the scores at the defaults. ``processes``, ``suppliers`` and
+    ``baseline`` the scores at the defaults, and ``functional_unit`` what every
+    score of the model is for. ``processes``, ``suppliers`` and
     ``scoring_sets`` stay in the engine's own shape, with formulas as trees,
     for a program that evaluates them its own way.
     """
 
     process_id: str
+    functional_unit: FunctionalUnit
     methods: list[dict]
     exclude_long_term: bool
     baseline: list[float]
@@ -2345,6 +2352,7 @@ class ReducedModel:
     def from_json(cls, d: dict, process_id: str) -> "ReducedModel":
         return cls(
             process_id=process_id,
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             methods=d["methods"],
             exclude_long_term=d["excludeLongTerm"],
             baseline=d["baseline"],
@@ -2748,11 +2756,14 @@ class ContributingFlows:
     server returned under ``limit``, but pyvolca cannot tell whether more
     flows were truncated. If you need exhaustive coverage, pass a generous
     ``limit`` and inspect ``share_pct`` totals.
+
+    ``functional_unit`` is what ``total_score`` and every contribution are for.
     """
 
     method: str
     unit: str
     total_score: float
+    functional_unit: FunctionalUnit
     top_flows: list[FlowContribution] = field(default_factory=list)
     withheld_databases: list[WithheldShare] = field(default_factory=list)
     cutoff_inputs: list[CutoffInput] = field(default_factory=list)
@@ -2771,6 +2782,7 @@ class ContributingFlows:
             method=d["method"],
             unit=d["unit"],
             total_score=d["totalScore"],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             top_flows=[FlowContribution.from_json(f) for f in d.get("topFlows", [])],
             withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
@@ -2786,11 +2798,14 @@ class ContributingActivities:
     Same engine-side limitation as :class:`ContributingFlows`: the server
     reports no total, so pyvolca cannot derive ``has_more``. Pass a generous
     ``limit`` and inspect ``share_pct`` if exhaustive coverage matters.
+
+    ``functional_unit`` is what ``total_score`` and every contribution are for.
     """
 
     method: str
     unit: str
     total_score: float
+    functional_unit: FunctionalUnit
     activities: list[ActivityContribution] = field(default_factory=list)
     withheld_databases: list[WithheldShare] = field(default_factory=list)
     cutoff_inputs: list[CutoffInput] = field(default_factory=list)
@@ -2809,6 +2824,7 @@ class ContributingActivities:
             method=d["method"],
             unit=d["unit"],
             total_score=d["totalScore"],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             activities=[ActivityContribution.from_json(a) for a in d.get("activities", [])],
             withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],

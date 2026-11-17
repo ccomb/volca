@@ -18,7 +18,7 @@ Requires Python ≥ 3.10 and a running VoLCA engine. Use `Server` (below) to run
 
 pyvolca speaks a range of revisions of the engine's JSON wire format; the engine advertises its revision as `wireVersion` on `/api/v1/version`. pyvolca checks it the first time it talks to the engine: too old fails with a clear error, newer than this client knows warns, and a capability that needs a newer wire than the engine speaks refuses to run instead of letting the engine misread the request. pyvolca and engine version numbers move independently: `wireVersion` carries compatibility, not the version numbers.
 
-The other direction is a promise about pyvolca's own names. A name this client publishes does not vanish under a working script: when one is renamed, the old spelling keeps working and warns, saying what replaced it and that it takes the same arguments. A retired name is dropped at a major version, never in the release that introduces its replacement, so upgrading tells you what to edit rather than breaking on the line that used it. Python shows a `DeprecationWarning` only when it is raised from your top-level script, so run with `-W default::DeprecationWarning` to see the ones raised from your own modules and packages too.
+The other direction is a promise about pyvolca's own names. A name this client publishes does not vanish under a working script: when one is renamed, the old spelling keeps working and warns, saying what replaced it and that it takes the same arguments. A retired name is dropped at a major version, never in the release that introduces its replacement, so upgrading tells you what to edit rather than breaking on the line that used it. The one exception is release 0.15, which renames four attributes without keeping the old spelling (`quantity` on a supply chain entry and on an aggregate group, `cumulative_quantity` on a path step, `filtered_total` on an aggregate): an alias would hand a script written for the old numbers the new numbers under the old name, and it would run without complaint, where now it stops on the missing attribute. Python shows a `DeprecationWarning` only when it is raised from your top-level script, so run with `-W default::DeprecationWarning` to see the ones raised from your own modules and packages too.
 
 <!-- BEGIN: compatibility -->
 
@@ -3130,11 +3130,14 @@ Same engine-side limitation as `ContributingFlows`: the server
 reports no total, so pyvolca cannot derive ``has_more``. Pass a generous
 ``limit`` and inspect ``share_pct`` if exhaustive coverage matters.
 
+``functional_unit`` is what ``total_score`` and every contribution are for.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `method` | `str` | _required_ |
 | `unit` | `str` | _required_ |
 | `total_score` | `float` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `activities` | `list[ActivityContribution]` | list() |
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
@@ -3150,11 +3153,14 @@ server returned under ``limit``, but pyvolca cannot tell whether more
 flows were truncated. If you need exhaustive coverage, pass a generous
 ``limit`` and inspect ``share_pct`` totals.
 
+``functional_unit`` is what ``total_score`` and every contribution are for.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `method` | `str` | _required_ |
 | `unit` | `str` | _required_ |
 | `total_score` | `float` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `top_flows` | `list[FlowContribution]` | list() |
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
@@ -3668,8 +3674,10 @@ the same for every row of each set as `Client.scoring_sets` reads
 it, a row no score reads among them, its ``category`` the row's label.
 
 ``functional_unit`` is what every score of the activity is for, said once
-here as well as on each `LCIAResult`. A batch of several activities
-says it for each: they need not be counted in the same unit.
+here as well as on each `LCIAResult`. The result is for one
+activity; a `BatchScores` of several carries one of these per
+`ScoredActivity`, each with its own, since the activities need not
+be counted in the same unit.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -4087,12 +4095,14 @@ applied.
 Sensitivity analysis: baseline impact plus one entry per perturbation.
 
 Returned by `Client.compute_sensitivity`. ``perturbed`` preserves
-the order of the requested perturbations.
+the order of the requested perturbations. ``functional_unit`` is what the
+baseline and every perturbed score are for.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `baseline` | `LCIAResult` | _required_ |
 | `perturbed` | `list[PerturbedResult]` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
@@ -4245,13 +4255,15 @@ An activity's scores as a function of some of its parameters, from `Client.reduc
 `evaluate` computes them for many sets of values without asking the
 engine again, loops among the processes the parameters move included.
 ``methods`` are the collection's, in the order of every score;
-``baseline`` the scores at the defaults. ``processes``, ``suppliers`` and
+``baseline`` the scores at the defaults, and ``functional_unit`` what every
+score of the model is for. ``processes``, ``suppliers`` and
 ``scoring_sets`` stay in the engine's own shape, with formulas as trees,
 for a program that evaluates them its own way.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `process_id` | `str` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `methods` | `list[dict]` | _required_ |
 | `exclude_long_term` | `bool` | _required_ |
 | `baseline` | `list[float]` | _required_ |

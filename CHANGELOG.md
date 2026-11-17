@@ -4,20 +4,21 @@
 
 ### Changed
 
-- The supply chain, the path to a supplier and every scope of an aggregate
-  now count for one unit of the product asked, as the impacts and the
-  inventory already did. Their numbers change for any process whose declared
-  amount is not 1: a process written for 10 kg of cheese now reports a tenth
-  of what it did in its supply chain, in the path to a supplier, and in every
-  scope of an aggregate but `biosphere`, which already counted for one unit.
-  The fields holding these numbers are renamed `quantityPerUnit`, `cumulativeQuantityPerUnit`
-  and `filteredTotalPerUnit`, so a client written for the old numbers stops
-  instead of reading new ones under old names. The amount an activity
+- The supply chain, the path to a supplier and every scope of an aggregate now
+  count for one unit of the product asked, as the impacts and the inventory
+  already did. Their numbers change for any process whose declared amount is
+  not 1: a process written for 10 kg of cheese now reports a tenth of what it
+  did in its supply chain, in the path to a supplier, and in every scope of an
+  aggregate but `biosphere`, which already counted for one unit. The fields
+  holding these numbers are renamed (`quantity` becomes `quantityPerUnit`,
+  `cumulativeQuantity` becomes `cumulativeQuantityPerUnit`, `filteredTotal`
+  becomes `filteredTotalPerUnit`), so a client written for the old numbers
+  stops instead of reading new ones under old names. The amount an activity
   declares for its own product is unchanged (`productAmount`), and so are the
   amounts of its exchanges.
 - Every computed response carries `functionalUnit`, the amount, unit and
-  product it counts for, where the scores carried a text such as "1 kg".
-  Wire revision 113.
+  product it counts for, where the scores carried a text such as "1 kg". Wire
+  revision 113.
 - A database whose processes each list thousands of elementary flows, as a
   package of aggregated inventories does, takes less memory once loaded: the
   index of the processes using each flow is ten times smaller. Database caches

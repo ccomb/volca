@@ -43,7 +43,9 @@ an older engine.
 - Every computed result carries `functional_unit`, a `FunctionalUnit` with the
   `amount`, `unit` and `product` it counts for. It replaces the text that
   `LCIAResult.functional_unit` was, and sits on each result of a batch, on
-  `SupplyChain`, `PathResult`, `AggregateResult` and `InventoryResult`.
+  `SupplyChain`, `PathResult`, `AggregateResult`, `InventoryResult`,
+  `ContributingFlows`, `ContributingActivities`, `SensitivityResult` and
+  `ReducedModel`.
 - `agribalyse.decompose()` sets every amount against one unit of the process.
   Its coproducts are read from the activity, as the dataset writes them, and
   are now divided by the amount the process declares, so they stay on the

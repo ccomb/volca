@@ -45,6 +45,7 @@ class TestComputeSensitivity:
         session.post.return_value = make_response(
             {
                 "baseline": _lcia(1.0),
+                "functionalUnit": _FUNCTIONAL_UNIT,
                 "perturbed": [
                     {"perturbation": {"consumer": "c", "supplier": "s", "delta": -0.05, "label": "cut"}, "impact": _lcia(0.95), "deltaImpact": -0.05},
                     {"perturbation": {"consumer": "c", "supplier": "z", "delta": 0.1}, "error": "supplier not found"},
