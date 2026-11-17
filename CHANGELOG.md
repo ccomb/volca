@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Finalizing an uploaded database that needs more memory than the engine may
+  use now says so, and says the engine is stopping. It used to answer
+  "Server exception: KilledByThreadManager (Just heap overflow)".
+
 ## [0.18.0] - 2026-11-14
 
 ### Added
