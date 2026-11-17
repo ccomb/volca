@@ -235,7 +235,7 @@ makingPower db = db{sdbActivities = M.insert (marketCHU, powerU) (activity "powe
 
 -- | The mill's power linked to this process.
 linkedPower :: UUID -> SimpleDatabase -> SimpleDatabase
-linkedPower supplier db = db{sdbActivities = M.adjust (\a -> a{exchanges = [if exchangeFlowId ex == powerU then ex{techActivityLinkId = Just supplier} else ex | ex <- exchanges a]}) (millU, yarnU) (sdbActivities db)}
+linkedPower supplier db = db{sdbActivities = M.adjust (\a -> a{activityLines = packExchanges [if exchangeFlowId ex == powerU then ex{techActivityLinkId = Just supplier} else ex | ex <- exchanges a]}) (millU, yarnU) (sdbActivities db)}
 
 -- | The two farms alone, whose seed nobody in the file buys.
 farmsOnly :: SimpleDatabase -> SimpleDatabase
@@ -243,7 +243,7 @@ farmsOnly db = db{sdbActivities = M.filterWithKey (\(act, _) _ -> act `elem` [fa
 
 -- | Gin B's fibre also stands in for seed from farm A.
 avoiding :: SimpleDatabase -> SimpleDatabase
-avoiding db = db{sdbActivities = M.adjust (\a -> a{exchanges = exchanges a ++ [avoided]}) (ginBU, fibreBU) (sdbActivities db)}
+avoiding db = db{sdbActivities = M.adjust (\a -> a{activityLines = packExchanges (exchanges a ++ [avoided])}) (ginBU, fibreBU) (sdbActivities db)}
   where
     avoided = TechnosphereExchange seedU 0.5 kgU AvoidedProduct (Just farmAU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
 
@@ -269,7 +269,7 @@ simple acts flows =
 
 activity :: Text -> Text -> [Exchange] -> Activity
 activity name location exs =
-    Activity name [] [] M.empty M.empty location LocationDeclared "kg" exs M.empty Nothing Nothing Nothing noDates
+    Activity name [] [] M.empty M.empty location LocationDeclared "kg" (packExchanges exs) M.empty Nothing Nothing Nothing noDates
 
 reference :: UUID -> Exchange
 reference flow = TechnosphereExchange flow 1.0 kgU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing

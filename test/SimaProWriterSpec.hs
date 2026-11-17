@@ -799,9 +799,11 @@ emissionDb comp =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , BiosphereExchange bioU 0.5 unitU Emission "" Nothing Nothing Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , BiosphereExchange bioU 0.5 unitU Emission "" Nothing Nothing Nothing
+                ]
+            )
             M.empty
             Nothing
             Nothing
@@ -814,7 +816,7 @@ compartment and CAS.
 casDb :: [(Text, Maybe Compartment, Maybe Text)] -> SimpleDatabase
 casDb flows =
     (emissionDb Nothing)
-        { sdbActivities = M.map (\a -> a{exchanges = take 1 (exchanges a) ++ map exchange bio}) (sdbActivities (emissionDb Nothing))
+        { sdbActivities = M.map (\a -> a{activityLines = packExchanges (take 1 (exchanges a) ++ map exchange bio)}) (sdbActivities (emissionDb Nothing))
         , sdbBioFlows = M.fromList [(bfId f, f) | f <- bio]
         }
   where
@@ -857,9 +859,11 @@ wasteDb mTreatment =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , WasteExchange wasteU 0.3 unitU False mTreatment ClaimByProduct "" Nothing Nothing Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , WasteExchange wasteU 0.3 unitU False mTreatment ClaimByProduct "" Nothing Nothing Nothing
+                ]
+            )
             M.empty
             Nothing
             Nothing
@@ -921,10 +925,12 @@ designationDb =
             "FR"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , TechnosphereExchange elecU 2.0 unitU Input (Just marketU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , TechnosphereExchange ureaU 3.0 unitU Input Nothing ClaimByProduct "RER" Nothing Nothing Nothing M.empty noProperties Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , TechnosphereExchange elecU 2.0 unitU Input (Just marketU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , TechnosphereExchange ureaU 3.0 unitU Input Nothing ClaimByProduct "RER" Nothing Nothing Nothing M.empty noProperties Nothing
+                ]
+            )
             M.empty
             Nothing
             Nothing
@@ -940,7 +946,7 @@ designationDb =
             "IN"
             LocationDeclared
             "kg"
-            [TechnosphereExchange elecU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
+            (packExchanges [TechnosphereExchange elecU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing])
             M.empty
             Nothing
             Nothing
@@ -989,9 +995,11 @@ allocationDb =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 50 Nothing Nothing)) M.empty noProperties Nothing
-            , TechnosphereExchange matU 10.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 50 Nothing Nothing)) M.empty noProperties Nothing
+                , TechnosphereExchange matU 10.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                ]
+            )
             M.empty
             Nothing
             Nothing
@@ -1035,9 +1043,11 @@ zeroAllocationDb =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 0 Nothing Nothing)) M.empty noProperties Nothing
-            , TechnosphereExchange matU 0.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 0 Nothing Nothing)) M.empty noProperties Nothing
+                , TechnosphereExchange matU 0.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                ]
+            )
             M.empty
             Nothing
             Nothing
@@ -1084,9 +1094,11 @@ commentDb ped cmt =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , TechnosphereExchange matU 2.0 unitU Input Nothing ClaimByProduct "" cmt ped Nothing M.empty noProperties Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , TechnosphereExchange matU 2.0 unitU Input Nothing ClaimByProduct "" cmt ped Nothing M.empty noProperties Nothing
+                ]
+            )
             M.empty
             Nothing
             Nothing
@@ -1124,7 +1136,7 @@ namedDb name =
             "GLO"
             LocationDeclared
             "kg"
-            [TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
+            (packExchanges [TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing])
             M.empty
             Nothing
             Nothing
@@ -1187,7 +1199,7 @@ guardDb alloc ntype exs =
         }
   where
     act =
-        Activity "guard maker" [] [] M.empty M.empty "GLO" LocationDeclared "kg" (map withShare exs) M.empty ntype Nothing Nothing noDates
+        Activity "guard maker" [] [] M.empty M.empty "GLO" LocationDeclared "kg" (packExchanges (map withShare exs)) M.empty ntype Nothing Nothing noDates
     -- The share a source declares lives on the reference exchange.
     withShare ex = case ex of
         TechnosphereExchange{techRole = ReferenceProduct} -> ex{techShare = (\p -> DeclaredShare p Nothing Nothing) <$> alloc}

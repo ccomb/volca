@@ -69,9 +69,11 @@ import Types (
     TechRole (..),
     TechnosphereFlow (..),
     Unit (..),
+    exchanges,
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
  )
 import UnitConversion (UnitConfig, defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
@@ -663,7 +665,7 @@ entry key r =
         , activityLocation = "FR"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges = reference : rowLines r
+        , activityLines = packExchanges (reference : rowLines r)
         , activityParameters = M.empty
         , activityNativeType = rowType r
         , activityNativeId = Nothing

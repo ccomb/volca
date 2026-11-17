@@ -276,7 +276,7 @@ processLines cx key act = case partitionEithers lines' of
     (bad, _) -> Left bad
   where
     lines' = map (lineOf cx act) (exchanges act)
-    products = filter exchangeIsProductOutput (exchanges act)
+    products = filter exchangeIsProductOutput (nonPlainExchanges act)
 
     weighing
         | not (any isCoproduct products) = OneProduct
@@ -411,7 +411,7 @@ warnings cx processes = splitWarnings (cxDb cx) <> EF.formulaWarnings (cxFormula
         , ("processes state an elementary flow against its compartment, written on its side with the same inventory:", S.toList (S.fromList against))
         , ("location codes differ from another only by case, one location to openLCA, and are written as it:", [code <> " as " <> written | (code, written) <- M.toList (cxPlaces cx), code /= written])
         ]
-    produced = S.fromList [exchangeFlowId ex | a <- acts, ex <- exchanges a, exchangeIsReference ex]
+    produced = S.fromList [exchangeFlowId ex | a <- acts, ex <- nonPlainExchanges a, exchangeIsReference ex]
     unlinkedProduced =
         [ activityName a <> " · " <> maybe "" ofName (M.lookup (exchangeFlowId ex) (cxFlows cx))
         | a <- acts

@@ -66,6 +66,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
     processIdToText,
  )
 import UnitConversion (defaultUnitConfig)
@@ -399,7 +400,7 @@ mkActivity name classification exs =
         , activityLocation = "GLO"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges = exs
+        , activityLines = packExchanges exs
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing

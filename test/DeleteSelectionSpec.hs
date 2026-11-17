@@ -70,10 +70,12 @@ import Types (
     TechnosphereFlow (..),
     UUID,
     Unit (..),
+    exchanges,
     findProcessId,
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
     processIdToText,
  )
 import UnitConversion (defaultUnitConfig)
@@ -575,7 +577,7 @@ mkActivity name loc classif exs =
         , activityLocation = loc
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges = exs
+        , activityLines = packExchanges exs
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing

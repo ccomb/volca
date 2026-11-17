@@ -365,7 +365,7 @@ elec =
         , activityLocation = "GLO"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kilowatt hour"
-        , exchanges = [prodExch, gasExch, co2Exch]
+        , activityLines = packExchanges [prodExch, gasExch, co2Exch]
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
@@ -475,48 +475,49 @@ specialAct =
     elec
         { activityName = "Steelmaking & forging <hot> \"strip\", München 製鋼"
         , activityUnit = "kilogram"
-        , exchanges =
-            [ TechnosphereExchange
-                { techFlowId = tfId specialProdFlow
-                , techAmount = 1
-                , techUnitId = generateUnitUUID "kilogram"
-                , techRole = ReferenceProduct
-                , techActivityLinkId = Nothing
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = "GLO"
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            , TechnosphereExchange
-                { techFlowId = tfId specialInputFlow
-                , techAmount = 0.7
-                , techUnitId = generateUnitUUID "kilogram"
-                , techRole = Input
-                , techActivityLinkId = Nothing
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = "RoW"
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            , BiosphereExchange
-                { bioFlowId = bfId specialBio
-                , bioAmount = 0.3
-                , bioUnitId = generateUnitUUID "kilogram"
-                , bioDirection = Emission
-                , bioLocation = ""
-                , bioComment = Nothing
-                , bioPedigree = Nothing
-                , bioFormula = Nothing
-                }
-            ]
+        , activityLines =
+            packExchanges
+                [ TechnosphereExchange
+                    { techFlowId = tfId specialProdFlow
+                    , techAmount = 1
+                    , techUnitId = generateUnitUUID "kilogram"
+                    , techRole = ReferenceProduct
+                    , techActivityLinkId = Nothing
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = "GLO"
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                , TechnosphereExchange
+                    { techFlowId = tfId specialInputFlow
+                    , techAmount = 0.7
+                    , techUnitId = generateUnitUUID "kilogram"
+                    , techRole = Input
+                    , techActivityLinkId = Nothing
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = "RoW"
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                , BiosphereExchange
+                    { bioFlowId = bfId specialBio
+                    , bioAmount = 0.3
+                    , bioUnitId = generateUnitUUID "kilogram"
+                    , bioDirection = Emission
+                    , bioLocation = ""
+                    , bioComment = Nothing
+                    , bioPedigree = Nothing
+                    , bioFormula = Nothing
+                    }
+                ]
         }
 
 specialProdFlow :: TechnosphereFlow
@@ -567,23 +568,24 @@ refInputAct =
     elec
         { activityName = "Solvent treatment"
         , activityUnit = "kilogram"
-        , exchanges =
-            [ TechnosphereExchange
-                { techFlowId = tfId solventFlow
-                , techAmount = 1
-                , techUnitId = generateUnitUUID "kilogram"
-                , techRole = ReferenceInput
-                , techActivityLinkId = Nothing
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = "GLO"
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            ]
+        , activityLines =
+            packExchanges
+                [ TechnosphereExchange
+                    { techFlowId = tfId solventFlow
+                    , techAmount = 1
+                    , techUnitId = generateUnitUUID "kilogram"
+                    , techRole = ReferenceInput
+                    , techActivityLinkId = Nothing
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = "GLO"
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                ]
         }
 
 refInputDb :: SimpleDatabase
@@ -603,7 +605,7 @@ commentDb :: SimpleDatabase
 commentDb =
     fixtureDb{sdbActivities = M.singleton (generateActivityUUID a, getReferenceProductUUID a) a}
   where
-    a = elec{exchanges = map withComment (exchanges elec)}
+    a = elec{activityLines = packExchanges (map withComment (exchanges elec))}
     withComment ex = case ex of
         TechnosphereExchange{techRole = ReferenceProduct} -> ex{techComment = Just "product note"}
         TechnosphereExchange{techRole = Input} -> ex{techComment = Just "input note"}
@@ -623,7 +625,7 @@ claimedBy :: SupplierClaim -> SimpleDatabase
 claimedBy claim =
     fixtureDb{sdbActivities = M.singleton (generateActivityUUID a, getReferenceProductUUID a) a}
   where
-    a = elec{exchanges = map named (exchanges elec)}
+    a = elec{activityLines = packExchanges (map named (exchanges elec))}
     named ex = case ex of
         TechnosphereExchange{techRole = Input} -> ex{techSupplierClaim = claim}
         TechnosphereExchange{} -> ex
@@ -667,10 +669,11 @@ coproductAct =
     elec
         { activityName = "Combined heat and power"
         , activityUnit = "kilogram"
-        , exchanges =
-            [ (kgProduction chpRefFlow ReferenceProduct 1){techComment = Just "ref note"}
-            , (kgProduction chpHeatFlow Coproduct 0.25){techComment = Just "heat note"}
-            ]
+        , activityLines =
+            packExchanges
+                [ (kgProduction chpRefFlow ReferenceProduct 1){techComment = Just "ref note"}
+                , (kgProduction chpHeatFlow Coproduct 0.25){techComment = Just "heat note"}
+                ]
         }
 
 kgProduction :: TechnosphereFlow -> TechRole -> Double -> Exchange
@@ -724,7 +727,7 @@ bigAmountDb =
         { sdbActivities = M.singleton (generateActivityUUID act, getReferenceProductUUID act) act
         }
   where
-    act = elec{exchanges = [prodExch, gasExch{techAmount = 1.0e15}, co2Exch]}
+    act = elec{activityLines = packExchanges [prodExch, gasExch{techAmount = 1.0e15}, co2Exch]}
 
 -- ---------------------------------------------------------------------------
 -- Reference-unit normalization fixture (non-canonical unit → canonical)
@@ -771,23 +774,24 @@ gramRefDb =
         elec
             { activityName = "Flour milling"
             , activityUnit = "g"
-            , exchanges =
-                [ TechnosphereExchange
-                    { techFlowId = tfId gramProdFlow
-                    , techAmount = 1000
-                    , techUnitId = generateUnitUUID "g"
-                    , techRole = ReferenceProduct
-                    , techActivityLinkId = Nothing
-                    , techSupplierClaim = ClaimByProduct
-                    , techLocation = "GLO"
-                    , techComment = Nothing
-                    , techPedigree = Nothing
-                    , techFormula = Nothing
-                    , techShare = Nothing
-                    , techClassification = M.empty
-                    , techProperties = noProperties
-                    }
-                ]
+            , activityLines =
+                packExchanges
+                    [ TechnosphereExchange
+                        { techFlowId = tfId gramProdFlow
+                        , techAmount = 1000
+                        , techUnitId = generateUnitUUID "g"
+                        , techRole = ReferenceProduct
+                        , techActivityLinkId = Nothing
+                        , techSupplierClaim = ClaimByProduct
+                        , techLocation = "GLO"
+                        , techComment = Nothing
+                        , techPedigree = Nothing
+                        , techFormula = Nothing
+                        , techShare = Nothing
+                        , techClassification = M.empty
+                        , techProperties = noProperties
+                        }
+                    ]
             }
 
 -- | The (unit name, amount) of a parsed activity's reference exchange.
@@ -836,7 +840,7 @@ energyDb role =
             { activityName = "Gas power plant"
             , activityLocation = "FI"
             , activityUnit = "MJ"
-            , exchanges = case role of
+            , activityLines = packExchanges $ case role of
                 -- Every product declares a share, and the block is still kept whole.
                 Coproduct -> [shared (line ash ReferenceProduct 1 "kg"), shared (line power Coproduct 1 "MJ")]
                 _ -> [line power ReferenceProduct 1 "MJ"]
@@ -846,14 +850,15 @@ energyDb role =
             { activityName = "Heating"
             , activityUnit = "kg"
             , activityParameters = M.singleton "x" (Parameter (InputParameter 2 Nothing) Nothing "")
-            , exchanges =
-                [ line heat ReferenceProduct 1 "kg"
-                , (line power Input 2 "kWh")
-                    { techActivityLinkId = Just (generateActivityUUID plant)
-                    , techLocation = ""
-                    , techFormula = Just (ExchangeFormula Nothing "x")
-                    }
-                ]
+            , activityLines =
+                packExchanges
+                    [ line heat ReferenceProduct 1 "kg"
+                    , (line power Input 2 "kWh")
+                        { techActivityLinkId = Just (generateActivityUUID plant)
+                        , techLocation = ""
+                        , techFormula = Just (ExchangeFormula Nothing "x")
+                        }
+                    ]
             }
 
 -- | The heater's line bought in MJ, as its maker counts it.
@@ -864,7 +869,7 @@ inMakerUnitDb = inUnit "MJ"
 inUnit :: Text -> SimpleDatabase -> SimpleDatabase
 inUnit u db = db{sdbActivities = M.map restated (sdbActivities db)}
   where
-    restated a = a{exchanges = map toUnit (exchanges a)}
+    restated a = a{activityLines = packExchanges (map toUnit (exchanges a))}
     toUnit = \case
         ex@TechnosphereExchange{techRole = Input} -> ex{techUnitId = generateUnitUUID u}
         ex -> ex
@@ -887,11 +892,11 @@ spelledTwiceDb other there =
     inMJ = (flowInUnit "electricity, gas" "MJ"){tfId = generateFlowUUID "electricity, gas" "FI"}
     inOther = (flowInUnit "electricity, gas" other){tfId = generateFlowUUID "electricity, gas" "DE"}
     heat = flowInUnit "heat" "kg"
-    maker place flow u = elec{activityName = "Gas power plant", activityLocation = place, exchanges = [line flow ReferenceProduct 1 u]}
+    maker place flow u = elec{activityName = "Gas power plant", activityLocation = place, activityLines = packExchanges [line flow ReferenceProduct 1 u]}
     inFI = maker "FI" inMJ "MJ"
     elsewhere = maker there inOther other
     from a ex = ex{techActivityLinkId = Just (generateActivityUUID a)}
-    buyer = elec{activityName = "Heating", exchanges = [line heat ReferenceProduct 1 "kg", from inFI (line inMJ Input 1 "MJ"), from elsewhere (line inOther Input 1 other)]}
+    buyer = elec{activityName = "Heating", activityLines = packExchanges [line heat ReferenceProduct 1 "kg", from inFI (line inMJ Input 1 "MJ"), from elsewhere (line inOther Input 1 other)]}
 
 -- | 'spelledTwiceDb' with its second maker, the one not counting in MJ, under another name.
 renamingTheKgMaker :: Text -> SimpleDatabase -> SimpleDatabase
@@ -918,7 +923,7 @@ wasteDb =
         , sdbWasteFlows = M.singleton (wfId scrapFlow) scrapFlow
         }
   where
-    act = elec{exchanges = [prodExch, scrapExch]}
+    act = elec{activityLines = packExchanges [prodExch, scrapExch]}
 
 scrapFlow :: WasteFlow
 scrapFlow =
@@ -957,7 +962,7 @@ linkedWasteDb =
         { sdbActivities = M.singleton (generateActivityUUID act, getReferenceProductUUID act) act
         }
   where
-    act = elec{exchanges = [prodExch, scrapExch{waActivityLinkId = Just (generateActivityUUID elec)}]}
+    act = elec{activityLines = packExchanges [prodExch, scrapExch{waActivityLinkId = Just (generateActivityUUID elec)}]}
 
 {- | A database whose input exchange carries a non-finite amount: rejected, since
 it has no numeric-cell form that re-parses to the same value.
@@ -968,7 +973,7 @@ nonFiniteDb =
         { sdbActivities = M.singleton (generateActivityUUID act, getReferenceProductUUID act) act
         }
   where
-    act = elec{exchanges = [prodExch, gasExch{techAmount = 1 / 0}, co2Exch]}
+    act = elec{activityLines = packExchanges [prodExch, gasExch{techAmount = 1 / 0}, co2Exch]}
 
 {- | A database whose input exchange carries the smallest positive subnormal
 (@5e-324@): rejected, since fixed-point rendering collapses it to @0@.
@@ -979,7 +984,7 @@ subnormalDb =
         { sdbActivities = M.singleton (generateActivityUUID act, getReferenceProductUUID act) act
         }
   where
-    act = elec{exchanges = [prodExch, gasExch{techAmount = 5.0e-324}, co2Exch]}
+    act = elec{activityLines = packExchanges [prodExch, gasExch{techAmount = 5.0e-324}, co2Exch]}
 
 co2 :: BiosphereFlow
 co2 =

@@ -25,7 +25,7 @@ import Data.Int (Int32)
 import qualified Data.IntSet as IS
 import qualified Data.Map as M
 import qualified Data.Map.Strict as MS
-import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Proxy (Proxy (..))
 import qualified Data.Set as S
 import Data.Store (Size (..), Store (..))
@@ -44,6 +44,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 import GHC.Generics (Generic)
 import Matrix.Triples
+import PackedLines (Packable (..), PackedLines, keptLines, pack, unpack, unpackWith)
 
 import Control.Lens ((&), (.~), (?~))
 import Data.Containers.ListUtils (nubOrdOn)
@@ -652,8 +653,25 @@ data Exchange
         , waPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
         , waFormula :: !(Maybe ExchangeFormula) -- As on a technosphere line
         }
-    deriving (Generic, NFData, Store)
+    deriving (Eq, Show, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped Exchange)
+
+{- | What a biosphere line says beside its flow and its amount, when it says
+no comment, no pedigree and no formula: its unit, its direction and its place.
+The lines of one process share a handful of these.
+-}
+data BioShape = BioShape {-# UNPACK #-} !UUID !BioDirection !ExchangeLocation
+    deriving (Eq, Ord, Show, Generic, NFData, Store)
+
+{- | A plain line is a biosphere line with no comment, no pedigree and no
+formula, which is nearly every line of an aggregated inventory.
+-}
+instance Packable Exchange where
+    type Shape Exchange = BioShape
+    toPlain = \case
+        BiosphereExchange flow amount unit direction location Nothing Nothing Nothing -> Just (flow, amount, BioShape unit direction location)
+        _ -> Nothing
+    fromPlain flow amount (BioShape unit direction location) = BiosphereExchange flow amount unit direction location Nothing Nothing Nothing
 
 -- | Helper functions for Exchange variants
 exchangeFlowId :: Exchange -> UUID
@@ -763,12 +781,12 @@ exchangeProperties WasteExchange{} = noProperties
 a block, as many as the block had products on one the gate refused.
 -}
 activityDeclaredShares :: Activity -> [Maybe DeclaredShare]
-activityDeclaredShares act = [exchangeDeclaredShare ex | ex <- exchanges act, exchangeIsProductOutput ex]
+activityDeclaredShares act = [exchangeDeclaredShare ex | ex <- nonPlainExchanges act, exchangeIsProductOutput ex]
 
 -- | The share the reference product was declared with, when the source stated one.
 activityReferenceShare :: Activity -> Maybe DeclaredShare
 activityReferenceShare act =
-    listToMaybe [share | ex <- exchanges act, exchangeIsReference ex, Just share <- [exchangeDeclaredShare ex]]
+    listToMaybe [share | ex <- nonPlainExchanges act, exchangeIsReference ex, Just share <- [exchangeDeclaredShare ex]]
 
 {- | How the source designates the supplier of an exchange, on the two axes
 that have one. A biosphere line designates none: it has no supplier.
@@ -883,17 +901,17 @@ data NormLines = NormLines
 normLines :: Activity -> (UUID, UUID) -> NormLines
 normLines act (actUUID, prodUUID) =
     NormLines
-        { nlOutputs = [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
+        { nlOutputs = [ex | ex <- nonPlainExchanges act, exchangeIsReference ex, not (exchangeIsInput ex)]
         , nlSelfLoops =
             [ ex
-            | ex <- exchanges act
+            | ex <- nonPlainExchanges act
             , isTechnosphereExchange ex
             , exchangeIsInput ex
             , not (exchangeIsReference ex)
             , exchangeActivityLinkId ex == Just actUUID
             , exchangeFlowId ex == prodUUID
             ]
-        , nlInputs = [ex | ex <- exchanges act, exchangeIsReference ex, exchangeIsInput ex]
+        , nlInputs = [ex | ex <- nonPlainExchanges act, exchangeIsReference ex, exchangeIsInput ex]
         }
 
 -- | Get unit information for an exchange
@@ -1233,7 +1251,7 @@ data Activity = Activity
     , activityLocation :: !Text -- Location code (e.g. FR, RER)
     , activityLocationSource :: !LocationSource -- Whether the source declared that location or the parser read it off the dataset name
     , activityUnit :: !Text -- Reference unit
-    , exchanges :: ![Exchange] -- List of exchanges
+    , activityLines :: !(PackedLines Exchange) -- Its exchanges, packed; read them with 'exchanges', write them with 'pack'
     , activityParameters :: !(M.Map Text Parameter) -- The named numbers the dataset's formulas read, by name
     , activityNativeType :: !(Maybe NativeActivityType) -- Source-format-native activity type (ecospold @activityType, SimaPro Type, ILCD typeOfDataSet); Nothing when source format lacks the field
     , activityNativeId :: !(Maybe NativeProcessId) -- Source dataset block this activity was read from: what the SimaPro parser mints the activity UUID from, and what its writer writes back. Nothing when the source format lacks the field
@@ -1241,6 +1259,41 @@ data Activity = Activity
     , activityDates :: !DatasetDates -- The days the dataset says it was written on
     }
     deriving (Generic, NFData, Store)
+
+{- | The exchanges of an activity, in the order its source gave them. The list
+is built as it is read, from the packed lines, on every call: a reader that
+looks for a product, an input or a waste wants 'nonPlainExchanges' instead.
+-}
+exchanges :: Activity -> [Exchange]
+exchanges = unpack . activityLines
+
+{- | The exchanges of an activity but its plain biosphere lines (see the
+'Packable' instance of 'Exchange'), in order. Every technosphere and waste
+line is here, and it costs nothing to read, where 'exchanges' rebuilds
+thousands of lines of an aggregated inventory to find its one product.
+-}
+nonPlainExchanges :: Activity -> [Exchange]
+nonPlainExchanges = keptLines . activityLines
+
+-- | The lines of an activity, packed for its 'activityLines'.
+packExchanges :: [Exchange] -> PackedLines Exchange
+packExchanges = pack
+
+{- | The flow of every line of an activity, in order, with no plain biosphere
+line built to read it.
+-}
+exchangeFlowIds :: Activity -> [UUID]
+exchangeFlowIds = unpackWith exchangeFlowId (\flow _ _ -> flow) . activityLines
+
+{- | The flow and the amount of every biosphere line of an activity, in order,
+with no plain line built to read them.
+-}
+biosphereAmounts :: Activity -> [(UUID, Double)]
+biosphereAmounts = catMaybes . unpackWith ofKept (\flow amount _ -> Just (flow, amount)) . activityLines
+  where
+    ofKept ex
+        | isBiosphereExchange ex = Just (exchangeFlowId ex, exchangeAmount ex)
+        | otherwise = Nothing
 
 -- | How a filter's value is compared with the one an activity carries, both lowercased.
 data ClassificationMatch
@@ -2226,7 +2279,7 @@ buildProductSearchIndex activities techDB =
         let pid = fromIntegral i
             productWords =
                 [ w
-                | ex <- exchanges a
+                | ex <- nonPlainExchanges a
                 , exchangeIsReference ex
                 , not (exchangeIsInput ex)
                 , Just flow <- [M.lookup (exchangeFlowId ex) techDB]

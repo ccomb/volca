@@ -42,6 +42,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -152,7 +153,7 @@ supplierDB offset =
                 , activityLocation = "GLO"
                 , activityLocationSource = LocationDeclared
                 , activityUnit = "kg"
-                , exchanges = [refExchange]
+                , activityLines = packExchanges [refExchange]
                 , activityParameters = M.empty
                 , activityNativeType = Nothing
                 , activityNativeId = Nothing
@@ -242,7 +243,7 @@ consumerDB offset n =
                         , activityLocation = "GLO"
                         , activityLocationSource = LocationDeclared
                         , activityUnit = "kg"
-                        , exchanges = [refOut, unlinkedInput]
+                        , activityLines = packExchanges [refOut, unlinkedInput]
                         , activityParameters = M.empty
                         , activityNativeType = Nothing
                         , activityNativeId = Nothing

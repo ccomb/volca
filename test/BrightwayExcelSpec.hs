@@ -46,6 +46,7 @@ import Types (
     Uncertainty (..),
     exchangeFlowId,
     exchangeIsReference,
+    exchanges,
  )
 import UnitConversion (UnitConfig, buildFromCSV, defaultUnitConfig)
 

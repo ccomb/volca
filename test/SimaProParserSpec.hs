@@ -89,6 +89,7 @@ import Types (
     exchangeIsProductOutput,
     exchangeIsReference,
     exchangePedigree,
+    exchanges,
     spreading,
     tfName,
  )

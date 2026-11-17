@@ -178,7 +178,7 @@ spec = describe "Database.Export dispatcher" $ do
 
         it "refuses for ILCD a line whose unit does not convert to its flow's" $ do
             let inKg ex = if exchangeUnitId ex == kwhU then ex{techUnitId = kgU} else ex
-                weighed = spinning{sdbActivities = M.map (\act -> act{exchanges = map inKg (exchanges act)}) (sdbActivities spinning)}
+                weighed = spinning{sdbActivities = M.map (\act -> act{activityLines = packExchanges (map inKg (exchanges act))}) (sdbActivities spinning)}
             fmap marketLines (ILCD.inFlowUnits energyUnits weighed) `shouldSatisfy` isLeft
 
 {- | One activity: a reference product and a single biosphere emission whose
@@ -217,9 +217,11 @@ buildFixture comp = do
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , BiosphereExchange co2U 0.5 unitU Emission "" Nothing Nothing Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , BiosphereExchange co2U 0.5 unitU Emission "" Nothing Nothing Nothing
+                ]
+            )
             M.empty
             Nothing
             Nothing
@@ -263,7 +265,7 @@ techLine flow amount unit role claim loc formula =
         }
 
 activityOf :: Text -> Text -> Text -> [Exchange] -> Activity
-activityOf name loc unit lines' = Activity name [] [] M.empty M.empty loc LocationDeclared unit lines' M.empty Nothing Nothing Nothing noDates
+activityOf name loc unit lines' = Activity name [] [] M.empty M.empty loc LocationDeclared unit (packExchanges lines') M.empty Nothing Nothing Nothing noDates
 
 databaseOf :: M.Map (UUID, UUID) Activity -> [TechnosphereFlow] -> SimpleDatabase
 databaseOf acts flows =

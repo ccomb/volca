@@ -289,7 +289,7 @@ import keeps no formula reading a name given twice.
 namedLinesAsParameters :: (Exchange -> Bool) -> [Text] -> Activity -> Activity
 namedLinesAsParameters given databaseReads act =
     act
-        { exchanges = map unnamed (exchanges act)
+        { activityLines = packExchanges (map unnamed (exchanges act))
         , activityParameters = M.union (activityParameters act) (M.fromList (mapMaybe asParameter (exchanges act)))
         }
   where

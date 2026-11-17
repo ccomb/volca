@@ -214,7 +214,7 @@ soloDb name prodU extra techs bios wastes =
         }
   where
     ref = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-    act = Activity name [] [] M.empty M.empty "GLO" LocationDeclared "kg" (ref : extra) M.empty Nothing Nothing Nothing noDates
+    act = Activity name [] [] M.empty M.empty "GLO" LocationDeclared "kg" (packExchanges (ref : extra)) M.empty Nothing Nothing Nothing noDates
 
 -- | Empty database: no activities, no flows.
 emptyDb :: SimpleDatabase
@@ -246,7 +246,7 @@ linkedDb link =
   where
     supU = supplierLink
     conU = read "33333333-0000-4000-8000-000000000001"
-    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty Nothing Nothing Nothing noDates
+    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (packExchanges (refOf prodU : exs)) M.empty Nothing Nothing Nothing noDates
     refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
     supplier = mkAct "aaa supplier" supU []
     -- The consumer's input consumes the supplier's product and links to it.
@@ -285,7 +285,7 @@ coproductDb =
     prodAU = read "44444444-0000-4000-8000-00000000000a"
     prodBU = read "44444444-0000-4000-8000-00000000000b"
     conU = read "33333333-0000-4000-8000-000000000001"
-    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (refOf prodU : exs) M.empty Nothing Nothing Nothing noDates
+    mkAct nm prodU exs = Activity nm [] [] M.empty M.empty "GLO" LocationDeclared "kg" (packExchanges (refOf prodU : exs)) M.empty Nothing Nothing Nothing noDates
     refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
     inputOnA = TechnosphereExchange prodAU 2.0 kgUnit Input (Just supU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
 
@@ -323,7 +323,7 @@ tapWaterDb nlWaterU =
     itU = read "66666666-0000-4000-8000-0000000000aa"
     nlU = read "66666666-0000-4000-8000-0000000000bb"
     conU = read "33333333-0000-4000-8000-000000000001"
-    mkAct nm loc prodU exs = Activity nm [] [] M.empty M.empty loc LocationDeclared "kg" (refOf prodU : exs) M.empty Nothing Nothing Nothing noDates
+    mkAct nm loc prodU exs = Activity nm [] [] M.empty M.empty loc LocationDeclared "kg" (packExchanges (refOf prodU : exs)) M.empty Nothing Nothing Nothing noDates
     refOf prodU = TechnosphereExchange prodU 1.0 kgUnit ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
     input = TechnosphereExchange waterU 0.07 kgUnit Input (Just itU) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
 
@@ -804,7 +804,7 @@ spec = do
                         "GLO"
                         LocationDeclared
                         "kg"
-                        [ref]
+                        (packExchanges [ref])
                         M.empty
                         Nothing
                         Nothing

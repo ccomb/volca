@@ -149,7 +149,7 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
         _ -> normalise act
 
     normalised :: Activity
-    normalised = act{exchanges = map snd placed}
+    normalised = act{activityLines = packExchanges (map snd placed)}
 
     products, shared :: [(Int, Exchange)]
     (products, shared) = partition (exchangeIsProductOutput . snd) placed
@@ -179,7 +179,7 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
     process :: SharesFrom -> (Int, Exchange) -> Double -> Activity
     process from (productAt, productEx) share =
         normalised
-            { exchanges = map unnamed (applied from share (asReference productEx) : map (scaled from productAt share) shared)
+            { activityLines = packExchanges (map unnamed (applied from share (asReference productEx) : map (scaled from productAt share) shared))
             , activityParameters = M.union (activityParameters normalised) namedLines
             , activityUnit = getUnitNameForExchange unitDB productEx
             , activityClassification = M.union (exchangeClassification productEx) (activityClassification normalised)
@@ -314,7 +314,7 @@ propertyKeyRefusals Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitD
     -- A block of one product is not something a property key answers, so it
     -- is not something it can refuse either.
     weigh :: AllocationProperty -> Activity -> Either PropertyRefusal (NonEmpty Double)
-    weigh prop act = case NE.nonEmpty (filter exchangeIsProductOutput (exchanges act)) of
+    weigh prop act = case NE.nonEmpty (filter exchangeIsProductOutput (nonPlainExchanges act)) of
         Just block | NE.length block > 1 -> propertyShares prop unitDB cfg block
         _ -> Right (pure 100)
 
@@ -333,10 +333,10 @@ asAllocated act
     | otherwise = Right (AllocatedActivity act)
   where
     products :: [Exchange]
-    products = filter exchangeIsProductOutput (exchanges act)
+    products = filter exchangeIsProductOutput (nonPlainExchanges act)
 
     references :: Int
-    references = length (filter exchangeIsReference (exchanges act))
+    references = length (filter exchangeIsReference (nonPlainExchanges act))
 
 -- | What is missing, and what would repair it.
 describeRefusal :: AllocationRefusal -> Text
@@ -520,7 +520,7 @@ normalise act = promote (filter (keep . snd) (zip [0 ..] (exchanges act)))
 
     -- Only beside a reference that states an amount is one at zero listed rather than made.
     makesSomething :: Bool
-    makesSomething = any (\ex -> exchangeIsReference ex && exchangeAmount ex /= 0) (exchanges act)
+    makesSomething = any (\ex -> exchangeIsReference ex && exchangeAmount ex /= 0) (nonPlainExchanges act)
 
     promote :: [(Int, Exchange)] -> [(Int, Exchange)]
     promote placed
@@ -542,7 +542,7 @@ keptWhole :: Activity -> Bool
 keptWhole act = any isCoproduct products && all (isJust . exchangeDeclaredShare) products
   where
     products :: [Exchange]
-    products = filter exchangeIsProductOutput (exchanges act)
+    products = filter exchangeIsProductOutput (nonPlainExchanges act)
 
 {- | Whether a block kept whole makes the product of this flow beside its
 reference: what a parent answers an input buying that product with, the block

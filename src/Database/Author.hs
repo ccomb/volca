@@ -124,6 +124,7 @@ import Types (
     exchangeIsProductOutput,
     exchangeIsReference,
     exchangeProperties,
+    exchanges,
     findProcessIdByActivityUUID,
     getUnitForExchange,
     getUnitNameForExchange,
@@ -132,6 +133,7 @@ import Types (
     mediumText,
     noDates,
     noProperties,
+    packExchanges,
     parseProcessRef,
     processRefText,
     propertyName,
@@ -409,7 +411,7 @@ buildActivity a unitLabel exchangeList =
         , activityLocation = aaLocation a
         , activityLocationSource = declaredLocationSource (aaLocation a)
         , activityUnit = unitLabel
-        , exchanges = exchangeList
+        , activityLines = packExchanges exchangeList
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
@@ -683,7 +685,7 @@ applyOneEdit ctx act edit = case edit of
         Right resolved ->
             Right
                 EditStep
-                    { esActivity = act{exchanges = current <> [reExchange resolved]}
+                    { esActivity = act{activityLines = packExchanges (current <> [reExchange resolved])}
                     , esMatched = 1
                     , esAdoption = reAdoption resolved
                     , esWarnings = reWarnings resolved
@@ -702,7 +704,7 @@ applyOneEdit ctx act edit = case edit of
         relinked <- traverse (\ex -> if isSelected ex then resupplied ctx provider ex else Right (ex, NothingToAdopt)) current
         pure
             EditStep
-                { esActivity = act{exchanges = map fst relinked}
+                { esActivity = act{activityLines = packExchanges (map fst relinked)}
                 , esMatched = matched
                 , -- One provider, so every line it moves to adopts the same flow.
                   esAdoption = fromMaybe NothingToAdopt (listToMaybe [a | (_, a@(AdoptProduct _)) <- relinked])
@@ -712,7 +714,7 @@ applyOneEdit ctx act edit = case edit of
     current :: [Exchange]
     current = exchanges act
     changed :: [Exchange] -> Int -> EditStep
-    changed exchangeList = stepTo act{exchanges = exchangeList}
+    changed exchangeList = stepTo act{activityLines = packExchanges exchangeList}
     stepTo :: Activity -> Int -> EditStep
     stepTo edited matched =
         EditStep

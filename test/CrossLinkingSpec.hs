@@ -484,7 +484,7 @@ mkActivityAt loc =
         , activityLocation = loc
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges = []
+        , activityLines = packExchanges []
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
@@ -520,7 +520,7 @@ mkSplitLocationDB actLoc exLoc =
     let flowUUID = read "aaaaaaaa-0000-0000-0000-000000000001"
         actUUID = read "cccccccc-0000-0000-0000-000000000001"
         ex = (mkRefExchangeAt exLoc){techFlowId = flowUUID}
-        act = (mkActivityAt actLoc){exchanges = [ex]}
+        act = (mkActivityAt actLoc){activityLines = packExchanges [ex]}
         flow =
             TechnosphereFlow
                 { tfId = flowUUID
@@ -576,7 +576,7 @@ twoProducerDB =
         }
   where
     flowUUID = read "aaaaaaaa-0000-0000-0000-000000000002"
-    producer name = (mkActivityAt "GLO"){activityName = name, activityUnit = "kWh", exchanges = [(mkRefExchangeAt "GLO"){techFlowId = flowUUID}]}
+    producer name = (mkActivityAt "GLO"){activityName = name, activityUnit = "kWh", activityLines = packExchanges [(mkRefExchangeAt "GLO"){techFlowId = flowUUID}]}
     flow =
         TechnosphereFlow
             { tfId = flowUUID

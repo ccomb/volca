@@ -173,7 +173,7 @@ restate db databaseWide own pid = case getActivity db pid of
         amounts <- traverse (amountOf db act atDefaults atSettings) (exchanges act)
         pure $
             if any snd amounts
-                then Just act{exchanges = map fst amounts}
+                then Just act{activityLines = packExchanges (map fst amounts)}
                 else Nothing
   where
     -- The amounts were split by the share at the defaults, so a share the settings move would leave them wrong.
@@ -273,7 +273,7 @@ restated before db act = do
         name : _ -> Left (NoValue (activityName act) (name <> ": the formula gives no finite number"))
         [] -> pure ()
     restatedLines <- traverse line (exchanges act)
-    pure act{exchanges = restatedLines, activityParameters = M.mapWithKey refreshed (activityParameters act)}
+    pure act{activityLines = packExchanges restatedLines, activityParameters = M.mapWithKey refreshed (activityParameters act)}
   where
     settled :: Database -> Activity -> (Values, [(Text, Expr.Unsettled)])
     settled atDb at = let scope = scopeOf atDb at in Expr.settle Expr.Volca (M.union (scopeOwn scope) (scopeDatabase scope)) (scopeCalculated scope)

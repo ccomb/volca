@@ -50,7 +50,7 @@ of a second one, which the root never buys itself.
 twoDeep :: Database
 twoDeep =
     base
-        { dbActivities = V.imap (\i act -> act{exchanges = [referenceOf (1 + i)]}) (dbActivities base)
+        { dbActivities = V.imap (\i act -> act{activityLines = packExchanges [referenceOf (1 + i)]}) (dbActivities base)
         , dbTechnosphereTriples = U.singleton (SparseTriple 1 0 0.5)
         }
   where
@@ -118,7 +118,7 @@ spec = do
         let link = head (dbCrossDBLinks root)
             twoKg =
                 root
-                    { dbActivities = V.map (\act -> act{exchanges = [(referenceOf 100){techAmount = 2}]}) (dbActivities root)
+                    { dbActivities = V.map (\act -> act{activityLines = packExchanges [(referenceOf 100){techAmount = 2}]}) (dbActivities root)
                     , dbCrossDBLinks = []
                     }
         accumulateDepDemandsWith twoKg [link] (U.singleton 1)

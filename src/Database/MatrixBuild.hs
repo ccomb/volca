@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {- | Pure builders for the sparse matrices and UUID interning tables that back
 'Database'. The IO entrypoint in "Database" composes these helpers and adds
@@ -82,7 +83,7 @@ buildSupplierRefUnits :: UnitDB -> V.Vector Activity -> V.Vector Text
 buildSupplierRefUnits unitDB = V.map refUnit
   where
     refUnit act =
-        case [ex | ex <- exchanges act, exchangeIsReference ex, not (exchangeIsInput ex)] of
+        case [ex | ex <- nonPlainExchanges act, exchangeIsReference ex, not (exchangeIsInput ex)] of
             (ex : _) -> getUnitNameForExchange unitDB ex
             [] -> ""
 
@@ -90,11 +91,7 @@ buildSupplierRefUnits unitDB = V.map refUnit
 collectBioFlowOrder :: V.Vector Activity -> V.Vector UUID
 collectBioFlowOrder activities =
     V.fromList . S.toAscList . S.fromList $
-        [ exchangeFlowId ex
-        | act <- V.toList activities
-        , ex <- exchanges act
-        , isBiosphereExchange ex
-        ]
+        [flow | act <- V.toList activities, (flow, _) <- biosphereAmounts act]
 
 {- | Divide-by-zero guard for normalization factors. Activities with no
 reference output normalize by 1.0 instead of a near-zero denominator. Guards on
@@ -159,23 +156,24 @@ unitConversionError unitConfig consumer fromU toU =
         <> " \8212 "
         <> missingConversion unitConfig fromU toU
 
-{- | Flatten the activity set into a stream of @(normFactor, j, activity, ex)@
-tuples, over the activities the allocation gate accepts. An activity it
+{- | Flatten the activity set into a stream of @(normFactor, j, activity, line)@
+tuples, over the activities the allocation gate accepts and the lines the
+reader given takes of each. An activity it
 refuses gets no triple at all: its column stays empty, so it produces itself
 and nothing else, and the warning says why. The same verdict refuses to score
 it ('Service.resolveScorable') and names it in the quality report.
 -}
-perActivity :: InterningTables -> ([String], [(Double, ProcessId, AllocatedActivity, Exchange)])
-perActivity tables = (concat warnings, concat rows)
+perActivity :: forall line. (Activity -> [line]) -> InterningTables -> ([String], [(Double, ProcessId, AllocatedActivity, line)])
+perActivity linesOf tables = (concat warnings, concat rows)
   where
     (warnings, rows) = unzip [column j | j <- [0 .. itActivityCount tables - 1]]
 
-    column :: ProcessId -> ([String], [(Double, ProcessId, AllocatedActivity, Exchange)])
+    column :: ProcessId -> ([String], [(Double, ProcessId, AllocatedActivity, line)])
     column j =
         let act = itActivities tables V.! fromIntegral j
          in case columnSource (itProcessIdTable tables V.! fromIntegral j) act of
                 Left warning -> ([warning], [])
-                Right (normFactor, allocated) -> ([], [(normFactor, j, allocated, ex) | ex <- exchanges act])
+                Right (normFactor, allocated) -> ([], [(normFactor, j, allocated, line) | line <- linesOf act])
 
 {- | What a process's column is divided by, and the process as the allocation
 gate lets it in, or the warning that says why it gets no column.
@@ -212,7 +210,8 @@ buildTechTriples ::
 buildTechTriples unitConfig unitDB tables supplierRefUnits =
     fmap pack (traverse step rows)
   where
-    (refusals, rows) = perActivity tables
+    -- A plain biosphere line enters B alone, so A is built without reading one.
+    (refusals, rows) = perActivity nonPlainExchanges tables
     lkp = itProcessIdLookup tables
     actCount = itActivityCount tables
     step (normFactor, j, allocated, ex)
@@ -284,23 +283,19 @@ biosphere exchange maps directly to its row via 'collectBioFlowOrder'.
 -}
 buildBioTriples :: V.Vector UUID -> InterningTables -> VU.Vector SparseTriple
 buildBioTriples bioOrder tables =
-    VU.fromList $ concatMap step (snd (perActivity tables))
+    VU.fromList $ concatMap step (snd (perActivity biosphereAmounts tables))
   where
     bioIndex = bioRows bioOrder
-    step (normFactor, j, _act, ex) = bioTriple bioIndex normFactor j ex
+    step (normFactor, j, _act, line) = bioTriple bioIndex normFactor j line
 
 bioRows :: V.Vector UUID -> M.Map UUID Int32
 bioRows bioOrder = M.fromList $ zip (V.toList bioOrder) [0 ..]
 
-bioTriple :: M.Map UUID Int32 -> Double -> ProcessId -> Exchange -> [SparseTriple]
-bioTriple bioIndex normFactor j ex
-    | not (isBiosphereExchange ex) = []
-    | otherwise = case M.lookup (exchangeFlowId ex) bioIndex of
-        Nothing -> []
-        Just i ->
-            let raw = exchangeAmount ex
-                value = raw / safeDenom normFactor
-             in [SparseTriple i j value | raw /= 0]
+-- | The entry of B a biosphere line makes, from its flow and its amount.
+bioTriple :: M.Map UUID Int32 -> Double -> ProcessId -> (UUID, Double) -> [SparseTriple]
+bioTriple bioIndex normFactor j (flow, raw) = case M.lookup flow bioIndex of
+    Nothing -> []
+    Just i -> [SparseTriple i j (raw / safeDenom normFactor) | raw /= 0]
 
 -- | A line of a process and the row of A or B it enters.
 data LineRow row = LineRow
@@ -340,7 +335,7 @@ lineRows unitConfig db = rowsOf
     rowsOf j act = do
         (_, allocated) <- first T.pack (columnSource (dbProcessIdTable db V.! fromIntegral j) act)
         tech <- traverse (techRows allocated) numbered
-        pure (LineRows (concat tech) [LineRow n ex i 1 | (n, ex) <- numbered, SparseTriple i _ _ <- bioTriple bioIndex 1 j (withAmount 1 ex)])
+        pure (LineRows (concat tech) [LineRow n ex i 1 | (n, ex) <- numbered, isBiosphereExchange ex, SparseTriple i _ _ <- bioTriple bioIndex 1 j (exchangeFlowId ex, 1)])
       where
         numbered = zip [0 ..] (exchanges act)
         techRows allocated (n, ex) =
@@ -422,5 +417,5 @@ withActivities unitConfig db changed
     column (j, act) = do
         (normFactor, allocated) <- first T.pack (columnSource (dbProcessIdTable db V.! fromIntegral j) act)
         -- The warnings name links the load already could not resolve: amounts do not change them.
-        (tech, _) <- fold <$> traverse (techTriple unitConfig (dbUnits db) (dbProcessIdLookup db) supplierRefUnits (dbActivityCount db) normFactor j (allocatedActivity allocated)) (exchanges act)
-        pure (tech, concatMap (bioTriple bioIndex normFactor j) (exchanges act))
+        (tech, _) <- fold <$> traverse (techTriple unitConfig (dbUnits db) (dbProcessIdLookup db) supplierRefUnits (dbActivityCount db) normFactor j (allocatedActivity allocated)) (nonPlainExchanges act)
+        pure (tech, concatMap (bioTriple bioIndex normFactor j) (biosphereAmounts act))

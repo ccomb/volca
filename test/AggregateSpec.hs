@@ -313,7 +313,7 @@ spec = do
             -- X written for 10 kg instead of 1: every edge, the dependency's
             -- 0.12 included, is ten times what one kilogram takes.
             (rootDb, depLookup) <- loadLinkedPair
-            let writtenForTen act = act{Types.exchanges = map (\ex -> if Types.exchangeIsReference ex then ex{Types.techAmount = 10 * Types.techAmount ex} else ex) (Types.exchanges act)}
+            let writtenForTen act = act{Types.activityLines = Types.packExchanges (map (\ex -> if Types.exchangeIsReference ex then ex{Types.techAmount = 10 * Types.techAmount ex} else ex) (Types.exchanges act))}
                 tenfold = rootDb{dbActivities = V.imap (\i a -> if i == 0 then writtenForTen a else a) (dbActivities rootDb)}
             agg <- runAggWith depLookup tenfold consumption
             API.aggFilteredTotal agg `shouldBeCloseTo` 12.6

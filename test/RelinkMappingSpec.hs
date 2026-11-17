@@ -72,6 +72,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
     processRefText,
  )
 import UnitConversion (UnitConfig, UnitDef (..), defaultDimensionOrder, defaultUnitConfig, mergeUnitConfigs, mkUnitConfig)
@@ -105,23 +106,24 @@ targetActivity name loc unit flowUUID =
         , activityLocation = loc
         , activityLocationSource = LocationDeclared
         , activityUnit = unit
-        , exchanges =
-            [ TechnosphereExchange
-                { techFlowId = flowUUID
-                , techAmount = 1.0
-                , techUnitId = UUID.nil
-                , techRole = ReferenceProduct
-                , techActivityLinkId = Nothing
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = ""
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            ]
+        , activityLines =
+            packExchanges
+                [ TechnosphereExchange
+                    { techFlowId = flowUUID
+                    , techAmount = 1.0
+                    , techUnitId = UUID.nil
+                    , techRole = ReferenceProduct
+                    , techActivityLinkId = Nothing
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = ""
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                ]
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing

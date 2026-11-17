@@ -87,9 +87,11 @@ import Types (
     TechnosphereFlow (..),
     UUID,
     Unit (..),
+    exchanges,
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
  )
 import UnitConversion (defaultUnitConfig)
 import Usage (anonymous)
@@ -703,7 +705,7 @@ buildTwoProducts =
         (M.fromList [((supplierActId, supplierProdId), milkActivity), ((supplierActId, creamProdId), creamRow)])
         (M.fromList [(supplierProdId, milkFlow), (creamProdId, milkFlow{tfId = creamProdId, tfName = "cream"})])
   where
-    creamRow = milkActivity{exchanges = map toCream (exchanges milkActivity)}
+    creamRow = milkActivity{activityLines = packExchanges (map toCream (exchanges milkActivity))}
     toCream ex@TechnosphereExchange{techRole = ReferenceProduct} = ex{techFlowId = creamProdId}
     toCream ex = ex
 
@@ -775,33 +777,34 @@ milkActivity =
         , activityLocation = "FR"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges =
-            [ TechnosphereExchange
-                { techFlowId = supplierProdId
-                , techAmount = 1.0
-                , techUnitId = kgUnitId
-                , techRole = ReferenceProduct
-                , techActivityLinkId = Just supplierActId
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = ""
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            , BiosphereExchange
-                { bioFlowId = co2Id
-                , bioAmount = 1.2
-                , bioUnitId = kgUnitId
-                , bioDirection = Emission
-                , bioLocation = ""
-                , bioComment = Nothing
-                , bioPedigree = Nothing
-                , bioFormula = Nothing
-                }
-            ]
+        , activityLines =
+            packExchanges
+                [ TechnosphereExchange
+                    { techFlowId = supplierProdId
+                    , techAmount = 1.0
+                    , techUnitId = kgUnitId
+                    , techRole = ReferenceProduct
+                    , techActivityLinkId = Just supplierActId
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = ""
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                , BiosphereExchange
+                    { bioFlowId = co2Id
+                    , bioAmount = 1.2
+                    , bioUnitId = kgUnitId
+                    , bioDirection = Emission
+                    , bioLocation = ""
+                    , bioComment = Nothing
+                    , bioPedigree = Nothing
+                    , bioFormula = Nothing
+                    }
+                ]
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing

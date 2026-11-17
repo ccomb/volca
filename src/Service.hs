@@ -477,10 +477,10 @@ findProcessIdForActivity db activity =
     let actName = activityName activity
         actLoc = activityLocation activity
         actUnit = activityUnit activity
-        refFlowId = exchangeFlowId <$> L.find exchangeIsReference (exchanges activity)
+        refFlowId = exchangeFlowId <$> L.find exchangeIsReference (nonPlainExchanges activity)
 
         matchesActivity dbActivity =
-            let dbRefFlowId = exchangeFlowId <$> L.find exchangeIsReference (exchanges dbActivity)
+            let dbRefFlowId = exchangeFlowId <$> L.find exchangeIsReference (nonPlainExchanges dbActivity)
              in activityName dbActivity == actName
                     && activityLocation dbActivity == actLoc
                     && activityUnit dbActivity == actUnit
@@ -510,7 +510,7 @@ countPotentialChildren :: Database -> Activity -> Int
 countPotentialChildren db activity =
     length
         [ ex
-        | ex <- exchanges activity
+        | ex <- nonPlainExchanges activity
         , isTechnosphereExchange ex
         , exchangeIsInput ex
         , not (exchangeIsReference ex)
@@ -781,7 +781,7 @@ mkGraphEdgeFromTriple db nodeIdMap (SparseTriple row col value)
         let matchingExchange = do
                 srcAct <- dbActivities db V.!? fromIntegral row
                 targetUUID <- prActivity <$> processIdToRef db targetPid
-                L.find (isInputLinkTo targetUUID) (exchanges srcAct)
+                L.find (isInputLinkTo targetUUID) (nonPlainExchanges srcAct)
             flowInfo = matchingExchange >>= \ex -> M.lookup (exchangeFlowId ex) (dbTechFlows db)
             uName = maybe "<unresolved unit>" (getUnitNameForTechFlow (dbUnits db)) flowInfo
             flowName = case (flowInfo, matchingExchange) of
@@ -1642,7 +1642,7 @@ are always technosphere.
 -}
 getReferenceProductName :: TechFlowDB -> Activity -> Maybe Text
 getReferenceProductName flows activity = do
-    ex <- L.find exchangeIsReference (exchanges activity)
+    ex <- L.find exchangeIsReference (nonPlainExchanges activity)
     tfName <$> M.lookup (exchangeFlowId ex) flows
 
 {- | The product an activity's reference exchange declares: what it makes, how
@@ -1657,7 +1657,7 @@ data ReferenceProductInfo = ReferenceProductInfo
 
 -- | 'Nothing' when no exchange of the activity is its reference.
 referenceProductOf :: TechFlowDB -> UnitDB -> Activity -> Maybe ReferenceProductInfo
-referenceProductOf flows units activity = describe <$> L.find exchangeIsReference (exchanges activity)
+referenceProductOf flows units activity = describe <$> L.find exchangeIsReference (nonPlainExchanges activity)
   where
     describe :: Exchange -> ReferenceProductInfo
     describe ex =
@@ -1756,7 +1756,7 @@ getAllProductsForActivity db actUUID =
     described :: ProcessId -> (ActivitySummary, Maybe Exchange)
     described pid = case findActivityByProcessId db pid of
         Nothing -> (unknownActivitySummary db pid, Nothing)
-        Just act -> (mkActivitySummary db pid act, L.find exchangeIsReference (exchanges act))
+        Just act -> (mkActivitySummary db pid act, L.find exchangeIsReference (nonPlainExchanges act))
 
 {- | Fill in what each product of one block would carry under a mass key, to be
 read beside the share its source declared.
@@ -1802,7 +1802,7 @@ technosphere by definition.
 -}
 getActivityReferenceProductDetail :: Database -> Activity -> Maybe FlowDetail
 getActivityReferenceProductDetail db activity = do
-    refExchange <- L.find exchangeIsReference (exchanges activity)
+    refExchange <- L.find exchangeIsReference (nonPlainExchanges activity)
     flow <- M.lookup (exchangeFlowId refExchange) (dbTechFlows db)
     let usageCount = getFlowUsageCount db (tfId flow)
     let uName = getUnitNameForTechFlow (dbUnits db) flow
@@ -2332,7 +2332,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
 
         getProductNames activity =
             [ tfName flow
-            | ex <- exchanges activity
+            | ex <- nonPlainExchanges activity
             , exchangeIsReference ex
             , not (exchangeIsInput ex)
             , Just flow <- [M.lookup (exchangeFlowId ex) (dbTechFlows db)]
@@ -2764,7 +2764,7 @@ bfsToPattern from matches adj = go (Empty |> from) (IM.singleton from from)
 -- | Get reference product amount for an activity (defaults to 1.0)
 getReferenceProductAmount :: Activity -> Double
 getReferenceProductAmount activity =
-    maybe 1.0 exchangeAmount (L.find exchangeIsReference (exchanges activity))
+    maybe 1.0 exchangeAmount (L.find exchangeIsReference (nonPlainExchanges activity))
 
 {- | The amount a chain stated per one unit of an activity is multiplied by.
 

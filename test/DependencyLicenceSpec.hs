@@ -91,7 +91,7 @@ collection = "dependency-test"
 
 -- | A fixture database whose one process makes one unit of its own product.
 producing :: Int -> [(Int, Double)] -> Database
-producing offset emissions = db{dbActivities = V.map (\act -> act{exchanges = [referenceOf offset]}) (dbActivities db)}
+producing offset emissions = db{dbActivities = V.map (\act -> act{activityLines = packExchanges [referenceOf offset]}) (dbActivities db)}
   where
     db :: Database
     db = mkDB offset ["FR"] emissions

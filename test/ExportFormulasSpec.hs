@@ -264,7 +264,7 @@ simaProSpec = describe "SimaPro export of parameters and formulas" $ do
         rowsUnder out "Materials/fuels" `shouldContain` ["Flour;kg;flour_kg;Undefined;0;0;0;"]
         rowsUnder out "Emissions to air" `shouldContain` ["Carbon dioxide, fossil;high. pop.;kg;0.5 * flour_kg;Undefined;;;;;;"]
   where
-    orShare act = act{exchanges = map orIt (exchanges act)}
+    orShare act = act{activityLines = packExchanges (map orIt (exchanges act))}
     orIt ex = case ex of
         TechnosphereExchange{techShare = Just share@DeclaredShare{dsFormula = Just "flour_share"}} -> ex{techShare = Just share{dsFormula = Just "flour_share * or"}}
         _ -> ex
@@ -296,7 +296,7 @@ olcaSpec = describe "openLCA export of parameters and formulas" $ do
         either (fail . T.unpack) (pure . snd) (serializeOlcaPackage defaultUnitConfig M.empty compared)
             >>= (`shouldSatisfy` any ("Bread · Flour: (yield_rate < 1) * flour_per_loaf" `T.isInfixOf`))
   where
-    comparing act = act{exchanges = map compareIt (exchanges act)}
+    comparing act = act{activityLines = packExchanges (map compareIt (exchanges act))}
     compareIt ex = case exchangeFormula ex of
         Just ExchangeFormula{efText = "flour_per_loaf"} -> withFormula (Just (ExchangeFormula Nothing "(yield_rate < 1) * flour_per_loaf")) ex
         _ -> ex
@@ -307,7 +307,7 @@ olcaSpec = describe "openLCA export of parameters and formulas" $ do
 
 -- | The bread's flour line named, and its emission reading the line by that name.
 nameFlour :: Activity -> Activity
-nameFlour act = act{exchanges = map nameIt (exchanges act)}
+nameFlour act = act{activityLines = packExchanges (map nameIt (exchanges act))}
   where
     nameIt :: Exchange -> Exchange
     nameIt ex = case exchangeFormula ex of
@@ -317,7 +317,7 @@ nameFlour act = act{exchanges = map nameIt (exchanges act)}
 
 -- | The bread's flour line given another formula.
 onFlour :: Text -> Activity -> Activity
-onFlour formula act = act{exchanges = map flourAs (exchanges act)}
+onFlour formula act = act{activityLines = packExchanges (map flourAs (exchanges act))}
   where
     flourAs :: Exchange -> Exchange
     flourAs ex = case exchangeFormula ex of
@@ -326,11 +326,11 @@ onFlour formula act = act{exchanges = map flourAs (exchanges act)}
 
 -- | The bread redefines the waste rate its database's loss reads, so its emission is 0.5 * 0.75 + (1 - 0.8 * 0.5).
 ownWasteRate :: SimpleDatabase -> SimpleDatabase
-ownWasteRate = onBread (\a -> a{activityParameters = M.insert "waste_rate" (Parameter (InputParameter 0.5 Nothing) Nothing "") (activityParameters a), exchanges = map (restateLoss 0.975) (exchanges a)})
+ownWasteRate = onBread (\a -> a{activityParameters = M.insert "waste_rate" (Parameter (InputParameter 0.5 Nothing) Nothing "") (activityParameters a), activityLines = packExchanges (map (restateLoss 0.975) (exchanges a))})
 
 -- | The database's loss reads the bread's flour line by its name, so the bread's emission is 0.5 * 0.75 + (1 - 1.25 / 2).
 lossReadsLine :: SimpleDatabase -> SimpleDatabase
-lossReadsLine sdb = (onBread (\a -> a{exchanges = map (nameFlourIn . restateLoss 0.75) (exchanges a)}) sdb){sdbParameters = M.insert "loss" (Parameter (CalculatedParameter "1 - flour_in / 2" Nothing) Nothing "") (sdbParameters sdb)}
+lossReadsLine sdb = (onBread (\a -> a{activityLines = packExchanges (map (nameFlourIn . restateLoss 0.75) (exchanges a))}) sdb){sdbParameters = M.insert "loss" (Parameter (CalculatedParameter "1 - flour_in / 2" Nothing) Nothing "") (sdbParameters sdb)}
   where
     nameFlourIn :: Exchange -> Exchange
     nameFlourIn ex = case exchangeFormula ex of
@@ -339,7 +339,7 @@ lossReadsLine sdb = (onBread (\a -> a{exchanges = map (nameFlourIn . restateLoss
 
 -- | The bread avoids flour by a line named @av@, which its emission reads, so the emission is 1 + 2 * 0.8.
 avoidedLineRead :: SimpleDatabase -> SimpleDatabase
-avoidedLineRead = onBread (\a -> a{exchanges = concatMap avoid (exchanges a)})
+avoidedLineRead = onBread (\a -> a{activityLines = packExchanges (concatMap avoid (exchanges a))})
   where
     avoid :: Exchange -> [Exchange]
     avoid ex = case (ex, exchangeFormula ex) of
@@ -365,7 +365,7 @@ throughEcoSpold2 sdb = withSystemTempDirectory "es2-formulas" $ \dir -> do
 
 -- | Every process with its lines listed the other way round, so a writer sorting them moves them.
 reversedLines :: SimpleDatabase -> SimpleDatabase
-reversedLines sdb = sdb{sdbActivities = M.map (\a -> a{exchanges = reverse (exchanges a)}) (sdbActivities sdb)}
+reversedLines sdb = sdb{sdbActivities = M.map (\a -> a{activityLines = packExchanges (reverse (exchanges a))}) (sdbActivities sdb)}
 
 -- | The database written as a Brightway workbook, and read back.
 throughBrightway :: SimpleDatabase -> IO SimpleDatabase

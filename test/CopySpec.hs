@@ -77,6 +77,7 @@ import Types (
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -470,7 +471,7 @@ supplierDB offset products =
                         , activityLocation = "GLO"
                         , activityLocationSource = LocationDeclared
                         , activityUnit = "kg"
-                        , exchanges = [refOut]
+                        , activityLines = packExchanges [refOut]
                         , activityParameters = M.empty
                         , activityNativeType = Nothing
                         , activityNativeId = Nothing

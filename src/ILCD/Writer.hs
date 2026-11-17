@@ -191,7 +191,7 @@ ilcdFiles opts db = sortOn fst (processes ++ flows ++ flowProps ++ unitGroups)
     maker = makerOf (woDependencies opts) db
 
     processes =
-        [ ("processes/" <> uuidStr dsUUID <> ".xml", render (processXML dsUUID act{exchanges = zipWith (placed pair) [0 ..] (exchanges act)}))
+        [ ("processes/" <> uuidStr dsUUID <> ".xml", render (processXML dsUUID act{activityLines = packExchanges (zipWith (placed pair) [0 ..] (exchanges act))}))
         | (pair, act) <- M.toAscList (sdbActivities db)
         , let dsUUID = ilcdProcessUUID shared pair
         ]
@@ -377,7 +377,7 @@ describe is left as it is.
 -}
 inFlowUnits :: UnitConfig -> SimpleDatabase -> Either Text SimpleDatabase
 inFlowUnits units db = case concatMap (lefts . snd) (M.elems converted) of
-    [] -> Right db{sdbActivities = M.map (\(act, ls) -> act{exchanges = rights ls}) converted}
+    [] -> Right db{sdbActivities = M.map (\(act, ls) -> act{activityLines = packExchanges (rights ls)}) converted}
     refused ->
         Left $
             T.intercalate "\n" $
@@ -446,7 +446,7 @@ checkILCDSuppliers opts db =
         ]
     maker = makerOf (woDependencies opts) db
     -- The reader links an input to a process of the package making its flow, whatever place it states.
-    packageMakers = M.fromList [(exchangeFlowId r, a) | a <- M.elems (sdbActivities db), r <- exchanges a, exchangeIsReference r]
+    packageMakers = M.fromList [(exchangeFlowId r, a) | a <- M.elems (sdbActivities db), r <- nonPlainExchanges a, exchangeIsReference r]
     unwritable ex = \case
         InDependency e
             | Just own <- M.lookup (techFlowId ex) packageMakers ->

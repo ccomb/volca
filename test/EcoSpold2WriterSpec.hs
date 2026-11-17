@@ -119,10 +119,12 @@ fixtureSimple =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , TechnosphereExchange prodB 2.0 unitMJ Input (Just actB) ClaimByProduct "" (Just "energy input") Nothing Nothing M.empty noProperties Nothing
-            , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , TechnosphereExchange prodB 2.0 unitMJ Input (Just actB) ClaimByProduct "" (Just "energy input") Nothing Nothing M.empty noProperties Nothing
+                , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing Nothing
+                ]
+            )
             M.empty
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
@@ -138,9 +140,11 @@ fixtureSimple =
             "GLO"
             LocationDeclared
             "MJ"
-            [ TechnosphereExchange prodB 1.0 unitMJ ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , BiosphereExchange land 0.1 unitM2a Resource "" Nothing Nothing Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodB 1.0 unitMJ ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , BiosphereExchange land 0.1 unitM2a Resource "" Nothing Nothing Nothing
+                ]
+            )
             M.empty
             (Just (EcoSpoldActivityType 2 "Market activity" (Just 1) (Just "Hard link")))
             Nothing
@@ -180,10 +184,12 @@ fixtureDupBio =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing Nothing
-            , BiosphereExchange co2 0.3 unitKg Emission "" Nothing Nothing Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing Nothing
+                , BiosphereExchange co2 0.3 unitKg Emission "" Nothing Nothing Nothing
+                ]
+            )
             M.empty
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
@@ -218,9 +224,11 @@ fixtureWithExchange ex =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , ex
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , ex
+                ]
+            )
             M.empty
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
@@ -259,9 +267,11 @@ fixtureWithBioSynonyms =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , BiosphereExchange co2 0.5 unitKg Emission "" Nothing Nothing Nothing
+                ]
+            )
             M.empty
             Nothing
             Nothing
@@ -309,11 +319,13 @@ fixtureWasteCoproduct =
             "GLO"
             LocationDeclared
             "kg"
-            [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , TechnosphereExchange coprodU 0.4 unitKg Coproduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-            , WasteExchange wasteInU 0.2 unitKg True Nothing ClaimByProduct "" Nothing Nothing Nothing
-            , WasteExchange wasteOutU 0.3 unitKg False Nothing ClaimByProduct "" Nothing Nothing Nothing
-            ]
+            ( packExchanges
+                [ TechnosphereExchange prodA 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , TechnosphereExchange coprodU 0.4 unitKg Coproduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                , WasteExchange wasteInU 0.2 unitKg True Nothing ClaimByProduct "" Nothing Nothing Nothing
+                , WasteExchange wasteOutU 0.3 unitKg False Nothing ClaimByProduct "" Nothing Nothing Nothing
+                ]
+            )
             M.empty
             (Just (EcoSpoldActivityType 1 "Ordinary transforming activity" Nothing Nothing))
             Nothing
@@ -550,14 +562,15 @@ spec = describe "EcoSpold2 writer round-trip" $ do
             whole =
                 TechnosphereExchange cream 3.0 unitKg Coproduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty (priced 49 3) Nothing
             fixture = fixtureWithExchange whole
-            milk = M.map (\a -> a{exchanges = map (withPrice (priced 51 1)) (exchanges a) <> [BiosphereExchange co2 10.0 unitKg Emission "" Nothing Nothing Nothing]}) (sdbActivities fixture)
+            milk = M.map (\a -> a{activityLines = packExchanges (map (withPrice (priced 51 1)) (exchanges a) <> [BiosphereExchange co2 10.0 unitKg Emission "" Nothing Nothing Nothing])}) (sdbActivities fixture)
             butter =
                 (head (M.elems milk))
                     { activityName = "butter"
-                    , exchanges =
-                        [ TechnosphereExchange prodB 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-                        , TechnosphereExchange cream 2.0 unitKg Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
-                        ]
+                    , activityLines =
+                        packExchanges
+                            [ TechnosphereExchange prodB 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                            , TechnosphereExchange cream 2.0 unitKg Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
+                            ]
                     }
             parent =
                 fixture
@@ -594,7 +607,7 @@ spec = describe "EcoSpold2 writer round-trip" $ do
                 (head (M.elems (sdbActivities fixture)))
                     { activityName = "butter"
                     , activityLocation = location
-                    , exchanges = [TechnosphereExchange prodB 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
+                    , activityLines = packExchanges [TechnosphereExchange prodB 1.0 unitKg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
                     }
             twoButters =
                 fixture

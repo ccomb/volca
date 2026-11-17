@@ -908,7 +908,7 @@ buildResult st =
                 , activityLocation = location
                 , activityLocationSource = locationSource
                 , activityUnit = refUnit
-                , exchanges = reverse (psExchanges st)
+                , activityLines = packExchanges (reverse (psExchanges st))
                 , activityParameters = M.empty
                 , activityNativeType = Nothing
                 , activityNativeId = datasetIdentifier (psDatasetNumber st)
@@ -964,7 +964,7 @@ buildResult st =
                     }
             BuiltExchange{beExchange = exchange, beFlow = flow, beUnit = unit} = buildExchange (psLocation st) 1 reference
          in parsed
-                { pdActivity = (pdActivity parsed){exchanges = [exchange]}
+                { pdActivity = (pdActivity parsed){activityLines = packExchanges [exchange]}
                 , pdTechFlows = [tf | ParsedTech tf <- [flow]]
                 , pdUnits = [unit]
                 , pdWarnings =

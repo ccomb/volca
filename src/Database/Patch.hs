@@ -38,6 +38,8 @@ import Types (
     exchangeFlowId,
     exchangeIsProductOutput,
     exchangeIsReference,
+    exchanges,
+    packExchanges,
     scaleExchange,
     withAmount,
  )
@@ -98,7 +100,7 @@ patchProcess names patch touched (_, productId) activity =
                 , pnLocation = activityLocation activity
                 }
         patched = map (patchExchange names patch process) (exchanges activity)
-     in (touched + length (filter snd patched), activity{exchanges = map fst patched})
+     in (touched + length (filter snd patched), activity{activityLines = packExchanges (map fst patched)})
 
 -- | One exchange against one patch: its amount as the patch leaves it, and whether it matched.
 patchExchange :: M.Map UUID Text -> ExchangePatch -> ProcessNames -> Exchange -> (Exchange, Bool)

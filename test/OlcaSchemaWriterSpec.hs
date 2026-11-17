@@ -97,7 +97,7 @@ oneProcess lines' =
             , activityLocation = "US"
             , activityLocationSource = LocationDeclared
             , activityUnit = "kg"
-            , exchanges = TechnosphereExchange made 1 kg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing : lines'
+            , activityLines = packExchanges (TechnosphereExchange made 1 kg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing : lines')
             , activityParameters = M.empty
             , activityNativeType = Nothing
             , activityNativeId = Nothing
@@ -257,7 +257,7 @@ spec = describe "an openLCA package written from a database" $ do
             let unlinked ex = case ex of
                     TechnosphereExchange{techRole = Input} -> ex{techActivityLinkId = Nothing}
                     _ -> ex
-                unsupplied = M.adjust (\a -> a{exchanges = map unlinked (exchanges a)}) (slagD, slagF) (sdbActivities db)
+                unsupplied = M.adjust (\a -> a{activityLines = packExchanges (map unlinked (exchanges a))}) (slagD, slagF) (sdbActivities db)
             T.unlines (snd (systemDocs M.empty db)) `shouldNotSatisfy` T.isInfixOf "linked to no process"
             T.unlines (snd (systemDocs M.empty db{sdbActivities = unsupplied})) `shouldSatisfy` T.isInfixOf "Slag: 1 lines"
 
@@ -383,8 +383,8 @@ dairy products =
     base
         { sdbActivities =
             M.fromList
-                [ ((act, made), whole{exchanges = products <> [bio co2 10 Emission]})
-                , ((buyer, buttered), whole{activityName = "buyer", exchanges = [TechnosphereExchange buttered 1 kg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing, TechnosphereExchange creamF 1 kg Input (Just act) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]})
+                [ ((act, made), whole{activityLines = packExchanges (products <> [bio co2 10 Emission])})
+                , ((buyer, buttered), whole{activityName = "buyer", activityLines = packExchanges [TechnosphereExchange buttered 1 kg ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing, TechnosphereExchange creamF 1 kg Input (Just act) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]})
                 ]
         , sdbTechFlows = M.fromList [(f, TechnosphereFlow f name kg M.empty Nothing Nothing) | (f, name) <- [(made, "cheese"), (creamF, "cream"), (buttered, "butter")]]
         }

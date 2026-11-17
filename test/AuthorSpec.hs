@@ -76,12 +76,14 @@ import Types (
     WasteRole (..),
     activityReferenceShare,
     exchangeAmount,
+    exchanges,
     findProcessId,
     getActivity,
     isTechnosphereExchange,
     noDates,
     noDocumentation,
     noProperties,
+    packExchanges,
     processIdToText,
     toSimpleDatabase,
  )
@@ -365,7 +367,7 @@ spec = do
                         built
                             { dbTechFlows =
                                 M.adjust (\f -> f{tfUnitId = metreUnitId}) supplierProdId (dbTechFlows built)
-                            , dbActivities = V.map (\a -> a{exchanges = map inMetres (exchanges a)}) (dbActivities built)
+                            , dbActivities = V.map (\a -> a{activityLines = packExchanges (map inMetres (exchanges a))}) (dbActivities built)
                             }
                     writing =
                         (emptyOf fixtureDb)
@@ -593,7 +595,7 @@ spec = do
                     deducedWhey ex = case ex of
                         TechnosphereExchange{techRole = Coproduct} -> ex{techProperties = noProperties{epPrice = Just (DeducedFromShare 30)}}
                         _ -> ex
-                    parentRow = importedActivity{exchanges = map deducedWhey (exchanges importedActivity)}
+                    parentRow = importedActivity{activityLines = packExchanges (map deducedWhey (exchanges importedActivity))}
                     warningsOn act = either (const ["refused"]) eaWarnings (applyExchangeEdits (contextOf fixtureDb) [cheesePrice] act)
                 warningsOn parentRow `shouldSatisfy` any (isInfixOf "price each of them")
                 warningsOn importedActivity `shouldBe` []
@@ -649,9 +651,10 @@ spec = do
                 -- next to the linked French milk, and used oil sent nowhere named.
                 let unlinked =
                         importedActivity
-                            { exchanges =
-                                exchanges importedActivity
-                                    <> [unlinkedMilk "FR" 2, unlinkedMilk "DE" 3, unlinkedOil]
+                            { activityLines =
+                                packExchanges $
+                                    exchanges importedActivity
+                                        <> [unlinkedMilk "FR" 2, unlinkedMilk "DE" 3, unlinkedOil]
                             }
                     editUnlinked edits = case applyExchangeEdits (contextOf fixtureDb) edits unlinked of
                         Left errs -> fail ("applyExchangeEdits: " <> show errs)
@@ -722,7 +725,7 @@ spec = do
                 -- The same milk sold by another dairy: the database holds the
                 -- supplier under other ids, and the cheese still buys from the first.
                 let movedTo = UUID.toText highActId <> "_" <> UUID.toText highProdId
-                    formulated = importedActivity{exchanges = map withMilkFormula (exchanges importedActivity)}
+                    formulated = importedActivity{activityLines = packExchanges (map withMilkFormula (exchanges importedActivity))}
                     withMilkFormula ex = case ex of
                         TechnosphereExchange{techRole = Input} -> ex{techFormula = Just ExchangeFormula{efName = Just "milk", efText = "8"}}
                         _ -> ex
@@ -744,7 +747,7 @@ spec = do
                                 `shouldBe` map (\ex -> (techAmount ex, techUnitId ex, techFormula ex, techComment ex, techPedigree ex)) (inputsOf formulated)
 
                 it "links a line that named no supplier" $ do
-                    let unlinked = importedActivity{exchanges = exchanges importedActivity <> [unlinkedMilk "DE" 3]}
+                    let unlinked = importedActivity{activityLines = packExchanges (exchanges importedActivity <> [unlinkedMilk "DE" 3])}
                     result <- resupply unlinked [SetSupplier (SelectUnlinkedInput supplierProdId (Just (LocationCode "DE"))) movedTo]
                     case result of
                         Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
@@ -977,97 +980,98 @@ importedActivity =
         , activityLocation = "FR"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges =
-            [ TechnosphereExchange
-                { techFlowId = importedProdId
-                , techAmount = 1.0
-                , techUnitId = kgUnitId
-                , techRole = ReferenceProduct
-                , techActivityLinkId = Just importedActId
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = ""
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            , TechnosphereExchange
-                { techFlowId = coproductId
-                , techAmount = 0.3
-                , techUnitId = kgUnitId
-                , techRole = Coproduct
-                , techActivityLinkId = Just importedActId
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = ""
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            , TechnosphereExchange
-                { techFlowId = supplierProdId
-                , techAmount = 8.0
-                , techUnitId = kgUnitId
-                , techRole = Input
-                , techActivityLinkId = Just supplierActId
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = "FR"
-                , techComment = Just "milk in"
-                , techPedigree = Just milkPedigree
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            , BiosphereExchange
-                { bioFlowId = co2Id
-                , bioAmount = 1.2
-                , bioUnitId = kgUnitId
-                , bioDirection = Emission
-                , bioLocation = ""
-                , bioComment = Nothing
-                , bioPedigree = Nothing
-                , bioFormula = Nothing
-                }
-            , BiosphereExchange
-                { bioFlowId = co2Id
-                , bioAmount = 0.4
-                , bioUnitId = kgUnitId
-                , bioDirection = Emission
-                , bioLocation = "FR"
-                , bioComment = Just "second compartment"
-                , bioPedigree = Nothing
-                , bioFormula = Nothing
-                }
-            , WasteExchange
-                { waFlowId = usedOilId
-                , waAmount = 0.5
-                , waUnitId = kgUnitId
-                , waIsInput = False
-                , waActivityLinkId = Just treatActId
-                , waSupplierClaim = ClaimByProduct
-                , waLocation = ""
-                , waComment = Nothing
-                , waPedigree = Nothing
-                , waFormula = Nothing
-                }
-            , WasteExchange
-                { waFlowId = usedOilId
-                , waAmount = 0.2
-                , waUnitId = kgUnitId
-                , waIsInput = True
-                , waActivityLinkId = Just treatActId
-                , waSupplierClaim = ClaimByProduct
-                , waLocation = ""
-                , waComment = Nothing
-                , waPedigree = Nothing
-                , waFormula = Nothing
-                }
-            ]
+        , activityLines =
+            packExchanges
+                [ TechnosphereExchange
+                    { techFlowId = importedProdId
+                    , techAmount = 1.0
+                    , techUnitId = kgUnitId
+                    , techRole = ReferenceProduct
+                    , techActivityLinkId = Just importedActId
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = ""
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                , TechnosphereExchange
+                    { techFlowId = coproductId
+                    , techAmount = 0.3
+                    , techUnitId = kgUnitId
+                    , techRole = Coproduct
+                    , techActivityLinkId = Just importedActId
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = ""
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                , TechnosphereExchange
+                    { techFlowId = supplierProdId
+                    , techAmount = 8.0
+                    , techUnitId = kgUnitId
+                    , techRole = Input
+                    , techActivityLinkId = Just supplierActId
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = "FR"
+                    , techComment = Just "milk in"
+                    , techPedigree = Just milkPedigree
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                , BiosphereExchange
+                    { bioFlowId = co2Id
+                    , bioAmount = 1.2
+                    , bioUnitId = kgUnitId
+                    , bioDirection = Emission
+                    , bioLocation = ""
+                    , bioComment = Nothing
+                    , bioPedigree = Nothing
+                    , bioFormula = Nothing
+                    }
+                , BiosphereExchange
+                    { bioFlowId = co2Id
+                    , bioAmount = 0.4
+                    , bioUnitId = kgUnitId
+                    , bioDirection = Emission
+                    , bioLocation = "FR"
+                    , bioComment = Just "second compartment"
+                    , bioPedigree = Nothing
+                    , bioFormula = Nothing
+                    }
+                , WasteExchange
+                    { waFlowId = usedOilId
+                    , waAmount = 0.5
+                    , waUnitId = kgUnitId
+                    , waIsInput = False
+                    , waActivityLinkId = Just treatActId
+                    , waSupplierClaim = ClaimByProduct
+                    , waLocation = ""
+                    , waComment = Nothing
+                    , waPedigree = Nothing
+                    , waFormula = Nothing
+                    }
+                , WasteExchange
+                    { waFlowId = usedOilId
+                    , waAmount = 0.2
+                    , waUnitId = kgUnitId
+                    , waIsInput = True
+                    , waActivityLinkId = Just treatActId
+                    , waSupplierClaim = ClaimByProduct
+                    , waLocation = ""
+                    , waComment = Nothing
+                    , waPedigree = Nothing
+                    , waFormula = Nothing
+                    }
+                ]
         , activityParameters = M.singleton "yield" (Parameter (CalculatedParameter "0.9 * 0.94" (Just 0.846)) Nothing "")
         , activityNativeType = Nothing
         , activityNativeId = Nothing
@@ -1184,7 +1188,7 @@ only come from a dependency.
 buildBareFixture :: IO Database
 buildBareFixture = do
     let act = supplierActivityAt supplierActId supplierProdId
-        noBio = act{exchanges = filter isTechnosphereExchange (exchanges act)}
+        noBio = act{activityLines = packExchanges (filter isTechnosphereExchange (exchanges act))}
     r <-
         buildDatabaseWithMatrices
             (BuildInputs defaultUnitConfig mempty ReadDeclared [])
@@ -1295,24 +1299,25 @@ then answers to two process ids, only one of which treats the waste.
 treatmentWithHeat :: Activity
 treatmentWithHeat =
     treatmentActivity
-        { exchanges =
-            exchanges treatmentActivity
-                ++ [ TechnosphereExchange
-                        { techFlowId = heatId
-                        , techAmount = 3.0
-                        , techUnitId = kgUnitId
-                        , techRole = Coproduct
-                        , techActivityLinkId = Nothing
-                        , techSupplierClaim = ClaimByProduct
-                        , techLocation = ""
-                        , techComment = Nothing
-                        , techPedigree = Nothing
-                        , techFormula = Nothing
-                        , techShare = Nothing
-                        , techClassification = M.empty
-                        , techProperties = noProperties
-                        }
-                   ]
+        { activityLines =
+            packExchanges $
+                exchanges treatmentActivity
+                    ++ [ TechnosphereExchange
+                            { techFlowId = heatId
+                            , techAmount = 3.0
+                            , techUnitId = kgUnitId
+                            , techRole = Coproduct
+                            , techActivityLinkId = Nothing
+                            , techSupplierClaim = ClaimByProduct
+                            , techLocation = ""
+                            , techComment = Nothing
+                            , techPedigree = Nothing
+                            , techFormula = Nothing
+                            , techShare = Nothing
+                            , techClassification = M.empty
+                            , techProperties = noProperties
+                            }
+                       ]
         }
 
 {- | A treatment process: its only reference is an input, so it has no
@@ -1329,23 +1334,24 @@ treatmentActivity =
         , activityLocation = "FR"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges =
-            [ TechnosphereExchange
-                { techFlowId = usedOilId
-                , techAmount = 1.0
-                , techUnitId = kgUnitId
-                , techRole = ReferenceInput
-                , techActivityLinkId = Just treatActId
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = ""
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            ]
+        , activityLines =
+            packExchanges
+                [ TechnosphereExchange
+                    { techFlowId = usedOilId
+                    , techAmount = 1.0
+                    , techUnitId = kgUnitId
+                    , techRole = ReferenceInput
+                    , techActivityLinkId = Just treatActId
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = ""
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                ]
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
@@ -1364,33 +1370,34 @@ supplierActivityAt actId prodId =
         , activityLocation = "FR"
         , activityLocationSource = LocationDeclared
         , activityUnit = "kg"
-        , exchanges =
-            [ TechnosphereExchange
-                { techFlowId = prodId
-                , techAmount = 1.0
-                , techUnitId = kgUnitId
-                , techRole = ReferenceProduct
-                , techActivityLinkId = Just actId
-                , techSupplierClaim = ClaimByProduct
-                , techLocation = ""
-                , techComment = Nothing
-                , techPedigree = Nothing
-                , techFormula = Nothing
-                , techShare = Nothing
-                , techClassification = M.empty
-                , techProperties = noProperties
-                }
-            , BiosphereExchange
-                { bioFlowId = co2Id
-                , bioAmount = 1.2
-                , bioUnitId = kgUnitId
-                , bioDirection = Emission
-                , bioLocation = ""
-                , bioComment = Nothing
-                , bioPedigree = Nothing
-                , bioFormula = Nothing
-                }
-            ]
+        , activityLines =
+            packExchanges
+                [ TechnosphereExchange
+                    { techFlowId = prodId
+                    , techAmount = 1.0
+                    , techUnitId = kgUnitId
+                    , techRole = ReferenceProduct
+                    , techActivityLinkId = Just actId
+                    , techSupplierClaim = ClaimByProduct
+                    , techLocation = ""
+                    , techComment = Nothing
+                    , techPedigree = Nothing
+                    , techFormula = Nothing
+                    , techShare = Nothing
+                    , techClassification = M.empty
+                    , techProperties = noProperties
+                    }
+                , BiosphereExchange
+                    { bioFlowId = co2Id
+                    , bioAmount = 1.2
+                    , bioUnitId = kgUnitId
+                    , bioDirection = Emission
+                    , bioLocation = ""
+                    , bioComment = Nothing
+                    , bioPedigree = Nothing
+                    , bioFormula = Nothing
+                    }
+                ]
         , activityParameters = M.empty
         , activityNativeType = Nothing
         , activityNativeId = Nothing
