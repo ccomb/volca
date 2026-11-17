@@ -307,9 +307,14 @@ parseProducerFilter mRole = case mRole of
     Just "any" -> Just EitherSide
     Just _ -> Nothing
 
--- | Supply chain response – all upstream activities with scaling factors
+{- | Supply chain response – all upstream activities with scaling factors, each
+counted for one unit of the root's reference product, which
+'scrFunctionalUnit' names. The root's declared amount stays on 'scrRoot' as
+what the dataset says, and no quantity here is multiplied by it.
+-}
 data SupplyChainResponse = SupplyChainResponse
     { scrRoot :: ActivitySummary
+    , scrFunctionalUnit :: FunctionalUnit
     , scrTotalActivities :: Int
     , scrFilteredActivities :: Int
     , scrSupplyChain :: [SupplyChainEntry]
@@ -344,7 +349,7 @@ data SupplyChainEntry = SupplyChainEntry
     , sceDatabaseName :: Text -- database the entry lives in
     , sceActivityName :: Text
     , sceLocation :: Text
-    , sceQuantity :: Double -- scalingFactor × root reference product amount (physical amount per functional unit)
+    , sceQuantityPerUnit :: Double -- cumulative output of this process for one unit of the root's reference product, in 'sceUnit'
     , sceUnit :: Text
     , sceScalingFactor :: Double -- raw value from scaling vector
     , sceClassifications :: M.Map Text Text -- Classifications (ISIC, CPC, Category, etc.)

@@ -2129,25 +2129,15 @@ are qualified with @db::@, and depth continues from the
 level that reached it. The two are one fact, so they travel as one value: as
 four separate parameters they admitted sixteen combinations, of which the code
 only ever built these two.
+
+A level states its quantities for one unit of the root's reference product,
+whatever amount the root declares: a scaling is already per unit, in the root's
+database and in every dependency alike.
 -}
 data WalkLevel
     = RootLevel {rlRoot :: !ProcessId}
-    | {- | The matrix columns the dependency is bought at, each one deeper than the process buying it,
-      and the root's reference amount, which every level's quantities are stated for.
-      -}
-      DepLevel {dlEntered :: !(IM.IntMap Int), dlRootAmount :: !RootAmount}
-
--- | The root's reference amount, as a magnitude.
-newtype RootAmount = RootAmount Double
-
-{- | What a level's quantities are stated for: the root's reference amount, at
-every level. A scaling is per unit of the root's reference product, so a root
-written for 10 000 kg reads its whole chain, in its own database and in its
-dependencies alike, ten thousand times what one kilogram takes.
--}
-rootAmount :: Database -> WalkLevel -> RootAmount
-rootAmount db RootLevel{rlRoot = r} = RootAmount (referenceMagnitude (dbActivities db V.! fromIntegral r))
-rootAmount _ DepLevel{dlRootAmount = amount} = amount
+    | -- | The matrix columns the dependency is bought at, each one deeper than the process buying it.
+      DepLevel {dlEntered :: !(IM.IntMap Int)}
 
 -- | Every process's depth in the chain, from where a level is entered.
 levelDepths :: IM.IntMap [Int] -> WalkLevel -> IM.IntMap Int
@@ -2319,7 +2309,6 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
         mRootPid = case level of
             RootLevel{rlRoot = r} -> Just r
             DepLevel{} -> Nothing
-        RootAmount quantityMult = rootAmount db level
         n = U.length supplyVec
 
         allEntries =
@@ -2382,7 +2371,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                     , sceDatabaseName = dbName
                     , sceActivityName = activityName activity
                     , sceLocation = activityLocation activity
-                    , sceQuantity = scalingFactor * quantityMult
+                    , sceQuantityPerUnit = scalingFactor
                     , sceUnit = activityUnit activity
                     , sceScalingFactor = scalingFactor
                     , sceClassifications = activityClassification activity
@@ -2419,7 +2408,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
 
 {- | Sort, offset, and limit a list of supply-chain entries using the shared
 filter core's @afcSort@ / @afcOrder@ / @afcLimit@ / @afcOffset@. All
-comparison fields (@sceDepth@, @sceUpstreamCount@, @sceQuantity@…) live on
+comparison fields (@sceDepth@, @sceUpstreamCount@, @sceQuantityPerUnit@…) live on
 the entry itself, so this works uniformly for single- and cross-DB lists.
 -}
 sortAndPaginate :: ActivityFilterCore -> [SupplyChainEntry] -> [SupplyChainEntry]
@@ -2432,8 +2421,8 @@ sortAndPaginate core entries =
             Just "unit" -> \a b -> compare (sceUnit a) (sceUnit b)
             Just "depth" -> \a b -> compare (sceDepth a) (sceDepth b)
             Just "consumers" -> \a b -> compare (sceUpstreamCount a) (sceUpstreamCount b)
-            Just "amount" -> \a b -> compare (abs (sceQuantity a)) (abs (sceQuantity b))
-            _ -> \a b -> compare (abs (sceQuantity b)) (abs (sceQuantity a))
+            Just "amount" -> \a b -> compare (abs (sceQuantityPerUnit a)) (abs (sceQuantityPerUnit b))
+            _ -> \a b -> compare (abs (sceQuantityPerUnit b)) (abs (sceQuantityPerUnit a))
      in take limit . drop offset $ L.sortBy (inOrder (afcOrder core) comparator) entries
 
 {- | Pure function: build a SupplyChainResponse from a scaling vector.
@@ -2480,6 +2469,7 @@ buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf 
                 }
      in SupplyChainResponse
             { scrRoot = rootSummary
+            , scrFunctionalUnit = functionalUnitIn db rootActivity
             , scrTotalActivities = totalActs
             , scrFilteredActivities = length entries
             , scrSupplyChain = sortAndPaginate (scfCore scf) entries
@@ -2563,6 +2553,7 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor 
                 Right
                     SupplyChainResponse
                         { scrRoot = rootSummary
+                        , scrFunctionalUnit = functionalUnitIn rootDb rootActivity
                         , scrTotalActivities = total
                         , scrFilteredActivities = length entries
                         , scrSupplyChain = sortAndPaginate (scfCore scf) entries
@@ -2639,7 +2630,7 @@ walkDepLevels unitCfg geographies depLookup consumer extras scf depth visited
                     }
                 | (name, demands) <- M.toList (accumulateDepDemandsWith (coDb consumer) extras (coScaling consumer))
                 ]
-        results <- mapM (resolveOneDep unitCfg geographies depLookup scf (rootAmount (coDb consumer) (coLevel consumer)) depth visited) calls
+        results <- mapM (resolveOneDep unitCfg geographies depLookup scf depth visited) calls
         pure $ case lefts results of
             (err : _) -> Left err
             [] -> Right (mconcat (rights results))
@@ -2653,15 +2644,13 @@ resolveOneDep ::
     Geographies ->
     SharedSolver.DepSolverLookup ->
     SupplyChainFilter ->
-    -- | which quantities are stated for
-    RootAmount ->
     -- | levels of dependency crossed, bounding the recursion
     Int ->
     -- | visited
     S.Set Text ->
     DepCall ->
     IO (Either ServiceError Collected)
-resolveOneDep unitCfg geographies depLookup scf statedFor depth visited call
+resolveOneDep unitCfg geographies depLookup scf depth visited call
     | depDbName `S.member` visited = pure (Right mempty)
     | otherwise = do
         mDep <- depLookup depDbName
@@ -2692,7 +2681,7 @@ resolveOneDep unitCfg geographies depLookup scf statedFor depth visited call
             Right edges -> ((local <> Collected 0 [] edges []) <>) <$> eDeeper
       where
         level :: WalkLevel
-        level = DepLevel (enteredAt depDb) statedFor
+        level = DepLevel (enteredAt depDb)
 
         local :: Collected
         local =

@@ -264,7 +264,7 @@ supplierQuantityOf name key acts = do
             supplyVec <- either (fail . show) pure =<< computeScalingVector db (fromIntegral pid)
             let entries = scrSupplyChain (buildSupplyChainFromScalingVector shippedGeographies db "root" (fromIntegral pid) supplyVec noFilter)
             case entries of
-                [entry] -> pure (sceQuantity entry)
+                [entry] -> pure (sceQuantityPerUnit entry)
                 _ -> fail (T.unpack name <> ": expected one supplier, got " <> show (length entries))
   where
     noFilter :: SupplyChainFilter

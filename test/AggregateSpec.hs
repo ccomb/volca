@@ -24,7 +24,7 @@ import qualified API.Types as API
 import Database.Cutoffs (gapIndexOf)
 import qualified Service.Aggregate as Agg
 import qualified SharedSolver as SS
-import TestHelpers (loadSampleDatabase, mkDepLookupFromMap, mkSolverFromDb, shippedGeographies)
+import TestHelpers (loadSampleDatabase, mkDepLookupFromMap, mkSolverFromDb, shippedGeographies, withActivityWrittenForTen)
 import Types (CrossDBLink (..), Database (..), ExchangeKind (..), processIdToText)
 import qualified Types
 import qualified UnitConversion as UC
@@ -313,9 +313,7 @@ spec = do
             -- X written for 10 kg instead of 1: every edge, the dependency's
             -- 0.12 included, is ten times what one kilogram takes.
             (rootDb, depLookup) <- loadLinkedPair
-            let writtenForTen act = act{Types.activityLines = Types.packExchanges (map (\ex -> if Types.exchangeIsReference ex then ex{Types.techAmount = 10 * Types.techAmount ex} else ex) (Types.exchanges act))}
-                tenfold = rootDb{dbActivities = V.imap (\i a -> if i == 0 then writtenForTen a else a) (dbActivities rootDb)}
-            agg <- runAggWith depLookup tenfold consumption
+            agg <- runAggWith depLookup (withActivityWrittenForTen 0 rootDb) consumption
             API.aggFilteredTotal agg `shouldBeCloseTo` 12.6
 
         it "matches the cumulative supply_chain total (two independent paths)" $ do

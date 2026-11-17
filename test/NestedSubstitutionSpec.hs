@@ -14,10 +14,9 @@ module NestedSubstitutionSpec (spec) where
 import API.Types (RootDb (..), Substitution (..), SubstitutionScope (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as MV
 import qualified Data.Vector.Unboxed as U
 import Database.Cutoffs (gapIndexOf)
+import GoldenData (defaultTolerance)
 import Matrix (buildDemandVector)
 import Service (
     ActivityFilterCore (..),
@@ -43,6 +42,8 @@ import TestHelpers (
     mkDepLookupFromMap,
     mkSolverFromDb,
     shippedGeographies,
+    withActivityWrittenForTen,
+    withinTolerance,
  )
 import Types
 import UnitConversion (defaultUnitConfig)
@@ -308,24 +309,24 @@ spec = do
                     -- Dep entries must carry the "dep::" qualifier.
                     mapM_ (\e -> sceProcessId e `shouldSatisfy` T.isPrefixOf "dep::") depEntries
 
-        it "states every entry for the root's reference amount, in a dependency too" $ do
-            -- The same root written for 10 kg instead of 1, with the same inputs:
-            -- what it buys from the dependency is the same, as the line says. A
-            -- link's demand is read per unit of the root's reference product, so
-            -- it must be stated back for the 10 kg. Only the dependency's entries
-            -- are compared: they come from the links, while the root's own come
-            -- from a matrix this test does not rebuild.
+        it "counts a dependency's entries per unit of the root's reference product, as the root's own" $ do
+            -- One basis across levels: per unit. The same root written for 10 kg
+            -- instead of 1, with the same inputs, buys a tenth of what the root
+            -- written for 1 kg buys from the dependency: a link's demand is read
+            -- per unit of the root's reference product, and the dependency's
+            -- entries are stated for that one unit, not for the 10 kg. Only the
+            -- dependency's entries are compared: they come from the links, while
+            -- the root's own come from a matrix this test does not rebuild.
             rootRaw <- loadSampleDatabase "SAMPLE.min3"
             dep <- loadSampleDatabase "SAMPLE.min3"
             let root = linkDatabases rootRaw dep "dep" 0.1
                 pid = 0
-                tenfold = root{dbActivities = V.modify (\v -> MV.modify v writtenForTen (fromIntegral pid)) (dbActivities root)}
-                writtenForTen act = act{activityLines = packExchanges (map (\ex -> if exchangeIsReference ex then ex{techAmount = 10 * techAmount ex} else ex) (exchanges act))}
+                tenfold = withActivityWrittenForTen pid root
             rootSolver <- mkSolverFromDb root "root"
             depSolver <- mkSolverFromDb dep "dep"
             scaling <- either (fail . show) pure =<< solveWithSharedSolver rootSolver =<< either (fail . show) pure (buildDemandVector root pid)
             let chain db =
-                    either (fail . show) (pure . M.fromList . map (\e -> (sceProcessId e, sceQuantity e)) . scrSupplyChain)
+                    either (fail . show) (pure . M.fromList . map (\e -> (sceProcessId e, sceQuantityPerUnit e)) . scrSupplyChain)
                         =<< buildSupplyChainFromScalingVectorCrossDB
                             defaultUnitConfig
                             shippedGeographies
@@ -339,9 +340,12 @@ spec = do
                             everything
             one <- chain root
             ten <- chain tenfold
-            let fromDep = M.map (\q -> round (q * 1e6) :: Integer) . M.filterWithKey (\k _ -> "dep::" `T.isPrefixOf` k)
+            let fromDep = M.filterWithKey (\k _ -> "dep::" `T.isPrefixOf` k)
             fromDep one `shouldSatisfy` (not . null)
-            fromDep ten `shouldBe` fromDep one
+            M.keys (fromDep ten) `shouldBe` M.keys (fromDep one)
+            mapM_
+                (\(tenth, whole) -> withinTolerance defaultTolerance (whole / 10) tenth `shouldBe` True)
+                (zip (M.elems (fromDep ten)) (M.elems (fromDep one)))
 
 -- | A supply-chain filter that keeps every entry.
 everything :: SupplyChainFilter

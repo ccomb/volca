@@ -2,7 +2,7 @@
 
 module SupplyChainSpec (spec) where
 
-import API.Types (ConsumerResult (..), ConsumersResponse (..), EdgeType (..), ExportNode (..), FlowInfo (..), NodeType (..), SearchResults (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
+import API.Types (ConsumerResult (..), ConsumersResponse (..), EdgeType (..), ExportNode (..), FlowInfo (..), FunctionalUnit (..), NodeType (..), SearchResults (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
 import Data.Aeson (Value (..))
 import Data.Aeson.Key (fromText)
 import qualified Data.Aeson.KeyMap as KM
@@ -63,8 +63,8 @@ mapConsumerCore f cf = cf{cnfCore = f (cnfCore cf)}
 
 spec :: Spec
 spec = do
-    describe "sceQuantity uses rootRefAmount (not activity refAmount)" $ do
-        it "sceQuantity equals scalingFactor when root refAmount is 1" $ do
+    describe "quantityPerUnit equals the scaling factor" $ do
+        it "quantityPerUnit equals scalingFactor when root refAmount is 1" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
 
             -- SAMPLE.min3: X → Y(0.6) → Z(0.24), all refAmounts = 1 kg
@@ -74,13 +74,31 @@ spec = do
             let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootProcessId supplyVec emptySupply
                 entries = scrSupplyChain response
 
-            -- With rootRefAmount = 1, sceQuantity must equal sceScalingFactor exactly
             mapM_
                 ( \entry ->
-                    withinTolerance defaultTolerance (sceScalingFactor entry) (sceQuantity entry)
+                    withinTolerance defaultTolerance (sceScalingFactor entry) (sceQuantityPerUnit entry)
                         `shouldBe` True
                 )
                 entries
+
+    describe "quantityPerUnit is per unit of the root's reference product" $ do
+        it "is unchanged when the root is written for 10" $ do
+            -- X written for 10 kg buys what it always bought, so one kilogram of
+            -- it takes a tenth of that: 0.06 of Y and 0.024 of Z, not 0.6 and 0.24.
+            db <- rebuilt . withActivityWrittenForTen 0 =<< loadSampleDatabase "SAMPLE.min3"
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db 0
+            let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" 0 supplyVec emptySupply
+                perUnit = M.fromList [(sceActivityName e, sceQuantityPerUnit e) | e <- scrSupplyChain response]
+            M.keys perUnit `shouldBe` ["production of product Y", "production of product Z"]
+            mapM_
+                (\(name, expected) -> withinTolerance defaultTolerance expected (perUnit M.! name) `shouldBe` True)
+                [("production of product Y", 0.06), ("production of product Z", 0.024)]
+
+        it "states its functional unit" $ do
+            db <- loadSampleDatabase "SAMPLE.min3"
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db 0
+            let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" 0 supplyVec emptySupply
+            scrFunctionalUnit response `shouldBe` FunctionalUnit "kg" "product X"
 
     describe "sceDepth (BFS from root)" $ do
         it "assigns positive depth to non-root entries" $ do
@@ -214,7 +232,7 @@ spec = do
                     scrSupplyChain $
                         buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootPid supplyVec (mapSupplyCore f emptySupply)
                 byDepth c = c{afcName = Just "produc", afcSort = Just "depth"}
-                amounts = map (abs . sceQuantity) . listed
+                amounts = map (abs . sceQuantityPerUnit) . listed
             map sceDepth (listed (\c -> (byDepth c){afcOrder = Reversed})) `shouldBe` [2, 1]
             map sceDepth (listed (\c -> (byDepth c){afcOrder = sortOrderOf (Just "asc")})) `shouldBe` [1, 2]
             -- With no column named the largest amount comes first, so desc
