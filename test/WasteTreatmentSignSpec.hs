@@ -504,6 +504,21 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
         supplyChain <- aggFilteredTotalPerUnit <$> aggregatedOf (Agg.emptyAggregateParams Agg.ScopeSupplyChain) "every-scope-supply-chain" (tA, wW) acts
         mapM_ (\quantity -> withinTolerance 1.0e-9 (0.5 / 3.6) quantity `shouldBe` True) [direct, consumption, supplyChain]
 
+    -- Written for 1 kg of W, of which it eats 0.1 kg itself, with 0.9 kg of Y:
+    -- what leaves is 0.9 kg, and one kilogram of that takes 1 kg of Y. The
+    -- reference row reads what is made for one delivered, 1 / 0.9.
+    it "counts a process eating its own product the same in every scope" $ do
+        let selfFed = emptyActivity{activityName = "self-fed W", activityLines = packExchanges [techEx wW 1.0 ReferenceProduct Nothing, techEx wW 0.1 Input (Just tA), techEx yY 0.9 Input (Just pA)]}
+            acts = M.fromList [((tA, wW), selfFed), ((pA, yY), supplierOfY)]
+            directOf params = aggFilteredTotalPerUnit <$> aggregatedOf params "self-fed-direct" (tA, wW) acts
+            directScope = Agg.emptyAggregateParams Agg.ScopeDirect
+        direct <- directOf directScope{Agg.apFilterName = Just "product Y"}
+        made <- directOf directScope{Agg.apFilterIsReference = Just True}
+        consumption <- aggFilteredTotalPerUnit <$> aggregatedOf (Agg.emptyAggregateParams Agg.ScopeConsumption){Agg.apFilterName = Just "product Y"} "self-fed-consumption" (tA, wW) acts
+        supplyChain <- aggFilteredTotalPerUnit <$> aggregatedOf (Agg.emptyAggregateParams Agg.ScopeSupplyChain) "self-fed-supply-chain" (tA, wW) acts
+        mapM_ (\quantity -> withinTolerance 1.0e-9 1.0 quantity `shouldBe` True) [direct, consumption, supplyChain]
+        withinTolerance 1.0e-9 (1.0 / 0.9) made `shouldBe` True
+
     it "intra-DB ILCD (positive ReferenceInput) scores +6" $ do
         score <-
             scoreIntra

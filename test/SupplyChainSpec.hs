@@ -95,6 +95,18 @@ spec = do
                 (\(name, expected) -> withinTolerance defaultTolerance expected (perUnit M.! name) `shouldBe` True)
                 [("production of product Y", 0.06), ("production of product Z", 0.024)]
 
+        it "stays as written when the root declares zero" $ do
+            -- A reference written as 0 has no amount to divide by: the column
+            -- is divided by one, so Y and Z read 0.6 and 0.24 as written.
+            db <- rebuilt . withActivityWrittenFor 0 0 =<< loadSampleDatabase "SAMPLE.min3"
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db 0
+            let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" 0 supplyVec emptySupply
+                perUnit = M.fromList [(sceActivityName e, sceQuantityPerUnit e) | e <- scrSupplyChain response]
+            M.keys perUnit `shouldBe` ["production of product Y", "production of product Z"]
+            mapM_
+                (\(name, expected) -> withinTolerance defaultTolerance expected (perUnit M.! name) `shouldBe` True)
+                [("production of product Y", 0.6), ("production of product Z", 0.24)]
+
         it "states its functional unit" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             supplyVec <- either (fail . show) pure =<< computeScalingVector db 0
@@ -450,6 +462,23 @@ spec = do
                         )
                         (zip steps [1, 0.06, 0.024])
                     map (lookupKey "cumulativeQuantity") steps `shouldSatisfy` all (== Nothing)
+
+        it "gives each step as written when the root declares zero" $ do
+            db <- rebuilt . withActivityWrittenFor 0 0 =<< loadSampleDatabase "SAMPLE.min3"
+            solver <- createSharedSolver "test" (dbTechnosphereTriples db) (fromIntegral (dbActivityCount db))
+            result <- getPathTo db solver (processIdToText db 0) (NamePattern "product Z")
+            case result of
+                Left err -> expectationFailure $ "Expected Right but got Left: " ++ show err
+                Right val -> do
+                    let steps = case lookupKey "path" val of
+                            Just (Array arr) -> toList arr
+                            _ -> []
+                    length steps `shouldBe` 3
+                    mapM_
+                        ( \(step, expected) ->
+                            getDoubleField "cumulativeQuantityPerUnit" step `shouldSatisfy` maybe False (withinTolerance defaultTolerance expected)
+                        )
+                        (zip steps [1, 0.6, 0.24])
 
         it "states its functional unit" $ do
             db <- loadSampleDatabase "SAMPLE.min3"

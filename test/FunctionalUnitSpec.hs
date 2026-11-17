@@ -101,3 +101,9 @@ spec = describe "the functional unit of a computed answer" $ do
         keyedBy "functional_unit" "compute_sensitivity" [("perturbations", Array V.empty)]
         keyedBy "functionalUnit" "score_activity" []
         keyedBy "functional_unit" "score_activities" [("process_ids", Array (V.singleton (String productD)))]
+        keyedBy "functionalUnit" "get_supply_chain" []
+        keyedBy "functionalUnit" "aggregate" [("scope", String "direct")]
+        -- Product D buys nothing, so the path starts from product C, which buys it.
+        pathTo <- mcpPayload Nothing "get_path_to" [("process_id", String "cc000003-0000-0000-0000-000000000000"), ("target", String "product D")]
+        KM.lookup "functionalUnit" pathTo
+            `shouldBe` Just (object ["amount" .= (1 :: Int), "unit" .= ("kg" :: Text), "product" .= ("product C" :: Text)])

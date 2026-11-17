@@ -9,7 +9,10 @@
   already did. Their numbers change for any process whose declared amount is
   not 1: a process written for 10 kg of cheese now reports a tenth of what it
   did in its supply chain, in the path to a supplier, and in every scope of an
-  aggregate but `biosphere`, which already counted for one unit. The fields
+  aggregate but `biosphere`, which already counted for one unit. The `direct`
+  scope of an aggregate divides as the others do, by what the process makes
+  net of what it consumes of its own product: a process making 1 kg and
+  eating 0.1 kg of it is counted for one of the 0.9 kg it delivers. The fields
   holding these numbers are renamed (`quantity` becomes `quantityPerUnit`,
   `cumulativeQuantity` becomes `cumulativeQuantityPerUnit`, `filteredTotal`
   becomes `filteredTotalPerUnit`), so a client written for the old numbers

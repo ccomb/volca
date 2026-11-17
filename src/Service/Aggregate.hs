@@ -45,7 +45,7 @@ import API.Types (
  )
 import Database (Geographies)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, noCutoffs)
-import Matrix (linkConsumer)
+import Matrix (activityNormalizationFactor, linkConsumer)
 import Service (
     ActivityFilterCore (..),
     Edges (..),
@@ -58,7 +58,6 @@ import Service (
     functionalUnitIn,
     getActivityExchangeDetails,
     getReferenceProductName,
-    perUnitDivisor,
     resolveScorable,
     supplyFor,
  )
@@ -73,6 +72,7 @@ import Types (
     Database (..),
     ExchangeKind (..),
     Permission (..),
+    ProcessId,
     SparseTriple (..),
     UnitDB,
     activityClassification,
@@ -203,7 +203,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
              in case apScope params of
                     ScopeDirect ->
                         -- Nothing is solved: the exchanges are read as the dataset writes them, put per unit.
-                        return $ Right $ reduce params functionalUnit noCutoffs (rowsFromDirect db activity)
+                        return $ Right $ reduce params functionalUnit noCutoffs (rowsFromDirect db processId activity)
                     ScopeSupplyChain -> case demandFor db processId of
                         Left err -> return (Left err)
                         Right demandVec -> do
@@ -288,11 +288,16 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
 -- Scope → AggRow conversions
 -- ---------------------------------------------------------------------------
 
-rowsFromDirect :: Database -> Activity -> [AggRow]
-rowsFromDirect db act =
+{- | The exchanges of a process for one unit of its product, divided as its
+matrix column is: by what it makes net of what it consumes of its own product,
+so a process feeding itself reads here as it does in every other scope. Only the
+size divides; a treatment's reference row stays negative.
+-}
+rowsFromDirect :: Database -> ProcessId -> Activity -> [AggRow]
+rowsFromDirect db processId act =
     map mkRow (getActivityExchangeDetails db act (const True))
   where
-    divisor = perUnitDivisor act
+    divisor = abs (activityNormalizationFactor db processId)
     mkRow (ExchangeDetail ex flow _flowUnit _unit exUnitName target) =
         AggRow
             { rowName = apiFlowName flow

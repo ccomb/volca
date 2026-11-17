@@ -1693,8 +1693,8 @@ described the block, not the number beside it.
 A reference product the tech-flow table does not name takes the activity's
 name. A reference exchange whose unit the table lacks, or holds only as an
 empty name or the placeholder a parser writes for a blank one, takes the
-activity's reference unit. A functional unit is never empty text or a
-placeholder, and a score is never refused for lacking one.
+activity's own reference unit, which is all the source gave and may itself be
+empty or that placeholder. A score is never refused for lacking a unit.
 -}
 functionalUnitOf :: TechFlowDB -> UnitDB -> Activity -> FunctionalUnit
 functionalUnitOf flows units activity =
@@ -2783,18 +2783,6 @@ bfsToPattern from matches adj = go (Empty |> from) (IM.singleton from from)
 getReferenceProductAmount :: Activity -> Double
 getReferenceProductAmount activity =
     maybe 1.0 exchangeAmount (L.find exchangeIsReference (nonPlainExchanges activity))
-
-{- | The amount the exchanges of an activity are divided by to count for one unit.
-
-A magnitude, never a sign: a treatment declared as a negative output keeps its
-reference row negative, which is the direction of one unit of it. A reference
-of zero divides by one, so its rows stay as written instead of turning into
-infinity.
--}
-perUnitDivisor :: Activity -> Double
-perUnitDivisor activity = case abs (getReferenceProductAmount activity) of
-    0 -> 1
-    magnitude -> magnitude
 
 {- | Run sensitivity analysis on a process: compute the baseline scaling
 vector @x₀@ once, then resolve every 'Perturbation' to a (consumer column,
