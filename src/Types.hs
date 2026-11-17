@@ -1568,7 +1568,7 @@ type LocationIndex = M.Map Text [UUID] -- Location -> [ActivityUUID]
 not on the activity UUID, so an activity written as several coproduct rows is
 listed once per row rather than once per activity.
 -}
-type FlowIndex = M.Map UUID [ProcessId] -- FlowID -> [ProcessId]
+type FlowIndex = M.Map UUID (VU.Vector ProcessId) -- FlowID -> the rows, once per line using it
 
 -- | Index by reference unit - unit-based activity search
 type ActivityUnitIndex = M.Map Text [UUID] -- Unit -> [ActivityUUID]

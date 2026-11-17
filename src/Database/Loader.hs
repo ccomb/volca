@@ -642,6 +642,8 @@ History of manual bumps:
 - 84: a waste output naming a treatment of another database whose reference
      is a product is linked to it, where it used to be cut off. Nothing
      changes type, so a cache written just before would keep the cut-off.
+- 85: the index of the rows using each flow holds its row numbers in an
+     array, where it held them in a list.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -649,7 +651,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 84
+     in hi `xor` lo `xor` 85
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
