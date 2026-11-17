@@ -314,7 +314,7 @@ what the dataset says, and no quantity here is multiplied by it.
 -}
 data SupplyChainResponse = SupplyChainResponse
     { scrRoot :: ActivitySummary
-    , scrFunctionalUnit :: FunctionalUnit
+    , scrFunctionalUnit :: FunctionalUnit -- What the quantities are for: one unit of the reference product
     , scrTotalActivities :: Int
     , scrFilteredActivities :: Int
     , scrSupplyChain :: [SupplyChainEntry]

@@ -82,7 +82,7 @@ spec = do
                 entries
 
     describe "quantityPerUnit is per unit of the root's reference product" $ do
-        it "is unchanged when the root is written for 10" $ do
+        it "is a tenth when the root is written for 10 with the same inputs" $ do
             -- X written for 10 kg buys what it always bought, so one kilogram of
             -- it takes a tenth of that: 0.06 of Y and 0.024 of Z, not 0.6 and 0.24.
             db <- rebuilt . withActivityWrittenForTen 0 =<< loadSampleDatabase "SAMPLE.min3"

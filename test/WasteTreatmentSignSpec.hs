@@ -444,10 +444,9 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
         withinTolerance 1.0e-9 2.0 score `shouldBe` True
 
     -- The chain of the same treatment: it buys 0.5 kg of Y to treat that
-    -- kilogram, so the chain says 0.5 consumed. The quantity is the scaling
-    -- times the root's reference amount, and that amount is a magnitude: were
-    -- it signed, it would carry the direction the functional unit already
-    -- carries and report the purchase as a sale.
+    -- kilogram, so the chain says 0.5 consumed. The chain reads the scaling as
+    -- it is, so the 0.5 pins that a treatment's purchase is not reported as a
+    -- sale.
     it "reports what a treatment whose reference is a negative output buys" $ do
         quantity <-
             supplierQuantityOf
