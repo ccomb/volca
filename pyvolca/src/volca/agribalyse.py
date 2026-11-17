@@ -414,28 +414,25 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
         raw_kg = raw.groups[0].quantity_per_unit if raw.groups else 0.0
 
     # The amounts come from /aggregate, divided as the engine divides every
-    # other figure here; the typed exchange list only says which outputs are
-    # coproducts, since /aggregate lumps biosphere emissions (NOx, water,
-    # heat waste…) into "direct" exchanges.
-    # shortcut: an emission named exactly like a coproduct adds into it; drop
-    # the name match once Client.aggregate filters by exchange type.
-    coproduct_units = {
-        e.flow_name: e.unit
+    # other figure here. One call per unit the coproducts are written in, so a
+    # coproduct listed in two units is never summed across them.
+    co_products: list[tuple[str, float, str]] = []
+    coproduct_units = sorted({
+        e.unit
         for e in act.exchanges
         if isinstance(e, TechnosphereExchange) and not e.is_input and not e.is_reference
-    }
-    outputs = client.aggregate(
-        process_id,
-        scope="direct",
-        is_input=False,
-        filter_is_reference=False,
-        group_by="name",
-    ) if coproduct_units else None
-    co_products = [
-        (g.key, g.quantity_per_unit, g.unit or coproduct_units[g.key])
-        for g in (outputs.groups if outputs else [])
-        if g.key in coproduct_units
-    ]
+    })
+    for unit in coproduct_units:
+        outputs = client.aggregate(
+            process_id,
+            scope="direct",
+            is_input=False,
+            filter_is_reference=False,
+            filter_exchange_type="technosphere",
+            filter_unit=unit,
+            group_by="name",
+        )
+        co_products += [(g.key, g.quantity_per_unit, unit) for g in outputs.groups]
 
     # Agribalyse uses allocation-based modelling, so co-products rarely
     # appear as technosphere outputs; the engine records each co-product's

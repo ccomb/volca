@@ -64,7 +64,6 @@ import Service (
 import SharedSolver (DepSolverLookup, Reached (..), SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (
-    Activity,
     BioFlowDB,
     BiosphereFlow (..),
     ClassificationFilter (..),
@@ -203,7 +202,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
              in case apScope params of
                     ScopeDirect ->
                         -- Nothing is solved: the exchanges are read as the dataset writes them, put per unit.
-                        return $ Right $ reduce params functionalUnit noCutoffs (rowsFromDirect db processId activity)
+                        return $ Right $ reduce params functionalUnit noCutoffs (rowsFromDirect db processId)
                     ScopeSupplyChain -> case demandFor db processId of
                         Left err -> return (Left err)
                         Right demandVec -> do
@@ -293,9 +292,9 @@ matrix column is: by what it makes net of what it consumes of its own product,
 so a process feeding itself reads here as it does in every other scope. Only the
 size divides; a treatment's reference row stays negative.
 -}
-rowsFromDirect :: Database -> ProcessId -> Activity -> [AggRow]
-rowsFromDirect db processId act =
-    map mkRow (getActivityExchangeDetails db act (const True))
+rowsFromDirect :: Database -> ProcessId -> [AggRow]
+rowsFromDirect db processId =
+    map mkRow (getActivityExchangeDetails db (dbActivities db V.! fromIntegral processId) (const True))
   where
     divisor = abs (activityNormalizationFactor db processId)
     mkRow (ExchangeDetail ex flow _flowUnit _unit exUnitName target) =

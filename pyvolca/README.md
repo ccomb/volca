@@ -522,7 +522,7 @@ Add a row to a scoring set; with a weight, it joins the score that adds up the r
 
 A score written otherwise is left as it is. A label already in use is refused.
 
-##### `Client.aggregate(process_id: str, scope: AggregateScope | str, *, is_input: bool | None = None, max_depth: int | None = None, filter_name: str | None = None, filter_name_not: list[str] | str | None = None, filter_unit: str | None = None, preset: str | None = None, filter_classification: list[ClassificationFilter] | None = None, filter_target_name: str | None = None, filter_consumer: str | None = None, filter_consumer_not: list[str] | str | None = None, filter_is_reference: bool | None = None, group_by: str | None = None, aggregate: AggregateOp | str | None = None) -> AggregateResult`
+##### `Client.aggregate(process_id: str, scope: AggregateScope | str, *, is_input: bool | None = None, max_depth: int | None = None, filter_name: str | None = None, filter_name_not: list[str] | str | None = None, filter_unit: str | None = None, preset: str | None = None, filter_classification: list[ClassificationFilter] | None = None, filter_target_name: str | None = None, filter_consumer: str | None = None, filter_consumer_not: list[str] | str | None = None, filter_is_reference: bool | None = None, filter_exchange_type: str | None = None, group_by: str | None = None, aggregate: AggregateOp | str | None = None) -> AggregateResult`
 
 SQL-group-by aggregation over direct exchanges, supply chain, or biosphere flows.
 
@@ -556,6 +556,8 @@ Args:
         itself contains a comma ("electricity production, hard
         coal") becomes two independent substrings; use a
         comma-free fragment of the name instead.
+    filter_exchange_type: ``"technosphere"``, ``"biosphere"`` or
+        ``"waste"`` keeps that kind of exchange only (``DIRECT`` scope only).
     group_by: omit for a single-bucket result (just the totals).
         Supported keys: ``"name"``, ``"flow_id"``, ``"name_prefix"``,
         ``"unit"``, ``"location"``, ``"target_name"``,

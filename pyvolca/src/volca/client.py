@@ -2654,6 +2654,7 @@ class Client:
         filter_consumer: str | None = None,
         filter_consumer_not: list[str] | str | None = None,
         filter_is_reference: bool | None = None,
+        filter_exchange_type: str | None = None,
         group_by: str | None = None,
         aggregate: AggregateOp | str | None = None,
     ) -> AggregateResult:
@@ -2689,6 +2690,8 @@ class Client:
                 itself contains a comma ("electricity production, hard
                 coal") becomes two independent substrings; use a
                 comma-free fragment of the name instead.
+            filter_exchange_type: ``"technosphere"``, ``"biosphere"`` or
+                ``"waste"`` keeps that kind of exchange only (``DIRECT`` scope only).
             group_by: omit for a single-bucket result (just the totals).
                 Supported keys: ``"name"``, ``"flow_id"``, ``"name_prefix"``,
                 ``"unit"``, ``"location"``, ``"target_name"``,
@@ -2729,6 +2732,7 @@ class Client:
             filter_consumer=filter_consumer,
             filter_consumer_not=filter_consumer_not_csv,
             filter_is_reference=filter_is_reference,
+            filter_exchange_type=filter_exchange_type,
             group_by=group_by,
             aggregate=aggregate,
         )

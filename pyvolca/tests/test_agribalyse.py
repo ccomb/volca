@@ -64,13 +64,18 @@ def _per_unit(groups: list[AggregateGroup]) -> AggregateResult:
 
 def _engine(**kw: object) -> AggregateResult:
     if kw.get("is_input") is False:
-        # The direct outputs, coproduct and emission alike. The whey reads
-        # 0.4 / 0.9 here, not the 0.4 that 4 kg / 10 kg would give: the engine
-        # divides by the net output, which only it knows.
-        return _per_unit([
-            AggregateGroup(key="whey", quantity_per_unit=0.4 / 0.9, count=1, unit="kg"),
-            AggregateGroup(key="Carbon dioxide, fossil", quantity_per_unit=0.2, count=1, unit="kg"),
-        ])
+        # The direct technosphere outputs other than the reference, in kg. The
+        # whey reads 0.4 / 0.9 here, not the 0.4 that 4 kg / 10 kg would give:
+        # the engine divides by the net output, which only it knows.
+        assert kw == {
+            "scope": "direct",
+            "is_input": False,
+            "filter_is_reference": False,
+            "filter_exchange_type": "technosphere",
+            "filter_unit": "kg",
+            "group_by": "name",
+        }
+        return _per_unit([AggregateGroup(key="whey", quantity_per_unit=0.4 / 0.9, count=1, unit="kg")])
     return _per_unit([AggregateGroup(key="milk", quantity_per_unit=1.0, count=1, unit="kg")])
 
 

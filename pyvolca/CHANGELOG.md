@@ -58,6 +58,12 @@ an older engine.
   now come from the engine's `direct` aggregate, so they stay on the basis of
   the energies and masses the engine counts, which are now for one unit.
 
+### Added
+
+- `aggregate()` takes `filter_exchange_type` (`"technosphere"`, `"biosphere"`
+  or `"waste"`) to keep one kind of exchange in the `direct` scope, which the
+  engine already offered.
+
 ## [0.14.3] - 2026-11-14
 
 This release speaks wire revisions 2 to 112. Nothing pyvolca offers is removed
