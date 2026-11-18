@@ -34,7 +34,7 @@ It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, openLCA JSON-LD, and B
 - **Fuzzy search**: Typo (edit distance) and stem (trigram) tolerance on activity and supply-chain name filters
 - **Auto-extracted synonyms**: Synonym pairs extracted automatically from loaded databases and method packages, available for toggling and download
 - **Reference data management**: Flow synonyms, compartment mappings, and unit definitions can be configured in TOML, uploaded via the API, or toggled independently
-- **Fast cache**: Per-database cache co-located with the source path, rebuilt when the cache schema changes or when what it was read under besides its source files (unit table, location aliases, allocation key, patches) is no longer what is in force (figures in the Performance table below)
+- **Fast cache**: Per-database cache co-located with the source path, rebuilt when the cache schema changes or when what it was read under besides its source files (unit table, location aliases, allocation key, patches) is no longer what is in force (figures in the Performance table below). A method given as an archive has its own, written inside the directory the archive is extracted to and read back only by the engine build that wrote it
 - **Optional access control**: Single-code login with cookie-based session
 
 ---

@@ -5,6 +5,7 @@ module OlcaSchemaSpec (spec) where
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.List (isInfixOf)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -15,10 +16,12 @@ import Test.Hspec
 import UnitConversion (defaultUnitConfig)
 
 import Database.Manager (loadMethodCollectionFromPath)
+import Method.Cache (MethodRead (..))
 import Method.Mapping (MethodTables (..), buildMethodTables)
 import Method.Parser.OlcaSchema (OlcaImpactMethod (..), choosePackageMethod, isOlcaImpactCategoryJson, parseOlcaImpactCategoryBytes, parseOlcaImpactMethodBytes)
 import Method.SimaProScoring (NormWeightSet (..), factorClashes)
 import Method.Types
+import Progress (LogLine (..), getLogLines)
 
 spec :: Spec
 spec = do
@@ -302,16 +305,30 @@ spec = do
                 BS.writeFile (root </> "lcia_methods" </> "other.json") (methodDoc "Other" "ozone" [])
                 BS.writeFile (root </> "lcia_categories" </> "acid.json") (categoryDoc "Acidification")
                 BS.writeFile (root </> "lcia_categories" </> "ozone.json") (categoryDoc "Ozone depletion")
-                loaded <- loadMethodCollectionFromPath (Just "EF 3.1") root
+                loaded <- loadMethodCollectionFromPath Nothing (Just "EF 3.1") root
                 case loaded of
                     Left err -> expectationFailure (T.unpack err)
-                    Right (collection, _) -> do
+                    Right MethodRead{mrCollection = collection} -> do
                         map methodName (mcMethods collection) `shouldBe` ["Acidification"]
                         map ssName (mcScoringSets collection) `shouldBe` ["EF 3.1 weighting"]
-                unnamed <- loadMethodCollectionFromPath Nothing root
+                unnamed <- loadMethodCollectionFromPath Nothing Nothing root
                 unnamed `shouldSatisfy` refusedWith "several methods"
-                notPackage <- loadMethodCollectionFromPath (Just "EF 3.1") (root </> "lcia_categories")
+                notPackage <- loadMethodCollectionFromPath Nothing (Just "EF 3.1") (root </> "lcia_categories")
                 notPackage `shouldSatisfy` refusedWith "is not an openLCA method package"
+
+        -- The refusal alone says the package holds no such method; the file
+        -- that does not parse is why, and a failed load hands no warning back.
+        it "names the method file it could not read when the load then fails" $
+            withSystemTempDirectory "olca-package" $ \root -> do
+                createDirectoryIfMissing True (root </> "lcia_methods")
+                createDirectoryIfMissing True (root </> "lcia_categories")
+                BS.writeFile (root </> "lcia_methods" </> "ef.json") "not json"
+                BS.writeFile (root </> "lcia_categories" </> "acid.json") (categoryDoc "Acidification")
+                (since, _) <- getLogLines 0
+                loaded <- loadMethodCollectionFromPath Nothing (Just "EF 3.1") root
+                loaded `shouldSatisfy` refusedWith "no method"
+                (_, said) <- getLogLines since
+                map llText said `shouldSatisfy` any (isInfixOf "method file left out, ef.json")
 
         it "gives a factor the CAS number its flow file holds" $
             withSystemTempDirectory "olca-package" $ \root -> do
@@ -321,8 +338,8 @@ spec = do
                     (root </> "lcia_categories" </> "ozone.json")
                     "{\"@type\":\"ImpactCategory\",\"name\":\"Ozone depletion\",\"impactFactors\":[{\"value\":0.5,\"flow\":{\"@id\":\"9f2b39c2-1b5e-4a0b-9b2e-3f6c1d4e5a7b\",\"name\":\"1,2-Dichloro-1,1,2,2-tetrafluoroethane\",\"category\":\"Elementary flows/Emission to air/unspecified\"}}]}"
                 BS.writeFile (root </> "flows" </> "9f2b39c2-1b5e-4a0b-9b2e-3f6c1d4e5a7b.json") "{\"@type\":\"Flow\",\"cas\":\"76-14-2\"}"
-                loaded <- loadMethodCollectionFromPath (Just "EF 3.1") root
-                fmap (map mcfCAS . concatMap methodFactors . mcMethods . fst) loaded `shouldBe` Right [Just "76-14-2"]
+                loaded <- loadMethodCollectionFromPath Nothing (Just "EF 3.1") root
+                fmap (map mcfCAS . concatMap methodFactors . mcMethods . mrCollection) loaded `shouldBe` Right [Just "76-14-2"]
 
     describe "buildMethodTables on parsed openLCA methods" $ do
         it "leaves mtRegionalizedCF empty when no flow matched (Nothing in mappings)" $ do

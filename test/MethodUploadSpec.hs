@@ -19,8 +19,9 @@ import Test.Hspec
 
 import API.DatabaseHandlers (formatToText)
 import Config (MethodConfig (..), MethodOrigin (..))
-import Database.Manager (loadMethodCollectionFromConfig)
+import Database.Manager (CachePolicy (..), loadMethodCollectionFromConfig)
 import Database.Upload
+import Method.Cache (MethodRead (..))
 import Method.Types (Method (..), MethodCF (..), mcMethods)
 import Zip (zipFiles)
 
@@ -251,10 +252,10 @@ spec = do
                             , mcPatches = []
                             , mcPackageMethod = Nothing
                             }
-                loaded <- loadMethodCollectionFromConfig mc
+                loaded <- fmap mrCollection <$> loadMethodCollectionFromConfig NoCache mc
                 case loaded of
                     Left err -> expectationFailure ("load failed: " ++ show err)
-                    Right (collection, _) -> do
+                    Right collection -> do
                         let methods = mcMethods collection
                         length methods `shouldBe` 1
                         let factors = methodFactors (head methods)
@@ -268,22 +269,22 @@ spec = do
         -- SimaPro exports a method as a single .csv; requiring users to wrap it
         -- in a zip or directory is pure friction, so the loader takes it as-is.
         it "loads a single SimaPro method .csv directly" $ do
-            loaded <- loadMethodCollectionFromConfig (bareConfig "test/data/simapro_method.csv")
+            loaded <- fmap mrCollection <$> loadMethodCollectionFromConfig NoCache (bareConfig "test/data/simapro_method.csv")
             case loaded of
                 Left err -> expectationFailure ("load failed: " ++ show err)
-                Right (collection, _) -> mcMethods collection `shouldSatisfy` (not . null)
+                Right collection -> mcMethods collection `shouldSatisfy` (not . null)
 
         it "reports an existing file of unsupported type as such, not as missing" $
             withSystemTempDirectory "volca-method-load" $ \tmp -> do
                 let path = tmp </> "not-a-method.txt"
                 BL.writeFile path (BLC.pack "hello")
-                loaded <- loadMethodCollectionFromConfig (bareConfig path)
+                loaded <- fmap mrCollection <$> loadMethodCollectionFromConfig NoCache (bareConfig path)
                 case loaded of
                     Left err -> err `shouldSatisfy` T.isInfixOf "Unsupported method file type"
                     Right _ -> expectationFailure "expected a Left for a .txt file"
 
         it "still reports a missing path as not found" $ do
-            loaded <- loadMethodCollectionFromConfig (bareConfig "test/data/no-such-method.csv")
+            loaded <- fmap mrCollection <$> loadMethodCollectionFromConfig NoCache (bareConfig "test/data/no-such-method.csv")
             case loaded of
                 Left err -> err `shouldSatisfy` T.isInfixOf "Method path not found"
                 Right _ -> expectationFailure "expected a Left for a missing path"
@@ -296,7 +297,7 @@ spec = do
                 -- Binary garbage: recognised as no known archive format, so
                 -- extraction fails and resolveDataPath refuses.
                 BL.writeFile path (BL.pack [0, 1, 2, 3, 4, 5, 6, 7])
-                loaded <- loadMethodCollectionFromConfig (bareConfig path)
+                loaded <- fmap mrCollection <$> loadMethodCollectionFromConfig NoCache (bareConfig path)
                 case loaded of
                     Left err -> err `shouldSatisfy` T.isInfixOf "Archive could not be extracted"
                     Right _ -> expectationFailure "expected a Left for an unextractable .zip"

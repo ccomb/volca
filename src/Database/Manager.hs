@@ -189,7 +189,7 @@ import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.QSem (QSem, newQSem)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, try)
+import Control.Exception (IOException, SomeException, try)
 import qualified Control.Exception
 import Control.Lens ((&), (?~))
 import Control.Monad (filterM, forM, forM_, unless, void, when, (<=<))
@@ -198,10 +198,9 @@ import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE, wit
 import Data.Aeson (FromJSON (..), ToJSON (..), (.:), (.:?), (.=))
 import qualified Data.Aeson as A
 import Data.Bifunctor (bimap, first)
-import Data.Bitraversable (bitraverse)
 import Data.Char (toLower)
 import qualified Data.Csv as Csv
-import Data.Either (fromRight, lefts, partitionEithers, rights)
+import Data.Either (fromRight, isLeft, lefts, partitionEithers, rights)
 import Data.Foldable (toList)
 import Data.Functor ((<&>))
 import Data.Indexing (groupInOrder, uniqueIndex)
@@ -297,13 +296,13 @@ import Method.Types (
     energyDensityMapSize,
  )
 import Parametric (Setting, parameterised)
-import Progress (ProgressLevel (..), reportError, reportProgress, reportProgressWithTiming, withLogScope)
+import Progress (ProgressLevel (..), reportCacheOperation, reportError, reportProgress, reportProgressWithTiming, withLogScope)
 import qualified Search.BM25 as BM25
 import Servant.API (FromHttpApiData)
 import SharedSolver (SharedSolver, correctedFor, createSharedSolver)
 import qualified SharedSolver
 import SubstanceRegistry (CASNumber (..), KeyNormalizers (..), NormName (..), SubstanceEdge, casBindingsFromEdges, normalizeCAS, parseSubstanceEdges)
-import SynonymDB (BridgeDirection (..), SynEdge (..), SynonymDB (..), buildFromCSV, emptySynonymDB, excludeJunkSynonyms, excludeOverFrequentSynonyms, loadFromCSVFileWithCache, mergeSynonymDBs, normalizeName, oversizedClasses, reopenedBridges, synonymCount, uncoveredUnitSuffixes)
+import SynonymDB (BridgeDirection (..), SynEdge (..), SynonymDB (..), buildFromCSV, emptySynonymDB, loadFromCSVFileWithCache, mergeSynonymDBs, normalizeName, reopenedBridges, synonymCount, uncoveredUnitSuffixes)
 import Types (
     Activity,
     AddedAt (..),
@@ -392,7 +391,8 @@ import Database.Requirements (ReleaseSubstitution (..), RequiredRelease, acceptS
 import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirectory, listDirectoryRecursive)
 import qualified Database.Upload as Upload
 import qualified Database.UploadedDatabase as UploadedDB
-import Method.FlowResolver (ILCDFlowInfo)
+import Method.Cache (BinaryStamp, MethodRead (..), binaryStamp, methodCacheFile, readMethodCache, writeMethodCache)
+import Method.FlowResolver (CachedFlows (..), ILCDFlowInfo)
 import qualified Method.FlowResolver as FlowResolver
 import Method.Journal (MethodLine (..), changesScores, replayMethodJournal)
 import qualified Method.Parser
@@ -401,7 +401,7 @@ import Method.ParserCSV (parseMethodCSVBytes, stripBOM)
 import Method.ParserSimaPro (isSimaProMethodCSV, parseSimaProMethodCSVBytes)
 import qualified Method.Patch
 import Method.SimaProScoring (SimaProMethodFile (..), simaProCollection)
-import SynonymDB.Extract (extractFromEcoSpold2, extractFromILCDFlows, synonymPairsToCSV)
+import SynonymDB.Extract (SynonymCandidate (..), extractFromEcoSpold2, extractFromILCDFlows, synonymCandidate)
 import qualified Version
 
 -- | A fully loaded database with solver ready for queries
@@ -1861,11 +1861,11 @@ loadAllDatabases manager allDbConfigs =
 loadConfiguredMethods :: DatabaseManager -> Config -> IO ()
 loadConfiguredMethods manager config =
     forM_ (filter mcActive (cfgMethods config)) $ \mc ->
-        loadConfiguredCollection mc >>= \case
+        loadConfiguredCollection (dmCachePolicy manager) mc >>= \case
             Left err ->
                 reportError $
                     "  [FAIL] Failed to load method " <> T.unpack (mcName mc) <> ": " <> T.unpack err
-            Right ((collection, patchStats), flowInfo) -> do
+            Right ((collection, patchStats), synonyms) -> do
                 atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert (mcName mc) collection)
                 reportProgress Info $
                     "  [OK] Loaded method: "
@@ -1875,7 +1875,7 @@ loadConfiguredMethods manager config =
                         <> " impact categories)"
                 warnZeroTouchPatches (mcName mc) patchStats
                 warnUnknownGlobalMethods (mcName mc) collection
-                autoCreateFlowSynonyms manager (mcName mc) (SynonymOrigin ("Auto-extracted from " <> mcName mc)) (extractFromILCDFlows flowInfo)
+                registerSynonymCandidate manager (mcName mc) (SynonymOrigin ("Auto-extracted from " <> mcName mc)) synonyms
 
 {- | Surface a 'global-methods' entry that matches no loaded method: the
 de-regionalization is keyed by method name, so a typo or a renamed method
@@ -2335,19 +2335,19 @@ repeated sets = M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(ssName s, 
 {- | Load a collection and fold in what is added to its files: its
 configuration for a collection the configuration declares, its journal for one
 under @uploads/methods/@. Never both: a collection there has no configuration.
-Gives the collection, how many factors each configured patch touched, and its
-ILCD flow definitions.
+Gives the collection, how many factors each configured patch touched, and the
+synonyms its flow definitions offer.
 -}
-loadConfiguredCollection :: MethodConfig -> IO (Either Text ((MethodCollection, [(Config.MethodPatch, Int)]), M.Map UUID ILCDFlowInfo))
-loadConfiguredCollection mc = case mcHome mc of
-    Nothing -> (>>= bitraverse (applyMethodConfig mc) pure) <$> loadMethodCollectionFromConfig mc
+loadConfiguredCollection :: CachePolicy -> MethodConfig -> IO (Either Text ((MethodCollection, [(Config.MethodPatch, Int)]), Maybe SynonymCandidate))
+loadConfiguredCollection policy mc = case mcHome mc of
+    Nothing -> (>>= adding (applyMethodConfig mc)) <$> loadMethodCollectionFromConfig policy mc
     Just home -> do
-        parsed <- loadMethodCollectionFromConfig mc
+        parsed <- loadMethodCollectionFromConfig policy mc
         entries <- readEntries home
-        pure $ do
-            (collection, flowInfo) <- parsed
-            replayed <- replayMethodJournal collection =<< entries
-            pure ((replayed, []), flowInfo)
+        pure (parsed >>= adding (\collection -> (,[]) <$> (replayMethodJournal collection =<< entries)))
+  where
+    adding :: (MethodCollection -> Either Text a) -> MethodRead -> Either Text (a, Maybe SynonymCandidate)
+    adding add reading = (,mrSynonyms reading) <$> add (mrCollection reading)
 
 {- | Surface a patch that matched no characterization factor: the selector is
 almost certainly wrong (a typo'd category or flow name), and staying silent
@@ -2471,18 +2471,13 @@ database loader, and a diagnosis reconstructed from the extension, in the
 method loader.
 -}
 resolveDataPath :: FilePath -> IO (Either Text FilePath)
-resolveDataPath path = do
-    isDir <- doesDirectoryExist path
-    isFile <- doesFileExist path
+resolveDataPath path =
     -- A directory, a missing path, or a plain file goes through unchanged, and
     -- the caller reports whatever is wrong with it.
-    if isDir || not isFile || map toLower (takeExtension path) `notElem` Upload.archiveExtensions
-        then pure (Right path)
-        else extractAndFind path
+    archiveExtraction path >>= maybe (pure (Right path)) (extractAndFind path)
   where
-    extractAndFind :: FilePath -> IO (Either Text FilePath)
-    extractAndFind archive = do
-        let extractDir = archive ++ ".d"
+    extractAndFind :: FilePath -> FilePath -> IO (Either Text FilePath)
+    extractAndFind archive extractDir = do
         alreadyExtracted <- hasContent extractDir
         if alreadyExtracted
             then do
@@ -2508,6 +2503,15 @@ resolveDataPath path = do
     hasContent dir = do
         exists <- doesDirectoryExist dir
         if exists then not . null <$> listDirectory dir else return False
+
+-- | The directory a path is extracted to, when it names an archive file.
+archiveExtraction :: FilePath -> IO (Maybe FilePath)
+archiveExtraction path = do
+    isFile <- doesFileExist path
+    pure $
+        if isFile && map toLower (takeExtension path) `elem` Upload.archiveExtensions
+            then Just (path ++ ".d")
+            else Nothing
 
 -- | Load a database from its configuration with cross-database linking support
 loadDatabaseFromConfigWithCrossDB ::
@@ -5074,13 +5078,22 @@ data ParsedMethodFiles = ParsedMethodFiles
     }
 
 -- | Load the methods a MethodConfig names, from the binary or from disk.
-loadMethodCollectionFromConfig :: MethodConfig -> IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
-loadMethodCollectionFromConfig mc = (>>= bitraverse namedOnce pure) <$> parsed
+loadMethodCollectionFromConfig :: CachePolicy -> MethodConfig -> IO (Either Text MethodRead)
+loadMethodCollectionFromConfig policy mc = (>>= \reading -> reading <$ namedOnce (mrCollection reading)) <$> parsed
   where
-    parsed :: IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
+    parsed :: IO (Either Text MethodRead)
     parsed = case mcOrigin mc of
         MethodBuiltIn builtin -> pure (builtinMethodCollection builtin)
-        MethodFromFile path -> loadMethodCollectionFromPath (mcPackageMethod mc) path
+        MethodFromFile path -> loadMethodCollectionFromPath (methodCacheStamp policy) (mcPackageMethod mc) path
+
+{- | The stamp method caches are kept under, for a run that keeps caches. A
+database with a journal reads its cache and writes none; no method is loaded
+under that policy, and one that were would get no cache at all.
+-}
+methodCacheStamp :: CachePolicy -> Maybe BinaryStamp
+methodCacheStamp UseCache = binaryStamp Version.version Version.gitHash
+methodCacheStamp ReadCache = Nothing
+methodCacheStamp NoCache = Nothing
 
 {- | Scores are reported by set name, so two sets of one name read from the
 method files would hide each other; the load stops and names them. A check on
@@ -5096,21 +5109,56 @@ namedOnce collection = case repeated (Method.Types.mcScoringSets collection) of
 beside it. It cannot fail to parse unless the build did (BuiltinSpec compares
 it with its file), so a failure says so.
 -}
-builtinMethodCollection :: BuiltinMethod -> Either Text (MethodCollection, M.Map UUID ILCDFlowInfo)
+builtinMethodCollection :: BuiltinMethod -> Either Text MethodRead
 builtinMethodCollection builtin =
-    bimap unreadable (\methods -> (MethodCollection methods [] [], M.empty)) $
+    bimap unreadable (\methods -> MethodRead (MethodCollection methods [] []) [] Nothing) $
         parseMethodCSVBytes (BL.toStrict (builtinMethodContent builtin))
   where
     unreadable :: String -> Text
     unreadable err = "The built-in method " <> builtinMethodName builtin <> " could not be read, this binary was built wrong: " <> T.pack err
 
-{- | Load methods from a path (directory or archive).
-Handles ZIP/7z archives via resolveDataPath, finds method XMLs,
-and enriches CFs from ILCD flow XMLs when available. An openLCA package
-gives the method @packageMethod@ names, or its only one.
+{- | Load methods from a path (directory or archive), and say what the reading
+found wrong in them. An openLCA package gives the method @packageMethod@
+names, or its only one.
+
+An archive is read once per binary: what its files come to is kept beside its
+extraction ("Method.Cache") and taken from there by the next start, before
+anything looks into the extracted directory. The stamp is that of the binary;
+without one, every load reads the files.
 -}
-loadMethodCollectionFromPath :: Maybe Text -> FilePath -> IO (Either Text (MethodCollection, M.Map UUID ILCDFlowInfo))
-loadMethodCollectionFromPath packageMethod path = runExceptT $ do
+loadMethodCollectionFromPath :: Maybe BinaryStamp -> Maybe Text -> FilePath -> IO (Either Text MethodRead)
+loadMethodCollectionFromPath stamp packageMethod path = do
+    extraction <- archiveExtraction path
+    outcome <- case (,) <$> stamp <*> extraction of
+        Nothing -> readMethodPath packageMethod path
+        Just (binary, extractDir) -> do
+            let file = methodCacheFile extractDir packageMethod
+            readMethodCache binary packageMethod file >>= \case
+                Right reading -> Right reading <$ reportCacheOperation ("Method cache loaded: " <> file)
+                Left why -> do
+                    reportCacheOperation ("No method cache to load, " <> why <> ": " <> file)
+                    fresh <- readMethodPath packageMethod path
+                    forM_ fresh (saveReading binary file)
+                    pure fresh
+    forM_ outcome (mapM_ (reportProgress Warning . T.unpack) . mrWarnings)
+    pure outcome
+  where
+    -- A directory that cannot be written to costs the next start a reading,
+    -- not this one its method. Only that is caught: writing works the
+    -- candidate synonyms out, seconds during which an interrupt must stop
+    -- the engine, not be taken for a failed write.
+    saveReading :: BinaryStamp -> FilePath -> MethodRead -> IO ()
+    saveReading binary file reading =
+        try @IOException (writeMethodCache binary packageMethod file reading) >>= \case
+            Right () -> reportCacheOperation ("Method cache saved: " <> file)
+            Left err -> reportCacheOperation ("Method cache not saved: " <> show err)
+
+{- | Read the methods a path holds, from its files. Handles ZIP/7z archives via
+resolveDataPath, finds method XMLs, and enriches CFs from ILCD flow XMLs when
+available. The warnings come back in the reading, for the caller to report.
+-}
+readMethodPath :: Maybe Text -> FilePath -> IO (Either Text MethodRead)
+readMethodPath packageMethod path = runExceptT $ do
     {- Resolve archives (ZIP to extracted directory). Single .json (openLCA
     JSON-LD ImpactCategory) and .csv (SimaPro method export) files are accepted
     directly without a wrapping directory or archive. -}
@@ -5118,7 +5166,7 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
     source <- ExceptT $ methodSourceAt resolvedPath
     package <- liftIO $ packageIn source
     case package of
-        Just root -> (,M.empty) <$> ExceptT (loadOlcaPackageMethod packageMethod root)
+        Just root -> ExceptT (readOlcaPackageMethod packageMethod root)
         Nothing -> do
             forM_ packageMethod $ \named ->
                 throwE ("package-method names \"" <> named <> "\", but " <> T.pack path <> " is not an openLCA method package")
@@ -5131,23 +5179,26 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
         dir <- findMethodDirectory root
         (\package -> if package then Just dir else Nothing) <$> Upload.isOlcaMethodPackage dir
 
-    fromMethodFiles :: MethodSource -> ExceptT Text IO (MethodCollection, M.Map UUID ILCDFlowInfo)
+    fromMethodFiles :: MethodSource -> ExceptT Text IO MethodRead
     fromMethodFiles source = do
         files <- liftIO $ methodFilesOf source
         fromFiles source files
 
-    fromFiles :: MethodSource -> MethodFiles -> ExceptT Text IO (MethodCollection, M.Map UUID ILCDFlowInfo)
+    fromFiles :: MethodSource -> MethodFiles -> ExceptT Text IO MethodRead
     fromFiles source files = do
         when (noMethodFiles files) $
             throwE ("No method files (.xml/.csv/.json) found in: " <> T.pack (mfDirectory files))
-        flowInfo <- ExceptT $ flowDefinitionsFor source (mfDirectory files)
-        parsed <- liftIO $ parseMethodFiles flowInfo files
-        (collection, scoringWarnings) <- except (collectionOf parsed)
+        flows <- ExceptT $ flowDefinitionsFor source (mfDirectory files)
+        parsed <- liftIO $ parseMethodFiles (cfByUUID flows) files
+        (collection, scoringWarnings) <- ExceptT $ sayingOnFailure (cfSuperseded flows) (pure (collectionOf parsed))
         liftIO $ reportProgress Info (parseCounts parsed)
         liftIO $ mapM_ (reportProgress Info) (nwCounts collection)
-        liftIO $ mapM_ (reportProgress Warning . ("  " <>) . T.unpack) scoringWarnings
-        liftIO $ mapM_ (reportProgress Warning) (parseFailures parsed)
-        pure (collection, flowInfo)
+        pure
+            MethodRead
+                { mrCollection = collection
+                , mrWarnings = cfSuperseded flows <> map ("  " <>) scoringWarnings <> map T.pack (parseFailures parsed)
+                , mrSynonyms = synonymCandidate (extractFromILCDFlows (cfByUUID flows))
+                }
     {- What the path turned out to hold. A bare method file carries its own CFs
     and has no ILCD flows/ sibling; only a real directory does. -}
     methodSourceAt :: FilePath -> IO (Either Text MethodSource)
@@ -5203,18 +5254,19 @@ loadMethodCollectionFromPath packageMethod path = runExceptT $ do
 
     {- Scanning a coincidental neighbouring flows/ would parse unrelated flow
     XMLs and register foreign synonyms under this collection's name, so only a
-    real ILCD directory is looked at. -}
-    flowDefinitionsFor :: MethodSource -> FilePath -> IO (Either Text (M.Map UUID ILCDFlowInfo))
-    flowDefinitionsFor (BareMethodFile _) _ = pure (Right M.empty)
+    real ILCD directory is looked at. Gives the definitions, and the lines
+    about the files a newer version superseded. -}
+    flowDefinitionsFor :: MethodSource -> FilePath -> IO (Either Text CachedFlows)
+    flowDefinitionsFor (BareMethodFile _) _ = pure (Right (CachedFlows M.empty []))
     flowDefinitionsFor (MethodDirectory _) dir =
         FlowResolver.resolveFlowDirectory dir >>= \case
             Nothing -> do
                 reportProgress Info "  No flows/ directory found, using shortDescription fallback"
-                pure (Right M.empty)
+                pure (Right (CachedFlows M.empty []))
             Just flowsDir -> do
                 reportProgress Info $ "  Loading ILCD flow XMLs from: " <> flowsDir
-                outcome <- FlowResolver.parseFlowDirectory flowsDir
-                mapM_ (\info -> reportProgress Info $ "  Loaded " <> show (M.size info) <> " flow definitions") outcome
+                outcome <- FlowResolver.readFlowDirectory flowsDir
+                mapM_ (\flows -> reportProgress Info $ "  Loaded " <> show (M.size (cfByUUID flows)) <> " flow definitions") outcome
                 pure outcome
 
     parseMethodFiles :: M.Map UUID ILCDFlowInfo -> MethodFiles -> IO ParsedMethodFiles
@@ -5307,26 +5359,33 @@ and the package does not hold, or one that does not parse, stops the load: a
 method short of a category would score as if it were whole.
 -}
 loadOlcaPackageMethod :: Maybe Text -> FilePath -> IO (Either Text MethodCollection)
-loadOlcaPackageMethod wanted root = runExceptT $ do
-    names <- liftIO $ sort . filter ((== ".json") . map toLower . takeExtension) <$> listDirectory (root </> "lcia_methods")
-    parsed <- liftIO $ forM names $ \f -> first (\e -> T.pack (f <> ": " <> e)) . OlcaSchema.parseOlcaImpactMethodBytes <$> BS.readFile (root </> "lcia_methods" </> f)
+loadOlcaPackageMethod wanted root = do
+    outcome <- readOlcaPackageMethod wanted root
+    forM_ outcome (mapM_ (reportProgress Warning . T.unpack) . mrWarnings)
+    pure (mrCollection <$> outcome)
+
+-- | 'loadOlcaPackageMethod' handing back its warnings where it reports them.
+readOlcaPackageMethod :: Maybe Text -> FilePath -> IO (Either Text MethodRead)
+readOlcaPackageMethod wanted root = do
+    names <- sort . filter ((== ".json") . map toLower . takeExtension) <$> listDirectory (root </> "lcia_methods")
+    parsed <- forM names $ \f -> first (\e -> T.pack (f <> ": " <> e)) . OlcaSchema.parseOlcaImpactMethodBytes <$> BS.readFile (root </> "lcia_methods" </> f)
     let (unreadable, methods) = partitionEithers parsed
-    liftIO $ mapM_ (reportProgress Warning . ("  method file left out, " <>) . T.unpack) unreadable
-    method <- except (OlcaSchema.choosePackageMethod wanted methods)
-    categories <- forM (OlcaSchema.oimCategories method) $ \c -> do
-        let file = root </> "lcia_categories" </> T.unpack c <> ".json"
-            named = "\"" <> OlcaSchema.oimName method <> "\" names category " <> c
-        present <- liftIO (doesFileExist file)
-        unless present $ throwE (named <> ", which the package does not hold")
-        bytes <- liftIO (BS.readFile file)
-        except (first (\e -> named <> ", which could not be read: " <> T.pack e) (OlcaSchema.parseOlcaImpactCategoryBytes bytes))
-    cas <- liftIO $ fmap (M.fromList . catMaybes) . forM (OlcaSchema.flowsWithoutCas categories) $ \u -> do
-        let file = root </> "flows" </> UUID.toString u <> ".json"
-        present <- doesFileExist file
-        if present then fmap (u,) . OlcaSchema.parseOlcaFlowCas <$> BS.readFile file else pure Nothing
-    let (collection, warnings) = simaProCollection (SimaProMethodFile (map (OlcaSchema.withFlowCas cas) categories) [] (OlcaSchema.oimNWSets method))
-    liftIO $ do
-        reportProgress Info $
+        leftOut = map ("  method file left out, " <>) unreadable
+    sayingOnFailure leftOut . runExceptT $ do
+        method <- except (OlcaSchema.choosePackageMethod wanted methods)
+        categories <- forM (OlcaSchema.oimCategories method) $ \c -> do
+            let file = root </> "lcia_categories" </> T.unpack c <> ".json"
+                named = "\"" <> OlcaSchema.oimName method <> "\" names category " <> c
+            present <- liftIO (doesFileExist file)
+            unless present $ throwE (named <> ", which the package does not hold")
+            bytes <- liftIO (BS.readFile file)
+            except (first (\e -> named <> ", which could not be read: " <> T.pack e) (OlcaSchema.parseOlcaImpactCategoryBytes bytes))
+        cas <- liftIO $ fmap (M.fromList . catMaybes) . forM (OlcaSchema.flowsWithoutCas categories) $ \u -> do
+            let file = root </> "flows" </> UUID.toString u <> ".json"
+            present <- doesFileExist file
+            if present then fmap (u,) . OlcaSchema.parseOlcaFlowCas <$> BS.readFile file else pure Nothing
+        let (collection, warnings) = simaProCollection (SimaProMethodFile (map (OlcaSchema.withFlowCas cas) categories) [] (OlcaSchema.oimNWSets method))
+        liftIO . reportProgress Info $
             "  Read \""
                 <> T.unpack (OlcaSchema.oimName method)
                 <> "\" from the openLCA package: "
@@ -5334,8 +5393,17 @@ loadOlcaPackageMethod wanted root = runExceptT $ do
                 <> " categories, "
                 <> show (length (Method.Types.mcScoringSets collection))
                 <> " scoring set(s)"
-        mapM_ (reportProgress Warning . ("  " <>) . T.unpack) warnings
-    pure collection
+        pure (MethodRead collection (leftOut <> map ("  " <>) warnings) Nothing)
+
+{- | A reading that fails hands back no warnings, and what it had found wrong
+by then is often why it failed: a method file left out is the method the
+package is then said not to hold. So a failure says them here.
+-}
+sayingOnFailure :: [Text] -> IO (Either Text a) -> IO (Either Text a)
+sayingOnFailure found reading = do
+    outcome <- reading
+    when (isLeft outcome) $ mapM_ (reportProgress Warning . T.unpack) found
+    pure outcome
 
 -- | List all method collections with their status
 listMethodCollections :: DatabaseManager -> IO [MethodCollectionStatus]
@@ -5395,12 +5463,12 @@ loadMethodCollectionLocked manager name = do
                 then return $ Right ()
                 else do
                     reportProgress Info $ "[STARTING] Loading method: " <> T.unpack name
-                    result <- loadConfiguredCollection mc
+                    result <- loadConfiguredCollection (dmCachePolicy manager) mc
                     case result of
                         Left err -> do
                             reportProgress Error $ "  [FAIL] " <> T.unpack name <> ": " <> T.unpack err
                             return $ Left err
-                        Right ((collection, patchStats), flowInfo) -> do
+                        Right ((collection, patchStats), synonyms) -> do
                             atomically $ modifyTVar' (dmLoadedMethods manager) (M.insert name collection)
                             clearMethodMappingCache manager
                             let methods = mcMethods collection
@@ -5415,12 +5483,7 @@ loadMethodCollectionLocked manager name = do
                                     <> " characterization factors)"
                             warnZeroTouchPatches name patchStats
                             -- Auto-extract synonyms from ILCD flow definitions
-                            let pairs = extractFromILCDFlows flowInfo
-                            autoCreateFlowSynonyms
-                                manager
-                                name
-                                (SynonymOrigin ("Auto-extracted from " <> name))
-                                pairs
+                            registerSynonymCandidate manager name (SynonymOrigin ("Auto-extracted from " <> name)) synonyms
                             return $ Right ()
 
 -- | Unload a method collection from memory
@@ -6077,14 +6140,6 @@ removeUploadDir uploadDir = do
 -- | The sentence a candidate synonym set carries about where it came from.
 newtype SynonymOrigin = SynonymOrigin Text
 
-{- | A synonym carried by more distinct flows than this is a classification label
-or stop-word (e.g. @"organic"@), not a true synonym: 'excludeOverFrequentSynonyms'
-drops it. The bound sits in the gap between the class-label hubs (≥187 flows in
-EF 3.1) and the first genuine flow name used as a synonym (~17 flows).
--}
-maxSynonymFlowFrequency :: Int
-maxSynonymFlowFrequency = 25
-
 {- | Persist auto-extracted synonym pairs as an opt-in candidate set.
 Writes CSV to <data dir>/uploads/flow-synonyms/auto-{source}/data.csv and registers it
 inactive. The pairs never enter the matching: flow matching trusts only the
@@ -6094,19 +6149,23 @@ DB-embedded synonyms are a bootstrap input for offline curation, not a runtime
 one. To regenerate a stale candidate, remove the source and reload.
 -}
 autoCreateFlowSynonyms :: DatabaseManager -> Text -> SynonymOrigin -> [(Text, Text)] -> IO ()
-autoCreateFlowSynonyms manager sourceName (SynonymOrigin description) pairs = do
+autoCreateFlowSynonyms manager sourceName origin pairs =
+    registerSynonymCandidate manager sourceName origin (synonymCandidate pairs)
+
+{- | 'autoCreateFlowSynonyms' for a candidate set already worked out, or one
+held unevaluated: a method read from its cache brings its own.
+-}
+registerSynonymCandidate :: DatabaseManager -> Text -> SynonymOrigin -> Maybe SynonymCandidate -> IO ()
+registerSynonymCandidate manager sourceName (SynonymOrigin description) candidate = do
     let slug = "auto-" <> sourceName
     -- Skip if already registered (persisted candidate from a previous run,
     -- discovered at startup, or extracted earlier this session). Asked before
-    -- anything looks at 'pairs': they take seconds to extract from a large
-    -- method, which a start that already holds the candidate must not pay.
+    -- anything looks at the candidate: it takes seconds to work out from a
+    -- large method, which a start that already holds it must not pay.
     alreadyExtracted <- atomically $ M.member slug <$> readTVar (dmAvailableFlowSyns manager)
     if alreadyExtracted
         then reportProgress Info $ "  [AUTO] " <> T.unpack slug <> ": candidate already extracted"
-        else unless (null pairs) $ do
-            let (nonJunkPairs, junkTokens) = excludeJunkSynonyms pairs
-                (keptPairs, excludedSyns) =
-                    excludeOverFrequentSynonyms maxSynonymFlowFrequency nonJunkPairs
+        else forM_ candidate $ \SynonymCandidate{scCsv = csv, scPairCount = pairCount, scJunkTokens = junkTokens, scOverFrequent = excludedSyns, scFusedClasses = fusedClasses} -> do
             unless (null junkTokens) $
                 reportProgress Info $
                     "  [AUTO] "
@@ -6130,7 +6189,7 @@ autoCreateFlowSynonyms manager sourceName (SynonymOrigin description) pairs = do
             let dir = uploadsDir </> T.unpack slug
                 path = dir </> "data.csv"
             createDirectoryIfMissing True dir
-            BL.writeFile path (synonymPairsToCSV keptPairs)
+            BS.writeFile path csv
             let rd =
                     RefDataConfig
                         { rdName = slug
@@ -6142,21 +6201,20 @@ autoCreateFlowSynonyms manager sourceName (SynonymOrigin description) pairs = do
                         , rdAdded = Nothing
                         }
             addFlowSynonyms manager rd
-            -- Close the candidate set only to audit its quality: an oversized
-            -- class means the transitive closure fused unrelated substances
-            -- through an ambiguous bridge (a junk hub): surface it so the
-            -- curator sees it before ever activating the source.
-            forM_ (oversizedClasses 100 keptPairs) $ \cls ->
+            -- An oversized class means the transitive closure fused unrelated
+            -- substances through an ambiguous bridge (a junk hub): surface it
+            -- so the curator sees it before ever activating the source.
+            forM_ fusedClasses $ \(size, names) ->
                 reportProgress Warning $
                     "  [AUTO] "
                         <> T.unpack slug
                         <> ": synonym closure fused "
-                        <> show (length cls)
+                        <> show size
                         <> " names into one class (possible junk hub); e.g. "
-                        <> T.unpack (T.intercalate ", " (take 5 cls))
+                        <> T.unpack (T.intercalate ", " names)
             reportProgress Info $
                 "  [AUTO] "
                     <> T.unpack slug
                     <> ": "
-                    <> show (length keptPairs)
+                    <> show pairCount
                     <> " candidate synonym pairs (opt-in, not loaded)"

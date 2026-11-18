@@ -77,7 +77,7 @@ data FlowDirection
       Input
     | -- | Emission to environment (e.g., CO2, pollutants)
       Output
-    deriving (Eq, Ord, Show, Generic, NFData, ToJSON, FromJSON)
+    deriving (Eq, Ord, Show, Generic, NFData, Store, ToJSON, FromJSON)
 
 {- | Compartment triple: (medium, subcompartment, qualifier)
 medium: "air", "water", "soil", "natural resource"
@@ -127,7 +127,7 @@ data MethodCF = MethodCF
     'Just loc' = single cell of the C matrix at (flow, loc).
     -}
     }
-    deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+    deriving (Eq, Show, Generic, NFData, Store, ToJSON, FromJSON)
 
 {- | An LCIA characterization method (loaded from ILCD XML)
 
@@ -150,7 +150,7 @@ data Method = Method
     , methodFactors :: ![MethodCF]
     -- ^ List of characterization factors
     }
-    deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+    deriving (Eq, Show, Generic, NFData, Store, ToJSON, FromJSON)
 
 {- | A method collection: its impact categories, the scoring sets that weigh
 them into single scores, and the categories scored without regionalization.
@@ -165,7 +165,7 @@ data MethodCollection = MethodCollection
     and by its journal for one that keeps a journal.
     -}
     }
-    deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+    deriving (Eq, Show, Generic, NFData, Store, ToJSON, FromJSON)
 
 {- | Formula-based scoring set.
 Variables map short names to impact category names.
@@ -206,7 +206,7 @@ data ScoringSet = ScoringSet
     , ssOrigin :: !ScoringSetOrigin
     -- ^ Where the set comes from; the response fields kept until 0.16.0 read only a set read from the file.
     }
-    deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+    deriving (Eq, Show, Generic, NFData, Store, ToJSON, FromJSON)
 
 {- | Where a scoring set comes from. A set read from a SimaPro method file
 stands for its damage categories and normalization-weighting set; the
@@ -215,7 +215,7 @@ the configuration declares, or one a collection's journal created, stands for
 nothing else.
 -}
 data ScoringSetOrigin = ReadFromSimaProFile | DeclaredInConfig | CreatedInJournal
-    deriving (Eq, Show, Generic, NFData, ToJSON, FromJSON)
+    deriving (Eq, Show, Generic, NFData, Store, ToJSON, FromJSON)
 
 {- | Result of evaluating a ScoringSet against raw LCIA results.
 Both maps carry the same numeric scale – the display multiplier has been applied.
