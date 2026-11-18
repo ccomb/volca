@@ -29,7 +29,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, bm25DocsMatchingName, filterByName, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, flowSearchFields, locationAnswers)
+import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, bm25DocsMatchingName, filterByName, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, flowSearchFields, locationAnswers, locationIs)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.Author (lineSelector)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, cutoffsReached, gapIndexOf)
@@ -79,11 +79,32 @@ data ActivityFilterCore = ActivityFilterCore
     , afcLocation :: Maybe Text
     , afcProduct :: Maybe Text
     , afcClassifications :: [ClassificationFilter]
+    , afcExcluded :: Exclusions
     , afcLimit :: Maybe Int
     , afcOffset :: Maybe Int
     , afcSort :: Maybe Text
     , afcOrder :: SortOrder
     }
+
+{- | What a query leaves out, on top of what it asks for. Each exclusion
+removes the rows it matches, whatever the others remove: unlike the positive
+classification filters, which are alternatives within one system, two
+exclusions on one system both apply.
+
+A name removes what a search for that name alone finds, so a name that is only
+the identifier of a source block removes the block. A place removes every
+place that answers for it.
+-}
+data Exclusions = Exclusions
+    { exNames :: [Text]
+    , exLocations :: [Text]
+    , exClassifications :: [ClassificationFilter]
+    }
+    deriving (Eq, Show)
+
+-- | Leaves nothing out.
+noExclusions :: Exclusions
+noExclusions = Exclusions{exNames = [], exLocations = [], exClassifications = []}
 
 {- | Filter for activity search (/activities). Carries the shared core plus
 the search-only 'sfExactMatch' toggle that switches between token-contains
@@ -1057,6 +1078,16 @@ tab counter disagreeing with the tab it labels is worse than no counter.
 -}
 activityMatches :: Geographies -> Database -> SearchFilter -> [(ProcessId, Activity)]
 activityMatches geographies db sFilter@(SearchFilter core exactMatch) =
+    filter (survivesExclusions geographies db exactMatch (afcExcluded core)) (positiveMatches geographies db sFilter)
+
+{- | The rows a filter asks for, before its exclusions take any away, in the
+order the search presents them.
+
+A name exclusion is answered by this, never by 'activityMatches', so an
+exclusion cannot be asked to exclude.
+-}
+positiveMatches :: Geographies -> Database -> SearchFilter -> [(ProcessId, Activity)]
+positiveMatches geographies db sFilter@(SearchFilter core exactMatch) =
     identified ++ filter (not . alreadyIdentified) searched
   where
     -- The blocks the query names by identifier, ahead of the search rather than
@@ -1090,18 +1121,68 @@ activityMatches geographies db sFilter@(SearchFilter core exactMatch) =
     ordered :: (ProcessId, Activity) -> (ProcessId, Activity) -> Ordering
     ordered = inOrder (afcOrder core) (activityRowComparator (afcSort core))
 
+{- | Whether a row stays once the exclusions have taken theirs away.
+
+Partly applied to the exclusions, it works out once which rows the names
+remove, then answers for as many rows as it is asked about.
+-}
+survivesExclusions :: Geographies -> Database -> Bool -> Exclusions -> (ProcessId, Activity) -> Bool
+survivesExclusions geographies db exact ex = \(pid, activity) ->
+    not (IS.member (fromIntegral pid) namedOut || excludedByPlaceOrClass geographies exact ex activity)
+  where
+    namedOut :: IS.IntSet
+    namedOut = excludedByName geographies db (exNames ex)
+
+{- | Whether a place or a classification exclusion removes an activity. Under
+@exact@ a place is read as that place alone, the way the positive filter reads
+it; otherwise every place that answers for it goes too.
+-}
+excludedByPlaceOrClass :: Geographies -> Bool -> Exclusions -> Activity -> Bool
+excludedByPlaceOrClass geographies exact ex activity =
+    any (`inPlace` activityLocation activity) (exLocations ex)
+        || any (`classificationMatches` activityClassification activity) (exClassifications ex)
+  where
+    inPlace :: Text -> Text -> Bool
+    inPlace = if exact then locationIs else locationAnswers geographies
+
+-- | The processes a search for each of the names, taken alone, finds.
+excludedByName :: Geographies -> Database -> [Text] -> IS.IntSet
+excludedByName geographies db names =
+    IS.fromList
+        [ fromIntegral pid
+        | name <- names
+        , (pid, _) <- positiveMatches geographies db (SearchFilter (nameAlone name) False)
+        ]
+
+-- | A filter that asks for a name and nothing else.
+nameAlone :: Text -> ActivityFilterCore
+nameAlone name =
+    ActivityFilterCore
+        { afcName = Just name
+        , afcLocation = Nothing
+        , afcProduct = Nothing
+        , afcClassifications = []
+        , afcExcluded = noExclusions
+        , afcLimit = Nothing
+        , afcOffset = Nothing
+        , afcSort = Nothing
+        , afcOrder = Forward
+        }
+
 {- | The processes a caller names, in the order named, through the search's
 place, product and classification filters, read as exactly as the search
-reads them.
+reads them, and through its exclusions.
 
 The name filter does not apply, nor the sort: a caller that already knows
 which processes it wants (ranked by some measure of its own) asks for their
-rows, and the order it gives is the answer. A process the database does not
+rows, and the order it gives is the answer. A name to leave out still does:
+it removes rows, it does not choose them. A process the database does not
 hold is left out, the way a search leaves out what it does not find.
 -}
 activitiesNamed :: Geographies -> Database -> SearchFilter -> [ProcessId] -> [(ProcessId, Activity)]
 activitiesNamed geographies db (SearchFilter core exactMatch) =
-    applyStructuredFilters geographies db (afcLocation core) (afcProduct core) (afcClassifications core) exactMatch
+    filter (survivesExclusions geographies db exactMatch (afcExcluded core))
+        . applyStructuredFilters geographies db (afcLocation core) (afcProduct core) (afcClassifications core) exactMatch
         . mapMaybe (\pid -> (,) pid <$> findActivityByProcessId db pid)
 
 {- | The processes a list of identifiers names, for 'activitiesNamed'. One the
@@ -1176,17 +1257,7 @@ searchCounts geographies db listedAs query =
     nameOnly :: Text -> SearchFilter
     nameOnly q =
         SearchFilter
-            { sfCore =
-                ActivityFilterCore
-                    { afcName = Just q
-                    , afcLocation = Nothing
-                    , afcProduct = Nothing
-                    , afcClassifications = []
-                    , afcLimit = Nothing
-                    , afcOffset = Nothing
-                    , afcSort = caSort listedAs
-                    , afcOrder = Forward
-                    }
+            { sfCore = (nameAlone q){afcSort = caSort listedAs}
             , sfExactMatch = caExact listedAs
             }
 
@@ -2356,6 +2427,8 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
             , Just flow <- [M.lookup (exchangeFlowId ex) (dbTechFlows db)]
             ]
 
+        stays = survivesExclusions geographies db False (afcExcluded core)
+
         matchesFilters activity pid =
             let nameOk = nameMatchesPid pid
                 locOk = maybe True (\pat -> locationAnswers geographies pat (activityLocation activity)) (afcLocation core)
@@ -2363,7 +2436,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                 classOk = matchClassifications activity (afcClassifications core)
                 depth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
                 depthOk = maybe True (depth <=) (scfMaxDepth scf)
-             in nameOk && locOk && productOk && classOk && depthOk
+             in nameOk && locOk && productOk && classOk && depthOk && stays (pid, activity)
 
         qualify = nameAt level dbName db
 
@@ -3585,6 +3658,8 @@ getConsumers geographies db dbName processIdText cnf = do
 
         classMatches activity = matchClassifications activity (afcClassifications core)
 
+        stays = survivesExclusions geographies db False (afcExcluded core)
+
         limit = fromMaybe 1000 (afcLimit core)
         offset = fromMaybe 0 (afcOffset core)
 
@@ -3603,6 +3678,7 @@ getConsumers geographies db dbName processIdText cnf = do
             , let activity = dbActivities db V.! fromIntegral pid
             , locationMatches activity
             , classMatches activity
+            , stays (pid, activity)
             , let refProduct = summaryProduct (referenceProductOf (dbTechFlows db) (dbUnits db) activity)
             , productMatches (rpName refProduct)
             ]

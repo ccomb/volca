@@ -27,6 +27,7 @@ import Service (
     filterTreeExport,
     getConsumers,
     getPathTo,
+    noExclusions,
     sortOrderOf,
  )
 import SharedSolver (createSharedSolver)
@@ -42,6 +43,7 @@ emptyCore =
         , afcLocation = Nothing
         , afcProduct = Nothing
         , afcClassifications = []
+        , afcExcluded = noExclusions
         , afcLimit = Nothing
         , afcOffset = Nothing
         , afcSort = Nothing

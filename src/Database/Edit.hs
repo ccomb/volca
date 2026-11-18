@@ -149,7 +149,7 @@ import qualified Database.UploadedDatabase as UploadedDB
 import Parametric (editedParameters)
 import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
-import Service (ActivityFilterCore (..), SearchFilter (..), SortOrder (..), activityMatches)
+import Service (ActivityFilterCore (..), SearchFilter (..), SortOrder (..), activityMatches, noExclusions)
 import Types (
     Activity,
     AddedAt,
@@ -1265,6 +1265,7 @@ filteredProcessIds geographies db nameP geoP prodP classFilters exactMatch =
             , afcLocation = geoP
             , afcProduct = prodP
             , afcClassifications = classFilters
+            , afcExcluded = noExclusions
             , afcLimit = Nothing
             , afcOffset = Nothing
             , afcSort = Nothing

@@ -1490,6 +1490,7 @@ buildSupplyChainFilter refusing presets nameFilter limitParam minQuantity offset
                     , Service.afcLocation = locationFilter
                     , Service.afcProduct = productFilter
                     , Service.afcClassifications = classifications
+                    , Service.afcExcluded = Service.noExclusions
                     , Service.afcLimit = limitParam
                     , Service.afcOffset = offsetParam
                     , Service.afcSort = sortParam
@@ -2779,6 +2780,7 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
                         , Service.afcLocation = locationFilter
                         , Service.afcProduct = productFilter
                         , Service.afcClassifications = classifications
+                        , Service.afcExcluded = Service.noExclusions
                         , Service.afcLimit = limitParam
                         , Service.afcOffset = offsetParam
                         , Service.afcSort = sortParam
@@ -3457,6 +3459,7 @@ searchActivitiesWithCount dbName nameParam geoParam productParam exactParam pres
                         , Service.afcLocation = geoParam
                         , Service.afcProduct = productParam
                         , Service.afcClassifications = classifications
+                        , Service.afcExcluded = Service.noExclusions
                         , Service.afcLimit = limitParam
                         , Service.afcOffset = offsetParam
                         , Service.afcSort = sortParam

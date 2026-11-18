@@ -29,7 +29,7 @@ import qualified Data.Text as T
 import Database (buildDatabaseWithMatrices)
 import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
 import Search.BM25 (addBM25Index)
-import Service (ActivityFilterCore (..), SearchFilter (..), SortOrder (..), activitiesNamed, activityMatches, mkActivitySummary)
+import Service (ActivityFilterCore (..), SearchFilter (..), SortOrder (..), activitiesNamed, activityMatches, mkActivitySummary, noExclusions)
 import TestHelpers (shippedGeographies)
 import Types (BuildInputs (..), Database (..), FileReading (..), ProcessId)
 import UnitConversion (defaultUnitConfig)
@@ -152,6 +152,7 @@ noFilter =
         , afcLocation = Nothing
         , afcProduct = Nothing
         , afcClassifications = []
+        , afcExcluded = noExclusions
         , afcLimit = Nothing
         , afcOffset = Nothing
         , afcSort = Nothing
@@ -194,6 +195,7 @@ productsMatching db exact query =
             , afcLocation = Nothing
             , afcProduct = Nothing
             , afcClassifications = []
+            , afcExcluded = noExclusions
             , afcLimit = Nothing
             , afcOffset = Nothing
             , afcSort = Nothing

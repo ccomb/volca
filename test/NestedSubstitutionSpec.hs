@@ -27,6 +27,7 @@ import Service (
     applySubstitutionsAt,
     buildSupplyChainFromScalingVectorCrossDB,
     inventoryWithSubsAndDeps,
+    noExclusions,
  )
 import SharedSolver (
     SharedSolver,
@@ -357,6 +358,7 @@ everything =
                 , afcLocation = Nothing
                 , afcProduct = Nothing
                 , afcClassifications = []
+                , afcExcluded = noExclusions
                 , afcLimit = Nothing
                 , afcOffset = Nothing
                 , afcSort = Nothing
