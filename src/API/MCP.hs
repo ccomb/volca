@@ -858,6 +858,12 @@ requireDatabase :: DatabaseManager -> Text -> ExceptT Text IO LoadedDatabase
 requireDatabase dbManager dbName =
     ExceptT $ maybe (Left ("Database not loaded: " <> dbName)) Right <$> getDatabase dbManager dbName
 
+-- | Resolve a loaded method collection by name, refusing with the loaded ones named.
+requireCollection :: DatabaseManager -> Text -> ExceptT Text IO MethodCollection
+requireCollection dbManager collName = do
+    loaded <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
+    maybe (throwE (collectionNotLoadedMessage collName (M.keys loaded))) pure (M.lookup collName loaded)
+
 -- | Lift an 'Either' whose error only has a 'Show' instance into the handler monad.
 liftShow :: (Show e) => Either e a -> ExceptT Text IO a
 liftShow = either (throwE . T.pack . show) pure
@@ -2697,8 +2703,7 @@ loadScoreRequest dbManager args = do
                 <*> requireText "collection" args
                 <*> (ScoreRef <$> requireText "scoring_set" args <*> requireText "score" args)
     ld <- requireDatabase dbManager dbName
-    loaded <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
-    mc <- maybe (throwE (collectionNotLoadedMessage collName (M.keys loaded))) pure (M.lookup collName loaded)
+    mc <- requireCollection dbManager collName
     rs <- except (first Score.refusalMessage (Score.resolveScore (mcMethods mc) (mcScoringSets mc) ref))
     (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
     let functionalUnit = Service.functionalUnitIn (ldDatabase ld) act
@@ -2941,15 +2946,6 @@ lookupActivityName dbManager dbName pidText = do
             Left _ -> Nothing
         Nothing -> Nothing
 
-{- | Return every 'ScoringSet' configured on a collection (full record, not
-just names). Empty list when the collection is not loaded -- the same
-defensive shape as 'configuredScoringSetNames'.
--}
-configuredScoringSets :: DatabaseManager -> Text -> IO [ScoringSet]
-configuredScoringSets dbm collName = do
-    loaded <- readTVarIO (dmLoadedMethods dbm)
-    pure $ maybe [] mcScoringSets (M.lookup collName loaded)
-
 {- | Handler for the 'score_activities' MCP tool.
 
 Ranks N activities against every method in a collection in one
@@ -2973,8 +2969,10 @@ callScoreActivities dbManager mHosting mBaseUrl rid args =
         parameterSets <- except (parseArrayArg "parameter_sets" Nothing args :: Either Text [[ParameterValue]])
         let summaryOnly = fromMaybe False (boolArg "summary_only" args)
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-        configured <- liftIO $ configuredScoringSets dbManager coll
-        chosen <- except (resolveSingleScoringSet wantedSets configured)
+        -- The set is chosen before the batch runs, so an unknown collection
+        -- is refused here, by name, rather than read as one without sets.
+        mc <- requireCollection dbManager coll
+        chosen <- except (resolveSingleScoringSet wantedSets (mcScoringSets mc))
         res <- liftIO $ BI.runBatchImpacts dbManager mHosting dbName coll Nothing ltMode pids parameterSets
         case res of
             Left e -> throwE (batchErrorMsg e)
