@@ -1456,16 +1456,11 @@ mergeClassFilters ::
 mergeClassFilters presets presetParam systems values modes = do
     fromPreset <- Config.expandClassificationPreset presets presetParam
     explicit <- sequence (zipWith3 modeled systems values (modes ++ repeat "contains"))
-    pure
-        ( fromPreset ++ [filterBy match s v | (Including match, s, v) <- explicit]
-        , [filterBy match s v | (Excluding match, s, v) <- explicit]
-        )
+    let (kept, left) = splitByMode explicit
+    pure (fromPreset ++ kept, left)
   where
     modeled :: Text -> Text -> Text -> Either Text (ClassificationMode, Text, Text)
     modeled s v m = (,s,v) <$> readClassificationMode m
-
-    filterBy :: ClassificationMatch -> Text -> Text -> ClassificationFilter
-    filterBy match s v = ClassificationFilter{clfSystem = s, clfValue = v, clfMatch = match}
 
 -- | Build a 'Service.SupplyChainFilter' shared by GET and POST handlers.
 buildSupplyChainFilter ::

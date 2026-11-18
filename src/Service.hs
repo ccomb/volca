@@ -106,15 +106,23 @@ data Exclusions = Exclusions
 noExclusions :: Exclusions
 noExclusions = Exclusions{exNames = [], exLocations = [], exClassifications = []}
 
-{- | What a request leaves out. A blank name or place is dropped: a blank name
-means no filter, so kept as an exclusion it would remove every row.
+{- | What a request leaves out. A blank name, place or classification value is
+dropped: a blank name means no filter, so kept as an exclusion it would remove
+every row, and a blank value would remove every row classified on its system.
 -}
 exclusionsOf :: [Text] -> [Text] -> [ClassificationFilter] -> Exclusions
 exclusionsOf names places classifications =
-    Exclusions{exNames = nonBlank names, exLocations = nonBlank places, exClassifications = classifications}
+    Exclusions
+        { exNames = nonBlank names
+        , exLocations = nonBlank places
+        , exClassifications = filter (not . isBlank . clfValue) classifications
+        }
   where
     nonBlank :: [Text] -> [Text]
-    nonBlank = filter (not . T.null . T.strip)
+    nonBlank = filter (not . isBlank)
+
+    isBlank :: Text -> Bool
+    isBlank = T.null . T.strip
 
 {- | Filter for activity search (/activities). Carries the shared core plus
 the search-only 'sfExactMatch' toggle that switches between token-contains

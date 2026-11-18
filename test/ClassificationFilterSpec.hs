@@ -79,21 +79,63 @@ import Usage (anonymous)
 
 spec :: Spec
 spec = describe "classification filter match mode" $ do
-    describe "MCP classification_match, through search, supply chain and consumers" $
-        forM_ [(Just "exact", 1), (Just "equals", 1), (Just "EXACT", 2), (Nothing, 2)] $ \(mode, n) ->
-            it (show mode <> " selects " <> show n) $ do
-                (manager, db) <- loadedFixture
-                root <- processOf db rootU
-                supplier <- processOf db supplierU
-                let filterArgs =
-                        [("classification", String "category"), ("classification_value", String "food")]
-                            ++ maybe [] (\m -> [("classification_match", String m)]) mode
-                search <- tool manager [] "search_activities" filterArgs
-                answerAt ["total"] search `shouldBe` Just (count n)
-                chain <- tool manager [] "get_supply_chain" (("process_id", String root) : filterArgs)
-                answerAt ["filteredActivities"] chain `shouldBe` Just (count n)
-                consumers <- tool manager [] "get_consumers" (("process_id", String supplier) : filterArgs)
-                answerAt ["results", "total"] consumers `shouldBe` Just (count n)
+    describe "MCP classification_match, through search, supply chain and consumers" $ do
+        forM_ [(Just "exact", 1), (Just "contains", 2), (Nothing, 2)] $ \(mode, n) ->
+            it (show mode <> " selects " <> show n) $ selectedByMode mode n
+
+        it "reads equals and EXACT as exact" $ do
+            selectedByMode (Just "equals") 1
+            selectedByMode (Just "EXACT") 1
+
+        -- Five processes: the three classified ones, a supplier and a root that are not.
+        it "leaves out the matches of not-exact, from supply chain and consumers too" $ do
+            (manager, db) <- loadedFixture
+            root <- processOf db rootU
+            supplier <- processOf db supplierU
+            let filterArgs = singleClassification (Just "not-exact")
+            search <- tool manager [] "search_activities" filterArgs
+            answerAt ["total"] search `shouldBe` Just (count 4)
+            chain <- tool manager [] "get_supply_chain" (("process_id", String root) : filterArgs)
+            answerAt ["filteredActivities"] chain `shouldBe` Just (count 3)
+            consumers <- tool manager [] "get_consumers" (("process_id", String supplier) : filterArgs)
+            answerAt ["results", "total"] consumers `shouldBe` Just (count 3)
+
+        it "search_activities leaves out what a not-contains classification names" $ do
+            (manager, _) <- loadedFixture
+            single <- tool manager [] "search_activities" (singleClassification (Just "not-contains"))
+            answerAt ["total"] single `shouldBe` Just (count 3)
+            listed <- tool manager [] "search_activities" [("classifications", listedClassifications [("food", "NOT-CONTAINS")])]
+            answerAt ["total"] listed `shouldBe` Just (count 3)
+            -- Two exclusions on one system both apply; a listed filter without a mode contains.
+            both <- tool manager [] "search_activities" [("classifications", listedClassifications [("food", "not-exact"), ("energy", "not-exact")])]
+            answerAt ["total"] both `shouldBe` Just (count 3)
+            positive <- tool manager [] "search_activities" [("classifications", listedClassifications [("food", "")])]
+            answerAt ["total"] positive `shouldBe` Just (count 2)
+
+        it "search_activities answers a search made of exclusions only" $ do
+            (manager, _) <- loadedFixture
+            byName <- tool manager [] "search_activities" [("exclude_name", toJSON ["food" :: Text])]
+            answerAt ["total"] byName `shouldBe` Just (count 3)
+            byPlace <- tool manager [] "search_activities" [("exclude_location", toJSON ["glo" :: Text])]
+            answerAt ["total"] byPlace `shouldBe` Just (count 0)
+            elsewhere <- tool manager [] "search_activities" [("exclude_location", toJSON ["FR" :: Text])]
+            answerAt ["total"] elsewhere `shouldBe` Just (count activityTotal)
+
+        it "refuses the single classification and the list together" $ do
+            (manager, _) <- loadedFixture
+            reply <- tool manager [] "search_activities" (singleClassification (Just "contains") ++ [("classifications", listedClassifications [("food", "not-exact")])])
+            refusalOf reply `shouldSatisfy` maybe False (T.isInfixOf "classifications")
+
+        it "refuses an unknown classification_match and names the four" $ do
+            (manager, db) <- loadedFixture
+            root <- processOf db rootU
+            supplier <- processOf db supplierU
+            forM_ [("search_activities", []), ("get_supply_chain", [("process_id", String root)]), ("get_consumers", [("process_id", String supplier)])] $ \(name, extra) -> do
+                reply <- tool manager [] name (extra ++ singleClassification (Just "maybe"))
+                forM_ ["contains", "exact", "not-contains", "not-exact"] $ \word ->
+                    refusalOf reply `shouldSatisfy` maybe False (T.isInfixOf word)
+            listed <- tool manager [] "search_activities" [("classifications", listedClassifications [("food", "maybe")])]
+            refusalOf listed `shouldSatisfy` maybe False (T.isInfixOf "not-exact")
 
     describe "a preset entry's mode" $
         forM_ [("exact", 1), ("contains", 2), ("Exact", 2)] $ \(mode, n) ->
@@ -154,6 +196,12 @@ spec = describe "classification filter match mode" $ do
             -- the two that hold "food", less the one that is exactly "food"
             rest <- runRest manager (searchREST ["category", "category"] ["food", "food"] ["contains", "not-exact"])
             fmap (map prsActivityName . srResults) rest `shouldBe` Right ["Food waste"]
+
+        it "keeps everything when a negative classification names a blank value" $ do
+            (manager, _) <- loadedFixture
+            forM_ ["", "  "] $ \blank -> do
+                rest <- runRest manager (searchREST ["category"] [blank] ["not-contains"])
+                fmap srTotal rest `shouldBe` Right activityTotal
 
         it "refuses an unknown mode and names the four" $ do
             (manager, _) <- loadedFixture
@@ -240,6 +288,48 @@ spec = describe "classification filter match mode" $ do
 tool :: DatabaseManager -> [ClassificationPreset] -> Text -> [(Key, Value)] -> IO Value
 tool manager presets name args =
     callTool anonymous manager presets Nothing Nothing noRequestId name (KM.fromList (("database", String fixtureName) : args))
+
+{- | A search, a supply chain and a consumers listing each filtered on
+@category = food@ in the given mode, selecting @n@ processes of the three
+classified ones.
+-}
+selectedByMode :: Maybe Text -> Int -> IO ()
+selectedByMode mode n = do
+    (manager, db) <- loadedFixture
+    root <- processOf db rootU
+    supplier <- processOf db supplierU
+    let filterArgs = singleClassification mode
+    search <- tool manager [] "search_activities" filterArgs
+    answerAt ["total"] search `shouldBe` Just (count n)
+    chain <- tool manager [] "get_supply_chain" (("process_id", String root) : filterArgs)
+    answerAt ["filteredActivities"] chain `shouldBe` Just (count n)
+    consumers <- tool manager [] "get_consumers" (("process_id", String supplier) : filterArgs)
+    answerAt ["results", "total"] consumers `shouldBe` Just (count n)
+
+-- | @category = food@ with the given @classification_match@, if any.
+singleClassification :: Maybe Text -> [(Key, Value)]
+singleClassification mode =
+    [("classification", String "category"), ("classification_value", String "food")]
+        ++ maybe [] (\m -> [("classification_match", String m)]) mode
+
+-- | The @classifications@ argument: each value under @category@, in the mode given ("" for none).
+listedClassifications :: [(Text, Text)] -> Value
+listedClassifications entries =
+    toJSON
+        [ Object (KM.fromList (("system", "category") : ("value", String v) : [("mode", String m) | not (T.null m)]))
+        | (v, m) <- entries
+        ]
+
+-- | The message of a tool reply that refused.
+refusalOf :: Value -> Maybe Text
+refusalOf reply = do
+    Object o <- Just reply
+    Object r <- KM.lookup "result" o
+    Bool True <- KM.lookup "isError" r
+    Array content <- KM.lookup "content" r
+    Object c <- listToMaybe (toList content)
+    String t <- KM.lookup "text" c
+    pure t
 
 -- | A field of a tool reply's JSON payload, followed down the given keys.
 answerAt :: [Key] -> Value -> Maybe Value

@@ -618,6 +618,8 @@ description r = case r of
         \agricole, prairie, pâturage, intrants, filière, chaîne amont. Names are \
         \mostly English: translate into their language first (pomme de terre: \
         \potato, acier: steel). \
+        \Everything except: a not-contains or not-exact classification mode, or \
+        \exclude_name and exclude_location, leaves out what they match. \
         \Nothing fits: try the database's own wording, or a broader word."
     SearchFlows ->
         "LCA / ACV: search flows by name. 'kind': biosphere (substance exchanged \
@@ -1337,14 +1339,17 @@ params r = case r of
     ListPresets -> []
     SearchActivities ->
         [ pDatabase
-        , Param "name" "string" Required "Words in the language of the database's names (usually English), or the exact name with exact=true. A source file's dataset identifier (SimaPro 'Process identifier'), whole or its four or more distinguishing characters, puts that dataset's products first."
+        , Param "name" "string" Optional "Words in the language of the database's names (usually English), or the exact name with exact=true. A source file's dataset identifier (SimaPro 'Process identifier'), whole or its four or more distinguishing characters, puts that dataset's products first. Omitted: the other filters alone choose."
         , Param "geo" "string" Optional "Location (e.g. 'FR', 'DE', 'GLO') and every location inside it ('US' matches 'US-WECC', 'RER' matches 'FR'), per the engine's location table, never the spelling: 'GL' does not match 'GLO'."
         , Param "product" "string" Optional "Product name filter"
         , Param "exact" "boolean" Optional "True: the name equals (case aside) instead of containing, and geo is that location alone, not the ones inside it"
         , Param "preset" "string" Optional "Classification preset (list_presets), expanded to its filters; combines with explicit classification filters."
         , Param "classification" "string" Optional "Classification system (e.g. 'ISIC rev.4 ecoinvent', 'CPC'; list_classifications)."
         , Param "classification_value" "string" Optional "Value within the classification system to match"
-        , Param "classification_match" "string" Optional "Match mode: \"equals\" (case-insensitive equality) or \"contains\" (substring, default)"
+        , Param "classification_match" "string" Optional "Match mode, case aside: contains (substring, default), exact (or equals: the whole value), not-contains or not-exact (leave out what matches). Any other word is refused."
+        , Param "classifications" "array" Optional "Several classification filters, each {system, value, mode}, mode as classification_match gives it (default contains); instead of classification, classification_value and classification_match, not with them. Filters on one system keep what any of them matches; every not- filter leaves out what it matches."
+        , Param "exclude_name" "array" Optional "Names to leave out: each removes the processes a search for that name alone finds. Blank ones are dropped."
+        , Param "exclude_location" "array" Optional "Locations to leave out: each removes every process located there or inside it. Blank ones are dropped."
         , Param "process" "array" Optional "Process IDs (activityUUID_productUUID) to list instead of searching, in the order given, through the geo, product, exact and classification filters; name and sort ignored. An ID not held is left out; a malformed one, or a bare activity UUID naming several processes, is refused."
         , pLimit "Max results (default 20)"
         ]
@@ -1390,7 +1395,7 @@ params r = case r of
         , Param "preset" "string" Optional "Classification preset (list_presets), expanded to its filters; unioned with explicit classification filters."
         , Param "classification" "string" Optional "Classification system name (e.g. 'Category', 'Category type')"
         , Param "classification_value" "string" Optional "Value within the classification system"
-        , Param "classification_match" "string" Optional "Match mode: \"exact\" (case-insensitive equality) or \"contains\" (substring, default)"
+        , Param "classification_match" "string" Optional "Match mode, case aside: contains (substring, default), exact (or equals: the whole value), not-contains or not-exact (leave out what matches). Any other word is refused."
         , pSubstitutions
         , pParameters
         ]
@@ -1535,6 +1540,7 @@ params r = case r of
         , Param "preset" "string" Optional "Name of a classification preset (from list_presets): expands to its bundled filters"
         , Param "classification" "string" Optional "Classification system name (e.g. 'ISIC rev.4 ecoinvent')"
         , Param "classification_value" "string" Optional "Classification value substring to match"
+        , Param "classification_match" "string" Optional "Match mode, case aside: contains (substring, default), exact (or equals: the whole value), not-contains or not-exact (leave out what matches). Any other word is refused."
         , pLimit "Max results (default 1000)"
         , Param "max_depth" "integer" Optional "Max hops from supplier (1 = direct consumers only)"
         , Param "include_edges" "boolean" Optional "True: also every supplier → consumer edge between processes reachable from the supplier, to rebuild paths without get_path_to."

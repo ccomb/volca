@@ -1336,6 +1336,19 @@ readClassificationMode word = case T.toCaseFold word of
     "not-exact" -> Right (Excluding MatchExact)
     _ -> Left ("Unknown classification mode '" <> word <> "': use contains, exact, not-contains or not-exact.")
 
+{- | Filters as a request states them, a mode with the system and value it
+applies to, divided into those that keep what they match and those that leave
+it out.
+-}
+splitByMode :: [(ClassificationMode, Text, Text)] -> ([ClassificationFilter], [ClassificationFilter])
+splitByMode entries =
+    ( [filterBy match system value | (Including match, system, value) <- entries]
+    , [filterBy match system value | (Excluding match, system, value) <- entries]
+    )
+  where
+    filterBy :: ClassificationMatch -> Text -> Text -> ClassificationFilter
+    filterBy match system value = ClassificationFilter{clfSystem = system, clfValue = value, clfMatch = match}
+
 {- | Whether a classification holds the filter's value under its system,
 case-blind. One filter; how several combine is the caller's.
 -}
