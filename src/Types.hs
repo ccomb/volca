@@ -1314,6 +1314,28 @@ data ClassificationFilter = ClassificationFilter
     }
     deriving (Eq, Show, Generic, NFData)
 
+{- | What a query does with the activities a classification filter matches:
+keep them, or leave them out. How a surface spells it is 'readClassificationMode'.
+-}
+data ClassificationMode
+    = Including ClassificationMatch
+    | Excluding ClassificationMatch
+    deriving (Eq, Show)
+
+{- | The one reading of a mode word, case-blind: @contains@, @exact@ (also
+@equals@), and their negations @not-contains@ and @not-exact@. A word that is
+none of them is refused with the four, so a typo never turns an exclusion into
+an inclusion.
+-}
+readClassificationMode :: Text -> Either Text ClassificationMode
+readClassificationMode word = case T.toCaseFold word of
+    "contains" -> Right (Including MatchContains)
+    "exact" -> Right (Including MatchExact)
+    "equals" -> Right (Including MatchExact)
+    "not-contains" -> Right (Excluding MatchContains)
+    "not-exact" -> Right (Excluding MatchExact)
+    _ -> Left ("Unknown classification mode '" <> word <> "': use contains, exact, not-contains or not-exact.")
+
 {- | Whether a classification holds the filter's value under its system,
 case-blind. One filter; how several combine is the caller's.
 -}

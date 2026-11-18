@@ -17,7 +17,10 @@ import Control.Monad (foldM, forM_)
 import Data.Aeson (Result (..), Value (..), decodeStrict, fromJSON, toJSON)
 import Data.Aeson.Key (Key)
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import Data.Foldable (toList)
+import Data.List (sort)
 import qualified Data.Map.Strict as M
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
@@ -29,14 +32,16 @@ import Test.Hspec
 
 import API.DatabaseHandlers (deleteActivitiesHandler)
 import API.MCP (callTool, noRequestId)
-import API.Routes (getActivityAggregate, searchActivitiesWithCount)
+import API.Routes (getActivityAggregate, getActivityConsumers, getActivitySupplyChain, searchActivitiesWithCount)
 import API.Types (
     ActivitySummary (..),
     Aggregation (..),
+    ConsumersResponse (..),
     DeleteClassFilter (..),
     DeleteSelectionRequest (..),
     DeleteSelectionResponse (..),
     SearchResults (..),
+    SupplyChainResponse (..),
  )
 import App.Env (AppEnv (..), AppM, runApp)
 import CLI.Client (deleteSelectionBody)
@@ -116,16 +121,75 @@ spec = describe "classification filter match mode" $ do
                 fmap aggFilteredCount rest `shouldBe` Right n
 
     describe "REST classification-mode" $ do
-        forM_ [(["exact"], 1), ([], 2), (["equals"], 2)] $ \(modes, n) ->
+        forM_ [(["exact"], 1), (["equals"], 1), (["EXACT"], 1), (["Contains"], 2)] $ \(modes, n) ->
             it (show modes <> " selects " <> show n) $ do
                 (manager, _) <- loadedFixture
                 rest <- runRest manager (searchREST ["category"] ["food"] modes)
                 fmap srTotal rest `shouldBe` Right n
 
+        it "still reads a missing mode as contains" $ do
+            (manager, _) <- loadedFixture
+            rest <- runRest manager (searchREST ["category"] ["food"] [])
+            fmap srTotal rest `shouldBe` Right 2
+
         it "pairs systems with values up to the shorter list" $ do
             (manager, _) <- loadedFixture
             rest <- runRest manager (searchREST ["category", "category"] ["food"] ["exact"])
             fmap srTotal rest `shouldBe` Right 1
+
+        -- Five processes: the three classified ones, a supplier and a root that are not.
+        forM_ [(["not-contains"], 3), (["not-exact"], 4), (["NOT-EXACT"], 4)] $ \(modes, n) ->
+            it (show modes <> " leaves out the matches, so " <> show n <> " remain") $ do
+                (manager, _) <- loadedFixture
+                rest <- runRest manager (searchREST ["category"] ["food"] modes)
+                fmap srTotal rest `shouldBe` Right n
+
+        it "applies two exclusions on one system together" $ do
+            (manager, _) <- loadedFixture
+            rest <- runRest manager (searchREST ["category", "category"] ["food", "energy"] ["not-exact", "not-exact"])
+            fmap srTotal rest `shouldBe` Right 3
+
+        it "keeps a positive filter and an exclusion on one system apart" $ do
+            (manager, _) <- loadedFixture
+            -- the two that hold "food", less the one that is exactly "food"
+            rest <- runRest manager (searchREST ["category", "category"] ["food", "food"] ["contains", "not-exact"])
+            fmap (map prsActivityName . srResults) rest `shouldBe` Right ["Food waste"]
+
+        it "refuses an unknown mode and names the four" $ do
+            (manager, _) <- loadedFixture
+            rest <- runRest manager (searchREST ["category"] ["food"] ["maybe"])
+            case rest of
+                Left err -> do
+                    errHTTPCode err `shouldBe` 400
+                    forM_ ["contains", "exact", "not-contains", "not-exact"] $ \word ->
+                        BSL.toStrict (errBody err) `shouldSatisfy` BS.isInfixOf word
+                Right _ -> expectationFailure "an unknown mode was accepted"
+
+        it "leaves out the processes of a supply chain and of consumers the same way" $ do
+            (manager, db) <- loadedFixture
+            root <- processOf db rootU
+            supplier <- processOf db supplierU
+            chain <- runRest manager (supplyChainREST root ["category"] ["food"] ["not-contains"])
+            fmap scrFilteredActivities chain `shouldBe` Right 2
+            consumers <- runRest manager (consumersREST supplier ["category"] ["food"] ["not-contains"])
+            fmap (srTotal . crrResults) consumers `shouldBe` Right 2
+
+    describe "REST exclude-name and exclude-location" $ do
+        it "leave out the rows they name" $ do
+            (manager, _) <- loadedFixture
+            byName <- runRest manager (excludingREST ["food"] [])
+            fmap (sort . map prsActivityName . srResults) byName `shouldBe` Right ["energy", "root", "supplier"]
+            byPlace <- runRest manager (excludingREST [] ["glo"])
+            fmap srTotal byPlace `shouldBe` Right 0
+            elsewhere <- runRest manager (excludingREST [] ["FR"])
+            fmap srTotal elsewhere `shouldBe` Right activityTotal
+
+        it "drops a blank exclude-name and a blank exclude-location" $ do
+            (manager, _) <- loadedFixture
+            rest <- runRest manager (excludingREST ["", "  "] ["", " "])
+            fmap srTotal rest `shouldBe` Right activityTotal
+            kept <- runRest manager (excludingREST ["", "energy"] [""])
+            fmap srTotal kept `shouldBe` Right (activityTotal - 1)
 
     describe "REST order" $
         it "reverses the listing on desc and on no other word" $ do
@@ -214,15 +278,28 @@ runRest manager = runHandler . runApp env
 
 searchREST :: [Text] -> [Text] -> [Text] -> AppM (SearchResults ActivitySummary)
 searchREST systems values modes =
-    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing systems values modes [] Nothing Nothing Nothing Nothing
+    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing systems values modes [] [] [] Nothing Nothing Nothing Nothing
+
+-- | A search that leaves out the given names and places, and asks for nothing.
+excludingREST :: [Text] -> [Text] -> AppM (SearchResults ActivitySummary)
+excludingREST names places =
+    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing [] [] [] names places [] Nothing Nothing Nothing Nothing
+
+supplyChainREST :: Text -> [Text] -> [Text] -> [Text] -> AppM SupplyChainResponse
+supplyChainREST root systems values modes =
+    getActivitySupplyChain fixtureName root Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing systems values modes Nothing Nothing Nothing
+
+consumersREST :: Text -> [Text] -> [Text] -> [Text] -> AppM ConsumersResponse
+consumersREST supplier systems values modes =
+    getActivityConsumers fixtureName supplier Nothing Nothing Nothing Nothing systems values modes Nothing Nothing Nothing Nothing Nothing Nothing
 
 orderedREST :: Maybe Text -> AppM (SearchResults ActivitySummary)
 orderedREST =
-    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing [] [] [] [] Nothing Nothing Nothing
+    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing [] [] [] [] [] [] Nothing Nothing Nothing
 
 namedREST :: [Text] -> AppM (SearchResults ActivitySummary)
 namedREST processes =
-    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing [] [] [] processes Nothing Nothing Nothing Nothing
+    searchActivitiesWithCount fixtureName Nothing Nothing Nothing Nothing Nothing [] [] [] [] [] processes Nothing Nothing Nothing Nothing
 
 deleteRequest :: Bool -> DeleteSelectionRequest
 deleteRequest exact =

@@ -163,7 +163,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "method" :> Capture "methodId" Text :> "explain-cf" :> Capture "flowId" Text :> QueryParam "collection" Text :> Get '[JSON] ExplainCFResult
                 :<|> "db" :> Capture "dbName" Text :> "flows" :> QueryParam "q" Text :> QueryParam "lang" Text :> QueryParam "kind" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults FlowSearchResult)
                 :<|> "db" :> Capture "dbName" Text :> "search-counts" :> QueryParam "q" Text :> QueryParam "sort" Text :> QueryParam "exact" Bool :> Get '[JSON] SearchCountsAPI
-                :<|> "db" :> Capture "dbName" Text :> "activities" :> QueryParam "name" Text :> QueryParam "geo" Text :> QueryParam "product" Text :> QueryParam "exact" Bool :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParams "process" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults ActivitySummary)
+                :<|> "db" :> Capture "dbName" Text :> "activities" :> QueryParam "name" Text :> QueryParam "geo" Text :> QueryParam "product" Text :> QueryParam "exact" Bool :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParams "exclude-name" Text :> QueryParams "exclude-location" Text :> QueryParams "process" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> Get '[JSON] (SearchResults ActivitySummary)
                 :<|> "db" :> Capture "dbName" Text :> "classifications" :> Get '[JSON] [ClassificationSystem]
                 :<|> "db" :> Capture "dbName" Text :> "catalogue" :> QueryParam "offset" Int :> QueryParam "limit" Int :> Get '[JSON] CataloguePage
                 :<|> "db" :> Capture "dbName" Text :> "catalogue" :> "fingerprint" :> Get '[JSON] CatalogueFingerprint
@@ -1442,23 +1442,30 @@ parseClassFilter raw =
                     match = if T.drop 1 mode == "exact" then MatchExact else MatchContains
                  in Just ClassificationFilter{clfSystem = T.strip sys, clfValue = T.strip val, clfMatch = match}
 
--- | Merge preset-derived and explicit classification filters.
+{- | Merge preset-derived and explicit classification filters, split into those
+to keep and those to leave out by the mode each explicit one is written with.
+A missing mode reads as @contains@.
+-}
 mergeClassFilters ::
     [Config.ClassificationPreset] ->
     Maybe Text ->
     [Text] ->
     [Text] ->
     [Text] ->
-    Either Text [ClassificationFilter]
-mergeClassFilters presets presetParam systems values modes =
-    (++ explicit) <$> Config.expandClassificationPreset presets presetParam
+    Either Text ([ClassificationFilter], [ClassificationFilter])
+mergeClassFilters presets presetParam systems values modes = do
+    fromPreset <- Config.expandClassificationPreset presets presetParam
+    explicit <- sequence (zipWith3 modeled systems values (modes ++ repeat "contains"))
+    pure
+        ( fromPreset ++ [filterBy match s v | (Including match, s, v) <- explicit]
+        , [filterBy match s v | (Excluding match, s, v) <- explicit]
+        )
   where
-    explicit =
-        zipWith3
-            (\s v m -> ClassificationFilter{clfSystem = s, clfValue = v, clfMatch = if m == "exact" then MatchExact else MatchContains})
-            systems
-            values
-            (modes ++ repeat "contains")
+    modeled :: Text -> Text -> Text -> Either Text (ClassificationMode, Text, Text)
+    modeled s v m = (,s,v) <$> readClassificationMode m
+
+    filterBy :: ClassificationMatch -> Text -> Text -> ClassificationFilter
+    filterBy match s v = ClassificationFilter{clfSystem = s, clfValue = v, clfMatch = match}
 
 -- | Build a 'Service.SupplyChainFilter' shared by GET and POST handlers.
 buildSupplyChainFilter ::
@@ -1481,7 +1488,7 @@ buildSupplyChainFilter ::
     Service.Edges ->
     Either Text Service.SupplyChainFilter
 buildSupplyChainFilter refusing presets nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam edges = do
-    classifications <- mergeClassFilters presets presetParam classSystems classValues classModes
+    (classifications, excluded) <- mergeClassFilters presets presetParam classSystems classValues classModes
     pure
         Service.SupplyChainFilter
             { Service.scfCore =
@@ -1490,7 +1497,7 @@ buildSupplyChainFilter refusing presets nameFilter limitParam minQuantity offset
                     , Service.afcLocation = locationFilter
                     , Service.afcProduct = productFilter
                     , Service.afcClassifications = classifications
-                    , Service.afcExcluded = Service.noExclusions
+                    , Service.afcExcluded = Service.exclusionsOf [] [] excluded
                     , Service.afcLimit = limitParam
                     , Service.afcOffset = offsetParam
                     , Service.afcSort = sortParam
@@ -1672,7 +1679,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 113: every computed response counts for one unit of the reference
+(revision 114: exclusions, the activity search leaving out what an
+@exclude-name@, an @exclude-location@ or a @not-contains@ / @not-exact@
+classification mode names; the four classification modes, @equals@ now reading
+as @exact@; the required @spare@ of a delete and its dry run;
+revision 113: every computed response counts for one unit of the reference
 product and names it in @functionalUnit@ (amount, unit, product), which
 replaces the text the scores carried; the supply chain, the path to a supplier
 and every scope of an aggregate moved to that basis, and the fields holding
@@ -1922,7 +1933,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 113
+currentWireVersion = 114
 
 getVersion :: AppM Value
 getVersion = do
@@ -2771,7 +2782,7 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
     presets <- asks aeClassificationPresets
     dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
-    classifications <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
+    (classifications, excluded) <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
     let cnf =
             Service.ConsumerFilter
                 { Service.cnfCore =
@@ -2780,7 +2791,7 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
                         , Service.afcLocation = locationFilter
                         , Service.afcProduct = productFilter
                         , Service.afcClassifications = classifications
-                        , Service.afcExcluded = Service.noExclusions
+                        , Service.afcExcluded = Service.exclusionsOf [] [] excluded
                         , Service.afcLimit = limitParam
                         , Service.afcOffset = offsetParam
                         , Service.afcSort = sortParam
@@ -3445,12 +3456,12 @@ searchFlows dbName queryParam langParam kindParam limitParam offsetParam sortPar
 processes in the order given, through the same place, product and
 classification filters (see 'Service.activitiesNamed').
 -}
-searchActivitiesWithCount :: Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Bool -> Maybe Text -> [Text] -> [Text] -> [Text] -> [Text] -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> AppM (SearchResults ActivitySummary)
-searchActivitiesWithCount dbName nameParam geoParam productParam exactParam presetParam classSystems classValues classModes processParams limitParam offsetParam sortParam orderParam = do
+searchActivitiesWithCount :: Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Bool -> Maybe Text -> [Text] -> [Text] -> [Text] -> [Text] -> [Text] -> [Text] -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> AppM (SearchResults ActivitySummary)
+searchActivitiesWithCount dbName nameParam geoParam productParam exactParam presetParam classSystems classValues classModes excludedNames excludedLocations processParams limitParam offsetParam sortParam orderParam = do
     presets <- asks aeClassificationPresets
     geographies <- asks (DM.managerGeographies . aeDbManager)
     (db, _) <- requireDatabaseByName dbName
-    classifications <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
+    (classifications, excluded) <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
     let sf =
             Service.SearchFilter
                 { Service.sfCore =
@@ -3459,7 +3470,7 @@ searchActivitiesWithCount dbName nameParam geoParam productParam exactParam pres
                         , Service.afcLocation = geoParam
                         , Service.afcProduct = productParam
                         , Service.afcClassifications = classifications
-                        , Service.afcExcluded = Service.noExclusions
+                        , Service.afcExcluded = Service.exclusionsOf excludedNames excludedLocations excluded
                         , Service.afcLimit = limitParam
                         , Service.afcOffset = offsetParam
                         , Service.afcSort = sortParam
