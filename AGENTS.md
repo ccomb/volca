@@ -27,7 +27,7 @@ See `README.md` for the full feature spec.
 
 ### Words shown to readers
 
-Every tool and parameter description uses one word per notion, the one in bold. Tool names, parameter names, enum values and JSON fields keep their names; prose that explains one uses the bold word (`scope=consumption`: one row per supplier → consumer edge).
+Every tool and parameter description, message and command-line help uses one word per notion, the one in bold. Tool names, parameter names, enum values and JSON fields keep their names; prose that explains one uses the bold word (`scope=consumption`: one row per supplier → consumer edge).
 
 - **Process**: what is searched, computed, scored. Never "activity" in that sense; **activity** only for the multi-output grouping before allocation (allocation and coproduct settings, upload) and for the field `activity_name`. Never "dataset" for it.
 - **Product**: the flow a process makes.
