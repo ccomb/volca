@@ -3,8 +3,9 @@
 
 # Two branches each adding an entry under the same heading is not a
 # disagreement, it is two entries. Keep both sides instead of raising a
-# conflict every time a branch catches up with main.
-CHANGELOG.md merge=union
+# conflict every time a branch catches up with main. The engine's own
+# entries wait in changelog.d/, one file each, and need no such rule.
+pyvolca/CHANGELOG.md merge=union
 
 # Windows-specific files can use CRLF
 *.bat text eol=crlf

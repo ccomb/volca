@@ -51,6 +51,17 @@ jobs:
           fetch-tags: true
       - run: scripts/check-data-version.sh
 
+  # Each PR writes its changelog entry in a file of its own under
+  # changelog.d/, so two PRs never conflict on it. A misnamed file would be
+  # dropped or misfiled at release, and an entry written in CHANGELOG.md
+  # brings the conflicts back.
+  changelog-entries:
+    name: changelog entries live in changelog.d/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/changelog.sh check
+
   # THIRD_PARTY_LICENSES.md is the license inventory /api/v1/licenses points
   # readers at, and it is written by hand, so a dependency added or removed
   # leaves it wrong with nothing failing. Same shape as the check above:

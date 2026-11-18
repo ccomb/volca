@@ -161,4 +161,5 @@ writing it or reading someone else's.
 - **Keep commit messages tight**: explain *why* the change was made and any non-obvious technical choices; don't restate the diff. Subject line + a few short paragraphs max.
 - **Atomic commits – one subject per commit.** If the message needs "and also", split it.
 - One PR = one subject.
+- **A PR a user would notice writes its changelog entry in a new file, `changelog.d/<branch>.<section>.md`**, never in `CHANGELOG.md`: two PRs editing one file conflict each time the other merges first, two files never do. `changelog.d/README.md` names the sections; only the release writes `CHANGELOG.md` (`scripts/changelog.sh release`), and CI refuses a misnamed file.
 - **A pull request description has four parts and stops there**: the problem, the solution as the diff leaves it, any remarks worth a reader's attention, and how to test or use the result. Not the route you took to get there, not a commit by commit account, not the measurements you made and discarded on the way. Title them however you like; leave none out and add nothing else. A skill that opens its own pull requests prescribes its own body, and that prescription wins.
