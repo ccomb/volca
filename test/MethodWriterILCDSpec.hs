@@ -18,7 +18,8 @@ import Test.Hspec
 
 import Config (MethodConfig (..), MethodOrigin (..))
 import Database.Export (MethodExportFormat (..), parseMethodExportFormat, serializeMethodCollection)
-import Database.Manager (loadMethodCollectionFromConfig)
+import Database.Manager (CachePolicy (..), loadMethodCollectionFromConfig)
+import Method.Cache (MethodRead (..))
 import Method.FlowResolver (parseCompartment, parseFlowXML)
 import Method.Parser (parseMethodBytesWithFlows)
 import Method.Types
@@ -226,10 +227,10 @@ spec = describe "Method.WriterILCD" $ do
                 Right (zipBytes, _) -> withSystemTempDirectory "ilcd-export" $ \dir -> do
                     let path = dir </> "methods.zip"
                     BL.writeFile path zipBytes
-                    loaded <- loadMethodCollectionFromConfig (methodConfig path)
+                    loaded <- fmap mrCollection <$> loadMethodCollectionFromConfig NoCache (methodConfig path)
                     case loaded of
                         Left err -> expectationFailure ("reload failed: " <> T.unpack err)
-                        Right (coll, _) ->
+                        Right coll ->
                             map (sortFactors . expect) (sortOn methodId (mcMethods coll))
                                 `shouldBe` map (sortFactors . expect) (sortOn methodId ms)
 

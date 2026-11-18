@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | Extract synonym pairs from loaded databases and methods.
@@ -9,20 +11,25 @@ module SynonymDB.Extract (
     extractFromEcoSpold2,
     extractFromILCDFlows,
     synonymPairsToCSV,
+    SynonymCandidate (..),
+    synonymCandidate,
 ) where
 
 import Control.Monad (mfilter)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
+import Data.Store (Store)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.UUID (UUID)
+import GHC.Generics (Generic)
 
 import Method.FlowResolver (ILCDFlowInfo (..))
-import SynonymDB (normalizeName)
+import SynonymDB (excludeJunkSynonyms, excludeOverFrequentSynonyms, normalizeName, oversizedClasses)
 import Types (BioFlowDB, BiosphereFlow (..))
 
 {- | Extract synonym pairs from EcoSpold2 biosphere flows.
@@ -96,3 +103,49 @@ synonymPairsToCSV pairs =
         | T.any (\c -> c == ',' || c == '"' || c == '\n') t =
             "\"" <> T.replace "\"" "\"\"" t <> "\""
         | otherwise = t
+
+{- | The synonym pairs drawn from one source, as the opt-in set they are offered
+as: the file to write, and what the filters set aside or found suspect, for
+the log. Held whole so that a start which finds it already made does none of
+the work, which takes seconds on a large method.
+-}
+data SynonymCandidate = SynonymCandidate
+    { scCsv :: !BS.ByteString
+    -- ^ the pairs kept, as the file's content
+    , scPairCount :: !Int
+    , scJunkTokens :: ![Text]
+    -- ^ placeholder and non-substance tokens, dropped
+    , scOverFrequent :: ![(Text, Int)]
+    -- ^ class labels and stop-words, dropped, with the number of flows carrying each
+    , scFusedClasses :: ![(Int, [Text])]
+    {- ^ the size and first names of each class the closure of the kept pairs
+    fuses beyond a hundred names. The set is closed only for this audit: such
+    a class means an ambiguous bridge fused unrelated substances, which the
+    curator must see before ever activating the source.
+    -}
+    }
+    deriving (Eq, Show, Generic, Store)
+
+-- | Nothing for a source that yields no pair: it gets no candidate at all.
+synonymCandidate :: [(Text, Text)] -> Maybe SynonymCandidate
+synonymCandidate [] = Nothing
+synonymCandidate pairs =
+    Just
+        SynonymCandidate
+            { scCsv = BL.toStrict (synonymPairsToCSV keptPairs)
+            , scPairCount = length keptPairs
+            , scJunkTokens = junkTokens
+            , scOverFrequent = excludedSyns
+            , scFusedClasses = [(length cls, take 5 cls) | cls <- oversizedClasses 100 keptPairs]
+            }
+  where
+    (nonJunkPairs, junkTokens) = excludeJunkSynonyms pairs
+    (keptPairs, excludedSyns) = excludeOverFrequentSynonyms maxSynonymFlowFrequency nonJunkPairs
+
+{- | A synonym carried by more distinct flows than this is a classification label
+or stop-word (e.g. @"organic"@), not a true synonym: 'excludeOverFrequentSynonyms'
+drops it. The bound sits in the gap between the class-label hubs (≥187 flows in
+EF 3.1) and the first genuine flow name used as a synonym (~17 flows).
+-}
+maxSynonymFlowFrequency :: Int
+maxSynonymFlowFrequency = 25

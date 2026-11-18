@@ -18,6 +18,7 @@ module Method.FlowResolver (
     ILCDFlowInfo (..),
     resolveFlowDirectory,
     parseFlowDirectory,
+    readFlowDirectory,
     parseFlowXML,
 
     -- * Pure helpers (exported for testing)
@@ -82,20 +83,28 @@ resolveFlowDirectory methodDir = do
 -}
 parseFlowDirectory :: FilePath -> IO (Either Text (M.Map UUID ILCDFlowInfo))
 parseFlowDirectory dir = do
+    outcome <- readFlowDirectory dir
+    -- The cache stands in for the directory read, so it has to stand in for
+    -- what that read said as well: a file a newer version superseded is named
+    -- on every start, not only on the one that happened to build the cache.
+    mapM_ (mapM_ (reportProgress Warning . T.unpack) . snd) outcome
+    return (fmap fst outcome)
+
+{- | 'parseFlowDirectory' handing back the lines about superseded files where
+it reports them, for a caller that keeps what a read said along with what it
+gave.
+-}
+readFlowDirectory :: FilePath -> IO (Either Text (M.Map UUID ILCDFlowInfo, [Text]))
+readFlowDirectory dir = do
     let cacheFile = flowCacheFile dir
     cached <- loadFlowCache cacheFile dir
-    case cached of
-        Just flows -> do
-            -- The cache stands in for the directory read, so it has to stand
-            -- in for what that read said as well: a file a newer version
-            -- superseded is named on every start, not only on the one that
-            -- happened to build the cache.
-            mapM_ (reportProgress Warning . T.unpack) (cfSuperseded flows)
-            return (Right (cfByUUID flows))
+    flows <- case cached of
+        Just flows -> return (Right flows)
         Nothing -> do
             parsed <- parseFlowDirectoryFresh dir
             mapM_ (saveFlowCache cacheFile) parsed
-            return (fmap cfByUUID parsed)
+            return parsed
+    return (fmap (\f -> (cfByUUID f, cfSuperseded f)) flows)
 
 {- | Parse all flow XMLs from scratch using worker-based parallelism.
 
@@ -112,9 +121,7 @@ parseFlowDirectoryFresh dir = do
     outcome <- latestByUUID (concat workerResults)
     case outcome of
         Left err -> return (Left err)
-        Right indexed -> do
-            mapM_ (reportProgress Warning . T.unpack) (ixSuperseded indexed)
-            return (Right (CachedFlows (ixByUUID indexed) (ixSuperseded indexed)))
+        Right indexed -> return (Right (CachedFlows (ixByUUID indexed) (ixSuperseded indexed)))
   where
     parseWorker :: [FilePath] -> IO [Claimed ILCDFlowInfo]
     parseWorker paths = do

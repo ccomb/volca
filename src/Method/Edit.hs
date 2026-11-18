@@ -44,6 +44,7 @@ import Builtin (builtinMethodName)
 import Config (MethodConfig (..), MethodOrigin (..), methodFiles)
 import Data.JournalFile (Author, Channel, Entry (..), Origin, appendEntry, journalPath, noOrigin, readEntries)
 import Database.Manager (
+    CachePolicy,
     CollectionName (..),
     DatabaseManager (..),
     addMethodCollection,
@@ -55,6 +56,7 @@ import Database.Manager (
  )
 import Database.Upload (DatabaseFormat (UnknownFormat), slugify)
 import qualified Database.UploadedDatabase as UploadedDB
+import Method.Cache (MethodRead (..))
 import Method.EditPlan (CategoryEdit, EditEffect, FactorEdit, Undo (..), blockedUndo, inEffect, inverseOf, planCategoryEdit, planEdit, restoreOf, seedLines, undoEffect, undoTarget)
 import Method.Journal (LineKind (..), MethodLine (..), MethodOp (..), applyMethodOp, opCategory, replayMethodJournal)
 import Method.ScoringEdit (ScoringEdit, planScoringEdit)
@@ -91,7 +93,7 @@ copyMethodCollection manager srcName newName = withMVar (dmMethodEditLock manage
     home <- liftIO ((</> T.unpack slug) <$> UploadedDB.getMethodUploadsDir)
     taken <- liftIO (doesDirectoryExist home)
     when (M.member slug available || taken) $ throwE (NameTaken slug)
-    seed <- ExceptT (first EditRefused <$> journalSeed source)
+    seed <- ExceptT (first EditRefused <$> journalSeed (dmCachePolicy manager) source)
     added <- liftIO addedNow
     let copy = copyConfig slug home added source
     recorded <- liftIO (recordMethodCopy home copy seed)
@@ -112,10 +114,10 @@ data JournalSeed
 read of its files: it is what gives the number each patch touches on them,
 which its line records.
 -}
-journalSeed :: MethodConfig -> IO (Either Text JournalSeed)
-journalSeed source = case mcHome source of
+journalSeed :: CachePolicy -> MethodConfig -> IO (Either Text JournalSeed)
+journalSeed policy source = case mcHome source of
     Just home -> pure (Right (CopiedJournal (journalPath home)))
-    Nothing -> fmap (SeedLines . fromConfig . fst) <$> loadMethodCollectionFromConfig source
+    Nothing -> fmap (SeedLines . fromConfig . mrCollection) <$> loadMethodCollectionFromConfig policy source
   where
     fromConfig =
         seedLines
@@ -297,8 +299,8 @@ stateBefore manager name target entries = do
     case M.lookup name available of
         Nothing -> pure (Left (CollectionNotFound name))
         Just mc -> do
-            parsed <- loadMethodCollectionFromConfig mc
-            pure (first EditRefused (parsed >>= \(c, _) -> replayMethodJournal c (take (target - 1) entries)))
+            parsed <- loadMethodCollectionFromConfig (dmCachePolicy manager) mc
+            pure (first EditRefused (parsed >>= \reading -> replayMethodJournal (mrCollection reading) (take (target - 1) entries)))
 
 -- | One line of a collection's journal, as its history shows it.
 data HistoryLine = HistoryLine

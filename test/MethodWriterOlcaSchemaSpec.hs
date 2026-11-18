@@ -19,7 +19,8 @@ import Test.Hspec
 
 import Config (MethodConfig (..), MethodOrigin (..))
 import Database.Export (MethodExportFormat (..), parseMethodExportFormat, serializeMethodCollection)
-import Database.Manager (loadMethodCollectionFromConfig)
+import Database.Manager (CachePolicy (..), loadMethodCollectionFromConfig)
+import Method.Cache (MethodRead (..))
 import Method.Parser.OlcaSchema (parseOlcaImpactCategoryBytes)
 import Method.Types
 import Method.WriterOlcaSchema (serializeOlcaMethodEntries)
@@ -217,10 +218,10 @@ spec = describe "Method.WriterOlcaSchema" $ do
                 Right (zipBytes, _) -> withSystemTempDirectory "olca-export" $ \dir -> do
                     let path = dir </> "methods.zip"
                     BL.writeFile path zipBytes
-                    loaded <- loadMethodCollectionFromConfig (methodConfig path)
+                    loaded <- fmap mrCollection <$> loadMethodCollectionFromConfig NoCache (methodConfig path)
                     case loaded of
                         Left err -> expectationFailure ("reload failed: " <> T.unpack err)
-                        Right (coll, _) ->
+                        Right coll ->
                             sortOn methodId (mcMethods coll)
                                 `shouldBe` sortOn methodId (map reimported ms)
 
