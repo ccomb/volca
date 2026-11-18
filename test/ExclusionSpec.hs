@@ -35,6 +35,7 @@ import Service (
     SortOrder (..),
     SupplyChainFilter (..),
     WalkLevel (..),
+    activitiesNamed,
     activityMatches,
     collectSupplyChainEntries,
     getConsumers,
@@ -110,6 +111,13 @@ spec = beforeAll fixture $ describe "Activity filter exclusions" $ do
             found db (noFilter{afcExcluded = leaving{exLocations = ["EUR", "CH", "GLO"]}})
                 `shouldBe` []
 
+    describe "of a list of named processes" $
+        it "the listing of named processes honours every exclusion, in the order named" $ \db ->
+            -- the wheat by its name, the film by its place, the bottle by its classification
+            let excluded = leaving{exNames = ["wheat"], exLocations = ["GLO"], exClassifications = [category MatchExact "Packaging/Glass"]}
+                listed = activitiesNamed places db (SearchFilter (noFilter{afcExcluded = excluded}) False) (map (processNumbered db) [6, 5, 4, 3, 2, 1])
+             in map (activityName . snd) listed `shouldBe` ["Steel sheet", "Plain bread", "Cheese CIQUAL"]
+
     describe "of a walk" $
         it "supply chain and consumers honour every exclusion" $ \db ->
             forM_ [("without index", db), ("with index", addBM25Index db)] $ \(index, searched) ->
@@ -154,7 +162,11 @@ consumed db excluded =
         getConsumers places db "db" (processIdToText db (steel db)) (ConsumerFilter (noFilter{afcExcluded = excluded, afcSort = Just "name"}) Nothing EntriesOnly)
 
 steel :: Database -> ProcessId
-steel db = fromMaybe (error "steel: not in the fixture") (findProcessId db (uuid 6) (uuid 6))
+steel db = processNumbered db 6
+
+-- | The process the fixture numbers as given.
+processNumbered :: Database -> Int -> ProcessId
+processNumbered db n = fromMaybe (error "processNumbered: not in the fixture") (findProcessId db (uuid n) (uuid n))
 
 walking :: Exclusions -> SupplyChainFilter
 walking excluded =
