@@ -20,6 +20,16 @@
   read, where it first read every file and kept them all. The same package now
   loads the first time in 6 GB of the machine's memory where it needed 14, and
   in under 4 minutes where it took nearly 6.
+- A method given as an archive is read from its files once. What they come to
+  is kept in a file inside the directory the archive is extracted to, and
+  later starts read that file: the Environmental Footprint 3.1 package of the
+  JRC took 8 seconds of every start, and takes a quarter of a second. An engine
+  started on a new data directory also worked out the method's candidate
+  synonyms again, 7 seconds more; they now come from the same file. With that
+  method and one database, the engine answers 2 seconds after it starts where
+  it took 9, or 16 on a new data directory. Each new version of the engine
+  reads its methods from their files once more, and `--no-cache` reads them at
+  every start.
 
 ### Fixed
 

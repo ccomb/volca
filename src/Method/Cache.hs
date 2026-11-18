@@ -25,16 +25,15 @@ module Method.Cache (
 ) where
 
 import qualified Codec.Compression.Zstd as Zstd
-import Control.Exception (IOException, finally, onException, try)
+import Control.Exception (IOException, try)
 import qualified Data.ByteString as BS
 import Data.List (isSuffixOf)
 import Data.Store (Store, decode, encode)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
-import System.Directory (doesFileExist, removeFile, renameFile)
-import System.FilePath (takeDirectory, takeFileName, (</>))
-import System.IO (hClose, openBinaryTempFile)
+import System.Directory (doesFileExist, renameFile)
+import System.FilePath ((</>))
 
 import Method.Types (MethodCollection)
 import SynonymDB.Extract (SynonymCandidate)
@@ -96,16 +95,14 @@ readMethodCache stamp packageMethod file = do
     unreadable :: String
     unreadable = "the file could not be read"
 
-{- | Keep a reading. Written under another name and renamed: two collections
-may read the same archive at once, and the machine may be stopped in the
-middle of a write, neither of which may leave half a file under the name that
-is read back.
+{- | Keep a reading. Written under another name and renamed: a machine stopped
+in the middle of the write leaves no half file under the name that is read
+back.
 -}
 writeMethodCache :: BinaryStamp -> Maybe Text -> FilePath -> MethodRead -> IO ()
 writeMethodCache stamp packageMethod file reading = do
-    (partial, handle) <- openBinaryTempFile (takeDirectory file) (takeFileName file <> ".part")
-    (BS.hPut handle bytes `finally` hClose handle) `onException` removeFile partial
+    BS.writeFile partial (encode ((stamp, packageMethod), Zstd.compress 1 (encode reading)))
     renameFile partial file
   where
-    bytes :: BS.ByteString
-    bytes = encode ((stamp, packageMethod), Zstd.compress 1 (encode reading))
+    partial :: FilePath
+    partial = file <> ".part"
