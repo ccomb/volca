@@ -1020,9 +1020,9 @@ streamParseAllDatasetsFromFile1 path = do
                 [] -> Left (yieldedNothing path (lefts results))
                 kept -> Right kept
 
-{- | Why a file that parsed holds no dataset: what each of them was skipped
+{- | Why a file that parsed holds no process: what each of them was skipped
 for, or that there were none to skip.
 -}
 yieldedNothing :: FilePath -> [String] -> String
-yieldedNothing path [] = path ++ ": the file holds no dataset"
-yieldedNothing path skipped = path ++ ": every dataset in it was skipped: " ++ intercalate "; " skipped
+yieldedNothing path [] = path ++ ": the file holds no process"
+yieldedNothing path skipped = path ++ ": every process in it was skipped: " ++ intercalate "; " skipped

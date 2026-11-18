@@ -94,28 +94,28 @@ commandParser :: Parser Command
 commandParser =
     subparser
         ( cmd "server" serverParser "Start API server"
-            <> cmd "activity" activityParser "Get basic activity information"
-            <> cmd "inventory" inventoryParser "Get life cycle inventory for activity"
-            <> cmd "tree" (Tree <$> processIdArg) "Show the supply chain upstream of a process as a tree"
+            <> cmd "activity" activityParser "Get basic process information"
+            <> cmd "inventory" inventoryParser "Get life cycle inventory for a process"
+            <> cmd "tree" (Tree <$> processIdArg) "Show the processes upstream of a process as a tree"
             <> cmd "supply-chain" (SupplyChain <$> processIdArg <*> supplyChainOptionsParser) "List the processes upstream of a process"
-            <> cmd "consumers" (Consumers <$> processIdArg <*> reachOptionsParser) "List the processes downstream of a process, that consume what it makes"
-            <> cmd "contributing-flows" (Contributing ContributingFlows <$> processIdArg <*> contributionOptionsParser) "List the inventory flows that make up a process's score for one method"
-            <> cmd "contributing-activities" (Contributing ContributingActivities <$> processIdArg <*> contributionOptionsParser) "List the upstream processes that make up a process's score for one method"
-            <> cmd "explain-cf" (ExplainCF <$> textArg "FLOW_ID" "UUID of a database flow" <*> oneMethodParser) "Explain how a database flow met, or missed, a method's characterization factor"
+            <> cmd "consumers" (Consumers <$> processIdArg <*> reachOptionsParser) "List the consumers of a process, the processes that use what it makes"
+            <> cmd "contributing-flows" (Contributing ContributingFlows <$> processIdArg <*> contributionOptionsParser) "List the emissions and resources that make up a process's score for one impact category"
+            <> cmd "contributing-activities" (Contributing ContributingActivities <$> processIdArg <*> contributionOptionsParser) "List the upstream processes that make up a process's score for one impact category"
+            <> cmd "explain-cf" (ExplainCF <$> textArg "FLOW_ID" "UUID of a database flow" <*> oneMethodParser) "Explain how a database flow met, or missed, an impact category's characterization factor"
             <> cmd "path-to" (PathTo <$> processIdArg <*> fmap NamePart (textArg "NAME" "Part of the name of the upstream process to reach, case-blind")) "Show the shortest upstream path from a process to one whose name matches"
             <> cmd "flow" flowParser "Query flow information"
-            <> cmd "activities" searchActivitiesParser "Search activities"
+            <> cmd "activities" searchActivitiesParser "Search processes"
             <> cmd "flows" searchFlowsParser "Search flows"
-            <> cmd "impacts" impactsParser "Compute impact assessment (LCIA) scores with a characterization method"
+            <> cmd "impacts" impactsParser "Compute impact assessment (LCIA) scores with a method collection or one impact category"
             <> cmd "debug-matrices" debugMatricesParser "Export targeted matrix slices for debugging"
             <> cmd "export-matrices" exportMatricesParser "Export matrices in universal format (Ecoinvent-compatible)"
             <> cmd "database" databaseParser "Manage databases (list, upload, delete)"
             <> cmd "method" methodParser "Manage method collections"
-            <> cmd "methods" (pure Methods) "List loaded methods (flattened)"
+            <> cmd "methods" (pure Methods) "List the impact categories of the loaded method collections (flattened)"
             <> cmd "synonyms" (pure Synonyms) "List synonym sources"
             <> cmd "compartment-mappings" (pure CompartmentMappings) "List compartment mappings"
             <> cmd "units" (pure Units) "List unit definitions"
-            <> cmd "flow-mapping" flowMappingParser "Analyze flow mapping coverage between a method and database"
+            <> cmd "flow-mapping" flowMappingParser "Analyze flow mapping coverage between an impact category and a database"
             <> cmd "quality-report" qualityReportParser "Report what is malformed in a database (--format csv for a spreadsheet)"
             <> cmd "computed-quality-report" computedQualityReportParser "Report what a loaded database computes, judged against its own norms"
             <> cmd "stop" (pure Stop) "Stop running server (uses --config or --url to find it)"
@@ -140,13 +140,13 @@ databaseParser =
                     <> cmd "unload" (DbUnload <$> textArg "DB" "Name of the loaded database to unload") "Unload a database from memory"
                     <> cmd "upload" (DbUpload <$> uploadArgsParser) "Upload a database from a local file"
                     <> cmd "delete" (DbDelete <$> deleteNameParser) "Delete a database"
-                    <> cmd "delete-activities" (DbDeleteActivities <$> deleteActivitiesArgsParser) "Delete the whole filtered set of activities from a loaded database"
+                    <> cmd "delete-activities" (DbDeleteActivities <$> deleteActivitiesArgsParser) "Delete the whole filtered set of processes from a loaded database"
                     <> cmd "copy" copyArgsParser "Copy a loaded database under a new name"
-                    <> cmd "relink" (DbRelinkMapping <$> relinkArgsParser) "Relink a database to a dependency using a supplier alias CSV (source and target by name or identity, optional locations and unit conversion)"
+                    <> cmd "relink" (DbRelinkMapping <$> relinkArgsParser) "Relink a database to a dependency using a supplier alias CSV (columns source and target: the old and the new supplier, by name or identity; optional locations and unit conversion)"
                     <> cmd "export" (DbExport <$> exportArgsParser) "Export a loaded database to a file"
-                    <> cmd "create-activities" (DbCreateActivities <$> writeArgsParser) "Write new activities into a database from a JSON file"
-                    <> cmd "replace-activity" (DbReplaceActivity <$> replaceArgsParser) "Rewrite one activity of a database from a JSON file"
-                    <> cmd "edit-exchanges" (DbEditExchanges <$> editArgsParser) "Change one activity's inventory or texts from a JSON file, keeping its identity"
+                    <> cmd "create-activities" (DbCreateActivities <$> writeArgsParser) "Write new processes into a database from a JSON file"
+                    <> cmd "replace-activity" (DbReplaceActivity <$> replaceArgsParser) "Rewrite one process of a database from a JSON file"
+                    <> cmd "edit-exchanges" (DbEditExchanges <$> editArgsParser) "Change one process's inventory or texts from a JSON file, keeping its identity"
                 )
             )
 
@@ -165,7 +165,7 @@ relinkArgsParser =
     DbRelinkArgs
         <$> textArg "DB" "Name of the loaded database to relink"
         <*> textOpt "to" Nothing "DEP_DB" "Dependency database to link against"
-        <*> strOpt "mapping" Nothing "CSV" "Path to the supplier alias CSV (source and target by name or identity, optional locations and unit conversion)"
+        <*> strOpt "mapping" Nothing "CSV" "Path to the supplier alias CSV (columns source and target: the old and the new supplier, by name or identity; optional locations and unit conversion)"
 
 {- | Export parser: positional DB, @--format@ keyword, @--out@ file path.
 Mirrors @db export <db> --format <fmt> --out <file>@.
@@ -186,7 +186,7 @@ writeArgsParser :: Parser DbWriteArgs
 writeArgsParser =
     DbWriteArgs
         <$> textArg "DB" "Name of the loaded database to write to"
-        <*> strOpt "from" Nothing "FILE" "JSON file holding the activities to write"
+        <*> strOpt "from" Nothing "FILE" "JSON file holding the processes to write"
 
 {- | Replace parser: as 'writeArgsParser', plus the identity being rewritten.
 The file holds one activity rather than a batch.
@@ -194,9 +194,9 @@ The file holds one activity rather than a batch.
 replaceArgsParser :: Parser DbActivityArgs
 replaceArgsParser =
     DbActivityArgs
-        <$> textArg "DB" "Name of the loaded database holding the activity"
-        <*> textOpt "process-id" Nothing "PID" "Identity of the activity to rewrite (activityUUID_productUUID)"
-        <*> strOpt "from" Nothing "FILE" "JSON file holding the activity"
+        <$> textArg "DB" "Name of the loaded database holding the process"
+        <*> textOpt "process-id" Nothing "PID" "Identity of the process to rewrite (activityUUID_productUUID)"
+        <*> strOpt "from" Nothing "FILE" "JSON file holding the process"
 
 {- | Exchange-edit parser: the activity addressed, and the file stating what
 changes about its inventory. This one reaches activities a rewrite cannot –
@@ -205,8 +205,8 @@ the ones a database file brought in, whose identity no description mints.
 editArgsParser :: Parser DbActivityArgs
 editArgsParser =
     DbActivityArgs
-        <$> textArg "DB" "Name of the loaded database holding the activity"
-        <*> textOpt "process-id" Nothing "PID" "Identity of the activity to edit (activityUUID_productUUID)"
+        <$> textArg "DB" "Name of the loaded database holding the process"
+        <*> textOpt "process-id" Nothing "PID" "Identity of the process to edit (activityUUID_productUUID)"
         <*> strOpt "from" Nothing "FILE" "JSON file holding the edits (remove, setAmounts, addInputs, addBiosphere, addWasteOutputs)"
 
 {- | Method-export parser: positional collection name, @--format@ keyword,
@@ -304,7 +304,7 @@ flowParser = do
 flowSubCommandParser :: Parser FlowSubCommand
 flowSubCommandParser =
     subparser
-        (cmd "activities" (pure FlowActivities) "List activities using this flow")
+        (cmd "activities" (pure FlowActivities) "List processes using this flow")
 
 -- | Search activities parser (now top-level)
 searchActivitiesParser :: Parser Command
@@ -333,7 +333,7 @@ reachOptionsParser = do
 supplyChainOptionsParser :: Parser SupplyChainOptions
 supplyChainOptionsParser = do
     scReach <- reachOptionsParser
-    scMinQuantity <- optional (option auto (long "min-quantity" <> metavar "QTY" <> help "Keep processes whose scaling factor, per unit of the reference product, is above QTY"))
+    scMinQuantity <- optional (option auto (long "min-quantity" <> metavar "AMOUNT" <> help "Keep processes whose amount, per unit of the reference product, is above AMOUNT"))
     pure SupplyChainOptions{..}
 
 -- | Search flows parser (now top-level)
@@ -356,18 +356,18 @@ impactsParser =
 lciaOptionsParser :: Parser LCIAOptions
 lciaOptionsParser =
     LCIAOptions
-        <$> textOpt "method" (Just 'm') "METHOD" "A loaded method, by UUID or name, or a collection name to score every method in it"
+        <$> textOpt "method" (Just 'm') "NAME" "A loaded impact category, by UUID or name, or a method collection name to score every impact category in it"
         <*> collectionOpt
 
 -- | One method, never a collection: a breakdown is of one score.
 oneMethodParser :: Parser LCIAOptions
 oneMethodParser =
     LCIAOptions
-        <$> textOpt "method" (Just 'm') "METHOD" "A loaded method, by UUID or name"
+        <$> textOpt "method" (Just 'm') "IMPACT_CATEGORY" "A loaded impact category, by UUID or name"
         <*> collectionOpt
 
 collectionOpt :: Parser (Maybe Text)
-collectionOpt = optTextOpt "collection" Nothing "NAME" "Look for the method in this collection only, when several carry it"
+collectionOpt = optTextOpt "collection" Nothing "NAME" "Look for the impact category in this method collection only, when several carry it"
 
 contributionOptionsParser :: Parser ContributionOptions
 contributionOptionsParser = do
@@ -387,7 +387,7 @@ debugMatricesParser =
 debugMatricesOptionsParser :: Parser DebugMatricesOptions
 debugMatricesOptionsParser = do
     debugOutput <- strOpt "output" (Just 'o') "FILE" "Base filename for debug output (will generate _supply_chain.csv and _biosphere_matrix.csv)"
-    debugFlowFilter <- optTextOpt "flow-filter" Nothing "FLOW" "Filter to specific biosphere flow (e.g., 'Sulphur dioxide')"
+    debugFlowFilter <- optTextOpt "flow-filter" Nothing "FLOW" "Filter to one emission or resource flow (e.g., 'Sulphur dioxide')"
     pure DebugMatricesOptions{..}
 
 -- | Export matrices parser
@@ -399,7 +399,7 @@ from compartment-mapping and similar resources).
 -}
 flowMappingParser :: Parser Command
 flowMappingParser = do
-    methodId <- argument textReader (metavar "METHOD_UUID" <> help "UUID of the characterization method")
+    methodId <- argument textReader (metavar "IMPACT_CATEGORY_UUID" <> help "UUID of the impact category")
     view <-
         flag' MatchedFlows (long "matched" <> help "List the database flows a factor reaches, with that factor and how it matched")
             <|> flag' UncharacterizedFlows (long "uncharacterized" <> help "List the database flows no factor reaches")

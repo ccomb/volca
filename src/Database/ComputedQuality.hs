@@ -137,7 +137,7 @@ computedQualityReport dbName collection entries unsolvable =
         (s, d) : rest ->
             let detail =
                     T.pack (show (1 + length rest))
-                        <> " category score(s) far off the database norm for "
+                        <> " impact category score(s) far off the database norm for "
                         <> seRefUnit e
                         <> "-referenced entries (worst: "
                         <> csCategory s
@@ -164,7 +164,7 @@ computedQualityReport dbName collection entries unsolvable =
     -- nothing in it is characterized. Either way the entry contributes
     -- nothing to any assessment, which its maker should know.
     zeroOffenders =
-        [ offender WarningSev e "every category score is zero – the inventory is empty or nothing in it is characterized"
+        [ offender WarningSev e "every impact category score is zero: the inventory is empty or nothing in it is characterized"
         | e <- entries
         , not (null (seScores e))
         , all ((== 0) . csScore) (seScores e)
@@ -175,7 +175,7 @@ computedQualityReport dbName collection entries unsolvable =
     negativeOffenders =
         [ offender InfoSev e $
             T.pack (show (length negs))
-                <> " category score(s) below zero (worst: "
+                <> " impact category score(s) below zero (worst: "
                 <> csCategory s
                 <> " at "
                 <> fmtScore (csScore s)

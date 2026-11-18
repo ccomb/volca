@@ -82,7 +82,7 @@ class TestMethodCollections:
         client, session = mocked_client
         client._server_wire = 103
         client._checked = True
-        _resp(session.post, {"success": True, "message": "Installed and loaded method: IMPACT World+ 2.2.1 Expert"})
+        _resp(session.post, {"success": True, "message": "Installed and loaded method collection: IMPACT World+ 2.2.1 Expert"})
         client.install_method_collection("IMPACT World+ 2.2.1 Expert")
         assert session.post.call_args[0][0] == (
             "http://test.local/api/v1/method-collections/available/IMPACT%20World%2B%202.2.1%20Expert/install"

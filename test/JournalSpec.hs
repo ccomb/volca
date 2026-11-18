@@ -248,7 +248,7 @@ spec = do
 
         it "prices only a product output of the activity, in a currency it names" $ do
             replayOutcome ctx [event (edited supplierPid [(SetProperty Price co2Id (Just milkPrice), 1)])]
-                `shouldSatisfy` failsWith "is no product output of this activity"
+                `shouldSatisfy` failsWith "is no product output of this process"
             replayOutcome ctx [event (edited supplierPid [(SetProperty Price supplierProdId (Just (StatedAmount " " 0.42)), 1)])]
                 `shouldSatisfy` failsWith "a price names its currency"
             replayOutcome ctx [event (edited supplierPid [(SetProperty Price supplierProdId (Just (StatedAmount "EUR2005" (-0.42))), 1)])]
@@ -265,7 +265,7 @@ spec = do
 
         it "states a dry mass only on a product output, as a mass above zero" $ do
             replayOutcome ctx [event (edited supplierPid [(SetProperty DryMass co2Id (Just milkDryMass), 1)])]
-                `shouldSatisfy` failsWith "is no product output of this activity"
+                `shouldSatisfy` failsWith "is no product output of this process"
             replayOutcome ctx [event (edited supplierPid [(SetProperty DryMass supplierProdId (Just (StatedAmount "%" 13)), 1)])]
                 `shouldSatisfy` failsWith "% is not one"
             replayOutcome ctx [event (edited supplierPid [(SetProperty DryMass supplierProdId (Just (StatedAmount "kg" 0)), 1)])]

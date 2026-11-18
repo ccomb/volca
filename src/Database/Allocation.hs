@@ -351,7 +351,7 @@ describeRefusal refusal = case refusal of
         T.pack (show outputs)
             <> " product outputs, "
             <> T.pack (show withoutShare)
-            <> " without a declared share: state a share on every product row, or load the dataset already allocated"
+            <> " without a declared share: state a share on every product row, or load the data already allocated"
     NoSingleReference 0 -> "no reference exchange: one product output must be the reference"
     NoSingleReference k -> T.pack (show k) <> " reference exchanges where exactly one is needed"
 

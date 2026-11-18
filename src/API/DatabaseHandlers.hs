@@ -791,7 +791,7 @@ deleteActivitiesHandler dbName req = do
             return $
                 DeleteSelectionResponse
                     True
-                    ("Deleted " <> T.pack (show (doRemoved outcome)) <> " activities from " <> dbName)
+                    ("Deleted " <> T.pack (show (doRemoved outcome)) <> " processes from " <> dbName)
                     (doRemoved outcome)
                     (not (doPersisted outcome))
                     (doWarnings outcome)
@@ -1778,7 +1778,7 @@ installMethodCollectionHandler name = do
             ioEither400 (loadMethodCollection dbManager name)
         )
         `finally` liftIO (removeQuietly tmpPath)
-    pure (ActivateResponse True ("Installed and loaded method: " <> name) Nothing)
+    pure (ActivateResponse True ("Installed and loaded method collection: " <> name) Nothing)
   where
     fetchAnswer :: FetchFailure -> (ServerError, Text)
     fetchAnswer (Unreachable why) = (err502, why)
@@ -1805,7 +1805,7 @@ uploadMethodFiles dbManager uploadDir name mDescription uploadResult = do
             Right _ -> pure ()
             Left err -> do
                 liftIO (removeTreeQuietly uploadDir)
-                failWith err400 ("An uploaded openLCA package must hold one method: " <> err <> ". Export that method alone from openLCA.")
+                failWith err400 ("An uploaded openLCA package must hold one method collection: " <> err <> ". Export that one alone from openLCA.")
 
     added <- liftIO addedNow
     liftIO $ registerUploadedMethod dbManager name mDescription methodFormat uploadDir methodDir added
@@ -1896,7 +1896,7 @@ uploadFactorTable dbManager uploadsDir name mDescription flowsFrom workbook = do
     available <- liftIO (readTVarIO (dmAvailableMethods dbManager))
     taken <- liftIO $ filterM (\(n, _) -> (M.member n available ||) <$> System.Directory.doesPathExist (dirOf n)) named
     unless (null taken) $
-        failWith err409 ("These collections already exist: " <> T.intercalate ", " (map fst taken) <> ". Delete them, or upload under another name.")
+        failWith err409 ("These method collections already exist: " <> T.intercalate ", " (map fst taken) <> ". Delete them, or upload under another name.")
     written <- either (failWith err400) pure (traverse (\(n, c) -> (,,) n c . fst <$> serializeColumnarMethodCSV c) named)
     added <- liftIO addedNow
     liftIO $ forM_ written $ \(n, _, bytes) -> do
@@ -1949,7 +1949,7 @@ removeTreeQuietly p = void (try (System.Directory.removeDirectoryRecursive p) ::
 deleteMethodHandler :: Text -> AppM ActivateResponse
 deleteMethodHandler name = do
     dbManager <- asks aeDbManager
-    simpleAction (removeMethodCollection dbManager name) ("Deleted method: " <> name)
+    simpleAction (removeMethodCollection dbManager name) ("Deleted method collection: " <> name)
 
 {- | Refuse the caller when this instance is configured read-only.
 

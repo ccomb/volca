@@ -25,6 +25,23 @@ See `README.md` for the full feature spec.
 
 **Field names: `process_id`, `activity_name`, `product_name`. There is no `process_name`** – it would be a derived value, so the consumer generates the label. The word "activity" is overloaded in the field: ecoinvent/Brightway call a single-output dataset an "activity" (with a reference product); SimaPro/ILCD/ISO call it a "(unit) process". VoLCA keeps both crisp – **activity = the grouping, process = the (activity, product) unit.** The API *verbs* are activity-named by ecoinvent convention but all operate on **processes**: **`search_activities` / `get_activity` / `score_activities` / `get_contributing_activities` return one process per `(activity, product)`.** `search_activities` filters by `activity_name` and/or `product_name` and always returns processes – to find the lowest-impact way to make a product, `search_activities(product=X)` → processes → `score_activities` → compare. (SimaPro conflates the two: its process name is often empty and the activity name leaks into the product string; VoLCA keeps the two fields separate and surfaces the gap honestly rather than fabricating a name.)
 
+### Words shown to readers
+
+Every tool and parameter description, message and command-line help uses one word per notion, the one in bold. Tool names, parameter names, enum values and JSON fields keep their names; prose that explains one uses the bold word (`scope=consumption`: one row per supplier → consumer edge).
+
+- **Process**: what is searched, computed, scored. Never "activity" in that sense; **activity** only for the multi-output grouping before allocation (allocation and coproduct settings, upload) and for the field `activity_name`. Never "dataset" for it.
+- **Product**: the flow a process makes.
+- **Consumer**: the process that uses a product. Not buyer, consuming activities, downstream consumers, used by.
+- **Supplier**: the process that provides a product. Not provider, producer, produced by, target or source meaning a supplier. A new one is "new supplier", never "target".
+- **Amount**: how much of a product. Not quantity or scaling factor in prose. Field names such as `scalingFactor` stay.
+- **Upstream**: the chain before a process. Not supply chain, productions, contributing activities (write "upstream processes", "contributing processes"). The tool `get_supply_chain` and the French search keywords stay.
+- **Emissions** and **resources**: exchanges with nature. Not flows to or from nature, natural resources, biosphere or elementary flows in prose. The value `biosphere` stays. The compartment of a flow is "compartment", never "category".
+- **Consumed products** and **produced products**: a process's exchanges with other processes; **exchanges** for all its lines. Not technosphere in prose; the value `technosphere` stays.
+- **Impact category**: one row of results, also a row of a scoring set. Not indicator, "category", or "method" meaning one category. The label an impact category carries for grouping (field `impact_category`) is its "group label". **Single score** is the total of a scoring set.
+- **Score**: the number of a result. Not "amount".
+- **Method collection**: a set of impact categories. Not "method" or "collection" alone for the set.
+- **Swap**: trying another supplier without saving it in the data. Not replace, substitution, what-if. **Replace** only for a permanent edit of the data; **substitution** only for crediting coproducts.
+
 ## Commands
 
 ```bash

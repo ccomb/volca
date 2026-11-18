@@ -48,8 +48,8 @@ translateError' avail code body =
 spec :: Spec
 spec = do
     describe "translateError" $ do
-        it "maps 404 + 'Collection not loaded: X' to CollectionNotLoaded" $
-            translateError' ["a", "b"] 404 "Collection not loaded: EF-3.1"
+        it "maps 404 + 'Method collection not loaded: X' to CollectionNotLoaded" $
+            translateError' ["a", "b"] 404 "Method collection not loaded: EF-3.1"
                 `shouldBe` CollectionNotLoaded "EF-3.1" ["a", "b"]
 
         it "reads the name off the real message, which also names the loaded collections" $
@@ -65,8 +65,8 @@ spec = do
                 `shouldBe` DatabaseNotLoaded "agribalyse"
 
         it "maps a bare 404 to ActivityResolutionFailed (verbatim body)" $
-            translateError' [] 404 "Activity not found"
-                `shouldBe` ActivityResolutionFailed "Activity not found"
+            translateError' [] 404 "Process not found"
+                `shouldBe` ActivityResolutionFailed "Process not found"
 
         it "maps 400 to ActivityResolutionFailed (verbatim body)" $
             translateError' [] 400 "Invalid ProcessId format: x"

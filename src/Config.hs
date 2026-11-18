@@ -194,10 +194,10 @@ scoringRefusal hosting activities topFlows =
   where
     activitiesSentence :: Int -> Text
     activitiesSentence most =
-        "This engine scores at most " <> tshow most <> " activities in one request, an activity counting once per parameter set, and this one covers " <> tshow activities <> ". Split it into smaller requests."
+        "This engine scores at most " <> tshow most <> " processes in one request, a process counting once per parameter set, and this one covers " <> tshow activities <> ". Split it into smaller requests."
     topFlowsSentence :: Int -> Int -> Text
     topFlowsSentence asked most =
-        "This engine returns at most " <> tshow most <> " top contributing flows per activity, and this request asks for " <> tshow asked <> "."
+        "This engine returns at most " <> tshow most <> " top contributing flows per process, and this request asks for " <> tshow asked <> "."
     tshow :: Int -> Text
     tshow = T.pack . show
 
@@ -1303,7 +1303,7 @@ validateConfig cfg = do
             "Multiple method collections marked as default: " <> T.intercalate ", " (map mcName defaultMethods)
     forM_ (filter (not . mcActive) defaultMethods) $ \mc ->
         Left $
-            "Method collection \"" <> mcName mc <> "\" is marked as default but switched off (active = false): a reader would be offered a collection that is not loaded."
+            "Method collection \"" <> mcName mc <> "\" is marked as default but switched off (active = false): a reader would be offered a method collection that is not loaded."
 
     -- Validate dependency references exist
     let nameSet = S.fromList dbNames

@@ -178,7 +178,7 @@ resolve collection draft = do
     terms <- traverse term (NE.toList (rdTerms draft))
     let names = map fst terms
     unless (length (S.fromList names) == length names) $
-        Left ("the row '" <> label <> "' names a category twice")
+        Left ("the row '" <> label <> "' names an impact category twice")
     mapM_ (divisor ("the normalization of '" <> label <> "'")) (rdNormalization draft)
     mapM_ (finite ("the weight of '" <> label <> "'")) (rdWeight draft)
     pure (Row label (rdUnit draft >>= either (const Nothing) Just . nonBlank "") terms (rdNormalization draft) (rdWeight draft))
@@ -347,7 +347,7 @@ findRow set variable = case filter ((== variable) . srVariable) (rowsOf set) of
 findSet :: MethodCollection -> Text -> Either Text ScoringSet
 findSet collection name = case filter ((== name) . ssName) (mcScoringSets collection) of
     [set] -> Right set
-    [] -> Left ("there is no scoring set named '" <> name <> "'; the collection has " <> listed (map ssName (mcScoringSets collection)))
+    [] -> Left ("there is no scoring set named '" <> name <> "'; the method collection has " <> listed (map ssName (mcScoringSets collection)))
     _ -> Left ("several scoring sets are named '" <> name <> "'")
 
 -- | Every name a set holds, in lower case, as a formula reads them.

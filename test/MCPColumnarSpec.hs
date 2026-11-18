@@ -134,20 +134,20 @@ spec = do
             resolveSingleScoringSet [] [pefSet] `shouldBe` Right pefSet
 
         it "errors when nothing is configured" $
-            resolveSingleScoringSet [] [] `shouldBe` Left "No scoring sets configured on this collection."
+            resolveSingleScoringSet [] [] `shouldBe` Left "No scoring sets configured on this method collection."
 
         it "errors when multiple are configured and caller picks none, with each call that would work" $
             resolveSingleScoringSet [] [pefSet, ecsSet, ecsSet{ssName = "Carbon footprint"}]
-                `shouldBe` Left "This collection has several scoring sets, and score_activities scores one per call. Name one: \"scoring_sets\":[\"PEF\"] or \"scoring_sets\":[\"ECS\"] or \"scoring_sets\":[\"Carbon footprint\"]."
+                `shouldBe` Left "This method collection has several scoring sets, and score_activities scores one per call. Name one: \"scoring_sets\":[\"PEF\"] or \"scoring_sets\":[\"ECS\"] or \"scoring_sets\":[\"Carbon footprint\"]."
 
         it "accepts the configured set the caller named" $
             resolveSingleScoringSet ["PEF"] [pefSet, ecsSet] `shouldBe` Right pefSet
 
         it "errors when the requested name is unknown, saying what a scoring set is and each call that would work" $ do
             resolveSingleScoringSet ["Climate change"] [pefSet, ecsSet]
-                `shouldBe` Left "There is no scoring set named Climate change on this collection. A scoring set weighs the collection's indicators into one score: it is neither an indicator nor a collection. Name one: \"scoring_sets\":[\"PEF\"] or \"scoring_sets\":[\"ECS\"]."
+                `shouldBe` Left "There is no scoring set named Climate change on this method collection. A scoring set weighs the method collection's impact categories into a single score: it is neither an impact category nor a method collection. Name one: \"scoring_sets\":[\"PEF\"] or \"scoring_sets\":[\"ECS\"]."
             resolveSingleScoringSet ["PEF"] []
-                `shouldBe` Left "There is no scoring set named PEF on this collection. A scoring set weighs the collection's indicators into one score: it is neither an indicator nor a collection. This collection has none."
+                `shouldBe` Left "There is no scoring set named PEF on this method collection. A scoring set weighs the method collection's impact categories into a single score: it is neither an impact category nor a method collection. This method collection has none."
 
         it "errors when caller passes more than one name" $
             case resolveSingleScoringSet ["PEF", "ECS"] [pefSet, ecsSet] of
@@ -201,7 +201,7 @@ spec = do
             KM.lookup (fromText "basis") km `shouldBe` Just (toJSON basis)
 
         it "lists what the solver has no answer for once per reason and set, with the processes it holds back" $ do
-            let loop = "Database 'ei' has no answer to this demand: the supply chain reaches \"left\" (FR)"
+            let loop = "Database 'ei' has no answer to this demand: the upstream processes reach \"left\" (FR)"
                 Object refused = toColumnarBatch False Nothing "ei" "EF31" pefSet bir{birUnsolvable = [UnsolvableEntry "pidC" Nothing loop, UnsolvableEntry "pidD" Nothing loop, UnsolvableEntry "pidC" (Just 1) loop]}
             KM.lookup (fromText "unsolvable") refused
                 `shouldBe` Just

@@ -372,7 +372,7 @@ readingNotice sets = case [ssName s | s <- sets, weighs s] of
         Just
             ( "The scores of "
                 <> T.intercalate ", " names
-                <> " weigh impact categories by value choices; ISO 14044 does not allow a weighted score in a comparison disclosed to the public: compare category by category for that."
+                <> " weigh impact categories by value choices; ISO 14044 does not allow a weighted score in a comparison disclosed to the public: compare impact category by impact category for that."
             )
 
 {- | The terms of a formula that is a sum of the given variables times

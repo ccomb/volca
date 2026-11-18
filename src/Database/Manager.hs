@@ -2399,7 +2399,7 @@ originOf dirPath meta = case (UploadedDB.umBuiltIn meta, UploadedDB.umSource met
     (Just name, _) ->
         pure $
             maybe
-                (Left ("no collection named " <> name <> " is built into this engine"))
+                (Left ("no method collection named " <> name <> " is built into this engine"))
                 (\b -> Right (MethodBuiltIn b, Nothing))
                 (find ((== name) . builtinMethodName) builtinMethods)
     (Nothing, Just _) -> fromFiles (UploadedDB.umDataPath meta)
@@ -4453,7 +4453,7 @@ finalize gate always agree.
 notReadyReason :: LinkCounts -> Maybe Text
 notReadyReason lc
     | lcActivityCount lc == 0 =
-        Just "database contains 0 activities. The data file may be corrupted or in an unsupported format."
+        Just "database contains 0 processes. The data file may be corrupted or in an unsupported format."
     | lcUnresolvedLinks lc > 0 =
         Just $
             T.pack (show (lcUnresolvedLinks lc))
@@ -5115,7 +5115,7 @@ builtinMethodCollection builtin =
         parseMethodCSVBytes (BL.toStrict (builtinMethodContent builtin))
   where
     unreadable :: String -> Text
-    unreadable err = "The built-in method " <> builtinMethodName builtin <> " could not be read, this binary was built wrong: " <> T.pack err
+    unreadable err = "The built-in method collection " <> builtinMethodName builtin <> " could not be read, this binary was built wrong: " <> T.pack err
 
 {- | Load methods from a path (directory or archive), and say what the reading
 found wrong in them. An openLCA package gives the method @packageMethod@
@@ -5527,11 +5527,11 @@ removeMethodCollection manager name = withMVar (dmMethodEditLock manager) $ \() 
                 return $ Left $ name <> " holds the files " <> copy <> " reads. Delete " <> copy <> " first."
             | Nothing <- mcHome mc
             , MethodBuiltIn _ <- mcOrigin mc ->
-                return $ Left $ "Cannot delete a method built into this engine. Switch it off in volca.toml: [[methods]] name = \"" <> name <> "\", active = false."
+                return $ Left $ "Cannot delete a method collection built into this engine. Switch it off in volca.toml: [[methods]] name = \"" <> name <> "\", active = false."
             | Nothing <- mcHome mc ->
-                return $ Left "Cannot delete configured method. Edit volca.toml to remove it."
+                return $ Left "Cannot delete configured method collection. Edit volca.toml to remove it."
             | M.member name loaded ->
-                return $ Left "Cannot delete loaded method. Close it first."
+                return $ Left "Cannot delete loaded method collection. Close it first."
             | Just uploadDir <- mcHome mc -> do
                 pathExists <- doesDirectoryExist uploadDir
                 if pathExists
@@ -5564,7 +5564,7 @@ readersOf mc others = case mcHome mc of
         map mcName <$> filterM (maybe (pure False) under . methodFiles . mcOrigin) [o | o <- others, mcName o /= mcName mc]
   where
     unreadable :: SomeException -> Text
-    unreadable err = "could not tell which collections read the files of " <> mcName mc <> ": " <> T.pack (show err)
+    unreadable err = "could not tell which method collections read the files of " <> mcName mc <> ": " <> T.pack (show err)
 
 --------------------------------------------------------------------------------
 -- Merged reference data helpers

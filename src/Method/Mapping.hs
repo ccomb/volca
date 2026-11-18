@@ -600,7 +600,7 @@ compartmentGapWarning cmap flowsByName mappings
     | otherwise =
         Just $
             T.pack (show (length gaps))
-                <> " factor(s) name a flow this database files under another compartment (method: "
+                <> " factor(s) name a flow this database files under another compartment (impact category: "
                 <> quoted (S.fromList (map fst gaps))
                 <> "; database: "
                 <> quoted (S.map VT.mediumText (S.unions (map snd gaps)))
@@ -3786,7 +3786,7 @@ computeLCIAScoreSetFromTables unitCfg unitDB flowDB ltMode inventory hier perDb 
   where
     -- Unreachable: every entry of 'msAllMethods' is in one half or the other.
     missing :: MethodSetEntry -> Either Text Double
-    missing e = Left ("scored by neither half of the method set: " <> methodName (mseMethod e))
+    missing e = Left ("scored by neither half of the impact category set: " <> methodName (mseMethod e))
 
 {- | What each method named charges one unit of a biosphere row in a column of
 the root database, in the order they are named, on the path
@@ -3809,7 +3809,7 @@ rowFactorsOf ::
     [UUID] ->
     Either Text (Int32 -> Int32 -> [Double])
 rowFactorsOf unitCfg unitDB flowDB ltMode db sets wanted = do
-    perMethod <- traverse (\mid -> maybe (Left ("not a method of the set: " <> UUID.toText mid)) factorOf (M.lookup mid entries)) wanted
+    perMethod <- traverse (\mid -> maybe (Left ("not an impact category of the set: " <> UUID.toText mid)) factorOf (M.lookup mid entries)) wanted
     pure (\row col -> [f row col | f <- perMethod])
   where
     -- The set keeps its methods sorted by identifier, not in the order a collection names them.
@@ -3846,7 +3846,7 @@ rowFactorsOf unitCfg unitDB flowDB ltMode db sets wanted = do
             Right (Just raw) -> Right (located (rawFactors raw))
             Right Nothing -> Right (\row _ -> let fid = flowOf row in kept fid (flat (mseTables e) fid))
         | Just i <- M.lookup (mseMethodId e) batchedIndex = Right (\row _ -> let fid = flowOf row in kept fid (batched i fid))
-        | otherwise = Left ("scored by neither half of the method set: " <> methodName (mseMethod e))
+        | otherwise = Left ("scored by neither half of the impact category set: " <> methodName (mseMethod e))
 
     -- As 'weigh' reads the table.
     located :: RegionalFactorTable -> Int32 -> Int32 -> Double

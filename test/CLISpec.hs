@@ -344,7 +344,7 @@ spec = do
             resolveImpactTarget Nothing "EF-3.1" (rows ++ [MethodRow "e5e5" "EF-3.1" "custom"]) `shouldSatisfy` isLeft
 
         it "lists the collections when nothing matches" $
-            resolveImpactTarget Nothing "nope" rows `shouldBe` Left "No loaded method or collection is called \"nope\". Collections: plain-indicators, EF-3.1"
+            resolveImpactTarget Nothing "nope" rows `shouldBe` Left "No loaded impact category or method collection is called \"nope\". Method collections: plain-indicators, EF-3.1"
 
         it "says no collection is loaded rather than listing none" $
             resolveImpactTarget Nothing "Climate change" [] `shouldBe` Left "No method collection is loaded."
@@ -355,4 +355,4 @@ spec = do
 
         it "refuses a --collection that is not loaded, listing those that are" $
             resolveImpactTarget (Just "EF-9") "Climate change" rows
-                `shouldBe` Left "No loaded collection is called \"EF-9\". Collections: plain-indicators, EF-3.1"
+                `shouldBe` Left "No loaded method collection is called \"EF-9\". Method collections: plain-indicators, EF-3.1"

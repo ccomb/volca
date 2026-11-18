@@ -438,7 +438,7 @@ resolveModel model parent = case NE.nonEmpty (concatMap problemsOf taken <> over
                     <> [said s <> " takes a coproduct of " <> activityName block <> " whose amount is " <> T.pack (show (exchangeAmount coproduct)) <> ": it displaces nothing" | exchangeAmount coproduct <= 0]
                     <> [said s <> " credits " <> activityName replaced <> ", a product of the same block" | prActivity (subReplaces s) == prActivity (subCoproduct s)]
                     <> [said s <> " credits " <> activityName replaced <> ", whose product another substitution takes away" | subReplaces s `S.member` coproducts]
-                    <> [said s <> " credits " <> activityName replaced <> ", which buys that coproduct itself: the line would loop" | any (buys (subCoproduct s)) (exchanges replaced)]
+                    <> [said s <> " credits " <> activityName replaced <> ", which consumes that coproduct itself: the line would loop" | any (buys (subCoproduct s)) (exchanges replaced)]
         (co, rep) ->
             Left $
                 [said s <> " names " <> processRefText (subCoproduct s) <> " as its coproduct, which the parent does not make" | Nothing <- [co]]

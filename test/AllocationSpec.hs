@@ -658,7 +658,7 @@ endToEnd = do
                     Left other -> expectationFailure ("expected NotScorable, got " ++ show other)
                     Right _ -> expectationFailure "expected a refusal, the activity resolved for scoring"
                 map qoDetail (qcOffenders (qrUnallocated (qualityReport "two" simpleDb)))
-                    `shouldBe` ["2 product outputs, 2 without a declared share: state a share on every product row, or load the dataset already allocated"]
+                    `shouldBe` ["2 product outputs, 2 without a declared share: state a share on every product row, or load the data already allocated"]
 
 withTwoOutputDataset :: ((SimpleDatabase, Database) -> IO ()) -> IO ()
 withTwoOutputDataset k = withSystemTempDirectory "es2-two-outputs" $ \dir -> do

@@ -324,9 +324,9 @@ from the wire body without the two ends silently drifting apart.
 databaseNotLoadedPrefix :: Text
 databaseNotLoadedPrefix = "Database not loaded: "
 
--- | Same idea for "collection not loaded" bodies and messages.
+-- | Same idea for "method collection not loaded" bodies and messages.
 collectionNotLoadedPrefix :: Text
-collectionNotLoadedPrefix = "Collection not loaded: "
+collectionNotLoadedPrefix = "Method collection not loaded: "
 
 -- | Build the 404 body for a database that is not loaded.
 databaseNotLoadedBody :: Text -> BSL.ByteString
@@ -344,7 +344,7 @@ here and parses it there, which is what keeps the two halves honest.
 -}
 collectionNotLoadedMessage :: Text -> [Text] -> Text
 collectionNotLoadedMessage name loaded =
-    collectionNotLoadedPrefix <> name <> "\nAvailable collections: " <> available
+    collectionNotLoadedPrefix <> name <> "\nAvailable method collections: " <> available
   where
     available
         | null loaded = "none loaded"
@@ -599,7 +599,7 @@ serviceErrorToServerError = \case
     -- The activity is there; the query does not say which of its products.
     -- A 404 would send the caller looking for data that is present.
     Service.AmbiguousActivity msg -> err400{errBody = utf8Body msg}
-    Service.ActivityNotFound _ -> err404{errBody = "Activity not found"}
+    Service.ActivityNotFound _ -> err404{errBody = "Process not found"}
     Service.FlowNotFound _ -> err404{errBody = "Flow not found"}
     -- The activity exists and reads fine; it has no column to score. The
     -- message says why, so the caller can repair the dataset or pick another.
@@ -976,7 +976,7 @@ activityLCIABatchH ::
 activityLCIABatchH dbName processIdText collectionName mSub ltMode scoreLines = do
     dbManager <- asks aeDbManager
     when (scoreLines == WithLines && not (all (null . srSubstitutions) mSub)) $
-        badRequest "What each line adds to the score is given without substitutions: a substituted supplier answers no line of the activity."
+        badRequest "What each line adds to the score is given without swaps: a swapped supplier answers no line of the process."
     withRequestDatabase dbName mSub $ \db sharedSolver -> do
         (actProcessId, activity) <- resolveOrThrow db processIdText
         let functionalUnit = Service.functionalUnitIn db activity
@@ -1068,7 +1068,7 @@ lineContributions perUnit column answers factorsOf =
     placed :: RM.Entry -> [Double] -> Either Text (Int, [Double])
     placed e perAmount = case RM.entryLine e of
         Just n -> Right (n, map (* (perUnit * RM.entryFactor e * RM.entryStored e)) perAmount)
-        Nothing -> Left "A link to another database answers no line of the activity."
+        Nothing -> Left "A link to another database answers no line of the process."
 
 -- | A score with what each line adds to it, largest first.
 withLines :: [(Int, Double)] -> LCIAResult -> LCIAResult
@@ -1353,7 +1353,7 @@ computedQualityReportH dbName mCollection mLimit = do
             err403
                 { errBody =
                     BSL.fromStrict . T.encodeUtf8 $
-                        "The computed quality report scores every activity of the database, "
+                        "The computed quality report scores every process of the database, "
                             <> T.pack (show (M.size entriesByPid))
                             <> " here, and this engine scores at most "
                             <> T.pack (show most)
@@ -1593,19 +1593,19 @@ selectMethod mCollection uuid loaded =
     uuidText = UUID.toText uuid
     notFound :: Text
     notFound = case mCollection of
-        Nothing -> "Method not found: " <> uuidText
+        Nothing -> "Impact category not found: " <> uuidText
         Just c ->
-            "Method "
+            "Impact category "
                 <> uuidText
-                <> " not found in collection '"
+                <> " not found in method collection '"
                 <> c
-                <> "'. Loaded collections: "
+                <> "'. Loaded method collections: "
                 <> T.intercalate ", " (nub (map fst loaded))
     ambiguous :: Text
     ambiguous =
-        "Method UUID "
+        "Impact category UUID "
             <> uuidText
-            <> " is loaded in multiple collections: "
+            <> " is loaded in multiple method collections: "
             <> T.intercalate ", " (nub [col | (col, m) <- loaded, methodId m == uuid])
             <> ". Pass 'collection' to disambiguate."
 
@@ -1617,7 +1617,7 @@ loadMethodByUUID :: Maybe Text -> Text -> AppM (DM.CollectionName, Method)
 loadMethodByUUID mCollection uuidText = do
     dbManager <- asks aeDbManager
     loadedMethods <- liftIO $ DM.getLoadedMethods dbManager
-    uuid <- maybe (throwError err400{errBody = "Invalid method UUID format"}) pure (UUID.fromText uuidText)
+    uuid <- maybe (throwError err400{errBody = "Invalid impact category UUID format"}) pure (UUID.fromText uuidText)
     either refuse (pure . first DM.CollectionName) (selectMethod mCollection uuid loadedMethods)
   where
     refuse :: MethodRefusal -> AppM a
@@ -1634,10 +1634,10 @@ loadMethodInCollection :: DM.CollectionName -> Text -> AppM Method
 loadMethodInCollection collectionName uuidText = do
     (methods, _) <- loadCollection collectionName
     case UUID.fromText uuidText of
-        Nothing -> throwError err400{errBody = "Invalid method UUID format"}
+        Nothing -> throwError err400{errBody = "Invalid impact category UUID format"}
         Just uuid -> case filter ((== uuid) . methodId) methods of
             (m : _) -> pure m
-            [] -> throwError err404{errBody = "Method not found in collection"}
+            [] -> throwError err404{errBody = "Impact category not found in method collection"}
 
 -- | Resolve (db, solver, ProcessId, Activity, Method) within @collectionName@ and dispatch.
 withActivityAndMethod ::
@@ -1651,7 +1651,7 @@ withActivityAndMethod dbName collectionName processIdText methodIdText k = do
     (db, sharedSolver) <- requireDatabaseByName dbName
     method <- loadMethodInCollection collectionName methodIdText
     case Service.resolveScorable db processIdText of
-        Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Activity not found"}
+        Left (Service.ActivityNotFound _) -> throwError err404{errBody = "Process not found"}
         Left (Service.InvalidProcessId _) -> throwError err400{errBody = "Invalid ProcessId format"}
         Left (Service.AmbiguousActivity msg) -> throwError err400{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
         Left err -> throwError (serviceErrorToServerError err)
@@ -3408,12 +3408,12 @@ getMethodCollections = do
 loadMethodCollectionHandler :: Text -> AppM ActivateResponse
 loadMethodCollectionHandler name = do
     dbManager <- asks aeDbManager
-    simpleAction (DM.loadMethodCollection dbManager name) ("Loaded method: " <> name)
+    simpleAction (DM.loadMethodCollection dbManager name) ("Loaded method collection: " <> name)
 
 unloadMethodCollectionHandler :: Text -> AppM ActivateResponse
 unloadMethodCollectionHandler name = do
     dbManager <- asks aeDbManager
-    simpleAction (DM.unloadMethodCollection dbManager name) ("Unloaded method: " <> name)
+    simpleAction (DM.unloadMethodCollection dbManager name) ("Unloaded method collection: " <> name)
 
 searchFlows :: Text -> Maybe Text -> Maybe Text -> Maybe Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Text -> AppM (SearchResults FlowSearchResult)
 searchFlows dbName queryParam langParam kindParam limitParam offsetParam sortParam orderParam = do

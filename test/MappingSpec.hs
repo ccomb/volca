@@ -1180,7 +1180,7 @@ spec = do
             let flow = mkFlow fid "ammonia" Air Nothing
                 cf = mkCFComp "ammonia" "urban air" "" 0.747
             compartmentGapWarning mempty (FlowsByName (M.singleton "ammonia" [flow])) [(cf, Nothing)]
-                `shouldBe` Just "1 factor(s) name a flow this database files under another compartment (method: \"urban air\"; database: \"air\"). Declare a [[compartment-mappings]] table bridging them."
+                `shouldBe` Just "1 factor(s) name a flow this database files under another compartment (impact category: \"urban air\"; database: \"air\"). Declare a [[compartment-mappings]] table bridging them."
 
         it "stays silent when the name is simply absent" $ do
             let cf = mkCFComp "ammonia" "air" "" 0.747

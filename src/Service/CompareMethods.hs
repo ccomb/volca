@@ -200,11 +200,11 @@ parseForcedPair written = case map T.strip (T.splitOn "=" written) of
 refusalMessage :: CompareMethodsRefusal -> Text
 refusalMessage r = case r of
     MalformedPair t -> "A pair is written base=other, one '=' between two names: " <> t
-    UnknownCategory side t -> "No category of the " <> sideName side <> " collection is named " <> t
-    SeveralCategories side t -> "Several categories of the " <> sideName side <> " collection are named " <> t <> "; this name cannot choose between them"
-    PairedTwice side t -> "The category " <> t <> " of the " <> sideName side <> " collection is named in two pairs"
-    NotPaired t -> "No pair of categories starts from a base category named " <> t
-    SeveralPairs t others -> "Several pairs of categories start from a base category named " <> t <> ", against " <> T.intercalate ", " others <> "; this name cannot choose between them"
+    UnknownCategory side t -> "No impact category of the " <> sideName side <> " method collection is named " <> t
+    SeveralCategories side t -> "Several impact categories of the " <> sideName side <> " method collection are named " <> t <> "; this name cannot choose between them"
+    PairedTwice side t -> "The impact category " <> t <> " of the " <> sideName side <> " method collection is named in two pairs"
+    NotPaired t -> "No pair of impact categories starts from a base impact category named " <> t
+    SeveralPairs t others -> "Several pairs of impact categories start from a base impact category named " <> t <> ", against " <> T.intercalate ", " others <> "; this name cannot choose between them"
   where
     sideName :: CollectionSide -> Text
     sideName BaseCollection = "base"

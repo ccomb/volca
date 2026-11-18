@@ -48,6 +48,11 @@
   it took 9, or 16 on a new data directory. Each new version of the engine
   reads its methods from their files once more, and `--no-cache` reads them at
   every start.
+- The descriptions of the tools use one word for each notion: process,
+  consumer, supplier, amount, upstream, emissions and resources, impact
+  category, method collection and swap. They used several for the same thing,
+  such as activity and process, or method and impact category. No tool,
+  parameter or field is renamed.
 
 ### Fixed
 

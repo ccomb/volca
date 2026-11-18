@@ -123,7 +123,7 @@ planEdit collection = \case
     -- for now and touching nothing is a mistake its author wants to hear about.
     Patch patch -> case snd (applyMethodPatches [patch] collection) of
         [(_, touched)] | touched > 0 -> pure (PatchFactors patch touched, EditEffect touched Nothing Nothing)
-        _ -> Left ("\"" <> describePatch patch <> "\" touches no factor of this collection")
+        _ -> Left ("\"" <> describePatch patch <> "\" touches no factor of this method collection")
 
 -- | A category to create: it starts with no factor.
 data CategoryDraft = CategoryDraft
@@ -172,7 +172,7 @@ planCategoryEdit fresh collection = \case
   where
     nonBlank :: Text -> Text -> Either Text Text
     nonBlank field raw
-        | T.null (T.strip raw) = Left ("a category needs a " <> field)
+        | T.null (T.strip raw) = Left ("an impact category needs a " <> field)
         | otherwise = Right (T.strip raw)
     given :: Text -> Maybe Text
     given = either (const Nothing) Just . nonBlank ""
@@ -180,7 +180,7 @@ planCategoryEdit fresh collection = \case
 -- | Where a category stands among the collection's categories.
 positionOf :: MethodCollection -> Method -> Either Text Int
 positionOf collection method =
-    maybe (Left (methodName method <> " is no longer in the collection")) Right (findIndex ((== methodId method) . methodId) (mcMethods collection))
+    maybe (Left (methodName method <> " is no longer in the method collection")) Right (findIndex ((== methodId method) . methodId) (mcMethods collection))
 
 -- | Where a category stands among the unregionalized ones now.
 rankIn :: MethodCollection -> Text -> Regionalization

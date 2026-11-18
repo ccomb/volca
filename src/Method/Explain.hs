@@ -288,7 +288,7 @@ renderExplanation explanation =
         ++ [declinedSentence | any ((== StepDeclined) . stResult) (ceTrail explanation)]
   where
     declinedSentence =
-        "The method's collection writes this flow's own name, region included, in another category, so no other name lends it a factor here."
+        "The method collection writes this flow's own name, region included, in another impact category, so no other name lends it a factor here."
 
 {- | The explanation in plain sentences, written here so no consumer has to
 invent a meaning for a code. Every branch below is exhaustive on purpose: a
@@ -296,7 +296,7 @@ new rung, bridge or refusal will not compile until it says what it means.
 -}
 renderResolution :: CFResolution -> [Text]
 renderResolution Uncharacterized =
-    ["No factor in this method reaches this flow, so it adds nothing to the score."]
+    ["No factor in this impact category reaches this flow, so it adds nothing to the score."]
 renderResolution (Characterized match bridge) =
     filter (not . T.null) $
         [rungSentence match, provenanceSentence (cmProvenance match), bridgeSentence bridge]
@@ -310,26 +310,26 @@ renderResolution (ConversionRefused match reason) =
 rungSentence :: CFMatch -> Text
 rungSentence (CFMatch rung _ provenance) = case rung of
     RungUuid ->
-        "The method declares a factor for this exact flow."
+        "The impact category declares a factor for this exact flow."
     RungUnitVariant ->
         "No factor carries this flow's name on its own, but " <> lineName <> " is declared in this flow's unit, so that one applies."
     RungExactName ->
         "The factor line " <> lineName <> " matches this flow's name and compartment."
     RungIfAbsent ->
-        "The method writes no factor anywhere for this flow's subcompartment, and the compartment table says such a flow reads the factor written at " <> quoted sourceSub <> ", so " <> lineName <> " applies."
+        "The impact category writes no factor anywhere for this flow's subcompartment, and the compartment table says such a flow reads the factor written at " <> quoted sourceSub <> ", so " <> lineName <> " applies."
     RungMediumDefault ->
-        "The method sets no factor for this flow's subcompartment, and " <> lineName <> " is written for the whole compartment, so it applies."
+        "The impact category sets no factor for this flow's subcompartment, and " <> lineName <> " is written for the whole compartment, so it applies."
     RungResourceUnspecified ->
-        "The method sets no factor for this resource at its subcompartment, and " <> lineName <> " is written for it at " <> quoted sourceSub <> ". A resource's subcompartment says where it is filed, not what it is, so that factor applies."
+        "The impact category sets no factor for this resource at its subcompartment, and " <> lineName <> " is written for it at " <> quoted sourceSub <> ". A resource's subcompartment says where it is filed, not what it is, so that factor applies."
     RungCasBridge ->
         "No factor carries this flow's name. " <> lineName <> " describes the same substance" <> casClause <> " in the same compartment, so its factor applies."
     RungRegionBase ->
-        "This flow's name ends in a region the method does not distinguish, so the factor of the base substance, " <> lineName <> ", applies."
+        "This flow's name ends in a region the impact category does not distinguish, so the factor of the base substance, " <> lineName <> ", applies."
     RungEnergyResource
         | isEnergyUnit (mcfUnit source) ->
-            "No factor carries this flow's name. The flow is an extracted energy carrier and its name states its energy content, so what the method charges for one unit of energy, from " <> lineName <> ", applies to that content."
+            "No factor carries this flow's name. The flow is an extracted energy carrier and its name states its energy content, so what the impact category charges for one unit of energy, from " <> lineName <> ", applies to that content."
         | otherwise ->
-            "No factor carries this flow's name, and the method charges nothing per unit of energy. The flow is an extracted energy carrier and its name states its energy content, so the factor of its family, " <> lineName <> " at " <> formatDouble (mcfValue source) <> " per " <> mcfUnit source <> ", divided by the energy a " <> mcfUnit source <> " of that family holds, gives what one unit of energy costs, and that applies to the content."
+            "No factor carries this flow's name, and the impact category charges nothing per unit of energy. The flow is an extracted energy carrier and its name states its energy content, so the factor of its family, " <> lineName <> " at " <> formatDouble (mcfValue source) <> " per " <> mcfUnit source <> ", divided by the energy a " <> mcfUnit source <> " of that family holds, gives what one unit of energy costs, and that applies to the content."
     RungOreGradeBase ->
         "This is a graded ore, and its amount is the mass of the base element, so that element's factor, from " <> lineName <> ", applies."
   where
@@ -350,13 +350,13 @@ provenanceSentence provenance = case bpStrategy provenance of
     Just ByPattern ->
         "That line is a family of flows, and this flow entered it because its name starts with the line's prefix."
     Just BySynonym ->
-        "That line was tied to this flow's name through a known synonym when the method was loaded."
+        "That line was tied to this flow's name through a known synonym when the method collection was loaded."
     Just ByCAS ->
-        "That line was tied to this flow by CAS number when the method was loaded."
+        "That line was tied to this flow by CAS number when the method collection was loaded."
     Just ByProxy ->
         "That line stands in for a related substance, and its factor was scaled by a curated conversion factor."
     Nothing ->
-        "No database flow claimed that line when the method was loaded; it is filed under the name the method itself uses."
+        "No database flow claimed that line when the method collection was loaded; it is filed under the name the impact category itself uses."
 
 {- | The factor as applied, so the sentence stands on its own. The bridge says
 which side of the factor its unit sits on: usually the unit is the basis the

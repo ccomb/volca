@@ -63,10 +63,10 @@ spec = describe "Database.History" $ do
 
     it "says each change in words, with the value it replaced when it was kept" $
         map (\line -> (hlSummary line, hlDetails line)) history
-            `shouldBe` [ ("Added 1 activity", ["\"bread\" (FR), a_b"])
+            `shouldBe` [ ("Added 1 process", ["\"bread\" (FR), a_b"])
                        , ("Edited \"a_b\"", ["Flow 00000000-0000-0000-0000-000000000000: amount from 1.2 set to 3.0", "Input from \"c_d\": removed", "Product 00000000-0000-0000-0000-000000000000: price set to 0.42 EUR2005", "Product 00000000-0000-0000-0000-000000000000: price removed"])
                        , ("Changed 2 database parameters", ["distance changed from 120.0 km to 90.0 km", "new added: 1.0 km"])
-                       , ("Deleted 1 activity", ["\"a_b\""])
+                       , ("Deleted 1 process", ["\"a_b\""])
                        ]
 
     it "reports each change with who made it when known, and its reason or that it was given none" $ do
@@ -80,7 +80,7 @@ spec = describe "Database.History" $ do
                               , ""
                               , "Multi-output processes are divided by the system model every block by dry mass 1.0.0, not as the original divides them."
                               , ""
-                              , "## 2026-10-01: Added 1 activity"
+                              , "## 2026-10-01: Added 1 process"
                               , ""
                               , "Reason: No reason given"
                               , ""

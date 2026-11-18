@@ -625,7 +625,7 @@ summaryLanding change = \case
         DescriptionChanged _ after -> Lands [SetText (ActivityDescription after)]
         ProductNameChanged _ _ -> notApplicable "An edit does not rename a product."
         AllocationChanged _ _ -> notApplicable "An edit does not change an allocation."
-        DatesChanged _ _ -> notApplicable "An edit does not change the dates of an activity."
+        DatesChanged _ _ -> notApplicable "An edit does not change the dates of a process."
 
 notApplicable :: Text -> Landing
 notApplicable = Stays . OutcomeNotApplicable
@@ -675,7 +675,7 @@ selectorOf :: Activity -> LineGroup -> Either Text ExchangeSelector
 selectorOf act line = case [ex | ex <- exchanges act, exchangeFlowId ex == lgFlowId line, roleOf ex == lgRole line] of
     [ex] -> maybe (Left (unreachable (lgRole line))) Right (lineSelector ex)
     _ : _ : _ -> Left "Several lines answer to this flow: an edit would change each of them."
-    [] -> Left "The activity holds no such line."
+    [] -> Left "The process holds no such line."
 
 unreachable :: LineRole -> Text
 unreachable = \case
@@ -684,7 +684,7 @@ unreachable = \case
     TechLine AvoidedProduct -> "An edit does not reach an avoided product."
     TechLine ReferenceInput -> "An edit does not reach the waste a treatment takes in."
     TechLine Input -> "An edit reaches an input by its supplier."
-    BioLine _ -> "An edit reaches a biosphere line by its flow."
+    BioLine _ -> "An edit reaches an emission or resource line by its flow."
     WasteLine WasteInput -> "An edit does not reach the waste a treatment takes in."
     WasteLine WasteOutput -> "An edit reaches a waste output by its treatment."
 
@@ -696,8 +696,8 @@ addedLine db change quantity = case ecRole change of
     BioLine direction -> Right (bioLine (ecFlowId change) direction quantity)
     _ -> case makersOf db (ecFlowId change) of
         [pid] -> linkedLine (ecRole change) (processIdToText db pid) quantity
-        [] -> Left "No activity of this database makes this product, so none can supply the added line."
-        _ -> Left "Several activities of this database make this product: the change does not say which one supplies the added line."
+        [] -> Left "No process of this database makes this product, so none can supply the added line."
+        _ -> Left "Several processes of this database make this product: the change does not say which one supplies the added line."
 
 bioLine :: UUID -> BioDirection -> Quantity -> AuthoredExchange
 bioLine flowId direction quantity =
@@ -719,8 +719,8 @@ producerNamed :: Database -> UUID -> Supplier -> Either Text Text
 producerNamed db flowId supplier =
     case filter named (makersOf db flowId) of
         [pid] -> Right (processIdToText db pid)
-        [] -> Left ("No activity of this database named " <> described <> " makes this product.")
-        _ -> Left ("Several activities of this database named " <> described <> " make this product.")
+        [] -> Left ("No process of this database named " <> described <> " makes this product.")
+        _ -> Left ("Several processes of this database named " <> described <> " make this product.")
   where
     named :: ProcessId -> Bool
     named pid = maybe False (\act -> Supplier (activityName act) (activityLocation act) == supplier) (getActivity db pid)

@@ -127,7 +127,7 @@ missingActivityWarning :: Activity -> Exchange -> UUID -> [String]
 missingActivityWarning consumer ex actUUID
     | abs (exchangeAmount ex) <= 1e-15 = []
     | otherwise =
-        [ "Missing activity-product pair referenced by exchange:\n"
+        [ "Missing process referenced by exchange:\n"
             ++ "  Activity UUID: "
             ++ T.unpack (UUID.toText actUUID)
             ++ "\n"

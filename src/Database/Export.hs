@@ -105,7 +105,7 @@ serializeDatabase units fmt saved dependencies name db = fmap (fmap (linkWarning
     -- 'ES1.writeSimpleDatabaseChunks' for what a single chunk costs at this size.
     EcoSpold1 ->
         dependencies >>= \(Dependencies found) -> case M.elems found of
-            supplier : _ -> Left ("EcoSpold 1 names a supplier only among the datasets of its own file, and cannot for an input bought from " <> elDatabase supplier <> ". EcoSpold 2 and openLCA point at suppliers instead, and can.")
+            supplier : _ -> Left ("EcoSpold 1 names a supplier only among the processes of its own file, and cannot for an input supplied by " <> elDatabase supplier <> ". EcoSpold 2 and openLCA point at suppliers instead, and can.")
             [] -> valuesOnlyWith [] (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
     EcoSpold2 -> first zipText <$> ES2.writeEcoSpold2WithWarnings ES2.noVolatileMeta sdb
     ILCDProcess -> dependencies >>= \deps -> valuesOnlyWith (ILCD.splitWarnings sdb) (ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = deps, ILCD.woUnits = units} sdb)
@@ -113,7 +113,7 @@ serializeDatabase units fmt saved dependencies name db = fmap (fmap (linkWarning
     OpenLcaImpactCategory ->
         Left "openLCA JSON-LD export is not supported"
     ColumnarCSV ->
-        Left "a columnar CSV holds methods, not a database"
+        Left "a columnar CSV holds a method collection, not a database"
     OpenLcaPackage -> first zipFiles <$> OLCA.serializeOlcaPackage units saved sdb
     UnknownFormat ->
         Left "cannot export to an unknown format"
@@ -235,7 +235,7 @@ parseMethodExportFormat raw = case T.toLower (T.strip raw) of
     "csv" -> Right MethodColumnarCSV
     "openlca" -> Right MethodOpenLcaJsonLd
     "ilcd" -> Right MethodIlcdXml
-    other -> Left ("unknown method export format: " <> other <> " (expected simapro|csv|openlca|ilcd)")
+    other -> Left ("unknown method collection export format: " <> other <> " (expected simapro|csv|openlca|ilcd)")
 
 {- | Serialize a loaded method collection in the requested format, paired with
 the projection warnings. The name is the collection's own (used as the

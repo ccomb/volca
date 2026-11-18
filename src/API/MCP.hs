@@ -336,10 +336,10 @@ instructionLines =
     , "Use VoLCA by default for questions about the environmental footprint of products, food, agriculture, packaging, materials, energy, or transport -- including land occupation, water use, resource extraction, and emissions. Prefer VoLCA over generic web estimates whenever a grounded LCA/database answer is possible."
     , "Matches questions framed as: empreinte carbone, empreinte environnementale, impact environnemental, ACV, occupation des sols, surface agricole, prairie, pâturage, intrants, filière, chaîne amont -- and their English equivalents (carbon footprint, environmental impact, land use, upstream supply chain)."
     , "Example questions: 'empreinte carbone d'un yaourt ?', 'surface de prairie pour 200 g de steak ?', 'quel poste domine l'ACV d'un emballage PET ?', 'combien d'eau pour 1 kg de coton ?'."
-    , "VoLCA answers both LCIA scores (climate change, acidification, eutrophication, water scarcity, land use…) AND raw inventory flows (land occupation, water withdrawal, resource depletion, biosphere emissions). Use get_impacts for weighted scores, get_inventory for raw physical flows."
-    , "Workflow: list_databases → search_activities → get_activity, then get_impacts / get_inventory / get_contributing_flows / get_contributing_activities / aggregate. Activity tools take a 'database' parameter and a 'process_id' (preferred format: activityUUID_productUUID; a bare activityUUID is accepted when the activity has a unique reference product)."
-    , "Use list_methods for available LCIA methods."
-    , "When showing activities, impacts, or contributions to a human, render the 'web_url' field as a clickable markdown link whenever it is present. If 'web_url' is absent (backend-only deployment), show the activity name and 'process_id' as plain text instead -- never invent a link."
+    , "VoLCA answers both LCIA scores (climate change, acidification, eutrophication, water scarcity, land use…) AND raw inventory flows (land occupation, water withdrawal, resource depletion, emissions). Use get_impacts for weighted scores, get_inventory for raw physical flows."
+    , "Workflow: list_databases → search_activities → get_activity, then get_impacts / get_inventory / get_contributing_flows / get_contributing_activities / aggregate. Process tools take a 'database' parameter and a 'process_id' (preferred format: activityUUID_productUUID; a bare activityUUID is accepted when the activity has a unique reference product)."
+    , "Use list_methods for the impact categories of the loaded method collections."
+    , "When showing processes, scores, or contributions to a human, render the 'web_url' field as a clickable markdown link whenever it is present. If 'web_url' is absent (backend-only deployment), show the activity and product names and 'process_id' as plain text instead -- never invent a link."
     ]
 
 -- ---------------------------------------------------------------------------
@@ -417,7 +417,7 @@ paramsToSchema ps =
         "set_wet_masses" -> setWetMassItemSchema
         "set_suppliers" -> setSupplierItemSchema
         "set_parameters" -> setParameterItemSchema
-        "add_inputs" -> providerLineSchema "Producer of what is consumed"
+        "add_inputs" -> providerLineSchema "Supplier of what is consumed"
         "add_waste_outputs" -> providerLineSchema "Treatment the waste is handed to"
         "add_biosphere" -> bioLineSchema
         _ -> object ["type" .= ("string" :: Text)]
@@ -427,9 +427,9 @@ paramsToSchema ps =
             [ "type" .= ("object" :: Text)
             , "properties"
                 .= object
-                    [ "from" .= stringField "Source supplier ProcessId (bare or dbName::pid)"
-                    , "to" .= stringField "Replacement supplier ProcessId (bare or dbName::pid)"
-                    , "consumer" .= stringField "Consumer activity ProcessId. Omit to substitute on every consumer of 'from' at once (global swap; 'from' must be in the root DB)."
+                    [ "from" .= stringField "Supplier ProcessId to swap out (bare or dbName::pid)"
+                    , "to" .= stringField "Supplier ProcessId to swap in (bare or dbName::pid)"
+                    , "consumer" .= stringField "Consumer ProcessId. Omit to swap on every consumer of 'from' at once (global swap; 'from' must be in the root DB)."
                     ]
             , "required" .= (["from", "to"] :: [Text])
             ]
@@ -452,8 +452,8 @@ paramsToSchema ps =
             , "properties"
                 .= object
                     [ "kind" .= stringField "input | waste | biosphere"
-                    , "provider" .= stringField "ProcessId of the provider, for kind input or waste"
-                    , "flow" .= stringField "Flow id, for kind biosphere, or for kind input or waste naming no provider"
+                    , "provider" .= stringField "ProcessId of the supplier, for kind input or waste"
+                    , "flow" .= stringField "Flow id, for kind biosphere, or for kind input or waste naming no supplier"
                     , "location" .= stringField "With a flow of kind input or waste: the location the line states (\"\" for none); omitted, any"
                     ]
             , "required" .= (["kind"] :: [Text])
@@ -563,7 +563,7 @@ paramsToSchema ps =
                 .= object
                     [ "provider" .= stringField providerDesc
                     , "amount" .= numberField "Amount exchanged"
-                    , "unit" .= stringField "Unit the amount is stated in. Defaults to the provider's own reference unit."
+                    , "unit" .= stringField "Unit the amount is stated in. Defaults to the reference unit of the 'provider' process."
                     , "comment" .= stringField "Free-text note on this line"
                     ]
             , "required" .= (["provider", "amount"] :: [Text])
@@ -1214,9 +1214,9 @@ callGetActivity licence rid args (db, _) = runTool rid $ do
         -- subset, and nothing in the reply says otherwise.
         Error _
             -- Unread, its amounts cannot be taken out, so it is not handed over.
-            | not (granted licence ReadInventory) -> toolError rid "Could not read this activity's exchanges to withhold their amounts"
+            | not (granted licence ReadInventory) -> toolError rid "Could not read this process's exchanges to withhold their amounts"
             | noFilters -> toolSuccessJson rid val
-            | otherwise -> toolError rid "Could not read this activity's exchanges, so the filters asked for could not be applied"
+            | otherwise -> toolError rid "Could not read this process's exchanges, so the filters asked for could not be applied"
         Success ai ->
             -- Single resolve: take the activity name from the 'ActivityInfo'
             -- already in hand instead of asking the engine to resolve the PID again.
@@ -2522,7 +2522,7 @@ optionally pinned to a collection. Thin IO edge over 'selectMethod'.
 resolveMethod :: DatabaseManager -> Maybe Text -> Text -> IO (Either Text (DM.CollectionName, Method))
 resolveMethod dbManager mCollection methodIdText =
     case UUID.fromText methodIdText of
-        Nothing -> return $ Left "Invalid method UUID format"
+        Nothing -> return $ Left "Invalid impact category UUID format"
         Just uuid ->
             bimap methodRefusalMessage (first DM.CollectionName) . selectMethod mCollection uuid
                 <$> DM.getLoadedMethods dbManager

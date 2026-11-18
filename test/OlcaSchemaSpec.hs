@@ -284,8 +284,8 @@ spec = do
             oimName <$> choosePackageMethod (Just "IPCC 2021") held `shouldBe` Right "IPCC 2021"
             oimName <$> choosePackageMethod Nothing (take 1 held) `shouldBe` Right "EF 3.1"
             choosePackageMethod Nothing held `shouldSatisfy` refusedWith "\"EF 3.1\", \"IPCC 2021\""
-            choosePackageMethod (Just "ReCiPe") held `shouldSatisfy` refusedWith "no method named \"ReCiPe\""
-            choosePackageMethod (Just "ReCiPe") [] `shouldBe` Left "the package holds no method"
+            choosePackageMethod (Just "ReCiPe") held `shouldSatisfy` refusedWith "no method collection named \"ReCiPe\""
+            choosePackageMethod (Just "ReCiPe") [] `shouldBe` Left "the package holds no method collection"
 
         it "refuses a single-score factor that names no category" $
             let unnamed =
@@ -312,7 +312,7 @@ spec = do
                         map methodName (mcMethods collection) `shouldBe` ["Acidification"]
                         map ssName (mcScoringSets collection) `shouldBe` ["EF 3.1 weighting"]
                 unnamed <- loadMethodCollectionFromPath Nothing Nothing root
-                unnamed `shouldSatisfy` refusedWith "several methods"
+                unnamed `shouldSatisfy` refusedWith "several method collections"
                 notPackage <- loadMethodCollectionFromPath Nothing (Just "EF 3.1") (root </> "lcia_categories")
                 notPackage `shouldSatisfy` refusedWith "is not an openLCA method package"
 

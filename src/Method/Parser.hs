@@ -263,13 +263,13 @@ closeTag state tagName
 buildMethod :: M.Map UUID ILCDFlowInfo -> ParseState -> Either String Method
 buildMethod flowInfo state = do
     when (T.null (psMethodId state)) $
-        Left "Missing method UUID"
+        Left "Missing impact category UUID"
     when (T.null (psMethodName state)) $
-        Left "Missing method name"
+        Left "Missing impact category name"
 
     methodUUID <- case UUID.fromText (psMethodId state) of
         Just u -> Right u
-        Nothing -> Left $ "Invalid method UUID: " ++ T.unpack (psMethodId state)
+        Nothing -> Left $ "Invalid impact category UUID: " ++ T.unpack (psMethodId state)
 
     let factors = reverse (psFactors state)
         enrichedFactors = map (enrichCF flowInfo) factors

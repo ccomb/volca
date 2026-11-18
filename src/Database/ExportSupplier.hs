@@ -77,7 +77,7 @@ dependenciesOf indexed db = do
     named <- traverse elsewhere answered
     case [key | (key, n) <- M.toList (M.fromListWith (+) [(key, 1 :: Int) | (key, _) <- named]), n > 1] of
         [] -> Right (Dependencies (M.fromList named))
-        ((act, prod, _) : _) -> Left (refusal act prod "several activities of its dependencies supply it, each a share")
+        ((act, prod, _) : _) -> Left (refusal act prod "several processes of its dependencies supply it, each a share")
   where
     answered :: [((UUID, UUID, Int), CrossDBLink)]
     answered =
@@ -227,7 +227,7 @@ unnamedWarnings deps db =
     [ T.pack (show (length dangling)) <> " inputs link to a supplier neither the database nor its dependencies hold, so a re-import looks for one by the product alone:" <> foldMap ("\n  " <>) (take 10 dangling)
     | not (null dangling)
     ]
-        <> [ T.pack (show (length unlinked)) <> " inputs buy a product several activities make and link to none of them, so a re-import links them to none:" <> foldMap ("\n  " <>) (take 10 unlinked)
+        <> [ T.pack (show (length unlinked)) <> " inputs consume a product several processes make and link to none of them, so a re-import links them to none:" <> foldMap ("\n  " <>) (take 10 unlinked)
            | not (null unlinked)
            ]
   where

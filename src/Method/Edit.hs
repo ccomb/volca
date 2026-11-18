@@ -76,8 +76,8 @@ data MethodEditRefusal
 refusalText :: MethodEditRefusal -> Text
 refusalText = \case
     CollectionNotFound n -> "Method collection not found: " <> n
-    CollectionNotLoaded n -> "Load " <> n <> " first: a change applies to the collection in use"
-    NotEditable n -> n <> " is a collection the configuration declares, or one built into the engine. Copy it, and change the copy."
+    CollectionNotLoaded n -> "Load " <> n <> " first: a change applies to the method collection in use"
+    NotEditable n -> n <> " is a method collection the configuration declares, or one built into the engine. Copy it, and change the copy."
     NameTaken n -> "A method collection is already named " <> n
     EditRefused t -> t
 

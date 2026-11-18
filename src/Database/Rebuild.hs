@@ -120,7 +120,7 @@ deleteActivitiesWith unitConfig pids db = do
         unlink = unlinkActivity survivors (M.map suppliedFrom removed)
         unlinkedMap = M.map unlink survivors
     if M.null unlinkedMap
-        then Left "Refusing to delete: the result would have no activities"
+        then Left "Refusing to delete: the result would have no processes"
         else rebuildFromActivities unitConfig db unlinkedMap
 
 {- | Resolve each requested 'ProcessId' to its @(activityUUID, productUUID)@ key.

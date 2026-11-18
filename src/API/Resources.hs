@@ -607,10 +607,11 @@ description r = case r of
         \over (system, value, mode) filters, for search_activities' classification \
         \parameters."
     SearchActivities ->
-        "LCA / ACV: search activities (processes) by name, geography, product, \
+        "LCA / ACV: search processes by name, geography, product, \
         \classification or preset. Ranked, paginated, best first, with process \
-        \IDs. Activity and product names together must hold every word, or a close \
-        \spelling. Entry point for any product or process question, any language: \
+        \IDs. Activity and product names together must hold every \
+        \word, or a close spelling. Entry point for any \
+        \product or process question, any language: \
         \food (yaourt, steak, pain, lait, fromage), packaging (PET, verre, carton), \
         \matériaux, énergie, transport, empreinte carbone, empreinte \
         \environnementale, impact environnemental, occupation des sols, surface \
@@ -620,35 +621,39 @@ description r = case r of
         \Nothing fits: try the database's own wording, or a broader word."
     SearchFlows ->
         "LCA / ACV: search flows by name. 'kind': biosphere (substance exchanged \
-        \with nature: CO2, CH4, water, land occupation), technosphere (product one \
-        \activity makes, another consumes) or waste. kind=biosphere keeps \
-        \substances only, what factor and inventory questions want. Biosphere \
-        \'category' is the medium (air, water, soil, resource): resource taken vs \
+        \with nature: CO2, CH4, water, land occupation), technosphere (product \
+        \one process makes, another consumes) or waste. kind=biosphere keeps \
+        \substances only, what factor and inventory questions \
+        \want. For kind=biosphere, 'category' is the medium \
+        \(air, water, soil, resource): resource taken vs \
         \emission released; other kinds have none."
     GetActivity ->
-        "LCA / ACV: one activity in detail: name, location, exchanges, reference \
+        "LCA / ACV: one process in detail: \
+        \name, location, exchanges, reference \
         \product, metadata, parameters its formulas read (own and database's), \
-        \input uncertainty. Amounts are as the dataset declares them, where \
+        \input uncertainty. Amounts are as the process declares them, where \
         \computed tools are for 1 unit, the functional unit of their answer. \
         \exchange_type / is_input / flow filter exchanges. \
         \Metadata (description, documentation, source) comes with every filter; \
         \without hundreds of exchanges: exchange_type=technosphere, \
         \is_input=false."
     Aggregate ->
-        "LCA / ACV: sum exchanges, supply-chain entries or biosphere flows with \
-        \group-by filters: any 'how much X in Y' in one call, e.g. 'combien de \
+        "LCA / ACV: sum exchanges, upstream entries, or \
+        \emissions and resources, with group-by filters: any \
+        \'how much X in Y' in one call, e.g. 'combien de \
         \surface agricole / d'eau / d'énergie dans un produit ?' via \
         \scope=biosphere or scope=supply_chain. Examples:\n\
         \  - Electricity in direct inputs: scope=direct, is_input=true, filter_name=Electricity, filter_unit=kWh\n\
         \  - Mass breakdown of direct inputs: scope=direct, is_input=true, filter_unit=kg, group_by=name\n\
-        \  - Energy across the supply chain: scope=supply_chain, max_depth=2, filter_classification=[\"Category type=energy:exact\"]\n\
+        \  - Energy upstream: scope=supply_chain, max_depth=2, filter_classification=[\"Category type=energy:exact\"]\n\
         \  - Largest pasture occupation flow: scope=biosphere, filter_name=Occupation, pasture, group_by=name\n\
         \  - Upstream electricity without double counting: scope=consumption, filter_name=electricity, filter_consumer_not=electricity\n\
-        \  - Grass eaten by cattle over the chain: scope=consumption, filter_name=grass, filter_consumer=cattle\n\
-        \scope=supply_chain rows are cumulative productions: a filtered product \
+        \  - Grass eaten by cattle upstream: scope=consumption, filter_name=grass, filter_consumer=cattle\n\
+        \scope=supply_chain rows are cumulative \
+        \upstream amounts: a filtered product \
         \feeding another (electricity high→medium→low voltage) counts twice. \
-        \scope=consumption: one row per scaled technosphere edge (product, \
-        \supplier, consumer), so sums are real consumption; gross throughput by \
+        \scope=consumption: one row per scaled supplier → consumer edge (with \
+        \its product), so sums are real consumption; gross throughput by \
         \default, filter_consumer_not drops edges inside the family. Byproduct \
         \edges stay negative. filter_classification: \"System=Value[:exact]\" \
         \(default contains). Amounts are for 1 unit of the reference product; see \
@@ -656,37 +661,44 @@ description r = case r of
         \'quantityPerUnit'. Inputs no loaded database supplies count as zero, in \
         \'cutoffInputs'; 'withheldCutoffs' counts those a licence hides."
     GetSupplyChain ->
-        "LCA / ACV: flat list of all upstream activities (chaîne amont, filière, \
+        "LCA / ACV: flat list of all upstream \
+        \processes (chaîne amont, filière, \
         \intrants). 'quantityPerUnit': cumulative amount for 1 unit of the \
         \reference product (see 'functionalUnit'); step yield = supplier's \
         \scalingFactor ÷ consumer's. Summing entries feeding each other \
         \(electricity high→medium→low voltage) counts twice: use aggregate \
-        \scope=consumption for totals. 'unit' is the producer's reference unit, \
+        \scope=consumption for totals. 'unit' \
+        \is the supplier's reference unit, \
         \which SimaPro and Brightway Excel imports write in the dimension's \
-        \canonical unit (kg, mj, m3), so may differ from the consuming line's: \
+        \canonical unit (kg, mj, m3), so may differ \
+        \from the unit on the consumer's line: \
         \0.22 kWh shows in mj (1 kWh = 3.6 MJ). Read it off the entry. Inputs no \
         \loaded database supplies count as zero, in 'cutoffInputs'; \
         \'withheldCutoffs' counts those a licence hides."
     GetInventory ->
-        "LCA / ACV: Life Cycle Inventory (LCI) of an activity's whole chain: \
-        \biosphere flows (emissions, extractions) as statistics and top flows by \
-        \quantity. Use it, not get_impacts, for raw physical flows rather than \
+        "LCA / ACV: Life Cycle Inventory (LCI) of a process and its whole \
+        \upstream: emissions and resources as statistics and top flows by \
+        \amount. Use it, not get_impacts, for raw physical flows rather than \
         \weighted scores: land / pasture occupation (m²·year), water withdrawal \
-        \(m³), emissions (kg CO₂, kg CH₄, kg N), resource extraction. Quantities \
-        \are for 1 unit of the reference product; see 'functional_unit'. Inputs \
+        \(m³), emissions (kg CO₂, kg CH₄, kg N), resource \
+        \extraction. Amounts are for 1 unit of the \
+        \reference product; see 'functional_unit'. Inputs \
         \no loaded database supplies count as zero: 'cutoff_notice' opens the \
         \answer, 'cutoff_inputs' lists them, 'withheld_cutoffs' counts those a \
         \licence hides."
     GetImpacts ->
-        "LCA / ACV: LCIA score of an activity for one impact category, with \
+        "LCA / ACV: LCIA score of a process for one impact category, with \
         \functional unit and top contributing flows. Answers empreinte carbone / \
-        \environmental footprint questions, any category (climate change, \
+        \environmental footprint questions, \
+        \any impact category (climate change, \
         \acidification, eutrophication, land use, water scarcity, resource \
         \depletion); prefer it to web estimates. Flow 'match_kind': how its factor \
         \was found (rungs on explain_cf), null if none reaches it. \
-        \'probable_misses': flows scored without a factor though the method writes \
-        \their substance elsewhere in their medium, at a subcompartment the flow \
-        \does not read, where the collection writes nothing at the flow's own \
+        \'probable_misses': flows scored without a factor though \
+        \the impact category writes their substance elsewhere in \
+        \their medium, at a subcompartment the flow \
+        \does not read, where the method collection \
+        \writes nothing at the flow's own \
         \place; 'writtenAt' says where, 'upTo' what it would add at the largest of \
         \those factors, in the score's unit. 'basis' as on score_activity. Inputs \
         \no loaded database supplies count as zero: 'cutoff_notice' opens the \
@@ -694,8 +706,8 @@ description r = case r of
         \licence hides."
             <> webUrlTip
     ComputeSensitivity ->
-        "LCA / ACV: sensitivity: score relative perturbations of technosphere \
-        \coefficients. Each (consumer, supplier, delta) multiplies A_ij by \
+        "LCA / ACV: sensitivity: score relative perturbations of supplier → \
+        \consumer amounts. Each (consumer, supplier, delta) multiplies A_ij by \
         \(1+delta): +0.05 is +5%, -1 removes the link. Returns baseline, then per \
         \perturbation new score and deltaImpact; an error (no link, singular \
         \update) stays in its entry, the sweep goes on. Rank-1 updates on the \
@@ -703,14 +715,16 @@ description r = case r of
         \score_activity."
             <> webUrlTip
     GetReducedModel ->
-        "LCA / ACV: an activity's scores as a function of some input parameters, \
+        "LCA / ACV: a process's scores as a function of some input parameters, \
         \to run many values outside the engine (Monte Carlo, Sobol). Parameters as \
         \get_activity lists them: {name} for the database's, {process, name} for a \
-        \process's own. Per method of the collection: score at the database's \
+        \process's own. Per impact category of the \
+        \method collection: score at the database's \
         \values ('baseline'); processes these parameters move, with exchanges as \
         \formula trees, stored amounts, emission factors; suppliers' unit scores \
-        \and the scaling each gives the moving processes; scoring sets as \
-        \formulas over category totals. Refused when a parameter moves an \
+        \and the scaling each gives the moving processes; \
+        \scoring sets as formulas over impact category \
+        \totals. Refused when a parameter moves an \
         \allocation share, or more than "
             <> T.pack (show maxProcesses)
             <> " processes."
@@ -727,27 +741,33 @@ description r = case r of
         \number times one) whose unit does not convert to the line's is warned; \
         \products and quotients of units are not judged."
     ListMethods ->
-        "LCA / ACV: loaded LCIA methods, one per impact category (climate change, \
+        "LCA / ACV: the impact categories of the \
+        \loaded method collections (climate change, \
         \acidification, eutrophication, land use, water scarcity…)."
     GetFlowMapping ->
-        "LCA / ACV: how a method's characterization factors map onto database \
+        "LCA / ACV: how an impact category's \
+        \characterization factors map onto database \
         \flows, with match coverage."
     GetCharacterization ->
-        "LCA / ACV: a method's characterization factors matched to database \
-        \flows. No 'flow': top factors by absolute value; with it, a name search. \
+        "LCA / ACV: an impact category's characterization \
+        \factors matched to database flows. No 'flow': top \
+        \factors by absolute value; with it, a name search. \
         \Gives CF value, direction, matched flow, match strategy."
     ExplainCF ->
-        "LCA / ACV: why one elementary flow scores with its characterization \
-        \factor, and which method line applied. Relay the 'explanation' sentences \
+        "LCA / ACV: why one emission or resource scores with its \
+        \characterization factor, and which line of the impact \
+        \category applied. Relay the 'explanation' sentences \
         \as written; do not decode the codes yourself. 'outcome': characterized, \
         \conversion_refused (factor found, unit does not convert: scores nothing) \
-        \or no_factor. 'match.rung', how the factor was found: flow_id (flow named \
-        \by the method), same_unit_name (line in the flow's unit), exact_name \
+        \or no_factor. 'match.rung', how the factor was \
+        \found: flow_id (flow named by the impact category), \
+        \same_unit_name (line in the flow's unit), exact_name \
         \(name and compartment), compartment_default (the compartment's line), \
         \if_absent (subcompartment without line, sent to another by the \
         \compartment table), resource_unspecified (resource read at its name's \
         \unspecified line), cas_number (same CAS), region_base_name (base \
-        \substance, region suffix untagged by the method), energy_content (charge \
+        \substance, region suffix untagged by the \
+        \impact category), energy_content (charge \
         \per energy, or the carrier family's factor over its energy content, \
         \applied to the content the name states), ore_base_element (graded ore's \
         \base element). 'steps_tried': rungs tried before. \
@@ -758,80 +778,91 @@ description r = case r of
         \different_dimensions, no_base_unit, energy_bridge_failed."
             <> webUrlTip
     GetFlowFactors ->
-        "LCA / ACV: which impact categories count one elementary flow, with what \
-        \factor, in every loaded collection (or one): 'does this emission count \
-        \anywhere?' in one call; explain_cf answers one method at a time. Per \
-        \collection, 'factors' lists methods with something to say, shaped as \
+        "LCA / ACV: which impact categories count one flow, with what factor, \
+        \in every loaded method collection (or one): 'does this emission count \
+        \anywhere?' in one call; explain_cf answers one impact \
+        \category at a time. Per method collection, 'factors' \
+        \lists impact categories with something to say, shaped as \
         \explain_cf answers (relay 'explanation'). 'outcome': characterized, \
         \conversion_refused (factor unusable: scores nothing), or no_factor with \
-        \'regionalFactorCount' > 0: charged by the emitting activity's location, \
-        \so it counts though no single factor answers. 'noFactor': methods giving \
-        \no factor anywhere. All 'factors' empty: the flow adds nothing to any \
+        \'regionalFactorCount' > 0: charged \
+        \by the emitting process's location, \
+        \so it counts though no single factor answers. \
+        \'noFactor': impact categories giving no factor anywhere. \
+        \All 'factors' empty: the flow adds nothing to any \
         \score, whatever its amount."
             <> webUrlTip
     GetContributingFlows ->
-        "LCA / ACV: elementary flows (emissions, resources) weighing most in one \
-        \impact category: 'which emissions drive my climate change score?'. Flow \
+        "LCA / ACV: emissions and resources weighing most in one impact \
+        \category: 'which emissions drive my climate change score?'. Flow \
         \'match_kind': how its factor was found (rungs on explain_cf), null if \
         \none reaches it. 'basis' as on score_activity."
             <> webUrlTip
     GetContributingActivities ->
-        "LCA / ACV: upstream activities weighing most in one impact category: \
+        "LCA / ACV: upstream processes weighing most in one impact category: \
         \'which suppliers drive my climate change score?'. Exact matrix \
         \computation, valid for cyclic chains. 'basis' as on score_activity."
             <> webUrlTip
     GetScoreContributingFlows ->
-        "LCA / ACV: elementary flows weighing most in one score of a scoring set \
-        \(one number weighing a collection's indicators; list_scoring_sets): \
-        \'which emissions drive my single score?'. Contribution = weighted sum \
-        \over indicators, so flows add up to score_activity's score. 'cf_value': \
-        \what one unit of the flow adds. A score that is not a weighted sum of \
-        \indicators has no split: refused. 'basis' as on score_activity."
+        "LCA / ACV: emissions and resources weighing most in one \
+        \score of a scoring set (one number weighing a method \
+        \collection's impact categories; list_scoring_sets): \
+        \'which emissions drive my single score?'. Contribution \
+        \= weighted sum over impact categories, so flows add up \
+        \to score_activity's score. 'cf_value': \
+        \what one unit of the flow adds. A score that is \
+        \not a weighted sum of impact categories has no \
+        \split: refused. 'basis' as on score_activity."
             <> webUrlTip
     GetScoreContributingActivities ->
-        "LCA / ACV: upstream activities weighing most in one score of a scoring \
+        "LCA / ACV: upstream processes weighing most in one score of a scoring \
         \set (list_scoring_sets): 'which suppliers drive my single score?'. \
-        \Contribution = weighted sum over indicators, so activities add up to \
-        \score_activity's score. A score that is not a weighted sum of indicators \
-        \has no split: refused. 'basis' as on score_activity."
+        \Contribution = weighted sum over impact \
+        \categories, so processes add up to \
+        \score_activity's score. A score that is not a weighted sum of impact \
+        \categories has no split: refused. 'basis' as on score_activity."
             <> webUrlTip
     ListGeographies ->
         "LCA / ACV: a database's geography codes, with display names and parent \
         \regions. 'geo' is search_activities' geography filter."
     ListClassifications ->
-        "LCA / ACV: a database's classification systems. No 'system': names and \
-        \activity counts only. With it: all its values, 'filter' narrowing by \
+        "LCA / ACV: a database's classification systems. \
+        \No 'system': names and process counts only. \
+        \With it: all its values, 'filter' narrowing by \
         \substring."
     GetPathTo ->
-        "LCA / ACV: shortest supply-chain path from a process to the first \
-        \upstream activity whose name matches a pattern. Each step: \
+        "LCA / ACV: shortest upstream path from a process to the first \
+        \upstream process whose name matches a pattern. Each step: \
         \cumulativeQuantityPerUnit (cumulative amount for 1 unit of the \
         \reference product; see the top-level 'functionalUnit'), scalingFactor, \
-        \localStepRatio (upstream ÷ downstream scaling factor); total_ratio, \
+        \localStepRatio (supplier's ÷ consumer's scalingFactor); total_ratio, \
         \their product, is the end-to-end conversion factor."
     GetConsumers ->
-        "LCA / ACV: every activity consuming a supplier, directly or not, as a \
-        \flat list; crDepth 1 = direct consumer, 2 = consumer's consumer… Traces a \
-        \raw material downstream, e.g. processed foods made with one ingredient."
+        "LCA / ACV: every process consuming a supplier, directly or \
+        \not, as a flat list; crDepth 1 = direct consumer, 2 = \
+        \consumer's consumer… Follows a raw material to what consumes \
+        \it, e.g. processed foods made with one ingredient."
     CountSearchMatches ->
         "LCA / ACV: how many processes, products and flows one query matches in a \
-        \database, one call. Disjoint, together the whole database: process = \
-        \activity row (searched, read, scored), product = technosphere flow one \
-        \activity makes and another consumes, flow = exchanged with nature or \
+        \database, one call. Disjoint, together the whole database: process \
+        \= what is searched, read, scored, product = what one process makes \
+        \and another consumes, flow = exchanged with nature or \
         \discarded. Tells what a query is about before listing: 2 processes and \
         \300 flows is a substance, not a product."
     CompareImpacts ->
-        "LCA / ACV audit: score one logical activity on two (database, method) \
-        \pairs: per-category delta and per-flow drill-down. For cross-database \
+        "LCA / ACV audit: score one logical process on two \
+        \(database, impact category) pairs: per-impact-category \
+        \delta and per-flow drill-down. For cross-database \
         \mapping audits, e.g. BAFU + EF3.1 vs SimaPro + EF3.1: flows diverging from \
         \mapping gaps, not chemistry. Headline delta.relative_pct, driven down by \
         \synonym pairs in data/flows.csv or a regenerated chem_synonyms snapshot. \
         \Each side carries 'probable_misses' (see get_impacts) and 'basis' (see \
         \score_activity)."
     CompareActivities ->
-        "LCA / ACV: compare two activities line by line: lines only one has, \
-        \lines whose amount or unit differ. Other activity may be in another \
-        \loaded database (other_database): adapted copy vs original. Lines pair on \
+        "LCA / ACV: compare two processes line by line: lines only one has, \
+        \lines whose amount or unit differ. Other process \
+        \may be in another loaded database (other_database): \
+        \adapted copy vs original. Lines pair on \
         \flow id and role, then flow name (case, trailing ' {GEO}' and SimaPro's \
         \' U'/' S' aside), compartment and role; 'match' says which ('SameFlow', \
         \'SameFlowName'). Role is part of a line: input turned coproduct = one \
@@ -844,24 +875,27 @@ description r = case r of
         \by its reference line. Nothing listed: same content."
     CompareDatabases ->
         "LCA / ACV: compare two loaded databases, usually two versions: \
-        \activities added, removed, changed (with compare_activities' detail). \
+        \processes added, removed, changed (with compare_activities' detail). \
         \Pairing cascade, each rung on what earlier ones left: 'SameProcessId' \
         \(same activityUUID_productUUID), 'SameNames' (activity and product names, \
         \case, trailing ' {GEO}' and SimaPro's ' U'/' S' aside, same location), \
         \'SameProduct' (same reference product flow, location and activity kind, \
         \so no market pairs a production), 'SameCutNames' (names over 80 \
-        \characters cut with their geography, as SimaPro does). Changed activities \
-        \name their rung. A key several activities share, either side, pairs none: \
+        \characters cut with their geography, as SimaPro \
+        \does). Changed processes name their rung. A key \
+        \several processes share, either side, pairs none: \
         \'ambiguous', not compared. Only stated dates differ: 'redated'; same \
         \content: 'unchanged', with rung; the three lists are all pairs. \
         \'database' is the base, usually older. Counts cover full lists, limit \
         \truncates each: pass one in a conversation (thousands differ, \
         \'unchanged' holds nearly all)."
     CompareMethodCollections ->
-        "LCA / ACV: compare two loaded method collections, usually two versions or \
-        \ports of a method: per category pair, factors added, removed, changed \
-        \(both values and ratio). Categories pair on 'pairs', then \
-        \'SameMethodName', then 'SameImpactCategory', case and spacing aside; a \
+        "LCA / ACV: compare two loaded method collections, usually \
+        \two versions or ports of one method collection: per \
+        \impact category pair, factors added, removed, changed \
+        \(both values and ratio). Impact categories pair on 'pairs', then \
+        \by name ('SameMethodName'), then by the group label each \
+        \carries ('SameImpactCategory'), case and spacing aside; a \
         \name several share is 'ambiguous', settled by 'base=other' in 'pairs'. \
         \Factors pair per direction, compartment and location in a cascade: \
         \'SameFlowId', 'SameName', 'SameSynonymClass', 'SameCAS' (refused when the \
@@ -873,9 +907,11 @@ description r = case r of
         \natural-resource medium read in the land subcompartment, every land \
         \factor as input. 'reading': how both values were read per unit; equal \
         \within relative 1e-9. 'collection' is the base. Counts cover full lists, \
-        \limit truncates each list of each category: pass one in a conversation."
+        \limit truncates each list of each impact \
+        \category: pass one in a conversation."
     ProfileMethodCollection ->
-        "LCA / ACV: what each category of a loaded collection holds, without \
+        "LCA / ACV: what each impact category of a \
+        \loaded method collection holds, without \
         \listing factors: factors per medium ('media', none for unfiled), how many \
         \written for one location and over how many locations, how many carry it \
         \at the end of the name ('Ammonia, FR'), how many zero, how many pattern or \
@@ -883,59 +919,72 @@ description r = case r of
         \pair them). Compartments and locations read as \
         \compare_method_collections does."
     ScoreActivity ->
-        "LCA / ACV: an activity's full LCIA panel and every configured scoring set \
-        \in one call: per-method scores, per-set scores and indicator breakdown \
+        "LCA / ACV: a process's full LCIA panel \
+        \and every configured scoring set \
+        \in one call: per-impact-category scores, \
+        \per-set scores and impact category breakdown \
         \(one entry per scoring variable), display units, 'web_url'. One batched \
-        \solve instead of get_impacts per method. list_scoring_sets names the \
-        \sets. exchange_contributions splits each score by the activity's own \
-        \lines, to group into stages (ingredients, transport, packaging). Inputs \
+        \solve instead of get_impacts per impact \
+        \category. list_scoring_sets names the \
+        \sets. exchange_contributions splits each score \
+        \by the process's own lines, to group into stages \
+        \(ingredients, transport, packaging). Inputs \
         \no loaded database supplies count as zero, in 'cutoffInputs'; \
         \'withheldCutoffs' counts those a licence hides. 'basis': what the score \
         \rests on (engine and commit; each database read, its release, whether \
         \copied, edited, allocated otherwise or patched; method collection, \
-        \whether a modified copy; substitutions and parameter values sent). Quote \
+        \whether a modified copy; swaps and parameter values sent). Quote \
         \it with the number: scores compare only on the same basis."
             <> webUrlTip
     ScoreActivities ->
-        "LCA / ACV: rank N activities on one scoring set, one call. Columnar JSON \
+        "LCA / ACV: rank N processes on one \
+        \scoring set, one call. Columnar JSON \
         \{scoring_set, scoring_unit, functional_unit?, columns, rows, not_found, \
         \invalid, unscorable, unsolvable, cutoff_notice?, \
         \cutoff_inputs_by_process_id?, withheld_cutoffs_by_process_id?}. \
-        \'columns' heads 'rows' (one scalar array per activity): ['name', \
-        \'process_id', 'web_url', 'total', 'cutoffs', <indicator keys...>]; \
-        \'cutoffs' counts the row's chain inputs no loaded database supplies \
+        \'columns' heads 'rows' (one scalar array per process): ['activity_name', \
+        \'process_id', 'web_url', 'total', \
+        \'cutoffs', <impact category keys...>]; \
+        \'cutoffs' counts the row's upstream \
+        \inputs no loaded database supplies \
         \(scored zero, listed in 'cutoff_inputs_by_process_id'). \
         \'functional_unit' ({amount: 1, unit, product}: every score is for one \
         \unit of the reference product) top-level when all rows share it, else \
         \a column holding that object per row. No \
-        \per-method scores: score_activity gives them. Unresolved IDs: not_found / \
+        \per-impact-category scores: score_activity \
+        \gives them. Unresolved IDs: not_found / \
         \invalid; refused allocation: unscorable; no solver answer (a loop \
         \consuming all it makes): unsolvable; one line per reason with its \
         \process_ids, the rest still ranked. 'basis' once for all (see \
         \score_activity); a row's parameter set is a position in 'parameterSets'. \
         \Set that weighs (list_scoring_sets): quote 'reading_notice' with any \
-        \comparison. Collection with several sets: pass scoring_sets: \
-        \[\"<one>\"]. 'parameter_sets': each activity scored at each set, \
+        \comparison. Method collection with several sets: pass scoring_sets: \
+        \[\"<one>\"]. 'parameter_sets': each process scored at each set, \
         \'parameter_set' column after 'process_id'."
             <> webUrlTip
     ListScoringSets ->
-        "LCA / ACV: formula-based scoring sets of loaded collections, each \
-        \aggregating category scores into weighted or normalized 'score' values \
+        "LCA / ACV: formula-based scoring sets of loaded \
+        \method collections, each aggregating impact category \
+        \scores into weighted or normalized 'score' values \
         \(e.g. single score plus per-area-of-protection sub-scores). Per set: \
-        \name, display unit, variables (each with its category), computed \
-        \intermediates, display labels (variable → indicator name), normalization \
+        \name, display unit, variables (each \
+        \with its impact category), computed \
+        \intermediates, display labels (variable \
+        \→ impact category name), normalization \
         \and weighting factors, score formulas; the same set as 'rows' (label, \
-        \categories with coefficient or formula, normalization, weight) with \
+        \impact categories with coefficient or \
+        \formula, normalization, weight) with \
         \'sum_of_rows', scores adding up the rows, which a new row joins. \
-        \'weighs': scores rest on value choices (a category weighed or counted \
-        \otherwise than once, or normalized categories added), which ISO 14044 \
+        \'weighs': scores rest on value choices (an impact \
+        \category weighed or counted otherwise than once, or \
+        \normalized impact categories added), which ISO 14044 \
         \forbids in a comparison disclosed to the public. Set names key \
         \score_activity / score_activities answers; edit_scoring_sets changes rows \
         \by variable."
     GetGapReport ->
         "LCA / ACV: supplier gaps of a database: input demands still unsupplied \
         \after internal resolution and cross-database linking, per (product, \
-        \supplier activity named, location, unit), ranked by demanding edges. Each \
+        \supplier asked for, location, unit), ranked by demanding edges. Each \
         \gap: every blocking reason, consumer edge and distinct consumer counts, \
         \total demand, top consumers. 'What is missing to switch or complete this \
         \database's background?', typically after a relink."
@@ -955,34 +1004,40 @@ description r = case r of
         \transformation 'to'/'from' areas; impossible oxygen-demand or \
         \organic-carbon order (BOD5 > COD, dissolved > total organic carbon); \
         \failing CAS check digit. Finding: severity (danger, warning, info), \
-        \activity, detail. get_gap_report answers 'what is missing?'."
+        \process, detail. get_gap_report answers 'what is missing?'."
     GetComputedQualityReport ->
         "LCA / ACV: computed checks of a LOADED database, judged against the \
-        \catalogue's own norms. Scores every (activity, product) entry with one \
-        \collection (the only loaded one, or 'collection'): per-category outliers \
-        \on a log scale by median/MAD within (category, reference unit) groups (a \
+        \catalogue's own norms. Scores every process with \
+        \one method collection (the only loaded one, or \
+        \'collection'): per-impact-category outliers \
+        \on a log scale by median/MAD within (impact \
+        \category, reference unit) groups (a \
         \mg-read-as-kg slip lands three orders out); entries scoring zero \
         \everywhere (empty or uncharacterized inventory); negative scores (info: \
         \fine where avoided-production credits or waste treatment dominate). \
         \get_quality_report checks what is STORED, staged databases too; this \
-        \needs matrices and a loaded collection. Same finding shape."
+        \needs matrices and a loaded method collection. Same finding shape."
     GetCoverageReport ->
-        "LCA / ACV: characterization coverage of a database against loaded \
-        \collections, for maintainers. Lists flows a method scores ONLY through a \
-        \name bridge (synonym or CAS): VoLCA scores them, a tool matching factors \
-        \by exact name scores them zero, silently. Grouped under the method's own \
-        \name (rename target). One entry per collection, so two versions compare \
-        \side by side; optionally one collection."
+        "LCA / ACV: characterization coverage of a database against \
+        \loaded method collections, for maintainers. Lists flows an \
+        \impact category scores ONLY through a name bridge (synonym \
+        \or CAS): VoLCA scores them, a tool matching factors \
+        \by exact name scores them zero, silently. Grouped under the impact \
+        \category's own name (rename target). One entry per method \
+        \collection, so two versions compare side by side; optionally one."
     EditExchanges ->
-        "LCA / ACV: change what one activity consumes and emits, or its name, \
-        \location, description, keeping the activity: the tool that writes data. \
-        \Adapts an imported dataset to the study: drop an out-of-scope substance, \
+        "LCA / ACV: change what one process consumes and \
+        \emits, or its name, location, description, \
+        \keeping the process: the tool that writes data. \
+        \Adapts an imported process to the \
+        \study: drop an out-of-scope substance, \
         \fix an amount, add a missing supplier, fix name or location, give a line \
-        \a formula, set or remove an activity parameter. Unnamed parts stay \
+        \a formula, set or remove a process parameter. Unnamed parts stay \
         \(classification, synonyms, pedigree, coproducts). Inventory side only: \
-        \input by provider process_id, waste output by treatment process_id, \
-        \biosphere line by flow id (get_activity); reference product and \
-        \coproducts unreachable (they make the activity what it is). Selector \
+        \input by its supplier's process_id, waste output by \
+        \treatment process_id, emission or resource line by flow \
+        \id (get_activity); reference product and coproducts \
+        \unreachable (they make the process what it is). Selector \
         \matching nothing: refused; matching several lines: all edited, count \
         \given. Formulas in the engine's language (get_formula_language; \
         \check_formula tries one). After all changes, a line whose formula no \
@@ -991,25 +1046,27 @@ description r = case r of
         \(shared background): copy first. 'transient': in memory only, an unload \
         \undoes it."
     EditActivities ->
-        "edit_exchanges on several activities as one change: all edits judged \
+        "edit_exchanges on several processes as one change: all edits judged \
         \first, all refused if one is; database rebuilt and relinked once (most of \
         \an edit's cost when large). Each element of edits: {process_id} plus \
         \edit_exchanges' arguments, no note (one note for the change). Each \
         \activity once per request, two products of one activity included. Answer: \
-        \each activity's report in request order, then transient and warnings \
+        \each process's report in request order, then transient and warnings \
         \once."
     SupplyMissing ->
-        "Give a missing product a supplier for every activity lacking it: each \
-        \unanswered input asking for this product (and naming supplier_activity, \
-        \if given) moves to the provider, keeping amount, formula, comment, as \
-        \edit_activities' set_suppliers would. Product and supplier activity: \
-        \name and supplier_activity of a get_gap_report gap. Provider: a \
-        \process_id here or in a dependency, making the product in a unit the \
+        "Give a missing product a supplier for every process lacking it: each \
+        \unanswered input asking for this product (and \
+        \naming 'supplier_activity', if given) moves to the \
+        \new supplier, keeping amount, formula, comment, as \
+        \edit_activities' set_suppliers would. 'product' and \
+        \'supplier_activity': name and supplier_activity of a \
+        \get_gap_report gap. 'provider': a process_id here or \
+        \in a dependency, making the product in a unit the \
         \lines convert from; one line it cannot supply refuses the whole change. \
         \Answers as edit_activities."
     DatabaseHistory ->
         "Every change to a database of one's own, oldest first: when; what, in \
-        \words (activities added, rewritten, deleted; exchanges edited, amounts \
+        \words (processes added, rewritten, deleted; exchanges edited, amounts \
         \before and after; parameters changed); author's reason, if any; the \
         \'database' it was made on. A child lists its parent's changes first (its \
         \data carry them). Databases read from the engine's configuration have \
@@ -1046,46 +1103,54 @@ description r = case r of
         \load)."
     CopyMethodCollection ->
         "LCA / ACV: copy a method collection under a new name, to change it. \
-        \Declared and built-in collections never change in place: their copies \
+        \Declared and built-in method collections \
+        \never change in place: their copies \
         \do. The copy scores as its source until changed, loaded at once, reads \
         \the source's files (source undeletable meanwhile). Named by the slug of \
         \'new_name' (lower case, dashes), given in the response; a taken name is \
         \refused."
     EditMethodFactors ->
-        "LCA / ACV: in a loaded collection of one's own (copy or upload), change, \
+        "LCA / ACV: in a loaded method collection \
+        \of one's own (copy or upload), change, \
         \remove or add one characterization factor, or rescale or set every factor \
         \a selector reaches. 'op': set / remove name a factor by method_id \
-        \(list_methods), flow_id and location (get_characterization or the \
-        \method's factors), 'value' (present value) choosing among several at that \
+        \(list_methods), flow_id and location \
+        \(get_characterization or the impact category's factors), \
+        \'value' (present value) choosing among several at that \
         \place; add names method_id and the whole factor; scale / set-all name a \
         \selector 'match'. Not exactly one factor: refused with candidates; two \
         \identical factors only by selector; a selector touching nothing: refused. \
-        \Response: the journal line and factors touched. Declared collections \
-        \refused: copy_method_collection first."
+        \Response: the journal line and factors touched. Declared \
+        \method collections refused: copy_method_collection first."
     EditMethodCategories ->
-        "LCA / ACV: in a loaded collection of one's own (copy or upload), add, \
+        "LCA / ACV: in a loaded method collection \
+        \of one's own (copy or upload), add, \
         \rename, re-unit or remove an impact category. 'op': add names 'name' and \
         \'unit' (optional 'impact_category', 'methodology'), starting with no \
         \factor (edit_method_factors adds them); rename, set-unit, remove name \
         \'method_id' (list_methods). A rename carries along scoring sets and \
-        \unregionalized categories naming it. Refused: a name in use, removing a \
-        \category a scoring set weighs (set named). Response: journal line and \
+        \unregionalized impact categories naming it. Refused: \
+        \a name in use, removing an impact category a scoring \
+        \set weighs (set named). Response: journal line and \
         \method_id."
     EditMethodScoringSets ->
-        "LCA / ACV: change scoring sets of a loaded collection of one's own (copy \
+        "LCA / ACV: change scoring sets of a loaded \
+        \method collection of one's own (copy \
         \or upload), each named by 'set'. 'op': create from 'rows' (optional \
         \'unit'), remove, rename to 'name', set-unit to 'unit', set-multiplier to \
         \'multiplier' (none drops it); add-row a 'row', change-row / remove-row the \
         \row of 'variable' (list_scoring_sets); set-formula of a computed \
         \'variable'; set-score a 'score' to a 'formula', remove-score. Row: \
         \{label, terms: [{methodId, coefficient}], normalization, weight, unit}, \
-        \categories by method_id (list_methods). A weighted row joins the score \
+        \impact categories by method_id (list_methods). \
+        \A weighted row joins the score \
         \summing the rows; other scores left alone. Refused, in a sentence: \
         \formula naming nothing the set holds, cycle, zero normalization, removing \
         \a row a score reads otherwise. Response: journal line; undo_method_edit \
         \undoes it whole."
     UndoMethodEdit ->
-        "LCA / ACV: undo a change to a collection of one's own by writing its \
+        "LCA / ACV: undo a change to a method \
+        \collection of one's own by writing its \
         \inverse as a new journal line. No 'line': latest change in effect, so \
         \repeated calls walk back one at a time, never into what a copy took from \
         \its source's configuration. 'line': that line, whatever it is (an undo \
@@ -1093,11 +1158,13 @@ description r = case r of
         \later line changed refuses that, named."
     GetMethodHistory ->
         "LCA / ACV: a method collection's journal, one entry per change: line, \
-        \when, what (category, factor, values before and after, selector and \
+        \when, what (impact category, factor, \
+        \values before and after, selector and \
         \factors touched), whether it undoes another line, whether still in \
-        \effect. Declared collections: empty."
+        \effect. Declared method collections: empty."
     SearchMethodFlows ->
-        "LCA / ACV: flows a loaded collection characterizes, once per direction \
+        "LCA / ACV: flows a loaded method collection \
+        \characterizes, once per direction \
         \and compartment, whose name holds every word of 'q' (case aside), by \
         \name. Gives flow_id and compartment for writing a new factor."
 
@@ -1123,7 +1190,7 @@ pProcessId =
         "Process ID (activityUUID_productUUID format)"
 
 pMethodId :: Param
-pMethodId = Param "method_id" "string" Required "Method UUID"
+pMethodId = Param "method_id" "string" Required "Impact category UUID"
 
 {- | Optional collection disambiguator for the @method_id@-only tools. A method
 UUID is a hash of its name, so the same UUID can be loaded under several
@@ -1137,8 +1204,9 @@ pCollection =
         "collection"
         "string"
         Optional
-        "Method collection (list_methods). Only when the method UUID is loaded in \
-        \several collections (e.g. two EF 3.1 versions); an ambiguous UUID fails \
+        "Method collection (list_methods). Only when the impact \
+        \category UUID is loaded in several method collections \
+        \(e.g. two EF 3.1 versions); an ambiguous UUID fails \
         \listing them."
 
 -- | The collection a scoring set is configured on.
@@ -1165,8 +1233,9 @@ pSubstitutions =
         "substitutions"
         "array"
         Optional
-        "What-if supplier swaps, each {from: oldSupplierPID, to: newSupplierPID, \
-        \consumer: consumerPID}; a PID bare (root database) or dbName::pid (other \
+        "Supplier swaps, not saved in the data, each {from: \
+        \oldSupplierPID, to: newSupplierPID, consumer: consumerPID}; \
+        \a PID bare (root database) or dbName::pid (other \
         \database)."
 
 {- | Optional parameter values: the database at these values is the one the
@@ -1192,7 +1261,8 @@ pParameterSets =
         "array"
         Optional
         "Sets of input parameter values, each a list shaped as get_impacts' \
-        \'parameters'. Every activity is scored at each set in turn; without it, \
+        \'parameters'. Every process is scored \
+        \at each set in turn; without it, \
         \at the database's own values."
 
 {- | Optional switch to drop delayed long-term emissions before scoring.
@@ -1234,7 +1304,7 @@ pScoringSetsFilter =
         Optional
         "Scoring set names (list_scoring_sets). score_activity: keeps only these \
         \in scoringResults / scoringUnits / scoringIndicators. score_activities: \
-        \the one set to rank on, one name, auto-picked when the collection has \
+        \the one set to rank on, one name, auto-picked when the method collection has \
         \one. An unknown name fails, listing the names."
 
 -- | Opt-in summary mode for 'score_activities'.
@@ -1244,9 +1314,11 @@ pSummaryOnly =
         "summary_only"
         "boolean"
         Optional
-        "True: one 'dominant_indicator' column instead of per-indicator ones, \
-        \cells {key, share_pct} (e.g. {\"key\": \"ldu\", \"share_pct\": 82.3}), the \
-        \indicator with the largest absolute share of the row's total. For large \
+        "True: one 'dominant_indicator' column \
+        \instead of one per scoring-set column, \
+        \cells {key, share_pct} (e.g. {\"key\": \"ldu\", \
+        \\"share_pct\": 82.3}), the column (an impact category or \
+        \a computed variable) with the largest absolute share of the row's total. For large \
         \batches before score_activity on one PID. Default false."
 
 -- | Parameters accepted by a resource operation.
@@ -1294,14 +1366,14 @@ params r = case r of
         , pProcessId
         , Param "scope" "string" Required "direct | supply_chain | biosphere | consumption"
         , Param "is_input" "boolean" Optional "Only for scope=direct: true=inputs only, false=outputs only"
-        , Param "max_depth" "integer" Optional "Only for scope=supply_chain: max hops from the root activity"
-        , Param "filter_name" "string" Optional "Case-insensitive substring on flow/activity name"
+        , Param "max_depth" "integer" Optional "Only for scope=supply_chain: max hops from the root process"
+        , Param "filter_name" "string" Optional "Case-insensitive substring on flow or process name"
         , Param "filter_name_not" "string" Optional "Comma-separated substring exclude list"
         , Param "filter_unit" "string" Optional "Whole unit name, case-insensitive: \"MJ\" and \"mj\" are the same unit, \"kg\" does not match \"kgm\""
         , Param "preset" "string" Optional "Name of a classification preset (from list_presets): expanded and merged into filter_classification."
         , Param "filter_classification" "array" Optional "List of \"System=Value[:exact]\" strings; defaults to 'contains' mode"
-        , Param "filter_target_name" "string" Optional "Only for scope=direct technosphere or scope=consumption: filter by supplier activity name"
-        , Param "filter_consumer" "string" Optional "Only for scope=consumption: case-insensitive substring on the consuming activity's name"
+        , Param "filter_target_name" "string" Optional "Only for scope=direct on consumed products, or scope=consumption: filter by supplier name"
+        , Param "filter_consumer" "string" Optional "Only for scope=consumption: case-insensitive substring on the consumer's name"
         , Param "filter_consumer_not" "string" Optional "Only for scope=consumption: comma-separated consumer-name exclude list (each item is a substring; a name containing a comma cannot be expressed)"
         , Param "filter_is_reference" "boolean" Optional "Filter by reference-product flag (typically for outputs)"
         , Param "group_by" "string" Optional "name | flow_id | name_prefix | unit | classification.<system> | location | target_name | consumer_name"
@@ -1310,7 +1382,7 @@ params r = case r of
     GetSupplyChain ->
         [ pDatabase
         , pProcessId
-        , Param "name" "string" Optional "Filter by activity name"
+        , Param "name" "string" Optional "Filter by process name"
         , Param "location" "string" Optional "Filter by geography/location: that location, plus every location inside it ('US' also matches 'US-WECC'), case-insensitive"
         , pLimit "Max results (default 100)"
         , Param "min_quantity" "number" Optional "Min 'quantityPerUnit', absolute value: entries at or below it are dropped"
@@ -1326,7 +1398,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "flow" "string" Optional "Flow name or synonym, read as search_flows does: every word, case-blind, any order, punctuation optional"
-        , pLimit "Max flows, largest absolute quantity first. Default: 50 over MCP, all over HTTP"
+        , pLimit "Max flows, largest absolute amount first. Default: 50 over MCP, all over HTTP"
         , pSubstitutions
         , pParameters
         ]
@@ -1339,7 +1411,7 @@ params r = case r of
         , pSubstitutions
         , pParameters
         , pExcludeLongTerm
-        , Param "include_diagnostics" "boolean" Optional "True: uncharacterized flows above 0.1% of total |qty|, each with up to 3 similar candidate CFs (PubChem-expanded Jaccard + CAS), to tell method gaps from mapping bugs."
+        , Param "include_diagnostics" "boolean" Optional "True: uncharacterized flows above 0.1% of total |amount|, each with up to 3 similar candidate CFs (PubChem-expanded Jaccard + CAS), to tell impact category gaps from mapping bugs."
         ]
     ComputeSensitivity ->
         [ pDatabase
@@ -1388,7 +1460,7 @@ params r = case r of
         [ pDatabase
         , pMethodId
         , pCollection
-        , Param "flow" "string" Optional "Filter by flow name (case-insensitive substring, matches both method CF name and database flow name)"
+        , Param "flow" "string" Optional "Filter by flow name (case-insensitive substring, matches both the impact category's CF name and the database flow name)"
         , pLimit "Max results (default 20)"
         ]
     ExplainCF ->
@@ -1400,21 +1472,21 @@ params r = case r of
     GetFlowFactors ->
         [ pDatabase
         , Param "flow_id" "string" Required "Database flow UUID, as returned by search_flows or in the flow_id field of get_contributing_flows"
-        , Param "collection" "string" Optional "Method collection name (from list_methods) to ask alone; every loaded collection when omitted"
+        , Param "collection" "string" Optional "Method collection name (from list_methods) to ask alone; every loaded method collection when omitted"
         ]
     GetContributingFlows ->
         [ pDatabase
         , pProcessId
-        , Param "method_id" "string" Required "Method UUID for the impact category"
+        , Param "method_id" "string" Required "UUID of the impact category"
         , pCollection
         , pLimit "Max flows to return, sorted by contribution (default 20)"
         , pExcludeLongTerm
-        , Param "include_diagnostics" "boolean" Optional "True: uncharacterized flows above 0.1% of total |qty|, each with up to 3 similar candidate CFs (PubChem-expanded Jaccard + CAS)."
+        , Param "include_diagnostics" "boolean" Optional "True: uncharacterized flows above 0.1% of total |amount|, each with up to 3 similar candidate CFs (PubChem-expanded Jaccard + CAS)."
         ]
     GetContributingActivities ->
         [ pDatabase
         , pProcessId
-        , Param "method_id" "string" Required "Method UUID for the impact category"
+        , Param "method_id" "string" Required "UUID of the impact category"
         , pCollection
         , pLimit "Max processes to return, sorted by contribution (default 10)"
         , pExcludeLongTerm
@@ -1465,24 +1537,24 @@ params r = case r of
         , Param "classification_value" "string" Optional "Classification value substring to match"
         , pLimit "Max results (default 1000)"
         , Param "max_depth" "integer" Optional "Max hops from supplier (1 = direct consumers only)"
-        , Param "include_edges" "boolean" Optional "True: also every technosphere edge between activities reachable from the supplier, to rebuild supplier→consumer paths without get_path_to."
+        , Param "include_edges" "boolean" Optional "True: also every supplier → consumer edge between processes reachable from the supplier, to rebuild paths without get_path_to."
         ]
     CompareImpacts ->
         [ Param "database_a" "string" Required "First database name"
         , Param "process_id_a" "string" Required "Process ID in database_a (activityUUID_productUUID format)"
-        , Param "method_id_a" "string" Required "Method UUID for the A side"
-        , Param "collection_a" "string" Optional "Method collection for the A side; needed only when method_id_a is loaded in more than one collection."
+        , Param "method_id_a" "string" Required "Impact category UUID for the A side"
+        , Param "collection_a" "string" Optional "Method collection for the A side; needed only when method_id_a is loaded in more than one method collection."
         , Param "database_b" "string" Required "Second database name"
         , Param "process_id_b" "string" Required "Process ID in database_b (activityUUID_productUUID format)"
-        , Param "method_id_b" "string" Required "Method UUID for the B side"
-        , Param "collection_b" "string" Optional "Method collection for the B side; needed only when method_id_b is loaded in more than one collection."
+        , Param "method_id_b" "string" Required "Impact category UUID for the B side"
+        , Param "collection_b" "string" Optional "Method collection for the B side; needed only when method_id_b is loaded in more than one method collection."
         , Param "top_flows" "integer" Optional "Per-side flow drill-down depth (default 10)"
         ]
     CompareActivities ->
         [ pDatabase
         , pProcessId
-        , Param "other_process_id" "string" Required "Process ID of the activity to compare against (activityUUID_productUUID format)"
-        , Param "other_database" "string" Optional "Loaded database holding that activity, when it is not this one"
+        , Param "other_process_id" "string" Required "Process ID of the process to compare against (activityUUID_productUUID format)"
+        , Param "other_database" "string" Optional "Loaded database holding that process, when it is not this one"
         ]
     CompareDatabases ->
         [ pDatabase
@@ -1492,9 +1564,9 @@ params r = case r of
     CompareMethodCollections ->
         [ Param "collection" "string" Required "Base method collection, usually the older version"
         , Param "other_collection" "string" Required "Loaded method collection to compare against"
-        , Param "pairs" "array" Optional "Categories to pair by hand, each written \"base=other\" with the two category names; taken before any other pairing"
-        , Param "category" "string" Optional "Compare only the pair whose base category has this name, which is much faster than comparing them all; the unpaired and ambiguous categories are still listed"
-        , pLimit "Max entries per list of each category (added, removed, changed, ambiguous, unconvertible), in order (default: all). The counts always cover the full lists."
+        , Param "pairs" "array" Optional "Impact categories to pair by hand, each written \"base=other\" with the two impact category names; taken before any other pairing"
+        , Param "category" "string" Optional "Compare only the pair whose base impact category has this name, which is much faster than comparing them all; the unpaired and ambiguous impact categories are still listed"
+        , pLimit "Max entries per list of each impact category (added, removed, changed, ambiguous, unconvertible), in order (default: all). The counts always cover the full lists."
         ]
     ProfileMethodCollection ->
         [ Param "collection" "string" Required "Loaded method collection to profile"
@@ -1507,7 +1579,7 @@ params r = case r of
         , pParameters
         , pExcludeLongTerm
         , pScoringSetsFilter
-        , Param "exchange_contributions" "boolean" Optional "True: each method's result lists what each of the activity's lines adds ('exchangeContributions': position as get_activity numbers exchanges, contribution, share), largest first, summing to the score. Scoring-set scores not split. Not with substitutions. Empty when the licence keeps detail or inventory to itself. Default false."
+        , Param "exchange_contributions" "boolean" Optional "True: each impact category's result lists what each of the process's lines adds ('exchangeContributions': position as get_activity numbers exchanges, contribution, share), largest first, summing to the score. Scoring-set scores not split. Not with 'substitutions'. Empty when the licence keeps detail or inventory to itself. Default false."
         ]
     ScoreActivities ->
         [ pDatabase
@@ -1519,7 +1591,7 @@ params r = case r of
         , pParameterSets
         ]
     ListScoringSets ->
-        [ Param "collection" "string" Optional "Method collection name. If omitted, returns scoring sets across all loaded collections, grouped by collection."
+        [ Param "collection" "string" Optional "Method collection name. If omitted, returns scoring sets across all loaded method collections, grouped by method collection."
         ]
     GetGapReport ->
         [ pDatabase
@@ -1537,26 +1609,26 @@ params r = case r of
     GetCoverageReport ->
         [ pDatabase
         , Param "collection" "string" Optional "One loaded method collection (list_methods); every one when omitted."
-        , pLimit "Max bridge groups per collection (default all); bridgeGroupCount covers the full list."
+        , pLimit "Max bridge groups per method collection (default all); bridgeGroupCount covers the full list."
         ]
     EditExchanges ->
         [ pDatabase
         , pProcessId
-        , Param "remove" "array" Optional "Lines to drop, each by the selector get_activity gives: {kind, provider|flow, location?}; kind \"input\" or \"waste\" with the provider's process_id (or flow id and location for a line naming no provider), or \"biosphere\" with the flow id."
+        , Param "remove" "array" Optional "Lines to drop, each by the selector get_activity gives: {kind, provider|flow, location?}; kind \"input\" or \"waste\" with the supplier's process_id (or flow id and location for a line naming no supplier), or \"biosphere\" with the flow id."
         , Param "set_amounts" "array" Optional "Lines to restate: {select: {kind, provider|flow, location?}, amount}."
-        , Param "add_inputs" "array" Optional "Technosphere inputs to add: {provider, amount, unit?, comment?}; the flow follows from the provider."
-        , Param "add_biosphere" "array" Optional "Biosphere lines to add: {direction, amount} plus flow (an existing flow id) or name + compartment + unit, reaching the flow the database declares under them, new only when none does."
+        , Param "add_inputs" "array" Optional "Consumed products to add: {provider, amount, unit?, comment?}, provider being the supplier process; the flow follows from it."
+        , Param "add_biosphere" "array" Optional "Emission and resource lines to add: {direction, amount} plus flow (an existing flow id) or name + compartment + unit, reaching the flow the database declares under them, new only when none does."
         , Param "add_waste_outputs" "array" Optional "Waste outputs to add: {provider, amount, unit?, comment?}, provider being the treatment process."
-        , Param "set_name" "string" Optional "The activity's new name."
-        , Param "set_location" "string" Optional "The activity's new location code (e.g. FR)."
-        , Param "set_description" "array" Optional "The activity's new description, one string per paragraph; [] clears it."
-        , Param "set_parameters" "array" Optional "Activity parameters to add, or replace whole under the same spelling (unit, description or uncertainty left out is dropped): {name} plus value (uncertainty?) or formula, unit?, description?."
+        , Param "set_name" "string" Optional "The new activity_name."
+        , Param "set_location" "string" Optional "The process's new location code (e.g. FR)."
+        , Param "set_description" "array" Optional "The process's new description, one string per paragraph; [] clears it."
+        , Param "set_parameters" "array" Optional "Process parameters to add, or replace whole under the same spelling (unit, description or uncertainty left out is dropped): {name} plus value (uncertainty?) or formula, unit?, description?."
         , Param "set_formulas" "array" Optional "Lines to give a formula: {select: {kind, provider|flow, location?}, formula}; null drops the formula, keeping the amount."
         , Param "set_prices" "array" Optional "Product prices, for the price allocation key: {product, price}, product the flow id of the reference product or a coproduct, price {amount, unit} with the currency as unit, or null to remove."
         , Param "set_dry_masses" "array" Optional "Product dry masses, for the dry mass key: {product, dryMass}, product as in set_prices, dryMass {amount, unit} per unit of product in a mass unit, or null to remove."
         , Param "set_wet_masses" "array" Optional "Product wet masses, for the wet mass key: {product, wetMass}, as set_dry_masses. On a product in litres or cubic metres it is the density, multiplied by the line's amount, which alone cannot be weighed."
         , Param "set_suppliers" "array" Optional "Inputs to move to another supplier, linked or not: {select: {kind: \"input\", provider|flow, location?}, provider}, provider the new supplier's process_id here or in a dependency. The line keeps amount, unit, formula, comment, pedigree."
-        , Param "remove_parameters" "array" Optional "Activity parameters to remove, once the formulas set here no longer read them. Refused while a formula reads one the database does not define."
+        , Param "remove_parameters" "array" Optional "Process parameters to remove, once the formulas set here no longer read them. Refused while a formula reads one the database does not define."
         , Param "note" "string" Optional "Why, in a sentence. Kept in the history (get_database_history) and the export's changes report."
         , pSource
         ]
@@ -1564,14 +1636,14 @@ params r = case r of
         [ pDatabase
         , Param "product" "string" Required "The missing product: the name of a gap get_gap_report lists."
         , Param "supplier_activity" "string" Optional "The supplier_activity of that gap, when it names one. Absent: the inputs that name none."
-        , Param "provider" "string" Required "The process_id of the activity that will supply the product, in this database or one it depends on."
-        , Param "note" "string" Optional "Why, in a sentence. Kept in the history (get_database_history) of every activity it edits."
+        , Param "provider" "string" Required "The process_id of the process that will supply the product, in this database or one it depends on."
+        , Param "note" "string" Optional "Why, in a sentence. Kept in the history (get_database_history) of every process it edits."
         , pSource
         ]
     EditActivities ->
         [ pDatabase
-        , Param "edits" "array" Required "One element per activity: {process_id} plus the arguments of edit_exchanges (remove, set_amounts, add_inputs, add_biosphere, add_waste_outputs, set_name, set_location, set_description, set_parameters, set_formulas, set_prices, set_dry_masses, set_wet_masses, set_suppliers, remove_parameters), each as edit_exchanges reads it."
-        , Param "note" "string" Optional "Why, in a sentence, for every activity edited. Kept in the history (get_database_history) and the export's changes report."
+        , Param "edits" "array" Required "One element per process: {process_id} plus the arguments of edit_exchanges (remove, set_amounts, add_inputs, add_biosphere, add_waste_outputs, set_name, set_location, set_description, set_parameters, set_formulas, set_prices, set_dry_masses, set_wet_masses, set_suppliers, remove_parameters), each as edit_exchanges reads it."
+        , Param "note" "string" Optional "Why, in a sentence, for every process edited. Kept in the history (get_database_history) and the export's changes report."
         , pSource
         ]
     DatabaseParameters -> [pDatabase]
@@ -1613,10 +1685,10 @@ params r = case r of
         [ Param "collection" "string" Required "Loaded method collection of one's own: a copy or an upload"
         , Param "op" "string" Required "add, rename, set-unit or remove"
         , Param "method_id" "string" Optional "The impact category (from list_methods), for rename, set-unit and remove"
-        , Param "name" "string" Optional "The category's name, for add and rename"
-        , Param "unit" "string" Optional "The category's unit, for add and set-unit"
-        , Param "impact_category" "string" Optional "The impact category a new one belongs to; its name when absent"
-        , Param "methodology" "string" Optional "The methodology of a new category"
+        , Param "name" "string" Optional "The impact category's name, for add and rename"
+        , Param "unit" "string" Optional "The impact category's unit, for add and set-unit"
+        , Param "impact_category" "string" Optional "The group label the impact category carries; its own name when absent"
+        , Param "methodology" "string" Optional "The methodology of a new impact category"
         ]
     EditMethodScoringSets ->
         [ Param "collection" "string" Required "Loaded method collection of one's own: a copy or an upload"

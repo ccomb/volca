@@ -674,11 +674,11 @@ writeActivities manager dbName origin stated verb authored =
     operation resolved = case (verb, zip authored (map (processRefText . riKey) resolved)) of
         -- Refused rather than journalled: a line recording that nothing
         -- happened would be replayed forever for nothing.
-        (CreateActivities, []) -> Left (Malformed ["a create writes at least one activity"])
+        (CreateActivities, []) -> Left (Malformed ["a create writes at least one process"])
         (CreateActivities, written) -> Right (Created authored (map snd written))
         (ReplaceActivity _, [(activity, key)]) -> Right (Replaced key activity)
         (ReplaceActivity target, _) ->
-            Left (Malformed ["a replace writes exactly one activity over " <> target])
+            Left (Malformed ["a replace writes exactly one process over " <> target])
     -- Everything above judged a snapshot taken before the reservation;
     -- 'mutateReserved' re-reads the database under it and validates the
     -- operation again against what is actually there, so a batch overtaken by
@@ -986,12 +986,12 @@ presenceRefusal db verb resolved = case verb of
     ReplaceActivity target -> case filter ((/= canonicalTarget db target) . processRefText) keys of
         elsewhere@(_ : _) ->
             Just . Malformed $
-                [ "This activity's identity is "
+                [ "This process's identity is "
                     <> processRefText wrong
                     <> ", not "
                     <> target
                     <> ". Identity comes from the name, location, product and unit, so\
-                       \ writing this body here would address a different activity."
+                       \ writing this body here would address a different process."
                 | wrong <- elsewhere
                 ]
         [] -> case filter (not . present) keys of

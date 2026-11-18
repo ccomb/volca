@@ -291,12 +291,12 @@ resolveImpactTarget mCollection wanted rows = maybe (Right rows) scope mCollecti
     collections = T.intercalate ", " (nubOrd (map mrCollection rows))
     scope :: Text -> Either Text [MethodRow]
     scope c = case filter (same c . mrCollection) rows of
-        [] -> Left ("No loaded collection is called \"" <> c <> "\". Collections: " <> collections)
+        [] -> Left ("No loaded method collection is called \"" <> c <> "\". Method collections: " <> collections)
         inside -> Right inside
     pick :: [MethodRow] -> Either Text ImpactTarget
     pick scoped = case candidates scoped of
         [target] -> Right target
-        [] -> Left ("No loaded method or collection is called \"" <> wanted <> "\". Collections: " <> collections)
+        [] -> Left ("No loaded impact category or method collection is called \"" <> wanted <> "\". Method collections: " <> collections)
         several ->
             Left $
                 "\""
@@ -314,8 +314,8 @@ resolveImpactTarget mCollection wanted rows = maybe (Right rows) scope mCollecti
     same a b = T.toCaseFold a == T.toCaseFold b
     describe :: ImpactTarget -> Text
     describe = \case
-        OneMethod r -> "the method " <> mrName r <> " (" <> mrId r <> ") of " <> mrCollection r
-        WholeCollection c -> "the collection " <> c
+        OneMethod r -> "the impact category " <> mrName r <> " (" <> mrId r <> ") of " <> mrCollection r
+        WholeCollection c -> "the method collection " <> c
 
 -- | The part of an impacts route after @impacts/@.
 impactPath :: ImpactTarget -> String
@@ -336,7 +336,7 @@ fetchImpactTarget mgr rc o = do
 oneMethod :: ImpactTarget -> Either String MethodRow
 oneMethod = \case
     OneMethod r -> Right r
-    WholeCollection c -> Left ("\"" <> T.unpack c <> "\" is a collection. Name one of its methods.")
+    WholeCollection c -> Left ("\"" <> T.unpack c <> "\" is a method collection. Name one of its impact categories.")
 
 -- | Run the next request only when the previous step succeeded.
 andThen :: Either String a -> (a -> IO (Either String b)) -> IO (Either String b)

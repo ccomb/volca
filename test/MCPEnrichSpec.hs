@@ -245,7 +245,7 @@ spec = do
 
         it "rejects names not in configured" $
             filterScoringSets ["PEF", "ECS"] ["typo"] sampleLBR
-                `shouldBe` Left "Unknown scoring set(s): typo. Configured on this collection: PEF, ECS"
+                `shouldBe` Left "Unknown scoring set(s): typo. Configured on this method collection: PEF, ECS"
 
         it "restricts all three scoring maps to the requested keys" $ do
             case filterScoringSets ["PEF", "ECS", "FAILED"] ["PEF"] sampleLBR of

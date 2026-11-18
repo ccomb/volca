@@ -130,11 +130,11 @@ describeJournal namer = map line
 describeOp :: Namer -> JournalOp -> (Text, [Text])
 describeOp namer = \case
     Created activities pids ->
-        ("Added " <> counted (length activities) "activity" "activities", zipWith (\act pid -> authoredTitle act <> ", " <> pid) activities pids)
+        ("Added " <> counted (length activities) "process" "processes", zipWith (\act pid -> authoredTitle act <> ", " <> pid) activities pids)
     Replaced target act ->
         ("Rewrote " <> activityNamed namer target, ["Now " <> authoredTitle act <> ", with " <> counted (length (aaExchanges act)) "exchange" "exchanges"])
     Deleted pids ->
-        ("Deleted " <> counted (length pids) "activity" "activities", map (activityNamed namer) pids)
+        ("Deleted " <> counted (length pids) "process" "processes", map (activityNamed namer) pids)
     Edited target editLines ->
         ("Edited " <> activityNamed namer target, map (describeEdit namer) editLines)
     ParametersEdited parameterLines ->
@@ -161,7 +161,7 @@ describeEdit namer (EditLine edit _ before) = case edit of
         SelectInput provider -> "Input from " <> activityNamed namer provider
         SelectWaste provider -> "Waste output to " <> activityNamed namer provider
         SelectBiosphere flowId -> "Flow " <> flowNamed namer flowId
-        SelectUnlinkedInput flowId location -> "Input of " <> flowNamed namer flowId <> at location <> " naming no provider"
+        SelectUnlinkedInput flowId location -> "Input of " <> flowNamed namer flowId <> at location <> " naming no supplier"
         SelectUnlinkedWaste flowId location -> "Waste output of " <> flowNamed namer flowId <> at location <> " naming no treatment"
     at :: Maybe ExchangeLocation -> Text
     at = \case

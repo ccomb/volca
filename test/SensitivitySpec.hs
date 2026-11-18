@@ -90,7 +90,7 @@ spec = do
             r <- computeSensitivities db solver 0 [bogus]
             case r of
                 Right (_, [(_, Left msg)]) ->
-                    msg `shouldSatisfy` T.isInfixOf "no technosphere link"
+                    msg `shouldSatisfy` T.isInfixOf "no link from consumer"
                 Right other ->
                     expectationFailure ("expected Left per-perturbation, got: " <> show (length (snd other)) <> " entries")
                 Left e ->

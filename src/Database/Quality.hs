@@ -557,9 +557,9 @@ qualityReport dbName db =
     -- unknown unit, which change how the entry links and converts.
     metadataOffenders =
         concat
-            [ [offender InfoSev key act Nothing "the dataset carries no description" | all (T.null . T.strip) (activityDescription act)]
-                <> [offender InfoSev key act Nothing "the dataset carries no classification" | M.null (activityClassification act)]
-                <> [offender WarningSev key act Nothing "the dataset carries no location" | T.null (T.strip (activityLocation act))]
+            [ [offender InfoSev key act Nothing "the process carries no description" | all (T.null . T.strip) (activityDescription act)]
+                <> [offender InfoSev key act Nothing "the process carries no classification" | M.null (activityClassification act)]
+                <> [offender WarningSev key act Nothing "the process carries no location" | T.null (T.strip (activityLocation act))]
                 <> [ offender WarningSev key act Nothing $
                         T.pack (show unknownUnits) <> " exchange(s) whose unit is absent from the unit registry"
                    | let unknownUnits = length [() | ex <- exchanges act, M.notMember (exchangeUnitId ex) (sdbUnits db)]
@@ -584,7 +584,7 @@ qualityReport dbName db =
     undeclaredGeography src loc = case src of
         LocationDeclared -> Nothing
         LocationInferredFromName ->
-            Just ("geography \"" <> loc <> "\" was read from the dataset name, not declared by the source")
+            Just ("geography \"" <> loc <> "\" was read from the process name, not declared by the source")
         LocationUnspecified
             | T.null (T.strip loc) -> Just "the source declares no geography"
             | otherwise -> Just ("the source declares no geography; \"" <> loc <> "\" stands in for it")
@@ -681,7 +681,7 @@ qualityReport dbName db =
     obsoleteProductIds =
         M.keysSet (M.filter (all (activityIsObsolete . snd)) productProducers)
     obsoleteInputOffenders =
-        [ offender WarningSev key act (Just (anyFlowName fid)) "this input is supplied only by a dataset its source filed as obsolete, which the source expects to be replaced"
+        [ offender WarningSev key act (Just (anyFlowName fid)) "this input is supplied only by a process its source filed as obsolete, which the source expects to be replaced"
         | (key, act) <- entries
         , ex <- exchanges act
         , needsSupplier ex
@@ -749,7 +749,7 @@ qualityReport dbName db =
                 <> formatAmount released
                 <> " m3 of water to water and soil but takes in "
                 <> intake
-                <> "; a release counts as a credit in water-use methods"
+                <> "; a release counts as a credit in water-use impact categories"
         | (key, act) <- entries
         , let (released, takenIn) = waterSides act
         , released > waterReleaseFloor

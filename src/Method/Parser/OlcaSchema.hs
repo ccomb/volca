@@ -200,13 +200,13 @@ a reader needs to name one.
 -}
 choosePackageMethod :: Maybe Text -> [OlcaImpactMethod] -> Either Text OlcaImpactMethod
 choosePackageMethod wanted methods = case (wanted, methods) of
-    (_, []) -> Left "the package holds no method"
+    (_, []) -> Left "the package holds no method collection"
     (Nothing, [only]) -> Right only
     (Just name, _) | Just m <- find ((== name) . oimName) methods -> Right m
-    (Just name, _) -> Left ("the package holds no method named \"" <> name <> "\"; it holds " <> held)
+    (Just name, _) -> Left ("the package holds no method collection named \"" <> name <> "\"; it holds " <> held)
     (Nothing, _) ->
         Left
-            ( "the package holds several methods and none is named (package-method in the configuration, package_method in an upload's meta.toml); it holds "
+            ( "the package holds several method collections and none is named (package-method in the configuration, package_method in an upload's meta.toml); it holds "
                 <> held
             )
   where

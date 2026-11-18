@@ -615,7 +615,7 @@ spec = do
                 writeFile (dir </> "brokenA_brokenX.spold") notADataset
                 writeFile (dir </> "brokenB_brokenY.spold") notADataset
                 err <- refusalOf dir
-                err `shouldContain` "2 of 3 files became no dataset"
+                err `shouldContain` "2 of 3 files became no process"
                 err `shouldContain` "brokenA_brokenX.spold"
                 err `shouldContain` "brokenB_brokenY.spold"
 
@@ -631,7 +631,7 @@ spec = do
                 writeFile (dir </> "broken.xml") notADataset
                 err <- refusalOf dir
                 err `shouldContain` "broken.xml"
-                err `shouldContain` "holds no dataset"
+                err `shouldContain` "holds no process"
 
         -- A block divided into several processes is keyed on its file name
         -- once, not once per process, so a name with no reading is one
@@ -643,7 +643,7 @@ spec = do
                 writeFile (dir </> "cheese_and_whey_v2.spold") (withoutActivityId twoProductsCarryingDryMass)
                 refused <- loadDatabaseWithLocationAliases dividing dir
                 err <- either (return . T.unpack) (const (fail "expected the load to refuse")) refused
-                err `shouldContain` "1 of 1 files became no dataset"
+                err `shouldContain` "1 of 1 files became no process"
 
         -- The same block, now stating the activity it belongs to: its name
         -- reads nothing, so the dataset files it under that activity and the
