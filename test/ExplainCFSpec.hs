@@ -127,8 +127,8 @@ spec = do
     describe "renderExplanation" $ do
         it "says why a declined loan left the flow without a factor" $
             renderExplanation (CFExplanation Uncharacterized [StepTried RungRegionBase StepDeclined] 0)
-                `shouldBe` [ "No factor in this method reaches this flow, so it adds nothing to the score."
-                           , "The method's collection writes this flow's own name, region included, in another category, so no other name lends it a factor here."
+                `shouldBe` [ "No factor in this impact category reaches this flow, so it adds nothing to the score."
+                           , "The method collection writes this flow's own name, region included, in another impact category, so no other name lends it a factor here."
                            ]
 
     describe "renderResolution (every outcome says what it means)" $ do
@@ -145,14 +145,14 @@ spec = do
         it "names the synonym bridge that attached the line" $
             renderResolution (Characterized (match RungExactName (Just BySynonym)) UnitsIdentical)
                 `shouldBe` [ "The factor line \"Methane, fossil\" matches this flow's name and compartment."
-                           , "That line was tied to this flow's name through a known synonym when the method was loaded."
+                           , "That line was tied to this flow's name through a known synonym when the method collection was loaded."
                            , "The factor applied is 29.8 per kg."
                            ]
 
         it "says a line no database flow claimed is filed under the method's own name" $
             renderResolution (Characterized (match RungExactName Nothing) UnitsIdentical)
                 `shouldBe` [ "The factor line \"Methane, fossil\" matches this flow's name and compartment."
-                           , "No database flow claimed that line when the method was loaded; it is filed under the name the method itself uses."
+                           , "No database flow claimed that line when the method collection was loaded; it is filed under the name the impact category itself uses."
                            , "The factor applied is 29.8 per kg."
                            ]
 
@@ -163,7 +163,7 @@ spec = do
                     (CFMatch RungEnergyResource (CF 29.8 (CFUnit "MJ")) (BuildProvenance (Just ByName) (cfLine "Methane, fossil" "" "MJ" 29.8)))
                     (EnergyBridged (EnergyDensity 18.0 "MJ" "kg") DensityForward)
                 )
-                `shouldBe` [ "No factor carries this flow's name. The flow is an extracted energy carrier and its name states its energy content, so what the method charges for one unit of energy, from \"Methane, fossil\", applies to that content."
+                `shouldBe` [ "No factor carries this flow's name. The flow is an extracted energy carrier and its name states its energy content, so what the impact category charges for one unit of energy, from \"Methane, fossil\", applies to that content."
                            , "This flow holds 18.0 MJ per kg, which carries the amount from kg to MJ."
                            , "The factor applied is 29.8 per MJ."
                            ]
@@ -174,7 +174,7 @@ spec = do
                     (CFMatch RungEnergyResource (CF 8.5 (CFUnit "MJ")) (BuildProvenance (Just ByName) ((cfLine "Coal, brown" "" "kg" 80.0){mcfCompartment = Just (Compartment "resource" "in ground" "")})))
                     (EnergyBridged (EnergyDensity 8.0 "MJ" "kg") DensityForward)
                 )
-                `shouldBe` [ "No factor carries this flow's name, and the method charges nothing per unit of energy. The flow is an extracted energy carrier and its name states its energy content, so the factor of its family, \"Coal, brown\" at 80.0 per kg, divided by the energy a kg of that family holds, gives what one unit of energy costs, and that applies to the content."
+                `shouldBe` [ "No factor carries this flow's name, and the impact category charges nothing per unit of energy. The flow is an extracted energy carrier and its name states its energy content, so the factor of its family, \"Coal, brown\" at 80.0 per kg, divided by the energy a kg of that family holds, gives what one unit of energy costs, and that applies to the content."
                            , "This flow holds 8.0 MJ per kg, which carries the amount from kg to MJ."
                            , "The factor applied is 8.5 per MJ."
                            ]
@@ -192,13 +192,13 @@ spec = do
         it "says why a refused conversion scores nothing" $
             renderResolution (ConversionRefused (match RungCasBridge (Just ByCAS)) (DimensionalMismatch "kg" "m3"))
                 `shouldBe` [ "No factor carries this flow's name. \"Methane, fossil\" describes the same substance in the same compartment, so its factor applies."
-                           , "That line was tied to this flow by CAS number when the method was loaded."
+                           , "That line was tied to this flow by CAS number when the method collection was loaded."
                            , "The factor is written per m3, which does not measure the same thing as this flow's kg. The engine refuses to convert between them, so the flow adds nothing to the score."
                            ]
 
         it "says plainly when nothing reaches the flow" $
             renderResolution Uncharacterized
-                `shouldBe` ["No factor in this method reaches this flow, so it adds nothing to the score."]
+                `shouldBe` ["No factor in this impact category reaches this flow, so it adds nothing to the score."]
 
         it "gives every rung a sentence of its own" $ do
             let sentences =

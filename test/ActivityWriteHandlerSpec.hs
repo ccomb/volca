@@ -129,7 +129,7 @@ writingSpec = describe "writing activities over HTTP" $ do
                     errHTTPCode err `shouldBe` 400
                     -- Both complaints travel together: fixing a ten-line
                     -- inventory should take one round trip, not ten.
-                    bodyOf err `shouldSatisfy` isInfixOf "unknown provider"
+                    bodyOf err `shouldSatisfy` isInfixOf "unknown supplier"
                     bodyOf err `shouldSatisfy` isInfixOf "unknown unit \"furlong\""
 
     it "answers 409 when the batch would write over a row that already exists" $
@@ -238,7 +238,7 @@ writingSpec = describe "writing activities over HTTP" $ do
                 Right _ -> expectationFailure "expected the batch to be refused"
                 Left err -> do
                     errHTTPCode err `shouldBe` 400
-                    bodyOf err `shouldSatisfy` isInfixOf "yogurt, at dairy {FR}: unknown biosphere direction"
+                    bodyOf err `shouldSatisfy` isInfixOf "yogurt, at dairy {FR}: unknown direction"
                     bodyOf err `shouldSatisfy` isInfixOf "butter, at dairy {FR}: "
 
     it "refuses a named biosphere flow that comes without its unit" $
@@ -325,7 +325,7 @@ editingSpec = describe "editing an activity's exchanges over HTTP" $ do
             res <- edit env "authored" supplierPid noEdits{eerRemove = [confused]}
             void res `shouldSatisfy` refusedWith "names its flow, and nothing else"
             res' <- edit env "authored" supplierPid noEdits{eerRemove = [both]}
-            void res' `shouldSatisfy` refusedWith "names its provider, or its flow"
+            void res' `shouldSatisfy` refusedWith "names its supplier, or its flow"
 
     it "refuses to edit a database the engine only reads" $
         withDb buildFixture (\name dataDir -> (uploadedConfig name dataDir){dcIsUploaded = False}) $ \env -> do

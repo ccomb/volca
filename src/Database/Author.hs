@@ -335,7 +335,7 @@ validateAuthored ctx activities =
   where
     duplicateMessage :: ProcessRef -> Text
     duplicateMessage key =
-        "Two activities in this batch mint the same identity ("
+        "Two processes in this batch mint the same identity ("
             <> processRefText key
             <> "): same name, location, product and unit."
 
@@ -427,8 +427,8 @@ describeExchange :: AuthoredExchange -> Text
 describeExchange ex = case ex of
     AuthoredTechInput{atiProvider = provider} -> "input from \"" <> provider <> "\""
     AuthoredWasteOutput{awProvider = provider} -> "waste output to \"" <> provider <> "\""
-    AuthoredBio{abFlow = FlowById flowId} -> "biosphere flow " <> UUID.toText flowId
-    AuthoredBio{abFlow = FlowByName name _ _} -> "biosphere flow \"" <> name <> "\""
+    AuthoredBio{abFlow = FlowById flowId} -> "emission or resource flow " <> UUID.toText flowId
+    AuthoredBio{abFlow = FlowByName name _ _} -> "emission or resource flow \"" <> name <> "\""
 
 {- | An amount that can carry information: finite, and not zero. A zero
 exchange is not a measurement of nothing, it is a line that should not have
@@ -524,7 +524,7 @@ retextsAuthoredIdentity :: ProcessRef -> Activity -> [ExchangeEdit] -> Maybe Tex
 retextsAuthoredIdentity key act edits
     | prActivity key == authoredActivityUUID (activityName act) (activityLocation act)
     , any entersIdentity edits =
-        Just "This activity was written here and its name and location make its identity: rewrite it to rename or relocate it."
+        Just "This process was written here and its name and location make its identity: rewrite it to rename or relocate it."
     | otherwise = Nothing
   where
     entersIdentity :: ExchangeEdit -> Bool
@@ -693,7 +693,7 @@ applyOneEdit ctx act edit = case edit of
     SetText text -> case textCheck text of
         [] -> Right (stepTo (restateText text act) 1)
         errs -> Left errs
-    SetParameter name parameter -> case parameterProblems "this activity" (activityParameters act) (lineNames act) name parameter of
+    SetParameter name parameter -> case parameterProblems "this process" (activityParameters act) (lineNames act) name parameter of
         [] -> Right (stepTo act{activityParameters = M.insert name parameter (activityParameters act)} 1)
         errs -> Left errs
     RemoveParameter name -> case removalCheck (acDb ctx) act name of
@@ -767,12 +767,12 @@ resupplied ctx provider line = case line of
                 (\resolved -> (reExchange resolved, reAdoption resolved))
                     <$> resolveLinked ctx provider 1 (Just unit) (fmap (maybe NothingToAdopt AdoptProduct) . adoptTechFlow ctx) moved
     WasteExchange{} -> Left ["a waste output takes no supplier: only an input does"]
-    BiosphereExchange{} -> Left ["a flow of nature takes no supplier: only an input does"]
+    BiosphereExchange{} -> Left ["an emission or resource takes no supplier: only an input does"]
 
 -- | The product outputs of this flow, or why there are none.
 selectProduct :: UUID -> [Exchange] -> Either Text (Int, Exchange -> Bool)
 selectProduct flow current = case length (filter isProduct current) of
-    0 -> Left ("the flow " <> UUID.toText flow <> " is no product output of this activity")
+    0 -> Left ("the flow " <> UUID.toText flow <> " is no product output of this process")
     matched -> Right (matched, isProduct)
   where
     isProduct :: Exchange -> Bool
@@ -808,7 +808,7 @@ does not warn.
 -}
 besideDeduced :: [ExchangeEdit] -> [Exchange] -> [Text]
 besideDeduced edits final =
-    [ "some products of this activity carry prices deduced from their declared shares and others stated prices, which the price key cannot compare: price each of them"
+    [ "some products of this process carry prices deduced from their declared shares and others stated prices, which the price key cannot compare: price each of them"
     | any pricing edits
     , any isStated prices
     , not (all isStated prices)
@@ -858,7 +858,7 @@ still reads it and its database has no parameter of that name to take over.
 removalCheck :: Database -> Activity -> Text -> Either [Text] Text
 removalCheck db act name = case [other | other <- M.keys (activityParameters act), T.toLower other == key] of
     [] ->
-        Left ["this activity has no parameter '" <> name <> "'"]
+        Left ["this process has no parameter '" <> name <> "'"]
     spelt : _
         | key `elem` map T.toLower (M.keys (dbParameters db)) -> Right spelt
         | otherwise -> case readers of
@@ -905,7 +905,7 @@ selectFrom :: ExchangeSelector -> [Exchange] -> Either Text (Int, Exchange -> Bo
 selectFrom sel current = do
     isSelected <- selectorPredicate sel
     case length (filter isSelected current) of
-        0 -> Left (describeSelector sel <> " matches no exchange of this activity")
+        0 -> Left (describeSelector sel <> " matches no exchange of this process")
         matched -> Right (matched, isSelected)
 
 {- | Turn a selector into the test it stands for, or say why it cannot be one.
@@ -1008,8 +1008,8 @@ describeSelector :: ExchangeSelector -> Text
 describeSelector sel = case sel of
     SelectInput provider -> "input from \"" <> provider <> "\""
     SelectWaste provider -> "waste output to \"" <> provider <> "\""
-    SelectBiosphere flowId -> "biosphere flow " <> UUID.toText flowId
-    SelectUnlinkedInput flowId location -> "input of flow " <> UUID.toText flowId <> atText location <> " naming no provider"
+    SelectBiosphere flowId -> "emission or resource flow " <> UUID.toText flowId
+    SelectUnlinkedInput flowId location -> "input of flow " <> UUID.toText flowId <> atText location <> " naming no supplier"
     SelectUnlinkedWaste flowId location -> "waste output of flow " <> UUID.toText flowId <> atText location <> " naming no treatment"
   where
     atText :: Maybe ExchangeLocation -> Text
@@ -1143,11 +1143,11 @@ unitError ctx sup stated
     , not (T.null (supAnyRefUnit sup))
     , unitKey (acUnitConfig ctx) stated /= unitKey (acUnitConfig ctx) (supAnyRefUnit sup) =
         Just $
-            "the provider's reference is stated in \""
+            "the supplier's reference is stated in \""
                 <> supAnyRefUnit sup
                 <> "\" but the exchange states \""
                 <> stated
-                <> "\"; amounts to a provider with no produced output are not converted, so restate it in \""
+                <> "\"; amounts to a supplier with no produced output are not converted, so restate it in \""
                 <> supAnyRefUnit sup
                 <> "\""
     | otherwise = conversionError ctx stated (supProducedUnit sup)
@@ -1191,7 +1191,7 @@ resolveBio ctx flowRef direction amount mUnit comment
         FlowById flowId -> case findBioFlow ctx flowId of
             Nothing ->
                 Left
-                    [ "no biosphere flow "
+                    [ "no emission or resource flow "
                         <> UUID.toText flowId
                         <> " in this database or its dependencies"
                     ]
@@ -1235,7 +1235,7 @@ resolveBio ctx flowRef direction amount mUnit comment
                     flowId
                     unitRef
                     (Just (newBioFlow flowId name comp unitRef))
-                    [ "biosphere flow \""
+                    [ "emission or resource flow \""
                         <> name
                         <> "\" is new to this database; no characterization factor matches it by identity yet"
                     ]
@@ -1247,7 +1247,7 @@ resolveBio ctx flowRef direction amount mUnit comment
             <> T.intercalate " and " (map quoted (nub (map unitOfCandidate cands)))
             <> " but the exchange states \""
             <> stated
-            <> "\"; biosphere amounts are not converted, so restate it in one of them"
+            <> "\"; emission and resource amounts are not converted, so restate it in one of them"
     -- The refusal carries the identifiers, because an author who reaches it
     -- has to name one of them and has no other place to read them from.
     severalNamed comp several =
@@ -1269,7 +1269,7 @@ resolveBio ctx flowRef direction amount mUnit comment
         | otherwise = case lookupUnit ctx flowUnit of
             Nothing ->
                 Left
-                    [ "biosphere flow \""
+                    [ "emission or resource flow \""
                         <> bfName flow
                         <> "\" from a dependency is stated in \""
                         <> flowUnit
@@ -1300,7 +1300,7 @@ resolveBio ctx flowRef direction amount mUnit comment
             <> flowUnit
             <> "\" but the exchange states \""
             <> stated
-            <> "\"; biosphere amounts are not converted, so restate it in \""
+            <> "\"; emission and resource amounts are not converted, so restate it in \""
             <> flowUnit
             <> "\""
 
@@ -1358,7 +1358,7 @@ data SupplierHome
 resolveSupplier :: AuthorContext -> Text -> Either Text Supplier
 resolveSupplier ctx provider =
     case mapMaybe inDatabase (zip (OwnDatabase : repeat foreign') (acDb ctx : acDeps ctx)) of
-        [] -> Left ("unknown provider \"" <> provider <> "\"")
+        [] -> Left ("unknown supplier \"" <> provider <> "\"")
         (sup : _) -> Right sup
   where
     -- The first database in the list is the one being written, and the rest
@@ -1443,7 +1443,7 @@ declaredHere ctx sup = case (M.lookup flowId (dbTechFlows (acDb ctx)), supHome s
             Left
                 ( "the product \""
                     <> tfName flow
-                    <> "\" of this provider is stated in \""
+                    <> "\" of this supplier is stated in \""
                     <> flowUnit
                     <> "\", a unit this database does not have"
                 )
@@ -1452,7 +1452,7 @@ declaredHere ctx sup = case (M.lookup flowId (dbTechFlows (acDb ctx)), supHome s
     flowId = prProduct (supKey sup)
 
 undeclaredProduct :: Text
-undeclaredProduct = "the database declaring this provider does not declare its product flow"
+undeclaredProduct = "the database declaring this supplier does not declare its product flow"
 
 {- | Whether two unit names denote the same unit, spelling aside.
 
@@ -1484,7 +1484,7 @@ dependencyUnitError ctx sup stated = case supHome sup of
         | sameUnit (acUnitConfig ctx) stated flowUnit -> Nothing
         | otherwise ->
             Just
-                ( "this provider's product is recorded in \""
+                ( "this supplier's product is recorded in \""
                     <> flowUnit
                     <> "\" but the exchange states \""
                     <> stated

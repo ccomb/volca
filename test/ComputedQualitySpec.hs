@@ -111,7 +111,7 @@ spec = do
             map qoSeverity (qcOffenders check) `shouldBe` [InfoSev]
             case details check of
                 [d] -> do
-                    d `shouldSatisfy` T.isInfixOf "2 category score(s) below zero"
+                    d `shouldSatisfy` T.isInfixOf "2 impact category score(s) below zero"
                     d `shouldSatisfy` T.isInfixOf "Land use"
                 other -> expectationFailure ("expected one detail, got " <> show other)
 

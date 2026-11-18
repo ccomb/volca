@@ -802,7 +802,7 @@ checkFormulas names relations = case checked of
             <> rel
             <> "\" evaluates to "
             <> T.pack (show v)
-            <> " but the dataset stores "
+            <> " but the process stores "
             <> T.pack (show (exchangeAmount ex))
 
 -- | The quality check's judgement: within 1e-9 of the larger amount, and of 1 below it.

@@ -65,7 +65,7 @@ parseNormWeightCSVBytes fallbackName bs =
 categoryIndex :: [(Text, (Double, Double))] -> Either String (M.Map Text (Double, Double))
 categoryIndex rows = case uniqueIndex rows of
     Right table -> Right table
-    Left cats -> Left $ "NW CSV: two rows for the same category: " <> T.unpack (T.intercalate ", " (NE.toList cats))
+    Left cats -> Left $ "NW CSV: two rows for the same impact category: " <> T.unpack (T.intercalate ", " (NE.toList cats))
 
 -- | Extract set name from "# normalization-weighting set: NAME" comment.
 extractName :: [BS.ByteString] -> Text -> Text

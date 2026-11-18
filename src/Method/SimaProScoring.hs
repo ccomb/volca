@@ -204,7 +204,7 @@ translateScoring methods damages nwSets
 
     ghostWarnings, twiceWarnings, strayWarnings :: [Text]
     ghostWarnings =
-        [ "Damage category '" <> dcName dc <> "' groups '" <> c <> "', which no impact category of this collection carries; it is left out of the scoring sets."
+        [ "Damage category '" <> dcName dc <> "' groups '" <> c <> "', which no impact category of this method collection carries; it is left out of the scoring sets."
         | dc <- ghosts
         , (c, _) <- take 1 (filter (not . (`S.member` known) . fst) (dcImpacts dc))
         ]

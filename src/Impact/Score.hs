@@ -91,7 +91,7 @@ resolveScore methods sets ref = do
     noSuchSet =
         "No scoring set named '"
             <> srSet ref
-            <> "' in this collection. Its scoring sets: "
+            <> "' in this method collection. Its scoring sets: "
             <> T.intercalate ", " (map ssName sets)
 
     noSuchScore :: ScoringSet -> Text
@@ -106,8 +106,8 @@ resolveScore methods sets ref = do
     indicatorMethod :: Text -> Either Text Method
     indicatorMethod name = case filter ((== name) . methodName) methods of
         [m] -> Right m
-        [] -> Left ("Scoring set '" <> srSet ref <> "' weighs '" <> name <> "', which this collection has no method for.")
-        _ -> Left ("Scoring set '" <> srSet ref <> "' weighs '" <> name <> "', which names several methods of this collection.")
+        [] -> Left ("Scoring set '" <> srSet ref <> "' weighs '" <> name <> "', which this method collection has no impact category for.")
+        _ -> Left ("Scoring set '" <> srSet ref <> "' weighs '" <> name <> "', which names several impact categories of this method collection.")
 
 -- | The name the score is shown under.
 scoreTitle :: ResolvedScore -> Text

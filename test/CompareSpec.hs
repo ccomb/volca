@@ -263,7 +263,7 @@ spec = describe "Service.Compare" $ do
                 (answer, edits) = applicableChanges ctx p (changesQuery [ProductNameChanged "wheat grain" "soft wheat grain", renamed] [addedBarley, addedWater])
             capSummary answer `shouldBe` [OutcomeNotApplicable "An edit does not rename a product.", OutcomeApplied]
             capExchanges answer
-                `shouldBe` [OutcomeNotApplicable "Several activities of this database make this product: the change does not say which one supplies the added line.", OutcomeApplied]
+                `shouldBe` [OutcomeNotApplicable "Several processes of this database make this product: the change does not say which one supplies the added line.", OutcomeApplied]
             after <- applied ctx p edits
             (activityName after, [a | BiosphereExchange{bioAmount = a} <- exchanges after]) `shouldBe` ("wheat production, corrected", [3])
         it "sets the amount of a line supplied by its product rather than linked to its supplier" $ do
@@ -279,7 +279,7 @@ spec = describe "Service.Compare" $ do
             let ctx = AuthorContext{acDb = db, acDeps = [], acUnitConfig = defaultUnitConfig}
                 (answer, edits) = applicableChanges ctx p (changesQuery [renamed] [lowered])
             (capSummary answer, capExchanges answer)
-                `shouldBe` ([OutcomeNotApplicable "This activity was written here and its name and location make its identity: rewrite it to rename or relocate it."], [OutcomeApplied])
+                `shouldBe` ([OutcomeNotApplicable "This process was written here and its name and location make its identity: rewrite it to rename or relocate it."], [OutcomeApplied])
             after <- applied ctx p edits
             (activityName after, [a | BiosphereExchange{bioAmount = a} <- exchanges after]) `shouldBe` ("wheat production", [0.5])
         it "makes a change asked twice once" $ do

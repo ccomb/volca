@@ -301,7 +301,7 @@ spec = do
     describe "unallocated check" $ do
         it "names an activity still carrying a coproduct, with what would repair it" $ do
             let check = qrUnallocated (reportOf (mkActivity "mill" [reference flourFlow, techExchange breadFlow 0.2 Coproduct]))
-            details check `shouldBe` ["2 product outputs, 2 without a declared share: state a share on every product row, or load the dataset already allocated"]
+            details check `shouldBe` ["2 product outputs, 2 without a declared share: state a share on every product row, or load the data already allocated"]
             severities check `shouldBe` [DangerSev]
 
         it "passes a process split from a block, whatever share it was given" $
@@ -459,20 +459,20 @@ spec = do
     describe "missing metadata check" $ do
         it "flags an empty description as info" $ do
             let check = qrMissingMetadata (reportOf (mkActivity "bread" [reference breadFlow]){activityDescription = []})
-            details check `shouldBe` ["the dataset carries no description"]
+            details check `shouldBe` ["the process carries no description"]
             severities check `shouldBe` [InfoSev]
 
         it "flags a description of blank paragraphs" $
             details (qrMissingMetadata (reportOf (mkActivity "bread" [reference breadFlow]){activityDescription = ["", "   "]}))
-                `shouldBe` ["the dataset carries no description"]
+                `shouldBe` ["the process carries no description"]
 
         it "flags a missing classification as info" $
             details (qrMissingMetadata (reportOf (mkActivity "bread" [reference breadFlow]){activityClassification = M.empty}))
-                `shouldBe` ["the dataset carries no classification"]
+                `shouldBe` ["the process carries no classification"]
 
         it "flags a missing location as warning" $ do
             let check = qrMissingMetadata (reportOf (mkActivity "bread" [reference breadFlow]){activityLocation = ""})
-            details check `shouldBe` ["the dataset carries no location"]
+            details check `shouldBe` ["the process carries no location"]
             severities check `shouldBe` [WarningSev]
 
         it "flags exchanges whose unit is absent from the registry, with a count" $ do
@@ -488,7 +488,7 @@ spec = do
         it "flags a geography read off the dataset name as info" $ do
             let act = (mkActivity "bread {FR}" [reference breadFlow]){activityLocationSource = LocationInferredFromName}
                 check = qrUndeclaredGeography (reportOf act)
-            details check `shouldBe` ["geography \"FR\" was read from the dataset name, not declared by the source"]
+            details check `shouldBe` ["geography \"FR\" was read from the process name, not declared by the source"]
             severities check `shouldBe` [InfoSev]
 
         it "flags a stand-in geography the source never declared" $
@@ -504,10 +504,10 @@ spec = do
 
     describe "formula consistency check" $ do
         it "flags an activity whose formulas diverge, with counts and the example" $ do
-            let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 12, fcUnevaluable = 3, fcDivergentExample = Just "\"a*2\" evaluates to 5.0 but the dataset stores 4.0", fcUnevaluableExample = Nothing}
+            let fc = FormulaCheck{fcEvaluated = 30, fcDivergent = 12, fcUnevaluable = 3, fcDivergentExample = Just "\"a*2\" evaluates to 5.0 but the process stores 4.0", fcUnevaluableExample = Nothing}
                 check = qrFormulaConsistency (reportOf ((mkActivity "bread" [reference breadFlow]){activityFormulaCheck = Just fc}))
             details check
-                `shouldBe` ["12 of 30 evaluable formula(s) disagree with the stored amount (e.g. \"a*2\" evaluates to 5.0 but the dataset stores 4.0); 3 formula(s) could not be evaluated"]
+                `shouldBe` ["12 of 30 evaluable formula(s) disagree with the stored amount (e.g. \"a*2\" evaluates to 5.0 but the process stores 4.0); 3 formula(s) could not be evaluated"]
             severities check `shouldBe` [InfoSev]
 
         -- Nothing evaluated, so nothing diverged: the count of what could not be
@@ -824,12 +824,12 @@ spec = do
             waterCheck = qrWaterBalance . reportOf . mkActivity "tomato"
         it "flags water released far beyond the water taken in" $ do
             let check = waterCheck tomato
-            details check `shouldBe` ["releases 3.258 m3 of water to water and soil but takes in only 1.865e-2 m3 (175 times as much out as in); a release counts as a credit in water-use methods"]
+            details check `shouldBe` ["releases 3.258 m3 of water to water and soil but takes in only 1.865e-2 m3 (175 times as much out as in); a release counts as a credit in water-use impact categories"]
             severities check `shouldBe` [WarningSev]
 
         it "says when nothing at all comes in, rather than dividing by zero" $
             details (waterCheck [reference breadFlow, released riverWaterFlow 6.42])
-                `shouldBe` ["releases 6.420 m3 of water to water and soil but takes in none; a release counts as a credit in water-use methods"]
+                `shouldBe` ["releases 6.420 m3 of water to water and soil but takes in none; a release counts as a credit in water-use impact categories"]
 
         it "passes a balance that closes once purchased water in kg is counted" $
             qcOffenders (waterCheck [reference breadFlow, released riverWaterFlow 0.03, withdrawn 0.001, input tapWaterFlow 3.162]) `shouldBe` []

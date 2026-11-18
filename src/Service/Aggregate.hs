@@ -110,8 +110,8 @@ exchangeTypeScopeError scope mKind = case mKind of
     Just _ -> case scope of
         ScopeDirect -> Nothing
         ScopeBiosphere -> Just "filter_exchange_type is redundant with scope=biosphere"
-        ScopeSupplyChain -> Just "filter_exchange_type is not supported with scope=supply_chain (all entries are technosphere)"
-        ScopeConsumption -> Just "filter_exchange_type is not supported with scope=consumption (all edges are technosphere)"
+        ScopeSupplyChain -> Just "filter_exchange_type is not supported with scope=supply_chain (all entries are consumed products)"
+        ScopeConsumption -> Just "filter_exchange_type is not supported with scope=consumption (every edge links a supplier to its consumer)"
 
 data AggregateFn = AggSum | AggCount | AggShare
     deriving (Eq, Show)

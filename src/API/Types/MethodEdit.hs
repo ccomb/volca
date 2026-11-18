@@ -397,7 +397,7 @@ toScoringEdit req = case serOp req of
     toRowDraft :: RowDraftAPI -> Either Text RowDraft
     toRowDraft r =
         maybe
-            (Left ("the row '" <> rdaLabel r <> "' groups no category"))
+            (Left ("the row '" <> rdaLabel r <> "' groups no impact category"))
             (\terms -> Right (RowDraft (rdaLabel r) (rdaUnit r) terms (exact <$> rdaNormalization r) (rdaWeight r)))
             (NE.nonEmpty [(dtaMethodId t, dtaCoefficient t) | t <- rdaTerms r])
 

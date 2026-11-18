@@ -50,7 +50,7 @@ spec = describe "initDatabaseManager with the built-in defaults" $ do
                 manager <- initDatabaseManager defaultConfig{cfgMethods = methods} NoCache
                 listed <- filter ((== "plain-indicators") . mcsName) <$> listMethodCollections manager
                 map (\m -> (mcsStatus m, mcsPath m, mcsFormat m, mcsDescription m)) listed
-                    `shouldBe` [(Unloaded, "built-in", "Columnar CSV", Just "Raw physical quantities counted through the supply chain (CF=1.0)")]
+                    `shouldBe` [(Unloaded, "built-in", "Columnar CSV", Just "Raw physical amounts counted upstream (CF=1.0)")]
 
     it "names the method collection the configuration marks as default, and none when none is" $ do
         case decodeMethods "[[methods]]\nname = \"plain-indicators\"\ndefault = true\n" of

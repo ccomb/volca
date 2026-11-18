@@ -559,7 +559,7 @@ one, every complaint naming the process it is about.
 -}
 toActivityEdits :: ActivitiesEditRequest -> Either [Text] (NonEmpty (Text, [ExchangeEdit]))
 toActivityEdits req = case partitionEithers (map translate (aqEdits req)) of
-    ([], edits) -> maybe (Left ["The request names no activity: \"edits\" is empty."]) Right (NE.nonEmpty edits)
+    ([], edits) -> maybe (Left ["The request names no process: \"edits\" is empty."]) Right (NE.nonEmpty edits)
     (errs, _) -> Left (concat errs)
   where
     translate edit = bimap (map ((aeProcessId edit <> ": ") <>)) (aeProcessId edit,) (toExchangeEdits (aeEdit edit))
@@ -638,9 +638,9 @@ toSelector es = case (T.toLower (T.strip (esKind es)), esProvider es, esFlow es,
     ("biosphere", Nothing, Just flowId, Nothing) -> SelectBiosphere <$> flowNamed flowId
     (kind, _, _, _)
         | kind `elem` ["input", "waste"] ->
-            Left ["a selector of kind " <> kind <> " names its provider, or its flow and perhaps its location, and nothing else"]
+            Left ["a selector of kind " <> kind <> " names its supplier, or its flow and perhaps its location, and nothing else"]
         | kind == "biosphere" ->
-            Left ["a biosphere selector names its flow, and nothing else"]
+            Left ["a selector of kind biosphere names its flow, and nothing else"]
         | otherwise ->
             Left ["unknown selector kind: " <> kind <> " (expected input|waste|biosphere)"]
   where
@@ -662,17 +662,17 @@ winner.
 -}
 bioFlowRef :: BioExchangeAPI -> Either Text FlowRef
 bioFlowRef be = case (beFlow be, beName be) of
-    (Just _, Just _) -> Left "a biosphere exchange names its flow by identifier or in words, not both"
-    (Nothing, Nothing) -> Left "a biosphere exchange needs either a flow identifier or a name, a compartment and a unit"
+    (Just _, Just _) -> Left "an emission or resource names its flow by identifier or in words, not both"
+    (Nothing, Nothing) -> Left "an emission or resource needs either a flow identifier or a name, a compartment and a unit"
     (Just flowId, Nothing) ->
         maybe (Left (notAnIdentifier flowId)) (Right . FlowById) (UUID.fromText flowId)
     (Nothing, Just name) -> case (beCompartment be, beUnit be) of
-        (Nothing, _) -> Left ("biosphere flow \"" <> name <> "\" needs a compartment (air, water, soil, natural resource)")
+        (Nothing, _) -> Left ("flow \"" <> name <> "\" needs a compartment (air, water, soil, natural resource)")
         -- The unit is half of what makes a flow named in words that flow, both
         -- when the words reach one the database declares and when they mint a
         -- new one (see 'Database.Author.authoredBioFlowUUID'), so it cannot be
         -- defaulted.
-        (_, Nothing) -> Left ("biosphere flow \"" <> name <> "\" needs a unit")
+        (_, Nothing) -> Left ("flow \"" <> name <> "\" needs a unit")
         (Just medium, Just unit) -> do
             reading <- first (T.pack . unknownMedium) (parseMedium medium)
             Right $
@@ -694,4 +694,4 @@ bioDirection :: Text -> Either Text BioDirection
 bioDirection raw = case T.toLower (T.strip raw) of
     "resource" -> Right Resource
     "emission" -> Right Emission
-    other -> Left ("unknown biosphere direction: " <> other <> " (expected resource|emission)")
+    other -> Left ("unknown direction: " <> other <> " (expected resource|emission)")

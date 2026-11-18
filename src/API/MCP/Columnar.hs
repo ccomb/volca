@@ -66,16 +66,16 @@ unit, one list of indicator columns), so:
 resolveSingleScoringSet :: [Text] -> [ScoringSet] -> Either Text ScoringSet
 resolveSingleScoringSet wantedNames configured = case wantedNames of
     [] -> case configured of
-        [] -> Left "No scoring sets configured on this collection."
+        [] -> Left "No scoring sets configured on this method collection."
         [s] -> Right s
-        _ -> Left ("This collection has several scoring sets, and score_activities scores one per call. " <> calls)
+        _ -> Left ("This method collection has several scoring sets, and score_activities scores one per call. " <> calls)
     [w] -> case L.find (\s -> ssName s == w) configured of
         Just s -> Right s
         Nothing ->
             Left $
                 "There is no scoring set named "
                     <> w
-                    <> " on this collection. A scoring set weighs the collection's indicators into one score: it is neither an indicator nor a collection. "
+                    <> " on this method collection. A scoring set weighs the method collection's impact categories into a single score: it is neither an impact category nor a method collection. "
                     <> calls
     ws ->
         Left $
@@ -84,10 +84,10 @@ resolveSingleScoringSet wantedNames configured = case wantedNames of
                 <> "]. The columnar response shape covers a single scoring set per call."
   where
     -- Each argument that would work, written as the call takes it: a model
-    -- told only the names guessed an indicator or a collection instead.
+    -- told only the names guessed an impact category or a method collection instead.
     calls :: Text
     calls = case map argument configured of
-        [] -> "This collection has none."
+        [] -> "This method collection has none."
         [one] -> "Name it: " <> one <> "."
         many -> "Name one: " <> T.intercalate " or " many <> "."
     argument :: ScoringSet -> Text
@@ -168,7 +168,7 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
         | otherwise =
             [ "cutoff_notice"
                 .= ( T.pack (show (length cutoffRows))
-                        <> (if length cutoffRows == 1 then " activity counts" else " activities count")
+                        <> (if length cutoffRows == 1 then " process counts" else " processes count")
                         <> " inputs no loaded database supplies as zero (the cutoffs column, listed in cutoff_inputs_by_process_id); each listed input says why no database supplies it, and the gap report has them all where the licence allows it."
                    )
             , "cutoff_inputs_by_process_id" .= M.fromList [(bieProcessId e, lbrCutoffInputs (bieImpacts e)) | e <- cutoffRows, not (null (lbrCutoffInputs (bieImpacts e)))]

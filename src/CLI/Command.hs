@@ -82,12 +82,12 @@ requireDatabase manager mName = do
 
 debugMatrices :: Database -> Text -> DebugMatricesOptions -> IO ()
 debugMatrices database uuid opts = do
-    reportProgress Info $ "Extracting matrix debug data for activity: " ++ T.unpack uuid
+    reportProgress Info $ "Extracting matrix debug data for process: " ++ T.unpack uuid
     reportProgress Info $ "Output base: " ++ debugOutput opts
 
     case debugFlowFilter opts of
         Just flowFilter -> reportProgress Info $ "Flow filter: " ++ T.unpack flowFilter
-        Nothing -> reportProgress Info "No flow filter specified (all biosphere flows)"
+        Nothing -> reportProgress Info "No flow filter specified (all emissions and resources)"
 
     result <- Service.exportMatrixDebugData database uuid opts
     case result of
@@ -96,15 +96,15 @@ debugMatrices database uuid opts = do
             exitFailure
         Right _ -> do
             reportProgress Info "Matrix debug export completed"
-            reportProgress Info $ "Supply chain data: " ++ debugOutput opts ++ "_supply_chain.csv"
-            reportProgress Info $ "Biosphere matrix: " ++ debugOutput opts ++ "_biosphere_matrix.csv"
+            reportProgress Info $ "Upstream data: " ++ debugOutput opts ++ "_supply_chain.csv"
+            reportProgress Info $ "Emissions and resources matrix: " ++ debugOutput opts ++ "_biosphere_matrix.csv"
 
 exportMatrices :: Database -> FilePath -> IO ()
 exportMatrices database outputDir = do
     reportProgress Info $ "Exporting matrices to: " ++ outputDir
     Service.exportUniversalMatrixFormat outputDir database
     reportProgress Info "Matrix export completed"
-    reportProgress Info "  - ie_index.csv (activity index)"
-    reportProgress Info "  - ee_index.csv (biosphere flow index)"
-    reportProgress Info "  - A_public.csv (technosphere matrix)"
-    reportProgress Info "  - B_public.csv (biosphere matrix)"
+    reportProgress Info "  - ie_index.csv (process index)"
+    reportProgress Info "  - ee_index.csv (emission and resource index)"
+    reportProgress Info "  - A_public.csv (consumed products matrix)"
+    reportProgress Info "  - B_public.csv (emissions and resources matrix)"

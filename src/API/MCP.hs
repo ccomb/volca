@@ -1214,9 +1214,9 @@ callGetActivity licence rid args (db, _) = runTool rid $ do
         -- subset, and nothing in the reply says otherwise.
         Error _
             -- Unread, its amounts cannot be taken out, so it is not handed over.
-            | not (granted licence ReadInventory) -> toolError rid "Could not read this activity's exchanges to withhold their amounts"
+            | not (granted licence ReadInventory) -> toolError rid "Could not read this process's exchanges to withhold their amounts"
             | noFilters -> toolSuccessJson rid val
-            | otherwise -> toolError rid "Could not read this activity's exchanges, so the filters asked for could not be applied"
+            | otherwise -> toolError rid "Could not read this process's exchanges, so the filters asked for could not be applied"
         Success ai ->
             -- Single resolve: take the activity name from the 'ActivityInfo'
             -- already in hand instead of asking the engine to resolve the PID again.
@@ -2522,7 +2522,7 @@ optionally pinned to a collection. Thin IO edge over 'selectMethod'.
 resolveMethod :: DatabaseManager -> Maybe Text -> Text -> IO (Either Text (DM.CollectionName, Method))
 resolveMethod dbManager mCollection methodIdText =
     case UUID.fromText methodIdText of
-        Nothing -> return $ Left "Invalid method UUID format"
+        Nothing -> return $ Left "Invalid impact category UUID format"
         Just uuid ->
             bimap methodRefusalMessage (first DM.CollectionName) . selectMethod mCollection uuid
                 <$> DM.getLoadedMethods dbManager

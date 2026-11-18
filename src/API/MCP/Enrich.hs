@@ -233,7 +233,7 @@ validateRequested configured requested =
             Left
                 ( "Unknown scoring set(s): "
                     <> T.intercalate ", " missing
-                    <> ". Configured on this collection: "
+                    <> ". Configured on this method collection: "
                     <> T.intercalate ", " configured
                 )
 
@@ -279,9 +279,9 @@ marketHintObject =
     object
         [ "kind" .= ("market_activity" :: Text)
         , "message"
-            .= ( "This is a 'market for ...' activity -- an aggregated supplier mix, \
-                 \not a source ICV. Call get_activity to inspect its technosphere \
-                 \inputs (the actual producers)." ::
+            .= ( "This is a 'market for ...' process: an aggregated supplier mix, \
+                 \not a source ICV. Call get_activity to see its consumed \
+                 \products and their actual suppliers." ::
                     Text
                )
         ]

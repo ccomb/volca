@@ -264,7 +264,7 @@ resolveScorable db queryText = do
         Right _ -> Right (pid, act)
         Left refusal ->
             Left . NotScorable $
-                "Activity \"" <> activityName act <> "\" (" <> queryText <> ") cannot be scored: " <> describeRefusal refusal
+                "Process \"" <> activityName act <> "\" (" <> queryText <> ") cannot be scored: " <> describeRefusal refusal
 
 {- | Resolve activity and get both ProcessId and Activity, for reading.
 Anything that scores goes through 'resolveScorable', which adds the
@@ -309,7 +309,7 @@ validateProcessIdInMatrixIndex db processId =
                 MatrixError $
                     "ProcessId not available for matrix calculations: "
                         <> T.pack (show processId)
-                        <> ". This activity may exist in the database but is not indexed for inventory calculations."
+                        <> ". This process may exist in the database but is not indexed for inventory calculations."
 
 {- | The demand vector that puts the functional unit on @processId@, with the
 builder's refusal carried as the matrix error it is. A process id that reached
@@ -811,7 +811,7 @@ mkGraphNode db nodeId (pid, cumulativeVal) =
             Nothing ->
                 GraphNode
                     { gnNodeId = nodeId
-                    , gnLabel = "<unresolved activity " <> processIdText <> ">"
+                    , gnLabel = "<unresolved process " <> processIdText <> ">"
                     , gnValue = cumulativeVal
                     , gnUnit = ""
                     , gnProcessId = processIdText
@@ -2833,7 +2833,7 @@ resolveSpec db p = do
     case findTechCoefficient db (TechLink consumerPid supplierPid) of
         Nothing ->
             Left $
-                "no technosphere link from consumer "
+                "no link from consumer "
                     <> perConsumer p
                     <> " to supplier "
                     <> perSupplier p
@@ -2851,7 +2851,7 @@ resolveRootOnly db t
             Right (pid, _) -> Right pid
             Left (InvalidProcessId msg) -> Left msg
             Left (AmbiguousActivity msg) -> Left msg
-            Left (ActivityNotFound msg) -> Left ("activity not found: " <> msg)
+            Left (ActivityNotFound msg) -> Left ("process not found: " <> msg)
             Left (NotScorable msg) -> Left msg
             Left e -> Left (T.pack (show e))
 
@@ -2874,7 +2874,7 @@ globalFromMustLiveInRoot rootDb subs =
         (d : _) ->
             Left $
                 MatrixError $
-                    "global substitution requires the replaced activity (from) to live in the root database (got: " <> d <> ")"
+                    "a global swap requires the supplier swapped out (from) to live in the root database (got: " <> d <> ")"
 
 {- | What-if inventory with substitutions applied at every DB level of the
 dep graph. Substitutions are filtered at each level by
@@ -2950,9 +2950,9 @@ validateAnchorDbs depLookup rootDbObj rootDb subs = do
     refuse d = do
         mLoad <- depLookup d
         pure $ Left $ MatrixError $ case mLoad of
-            Nothing -> "substitution consumer references unloaded database: " <> d
+            Nothing -> "swap consumer references unloaded database: " <> d
             Just _ ->
-                "substitution consumer database '"
+                "swap consumer database '"
                     <> d
                     <> "' is not reachable from root database's dep-graph"
 
@@ -3096,7 +3096,7 @@ computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db rootDbName sol
                 pure $
                     Left $
                         MatrixError $
-                            "substitution consumer must live in root database (got: " <> cDb <> ")"
+                            "swap consumer must live in root database (got: " <> cDb <> ")"
             Nothing -> case demandFor db pid of
                 Left e -> pure (Left e)
                 Right demandVec ->
@@ -3201,7 +3201,7 @@ global substitution on such an activity is vacuous, never a silent no-op.
 -}
 requireConsumers :: Database -> ProcessId -> Either ServiceError [(Int, Double)]
 requireConsumers db supplier = case technosphereRow db supplier of
-    [] -> Left $ MatrixError $ "global substitution: activity is consumed nowhere: " <> processIdToText db supplier
+    [] -> Left $ MatrixError $ "global swap: process is consumed nowhere: " <> processIdToText db supplier
     row -> Right row
 
 {- | The reference exchange a substitution reads, which is the produced one.
@@ -3234,9 +3234,9 @@ substitutionUnitFactor unitCfg db (Swap fromPid toPid) = do
         then Right 1.0
         else maybe (Left $ incompatible fromUnit toUnit) Right $ convertUnit unitCfg fromUnit toUnit 1.0
   where
-    noRefUnit pid = MatrixError $ "substitution endpoint has no reference product unit: " <> processIdToText db pid
+    noRefUnit pid = MatrixError $ "swap endpoint has no reference product unit: " <> processIdToText db pid
     incompatible fu tu =
-        MatrixError $ "global substitution units are incompatible: " <> fu <> " -> " <> tu <> " (no conversion factor)"
+        MatrixError $ "global swap units are incompatible: " <> fu <> " -> " <> tu <> " (no conversion factor)"
 
 {- | Plan a within-DB global swap @from → to@ as a two-sided rank-1 update:
 @u = e_from - κ·e_to@, @v = from@'s technosphere row. The +1 at @from@
@@ -3381,7 +3381,7 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
     planGlobalUpdate :: Endpoint -> Endpoint -> Either ServiceError GlobalRankOneUpdate
     planGlobalUpdate fromEp toEp = case fromEp of
         Elsewhere _ ->
-            Left $ MatrixError "global substitution requires the replaced activity (from) to live in the root database"
+            Left $ MatrixError "a global swap requires the supplier swapped out (from) to live in the root database"
         Here fromPid -> case toEp of
             Here toPid -> planGlobalWithinDB unitCfg thisDb (Swap fromPid toPid)
             Elsewhere toRef -> do
@@ -3422,7 +3422,7 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
 
     noTechLink sub cPid =
         MatrixError $
-            "No technosphere link from "
+            "No link from "
                 <> processIdToText thisDb cPid
                 <> " to supplier "
                 <> subFrom sub
@@ -3435,7 +3435,7 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
                 <> fromDb
                 <> "::"
                 <> T.pack (show fromPid)
-                <> " (requested by substitution "
+                <> " (requested by swap "
                 <> subFrom sub
                 <> " -> "
                 <> subTo sub
@@ -3451,12 +3451,12 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
                 Nothing ->
                     Left $
                         MatrixError $
-                            "substitution references unloaded database: " <> refDb
+                            "swap references unloaded database: " <> refDb
                 Just (depDb, _) -> case resolveScorable depDb pidText of
                     Left _ ->
                         Left $
                             MatrixError $
-                                "substitution PID not found in " <> refDb <> ": " <> pidText
+                                "swap PID not found in " <> refDb <> ": " <> pidText
                     Right (p, _) ->
                         Right $
                             Elsewhere
@@ -3678,7 +3678,7 @@ exportMatrixDebugData database processIdText opts = do
   where
     withRef (pid, act) =
         maybe
-            (Left (InvalidUUID ("No activity reference for " <> processIdText)))
+            (Left (InvalidUUID ("No process reference for " <> processIdText)))
             (\ref -> Right (pid, act, ref))
             (processIdToRef database pid)
 

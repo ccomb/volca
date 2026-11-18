@@ -837,7 +837,7 @@ flowJSON = \case
                 <> maybe [] (\sub -> ["sub_compartment" .= sub]) (compartmentSub compartment)
 
 parseFlow :: Value -> Parser FlowRef
-parseFlow = withObject "biosphere flow" $ \o -> do
+parseFlow = withObject "emission or resource" $ \o -> do
     mIdentifier <- o .:? "id"
     mName <- o .:? "name"
     case (mIdentifier, mName) of
@@ -854,9 +854,9 @@ parseFlow = withObject "biosphere flow" $ \o -> do
                     Compartment{compartmentName = compartment, compartmentSub = sub}
                     unit
         (Just _, Just _) ->
-            fail "a biosphere flow is named by identifier or in words, not both"
+            fail "an emission or resource is named by identifier or in words, not both"
         (Nothing, Nothing) ->
-            fail "a biosphere flow needs either an identifier or a name, compartment and unit"
+            fail "an emission or resource needs either an identifier or a name, compartment and unit"
 
 directionText :: BioDirection -> Text
 directionText = \case
@@ -867,4 +867,4 @@ parseDirection :: Text -> Parser BioDirection
 parseDirection raw = case T.toLower (T.strip raw) of
     "resource" -> pure Resource
     "emission" -> pure Emission
-    other -> fail ("unknown biosphere direction: " <> T.unpack other <> " (expected resource|emission)")
+    other -> fail ("unknown direction: " <> T.unpack other <> " (expected resource|emission)")

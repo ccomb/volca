@@ -70,7 +70,7 @@ builtinMethodName :: BuiltinMethod -> Text
 builtinMethodName BuiltinPlainIndicators = "plain-indicators"
 
 builtinMethodDescription :: BuiltinMethod -> Text
-builtinMethodDescription BuiltinPlainIndicators = "Raw physical quantities counted through the supply chain (CF=1.0)"
+builtinMethodDescription BuiltinPlainIndicators = "Raw physical amounts counted upstream (CF=1.0)"
 
 builtinMethodContent :: BuiltinMethod -> BL.ByteString
 builtinMethodContent BuiltinPlainIndicators = decode L.plainIndicatorsCsv

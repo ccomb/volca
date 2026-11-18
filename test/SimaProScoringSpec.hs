@@ -162,7 +162,7 @@ spec = do
             let ghost = damages <> [DamageCategory "Ghost" "x" [("Missing category", 1)]]
             withSole (translateScoring methods ghost [nwSet]) $ \set warnings -> do
                 M.member "ghost" (ssComputed set) `shouldBe` False
-                warnings `shouldBe` ["Damage category 'Ghost' groups 'Missing category', which no impact category of this collection carries; it is left out of the scoring sets."]
+                warnings `shouldBe` ["Damage category 'Ghost' groups 'Missing category', which no impact category of this method collection carries; it is left out of the scoring sets."]
 
         it "names a normalization or a weight that reaches nothing" $ do
             let stray = nwSet{nwWeighting = M.insert "Land use" 0.08 (nwWeighting nwSet)}

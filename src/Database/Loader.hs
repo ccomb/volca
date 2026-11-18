@@ -735,7 +735,7 @@ indexActivities activities =
             <> activityName kept
             <> "' and "
             <> T.intercalate ", " ["'" <> activityName act <> "'" | act <- dropped]
-            <> " are one activity at '"
+            <> " are one process at '"
             <> activityLocation kept
             <> "': they differ only in case, no process identifier tells them apart, and only the last read keeps its inventory"
 
@@ -1365,7 +1365,7 @@ refusedFiles offered refusals =
     refused = length refusals
 
     header :: T.Text
-    header = T.pack $ printf "%d of %d files became no dataset:" refused offered
+    header = T.pack $ printf "%d of %d files became no process:" refused offered
 
     rest :: [T.Text]
     rest = ["  ... and " <> T.pack (show (refused - 10)) <> " more" | refused > 10]
@@ -1392,7 +1392,7 @@ loadSimaProCSV opts csvPath = do
         Left err -> return (Left err)
         Right SimaPro.SimaProFile{spfActivities = activities, spfTechFlows = techFlowDB, spfBioFlows = bioFlowDB, spfWasteFlows = wasteFlowDB, spfUnits = unitDB, spfDocumentation = documentation, spfParameters = parameters} ->
             if null activities
-                then return $ Left "No activities found in SimaPro CSV file."
+                then return $ Left "No processes found in SimaPro CSV file."
                 else do
                     -- Build ActivityMap with generated ProcessIds
                     -- For SimaPro: use the same UUID for both activity and product (like EcoSpold1)
@@ -1421,7 +1421,7 @@ loadBrightwayExcel opts xlsxPath = do
     case parsed of
         Left err -> return $ Left err
         Right BrightwayExcel.Workbook{wbActivities = activities, wbTechFlows = techFlowDB, wbBioFlows = bioFlowDB, wbUnits = unitDB, wbParameters = parameters}
-            | null activities -> return $ Left "No activities found in Brightway Excel file."
+            | null activities -> return $ Left "No processes found in Brightway Excel file."
             | otherwise -> do
                 let (procMap, collisions) = indexActivities (allocateAll (allocating opts unitDB) activities)
                     simpleDb = SimpleDatabase procMap techFlowDB bioFlowDB M.empty unitDB noDocumentation parameters [] (referenceConventionOf BrightwayExcel)
@@ -1878,7 +1878,7 @@ loadEcoSpoldFiles opts files = do
             -- EcoSpold2: a name with no reading (a file called after its
             -- product, say) leaves the dataset to name itself.
             maybe
-                (Left $ T.pack $ filepath ++ ": the name is not [datasetNumber_]activityUUID_productUUID, and the dataset states no activity id that is a UUID, or no reference product, to be filed under instead")
+                (Left $ T.pack $ filepath ++ ": the name is not [datasetNumber_]activityUUID_productUUID, and the file states no activity id that is a UUID, or no reference product, to be filed under instead")
                 Right
                 (pairInName filepath <|> statedKey parsed)
 

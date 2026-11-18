@@ -116,7 +116,7 @@ spec = do
                 -- The loader warns and drops this case; authoring will not, because
                 -- a dropped input silently undercounts the activity's inventory.
                 failsWith
-                    "unknown provider"
+                    "unknown supplier"
                     (baseActivity{aaExchanges = [techInput "no-such-process" 1 Nothing]})
 
             it "refuses an input whose unit cannot reach the supplier's" $
@@ -128,7 +128,7 @@ spec = do
                 -- The matrix never converts into a reference input, so a
                 -- mismatched unit would land as a wrong raw number.
                 failsWith
-                    "amounts to a provider with no produced output are not converted"
+                    "amounts to a supplier with no produced output are not converted"
                     (baseActivity{aaExchanges = [wasteOut treatPid 1 (Just "m")]})
 
             it "refuses a non-finite exchange amount" $
@@ -138,14 +138,14 @@ spec = do
 
             it "refuses a biosphere flow identifier nothing declares" $
                 failsWith
-                    "no biosphere flow"
+                    "no emission or resource flow"
                     (baseActivity{aaExchanges = [bioOf (FlowById (mkUUID 999)) 1 Nothing]})
 
             it "refuses a biosphere amount restated in another unit" $
                 -- The biosphere matrix carries amounts through unconverted, so a
                 -- unit the flow does not use would land as a wrong number.
                 failsWith
-                    "biosphere amounts are not converted"
+                    "emission and resource amounts are not converted"
                     (baseActivity{aaExchanges = [bioOf (FlowById co2Id) 1 (Just "m")]})
 
             it "reports a bad product unit and a bad exchange together" $
@@ -154,7 +154,7 @@ spec = do
                     Left errs -> do
                         length errs `shouldBe` 2
                         errs `shouldSatisfy` any (isInfixOf "unknown unit \"furlong\"")
-                        errs `shouldSatisfy` any (isInfixOf "unknown provider")
+                        errs `shouldSatisfy` any (isInfixOf "unknown supplier")
 
             it "reports every defect of a batch at once, each naming its activity" $ do
                 let bad =
@@ -166,8 +166,8 @@ spec = do
                     Right _ -> expectationFailure "expected the batch to be refused"
                     Left errs -> do
                         length errs `shouldBe` 3
-                        errs `shouldSatisfy` any (isInfixOf "two-problems {FR}: input from \"nope\": unknown provider")
-                        errs `shouldSatisfy` any (isInfixOf ": no biosphere flow")
+                        errs `shouldSatisfy` any (isInfixOf "two-problems {FR}: input from \"nope\": unknown supplier")
+                        errs `shouldSatisfy` any (isInfixOf ": no emission or resource flow")
                         errs `shouldSatisfy` any (isInfixOf "unknown unit \"furlong\"")
 
             it "refuses a batch that mints one identity twice" $
@@ -175,7 +175,7 @@ spec = do
                     Right _ -> expectationFailure "expected the duplicate identity to be refused"
                     Left errs ->
                         errs
-                            `shouldBe` [ "Two activities in this batch mint the same identity ("
+                            `shouldBe` [ "Two processes in this batch mint the same identity ("
                                             <> authoredKeyText
                                             <> "): same name, location, product and unit."
                                        ]
@@ -447,7 +447,7 @@ spec = do
 
             it "refuses a named flow restated in another unit" $
                 failsWith
-                    "biosphere amounts are not converted"
+                    "emission and resource amounts are not converted"
                     (baseActivity{aaExchanges = [bioOf (FlowByName "Carbon dioxide" air "m") 1 Nothing]})
 
             it "tells two flows of one name apart by the unit the exchange states" $ do
@@ -787,7 +787,7 @@ spec = do
                         length errs `shouldBe` 3
                         errs `shouldSatisfy` any (isInfixOf "matches no exchange")
                         errs `shouldSatisfy` any (isInfixOf "finite non-zero")
-                        errs `shouldSatisfy` any (isInfixOf "unknown provider")
+                        errs `shouldSatisfy` any (isInfixOf "unknown supplier")
 
 -- ---------------------------------------------------------------------------
 -- Helpers

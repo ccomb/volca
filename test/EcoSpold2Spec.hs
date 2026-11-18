@@ -319,7 +319,7 @@ perExchangeComments = describe "per-exchange comments" $ do
                         fcEvaluated fc `shouldBe` 1
                         fcDivergent fc `shouldBe` 1
                         fcUnevaluable fc `shouldBe` 1
-                        fcDivergentExample fc `shouldBe` Just "\"fuel_input * 2 + production\" evaluates to 5.0 but the dataset stores 4.0"
+                        fcDivergentExample fc `shouldBe` Just "\"fuel_input * 2 + production\" evaluates to 5.0 but the process stores 4.0"
                         fcUnevaluableExample fc `shouldBe` Just "\"missing_var * 2\": unknown variable missing_var"
 
         -- ecoinvent writes IF in upper case, with a comparison, and ends a

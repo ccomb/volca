@@ -218,9 +218,9 @@ applyMethodOp collection = \case
         | mcUnregionalized collection == before -> Right collection{mcUnregionalized = after}
         | otherwise ->
             Left $
-                "recorded with the unregionalized categories "
+                "recorded with the unregionalized impact categories "
                     <> listed before
-                    <> " but the collection has "
+                    <> " but the method collection has "
                     <> listed (mcUnregionalized collection)
     RemoveFactor category position factor -> inCategory category (removeAt position factor) collection
     AddFactor category position factor -> inCategory category (addAt position factor) collection
@@ -257,7 +257,7 @@ changeScoringSet name changes collection = do
         Left ("the line changes one entry of the scoring set '" <> name <> "' twice")
     set <- case filter ((== name) . ssName) (mcScoringSets collection) of
         [one] -> Right one
-        [] -> Left ("there is no scoring set named '" <> name <> "'; the collection has " <> listed (map ssName (mcScoringSets collection)))
+        [] -> Left ("there is no scoring set named '" <> name <> "'; the method collection has " <> listed (map ssName (mcScoringSets collection)))
         _ -> Left ("several scoring sets are named '" <> name <> "'")
     changed <- foldM (flip applyChange) set changes
     mapM_ written changes
@@ -280,7 +280,7 @@ changeScoringSet name changes collection = do
     textWritten :: TextEntry -> Text -> Maybe Text -> Either Text ()
     textWritten CategoryOf variable (Just category) =
         unless (category `elem` map methodName (mcMethods collection)) $
-            Left ("the variable '" <> variable <> "' reads '" <> category <> "', which is no impact category of this collection")
+            Left ("the variable '" <> variable <> "' reads '" <> category <> "', which is no impact category of this method collection")
     textWritten CategoryOf _ Nothing = Right ()
     textWritten FormulaOf _ _ = Right ()
     textWritten LabelOf _ _ = Right ()
@@ -310,7 +310,7 @@ would make a line mean two things, so that is a refusal too.
 oneCategory :: MethodCollection -> UUID -> Either Text Method
 oneCategory collection category = case filter ((== category) . methodId) (mcMethods collection) of
     [method] -> Right method
-    [] -> Left ("no impact category " <> UUID.toText category <> " in this collection")
+    [] -> Left ("no impact category " <> UUID.toText category <> " in this method collection")
     several ->
         Left ("impact categories " <> T.intercalate ", " (map methodName several) <> " share the identifier " <> UUID.toText category)
 
@@ -346,7 +346,7 @@ nameIsFree collection name
     | (s : _) <- filter (elem name . M.elems . ssVariables) (mcScoringSets collection) =
         Left ("the scoring set " <> ssName s <> " already names " <> name <> ", which no impact category has")
     | name `elem` mcUnregionalized collection =
-        Left ("the unregionalized categories already name " <> name <> ", which no impact category has")
+        Left ("the unregionalized impact categories already name " <> name <> ", which no impact category has")
     | otherwise = Right ()
 
 {- | Rename the one category a line names, and every name that pointed at it.
@@ -400,7 +400,7 @@ enterUnregionalized regionalization name names = case regionalization of
     Regionalized -> Right names
     UnregionalizedAt i
         | i >= 0 && i <= length names -> Right (insertAt i name names)
-        | otherwise -> Left ("rank " <> showT i <> " is past the end of the unregionalized categories")
+        | otherwise -> Left ("rank " <> showT i <> " is past the end of the unregionalized impact categories")
 
 leaveUnregionalized :: Regionalization -> Text -> [Text] -> Either Text [Text]
 leaveUnregionalized regionalization name names = case regionalization of
@@ -409,7 +409,7 @@ leaveUnregionalized regionalization name names = case regionalization of
         | otherwise -> Left (name <> " is scored without regionalization, which the line did not record")
     UnregionalizedAt i -> case splitAt i names of
         (front, found : back) | i >= 0, found == name -> Right (front <> back)
-        _ -> Left (name <> " is not at rank " <> showT i <> " of the unregionalized categories as recorded")
+        _ -> Left (name <> " is not at rank " <> showT i <> " of the unregionalized impact categories as recorded")
 
 insertAt :: Int -> a -> [a] -> [a]
 insertAt i x xs = take i xs <> (x : drop i xs)

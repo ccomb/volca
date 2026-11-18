@@ -323,7 +323,7 @@ scoreWeights ss scoreName rawScores = do
             , scoreName
             , T.pack "' of scoring set '"
             , ssName ss
-            , T.pack "' is not a weighted sum of its indicators, so it cannot be split by flow or by activity."
+            , T.pack "' is not a weighted sum of its impact categories, so it cannot be split by flow or by process."
             ]
 
 {- | Resolve computed variables by evaluating formulas, each after the computed

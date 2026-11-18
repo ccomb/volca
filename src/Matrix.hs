@@ -170,9 +170,9 @@ named as the database names it.
 -}
 unsolvableText :: Database -> Unsolvable -> Text
 unsolvableText db = \case
-    Singular column -> "the supply chain reaches " <> named column <> ", and nothing is left of what that process makes once its own supply chain has taken its share: there is no amount of it that meets a demand"
-    NotFinite column -> "the supply chain reaches " <> named column <> ", one of whose inputs has an amount that is not a finite number"
-    OutOfRange place -> "technosphere entry " <> T.pack (show place) <> " names a process the database does not hold"
+    Singular column -> "the upstream processes reach " <> named column <> ", and nothing is left of what that process makes once its own upstream processes have taken their share: there is no amount of it that meets a demand"
+    NotFinite column -> "the upstream processes reach " <> named column <> ", one of whose inputs has an amount that is not a finite number"
+    OutOfRange place -> "consumed product entry " <> T.pack (show place) <> " names a process the database does not hold"
     WrongLength entries -> "the demand has " <> T.pack (show entries) <> " entries for " <> T.pack (show (dbActivityCount db)) <> " processes"
   where
     named :: Int -> Text
@@ -610,6 +610,6 @@ buildDemandVector db rootProcessId =
     noColumn =
         "ProcessId "
             <> T.pack (show rootProcessId)
-            <> " is not in the activity index ("
+            <> " is not in the process index ("
             <> T.pack (show n)
             <> " processes), so it names no column to put the functional unit in"
