@@ -31,6 +31,7 @@ module Database.Rebuild (
     rebuildFromActivities,
 
     -- * Identity
+    activityMap,
     processKey,
     resolveProcess,
 ) where

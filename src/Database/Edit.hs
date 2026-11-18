@@ -34,6 +34,9 @@ module Database.Edit (
     derivationOf,
     resolveDeleteSelection,
     DeleteSelection (..),
+    SpareChoice (..),
+    DeletePlan (..),
+    planDeletion,
     DeleteRequest (..),
     DeleteOutcome (..),
     deleteActivitiesInDB,
@@ -83,7 +86,7 @@ import System.FilePath ((</>))
 import Config (DatabaseConfig (..), licenceOf)
 import Data.JournalFile (Origin)
 import Database (Geographies)
-import Database.Allocation (Allocating (..), describePropertyRefusal, keptWhole, propertyKeyRefusals)
+import Database.Allocation (Allocating (..), describePropertyRefusal, keptWhole, producerCandidatesBy, propertyKeyRefusals)
 import Database.Author (
     ActivityText (..),
     AuthorContext (..),
@@ -141,7 +144,7 @@ import Database.Manager (
     unloadDatabase,
     withReservedName,
  )
-import Database.Rebuild (processKey, resolveProcess)
+import Database.Rebuild (activityMap, processKey, resolveProcess)
 import Database.RelinkMapping (SupplierMapping (..))
 import Database.SystemModel (parseSystemModel, severalProducts)
 import Database.Upload (DatabaseFormat (..), slugify)
@@ -166,6 +169,9 @@ import Types (
     SystemModel (..),
     addedNow,
     allocationKeyText,
+    exchangeActivityLinkId,
+    exchangeFlowId,
+    exchanges,
     findProcessIdByActivityUUID,
     getActivity,
     initializeRuntimeFields,
@@ -1233,6 +1239,62 @@ resolveDeleteSelection sel =
             (toSet (dsKeep sel))
   where
     toSet = IS.fromList . map fromIntegral
+
+-- | Whether a delete keeps the matched processes the remaining ones still use.
+data SpareChoice = SpareSuppliers | CutSuppliers
+
+-- | What a delete removes, and the matched processes it keeps because the remaining ones use them.
+data DeletePlan = DeletePlan
+    { dpDeleted :: [ProcessId]
+    , dpSpared :: [ProcessId]
+    }
+
+{- | Split the matched processes into those a delete removes and those it
+spares.
+
+Sparing keeps every matched process the remaining ones reach, however far
+upstream, through the links a delete would clear: every technosphere and
+waste line carrying a link, resolved the way 'Database.Rebuild.deleteActivitiesWith'
+resolves it when it unlinks the survivors. The lines are read, not the matrix, because the matrix holds no column for
+an activity the allocation refuses, no entry for a coproduct bought from a
+block kept whole and none for a linked line of amount zero, and the delete
+clears all three. Cut spares nothing.
+-}
+planDeletion :: SpareChoice -> Database -> [ProcessId] -> DeletePlan
+planDeletion choice db matched = case choice of
+    CutSuppliers -> DeletePlan{dpDeleted = pids matchedSet, dpSpared = []}
+    SpareSuppliers ->
+        DeletePlan
+            { dpDeleted = pids (IS.difference matchedSet used)
+            , dpSpared = pids (IS.intersection matchedSet used)
+            }
+  where
+    matchedSet = IS.fromList (map fromIntegral matched)
+    remaining = filter (`IS.notMember` matchedSet) [0 .. V.length (dbActivities db) - 1]
+    used = reachable (linkedSuppliers db (activityMap db)) remaining
+    pids = map fromIntegral . IS.toList
+
+{- | The processes a process's lines are linked to, as a delete resolves them;
+a link two whole blocks could answer reaches both.
+-}
+linkedSuppliers :: Database -> M.Map (UUID.UUID, UUID.UUID) Activity -> Int -> [Int]
+linkedSuppliers db activities pid =
+    [ fromIntegral supplier
+    | Just act <- [dbActivities db V.!? pid]
+    , ex <- exchanges act
+    , Just link <- [exchangeActivityLinkId ex]
+    , key <- producerCandidatesBy id activities (link, exchangeFlowId ex)
+    , Just supplier <- [M.lookup key (dbProcessIdLookup db)]
+    ]
+
+-- | Every node reachable from the given ones, through @next@, the given ones included.
+reachable :: (Int -> [Int]) -> [Int] -> IS.IntSet
+reachable next = go IS.empty
+  where
+    go seen [] = seen
+    go seen (node : rest)
+        | IS.member node seen = go seen rest
+        | otherwise = go (IS.insert node seen) (next node <> rest)
 
 {- | Resolve a filter to the full set of matching 'ProcessId's, ignoring
 pagination.

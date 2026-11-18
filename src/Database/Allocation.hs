@@ -37,6 +37,7 @@ module Database.Allocation (
     asAllocated,
     isCoproduct,
     keptWhole,
+    producerCandidatesBy,
     producerKeyBy,
     producerKeyOf,
     describeRefusal,
@@ -564,11 +565,19 @@ producerKeyOf = producerKeyBy id
 
 -- | 'producerKeyOf' on a table holding something an activity is read from, as a loaded database's process ids.
 producerKeyBy :: (a -> Activity) -> M.Map (UUID, UUID) a -> (UUID, UUID) -> Maybe (UUID, UUID)
-producerKeyBy activityOf processes key@(activity, flow)
-    | M.member key processes = Just key
-    | otherwise = case [blockKey | (blockKey, block) <- M.toList rows, wholeBlockMakes (activityOf block) flow] of
-        [blockKey] -> Just blockKey
-        _ -> Nothing
+producerKeyBy activityOf processes key = case producerCandidatesBy activityOf processes key of
+    [producer] -> Just producer
+    _ -> Nothing
+
+{- | Every process that could answer a link to @(activity, product)@: the one
+'producerKeyBy' names, or each of the whole blocks it found too many of. A
+delete keeping one of two such blocks would leave the link answered where it
+was not, so what a delete spares follows all of them.
+-}
+producerCandidatesBy :: (a -> Activity) -> M.Map (UUID, UUID) a -> (UUID, UUID) -> [(UUID, UUID)]
+producerCandidatesBy activityOf processes key@(activity, flow)
+    | M.member key processes = [key]
+    | otherwise = [blockKey | (blockKey, block) <- M.toList rows, wholeBlockMakes (activityOf block) flow]
   where
     rows = M.takeWhileAntitone ((== activity) . fst) (M.dropWhileAntitone ((< activity) . fst) processes)
 
