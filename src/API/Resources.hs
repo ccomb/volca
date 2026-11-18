@@ -609,7 +609,7 @@ description r = case r of
     SearchActivities ->
         "LCA / ACV: search processes by name, geography, product, \
         \classification or preset. Ranked, paginated, best first, with process \
-        \IDs. Name and product together must hold every \
+        \IDs. Activity and product names together must hold every \
         \word, or a close spelling. Entry point for any \
         \product or process question, any language: \
         \food (yaourt, steak, pain, lait, fromage), packaging (PET, verre, carton), \
@@ -894,7 +894,8 @@ description r = case r of
         \two versions or ports of one method collection: per \
         \impact category pair, factors added, removed, changed \
         \(both values and ratio). Impact categories pair on 'pairs', then \
-        \'SameMethodName', then 'SameImpactCategory', case and spacing aside; a \
+        \by name ('SameMethodName'), then by the group label each \
+        \carries ('SameImpactCategory'), case and spacing aside; a \
         \name several share is 'ambiguous', settled by 'base=other' in 'pairs'. \
         \Factors pair per direction, compartment and location in a cascade: \
         \'SameFlowId', 'SameName', 'SameSynonymClass', 'SameCAS' (refused when the \
@@ -941,7 +942,7 @@ description r = case r of
         \{scoring_set, scoring_unit, functional_unit?, columns, rows, not_found, \
         \invalid, unscorable, unsolvable, cutoff_notice?, \
         \cutoff_inputs_by_process_id?, withheld_cutoffs_by_process_id?}. \
-        \'columns' heads 'rows' (one scalar array per process): ['name', \
+        \'columns' heads 'rows' (one scalar array per process): ['activity_name', \
         \'process_id', 'web_url', 'total', \
         \'cutoffs', <impact category keys...>]; \
         \'cutoffs' counts the row's upstream \
@@ -983,7 +984,7 @@ description r = case r of
     GetGapReport ->
         "LCA / ACV: supplier gaps of a database: input demands still unsupplied \
         \after internal resolution and cross-database linking, per (product, \
-        \'supplier_activity', location, unit), ranked by demanding edges. Each \
+        \supplier asked for, location, unit), ranked by demanding edges. Each \
         \gap: every blocking reason, consumer edge and distinct consumer counts, \
         \total demand, top consumers. 'What is missing to switch or complete this \
         \database's background?', typically after a relink."
@@ -1303,7 +1304,7 @@ pScoringSetsFilter =
         Optional
         "Scoring set names (list_scoring_sets). score_activity: keeps only these \
         \in scoringResults / scoringUnits / scoringIndicators. score_activities: \
-        \the one set to rank on, one name, auto-picked when the collection has \
+        \the one set to rank on, one name, auto-picked when the method collection has \
         \one. An unknown name fails, listing the names."
 
 -- | Opt-in summary mode for 'score_activities'.
@@ -1314,10 +1315,10 @@ pSummaryOnly =
         "boolean"
         Optional
         "True: one 'dominant_indicator' column \
-        \instead of one per impact category, \
+        \instead of one per scoring-set column, \
         \cells {key, share_pct} (e.g. {\"key\": \"ldu\", \
-        \\"share_pct\": 82.3}), the impact category with the \
-        \largest absolute share of the row's total. For large \
+        \\"share_pct\": 82.3}), the column (an impact category or \
+        \a computed variable) with the largest absolute share of the row's total. For large \
         \batches before score_activity on one PID. Default false."
 
 -- | Parameters accepted by a resource operation.
@@ -1686,7 +1687,7 @@ params r = case r of
         , Param "method_id" "string" Optional "The impact category (from list_methods), for rename, set-unit and remove"
         , Param "name" "string" Optional "The impact category's name, for add and rename"
         , Param "unit" "string" Optional "The impact category's unit, for add and set-unit"
-        , Param "impact_category" "string" Optional "The impact category a new one belongs to; its name when absent"
+        , Param "impact_category" "string" Optional "The group label the impact category carries; its own name when absent"
         , Param "methodology" "string" Optional "The methodology of a new impact category"
         ]
     EditMethodScoringSets ->

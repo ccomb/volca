@@ -339,7 +339,7 @@ instructionLines =
     , "VoLCA answers both LCIA scores (climate change, acidification, eutrophication, water scarcity, land use…) AND raw inventory flows (land occupation, water withdrawal, resource depletion, emissions). Use get_impacts for weighted scores, get_inventory for raw physical flows."
     , "Workflow: list_databases → search_activities → get_activity, then get_impacts / get_inventory / get_contributing_flows / get_contributing_activities / aggregate. Process tools take a 'database' parameter and a 'process_id' (preferred format: activityUUID_productUUID; a bare activityUUID is accepted when the activity has a unique reference product)."
     , "Use list_methods for the impact categories of the loaded method collections."
-    , "When showing processes, scores, or contributions to a human, render the 'web_url' field as a clickable markdown link whenever it is present. If 'web_url' is absent (backend-only deployment), show 'activity_name' and 'process_id' as plain text instead -- never invent a link."
+    , "When showing processes, scores, or contributions to a human, render the 'web_url' field as a clickable markdown link whenever it is present. If 'web_url' is absent (backend-only deployment), show the activity and product names and 'process_id' as plain text instead -- never invent a link."
     ]
 
 -- ---------------------------------------------------------------------------
@@ -563,7 +563,7 @@ paramsToSchema ps =
                 .= object
                     [ "provider" .= stringField providerDesc
                     , "amount" .= numberField "Amount exchanged"
-                    , "unit" .= stringField "Unit the amount is stated in. Defaults to the supplier's own reference unit."
+                    , "unit" .= stringField "Unit the amount is stated in. Defaults to the reference unit of the 'provider' process."
                     , "comment" .= stringField "Free-text note on this line"
                     ]
             , "required" .= (["provider", "amount"] :: [Text])
