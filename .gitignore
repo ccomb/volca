@@ -17,6 +17,7 @@ cbits/*.o
 !/scripts/build_chem_synonyms.py
 !/scripts/propose_flow_bridges.py
 !/scripts/check-data-version.sh
+!/scripts/changelog.sh
 !/scripts/check-licenses-table.sh
 !/scripts/collect-haskell-licenses.py
 node_modules/

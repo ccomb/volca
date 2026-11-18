@@ -41,7 +41,10 @@ The PR should:
   `-dev` suffix). Before dropping the suffix, hold the number against
   the rule in step 5: a removal or redefinition that landed since the
   last bump raises it here, `0.7.1-dev` becoming `0.8.0`.
-- Update `CHANGELOG.md` with a `## [0.7.0]` section.
+- Run `scripts/changelog.sh release 0.7.0`: it writes the entries
+  waiting in `changelog.d/` into a `## [0.7.0]` section of
+  `CHANGELOG.md` and deletes them. Then read the section over and
+  tighten its wording.
 - Nothing to do for `data/VERSION`: it moved in the PR that changed
   `data/`, the way the wire revision moves in the PR that changes the
   wire. `scripts/check-data-version.sh` runs on every PR and again in
