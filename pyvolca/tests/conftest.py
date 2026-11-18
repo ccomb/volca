@@ -217,6 +217,18 @@ def fixture_spec() -> dict[str, Any]:
 
 
 @pytest.fixture()
+def feature_gates_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let the client talk to an engine older than pyvolca requires.
+
+    The floor (``REQUIRED_WIRE``) sits above every per-feature gate, so a test
+    that checks one gate (an engine at wire 41 refused a wire 42 feature) would
+    otherwise be stopped by the floor first. Lowering the floor here, and only
+    here, keeps those gates tested for a client that opted out of the check.
+    """
+    monkeypatch.setattr("volca._compat.REQUIRED_WIRE", 1)
+
+
+@pytest.fixture()
 def mocked_client(fixture_spec) -> tuple[Client, MagicMock]:
     """A Client whose session is mocked out, preloaded with ``fixture_spec``.
 
@@ -317,6 +329,7 @@ def readme_namespace() -> dict[str, Any]:
         DatabaseStatus,
         Flow,
         FlowContribution,
+        FunctionalUnit,
         InventoryFlow,
         InventoryResult,
         InventoryStatistics,
@@ -379,8 +392,10 @@ def readme_namespace() -> dict[str, Any]:
             ),
         ],
     )
+    one_kg_of_flour = FunctionalUnit(1.0, "kg", "wheat flour")
     supply_chain = SupplyChain(
         root=activity_a,
+        functional_unit=one_kg_of_flour,
         total_activities=42,
         filtered_activities=3,
         entries=[
@@ -389,7 +404,7 @@ def readme_namespace() -> dict[str, Any]:
                 database_name="agribalyse-3-2",
                 activity_name="Soft wheat grain, at farm",
                 location="FR",
-                quantity=1.31,
+                quantity_per_unit=1.31,
                 unit="kg",
                 scaling_factor=1.31,
                 depth=1,
@@ -424,7 +439,7 @@ def readme_namespace() -> dict[str, Any]:
         score=0.823,
         unit="kg CO2 eq",
         mapped_flows=12,
-        functional_unit="kg",
+        functional_unit=one_kg_of_flour,
         normalized_score=1.02e-4,
         weighted_score=2.1e-3,
         top_contributors=[
@@ -439,17 +454,19 @@ def readme_namespace() -> dict[str, Any]:
     )
     lcia_batch = LCIABatchResult(
         results=[lcia_result],
+        functional_unit=one_kg_of_flour,
         single_score=2.1e-3,
         single_score_unit="Pt",
     )
     aggregate_result = AggregateResult(
         scope=AggregateScope.BIOSPHERE,
-        filtered_total=1.42,
+        functional_unit=one_kg_of_flour,
+        filtered_total_per_unit=1.42,
         filtered_unit="kg",
         filtered_count=18,
         groups=[
-            AggregateGroup(key="Carbon dioxide, fossil", quantity=0.41, count=4, unit="kg"),
-            AggregateGroup(key="Methane, fossil", quantity=0.011, count=2, unit="kg"),
+            AggregateGroup(key="Carbon dioxide, fossil", quantity_per_unit=0.41, count=4, unit="kg"),
+            AggregateGroup(key="Methane, fossil", quantity_per_unit=0.011, count=2, unit="kg"),
         ],
     )
 
@@ -484,6 +501,7 @@ def readme_namespace() -> dict[str, Any]:
     c.get_consumers.return_value = consumers
     c.get_inventory.return_value = InventoryResult(
         root=activity_a,
+        functional_unit=one_kg_of_flour,
         total_flows=18,
         emission_flows=10,
         resource_flows=8,
@@ -508,6 +526,7 @@ def readme_namespace() -> dict[str, Any]:
         method="EF v3.1 – Climate change",
         unit="kg CO2 eq",
         total_score=0.823,
+        functional_unit=one_kg_of_flour,
         top_flows=[
             FlowContribution(
                 flow_name="Carbon dioxide, fossil",
@@ -522,6 +541,7 @@ def readme_namespace() -> dict[str, Any]:
         method="EF v3.1 – Climate change",
         unit="kg CO2 eq",
         total_score=0.823,
+        functional_unit=one_kg_of_flour,
         activities=[
             ActivityContribution(
                 process_id="cccc3333-aaaa-bbbb-cccc-111122223333_aaaa4444-eeee-ffff-aaaa-444455556666",

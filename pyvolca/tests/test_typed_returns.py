@@ -23,6 +23,7 @@ from volca import (
     ActivityDetail,
     DatasetDates,
     AggregateOp,
+    AggregateResult,
     AggregateScope,
     BioDirection,
     CharacterizationResult,
@@ -32,9 +33,16 @@ from volca import (
     DatabaseStatus,
     FlowFactors,
     FlowMapping,
+    FunctionalUnit,
     InventoryResult,
+    LCIABatchResult,
+    LCIAResult,
     Method,
+    PathResult,
+    PathStep,
     Preset,
+    ReducedModel,
+    SensitivityResult,
     ServerVersion,
     Substitution,
     SupplyChain,
@@ -52,6 +60,8 @@ from volca.client import _substitution_body
 
 
 class TestSupplyChainHasMore:
+    FLOUR = FunctionalUnit(1.0, "kg", "p")
+
     def _root(self) -> Activity:
         return Activity(
             process_id="a", activity_name="A", location="FR",
@@ -61,20 +71,20 @@ class TestSupplyChainHasMore:
     def _entry(self, name: str) -> SupplyChainEntry:
         return SupplyChainEntry(
             process_id=f"{name}_pid", database_name="db", activity_name=name,
-            location="FR", quantity=1.0, unit="kg", scaling_factor=1.0,
+            location="FR", quantity_per_unit=1.0, unit="kg", scaling_factor=1.0,
             depth=1, upstream_count=1,
         )
 
     def test_has_more_false_when_entries_match_filtered(self):
         sc = SupplyChain(
-            root=self._root(), total_activities=100, filtered_activities=3,
+            root=self._root(), functional_unit=self.FLOUR, total_activities=100, filtered_activities=3,
             entries=[self._entry("a"), self._entry("b"), self._entry("c")],
         )
         assert sc.has_more is False
 
     def test_has_more_true_when_truncated(self):
         sc = SupplyChain(
-            root=self._root(), total_activities=100, filtered_activities=50,
+            root=self._root(), functional_unit=self.FLOUR, total_activities=100, filtered_activities=50,
             entries=[self._entry("a"), self._entry("b")],  # only 2 of 50
         )
         assert sc.has_more is True
@@ -90,7 +100,7 @@ class TestSupplyChainEntryDecoding:
         "databaseName": "agribalyse-3-2",
         "activityName": "market for electricity, low voltage FR",
         "location": "FR",
-        "quantity": 659.0,
+        "quantityPerUnit": 659.0,
         "unit": "mj",
         "scalingFactor": 138549.0,
         "depth": 1,
@@ -112,12 +122,145 @@ class TestSupplyChainEntryDecoding:
                 "processId": "root", "activityName": "Aioli", "location": "FR",
                 "productName": "aioli", "productAmount": 1.0, "productUnit": "kg",
             },
+            "functionalUnit": {"amount": 1, "unit": "kg", "product": "aioli"},
             "totalActivities": 1,
             "filteredActivities": 1,
             "supplyChain": [self.WIRE_ENTRY],
         })
         assert sc.entries[0].depth == 1
         assert sc.entries[0].database_name == "agribalyse-3-2"
+
+
+class TestPerUnitBasis:
+    """Every computed number of a response is for one unit of the reference
+    product, and the response says which: the fields whose numbers moved to that
+    basis carry ``PerUnit`` in their name, and nothing answers to the old names,
+    so a script written for the old numbers fails instead of reading new ones."""
+
+    ROOT = {
+        "processId": "root", "activityName": "Aioli", "location": "FR",
+        "productName": "aioli", "productAmount": 10.0, "productUnit": "kg",
+    }
+    FU = {"amount": 1, "unit": "kg", "product": "aioli"}
+
+    def _unit(self):
+        return FunctionalUnit(1.0, "kg", "aioli")
+
+    def test_functional_unit_decodes(self):
+        fu = FunctionalUnit.from_json({"amount": 1, "unit": "MJ", "product": "electricity"})
+        assert fu == FunctionalUnit(1.0, "MJ", "electricity")
+
+    def test_functional_unit_refuses_another_amount(self):
+        with pytest.raises(ValueError, match="1 unit only"):
+            FunctionalUnit.from_json({"amount": 10, "unit": "kg", "product": "cheese"})
+
+    def test_supply_chain_entry_reads_quantity_per_unit(self):
+        entry = {
+            "processId": "p", "databaseName": "db", "activityName": "n",
+            "location": "FR", "unit": "kg", "scalingFactor": 0.2, "depth": 1,
+            "upstreamCount": 1,
+        }
+        assert SupplyChainEntry.from_json({**entry, "quantityPerUnit": 0.2}).quantity_per_unit == 0.2
+        with pytest.raises(TypeError):
+            SupplyChainEntry.from_json({**entry, "quantity": 0.2})
+
+    def test_supply_chain_carries_functional_unit(self):
+        sc = SupplyChain.from_json({
+            "root": self.ROOT, "functionalUnit": self.FU,
+            "totalActivities": 0, "filteredActivities": 0, "supplyChain": [],
+        })
+        assert sc.functional_unit == self._unit()
+        assert sc.root.product_amount == 10.0  # as declared, not per unit
+
+    def test_path_step_reads_cumulative_quantity_per_unit(self):
+        step = {
+            "processId": "p", "activityName": "n", "location": "FR", "unit": "kg",
+            "scalingFactor": 0.5,
+        }
+        assert PathStep.from_json({**step, "cumulativeQuantityPerUnit": 0.5}).cumulative_quantity_per_unit == 0.5
+
+    def test_path_step_refuses_old_name(self):
+        step = {
+            "processId": "p", "activityName": "n", "location": "FR", "unit": "kg",
+            "scalingFactor": 0.5, "cumulativeQuantity": 0.5,
+        }
+        with pytest.raises(KeyError):
+            PathStep.from_json(step)
+
+    def test_path_result_carries_functional_unit(self):
+        result = PathResult.from_json({
+            "functionalUnit": self.FU, "path": [], "path_length": 0, "total_ratio": 1.0,
+        })
+        assert result.functional_unit == self._unit()
+
+    def test_aggregate_reads_the_per_unit_names(self):
+        wire = {
+            "scope": "direct", "functionalUnit": self.FU, "filteredTotalPerUnit": 2.5,
+            "filteredCount": 1,
+            "groups": [{"key": "milk", "quantityPerUnit": 2.5, "count": 1, "unit": "kg"}],
+        }
+        result = AggregateResult.from_json(wire)
+        assert (result.functional_unit, result.filtered_total_per_unit) == (self._unit(), 2.5)
+        assert result.groups[0].quantity_per_unit == 2.5
+        with pytest.raises(KeyError):
+            AggregateResult.from_json({k: v for k, v in wire.items() if k != "filteredTotalPerUnit"} | {"filteredTotal": 2.5})
+        with pytest.raises(TypeError):
+            AggregateResult.from_json({**wire, "groups": [{"key": "milk", "quantity": 2.5, "count": 1}]})
+
+    def test_inventory_carries_functional_unit(self):
+        result = InventoryResult.from_json({
+            "metadata": {
+                "rootActivity": self.ROOT,
+                "totalFlows": 0, "emissionFlows": 0, "resourceFlows": 0,
+            },
+            "functionalUnit": self.FU,
+            "flows": [],
+            "statistics": {"totalQuantity": 0, "emissionQuantity": 0, "resourceQuantity": 0},
+        })
+        assert result.functional_unit == self._unit()
+
+    def test_batch_entry_carries_functional_unit(self):
+        entry = LCIABatchResult.from_json({"results": [], "functionalUnit": self.FU})
+        assert entry.functional_unit == self._unit()
+
+    def test_score_reads_functional_unit_as_a_unit_not_a_sentence(self):
+        result = LCIAResult.from_json({
+            "methodId": "m", "methodName": "Climate change", "category": "Climate change",
+            "damageCategory": "Climate change", "score": 1.0, "unit": "kg CO2 eq",
+            "mappedFlows": 1, "functionalUnit": self.FU,
+        })
+        assert result.functional_unit == self._unit()
+
+    def test_contributing_flows_carry_functional_unit(self):
+        result = ContributingFlows.from_json({
+            "method": "EF v3.1", "unit": "kg CO2 eq", "totalScore": 0.82, "functionalUnit": self.FU,
+        })
+        assert result.functional_unit == self._unit()
+
+    def test_contributing_activities_carry_functional_unit(self):
+        result = ContributingActivities.from_json({
+            "method": "EF v3.1", "unit": "kg CO2 eq", "totalScore": 0.82, "functionalUnit": self.FU,
+        })
+        assert result.functional_unit == self._unit()
+
+    def test_sensitivity_carries_functional_unit(self):
+        score = {
+            "methodId": "m", "methodName": "Climate change", "category": "Climate change",
+            "damageCategory": "Climate change", "score": 1.0, "unit": "kg CO2 eq",
+            "mappedFlows": 1, "functionalUnit": self.FU,
+        }
+        result = SensitivityResult.from_json({"baseline": score, "perturbed": [], "functionalUnit": self.FU})
+        assert result.functional_unit == self._unit()
+
+    def test_reduced_model_carries_functional_unit(self):
+        model = ReducedModel.from_json(
+            {
+                "functionalUnit": self.FU, "methods": [], "excludeLongTerm": False, "baseline": [],
+                "parameters": [], "processes": [], "suppliers": [], "scoringSets": [],
+            },
+            "root",
+        )
+        assert model.functional_unit == self._unit()
 
 
 class TestCharacterizationHasMore:
@@ -310,7 +453,8 @@ class TestAggregateAcceptsEnumOrString:
     def test_aggregate_accepts_enum(self, mocked_client, make_response):
         client, session = mocked_client
         session.get.return_value = make_response({
-            "scope": "biosphere", "filteredTotal": 1.0, "filteredCount": 1,
+            "scope": "biosphere", "functionalUnit": {"amount": 1, "unit": "kg", "product": "p"},
+            "filteredTotalPerUnit": 1.0, "filteredCount": 1,
             "groups": [],
         })
         client.aggregate("pid", AggregateScope.BIOSPHERE, aggregate=AggregateOp.COUNT)
@@ -321,7 +465,8 @@ class TestAggregateAcceptsEnumOrString:
     def test_aggregate_accepts_raw_string(self, mocked_client, make_response):
         client, session = mocked_client
         session.get.return_value = make_response({
-            "scope": "direct", "filteredTotal": 1.0, "filteredCount": 1,
+            "scope": "direct", "functionalUnit": {"amount": 1, "unit": "kg", "product": "p"},
+            "filteredTotalPerUnit": 1.0, "filteredCount": 1,
             "groups": [],
         })
         client.aggregate("pid", "direct", aggregate="share")
@@ -345,6 +490,7 @@ class TestInventoryParsing:
                 },
                 "totalFlows": 3, "emissionFlows": 2, "resourceFlows": 1,
             },
+            "functionalUnit": {"amount": 1, "unit": "kg", "product": "p"},
             "flows": [
                 {
                     "flow": {"id": "f1", "name": "CO2", "compartment": {"name": "air", "sub": "urban air"}},
@@ -449,6 +595,7 @@ class TestContributingParsing:
     def test_contributing_flows_from_json(self):
         cf = ContributingFlows.from_json({
             "method": "EF v3.1", "unit": "kg CO2 eq", "totalScore": 0.82,
+            "functionalUnit": {"amount": 1, "unit": "kg", "product": "wheat"},
             "topFlows": [
                 {"flowName": "CO2", "contribution": 0.4, "sharePct": 48.0,
                  "flowId": "ef-co2", "category": "air", "cfValue": 1.0},
@@ -461,6 +608,7 @@ class TestContributingParsing:
     def test_contributing_activities_from_json(self):
         ca = ContributingActivities.from_json({
             "method": "EF v3.1", "unit": "kg CO2 eq", "totalScore": 0.82,
+            "functionalUnit": {"amount": 1, "unit": "kg", "product": "wheat"},
             "activities": [
                 {"processId": "p", "activityName": "Farm", "productName": "wheat",
                  "location": "FR", "contribution": 0.31, "sharePct": 38.2},

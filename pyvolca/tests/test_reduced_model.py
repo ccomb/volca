@@ -81,6 +81,7 @@ def _model() -> ReducedModel:
     ]
     return ReducedModel.from_json(
         {
+            "functionalUnit": {"amount": 1, "unit": "kg", "product": "cheese"},
             "methods": [{"id": "m1", "name": "Climate", "unit": "kg"}, {"id": "m2", "name": "Water", "unit": "m3"}],
             "excludeLongTerm": False,
             "baseline": list(_full(*DEFAULTS)),
@@ -238,7 +239,7 @@ def test_reduced_model_dispatch(mocked_client, make_response):
     client._checked = True
     client._server_wire = 69
     session.post.return_value = make_response(
-        {"methods": [], "excludeLongTerm": True, "baseline": [], "parameters": [], "processes": [], "suppliers": [], "scoringSets": []}
+        {"functionalUnit": {"amount": 1, "unit": "kg", "product": "cheese"}, "methods": [], "excludeLongTerm": True, "baseline": [], "parameters": [], "processes": [], "suppliers": [], "scoringSets": []}
     )
     model = client.reduced_model(
         "root-act", [ParameterName("yield"), ParameterName("mix_de", process="p")], collection="methods", exclude_long_term=True

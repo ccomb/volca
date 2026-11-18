@@ -7,6 +7,7 @@ exchange names a flow the database does not hold.
 -}
 module ReferenceProductSpec (spec) where
 
+import Data.Aeson (object, toJSON, (.=))
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -23,6 +24,7 @@ import API.Types (
     ConsumerResult (..),
     ConsumersResponse (..),
     DatabaseComparison (..),
+    FunctionalUnit (..),
     InventoryExport (..),
     InventoryMetadata (..),
     SearchResults (..),
@@ -42,7 +44,7 @@ import Service (
     resolveActivityAndProcessId,
  )
 import Service.Compare (Sides (..), compareDatabases)
-import TestHelpers (shippedGeographies)
+import TestHelpers (mkActivity, mkTechFlow, shippedGeographies)
 import Types (
     Activity (..),
     BioDirection (..),
@@ -83,11 +85,72 @@ spec = describe "an activity's reference product" $ do
                        , (Nothing, Nothing, Nothing)
                        ]
 
-    it "names the functional unit" $ do
+    describe "its functional unit" $ do
+        it "names one unit of the reference product, not the declared amount" $ do
+            let electricity = uuid 400
+                megajoule = uuid 2
+                declaredFor36 = (techLine electricity 3.6 ReferenceProduct Nothing){techUnitId = megajoule}
+            functionalUnitOf
+                (M.singleton electricity (mkTechFlow electricity "electricity"))
+                (M.singleton megajoule (Unit megajoule "MJ" "MJ" ""))
+                (mkActivity "power plant" [declaredFor36])
+                `shouldBe` FunctionalUnit "MJ" "electricity"
+
+        it "names the reference product the tech-flow table holds" $ do
+            db <- database 0
+            (_, named) <- resolved db cheese
+            functionalUnitOf (dbTechFlows db) (dbUnits db) named `shouldBe` FunctionalUnit "kg" "Cheese"
+
+        it "falls back to the activity's name when the reference product is unnamed" $ do
+            db <- database 0
+            (_, stray) <- resolved db strayReference
+            functionalUnitOf (dbTechFlows db) (dbUnits db) stray
+                `shouldBe` FunctionalUnit "kg" (activityName stray)
+
+        it "falls back to the activity's name and unit when it has no reference exchange" $ do
+            db <- database 0
+            (_, bare) <- resolved db noReference
+            functionalUnitOf (dbTechFlows db) (dbUnits db) bare
+                `shouldBe` FunctionalUnit (activityUnit bare) (activityName bare)
+
+        it "falls back to the activity's unit when the reference exchange has a unit with no name" $ do
+            let electricity = uuid 400
+                blank = uuid 2
+                declared = (techLine electricity 3.6 ReferenceProduct Nothing){techUnitId = blank}
+            functionalUnitOf
+                (M.singleton electricity (mkTechFlow electricity "electricity"))
+                (M.singleton blank (Unit blank "" "" ""))
+                (mkActivity "power plant" [declared])
+                `shouldBe` FunctionalUnit "kg" "electricity"
+
+        it "falls back to the activity's unit when the reference exchange has the parser's placeholder unit" $ do
+            let electricity = uuid 400
+                placeholder = uuid 2
+                declared = (techLine electricity 3.6 ReferenceProduct Nothing){techUnitId = placeholder}
+            functionalUnitOf
+                (M.singleton electricity (mkTechFlow electricity "electricity"))
+                (M.singleton placeholder (Unit placeholder "UNKNOWN_UNIT" "?" ""))
+                (mkActivity "power plant" [declared])
+                `shouldBe` FunctionalUnit "kg" "electricity"
+
+        it "falls back to the activity's unit when the reference exchange's unit is not in the unit table" $ do
+            let electricity = uuid 400
+                declared = (techLine electricity 3.6 ReferenceProduct Nothing){techUnitId = uuid 2}
+            functionalUnitOf
+                (M.singleton electricity (mkTechFlow electricity "electricity"))
+                M.empty
+                (mkActivity "power plant" [declared])
+                `shouldBe` FunctionalUnit "kg" "electricity"
+
+        it "is sent as amount 1, unit and product" $
+            toJSON (FunctionalUnit "MJ" "electricity")
+                `shouldBe` object ["amount" .= (1 :: Int), "unit" .= ("MJ" :: Text), "product" .= ("electricity" :: Text)]
+
+    it "states the functional unit of an inventory" $ do
         db <- database 0
-        activities <- mapM (fmap snd . resolved db) [cheese, noReference, strayReference]
-        map (functionalUnitOf (dbTechFlows db) (dbUnits db)) activities
-            `shouldBe` ["1.00 kg of Cheese", "1.00  of ", "1.00 kg of "]
+        exports <- mapM (inventoryOf db) [cheese, noReference, strayReference]
+        map ieFunctionalUnit exports
+            `shouldBe` [FunctionalUnit "kg" "Cheese", FunctionalUnit "kg" "cheese tasting", FunctionalUnit "kg" "cheese ripening"]
 
     it "heads an inventory export" $ do
         db <- database 0

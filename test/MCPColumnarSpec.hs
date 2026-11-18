@@ -15,6 +15,7 @@ import API.Types (
     BasisMethods (..),
     BatchImpactsEntry (..),
     BatchImpactsResponse (..),
+    FunctionalUnit (..),
     LCIABatchResult (..),
     LCIAResult (..),
     ScoreBasis (..),
@@ -57,7 +58,7 @@ pefSet =
 ecsSet :: ScoringSet
 ecsSet = pefSet{ssName = "ECS"}
 
-lciaResult :: Text -> LCIAResult
+lciaResult :: FunctionalUnit -> LCIAResult
 lciaResult fu =
     LCIAResult
         { lrMethodId = UUID.nil
@@ -80,14 +81,19 @@ lciaResult fu =
         , lrBasis = Nothing
         }
 
+wood, milk, steak :: FunctionalUnit
+wood = FunctionalUnit "m³" "wood"
+milk = FunctionalUnit "kg" "milk"
+steak = FunctionalUnit "kg" "steak"
+
 -- | Build an entry against a single scoring set, with explicit total + indicators.
-mkEntry :: Text -> Text -> Text -> Text -> Double -> [(Text, Double)] -> BatchImpactsEntry
+mkEntry :: Text -> Text -> FunctionalUnit -> Text -> Double -> [(Text, Double)] -> BatchImpactsEntry
 mkEntry pid name fu setName total inds =
     BatchImpactsEntry
         { bieProcessId = pid
         , bieActivityName = name
         , bieProductAmount = Just 1
-        , bieProductUnit = Just fu
+        , bieProductUnit = Just (fuUnit fu)
         , bieParameterSet = Nothing
         , bieImpacts =
             LCIABatchResult
@@ -107,6 +113,7 @@ mkEntry pid name fu setName total inds =
                 , lbrCutoffInputs = []
                 , lbrWithheldCutoffs = []
                 , lbrBasis = Nothing
+                , lbrFunctionalUnit = fu
                 }
         }
 
@@ -171,8 +178,8 @@ spec = do
         let bir =
                 BatchImpactsResponse
                     { birResults =
-                        [ mkEntry "pidA" "oak forestry, RoW" "1 m³ wood" "PEF" 10.0 [("acd", 4.0), ("cch", 6.0)]
-                        , mkEntry "pidB" "spruce forestry, RoW" "1 m³ wood" "PEF" 20.0 [("acd", 5.0), ("cch", 15.0)]
+                        [ mkEntry "pidA" "oak forestry, RoW" wood "PEF" 10.0 [("acd", 4.0), ("cch", 6.0)]
+                        , mkEntry "pidB" "spruce forestry, RoW" wood "PEF" 20.0 [("acd", 5.0), ("cch", 15.0)]
                         ]
                     , birNotFound = []
                     , birInvalid = []
@@ -204,7 +211,7 @@ spec = do
                     )
 
         it "hoists functional_unit to top level when all rows share one" $
-            KM.lookup (fromText "functional_unit") km `shouldBe` Just (String "1 m³ wood")
+            KM.lookup (fromText "functional_unit") km `shouldBe` Just (toJSON wood)
 
         it "emits snake_case fixed columns followed by the sorted indicator keys" $
             KM.lookup (fromText "columns") km
@@ -253,8 +260,8 @@ spec = do
         let bir =
                 BatchImpactsResponse
                     { birResults =
-                        [ mkEntry "pidM" "raw milk, FR" "1 kg of milk" "PEF" 1.0 []
-                        , mkEntry "pidS" "beef steak, FR" "1 kg of steak" "PEF" 30.0 []
+                        [ mkEntry "pidM" "raw milk, FR" milk "PEF" 1.0 []
+                        , mkEntry "pidS" "beef steak, FR" steak "PEF" 30.0 []
                         ]
                     , birNotFound = []
                     , birInvalid = []
@@ -289,8 +296,8 @@ spec = do
             case KM.lookup (fromText "rows") km of
                 Just (Array rs) -> case V.toList rs of
                     [Array a, Array b] -> do
-                        V.toList a !! 3 `shouldBe` String "1 kg of milk"
-                        V.toList b !! 3 `shouldBe` String "1 kg of steak"
+                        V.toList a !! 3 `shouldBe` toJSON milk
+                        V.toList b !! 3 `shouldBe` toJSON steak
                     other -> expectationFailure ("expected two rows, got " <> show other)
                 other -> expectationFailure ("expected rows array, got " <> show other)
 
@@ -298,7 +305,7 @@ spec = do
         let bir =
                 BatchImpactsResponse
                     { birResults =
-                        [ mkEntry "pidA" "oak" "1 m³ wood" "PEF" 10.0 [("acd", 2.0), ("cch", 8.0)]
+                        [ mkEntry "pidA" "oak" wood "PEF" 10.0 [("acd", 2.0), ("cch", 8.0)]
                         ]
                     , birNotFound = []
                     , birInvalid = []
@@ -337,7 +344,7 @@ spec = do
         let bir =
                 BatchImpactsResponse
                     { birResults =
-                        [ mkEntry "pidA" "oak forestry, RoW" "1 m³ wood" "PEF" 10.0 [("acd", 4.0), ("cch", 6.0)]
+                        [ mkEntry "pidA" "oak forestry, RoW" wood "PEF" 10.0 [("acd", 4.0), ("cch", 6.0)]
                         ]
                     , birNotFound = []
                     , birInvalid = []

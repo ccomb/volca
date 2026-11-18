@@ -19,7 +19,7 @@ import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
-import API.Types (ActivitySummary (..))
+import API.Types (ActivitySummary (..), FunctionalUnit (..))
 import Database (buildDatabaseWithMatrices)
 import Database.Allocation
 import Database.Loader (defaultLoadOptions, loadDatabaseWithLocationAliases)
@@ -253,7 +253,7 @@ spec = do
         it "names one unit of the product, not the amount the block states" $ do
             let processes = NE.toList (allocate declaredOn block)
             map (Service.functionalUnitOf flows units) processes
-                `shouldBe` ["1.00 kg of cheese", "1.00 MJ of whey", "1.00 kg of cream"]
+                `shouldBe` [FunctionalUnit "kg" "cheese", FunctionalUnit "MJ" "whey", FunctionalUnit "kg" "cream"]
 
     describe "allocate normalises first, as the EcoSpold parsers used to" $ do
         it "drops a zero-amount coproduct the source states no share for" $ do

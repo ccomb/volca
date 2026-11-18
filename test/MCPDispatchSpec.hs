@@ -9,7 +9,7 @@ module MCPDispatchSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Control.Monad (forM_)
-import Data.Aeson (Value (..), decodeStrict)
+import Data.Aeson (Value (..), decodeStrict, object, (.=))
 import Data.Aeson.Key (Key, fromText, toText)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Foldable (toList)
@@ -457,6 +457,11 @@ spec = describe "MCP database load/unload tools" $ do
             jsonField "shown_flows" inventory `shouldSatisfy` positiveNumber
             activity <- callOnSampleWith "get_activity" [("process_id", emitter), ("flow", String " ")]
             exchangeFlowNames activity `shouldSatisfy` ((> 1) . length)
+
+        it "states what the quantities of the inventory are for" $ do
+            resp <- callOnSampleWith "get_inventory" [("process_id", emitter)]
+            jsonField "functional_unit" resp
+                `shouldBe` Just (object ["amount" .= (1 :: Int), "unit" .= ("kg" :: Text), "product" .= ("product D" :: Text)])
 
     -- A kind the engine cannot read must be refused, never dropped: a dropped
     -- filter answers with every kind, which reads as "they are all of that

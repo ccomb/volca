@@ -56,7 +56,7 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, enc
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
@@ -1457,7 +1457,8 @@ callGetInventory dbManager rid args =
             pure $
                 toolSuccessJson rid $
                     object $
-                        [ "statistics" .= toJSON (ieStatistics inv)
+                        [ "functional_unit" .= ieFunctionalUnit inv
+                        , "statistics" .= toJSON (ieStatistics inv)
                         , "total_flows" .= imTotalFlows (ieMetadata kept)
                         , "matched_flows" .= imMatchedFlows (ieMetadata kept)
                         , "shown_flows" .= length topN
@@ -1512,8 +1513,6 @@ data ImpactsResult = ImpactsResult
     , irContribs :: ![FlowContribution]
     -- ^ Sorted descending by absolute contribution.
     , irUnknownUuids :: ![UUID.UUID]
-    , irFunctionalUnit :: !Text
-    -- ^ What one score is reported against, per 'Service.functionalUnitOf'.
     , irWithheld :: ![Impact.PartScore]
     {- ^ The part of each dependency whose licence keeps what weighs in its
     scores: its flows are not in 'irContribs', which add up to the score with
@@ -1592,7 +1591,6 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
                 , loUncharacterized = []
                 , loUnknownUuids = []
                 }
-        functionalUnit = Service.functionalUnitOf (dbTechFlows db) mUnits (raActivity ra)
     -- Diagnostics path: opt-in via include_diagnostics. Skips the suggester
     -- work entirely when not requested, so the hot path stays bit-identical
     -- to runs without the flag.
@@ -1625,7 +1623,6 @@ runImpactsRequest dbManager args req = withParameters dbManager (lrDbName req) a
             , irTables = tables
             , irContribs = contribs
             , irUnknownUuids = unknownUuids
-            , irFunctionalUnit = functionalUnit
             , irWithheld = withheld
             , irInventoryWithheld = inventoryWithheld
             , irCutoffs = cutoffs
@@ -1685,7 +1682,7 @@ callGetImpacts dbManager mBaseUrl licence rid args =
             ra = lrResolved req
             score = loScore (irOutcome ir)
             stats = irMappingStats ir
-            functionalUnit = irFunctionalUnit ir
+            functionalUnit = raFunctionalUnit ra
             contribs = irContribs ir
             -- Under a licence that keeps what weighs in its scores, the score
             -- stays and its flows go, as 'Service.withholdContributors' does.
@@ -1815,6 +1812,7 @@ callComputeSensitivity dbManager mBaseUrl rid args =
                     [ "method" .= methodName method
                     , "category" .= methodCategory method
                     , "unit" .= methodUnit method
+                    , "functional_unit" .= raFunctionalUnit ra
                     , "baseline_score" .= baselineScore
                     , "basis" .= basis
                     , "perturbed" .= map pertEntry perResults
@@ -2523,14 +2521,18 @@ resolveMethod dbManager mCollection methodIdText =
             bimap methodRefusalMessage (first DM.CollectionName) . selectMethod mCollection uuid
                 <$> DM.getLoadedMethods dbManager
 
-{- | Raw text + its parsed 'ProcessId' + the looked-up 'Activity'. Bundled so
-the three entities (which must always agree) cannot drift apart: the only
-way to build a 'ResolvedActivity' is through 'resolveActivityAndProcessId'.
+{- | Raw text + its parsed 'ProcessId' + the looked-up 'Activity' + the
+functional unit derived from that activity. Bundled so the four (which must
+always agree) cannot drift apart: 'loadLcaRequest' and 'loadScoreRequest'
+are the only builders, and each derives the unit from the activity it just
+resolved.
 -}
 data ResolvedActivity = ResolvedActivity
     { raText :: !Text
     , raPid :: !ProcessId
     , raActivity :: !Activity
+    , raFunctionalUnit :: !FunctionalUnit
+    -- ^ What the scores of the activity are for
     }
 
 {- | Bundle of entities resolved at the start of every LCA handler (impacts,
@@ -2563,11 +2565,12 @@ loadLcaRequest dbManager args = do
     ld <- requireDatabase dbManager dbName
     (col, method) <- ExceptT (resolveMethod dbManager mCol methodIdText)
     (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
+    let functionalUnit = Service.functionalUnitIn (ldDatabase ld) act
     pure
         LcaRequest
             { lrDbName = dbName
             , lrLoaded = ld
-            , lrResolved = ResolvedActivity pidText pid act
+            , lrResolved = ResolvedActivity pidText pid act functionalUnit
             , lrMethodIdText = methodIdText
             , lrCollection = col
             , lrMethod = method
@@ -2600,6 +2603,7 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
                 object $
                     [ "method" .= methodName method
                     , "unit" .= methodUnit method
+                    , "functional_unit" .= raFunctionalUnit ra
                     , "total_score" .= score
                     , "has_negative_contributions" .= hasNeg
                     , "basis" .= irBasis ir
@@ -2659,6 +2663,7 @@ callGetContributingActivities dbManager mBaseUrl rid args =
                 object $
                     [ "method" .= methodName method
                     , "unit" .= methodUnit method
+                    , "functional_unit" .= raFunctionalUnit ra
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . snd) top
                     , "basis" .= basis
@@ -2696,6 +2701,7 @@ loadScoreRequest dbManager args = do
     mc <- maybe (throwE (collectionNotLoadedMessage collName (M.keys loaded))) pure (M.lookup collName loaded)
     rs <- except (first Score.refusalMessage (Score.resolveScore (mcMethods mc) (mcScoringSets mc) ref))
     (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
+    let functionalUnit = Service.functionalUnitIn (ldDatabase ld) act
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     solved <-
         ExceptT $
@@ -2712,7 +2718,7 @@ loadScoreRequest dbManager args = do
     pure
         ScoreRequest
             { scrSource = Source{srcManager = dbManager, srcDbName = dbName, srcDatabase = ldDatabase ld, srcCollection = DM.CollectionName collName}
-            , scrActivity = ResolvedActivity pidText pid act
+            , scrActivity = ResolvedActivity pidText pid act functionalUnit
             , scrRef = ref
             , scrScore = rs
             , scrSolution = sol
@@ -2745,6 +2751,7 @@ callGetScoreContributingFlows dbManager mBaseUrl rid args =
                 object $
                     [ "method" .= Score.scoreTitle (scrScore req)
                     , "unit" .= Score.scoreUnit (scrScore req)
+                    , "functional_unit" .= raFunctionalUnit (scrActivity req)
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . fcContribution) contribs
                     , "basis" .= scrBasis req
@@ -2780,6 +2787,7 @@ callGetScoreContributingActivities dbManager mBaseUrl rid args =
                 object $
                     [ "method" .= Score.scoreTitle (scrScore req)
                     , "unit" .= Score.scoreUnit (scrScore req)
+                    , "functional_unit" .= raFunctionalUnit (scrActivity req)
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . snd) top
                     , "basis" .= scrBasis req
@@ -2887,10 +2895,10 @@ configuredScoringSetNames dbm collName = do
 Returns the full LCIABatchResult shape (per-method scores, per-scoring-set
 aggregate scores, per-indicator breakdown, units) for a single activity,
 enriched with a top-level 'web_url' pointing at the impacts panel page
-(which already lists every method). The per-entry @functionalUnit@ is
-hoisted to the top level -- it is constant across the panel -- and
-per-method @web_url@s are not emitted: the panel link covers the same
-ground at a fraction of the bytes. Replaces the @N@ round-trips of
+(which already lists every method). The panel's own @functionalUnit@ stays
+at the top level and the per-entry copies are dropped -- it is constant
+across the panel -- and per-method @web_url@s are not emitted: the panel
+link covers the same ground at a fraction of the bytes. Replaces the @N@ round-trips of
 'get_impacts' a comparative study used to need.
 -}
 callScoreActivity :: DatabaseManager -> Maybe HostingConfig -> Maybe Text -> RequestId -> KeyMap Value -> IO Value

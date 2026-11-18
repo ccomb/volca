@@ -11,7 +11,7 @@ full re-factorization of @(I - A')@ would produce, where @A'_ij = A_ij *
 -}
 module SensitivitySpec (spec) where
 
-import API.Types (LCIAResult (..), Perturbation (..), PerturbedEntry (..))
+import API.Types (FunctionalUnit (..), LCIAResult (..), Perturbation (..), PerturbedEntry (..))
 import Data.Aeson (Value (..), decode, encode)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -134,7 +134,7 @@ spec = do
                     , lrNormalizedScore = Nothing
                     , lrWeightedScore = Nothing
                     , lrMappedFlows = 0
-                    , lrFunctionalUnit = "fu"
+                    , lrFunctionalUnit = FunctionalUnit "u" "fu"
                     , lrTopContributors = []
                     , lrWithheld = Nothing
                     , lrWithheldDatabases = []

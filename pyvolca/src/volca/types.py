@@ -589,6 +589,35 @@ class ScoreBasis:
         return cls.from_json(d) if d else None
 
 
+@dataclass(frozen=True)
+class FunctionalUnit:
+    """What the numbers of a computed response are for: ``amount`` of ``unit``
+    of ``product``.
+
+    The engine counts every computed number for one unit of the process's
+    reference product, however much of it the source says the process produces,
+    so ``amount`` is ``1`` and the response says so rather than leaving it to
+    documentation. The amount the source declares stays on ``product_amount``,
+    as declared by the dataset.
+    """
+
+    amount: float
+    unit: str
+    product: str
+
+    @classmethod
+    def from_json(cls, d: dict) -> "FunctionalUnit":
+        amount = float(d["amount"])
+        # Every number pyvolca hands out is read as being for one unit; another
+        # amount would be a different meaning under the same attributes.
+        if amount != 1:
+            raise ValueError(
+                f"functional unit for {amount} {d['unit']} of {d['product']!r}: "
+                "this pyvolca reads results counted for 1 unit only"
+            )
+        return cls(amount=amount, unit=d["unit"], product=d["product"])
+
+
 @dataclass
 class LCIAResult:
     """LCIA score for one impact category on one activity.
@@ -596,9 +625,9 @@ class LCIAResult:
     Returned directly by :meth:`Client.get_impacts`, and nested inside
     :class:`LCIABatchResult.results` (one entry per impact category).
 
-    ``functional_unit`` is the basis ``score`` is reported against, and it is
-    always one unit of the reference product (``"1.00 kg of cream"``) however
-    much of it the source says the process produces.
+    ``functional_unit`` is the basis ``score`` is reported against: one unit of
+    the reference product (``FunctionalUnit(1, "kg", "cream")``) however much
+    of it the source says the process produces.
     """
 
     method_id: str
@@ -608,7 +637,7 @@ class LCIAResult:
     score: float
     unit: str
     mapped_flows: int
-    functional_unit: str
+    functional_unit: FunctionalUnit
     normalized_score: float | None = None  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
     weighted_score: float | None = None  # in Pt. Deprecated: read `scoring_results`; removed with engine 0.16.0.
     top_contributors: list[FlowContribution] = field(default_factory=list)
@@ -644,7 +673,7 @@ class LCIAResult:
             score=d["score"],
             unit=d["unit"],
             mapped_flows=d["mappedFlows"],
-            functional_unit=d["functionalUnit"],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             normalized_score=d.get("normalizedScore"),
             weighted_score=d.get("weightedScore"),
             top_contributors=[FlowContribution.from_json(c) for c in d.get("topContributors", [])],
@@ -673,9 +702,16 @@ class LCIABatchResult:
     alongside the aggregate ``scoring_results``. ``scoring_rows`` gives
     the same for every row of each set as :meth:`Client.scoring_sets` reads
     it, a row no score reads among them, its ``category`` the row's label.
+
+    ``functional_unit`` is what every score of the activity is for, said once
+    here as well as on each :class:`LCIAResult`. The result is for one
+    activity; a :class:`BatchScores` of several carries one of these per
+    :class:`ScoredActivity`, each with its own, since the activities need not
+    be counted in the same unit.
     """
 
     results: list[LCIAResult]
+    functional_unit: FunctionalUnit
     single_score: float | None = None  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
     single_score_unit: str | None = None  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
     norm_weight_set_name: str | None = None  # Deprecated: read `scoring_results`; removed with engine 0.16.0.
@@ -703,6 +739,7 @@ class LCIABatchResult:
         raw_rows = d.get("scoringRows", {})
         return cls(
             results=[LCIAResult.from_json(r) for r in d.get("results", [])],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             single_score=d.get("singleScore"),
             single_score_unit=d.get("singleScoreUnit"),
             norm_weight_set_name=d.get("normWeightSetName"),
@@ -753,11 +790,13 @@ class SensitivityResult:
     """Sensitivity analysis: baseline impact plus one entry per perturbation.
 
     Returned by :meth:`Client.compute_sensitivity`. ``perturbed`` preserves
-    the order of the requested perturbations.
+    the order of the requested perturbations. ``functional_unit`` is what the
+    baseline and every perturbed score are for.
     """
 
     baseline: LCIAResult
     perturbed: list[PerturbedResult]
+    functional_unit: FunctionalUnit
     cutoff_inputs: list[CutoffInput] = field(default_factory=list)
     """Inputs no loaded database supplies, counted as zero in the baseline
     (wire revision 58)."""
@@ -770,6 +809,7 @@ class SensitivityResult:
         return cls(
             baseline=LCIAResult.from_json(d["baseline"]),
             perturbed=[PerturbedResult.from_json(p) for p in d["perturbed"]],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
             withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
         )
@@ -784,9 +824,10 @@ class ScoredActivity:
     ``parameter_set`` is the position of the parameter set it was scored at,
     when :meth:`Client.score_activities` was given ``parameter_sets``.
     ``product_amount`` is the amount the source declares for the activity's
-    reference product, negative for a treatment taking in waste, and
-    ``product_unit`` its unit. The scores are per one ``product_unit``
-    whatever the amount, as for :attr:`Activity.product_amount`.
+    reference product, as declared by the dataset and negative for a treatment
+    taking in waste, and ``product_unit`` its unit. The scores are per one
+    ``product_unit`` whatever the amount, which ``impacts.functional_unit``
+    says, as for :attr:`Activity.product_amount`.
     Both are ``None`` for an activity without a reference product, and from
     an engine older than wire revision 80.
     """
@@ -934,14 +975,15 @@ class Activity(FromJson):
     :meth:`Client.get_supply_chain`, :meth:`Client.get_impacts`, …).
     ``activity_name`` is the activity name (e.g. ``"wheat flour, at plant"``);
     ``product_name`` is the reference output product (e.g. ``"wheat flour"``);
-    ``product_amount`` and ``product_unit`` are what the source says this
-    process produces (typically ``1.0`` of ``"kg"`` / ``"mj"`` / etc.; a
-    database imported from SimaPro or Brightway Excel states it in the
-    canonical unit of its dimension, so a 1 kWh reference product reads
-    ``3.6`` of ``"mj"``, and a coproduct its block states at 0.0686462 kg
-    reads that). It is not the basis a score or an inventory is reported
-    against: those are always per **one** ``product_unit``, whatever the
-    amount here.
+    ``product_amount`` and ``product_unit`` are the amount of its reference
+    product as declared by the dataset (typically ``1.0`` of ``"kg"`` /
+    ``"mj"`` / etc.; a database imported from SimaPro or Brightway Excel
+    states it in the canonical unit of its dimension, so a 1 kWh reference
+    product reads ``3.6`` of ``"mj"``, and a coproduct its block states at
+    0.0686462 kg reads that). It is not the basis a computed response is
+    reported against: a score, an inventory, a supply chain, a path and an
+    aggregate are all per **one** ``product_unit``, whatever the amount here,
+    and their ``functional_unit`` says so.
     ``location`` is the
     geography code (``"FR"``, ``"GLO"``, ``"RoW"``…). A process has no name of
     its own; compose a label from ``activity_name`` + ``product_name``.
@@ -1037,7 +1079,10 @@ class SearchCounts(FromJson):
 
 @dataclass
 class ConsumerResult(FromJson):
-    """Activity that consumes a given supplier, with BFS depth."""
+    """Activity that consumes a given supplier, with BFS depth.
+
+    ``product_amount`` is as declared by the dataset.
+    """
     process_id: str
     activity_name: str
     location: str
@@ -1052,15 +1097,18 @@ class ConsumerResult(FromJson):
 class SupplyChainEntry(FromJson):
     """One activity in a :class:`SupplyChain.entries` list.
 
-    ``quantity`` is the cumulative amount of this activity's reference
-    product consumed per functional unit of the root activity, in ``unit``.
+    ``quantity_per_unit`` is the cumulative amount of this activity's reference
+    product consumed for one unit of the root's reference product, in ``unit``:
+    the ``functional_unit`` of the :class:`SupplyChain`, whatever amount the
+    root declares.
     ``unit`` is the producing activity's reference-product unit, which for a
     database imported from SimaPro or Brightway Excel is the canonical unit of
     its dimension (``"kg"``, ``"mj"``, ``"m3"``), not the unit written on the
     exchange that consumes it. An input stated as ``0.22 kWh`` therefore shows
     up here as its equivalent in ``mj``: 1 kWh is 3.6 MJ.
-    ``scaling_factor`` is the multiplier the solver applied to this
-    activity to produce ``quantity``, i.e. ``quantity = ref_output * scaling_factor``.
+    ``scaling_factor`` is the multiplier the solver applied to this activity
+    for one unit of the root's reference product, which is why it equals
+    ``quantity_per_unit``.
     ``classifications`` mirrors the producing activity's classifications
     (ISIC, CPC, Category, …) so callers can filter by taxonomy without a
     second :meth:`Client.get_activity` round trip.
@@ -1074,7 +1122,7 @@ class SupplyChainEntry(FromJson):
     database_name: str
     activity_name: str
     location: str
-    quantity: float
+    quantity_per_unit: float
     unit: str
     scaling_factor: float
     depth: int  # hops from the queried root (0 = root), BFS shortest path
@@ -1088,13 +1136,16 @@ class PathStep:
 
     Note: the /path endpoint is hand-built (aeson `object [...]`) but now
     emits camelCase keys (``processId``, ``activityName``,
-    ``cumulativeQuantity``, …) like the rest of the API.
+    ``cumulativeQuantityPerUnit``, …) like the rest of the API.
+
+    ``cumulative_quantity_per_unit`` is for one unit of the root's reference
+    product, the ``functional_unit`` of the :class:`PathResult`.
     """
     process_id: str
     activity_name: str
     location: str
     unit: str
-    cumulative_quantity: float
+    cumulative_quantity_per_unit: float
     scaling_factor: float
     local_step_ratio: float | None = None  # absent on root step
 
@@ -1105,7 +1156,7 @@ class PathStep:
             activity_name=d["activityName"],
             location=d["location"],
             unit=d["unit"],
-            cumulative_quantity=d["cumulativeQuantity"],
+            cumulative_quantity_per_unit=d["cumulativeQuantityPerUnit"],
             scaling_factor=d["scalingFactor"],
             local_step_ratio=d.get("localStepRatio"),
         )
@@ -1113,8 +1164,12 @@ class PathStep:
 
 @dataclass
 class PathResult:
-    """Shortest upstream path from a root process to a matching activity."""
+    """Shortest upstream path from a root process to a matching activity.
+
+    ``functional_unit`` is what every quantity of the path is for.
+    """
     path: list[PathStep]
+    functional_unit: FunctionalUnit
     path_length: int
     total_ratio: float
 
@@ -1122,6 +1177,7 @@ class PathResult:
     def from_json(cls, d: dict) -> "PathResult":
         return cls(
             path=[PathStep.from_json(s) for s in d["path"]],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             path_length=d["path_length"],
             total_ratio=d["total_ratio"],
         )
@@ -1157,6 +1213,9 @@ class SupplyChainEdge:
 class SupplyChain:
     """Flat supply chain of an activity.
 
+    ``functional_unit`` is what every quantity of the entries is for: one unit
+    of the root's reference product, whatever amount the root declares
+    (``root.product_amount`` stays as declared by the dataset).
     ``total_activities`` is the unfiltered upstream count; ``filtered_activities``
     is what remains after the server applies ``classification_filters`` /
     ``min_quantity`` / ``preset``. ``entries`` is the slice the server actually
@@ -1166,6 +1225,7 @@ class SupplyChain:
     """
 
     root: Activity
+    functional_unit: FunctionalUnit
     total_activities: int
     filtered_activities: int
     entries: list[SupplyChainEntry] = field(default_factory=list)
@@ -1197,6 +1257,7 @@ class SupplyChain:
     def from_json(cls, d: dict) -> "SupplyChain":
         return cls(
             root=Activity.from_json(d["root"]),
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             total_activities=d["totalActivities"],
             filtered_activities=d["filteredActivities"],
             entries=[SupplyChainEntry.from_json(e) for e in d["supplyChain"]],
@@ -1881,6 +1942,16 @@ class ActivityDetail:
     Use the .inputs / .outputs / .technosphere_inputs convenience properties
     instead of walking the raw exchanges list.
 
+    Every amount here, ``product_amount`` and the amount of each exchange, is
+    as declared by the dataset. A computed response (score, inventory, supply
+    chain, aggregate) counts for one unit of the reference product instead, its
+    ``functional_unit``, so an exchange amount is not comparable with one of
+    those as it stands. The engine divides it by the size of what the process
+    makes net of what it consumes of its own product, which is
+    ``product_amount`` unless the process eats part of its own output, and
+    keeps its sign; ``aggregate(scope="direct")`` gives the exchanges so
+    divided.
+
     ``native_id`` is the identifier the source file gave the dataset block this
     process was read from - SimaPro's ``Process identifier``, the number an
     EcoSpold 1 dataset is published under - which is what a reader copies to
@@ -2037,9 +2108,10 @@ class AggregateOp(_StrEnum):
 
 @dataclass
 class AggregateGroup(FromJson):
-    """One bucket inside an AggregateResult."""
+    """One bucket inside an AggregateResult, its ``quantity_per_unit`` counted
+    for one unit of the activity's reference product."""
     key: str
-    quantity: float
+    quantity_per_unit: float
     count: int
     unit: str | None = None
     share: float | None = None
@@ -2049,12 +2121,17 @@ class AggregateGroup(FromJson):
 class AggregateResult:
     """Result of a Client.aggregate() call.
 
-    ``filtered_total`` is the sum across all items matching the filters (the
-    top-level number). ``groups`` is the per-bucket breakdown when ``group_by``
-    was set; empty otherwise.
+    ``filtered_total_per_unit`` is the sum across all items matching the
+    filters (the top-level number). ``groups`` is the per-bucket breakdown when
+    ``group_by`` was set; empty otherwise. Every scope counts for one unit of
+    the activity's reference product, ``functional_unit``, so the exchanges of
+    ``scope="direct"`` are the dataset's amounts divided by what the process
+    makes net of what it consumes of its own product, as every other scope
+    divides them.
     """
     scope: AggregateScope
-    filtered_total: float
+    functional_unit: FunctionalUnit
+    filtered_total_per_unit: float
     filtered_unit: str | None
     filtered_count: int
     groups: list[AggregateGroup] = field(default_factory=list)
@@ -2072,7 +2149,8 @@ class AggregateResult:
     def from_json(cls, d: dict) -> "AggregateResult":
         return cls(
             scope=AggregateScope(d["scope"]),
-            filtered_total=d["filteredTotal"],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
+            filtered_total_per_unit=d["filteredTotalPerUnit"],
             filtered_unit=d.get("filteredUnit"),
             filtered_count=d["filteredCount"],
             groups=[AggregateGroup.from_json(g) for g in d.get("groups", [])],
@@ -2267,12 +2345,14 @@ class ReducedModel:
     :meth:`evaluate` computes them for many sets of values without asking the
     engine again, loops among the processes the parameters move included.
     ``methods`` are the collection's, in the order of every score;
-    ``baseline`` the scores at the defaults. ``processes``, ``suppliers`` and
+    ``baseline`` the scores at the defaults, and ``functional_unit`` what every
+    score of the model is for. ``processes``, ``suppliers`` and
     ``scoring_sets`` stay in the engine's own shape, with formulas as trees,
     for a program that evaluates them its own way.
     """
 
     process_id: str
+    functional_unit: FunctionalUnit
     methods: list[dict]
     exclude_long_term: bool
     baseline: list[float]
@@ -2285,6 +2365,7 @@ class ReducedModel:
     def from_json(cls, d: dict, process_id: str) -> "ReducedModel":
         return cls(
             process_id=process_id,
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             methods=d["methods"],
             exclude_long_term=d["excludeLongTerm"],
             baseline=d["baseline"],
@@ -2688,11 +2769,14 @@ class ContributingFlows:
     server returned under ``limit``, but pyvolca cannot tell whether more
     flows were truncated. If you need exhaustive coverage, pass a generous
     ``limit`` and inspect ``share_pct`` totals.
+
+    ``functional_unit`` is what ``total_score`` and every contribution are for.
     """
 
     method: str
     unit: str
     total_score: float
+    functional_unit: FunctionalUnit
     top_flows: list[FlowContribution] = field(default_factory=list)
     withheld_databases: list[WithheldShare] = field(default_factory=list)
     cutoff_inputs: list[CutoffInput] = field(default_factory=list)
@@ -2711,6 +2795,7 @@ class ContributingFlows:
             method=d["method"],
             unit=d["unit"],
             total_score=d["totalScore"],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             top_flows=[FlowContribution.from_json(f) for f in d.get("topFlows", [])],
             withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
@@ -2726,11 +2811,14 @@ class ContributingActivities:
     Same engine-side limitation as :class:`ContributingFlows`: the server
     reports no total, so pyvolca cannot derive ``has_more``. Pass a generous
     ``limit`` and inspect ``share_pct`` if exhaustive coverage matters.
+
+    ``functional_unit`` is what ``total_score`` and every contribution are for.
     """
 
     method: str
     unit: str
     total_score: float
+    functional_unit: FunctionalUnit
     activities: list[ActivityContribution] = field(default_factory=list)
     withheld_databases: list[WithheldShare] = field(default_factory=list)
     cutoff_inputs: list[CutoffInput] = field(default_factory=list)
@@ -2749,6 +2837,7 @@ class ContributingActivities:
             method=d["method"],
             unit=d["unit"],
             total_score=d["totalScore"],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             activities=[ActivityContribution.from_json(a) for a in d.get("activities", [])],
             withheld_databases=[WithheldShare.from_json(w) for w in d.get("withheldDatabases", [])],
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
@@ -2837,11 +2926,14 @@ class InventoryResult:
     ``statistics`` carries the per-direction roll-ups and the
     most-populated categories, over the full inventory.
 
-    ``root`` is the activity the inventory was computed for. ``total_flows``,
-    ``emission_flows``, ``resource_flows`` mirror the engine's metadata block.
+    ``root`` is the activity the inventory was computed for, and
+    ``functional_unit`` what every quantity of ``flows`` is for: one unit of
+    its reference product. ``total_flows``, ``emission_flows``,
+    ``resource_flows`` mirror the engine's metadata block.
     """
 
     root: Activity
+    functional_unit: FunctionalUnit
     total_flows: int
     emission_flows: int
     resource_flows: int
@@ -2862,6 +2954,7 @@ class InventoryResult:
         meta = d["metadata"]
         return cls(
             root=Activity.from_json(meta["rootActivity"]),
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
             total_flows=meta["totalFlows"],
             emission_flows=meta["emissionFlows"],
             resource_flows=meta["resourceFlows"],

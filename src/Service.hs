@@ -4,7 +4,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProbableMissEntry (..), ProbableMisses (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, selectorAPI, subAnchorRef, unresolvedFlowName)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), FunctionalUnit (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProbableMissEntry (..), ProbableMisses (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, selectorAPI, subAnchorRef, unresolvedFlowName)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
@@ -444,6 +444,7 @@ convertToInventoryExport db bioFlowDB unitDB processId rootActivity cutoffs inve
      in
         InventoryExport
             { ieMetadata = metadata
+            , ieFunctionalUnit = functionalUnitIn db rootActivity
             , ieFlows = flowDetails
             , ieStatistics = statistics
             , ieCutoffInputs = cutoffShown cutoffs
@@ -822,12 +823,18 @@ Uses efficient sparse matrix operations to extract connections.
 -}
 buildActivityGraph :: Database -> SharedSolver -> Text -> Double -> IO (Either ServiceError GraphExport)
 buildActivityGraph db sharedSolver queryText cutoffPercent =
-    case resolveActivityAndProcessId db queryText >>= \(pid, _) -> (,) pid <$> demandFor db pid of
+    case asked of
         Left err -> pure (Left err)
-        Right (processId, demandVec) -> fmap (graphOf processId) <$> supplyFor db sharedSolver demandVec
+        Right (processId, demandVec, functionalUnit) -> fmap (graphOf functionalUnit processId) <$> supplyFor db sharedSolver demandVec
   where
-    graphOf :: ProcessId -> U.Vector Double -> GraphExport
-    graphOf processId supplyVec =
+    asked :: Either ServiceError (ProcessId, Demand, FunctionalUnit)
+    asked = do
+        (pid, activity) <- resolveActivityAndProcessId db queryText
+        demand <- demandFor db pid
+        pure (pid, demand, functionalUnitIn db activity)
+
+    graphOf :: FunctionalUnit -> ProcessId -> U.Vector Double -> GraphExport
+    graphOf functionalUnit processId supplyVec =
         let supplyList = toList supplyVec
             threshold = sum (map abs supplyList) * (cutoffPercent / 100.0)
             significantActivities = selectSignificantActivities threshold processId supplyList
@@ -838,7 +845,7 @@ buildActivityGraph db sharedSolver queryText cutoffPercent =
                     (U.toList (dbTechnosphereTriples db))
             nodes = zipWith (mkGraphNode db) [0 ..] significantActivities
             unitGroups = buildUnitGroups (map gnUnit nodes)
-         in GraphExport nodes edges unitGroups
+         in GraphExport nodes edges unitGroups functionalUnit
 
 -- | Classify units into groups for edge width normalization
 buildUnitGroups :: [Text] -> M.Map Text Text
@@ -1675,20 +1682,40 @@ summaryProduct :: Maybe ReferenceProductInfo -> ReferenceProductInfo
 summaryProduct = fromMaybe (ReferenceProductInfo "" 1.0 "")
 
 {- | The functional unit a score is reported against: one unit of the
-activity's reference product, named in the unit its matrix column was
-normalised to.
+activity's reference product.
 
 Never the amount the source declared. "Database.MatrixBuild" divides every
 coefficient of a column by that amount, so a coproduct a source states at
 0.0686462 kg is still scored per kilogram, and a reference product ingested
 as 3.6 mj is still scored per megajoule. Reporting the declared amount here
 described the block, not the number beside it.
+
+A reference product the tech-flow table does not name takes the activity's
+name. A reference exchange whose unit the table lacks, or holds only as an
+empty name or the placeholder a parser writes for a blank one, takes the
+activity's own reference unit, which is all the source gave and may itself be
+empty or that placeholder. A score is never refused for lacking a unit.
 -}
-functionalUnitOf :: TechFlowDB -> UnitDB -> Activity -> Text
-functionalUnitOf flows units activity = "1.00 " <> maybe "" rpUnit refProduct <> " of " <> maybe "" rpName refProduct
+functionalUnitOf :: TechFlowDB -> UnitDB -> Activity -> FunctionalUnit
+functionalUnitOf flows units activity =
+    FunctionalUnit
+        { fuUnit = fromMaybe (activityUnit activity) referenceUnit
+        , fuProduct = fromMaybe (activityName activity) (getReferenceProductName flows activity >>= unlessEmpty)
+        }
   where
-    refProduct :: Maybe ReferenceProductInfo
-    refProduct = referenceProductOf flows units activity
+    referenceUnit :: Maybe Text
+    referenceUnit = do
+        ex <- L.find exchangeIsReference (nonPlainExchanges activity)
+        unit <- getUnitForExchange units ex
+        guard (not (isPlaceholderUnit unit))
+        unlessEmpty (unitName unit)
+
+    unlessEmpty :: Text -> Maybe Text
+    unlessEmpty text = text <$ guard (not (T.null text))
+
+-- | The functional unit of an activity of a database.
+functionalUnitIn :: Database -> Activity -> FunctionalUnit
+functionalUnitIn db = functionalUnitOf (dbTechFlows db) (dbUnits db)
 
 {- | Build an 'ActivitySummary' from a (ProcessId, Activity) pair. Encapsulates
 the reference-product + allocation + native-type projection shared by
@@ -2022,8 +2049,10 @@ getSupplyChain unitCfg geographies depLookup indexFor db dbName sharedSolver pro
 
 {- | Find the shortest supply chain path from a root process to the first upstream activity
 whose name contains the given substring (case-insensitive).
-Returns path steps ordered root → target, each with cumulative quantity, scaling factor,
-and local_step_ratio (upstream ÷ downstream scaling factors).
+Returns path steps ordered root → target, each with its quantity per unit of the
+root's reference product (the scaling factor) and localStepRatio (upstream ÷
+downstream scaling factors). The unit is one of the product, not the amount the
+root declares, so a root written for 10 does not inflate its suppliers tenfold.
 -}
 getPathTo :: Database -> SharedSolver -> Text -> NamePattern -> IO (Either ServiceError Value)
 getPathTo db solver pidText target = do
@@ -2037,8 +2066,7 @@ getPathTo db solver pidText target = do
                     case eVec of
                         Left err -> return $ Left err
                         Right supplyVec ->
-                            let rootRefMagnitude = referenceMagnitude rootAct
-                                adj = buildAdjacencyFromTriples (dbTechnosphereTriples db)
+                            let adj = buildAdjacencyFromTriples (dbTechnosphereTriples db)
                                 mPath =
                                     bfsToPattern
                                         (fromIntegral rootPid)
@@ -2067,7 +2095,7 @@ getPathTo db solver pidText target = do
                                                         , "activityName" .= activityName act
                                                         , "location" .= activityLocation act
                                                         , "unit" .= activityUnit act
-                                                        , "cumulativeQuantity" .= (sf * rootRefMagnitude)
+                                                        , "cumulativeQuantityPerUnit" .= sf
                                                         , "scalingFactor" .= sf
                                                         ]
                                                  in object $ case mRatio of
@@ -2090,7 +2118,8 @@ getPathTo db solver pidText target = do
                                                     ]
                                          in Right $
                                                 object
-                                                    [ "path" .= steps
+                                                    [ "functionalUnit" .= functionalUnitIn db rootAct
+                                                    , "path" .= steps
                                                     , "path_length" .= length pids
                                                     , "total_ratio" .= totalRatio
                                                     ]
@@ -2103,25 +2132,15 @@ are qualified with @db::@, and depth continues from the
 level that reached it. The two are one fact, so they travel as one value: as
 four separate parameters they admitted sixteen combinations, of which the code
 only ever built these two.
+
+A level states its quantities for one unit of the root's reference product,
+whatever amount the root declares: a scaling is already per unit, in the root's
+database and in every dependency alike.
 -}
 data WalkLevel
     = RootLevel {rlRoot :: !ProcessId}
-    | {- | The matrix columns the dependency is bought at, each one deeper than the process buying it,
-      and the root's reference amount, which every level's quantities are stated for.
-      -}
-      DepLevel {dlEntered :: !(IM.IntMap Int), dlRootAmount :: !RootAmount}
-
--- | The root's reference amount, as a magnitude.
-newtype RootAmount = RootAmount Double
-
-{- | What a level's quantities are stated for: the root's reference amount, at
-every level. A scaling is per unit of the root's reference product, so a root
-written for 10 000 kg reads its whole chain, in its own database and in its
-dependencies alike, ten thousand times what one kilogram takes.
--}
-rootAmount :: Database -> WalkLevel -> RootAmount
-rootAmount db RootLevel{rlRoot = r} = RootAmount (referenceMagnitude (dbActivities db V.! fromIntegral r))
-rootAmount _ DepLevel{dlRootAmount = amount} = amount
+    | -- | The matrix columns the dependency is bought at, each one deeper than the process buying it.
+      DepLevel {dlEntered :: !(IM.IntMap Int)}
 
 -- | Every process's depth in the chain, from where a level is entered.
 levelDepths :: IM.IntMap [Int] -> WalkLevel -> IM.IntMap Int
@@ -2293,7 +2312,6 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
         mRootPid = case level of
             RootLevel{rlRoot = r} -> Just r
             DepLevel{} -> Nothing
-        RootAmount quantityMult = rootAmount db level
         n = U.length supplyVec
 
         allEntries =
@@ -2356,7 +2374,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                     , sceDatabaseName = dbName
                     , sceActivityName = activityName activity
                     , sceLocation = activityLocation activity
-                    , sceQuantity = scalingFactor * quantityMult
+                    , sceQuantityPerUnit = scalingFactor
                     , sceUnit = activityUnit activity
                     , sceScalingFactor = scalingFactor
                     , sceClassifications = activityClassification activity
@@ -2393,7 +2411,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
 
 {- | Sort, offset, and limit a list of supply-chain entries using the shared
 filter core's @afcSort@ / @afcOrder@ / @afcLimit@ / @afcOffset@. All
-comparison fields (@sceDepth@, @sceUpstreamCount@, @sceQuantity@…) live on
+comparison fields (@sceDepth@, @sceUpstreamCount@, @sceQuantityPerUnit@…) live on
 the entry itself, so this works uniformly for single- and cross-DB lists.
 -}
 sortAndPaginate :: ActivityFilterCore -> [SupplyChainEntry] -> [SupplyChainEntry]
@@ -2406,8 +2424,8 @@ sortAndPaginate core entries =
             Just "unit" -> \a b -> compare (sceUnit a) (sceUnit b)
             Just "depth" -> \a b -> compare (sceDepth a) (sceDepth b)
             Just "consumers" -> \a b -> compare (sceUpstreamCount a) (sceUpstreamCount b)
-            Just "amount" -> \a b -> compare (abs (sceQuantity a)) (abs (sceQuantity b))
-            _ -> \a b -> compare (abs (sceQuantity b)) (abs (sceQuantity a))
+            Just "amount" -> \a b -> compare (abs (sceQuantityPerUnit a)) (abs (sceQuantityPerUnit b))
+            _ -> \a b -> compare (abs (sceQuantityPerUnit b)) (abs (sceQuantityPerUnit a))
      in take limit . drop offset $ L.sortBy (inOrder (afcOrder core) comparator) entries
 
 {- | Pure function: build a SupplyChainResponse from a scaling vector.
@@ -2454,6 +2472,7 @@ buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf 
                 }
      in SupplyChainResponse
             { scrRoot = rootSummary
+            , scrFunctionalUnit = functionalUnitIn db rootActivity
             , scrTotalActivities = totalActs
             , scrFilteredActivities = length entries
             , scrSupplyChain = sortAndPaginate (scfCore scf) entries
@@ -2537,6 +2556,7 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor 
                 Right
                     SupplyChainResponse
                         { scrRoot = rootSummary
+                        , scrFunctionalUnit = functionalUnitIn rootDb rootActivity
                         , scrTotalActivities = total
                         , scrFilteredActivities = length entries
                         , scrSupplyChain = sortAndPaginate (scfCore scf) entries
@@ -2613,7 +2633,7 @@ walkDepLevels unitCfg geographies depLookup consumer extras scf depth visited
                     }
                 | (name, demands) <- M.toList (accumulateDepDemandsWith (coDb consumer) extras (coScaling consumer))
                 ]
-        results <- mapM (resolveOneDep unitCfg geographies depLookup scf (rootAmount (coDb consumer) (coLevel consumer)) depth visited) calls
+        results <- mapM (resolveOneDep unitCfg geographies depLookup scf depth visited) calls
         pure $ case lefts results of
             (err : _) -> Left err
             [] -> Right (mconcat (rights results))
@@ -2627,15 +2647,13 @@ resolveOneDep ::
     Geographies ->
     SharedSolver.DepSolverLookup ->
     SupplyChainFilter ->
-    -- | which quantities are stated for
-    RootAmount ->
     -- | levels of dependency crossed, bounding the recursion
     Int ->
     -- | visited
     S.Set Text ->
     DepCall ->
     IO (Either ServiceError Collected)
-resolveOneDep unitCfg geographies depLookup scf statedFor depth visited call
+resolveOneDep unitCfg geographies depLookup scf depth visited call
     | depDbName `S.member` visited = pure (Right mempty)
     | otherwise = do
         mDep <- depLookup depDbName
@@ -2666,7 +2684,7 @@ resolveOneDep unitCfg geographies depLookup scf statedFor depth visited call
             Right edges -> ((local <> Collected 0 [] edges []) <>) <$> eDeeper
       where
         level :: WalkLevel
-        level = DepLevel (enteredAt depDb) statedFor
+        level = DepLevel (enteredAt depDb)
 
         local :: Collected
         local =
@@ -2765,16 +2783,6 @@ bfsToPattern from matches adj = go (Empty |> from) (IM.singleton from from)
 getReferenceProductAmount :: Activity -> Double
 getReferenceProductAmount activity =
     maybe 1.0 exchangeAmount (L.find exchangeIsReference (nonPlainExchanges activity))
-
-{- | The amount a chain stated per one unit of an activity is multiplied by.
-
-A magnitude, never a sign: which way one unit of the activity runs is carried
-by the functional unit ('Matrix.referenceSign'), so a multiplier carrying it a
-second time would report every input a treatment draws as a quantity it
-produces.
--}
-referenceMagnitude :: Activity -> Double
-referenceMagnitude = abs . getReferenceProductAmount
 
 {- | Run sensitivity analysis on a process: compute the baseline scaling
 vector @x₀@ once, then resolve every 'Perturbation' to a (consumer column,

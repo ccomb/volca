@@ -35,6 +35,7 @@ import API.Types (
     Aggregation (..),
     AggregationGroup (..),
     ExchangeDetail (..),
+    FunctionalUnit,
     InventoryExport (..),
     InventoryFlowDetail (..),
     SupplyChainEntry (..),
@@ -44,7 +45,7 @@ import API.Types (
  )
 import Database (Geographies)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, noCutoffs)
-import Matrix (linkConsumer)
+import Matrix (activityNormalizationFactor, linkConsumer)
 import Service (
     ActivityFilterCore (..),
     Edges (..),
@@ -54,16 +55,15 @@ import Service (
     buildSupplyChainFromScalingVectorCrossDB,
     convertToInventoryExport,
     demandFor,
+    functionalUnitIn,
     getActivityExchangeDetails,
     getReferenceProductName,
-    referenceMagnitude,
     resolveScorable,
     supplyFor,
  )
 import SharedSolver (DepSolverLookup, Reached (..), SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (
-    Activity,
     BioFlowDB,
     BiosphereFlow (..),
     ClassificationFilter (..),
@@ -71,6 +71,7 @@ import Types (
     Database (..),
     ExchangeKind (..),
     Permission (..),
+    ProcessId,
     SparseTriple (..),
     UnitDB,
     activityClassification,
@@ -197,57 +198,58 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
     case resolveScorable db pidText of
         Left err -> return (Left err)
         Right (processId, activity) ->
-            case apScope params of
-                ScopeDirect ->
-                    -- Nothing is solved: the exchanges are read as the dataset writes them.
-                    return $ Right $ reduce params noCutoffs (rowsFromDirect db activity)
-                ScopeSupplyChain -> case demandFor db processId of
-                    Left err -> return (Left err)
-                    Right demandVec -> do
-                        eSupply <- supplyFor db solver demandVec
-                        case eSupply of
-                            Left err -> return (Left err)
-                            Right supplyVec -> do
-                                let af = emptyFilter (apMaxDepth params)
-                                eResp <-
-                                    buildSupplyChainFromScalingVectorCrossDB
-                                        unitConfig
-                                        geographies
-                                        depLookup
-                                        indexFor
-                                        db
-                                        dbName
-                                        processId
-                                        supplyVec
-                                        []
-                                        af
-                                return $ fmap (\resp -> (reduce params (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
-                ScopeBiosphere -> do
-                    solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
-                    case solE of
-                        Left err -> return (Left (MatrixError err))
-                        Right sol
-                            | dep : _ <- withheldOf (SharedSolver.csScalings sol) -> return (Left (Withheld (includedSentence dbName dep)))
-                            | otherwise -> do
-                                cutoffs <- cutoffsOf indexFor S.empty (NE.toList (SharedSolver.csScalings sol))
-                                let export = convertToInventoryExport db flowDB unitDB processId activity cutoffs (SharedSolver.csInventory sol)
-                                return $ Right $ reduce params cutoffs (rowsFromBiosphere export)
-                ScopeConsumption -> do
-                    -- ponytail: reuses the biosphere solve, whose inventory half is
-                    -- discarded here; a scaling-only cross-DB walk is the upgrade
-                    -- path if profiling ever complains.
-                    solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
-                    case solE of
-                        Left err -> return (Left (MatrixError err))
-                        Right sol -> do
-                            let (root :| deps) = SharedSolver.csScalings sol
-                                (hidden, shown) = L.partition (withholds . reachedName) deps
-                            cutoffs <- cutoffsOf indexFor (S.fromList (map reachedName hidden)) (root : deps)
-                            return $
-                                Right
-                                    (reduce params cutoffs (rowsFromConsumption (referenceMagnitude activity) (root :| shown)))
-                                        { aggWithheldDatabases = consumptionLines hidden
-                                        }
+            let functionalUnit = functionalUnitIn db activity
+             in case apScope params of
+                    ScopeDirect ->
+                        -- Nothing is solved: the exchanges are read as the dataset writes them, put per unit.
+                        return $ Right $ reduce params functionalUnit noCutoffs (rowsFromDirect db processId)
+                    ScopeSupplyChain -> case demandFor db processId of
+                        Left err -> return (Left err)
+                        Right demandVec -> do
+                            eSupply <- supplyFor db solver demandVec
+                            case eSupply of
+                                Left err -> return (Left err)
+                                Right supplyVec -> do
+                                    let af = emptyFilter (apMaxDepth params)
+                                    eResp <-
+                                        buildSupplyChainFromScalingVectorCrossDB
+                                            unitConfig
+                                            geographies
+                                            depLookup
+                                            indexFor
+                                            db
+                                            dbName
+                                            processId
+                                            supplyVec
+                                            []
+                                            af
+                                    return $ fmap (\resp -> (reduce params functionalUnit (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
+                    ScopeBiosphere -> do
+                        solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
+                        case solE of
+                            Left err -> return (Left (MatrixError err))
+                            Right sol
+                                | dep : _ <- withheldOf (SharedSolver.csScalings sol) -> return (Left (Withheld (includedSentence dbName dep)))
+                                | otherwise -> do
+                                    cutoffs <- cutoffsOf indexFor S.empty (NE.toList (SharedSolver.csScalings sol))
+                                    let export = convertToInventoryExport db flowDB unitDB processId activity cutoffs (SharedSolver.csInventory sol)
+                                    return $ Right $ reduce params functionalUnit cutoffs (rowsFromBiosphere export)
+                    ScopeConsumption -> do
+                        -- ponytail: reuses the biosphere solve, whose inventory half is
+                        -- discarded here; a scaling-only cross-DB walk is the upgrade
+                        -- path if profiling ever complains.
+                        solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
+                        case solE of
+                            Left err -> return (Left (MatrixError err))
+                            Right sol -> do
+                                let (root :| deps) = SharedSolver.csScalings sol
+                                    (hidden, shown) = L.partition (withholds . reachedName) deps
+                                cutoffs <- cutoffsOf indexFor (S.fromList (map reachedName hidden)) (root : deps)
+                                return $
+                                    Right
+                                        (reduce params functionalUnit cutoffs (rowsFromConsumption (root :| shown)))
+                                            { aggWithheldDatabases = consumptionLines hidden
+                                            }
   where
     withholds :: Text -> Bool
     withholds name = name /= dbName && name `S.member` apWithheld params
@@ -285,16 +287,23 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
 -- Scope → AggRow conversions
 -- ---------------------------------------------------------------------------
 
-rowsFromDirect :: Database -> Activity -> [AggRow]
-rowsFromDirect db act =
-    map mkRow (getActivityExchangeDetails db act (const True))
+{- | The exchanges of a process for one unit of its product, divided as its
+matrix column is: by what it makes net of what it consumes of its own product,
+so a process feeding itself reads here as it does in every other scope. Only the
+size divides; a treatment's reference row stays negative.
+-}
+rowsFromDirect :: Database -> ProcessId -> [AggRow]
+rowsFromDirect db processId =
+    map mkRow (getActivityExchangeDetails db (dbActivities db V.! fromIntegral processId) (const True))
   where
+    divisor :: Double
+    divisor = abs (activityNormalizationFactor db processId)
     mkRow (ExchangeDetail ex flow _flowUnit _unit exUnitName target) =
         AggRow
             { rowName = apiFlowName flow
             , rowFlowId = UUID.toText (exchangeFlowId ex)
             , rowUnit = exUnitName
-            , rowQuantity = exchangeAmount ex
+            , rowQuantity = exchangeAmount ex / divisor
             , rowIsInput = Just (exchangeIsInput ex)
             , rowIsReference = Just (exchangeIsReference ex)
             , rowTargetName = fmap prsActivityName target
@@ -313,7 +322,7 @@ rowsFromSupplyChain response =
             { rowName = sceActivityName e
             , rowFlowId = sceProcessId e
             , rowUnit = sceUnit e
-            , rowQuantity = sceQuantity e
+            , rowQuantity = sceQuantityPerUnit e
             , rowIsInput = Nothing
             , rowIsReference = Nothing
             , rowTargetName = Nothing
@@ -344,19 +353,17 @@ rowsFromBiosphere export =
 
 {- | One row per scaled technosphere edge across the whole chain: for each
 coefficient A[supplier, consumer] whose consumer has a non-zero scaling
-s_consumer, the quantity is @coefficient × s_consumer × multiplier@ – the
-total amount of the supplier's product consumed by that consumer for the
-functional unit. Summing filtered edges never double-counts a
+s_consumer, the quantity is @coefficient × s_consumer@ – the total amount of
+the supplier's product consumed by that consumer for one unit of the root's
+product. Summing filtered edges never double-counts a
 transformation chain the way summing cumulative supply-chain productions
 does, because each consumption event is one row.
 
 Signs pass through untouched: inputs are stored positive, byproduct
 outputs negative, and a treatment-convention column flips both its
 coefficient and its scaling, so their product stays sign-correct. The
-multiplier is the root's reference amount as a magnitude, the direction
-of one unit of the root being carried by its scaling already. It applies to
-the dependencies' rows too: their scalings are per unit of the root's product
-as well.
+dependencies' scalings are already per unit of the root's product, so their
+rows are counted the same way as the root's.
 Filtering on positive values here would silently drop real inputs of
 treatment activities.
 
@@ -367,17 +374,17 @@ supplier-side fields that live in the dependency database (target name,
 classifications) are left empty rather than resolved – a classification
 or target-name filter therefore never matches a bridge edge.
 -}
-rowsFromConsumption :: Double -> NonEmpty Reached -> [AggRow]
-rowsFromConsumption rootRefMagnitude (Reached rootDbName rootDb rootScaling :| deps) =
+rowsFromConsumption :: NonEmpty Reached -> [AggRow]
+rowsFromConsumption (Reached rootDbName rootDb rootScaling :| deps) =
     dbRows False rootDbName rootDb rootScaling
         <> concatMap (\(Reached depName depDb depScaling) -> dbRows True depName depDb depScaling) deps
   where
     dbRows qualifyPids dbN db' s =
-        internalEdges qualifyPids dbN db' s rootRefMagnitude <> bridgeEdges db' s rootRefMagnitude
+        internalEdges qualifyPids dbN db' s <> bridgeEdges db' s
 
     -- Matrix indices double as ProcessIds, same convention as
     -- 'Service.collectSupplyChainEntries'.
-    internalEdges qualifyPids dbN db' s mult =
+    internalEdges qualifyPids dbN db' s =
         VU.foldr step [] (dbTechnosphereTriples db')
       where
         step (SparseTriple supplierIdx consumerIdx v) acc =
@@ -391,7 +398,7 @@ rowsFromConsumption rootRefMagnitude (Reached rootDbName rootDb rootScaling :| d
                     { rowName = fromMaybe (activityName supplier) (getReferenceProductName (dbTechFlows db') supplier)
                     , rowFlowId = if qualifyPids then qualifyRef dbN pidText else pidText
                     , rowUnit = activityUnit supplier
-                    , rowQuantity = v * sj * mult
+                    , rowQuantity = v * sj
                     , rowIsInput = Nothing
                     , rowIsReference = Nothing
                     , rowTargetName = Just (activityName supplier)
@@ -401,7 +408,7 @@ rowsFromConsumption rootRefMagnitude (Reached rootDbName rootDb rootScaling :| d
                     , rowClassifications = activityClassification supplier
                     }
 
-    bridgeEdges db' s mult =
+    bridgeEdges db' s =
         mapMaybe bridgeRow (dbCrossDBLinks db')
       where
         bridgeRow link = do
@@ -417,7 +424,7 @@ rowsFromConsumption rootRefMagnitude (Reached rootDbName rootDb rootScaling :| d
                             { rowName = cdlFlowName link
                             , rowFlowId = supplierRefText link
                             , rowUnit = cdlExchangeUnit link
-                            , rowQuantity = cdlCoefficient link * sj / normFactor * mult
+                            , rowQuantity = cdlCoefficient link * sj / normFactor
                             , rowIsInput = Nothing
                             , rowIsReference = Nothing
                             , rowTargetName = Nothing
@@ -503,8 +510,8 @@ groupKey key r = case key of
         Nothing -> n
 
 -- | Combine rows into an Aggregation.
-reduce :: AggregateParams -> Cutoffs -> [AggRow] -> Aggregation
-reduce p cutoffs rowsAll =
+reduce :: AggregateParams -> FunctionalUnit -> Cutoffs -> [AggRow] -> Aggregation
+reduce p functionalUnit cutoffs rowsAll =
     let matched = filter (filterRow p) rowsAll
         total = sum (map rowQuantity matched)
         fnCount = length matched
@@ -517,7 +524,8 @@ reduce p cutoffs rowsAll =
                  in map (mkGroup total) grouped
      in Aggregation
             { aggScope = scopeText (apScope p)
-            , aggFilteredTotal = total
+            , aggFunctionalUnit = functionalUnit
+            , aggFilteredTotalPerUnit = total
             , aggFilteredUnit = unit
             , aggFilteredCount = fnCount
             , aggGroups = sortGroups groups
@@ -531,14 +539,14 @@ reduce p cutoffs rowsAll =
             gunit = homogeneousUnit rs
          in AggregationGroup
                 { aggKey = key
-                , aggQuantity = gqty
+                , aggQuantityPerUnit = gqty
                 , aggUnit = gunit
                 , aggShare = case apAggregate p of
                     AggShare -> if total == 0 then Just 0 else Just (gqty / total)
                     _ -> Nothing
                 , aggCount = length rs
                 }
-    sortGroups = L.sortBy (\a b -> compare (abs (aggQuantity b)) (abs (aggQuantity a)))
+    sortGroups = L.sortBy (\a b -> compare (abs (aggQuantityPerUnit b)) (abs (aggQuantityPerUnit a)))
 
 scopeText :: AggScope -> Text
 scopeText ScopeDirect = "direct"

@@ -18,6 +18,9 @@ from volca.types import BatchScores, ParameterValue, SensitivityResult
 _METHOD_ID = "00000000-0000-0000-0000-000000000001"
 
 
+_FUNCTIONAL_UNIT = {"amount": 1, "unit": "kg", "product": "wheat"}
+
+
 def _lcia(score: float) -> dict:
     return {
         "methodId": "00000000-0000-0000-0000-000000000001",
@@ -27,13 +30,13 @@ def _lcia(score: float) -> dict:
         "score": score,
         "unit": "kg CO2 eq",
         "mappedFlows": 3,
-        "functionalUnit": "1.0 kg",
+        "functionalUnit": _FUNCTIONAL_UNIT,
         "topContributors": [],
     }
 
 
 def _batch(score: float) -> dict:
-    return {"results": [_lcia(score)]}
+    return {"results": [_lcia(score)], "functionalUnit": _FUNCTIONAL_UNIT}
 
 
 class TestComputeSensitivity:
@@ -42,6 +45,7 @@ class TestComputeSensitivity:
         session.post.return_value = make_response(
             {
                 "baseline": _lcia(1.0),
+                "functionalUnit": _FUNCTIONAL_UNIT,
                 "perturbed": [
                     {"perturbation": {"consumer": "c", "supplier": "s", "delta": -0.05, "label": "cut"}, "impact": _lcia(0.95), "deltaImpact": -0.05},
                     {"perturbation": {"consumer": "c", "supplier": "z", "delta": 0.1}, "error": "supplier not found"},
@@ -103,7 +107,7 @@ class TestScoreActivities:
         def answer(url, **kwargs):
             ids = kwargs["json"]["processIds"]
             fossil = lambda n: _lcia(n / 2) | {"methodId": "00000000-0000-0000-0000-000000000002", "methodName": "Climate change-Fossil"}
-            impacts = lambda i: {"results": [_lcia(float(i[1:])), fossil(float(i[1:]))], "scoringResults": {
+            impacts = lambda i: {"results": [_lcia(float(i[1:])), fossil(float(i[1:]))], "functionalUnit": _FUNCTIONAL_UNIT, "scoringResults": {
                 "ECS": {"total": 10 * float(i[1:])}, "Edited": {"Single score": 1.0}, "PEF": {"total": 2.0, "climate": 0.5}
             }}
             return make_response(

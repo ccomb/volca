@@ -28,6 +28,7 @@ from .types import (
     MatchMode,
     SupplyChainEntry,
     TechnosphereExchange,
+    TechRole,
 )
 
 if TYPE_CHECKING:
@@ -49,7 +50,14 @@ class Allocation:
 
 @dataclass
 class Decomposition:
-    """Reverse-engineered transformation parameters for one Agribalyse process."""
+    """Reverse-engineered transformation parameters for one Agribalyse process.
+
+    Every amount is for one unit of the process's reference product, whatever
+    amount the dataset declares: what ``/aggregate`` counts, the coproducts
+    included. For a ``wrapper_wfldb`` process the energies and the raw
+    material are read on the WFLDB core it wraps, so they are for one unit of
+    that core's product, while the coproducts stay the wrapper's own.
+    """
 
     pattern: str                               # "wrapper_wfldb" | "direct" | "layered"
     raw_material_name: str | None
@@ -210,7 +218,9 @@ def classify_exchange(exchange: Exchange) -> str:
 
 
 def get_direct_energy(client: "Client", process_id: str) -> tuple[float, float]:
-    """Return ``(electricity_kWh, heat_MJ)`` summed over level-0 inputs.
+    """Return ``(electricity_kWh, heat_MJ)`` summed over level-0 inputs, for one
+    unit of the process's reference product (the basis ``/aggregate`` counts in,
+    whatever amount the process declares).
 
     Two /aggregate calls, nothing more.
     """
@@ -220,14 +230,14 @@ def get_direct_energy(client: "Client", process_id: str) -> tuple[float, float]:
         is_input=True,
         filter_name="Electricity",
         filter_unit="kWh",
-    ).filtered_total
+    ).filtered_total_per_unit
     heat = client.aggregate(
         process_id,
         scope="direct",
         is_input=True,
         filter_name="Heat",
         filter_unit="MJ",
-    ).filtered_total
+    ).filtered_total_per_unit
     return elec, heat
 
 
@@ -374,7 +384,7 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
             max_depth=sc_depth,
             is_input=True,
             **kw,  # type: ignore[arg-type]
-        ).filtered_total
+        ).filtered_total_per_unit
 
     def agg_total(**kw: object) -> float:
         if pattern == "layered" and operations:
@@ -388,7 +398,7 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
                     max_depth=2,
                     is_input=True,
                     **kw,  # type: ignore[arg-type]
-                ).filtered_total
+                ).filtered_total_per_unit
                 for op in operations
             )
         return agg_total_single(target_pid, **kw)
@@ -404,21 +414,34 @@ def decompose(client: "Client", process_id: str) -> Decomposition:
             aggregate="sum_quantity",
         )
         raw_name = raw.groups[0].key if raw.groups else None
-        raw_kg = raw.groups[0].quantity if raw.groups else 0.0
+        raw_kg = raw.groups[0].quantity_per_unit if raw.groups else 0.0
 
-    # Technosphere outputs only: the /aggregate primitive lumps biosphere
-    # emissions (NOx, water, heat waste…) into "direct" exchanges, so walk
-    # the typed exchange list and discriminate by class instead.
-    grouped: dict[tuple[str, str], float] = {}
-    for e in act.exchanges:
-        if (
-            isinstance(e, TechnosphereExchange)
-            and not e.is_input
-            and not e.is_reference
-        ):
-            key = (e.flow_name, e.unit)
-            grouped[key] = grouped.get(key, 0.0) + e.amount
-    co_products = [(name, qty, unit) for (name, unit), qty in grouped.items()]
+    # The amounts come from /aggregate, divided as the engine divides every
+    # other figure here. One call per unit the coproducts are written in, so a
+    # coproduct listed in two units is never summed across them.
+    co_products: list[tuple[str, float, str]] = []
+    outputs_written = [
+        e for e in act.exchanges
+        if isinstance(e, TechnosphereExchange) and not e.is_input and not e.is_reference
+    ]
+    if any(e.role is TechRole.COPRODUCT for e in outputs_written):
+        # An unallocated coproduct keeps the block out of the matrix, so the
+        # engine refuses to put it per unit; its declared output, as the
+        # matrix would read a zero one, is then the only basis there is.
+        declared = abs(act.product_amount or 0.0) or 1.0
+        co_products = [(e.flow_name, e.amount / declared, e.unit) for e in outputs_written]
+        outputs_written = []
+    for unit in sorted({e.unit for e in outputs_written}):
+        outputs = client.aggregate(
+            process_id,
+            scope="direct",
+            is_input=False,
+            filter_is_reference=False,
+            filter_exchange_type="technosphere",
+            filter_unit=unit,
+            group_by="name",
+        )
+        co_products += [(g.key, g.quantity_per_unit, unit) for g in outputs.groups]
 
     # Agribalyse uses allocation-based modelling, so co-products rarely
     # appear as technosphere outputs; the engine records each co-product's

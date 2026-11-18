@@ -12,6 +12,10 @@ from volca.client import VoLCAError
 from volca.types import FactorMatch, LCIABatchResult, NewMethodFactor, ScoringRow
 from tests.conftest import _make_response
 
+# Every test here speaks to an engine at the wire its feature needs, which is
+# below the floor pyvolca requires of an engine as a whole.
+pytestmark = pytest.mark.usefixtures("feature_gates_only")
+
 BASE = "http://test.local/api/v1/method-collections"
 
 
@@ -200,5 +204,5 @@ def test_a_row_groups_a_category():
 
 
 def test_a_score_reads_the_value_of_every_row():
-    result = LCIABatchResult.from_json({"results": [], "scoringRows": {"Mine": {"gas": {"category": "Gas", "value": 3.0}}}})
+    result = LCIABatchResult.from_json({"results": [], "functionalUnit": {"amount": 1, "unit": "kg", "product": "p"}, "scoringRows": {"Mine": {"gas": {"category": "Gas", "value": 3.0}}}})
     assert result.scoring_rows["Mine"]["gas"].value == 3.0

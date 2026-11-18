@@ -31,6 +31,10 @@ from volca.types import (
     Uncertainty,
 )
 
+# The tests that name a wire speak to an engine at the wire their feature needs,
+# which is below the floor pyvolca requires of an engine as a whole.
+pytestmark = pytest.mark.usefixtures("feature_gates_only")
+
 
 def _ok(session, json_body: dict) -> None:
     """Wire the mocked session's POST to return a 200 with ``json_body``."""

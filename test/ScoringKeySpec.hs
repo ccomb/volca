@@ -9,7 +9,7 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import API.Routes (rawScoreMapByName, resolveBatchedScore)
-import API.Types (LCIAResult (..))
+import API.Types (FunctionalUnit (..), LCIAResult (..))
 import Method.Types (Method (..))
 
 -- | Minimal LCIAResult for keying tests (only name/category/score matter here).
@@ -25,7 +25,7 @@ mkR name category score =
         , lrNormalizedScore = Nothing
         , lrWeightedScore = Nothing
         , lrMappedFlows = 0
-        , lrFunctionalUnit = ""
+        , lrFunctionalUnit = FunctionalUnit "kg" "product"
         , lrTopContributors = []
         , lrWithheld = Nothing
         , lrWithheldDatabases = []

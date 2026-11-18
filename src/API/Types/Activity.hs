@@ -131,6 +131,7 @@ data SearchCountsAPI = SearchCountsAPI
 -- | Inventory export data structures
 data InventoryExport = InventoryExport
     { ieMetadata :: InventoryMetadata
+    , ieFunctionalUnit :: FunctionalUnit -- What the flow quantities are for: one unit of the reference product
     , ieFlows :: [InventoryFlowDetail]
     , ieStatistics :: InventoryStatistics
     , ieCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
@@ -242,6 +243,7 @@ data GraphExport = GraphExport
     { geNodes :: [GraphNode]
     , geEdges :: [GraphEdge]
     , geUnitGroups :: M.Map Text Text -- Unit to unit group mapping
+    , geFunctionalUnit :: FunctionalUnit -- What the cumulative amounts of the nodes are for
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped GraphExport)
@@ -306,9 +308,14 @@ parseProducerFilter mRole = case mRole of
     Just "any" -> Just EitherSide
     Just _ -> Nothing
 
--- | Supply chain response – all upstream activities with scaling factors
+{- | Supply chain response – all upstream activities with scaling factors, each
+counted for one unit of the root's reference product, which
+'scrFunctionalUnit' names. The root's declared amount stays on 'scrRoot' as
+what the dataset says, and no quantity here is multiplied by it.
+-}
 data SupplyChainResponse = SupplyChainResponse
     { scrRoot :: ActivitySummary
+    , scrFunctionalUnit :: FunctionalUnit -- What the quantities are for: one unit of the reference product
     , scrTotalActivities :: Int
     , scrFilteredActivities :: Int
     , scrSupplyChain :: [SupplyChainEntry]
@@ -343,7 +350,7 @@ data SupplyChainEntry = SupplyChainEntry
     , sceDatabaseName :: Text -- database the entry lives in
     , sceActivityName :: Text
     , sceLocation :: Text
-    , sceQuantity :: Double -- scalingFactor × root reference product amount (physical amount per functional unit)
+    , sceQuantityPerUnit :: Double -- cumulative output of this process for one unit of the root's reference product, in 'sceUnit'
     , sceUnit :: Text
     , sceScalingFactor :: Double -- raw value from scaling vector
     , sceClassifications :: M.Map Text Text -- Classifications (ISIC, CPC, Category, etc.)
@@ -725,11 +732,13 @@ data ClassificationSystem = ClassificationSystem
 {- | Result of an /activity/{pid}/aggregate call.
 
 A SQL-group-by-style aggregation over exchanges, supply chain entries, or
-biosphere flows, depending on the requested scope.
+biosphere flows, depending on the requested scope. Every scope counts for one
+unit of the activity's reference product, which 'aggFunctionalUnit' names.
 -}
 data Aggregation = Aggregation
-    { aggScope :: Text -- echoed scope: "direct" | "supply_chain" | "biosphere"
-    , aggFilteredTotal :: Double -- total summed across all matching items (after filters)
+    { aggScope :: Text -- echoed scope: "direct" | "supply_chain" | "biosphere" | "consumption"
+    , aggFunctionalUnit :: FunctionalUnit -- what one unit of the amounts below is
+    , aggFilteredTotalPerUnit :: Double -- total summed across all matching items (after filters)
     , aggFilteredUnit :: Maybe Text -- Nothing when matched items have heterogeneous units
     , aggFilteredCount :: Int -- count of items matching the filters
     , aggGroups :: [AggregationGroup] -- one entry per group_by bucket (empty when group_by omitted)
@@ -743,7 +752,7 @@ data Aggregation = Aggregation
 -- | One bucket in an aggregation result.
 data AggregationGroup = AggregationGroup
     { aggKey :: Text
-    , aggQuantity :: Double
+    , aggQuantityPerUnit :: Double
     , aggUnit :: Maybe Text -- Nothing when group's items are heterogeneous
     , aggShare :: Maybe Double -- only set when aggregate=share
     , aggCount :: Int

@@ -2,10 +2,11 @@
 
 module SupplyChainSpec (spec) where
 
-import API.Types (ConsumerResult (..), ConsumersResponse (..), EdgeType (..), ExportNode (..), FlowInfo (..), NodeType (..), SearchResults (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
-import Data.Aeson (Value (..))
+import API.Types (ConsumerResult (..), ConsumersResponse (..), EdgeType (..), ExportNode (..), FlowInfo (..), FunctionalUnit (..), NodeType (..), SearchResults (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), TreeEdge (..), TreeExport (..), TreeMetadata (..))
+import Data.Aeson (Value (..), toJSON)
 import Data.Aeson.Key (fromText)
 import qualified Data.Aeson.KeyMap as KM
+import Data.Foldable (toList)
 import qualified Data.IntMap.Strict as IM
 import Data.List (sort)
 import qualified Data.Map.Strict as M
@@ -63,8 +64,8 @@ mapConsumerCore f cf = cf{cnfCore = f (cnfCore cf)}
 
 spec :: Spec
 spec = do
-    describe "sceQuantity uses rootRefAmount (not activity refAmount)" $ do
-        it "sceQuantity equals scalingFactor when root refAmount is 1" $ do
+    describe "quantityPerUnit equals the scaling factor" $ do
+        it "quantityPerUnit equals scalingFactor when root refAmount is 1" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
 
             -- SAMPLE.min3: X → Y(0.6) → Z(0.24), all refAmounts = 1 kg
@@ -74,13 +75,43 @@ spec = do
             let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootProcessId supplyVec emptySupply
                 entries = scrSupplyChain response
 
-            -- With rootRefAmount = 1, sceQuantity must equal sceScalingFactor exactly
             mapM_
                 ( \entry ->
-                    withinTolerance defaultTolerance (sceScalingFactor entry) (sceQuantity entry)
+                    withinTolerance defaultTolerance (sceScalingFactor entry) (sceQuantityPerUnit entry)
                         `shouldBe` True
                 )
                 entries
+
+    describe "quantityPerUnit is per unit of the root's reference product" $ do
+        it "is a tenth when the root is written for 10 with the same inputs" $ do
+            -- X written for 10 kg buys what it always bought, so one kilogram of
+            -- it takes a tenth of that: 0.06 of Y and 0.024 of Z, not 0.6 and 0.24.
+            db <- rebuilt . withActivityWrittenForTen 0 =<< loadSampleDatabase "SAMPLE.min3"
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db 0
+            let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" 0 supplyVec emptySupply
+                perUnit = M.fromList [(sceActivityName e, sceQuantityPerUnit e) | e <- scrSupplyChain response]
+            M.keys perUnit `shouldBe` ["production of product Y", "production of product Z"]
+            mapM_
+                (\(name, expected) -> withinTolerance defaultTolerance expected (perUnit M.! name) `shouldBe` True)
+                [("production of product Y", 0.06), ("production of product Z", 0.024)]
+
+        it "stays as written when the root declares zero" $ do
+            -- A reference written as 0 has no amount to divide by: the column
+            -- is divided by one, so Y and Z read 0.6 and 0.24 as written.
+            db <- rebuilt . withActivityWrittenFor 0 0 =<< loadSampleDatabase "SAMPLE.min3"
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db 0
+            let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" 0 supplyVec emptySupply
+                perUnit = M.fromList [(sceActivityName e, sceQuantityPerUnit e) | e <- scrSupplyChain response]
+            M.keys perUnit `shouldBe` ["production of product Y", "production of product Z"]
+            mapM_
+                (\(name, expected) -> withinTolerance defaultTolerance expected (perUnit M.! name) `shouldBe` True)
+                [("production of product Y", 0.6), ("production of product Z", 0.24)]
+
+        it "states its functional unit" $ do
+            db <- loadSampleDatabase "SAMPLE.min3"
+            supplyVec <- either (fail . show) pure =<< computeScalingVector db 0
+            let response = buildSupplyChainFromScalingVector shippedGeographies db "test-db" 0 supplyVec emptySupply
+            scrFunctionalUnit response `shouldBe` FunctionalUnit "kg" "product X"
 
     describe "sceDepth (BFS from root)" $ do
         it "assigns positive depth to non-root entries" $ do
@@ -214,7 +245,7 @@ spec = do
                     scrSupplyChain $
                         buildSupplyChainFromScalingVector shippedGeographies db "test-db" rootPid supplyVec (mapSupplyCore f emptySupply)
                 byDepth c = c{afcName = Just "produc", afcSort = Just "depth"}
-                amounts = map (abs . sceQuantity) . listed
+                amounts = map (abs . sceQuantityPerUnit) . listed
             map sceDepth (listed (\c -> (byDepth c){afcOrder = Reversed})) `shouldBe` [2, 1]
             map sceDepth (listed (\c -> (byDepth c){afcOrder = sortOrderOf (Just "asc")})) `shouldBe` [1, 2]
             -- With no column named the largest amount comes first, so desc
@@ -411,6 +442,52 @@ spec = do
                         Nothing -> expectationFailure "missing total_ratio"
                         Just r -> withinTolerance 1e-9 0.24 r `shouldBe` True
 
+        it "gives each step per unit of the root, written for 10" $ do
+            -- X written for 10 kg buys what it always bought, so one kilogram of
+            -- it takes a tenth of that: 0.06 of Y and 0.024 of Z, not 0.6 and 0.24.
+            db <- rebuilt . withActivityWrittenForTen 0 =<< loadSampleDatabase "SAMPLE.min3"
+            solver <- createSharedSolver "test" (dbTechnosphereTriples db) (fromIntegral (dbActivityCount db))
+            result <- getPathTo db solver (processIdToText db 0) (NamePattern "product Z")
+            case result of
+                Left err -> expectationFailure $ "Expected Right but got Left: " ++ show err
+                Right val -> do
+                    let steps = case lookupKey "path" val of
+                            Just (Array arr) -> toList arr
+                            _ -> []
+                    map (lookupKey "activityName") steps
+                        `shouldBe` map (Just . String) ["production of product X", "production of product Y", "production of product Z"]
+                    mapM_
+                        ( \(step, expected) ->
+                            getDoubleField "cumulativeQuantityPerUnit" step `shouldSatisfy` maybe False (withinTolerance defaultTolerance expected)
+                        )
+                        (zip steps [1, 0.06, 0.024])
+                    map (lookupKey "cumulativeQuantity") steps `shouldSatisfy` all (== Nothing)
+
+        it "gives each step as written when the root declares zero" $ do
+            db <- rebuilt . withActivityWrittenFor 0 0 =<< loadSampleDatabase "SAMPLE.min3"
+            solver <- createSharedSolver "test" (dbTechnosphereTriples db) (fromIntegral (dbActivityCount db))
+            result <- getPathTo db solver (processIdToText db 0) (NamePattern "product Z")
+            case result of
+                Left err -> expectationFailure $ "Expected Right but got Left: " ++ show err
+                Right val -> do
+                    let steps = case lookupKey "path" val of
+                            Just (Array arr) -> toList arr
+                            _ -> []
+                    length steps `shouldBe` 3
+                    mapM_
+                        ( \(step, expected) ->
+                            getDoubleField "cumulativeQuantityPerUnit" step `shouldSatisfy` maybe False (withinTolerance defaultTolerance expected)
+                        )
+                        (zip steps [1, 0.6, 0.24])
+
+        it "states its functional unit" $ do
+            db <- loadSampleDatabase "SAMPLE.min3"
+            solver <- createSharedSolver "test" (dbTechnosphereTriples db) (fromIntegral (dbActivityCount db))
+            result <- getPathTo db solver (processIdToText db 0) (NamePattern "product Z")
+            case result of
+                Left err -> expectationFailure $ "Expected Right but got Left: " ++ show err
+                Right val -> lookupKey "functionalUnit" val `shouldBe` Just (toJSON (FunctionalUnit "kg" "product X"))
+
         it "returns Left when target is not in supply chain" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             let techTriples = dbTechnosphereTriples db
@@ -440,3 +517,7 @@ getDoubleField _ _ = Nothing
 
 toText :: String -> Text
 toText = pack
+
+lookupKey :: String -> Value -> Maybe Value
+lookupKey k (Object o) = KM.lookup (fromText (toText k)) o
+lookupKey _ _ = Nothing

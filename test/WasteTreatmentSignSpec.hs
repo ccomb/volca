@@ -23,7 +23,7 @@ every case: treating waste adds burden, it never subtracts it.
 -}
 module WasteTreatmentSignSpec (spec) where
 
-import API.Types (Aggregation (..), ExchangeWithUnit (..), SupplyChainEntry (..), SupplyChainResponse (..))
+import API.Types (Aggregation (..), AggregationGroup (..), ExchangeWithUnit (..), SupplyChainEntry (..), SupplyChainResponse (..))
 import qualified BrightwayExcel.Writer as BE
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -226,12 +226,9 @@ scoreSimple name key sdb = do
         Nothing -> fail (T.unpack name <> ": activity not interned")
         Just pid -> co2Of <$> (either (fail . show) pure =<< computeInventoryMatrix db (fromIntegral pid))
 
-{- | The total the aggregated consumption rows report for an activity asked as
-the functional unit. The third readout that states a quantity as a scaling
-times the root's reference amount, and the one no other test here covers.
--}
-consumptionTotalOf :: T.Text -> (UUID, UUID) -> M.Map (UUID, UUID) Activity -> IO Double
-consumptionTotalOf name key acts = do
+-- | What 'Agg.aggregate' answers for an activity asked as the functional unit.
+aggregatedOf :: Agg.AggregateParams -> T.Text -> (UUID, UUID) -> M.Map (UUID, UUID) Activity -> IO Aggregation
+aggregatedOf params name key acts = do
     db <- buildDB name acts
     case processIdOf db key of
         Nothing -> fail (T.unpack name <> ": activity not interned")
@@ -249,8 +246,22 @@ consumptionTotalOf name key acts = do
                     (\_ -> pure Nothing)
                     (\_ d -> pure (gapIndexOf d))
                     (processIdToText db (fromIntegral pid))
-                    (Agg.emptyAggregateParams Agg.ScopeConsumption)
-            either (fail . show) (pure . aggFilteredTotal) agg
+                    params
+            either (fail . show) pure agg
+
+{- | The total the aggregated consumption rows report for an activity asked as
+the functional unit. The readout no other test here covers: a quantity stated
+as a scaling times a coefficient, whichever way the reference is written.
+-}
+consumptionTotalOf :: T.Text -> (UUID, UUID) -> M.Map (UUID, UUID) Activity -> IO Double
+consumptionTotalOf name key acts =
+    aggFilteredTotalPerUnit <$> aggregatedOf (Agg.emptyAggregateParams Agg.ScopeConsumption) name key acts
+
+-- | The exchanges of an activity asked as the functional unit, each flow's amount by name.
+directRowsOf :: T.Text -> (UUID, UUID) -> M.Map (UUID, UUID) Activity -> IO (M.Map T.Text Double)
+directRowsOf name key acts = do
+    agg <- aggregatedOf (Agg.emptyAggregateParams Agg.ScopeDirect){Agg.apGroupBy = Just "name"} name key acts
+    pure (M.fromList [(aggKey g, aggQuantityPerUnit g) | g <- aggGroups agg])
 
 {- | The quantity the supply chain reports for the one supplier of an activity
 asked as the functional unit.
@@ -264,7 +275,7 @@ supplierQuantityOf name key acts = do
             supplyVec <- either (fail . show) pure =<< computeScalingVector db (fromIntegral pid)
             let entries = scrSupplyChain (buildSupplyChainFromScalingVector shippedGeographies db "root" (fromIntegral pid) supplyVec noFilter)
             case entries of
-                [entry] -> pure (sceQuantity entry)
+                [entry] -> pure (sceQuantityPerUnit entry)
                 _ -> fail (T.unpack name <> ": expected one supplier, got " <> show (length entries))
   where
     noFilter :: SupplyChainFilter
@@ -444,10 +455,9 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
         withinTolerance 1.0e-9 2.0 score `shouldBe` True
 
     -- The chain of the same treatment: it buys 0.5 kg of Y to treat that
-    -- kilogram, so the chain says 0.5 consumed. The quantity is the scaling
-    -- times the root's reference amount, and that amount is a magnitude: were
-    -- it signed, it would carry the direction the functional unit already
-    -- carries and report the purchase as a sale.
+    -- kilogram, so the chain says 0.5 consumed. The chain reads the scaling as
+    -- it is, so the 0.5 pins that a treatment's purchase is not reported as a
+    -- sale.
     it "reports what a treatment whose reference is a negative output buys" $ do
         quantity <-
             supplierQuantityOf
@@ -471,6 +481,43 @@ spec = describe "Waste-treatment scoring sign across reference conventions" $ do
                 (tA, wW)
                 (M.fromList [((tA, wW), treatmentBuyingY ReferenceProduct (-1.0)), ((pA, yY), supplierOfY)])
         withinTolerance 1.0e-9 0.5 total `shouldBe` True
+
+    -- Written for 3.6 kg of waste treated, with 0.5 kg of Y bought for them: one
+    -- kilogram treated buys 0.5 / 3.6 of Y, and the reference row reads -1,
+    -- still the negative output it was declared as.
+    it "divides a negative reference by its magnitude" $ do
+        rows <-
+            directRowsOf
+                "direct-negative-output"
+                (tA, wW)
+                (M.fromList [((tA, wW), treatmentBuyingY ReferenceProduct (-3.6)), ((pA, yY), supplierOfY)])
+        withinTolerance 1.0e-9 (0.5 / 3.6) (M.findWithDefault 0 "product Y" rows) `shouldBe` True
+        withinTolerance 1.0e-9 (-1.0) (M.findWithDefault 0 "waste W" rows) `shouldBe` True
+
+    -- The same purchase through every scope: the scaling carries the direction
+    -- of one unit and the divisor only its size, so a sign or a divisor that
+    -- one scope applied twice would part it from the others.
+    it "counts what a treatment written for 3.6 kg buys the same in every scope" $ do
+        let acts = M.fromList [((tA, wW), treatmentBuyingY ReferenceProduct (-3.6)), ((pA, yY), supplierOfY)]
+        direct <- M.findWithDefault 0 "product Y" <$> directRowsOf "every-scope-direct" (tA, wW) acts
+        consumption <- consumptionTotalOf "every-scope-consumption" (tA, wW) acts
+        supplyChain <- aggFilteredTotalPerUnit <$> aggregatedOf (Agg.emptyAggregateParams Agg.ScopeSupplyChain) "every-scope-supply-chain" (tA, wW) acts
+        mapM_ (\quantity -> withinTolerance 1.0e-9 (0.5 / 3.6) quantity `shouldBe` True) [direct, consumption, supplyChain]
+
+    -- Written for 1 kg of W, of which it eats 0.1 kg itself, with 0.9 kg of Y:
+    -- what leaves is 0.9 kg, and one kilogram of that takes 1 kg of Y. The
+    -- reference row reads what is made for one delivered, 1 / 0.9.
+    it "counts a process eating its own product the same in every scope" $ do
+        let selfFed = emptyActivity{activityName = "self-fed W", activityLines = packExchanges [techEx wW 1.0 ReferenceProduct Nothing, techEx wW 0.1 Input (Just tA), techEx yY 0.9 Input (Just pA)]}
+            acts = M.fromList [((tA, wW), selfFed), ((pA, yY), supplierOfY)]
+            directOf params = aggFilteredTotalPerUnit <$> aggregatedOf params "self-fed-direct" (tA, wW) acts
+            directScope = Agg.emptyAggregateParams Agg.ScopeDirect
+        direct <- directOf directScope{Agg.apFilterName = Just "product Y"}
+        made <- directOf directScope{Agg.apFilterIsReference = Just True}
+        consumption <- aggFilteredTotalPerUnit <$> aggregatedOf (Agg.emptyAggregateParams Agg.ScopeConsumption){Agg.apFilterName = Just "product Y"} "self-fed-consumption" (tA, wW) acts
+        supplyChain <- aggFilteredTotalPerUnit <$> aggregatedOf (Agg.emptyAggregateParams Agg.ScopeSupplyChain) "self-fed-supply-chain" (tA, wW) acts
+        mapM_ (\quantity -> withinTolerance 1.0e-9 1.0 quantity `shouldBe` True) [direct, consumption, supplyChain]
+        withinTolerance 1.0e-9 (1.0 / 0.9) made `shouldBe` True
 
     it "intra-DB ILCD (positive ReferenceInput) scores +6" $ do
         score <-

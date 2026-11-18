@@ -141,7 +141,7 @@ data LCIAResult = LCIAResult
     , lrNormalizedScore :: Maybe Double -- score * normalization factor
     , lrWeightedScore :: Maybe Double -- normalized * weight (in Pt)
     , lrMappedFlows :: Int -- Number of flows successfully mapped
-    , lrFunctionalUnit :: Text -- What the score is per: one unit of the reference product, e.g. "1.00 kg of Butter, unsalted"
+    , lrFunctionalUnit :: FunctionalUnit -- What the score is for: one unit of the reference product
     , lrTopContributors :: [FlowContributionEntry] -- Top contributing elementary flows
     , lrWithheld :: Maybe Text -- Set when the licence keeps what weighs in the score to itself: then the contributors are empty
     , lrWithheldDatabases :: [WithheldShare] -- The databases the score reads whose licence keeps their detail: their part in one line each, their flows left out of the contributors
@@ -242,6 +242,7 @@ data ContributingFlowsResult = ContributingFlowsResult
     , cfrCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
     , cfrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     , cfrBasis :: ScoreBasis -- What the score these flows add up to rests on
+    , cfrFunctionalUnit :: FunctionalUnit -- What the score these flows add up to is for
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingFlowsResult)
@@ -268,6 +269,7 @@ data ContributingActivitiesResult = ContributingActivitiesResult
     , carCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
     , carWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     , carBasis :: ScoreBasis -- What the score these activities add up to rests on
+    , carFunctionalUnit :: FunctionalUnit -- What the score these activities add up to is for
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ContributingActivitiesResult)
@@ -429,6 +431,8 @@ data LCIABatchResult = LCIABatchResult
     -- ^ The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
     , lbrBasis :: Maybe ScoreBasis
     -- ^ What the scores rest on, for one activity; null in each entry of a batch, which carries it once above
+    , lbrFunctionalUnit :: FunctionalUnit
+    -- ^ What every score of the activity is for
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped LCIABatchResult)
@@ -673,6 +677,7 @@ data SensitivityResponse = SensitivityResponse
     , srPerturbed :: [PerturbedEntry]
     , srCutoffInputs :: [CutoffInput] -- The baseline's cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
     , srWithheldCutoffs :: [WithheldCutoffs] -- The baseline's cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted
+    , srFunctionalUnit :: FunctionalUnit -- What the baseline and every perturbed score are for
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped SensitivityResponse)
@@ -732,6 +737,7 @@ data ReducedModel = ReducedModel
     { rdmMethods :: [ReducedMethod]
     , rdmExcludeLongTerm :: Bool -- Whether the scores leave out the delayed long-term emissions
     , rdmBaseline :: [Double] -- The scores at the defaults, by method
+    , rdmFunctionalUnit :: FunctionalUnit -- What every score of the model is for
     , rdmParameters :: [FreeParameter] -- The free parameters, numbered by their position
     , rdmProcesses :: [ModelProcess]
     , rdmSuppliers :: [ModelSupplier]

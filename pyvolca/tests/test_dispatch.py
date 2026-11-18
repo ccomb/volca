@@ -32,6 +32,9 @@ def _method(name: str, collection: str, id: str = _WATER_USE_ID) -> Method:
     )
 
 
+_ONE_KG = {"amount": 1, "unit": "kg", "product": "wheat"}
+
+
 def _minimal_lcia_result() -> dict:
     """Minimal wire payload accepted by :meth:`LCIAResult.from_json`."""
     return {
@@ -42,7 +45,7 @@ def _minimal_lcia_result() -> dict:
         "score": 1.23,
         "unit": "kg CO2 eq",
         "mappedFlows": 0,
-        "functionalUnit": "1.0 kg",
+        "functionalUnit": _ONE_KG,
         "topContributors": [],
     }
 
@@ -371,6 +374,7 @@ class TestDispatcher:
         client, session = mocked_client
         session.get.return_value = make_response({
             "results": [_minimal_lcia_result()],
+            "functionalUnit": _ONE_KG,
             "singleScore": 1.5,
             "singleScoreUnit": "Pt",
             "normWeightSetName": "PEF",
@@ -393,6 +397,7 @@ class TestDispatcher:
         client, session = mocked_client
         session.post.return_value = make_response({
             "results": [],
+            "functionalUnit": _ONE_KG,
             "availableNWsets": [],
             "scoringResults": {},
             "scoringUnits": {},
@@ -418,6 +423,7 @@ class TestDispatcher:
         client, session = mocked_client
         empty = {
             "results": [],
+            "functionalUnit": _ONE_KG,
             "availableNWsets": [],
             "scoringResults": {},
             "scoringUnits": {},
@@ -448,6 +454,7 @@ class TestDispatcher:
         line = {"position": 2, "contribution": 0.4, "sharePct": 85.1}
         session.get.return_value = make_response({
             "results": [{**_minimal_lcia_result(), "exchangeContributions": [line]}],
+            "functionalUnit": _ONE_KG,
             "availableNWsets": [],
             "scoringResults": {},
             "scoringUnits": {},
@@ -506,6 +513,7 @@ class TestDispatcher:
         }
         session.get.return_value = make_response({
             "results": [{**_minimal_lcia_result(), "basis": None}],
+            "functionalUnit": _ONE_KG,
             "availableNWsets": [],
             "scoringResults": {},
             "scoringUnits": {},
@@ -668,7 +676,7 @@ class TestMethodResolution:
         session.get.side_effect = [
             make_response([]),
             make_response([{"id": _WATER_USE_ID, "name": "Water use", "category": "Water use", "unit": "m3", "factorCount": 1, "collection": "EF3.1"}]),
-            make_response({"results": []}),
+            make_response({"results": [], "functionalUnit": _ONE_KG}),
         ]
         with pytest.raises(VoLCAError, match="No loaded collection carries a method"):
             client.get_impacts_batch("abc_def")
@@ -694,7 +702,7 @@ class TestMethodResolution:
     def test_batch_uses_the_only_loaded_collection(self, mocked_client, make_response):
         client, session = mocked_client
         client._methods_cache[:] = [_method("Water use", "EF3.1")]
-        session.get.return_value = make_response({"results": [_minimal_lcia_result()]})
+        session.get.return_value = make_response({"results": [_minimal_lcia_result()], "functionalUnit": _ONE_KG})
         client.get_impacts_batch("abc_def")
         assert session.get.call_args[0][0].endswith("/impacts/EF3.1")
 

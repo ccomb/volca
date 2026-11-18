@@ -15,9 +15,11 @@ module FlowContributionSpec (
     spec,
     collectionName,
     managerUnder,
+    mcpPayload,
     methodIdText,
     payloadOf,
     productD,
+    runOk,
     sampleConfig,
 ) where
 

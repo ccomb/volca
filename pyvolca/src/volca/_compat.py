@@ -11,6 +11,11 @@ name that changes under a working script costs its author an afternoon of edits
 with nothing to point at, so a rename ships the new name and keeps the old one
 working as an alias that says what replaced it. :func:`warn_renamed` writes that
 sentence, and :data:`RENAMED_REMOVED_IN` says when the old name goes away.
+Release 0.15 is the one exception: it renames four attributes without an alias
+(``quantity`` on a supply chain entry and on an aggregate group,
+``cumulative_quantity`` on a path step, ``filtered_total`` on an aggregate),
+because an alias would hand a script written for the old numbers the new ones
+under the old name, and it would run without complaint.
 
 It is deliberately import-cheap (only the stdlib at runtime) so the release
 preflight can read :data:`MIN_ENGINE_HINT` without pulling in ``requests`` or
@@ -26,14 +31,22 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .types import ServerVersion
 
-REQUIRED_WIRE = 2
-"""The oldest JSON wire-format revision this pyvolca accepts. Everything in
-the client works against it except the revision-gated capabilities (see
-``Client._require_wire``), which check the engine's advertised revision
-before sending anything."""
+REQUIRED_WIRE = 113
+"""The oldest JSON wire-format revision this pyvolca accepts. Revision 113
+renamed the fields whose numbers changed basis and this client reads only the
+new names, so an older engine is refused as a whole when the client first talks
+to it. The per-capability gates of ``Client._require_wire`` that name a lower
+revision only matter to a client that opted out of that check with
+``VOLCA_SKIP_COMPAT_CHECK``; they stay for that case."""
 
-KNOWN_WIRE = 112
-"""The newest wire revision this pyvolca understands (revision 112 added the
+KNOWN_WIRE = 113
+"""The newest wire revision this pyvolca understands (revision 113 counted the
+supply chain, the path to a supplier and every scope of an aggregate for one
+unit of the reference product, as impacts and inventories already were, renamed
+the fields holding them ``quantity_per_unit``, ``cumulative_quantity_per_unit``
+and ``filtered_total_per_unit``, and replaced the text a score's
+``functional_unit`` was by a :class:`~volca.types.FunctionalUnit` that every
+computed response carries; revision 112 added the
 ``unsolvable`` processes of a batch, each with why, where the whole batch was
 refused; revision 111 added
 ``via`` and ``source`` to a database's history and ``source`` to every write
@@ -257,7 +270,7 @@ def warn_renamed(old: str, new: str) -> None:
     )
 
 
-MIN_ENGINE_HINT = "0.9.1"
+MIN_ENGINE_HINT = "0.19.0"
 """First engine release that advertises :data:`REQUIRED_WIRE`. Used only for the
 error message and the release preflight; it is not, by itself, a runtime gate
 (the engine's ``wireVersion`` is)."""
@@ -285,7 +298,7 @@ def check(sv: ServerVersion) -> None:
         raise VoLCAError(
             f"This engine (v{sv.version}) speaks an older wire than pyvolca "
             f"needs (wire {spoken} < {REQUIRED_WIRE}). Upgrade the engine to "
-            f">= v{MIN_ENGINE_HINT}, or `pip install 'pyvolca<0.7.2'`."
+            f">= v{MIN_ENGINE_HINT}, or `pip install 'pyvolca<0.15'`."
         )
     if w > KNOWN_WIRE:
         warnings.warn(

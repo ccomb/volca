@@ -18,13 +18,13 @@ Requires Python ≥ 3.10 and a running VoLCA engine. Use `Server` (below) to run
 
 pyvolca speaks a range of revisions of the engine's JSON wire format; the engine advertises its revision as `wireVersion` on `/api/v1/version`. pyvolca checks it the first time it talks to the engine: too old fails with a clear error, newer than this client knows warns, and a capability that needs a newer wire than the engine speaks refuses to run instead of letting the engine misread the request. pyvolca and engine version numbers move independently: `wireVersion` carries compatibility, not the version numbers.
 
-The other direction is a promise about pyvolca's own names. A name this client publishes does not vanish under a working script: when one is renamed, the old spelling keeps working and warns, saying what replaced it and that it takes the same arguments. A retired name is dropped at a major version, never in the release that introduces its replacement, so upgrading tells you what to edit rather than breaking on the line that used it. Python shows a `DeprecationWarning` only when it is raised from your top-level script, so run with `-W default::DeprecationWarning` to see the ones raised from your own modules and packages too.
+The other direction is a promise about pyvolca's own names. A name this client publishes does not vanish under a working script: when one is renamed, the old spelling keeps working and warns, saying what replaced it and that it takes the same arguments. A retired name is dropped at a major version, never in the release that introduces its replacement, so upgrading tells you what to edit rather than breaking on the line that used it. The one exception is release 0.15, which renames four attributes without keeping the old spelling (`quantity` on a supply chain entry and on an aggregate group, `cumulative_quantity` on a path step, `filtered_total` on an aggregate): an alias would hand a script written for the old numbers the new numbers under the old name, and it would run without complaint, where now it stops on the missing attribute. Python shows a `DeprecationWarning` only when it is raised from your top-level script, so run with `-W default::DeprecationWarning` to see the ones raised from your own modules and packages too.
 
 <!-- BEGIN: compatibility -->
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.14.3** speaks wire formats **2 to 112** and requires a VoLCA engine **≥ v0.9.1**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.15.0** speaks wire format **113** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -145,10 +145,10 @@ for ex in detail.technosphere_inputs:
 chain = c.get_supply_chain(plants[0].process_id, name="at farm", limit=20)
 print(f"{chain.filtered_activities} of {chain.total_activities} upstream activities match 'at farm'")
 for entry in chain.entries[:5]:
-    print(f"  {entry.quantity:.4g} {entry.unit} of {entry.activity_name} ({entry.location})")
+    print(f"  {entry.quantity_per_unit:.4g} {entry.unit} of {entry.activity_name} ({entry.location})")
 ```
 
-For *"how exactly does this root reach a specific upstream supplier?"*, use `get_path_to(process_id, target=...)`, which returns a `PathResult` of ordered `PathStep`s root → target with cumulative quantities and step ratios.
+For *"how exactly does this root reach a specific upstream supplier?"*, use `get_path_to(process_id, target=...)`, which returns a `PathResult` of ordered `PathStep`s root → target with cumulative quantities (for one unit of the root's product) and step ratios.
 
 ## Find downstream consumers
 
@@ -253,7 +253,7 @@ agg = c.aggregate(
     aggregate="sum_quantity",
 )
 for g in agg.groups[:5]:
-    print(f"  {g.quantity:.4g} {g.unit or ''} of {g.key}")
+    print(f"  {g.quantity_per_unit:.4g} {g.unit or ''} of {g.key}")
 ```
 
 `scope` selects what to aggregate over: `"direct"` (just this activity's exchanges), `"supply_chain"` (cumulative upstream), or `"biosphere"` (all elementary flows). `group_by` accepts `"name"`, `"flow_id"`, `"unit"`, `"location"`, `"target_name"`, or `"classification.<system>"`.
@@ -522,9 +522,16 @@ Add a row to a scoring set; with a weight, it joins the score that adds up the r
 
 A score written otherwise is left as it is. A label already in use is refused.
 
-##### `Client.aggregate(process_id: str, scope: AggregateScope | str, *, is_input: bool | None = None, max_depth: int | None = None, filter_name: str | None = None, filter_name_not: list[str] | str | None = None, filter_unit: str | None = None, preset: str | None = None, filter_classification: list[ClassificationFilter] | None = None, filter_target_name: str | None = None, filter_consumer: str | None = None, filter_consumer_not: list[str] | str | None = None, filter_is_reference: bool | None = None, group_by: str | None = None, aggregate: AggregateOp | str | None = None) -> AggregateResult`
+##### `Client.aggregate(process_id: str, scope: AggregateScope | str, *, is_input: bool | None = None, max_depth: int | None = None, filter_name: str | None = None, filter_name_not: list[str] | str | None = None, filter_unit: str | None = None, preset: str | None = None, filter_classification: list[ClassificationFilter] | None = None, filter_target_name: str | None = None, filter_consumer: str | None = None, filter_consumer_not: list[str] | str | None = None, filter_is_reference: bool | None = None, filter_exchange_type: str | None = None, group_by: str | None = None, aggregate: AggregateOp | str | None = None) -> AggregateResult`
 
 SQL-group-by aggregation over direct exchanges, supply chain, or biosphere flows.
+
+Every scope counts for one unit of the activity's reference product
+(``functional_unit`` of the result), so the ``direct`` exchanges are
+the dataset's amounts divided by what the process makes net of what it
+consumes of its own product, as every other scope divides them: the
+totals and the groups are ``filtered_total_per_unit`` and
+``quantity_per_unit``.
 
 Args:
     scope: `AggregateScope` member (``DIRECT`` / ``SUPPLY_CHAIN``
@@ -549,6 +556,8 @@ Args:
         itself contains a comma ("electricity production, hard
         coal") becomes two independent substrings; use a
         comma-free fragment of the name instead.
+    filter_exchange_type: ``"technosphere"``, ``"biosphere"`` or
+        ``"waste"`` keeps that kind of exchange only (``DIRECT`` scope only).
     group_by: omit for a single-bucket result (just the totals).
         Supported keys: ``"name"``, ``"flow_id"``, ``"name_prefix"``,
         ``"unit"``, ``"location"``, ``"target_name"``,
@@ -1310,9 +1319,9 @@ Uses a direct HTTP call because ``/inputs`` has no operationId
 Compute the life-cycle inventory (cumulative biosphere flows) for an activity.
 
 Returns an `InventoryResult` with the per-elementary-flow
-totals scaled to one functional unit of the activity's reference
-product. Use `get_impacts` to apply a characterization method
-to the inventory; use `aggregate` with ``scope="biosphere"``
+totals for one unit of the activity's reference product, its
+``functional_unit``. Use `get_impacts` to apply a
+characterization method to the inventory; use `aggregate` with ``scope="biosphere"``
 for grouped views.
 
 Args:
@@ -1356,8 +1365,10 @@ Return the output exchanges of an activity. See `get_inputs` for notes.
 Find the shortest upstream path from process to first activity whose name matches target.
 
 Returns a PathResult whose path is ordered root → target. Each step
-includes cumulative_quantity, scaling_factor, and (except the root)
-local_step_ratio.
+includes cumulative_quantity_per_unit, scaling_factor, and (except the
+root) local_step_ratio. The quantities are for one unit of the root's
+reference product, the ``functional_unit`` of the result, whatever
+amount the root declares.
 
 ##### `Client.get_score_contributing_activities(process_id: str, collection: str, scoring_set: str, score: str, *, limit: int | None = None) -> ContributingActivities`
 
@@ -1428,6 +1439,11 @@ Each entry carries its own ``unit``, and entries do not share one: it
 is the producing activity's reference-product unit, which is not
 always the unit written on the exchange that consumes it. Read it off
 the entry rather than off the activity you started from.
+
+Every ``quantity_per_unit`` is for one unit of the root's reference
+product (``functional_unit``), whatever amount the root declares;
+``min_quantity`` drops the entries whose absolute value is at or below
+it.
 
 Args:
     max_depth: Max hops from root. 1 = direct inputs only.
@@ -2264,14 +2280,15 @@ and is what you pass to every detail endpoint (`Client.get_activity`,
 `Client.get_supply_chain`, `Client.get_impacts`, …).
 ``activity_name`` is the activity name (e.g. ``"wheat flour, at plant"``);
 ``product_name`` is the reference output product (e.g. ``"wheat flour"``);
-``product_amount`` and ``product_unit`` are what the source says this
-process produces (typically ``1.0`` of ``"kg"`` / ``"mj"`` / etc.; a
-database imported from SimaPro or Brightway Excel states it in the
-canonical unit of its dimension, so a 1 kWh reference product reads
-``3.6`` of ``"mj"``, and a coproduct its block states at 0.0686462 kg
-reads that). It is not the basis a score or an inventory is reported
-against: those are always per **one** ``product_unit``, whatever the
-amount here.
+``product_amount`` and ``product_unit`` are the amount of its reference
+product as declared by the dataset (typically ``1.0`` of ``"kg"`` /
+``"mj"`` / etc.; a database imported from SimaPro or Brightway Excel
+states it in the canonical unit of its dimension, so a 1 kWh reference
+product reads ``3.6`` of ``"mj"``, and a coproduct its block states at
+0.0686462 kg reads that). It is not the basis a computed response is
+reported against: a score, an inventory, a supply chain, a path and an
+aggregate are all per **one** ``product_unit``, whatever the amount here,
+and their ``functional_unit`` says so.
 ``location`` is the
 geography code (``"FR"``, ``"GLO"``, ``"RoW"``…). A process has no name of
 its own; compose a label from ``activity_name`` + ``product_name``.
@@ -2354,6 +2371,16 @@ Typed wrapper around the JSON returned by GET /activity/{pid}.
 
 Use the .inputs / .outputs / .technosphere_inputs convenience properties
 instead of walking the raw exchanges list.
+
+Every amount here, ``product_amount`` and the amount of each exchange, is
+as declared by the dataset. A computed response (score, inventory, supply
+chain, aggregate) counts for one unit of the reference product instead, its
+``functional_unit``, so an exchange amount is not comparable with one of
+those as it stands. The engine divides it by the size of what the process
+makes net of what it consumes of its own product, which is
+``product_amount`` unless the process eats part of its own output, and
+keeps its sign; ``aggregate(scope="direct")`` gives the exchanges so
+divided.
 
 ``native_id`` is the identifier the source file gave the dataset block this
 process was read from - SimaPro's ``Process identifier``, the number an
@@ -2759,12 +2786,13 @@ right - left (0 if one side is missing).
 
 ### `AggregateGroup`
 
-One bucket inside an AggregateResult.
+One bucket inside an AggregateResult, its ``quantity_per_unit`` counted
+for one unit of the activity's reference product.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `key` | `str` | _required_ |
-| `quantity` | `float` | _required_ |
+| `quantity_per_unit` | `float` | _required_ |
 | `count` | `int` | _required_ |
 | `unit` | `str \| None` | None |
 | `share` | `float \| None` | None |
@@ -2773,14 +2801,19 @@ One bucket inside an AggregateResult.
 
 Result of a Client.aggregate() call.
 
-``filtered_total`` is the sum across all items matching the filters (the
-top-level number). ``groups`` is the per-bucket breakdown when ``group_by``
-was set; empty otherwise.
+``filtered_total_per_unit`` is the sum across all items matching the
+filters (the top-level number). ``groups`` is the per-bucket breakdown when
+``group_by`` was set; empty otherwise. Every scope counts for one unit of
+the activity's reference product, ``functional_unit``, so the exchanges of
+``scope="direct"`` are the dataset's amounts divided by what the process
+makes net of what it consumes of its own product, as every other scope
+divides them.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `scope` | `AggregateScope` | _required_ |
-| `filtered_total` | `float` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
+| `filtered_total_per_unit` | `float` | _required_ |
 | `filtered_unit` | `str \| None` | _required_ |
 | `filtered_count` | `int` | _required_ |
 | `groups` | `list[AggregateGroup]` | list() |
@@ -3058,6 +3091,8 @@ measure written as a product of base measures (``volume`` is
 
 Activity that consumes a given supplier, with BFS depth.
 
+``product_amount`` is as declared by the dataset.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `process_id` | `str` | _required_ |
@@ -3104,11 +3139,14 @@ Same engine-side limitation as `ContributingFlows`: the server
 reports no total, so pyvolca cannot derive ``has_more``. Pass a generous
 ``limit`` and inspect ``share_pct`` if exhaustive coverage matters.
 
+``functional_unit`` is what ``total_score`` and every contribution are for.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `method` | `str` | _required_ |
 | `unit` | `str` | _required_ |
 | `total_score` | `float` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `activities` | `list[ActivityContribution]` | list() |
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
@@ -3124,11 +3162,14 @@ server returned under ``limit``, but pyvolca cannot tell whether more
 flows were truncated. If you need exhaustive coverage, pass a generous
 ``limit`` and inspect ``share_pct`` totals.
 
+``functional_unit`` is what ``total_score`` and every contribution are for.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `method` | `str` | _required_ |
 | `unit` | `str` | _required_ |
 | `total_score` | `float` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `top_flows` | `list[FlowContribution]` | list() |
 | `withheld_databases` | `list[WithheldShare]` | list() |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
@@ -3536,6 +3577,23 @@ in the method: that flow contributes 0 to the score for the method.
 | `cf_flow_name` | `str \| None` | None |
 | `match_strategy` | `str \| None` | None |
 
+### `FunctionalUnit`
+
+What the numbers of a computed response are for: ``amount`` of ``unit``
+of ``product``.
+
+The engine counts every computed number for one unit of the process's
+reference product, however much of it the source says the process produces,
+so ``amount`` is ``1`` and the response says so rather than leaving it to
+documentation. The amount the source declares stays on ``product_amount``,
+as declared by the dataset.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `amount` | `float` | _required_ |
+| `unit` | `str` | _required_ |
+| `product` | `str` | _required_ |
+
 ### `Installed`
 
 Result of `download`.
@@ -3575,12 +3633,15 @@ inventory, or the flows ``flow=`` and ``limit=`` kept when given.
 ``statistics`` carries the per-direction roll-ups and the
 most-populated categories, over the full inventory.
 
-``root`` is the activity the inventory was computed for. ``total_flows``,
-``emission_flows``, ``resource_flows`` mirror the engine's metadata block.
+``root`` is the activity the inventory was computed for, and
+``functional_unit`` what every quantity of ``flows`` is for: one unit of
+its reference product. ``total_flows``, ``emission_flows``,
+``resource_flows`` mirror the engine's metadata block.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `root` | `Activity` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `total_flows` | `int` | _required_ |
 | `emission_flows` | `int` | _required_ |
 | `resource_flows` | `int` | _required_ |
@@ -3621,9 +3682,16 @@ alongside the aggregate ``scoring_results``. ``scoring_rows`` gives
 the same for every row of each set as `Client.scoring_sets` reads
 it, a row no score reads among them, its ``category`` the row's label.
 
+``functional_unit`` is what every score of the activity is for, said once
+here as well as on each `LCIAResult`. The result is for one
+activity; a `BatchScores` of several carries one of these per
+`ScoredActivity`, each with its own, since the activities need not
+be counted in the same unit.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `results` | `list[LCIAResult]` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `single_score` | `float \| None` | None |
 | `single_score_unit` | `str \| None` | None |
 | `norm_weight_set_name` | `str \| None` | None |
@@ -3644,9 +3712,9 @@ LCIA score for one impact category on one activity.
 Returned directly by `Client.get_impacts`, and nested inside
 `LCIABatchResult.results` (one entry per impact category).
 
-``functional_unit`` is the basis ``score`` is reported against, and it is
-always one unit of the reference product (``"1.00 kg of cream"``) however
-much of it the source says the process produces.
+``functional_unit`` is the basis ``score`` is reported against: one unit of
+the reference product (``FunctionalUnit(1, "kg", "cream")``) however much
+of it the source says the process produces.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -3657,7 +3725,7 @@ much of it the source says the process produces.
 | `score` | `float` | _required_ |
 | `unit` | `str` | _required_ |
 | `mapped_flows` | `int` | _required_ |
-| `functional_unit` | `str` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `normalized_score` | `float \| None` | None |
 | `weighted_score` | `float \| None` | None |
 | `top_contributors` | `list[FlowContribution]` | list() |
@@ -3821,9 +3889,12 @@ writes it in its location field, ``"InName"`` when at the end of the name
 
 Shortest upstream path from a root process to a matching activity.
 
+``functional_unit`` is what every quantity of the path is for.
+
 | Field | Type | Default |
 |-------|------|---------|
 | `path` | `list[PathStep]` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `path_length` | `int` | _required_ |
 | `total_ratio` | `float` | _required_ |
 
@@ -3833,7 +3904,10 @@ One step in the supply chain path returned by get_path_to.
 
 Note: the /path endpoint is hand-built (aeson `object [...]`) but now
 emits camelCase keys (``processId``, ``activityName``,
-``cumulativeQuantity``, …) like the rest of the API.
+``cumulativeQuantityPerUnit``, …) like the rest of the API.
+
+``cumulative_quantity_per_unit`` is for one unit of the root's reference
+product, the ``functional_unit`` of the `PathResult`.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -3841,7 +3915,7 @@ emits camelCase keys (``processId``, ``activityName``,
 | `activity_name` | `str` | _required_ |
 | `location` | `str` | _required_ |
 | `unit` | `str` | _required_ |
-| `cumulative_quantity` | `float` | _required_ |
+| `cumulative_quantity_per_unit` | `float` | _required_ |
 | `scaling_factor` | `float` | _required_ |
 | `local_step_ratio` | `float \| None` | None |
 
@@ -3913,9 +3987,10 @@ One process's batch impacts inside a `BatchScores`.
 ``parameter_set`` is the position of the parameter set it was scored at,
 when `Client.score_activities` was given ``parameter_sets``.
 ``product_amount`` is the amount the source declares for the activity's
-reference product, negative for a treatment taking in waste, and
-``product_unit`` its unit. The scores are per one ``product_unit``
-whatever the amount, as for `Activity.product_amount`.
+reference product, as declared by the dataset and negative for a treatment
+taking in waste, and ``product_unit`` its unit. The scores are per one
+``product_unit`` whatever the amount, which ``impacts.functional_unit``
+says, as for `Activity.product_amount`.
 Both are ``None`` for an activity without a reference product, and from
 an engine older than wire revision 80.
 
@@ -4029,12 +4104,14 @@ applied.
 Sensitivity analysis: baseline impact plus one entry per perturbation.
 
 Returned by `Client.compute_sensitivity`. ``perturbed`` preserves
-the order of the requested perturbations.
+the order of the requested perturbations. ``functional_unit`` is what the
+baseline and every perturbed score are for.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `baseline` | `LCIAResult` | _required_ |
 | `perturbed` | `list[PerturbedResult]` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
@@ -4187,13 +4264,15 @@ An activity's scores as a function of some of its parameters, from `Client.reduc
 `evaluate` computes them for many sets of values without asking the
 engine again, loops among the processes the parameters move included.
 ``methods`` are the collection's, in the order of every score;
-``baseline`` the scores at the defaults. ``processes``, ``suppliers`` and
+``baseline`` the scores at the defaults, and ``functional_unit`` what every
+score of the model is for. ``processes``, ``suppliers`` and
 ``scoring_sets`` stay in the engine's own shape, with formulas as trees,
 for a program that evaluates them its own way.
 
 | Field | Type | Default |
 |-------|------|---------|
 | `process_id` | `str` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `methods` | `list[dict]` | _required_ |
 | `exclude_long_term` | `bool` | _required_ |
 | `baseline` | `list[float]` | _required_ |
@@ -4396,6 +4475,9 @@ Wire revision 23; ``None`` on a technosphere exchange from an older engine.
 
 Flat supply chain of an activity.
 
+``functional_unit`` is what every quantity of the entries is for: one unit
+of the root's reference product, whatever amount the root declares
+(``root.product_amount`` stays as declared by the dataset).
 ``total_activities`` is the unfiltered upstream count; ``filtered_activities``
 is what remains after the server applies ``classification_filters`` /
 ``min_quantity`` / ``preset``. ``entries`` is the slice the server actually
@@ -4406,6 +4488,7 @@ lengths by hand.
 | Field | Type | Default |
 |-------|------|---------|
 | `root` | `Activity` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
 | `total_activities` | `int` | _required_ |
 | `filtered_activities` | `int` | _required_ |
 | `entries` | `list[SupplyChainEntry]` | list() |
@@ -4446,15 +4529,18 @@ id can exist in more than one loaded DB).
 
 One activity in a `SupplyChain.entries` list.
 
-``quantity`` is the cumulative amount of this activity's reference
-product consumed per functional unit of the root activity, in ``unit``.
+``quantity_per_unit`` is the cumulative amount of this activity's reference
+product consumed for one unit of the root's reference product, in ``unit``:
+the ``functional_unit`` of the `SupplyChain`, whatever amount the
+root declares.
 ``unit`` is the producing activity's reference-product unit, which for a
 database imported from SimaPro or Brightway Excel is the canonical unit of
 its dimension (``"kg"``, ``"mj"``, ``"m3"``), not the unit written on the
 exchange that consumes it. An input stated as ``0.22 kWh`` therefore shows
 up here as its equivalent in ``mj``: 1 kWh is 3.6 MJ.
-``scaling_factor`` is the multiplier the solver applied to this
-activity to produce ``quantity``, i.e. ``quantity = ref_output * scaling_factor``.
+``scaling_factor`` is the multiplier the solver applied to this activity
+for one unit of the root's reference product, which is why it equals
+``quantity_per_unit``.
 ``classifications`` mirrors the producing activity's classifications
 (ISIC, CPC, Category, …) so callers can filter by taxonomy without a
 second `Client.get_activity` round trip.
@@ -4469,7 +4555,7 @@ the database the entry lives in (they differ across linked databases).
 | `database_name` | `str` | _required_ |
 | `activity_name` | `str` | _required_ |
 | `location` | `str` | _required_ |
-| `quantity` | `float` | _required_ |
+| `quantity_per_unit` | `float` | _required_ |
 | `unit` | `str` | _required_ |
 | `scaling_factor` | `float` | _required_ |
 | `depth` | `int` | _required_ |

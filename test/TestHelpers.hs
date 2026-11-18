@@ -12,6 +12,9 @@ module TestHelpers (
     findFlowByName,
     mkDepLookupFromMap,
     linkDatabases,
+    withActivityWrittenFor,
+    withActivityWrittenForTen,
+    rebuilt,
     mkSolverFromDb,
     install,
     shippedGeographies,
@@ -90,11 +93,14 @@ loadSampleDatabaseWithPath path = do
     loadResult <- loadDatabase defaultUnitConfig ("test-data/" ++ path)
     case loadResult of
         Left err -> error $ "Failed to load test database: " ++ show err
-        Right simpleDb -> do
-            dbResult <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) simpleDb
-            case dbResult of
-                Left err -> error $ "Failed to build matrix: " ++ show err
-                Right db -> return db
+        Right simpleDb -> buildFromSimple simpleDb
+
+buildFromSimple :: SimpleDatabase -> IO Database
+buildFromSimple simpleDb = do
+    dbResult <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) simpleDb
+    case dbResult of
+        Left err -> error $ "Failed to build matrix: " ++ show err
+        Right db -> return db
 
 -- | Check if two floating point numbers are within tolerance
 withinTolerance :: Double -> Double -> Double -> Bool
@@ -169,6 +175,25 @@ linkDatabases consumerDb supplierDb supplierName coeff =
                 , cdlAnswers = Nothing
                 }
      in consumerDb{dbCrossDBLinks = link : dbCrossDBLinks consumerDb}
+
+{- | An activity of the database rewritten as the same process stated for ten
+units of its reference product instead of one, its inputs unchanged: the case
+where the declared amount and the unit a result is counted for part ways.
+The matrices stay as they were built; 'rebuilt' brings them in line.
+-}
+withActivityWrittenForTen :: ProcessId -> Database -> Database
+withActivityWrittenForTen = withActivityWrittenFor 10
+
+-- | The same rewrite for any multiple of the reference amount, zero included.
+withActivityWrittenFor :: Double -> ProcessId -> Database -> Database
+withActivityWrittenFor n pid db =
+    db{dbActivities = V.imap (\i act -> if i == fromIntegral pid then written act else act) (dbActivities db)}
+  where
+    written act = act{activityLines = packExchanges (map (\ex -> if exchangeIsReference ex then ex{techAmount = n * techAmount ex} else ex) (exchanges act))}
+
+-- | The same database with its matrices built again from the activities as they now stand.
+rebuilt :: Database -> IO Database
+rebuilt = buildFromSimple . toSimpleDatabase
 
 {- | The location table the engine ships, read the way a geography filter reads
 it. A fixture would pin a test to itself; this pins it to the answer a user
