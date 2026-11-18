@@ -64,13 +64,10 @@ show() {
 
 release() {
     version=$1
-    case "$version" in
-        [0-9]*.[0-9]*.[0-9]*) ;;
-        *)
-            echo "usage: $0 release X.Y.Z"
-            exit 1
-            ;;
-    esac
+    if ! printf '%s\n' "$version" | grep -Eqx '[0-9]+\.[0-9]+\.[0-9]+'; then
+        echo "usage: $0 release X.Y.Z"
+        exit 1
+    fi
     check
     if [ -z "$(show)" ]; then
         echo "no entry in $dir/ to release"
@@ -88,7 +85,9 @@ release() {
         show
         tail -n "+$first" CHANGELOG.md
     } >"$tmp"
-    mv "$tmp" CHANGELOG.md
+    # Copied over rather than moved, so the file keeps its own permissions.
+    cat "$tmp" >CHANGELOG.md
+    rm "$tmp"
     for s in $sections; do
         for f in $(entries "$s"); do rm "$f"; done
     done
