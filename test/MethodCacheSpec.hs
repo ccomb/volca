@@ -69,7 +69,12 @@ spec = do
             withExtractedArchive $ \archive extraction -> do
                 _ <- loadMethodCollectionFromPath Nothing Nothing archive
                 _ <- loadMethodCollectionFromConfig NoCache (configOf archive)
-                doesFileExist (methodCacheFile extraction) `shouldReturn` False
+                doesFileExist (methodCacheFile extraction Nothing) `shouldReturn` False
+
+        -- With one file between them, each start would have each of two
+        -- collections overwrite the other's reading and never find its own.
+        it "keeps the methods of one package in files of their own" $
+            methodCacheFile "package.zip.d" (Just "EF 3.1") `shouldNotBe` methodCacheFile "package.zip.d" (Just "ReCiPe 2016")
   where
     reading :: MethodRead
     reading =

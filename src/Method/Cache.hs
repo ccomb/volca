@@ -35,6 +35,7 @@ import GHC.Generics (Generic)
 import System.Directory (doesFileExist, renameFile)
 import System.FilePath ((</>))
 
+import Database.Upload (slugify)
 import Method.Types (MethodCollection)
 import SynonymDB.Extract (SynonymCandidate)
 
@@ -70,9 +71,14 @@ binaryStamp version commit
     | null commit || commit == "unknown" || "-dirty" `isSuffixOf` commit = Nothing
     | otherwise = Just (BinaryStamp (T.pack (version <> " " <> commit)))
 
--- | Where the reading of an archive is kept, given the directory it is extracted to.
-methodCacheFile :: FilePath -> FilePath
-methodCacheFile extraction = extraction </> "volca.cache.method.bin.zst"
+{- | Where the reading of an archive is kept, given the directory it is
+extracted to and the method read from an openLCA package. The method is in the
+name: two collections may each read their own method from one package, and
+with one file between them each start would have each overwrite the other's.
+-}
+methodCacheFile :: FilePath -> Maybe Text -> FilePath
+methodCacheFile extraction packageMethod =
+    extraction </> ("volca.cache.method" <> maybe "" (("." <>) . T.unpack . slugify) packageMethod <> ".bin.zst")
 
 {- | The reading kept in a file, for this binary and this method of an openLCA
 package. 'Left' says why there is none to use, for the log; the caller then

@@ -5,6 +5,7 @@ module OlcaSchemaSpec (spec) where
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.List (isInfixOf)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
@@ -20,6 +21,7 @@ import Method.Mapping (MethodTables (..), buildMethodTables)
 import Method.Parser.OlcaSchema (OlcaImpactMethod (..), choosePackageMethod, isOlcaImpactCategoryJson, parseOlcaImpactCategoryBytes, parseOlcaImpactMethodBytes)
 import Method.SimaProScoring (NormWeightSet (..), factorClashes)
 import Method.Types
+import Progress (LogLine (..), getLogLines)
 
 spec :: Spec
 spec = do
@@ -313,6 +315,20 @@ spec = do
                 unnamed `shouldSatisfy` refusedWith "several methods"
                 notPackage <- loadMethodCollectionFromPath Nothing (Just "EF 3.1") (root </> "lcia_categories")
                 notPackage `shouldSatisfy` refusedWith "is not an openLCA method package"
+
+        -- The refusal alone says the package holds no such method; the file
+        -- that does not parse is why, and a failed load hands no warning back.
+        it "names the method file it could not read when the load then fails" $
+            withSystemTempDirectory "olca-package" $ \root -> do
+                createDirectoryIfMissing True (root </> "lcia_methods")
+                createDirectoryIfMissing True (root </> "lcia_categories")
+                BS.writeFile (root </> "lcia_methods" </> "ef.json") "not json"
+                BS.writeFile (root </> "lcia_categories" </> "acid.json") (categoryDoc "Acidification")
+                (since, _) <- getLogLines 0
+                loaded <- loadMethodCollectionFromPath Nothing (Just "EF 3.1") root
+                loaded `shouldSatisfy` refusedWith "no method"
+                (_, said) <- getLogLines since
+                map llText said `shouldSatisfy` any (isInfixOf "method file left out, ef.json")
 
         it "gives a factor the CAS number its flow file holds" $
             withSystemTempDirectory "olca-package" $ \root -> do

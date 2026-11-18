@@ -189,7 +189,7 @@ import Control.Concurrent.Async (mapConcurrently, mapConcurrently_)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Concurrent.QSem (QSem, newQSem)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, try)
+import Control.Exception (IOException, SomeException, try)
 import qualified Control.Exception
 import Control.Lens ((&), (?~))
 import Control.Monad (filterM, forM, forM_, unless, void, when, (<=<))
@@ -200,7 +200,7 @@ import qualified Data.Aeson as A
 import Data.Bifunctor (bimap, first)
 import Data.Char (toLower)
 import qualified Data.Csv as Csv
-import Data.Either (fromRight, lefts, partitionEithers, rights)
+import Data.Either (fromRight, isLeft, lefts, partitionEithers, rights)
 import Data.Foldable (toList)
 import Data.Functor ((<&>))
 import Data.Indexing (groupInOrder, uniqueIndex)
@@ -392,7 +392,7 @@ import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirec
 import qualified Database.Upload as Upload
 import qualified Database.UploadedDatabase as UploadedDB
 import Method.Cache (BinaryStamp, MethodRead (..), binaryStamp, methodCacheFile, readMethodCache, writeMethodCache)
-import Method.FlowResolver (ILCDFlowInfo)
+import Method.FlowResolver (CachedFlows (..), ILCDFlowInfo)
 import qualified Method.FlowResolver as FlowResolver
 import Method.Journal (MethodLine (..), changesScores, replayMethodJournal)
 import qualified Method.Parser
@@ -5132,7 +5132,7 @@ loadMethodCollectionFromPath stamp packageMethod path = do
     outcome <- case (,) <$> stamp <*> extraction of
         Nothing -> readMethodPath packageMethod path
         Just (binary, extractDir) -> do
-            let file = methodCacheFile extractDir
+            let file = methodCacheFile extractDir packageMethod
             readMethodCache binary packageMethod file >>= \case
                 Right reading -> Right reading <$ reportCacheOperation ("Method cache loaded: " <> file)
                 Left why -> do
@@ -5144,10 +5144,12 @@ loadMethodCollectionFromPath stamp packageMethod path = do
     pure outcome
   where
     -- A directory that cannot be written to costs the next start a reading,
-    -- not this one its method.
+    -- not this one its method. Only that is caught: writing works the
+    -- candidate synonyms out, seconds during which an interrupt must stop
+    -- the engine, not be taken for a failed write.
     saveReading :: BinaryStamp -> FilePath -> MethodRead -> IO ()
     saveReading binary file reading =
-        try @SomeException (writeMethodCache binary packageMethod file reading) >>= \case
+        try @IOException (writeMethodCache binary packageMethod file reading) >>= \case
             Right () -> reportCacheOperation ("Method cache saved: " <> file)
             Left err -> reportCacheOperation ("Method cache not saved: " <> show err)
 
@@ -5164,7 +5166,7 @@ readMethodPath packageMethod path = runExceptT $ do
     source <- ExceptT $ methodSourceAt resolvedPath
     package <- liftIO $ packageIn source
     case package of
-        Just root -> (\(collection, warnings) -> MethodRead collection warnings Nothing) <$> ExceptT (readOlcaPackageMethod packageMethod root)
+        Just root -> ExceptT (readOlcaPackageMethod packageMethod root)
         Nothing -> do
             forM_ packageMethod $ \named ->
                 throwE ("package-method names \"" <> named <> "\", but " <> T.pack path <> " is not an openLCA method package")
@@ -5186,16 +5188,16 @@ readMethodPath packageMethod path = runExceptT $ do
     fromFiles source files = do
         when (noMethodFiles files) $
             throwE ("No method files (.xml/.csv/.json) found in: " <> T.pack (mfDirectory files))
-        (flowInfo, superseded) <- ExceptT $ flowDefinitionsFor source (mfDirectory files)
-        parsed <- liftIO $ parseMethodFiles flowInfo files
-        (collection, scoringWarnings) <- except (collectionOf parsed)
+        flows <- ExceptT $ flowDefinitionsFor source (mfDirectory files)
+        parsed <- liftIO $ parseMethodFiles (cfByUUID flows) files
+        (collection, scoringWarnings) <- ExceptT $ sayingOnFailure (cfSuperseded flows) (pure (collectionOf parsed))
         liftIO $ reportProgress Info (parseCounts parsed)
         liftIO $ mapM_ (reportProgress Info) (nwCounts collection)
         pure
             MethodRead
                 { mrCollection = collection
-                , mrWarnings = superseded <> map ("  " <>) scoringWarnings <> map T.pack (parseFailures parsed)
-                , mrSynonyms = synonymCandidate (extractFromILCDFlows flowInfo)
+                , mrWarnings = cfSuperseded flows <> map ("  " <>) scoringWarnings <> map T.pack (parseFailures parsed)
+                , mrSynonyms = synonymCandidate (extractFromILCDFlows (cfByUUID flows))
                 }
     {- What the path turned out to hold. A bare method file carries its own CFs
     and has no ILCD flows/ sibling; only a real directory does. -}
@@ -5254,17 +5256,17 @@ readMethodPath packageMethod path = runExceptT $ do
     XMLs and register foreign synonyms under this collection's name, so only a
     real ILCD directory is looked at. Gives the definitions, and the lines
     about the files a newer version superseded. -}
-    flowDefinitionsFor :: MethodSource -> FilePath -> IO (Either Text (M.Map UUID ILCDFlowInfo, [Text]))
-    flowDefinitionsFor (BareMethodFile _) _ = pure (Right (M.empty, []))
+    flowDefinitionsFor :: MethodSource -> FilePath -> IO (Either Text CachedFlows)
+    flowDefinitionsFor (BareMethodFile _) _ = pure (Right (CachedFlows M.empty []))
     flowDefinitionsFor (MethodDirectory _) dir =
         FlowResolver.resolveFlowDirectory dir >>= \case
             Nothing -> do
                 reportProgress Info "  No flows/ directory found, using shortDescription fallback"
-                pure (Right (M.empty, []))
+                pure (Right (CachedFlows M.empty []))
             Just flowsDir -> do
                 reportProgress Info $ "  Loading ILCD flow XMLs from: " <> flowsDir
                 outcome <- FlowResolver.readFlowDirectory flowsDir
-                mapM_ (\(info, _) -> reportProgress Info $ "  Loaded " <> show (M.size info) <> " flow definitions") outcome
+                mapM_ (\flows -> reportProgress Info $ "  Loaded " <> show (M.size (cfByUUID flows)) <> " flow definitions") outcome
                 pure outcome
 
     parseMethodFiles :: M.Map UUID ILCDFlowInfo -> MethodFiles -> IO ParsedMethodFiles
@@ -5359,37 +5361,49 @@ method short of a category would score as if it were whole.
 loadOlcaPackageMethod :: Maybe Text -> FilePath -> IO (Either Text MethodCollection)
 loadOlcaPackageMethod wanted root = do
     outcome <- readOlcaPackageMethod wanted root
-    forM_ outcome (mapM_ (reportProgress Warning . T.unpack) . snd)
-    pure (fst <$> outcome)
+    forM_ outcome (mapM_ (reportProgress Warning . T.unpack) . mrWarnings)
+    pure (mrCollection <$> outcome)
 
 -- | 'loadOlcaPackageMethod' handing back its warnings where it reports them.
-readOlcaPackageMethod :: Maybe Text -> FilePath -> IO (Either Text (MethodCollection, [Text]))
-readOlcaPackageMethod wanted root = runExceptT $ do
-    names <- liftIO $ sort . filter ((== ".json") . map toLower . takeExtension) <$> listDirectory (root </> "lcia_methods")
-    parsed <- liftIO $ forM names $ \f -> first (\e -> T.pack (f <> ": " <> e)) . OlcaSchema.parseOlcaImpactMethodBytes <$> BS.readFile (root </> "lcia_methods" </> f)
+readOlcaPackageMethod :: Maybe Text -> FilePath -> IO (Either Text MethodRead)
+readOlcaPackageMethod wanted root = do
+    names <- sort . filter ((== ".json") . map toLower . takeExtension) <$> listDirectory (root </> "lcia_methods")
+    parsed <- forM names $ \f -> first (\e -> T.pack (f <> ": " <> e)) . OlcaSchema.parseOlcaImpactMethodBytes <$> BS.readFile (root </> "lcia_methods" </> f)
     let (unreadable, methods) = partitionEithers parsed
-    method <- except (OlcaSchema.choosePackageMethod wanted methods)
-    categories <- forM (OlcaSchema.oimCategories method) $ \c -> do
-        let file = root </> "lcia_categories" </> T.unpack c <> ".json"
-            named = "\"" <> OlcaSchema.oimName method <> "\" names category " <> c
-        present <- liftIO (doesFileExist file)
-        unless present $ throwE (named <> ", which the package does not hold")
-        bytes <- liftIO (BS.readFile file)
-        except (first (\e -> named <> ", which could not be read: " <> T.pack e) (OlcaSchema.parseOlcaImpactCategoryBytes bytes))
-    cas <- liftIO $ fmap (M.fromList . catMaybes) . forM (OlcaSchema.flowsWithoutCas categories) $ \u -> do
-        let file = root </> "flows" </> UUID.toString u <> ".json"
-        present <- doesFileExist file
-        if present then fmap (u,) . OlcaSchema.parseOlcaFlowCas <$> BS.readFile file else pure Nothing
-    let (collection, warnings) = simaProCollection (SimaProMethodFile (map (OlcaSchema.withFlowCas cas) categories) [] (OlcaSchema.oimNWSets method))
-    liftIO . reportProgress Info $
-        "  Read \""
-            <> T.unpack (OlcaSchema.oimName method)
-            <> "\" from the openLCA package: "
-            <> show (length categories)
-            <> " categories, "
-            <> show (length (Method.Types.mcScoringSets collection))
-            <> " scoring set(s)"
-    pure (collection, map ("  method file left out, " <>) unreadable <> map ("  " <>) warnings)
+        leftOut = map ("  method file left out, " <>) unreadable
+    sayingOnFailure leftOut . runExceptT $ do
+        method <- except (OlcaSchema.choosePackageMethod wanted methods)
+        categories <- forM (OlcaSchema.oimCategories method) $ \c -> do
+            let file = root </> "lcia_categories" </> T.unpack c <> ".json"
+                named = "\"" <> OlcaSchema.oimName method <> "\" names category " <> c
+            present <- liftIO (doesFileExist file)
+            unless present $ throwE (named <> ", which the package does not hold")
+            bytes <- liftIO (BS.readFile file)
+            except (first (\e -> named <> ", which could not be read: " <> T.pack e) (OlcaSchema.parseOlcaImpactCategoryBytes bytes))
+        cas <- liftIO $ fmap (M.fromList . catMaybes) . forM (OlcaSchema.flowsWithoutCas categories) $ \u -> do
+            let file = root </> "flows" </> UUID.toString u <> ".json"
+            present <- doesFileExist file
+            if present then fmap (u,) . OlcaSchema.parseOlcaFlowCas <$> BS.readFile file else pure Nothing
+        let (collection, warnings) = simaProCollection (SimaProMethodFile (map (OlcaSchema.withFlowCas cas) categories) [] (OlcaSchema.oimNWSets method))
+        liftIO . reportProgress Info $
+            "  Read \""
+                <> T.unpack (OlcaSchema.oimName method)
+                <> "\" from the openLCA package: "
+                <> show (length categories)
+                <> " categories, "
+                <> show (length (Method.Types.mcScoringSets collection))
+                <> " scoring set(s)"
+        pure (MethodRead collection (leftOut <> map ("  " <>) warnings) Nothing)
+
+{- | A reading that fails hands back no warnings, and what it had found wrong
+by then is often why it failed: a method file left out is the method the
+package is then said not to hold. So a failure says them here.
+-}
+sayingOnFailure :: [Text] -> IO (Either Text a) -> IO (Either Text a)
+sayingOnFailure found reading = do
+    outcome <- reading
+    when (isLeft outcome) $ mapM_ (reportProgress Warning . T.unpack) found
+    pure outcome
 
 -- | List all method collections with their status
 listMethodCollections :: DatabaseManager -> IO [MethodCollectionStatus]
