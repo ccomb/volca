@@ -552,7 +552,7 @@ GET    /api/v1/db/{dbName}/activity/{processId}/graph?cutoff=            Force-d
 GET    /api/v1/db/{dbName}/activity/{processId}/supply-chain             Flat supply-chain table (filters, sort, paging)
 POST   /api/v1/db/{dbName}/activity/{processId}/supply-chain             Same, with substitutions applied
 GET    /api/v1/db/{dbName}/activity/{processId}/consumers                Downstream activities consuming this one
-GET    /api/v1/db/{dbName}/activity/{processId}/supply-chain/consumers?of=  Consumers, inside this process's upstream, of one process it lists: each one's part of its quantity and the lines it buys it on
+GET    /api/v1/db/{dbName}/activity/{processId}/supply-chain/consumers?of=  Consumers, inside this process's upstream, of one process it lists: each one's part of its quantity and the lines it buys it on (min-quantity as for the supply chain)
 GET    /api/v1/db/{dbName}/activity/{processId}/path-to?target=          Shortest supply-chain path to a target activity, named by part of its name (target) or by its process id (target-id)
 GET    /api/v1/db/{dbName}/activity/{processId}/aggregate                SQL-style group/filter on exchanges, supply chain, biosphere, or consumption edges
 
