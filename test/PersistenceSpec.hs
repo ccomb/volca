@@ -253,7 +253,7 @@ spec = describe "persisting an edit" $ do
         it "goes along with a copy, which links as its source does when it is loaded again" $
             withBakeryAndMill $ \dataRoot manager -> do
                 relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
-                copyDatabase manager "bakery" "hybrid" `shouldReturn` Right ()
+                (void <$> copyDatabase manager "bakery" "hybrid") `shouldReturn` Right ()
                 unloadDatabase manager "hybrid" `shouldReturn` Right ()
                 let cache = cacheOf (homeOf dataRoot "bakery") "hybrid"
                 doesFileExist cache >>= (`when` removeFile cache)
@@ -278,12 +278,17 @@ spec = describe "persisting an edit" $ do
             -- what it owns is a directory with its own identity and, once it
             -- is edited, its own journal.
             withEcoSpold1Database $ \manager home -> do
-                copyDatabase manager "bafu-like" "bafu-mine" `shouldReturn` Right ()
+                (void <$> copyDatabase manager "bafu-like" "bafu-mine") `shouldReturn` Right ()
                 let uploads = uploadsDirOf home
                 meta <- readUploadMeta (uploads </> "bafu-mine")
                 fmap umSource meta `shouldBe` Just (Just "bafu-like")
                 fmap umDataPath meta `shouldBe` Just (home </> "data")
                 listDirectory (uploads </> "bafu-mine") `shouldReturn` ["meta.toml"]
+
+        it "answers the name it was registered under, the slug of the one asked" $
+            -- The caller typed a name; finding the copy again needs the slug.
+            withEcoSpold1Database $ \manager _ ->
+                (fmap (dcName . ldConfig) <$> copyDatabase manager "bafu-like" "BAFU mine") `shouldReturn` Right "bafu-mine"
 
         it "forks from the source as it stands, not as it was uploaded" $
             -- What was copied is the source's value after its edits, but the
@@ -293,12 +298,12 @@ spec = describe "persisting an edit" $ do
             withEcoSpold1Database $ \manager _ -> do
                 keys <- processKeysOf manager "bafu-like"
                 _ <- deleteFirst manager "bafu-like" keys
-                copyDatabase manager "bafu-like" "bafu-mine" `shouldReturn` Right ()
+                (void <$> copyDatabase manager "bafu-like" "bafu-mine") `shouldReturn` Right ()
                 reloadOf manager "bafu-mine" `shouldReturn` drop 1 keys
 
         it "keeps the database it was copied from from being deleted" $
             withEcoSpold1Database $ \manager home -> do
-                copyDatabase manager "bafu-like" "bafu-mine" `shouldReturn` Right ()
+                (void <$> copyDatabase manager "bafu-like" "bafu-mine") `shouldReturn` Right ()
                 unloadDatabase manager "bafu-like" `shouldReturn` Right ()
                 let uploads = uploadsDirOf home
                 removed <- removeDatabase manager "bafu-like"

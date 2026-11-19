@@ -21,6 +21,7 @@ module StrictPinSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (bracket_)
+import Control.Monad (void)
 import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -265,7 +266,7 @@ spec = describe "relinkDatabase strict dependency pin" $ do
             withSystemTempDirectory "volca-mapping-copy" $ \root -> withDataDir root $
                 withMappedConsumer (consumerConfig (root </> "consumer-data")) $ \manager -> do
                     relinkDatabaseWithMapping manager "consumer" "alpha" q1IsP1 >>= (`shouldSatisfy` isRight)
-                    copyDatabase manager "consumer" "hybrid" `shouldReturn` Right ()
+                    (void <$> copyDatabase manager "consumer" "hybrid") `shouldReturn` Right ()
                     doesFileExist (homeOf root "hybrid" </> "relink.csv") `shouldReturn` True
                     relinkDatabase manager "hybrid" >>= (`shouldSatisfy` isRight)
                     linkCount manager "hybrid" `shouldReturn` 1

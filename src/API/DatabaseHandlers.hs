@@ -664,7 +664,10 @@ copyDatabaseHandler dbName newName = do
         (uploaded, loadedUploads) <- quotaCounts dbManager
         pure (copyRefusal uploaded loadedUploads hostingConfig)
     mapM_ (failWith err403) refusal
-    simpleAction (copyDatabase dbManager dbName newName) ("Copied database: " <> dbName <> " -> " <> newName)
+    -- The status names the copy as registered, which is the slug of the name asked.
+    copied <- ioEither400 (copyDatabase dbManager dbName newName)
+    status <- liftIO (loadedStatus dbManager copied)
+    pure (ActivateResponse True ("Copied database: " <> dbName <> " -> " <> dcName (ldConfig copied)) (Just status))
 
 {- | Make a parent of a database read from its files, or a child of a parent
 divided by a system model, and register it under @newName@.

@@ -194,8 +194,11 @@ or when the name already designates a loaded, configured, or in-flight
 database: a copy must never silently overwrite an existing entry. The name is
 reserved atomically (in 'dmStagingDbs') across the slow solver build, so two
 concurrent copies of the same name cannot both pass the existence check.
+
+Answers the copy as loaded, under the name it was registered as: a caller who
+typed "My draft" must learn it is @my-draft@ to find it again.
 -}
-copyDatabase :: DatabaseManager -> Text -> Text -> IO (Either Text ())
+copyDatabase :: DatabaseManager -> Text -> Text -> IO (Either Text LoadedDatabase)
 copyDatabase manager srcName newName = do
     let slug = slugify newName
     if T.null slug
@@ -483,7 +486,7 @@ recorded on disk would work until the restart and then be gone, which is the
 kind of quiet loss this ordering exists to refuse. Nothing after the write can
 fail into an inconsistent state: the registry swap is a pure STM commit.
 -}
-registerCopy :: DatabaseManager -> Text -> LoadedDatabase -> IO (Either Text ())
+registerCopy :: DatabaseManager -> Text -> LoadedDatabase -> IO (Either Text LoadedDatabase)
 registerCopy manager slug loaded = do
     -- The terms in force, not the ones the source was loaded with: a change
     -- since reached the registry and not the loaded config.
@@ -512,7 +515,7 @@ registerCopy manager slug loaded = do
                 publishLoaded manager slug copied indexedDb
                 modifyTVar' (dmAvailableDbs manager) (M.insert slug newConfig)
             clearMethodMappingCacheForDb manager slug
-            pure (Right ())
+            pure (Right copied)
 
 {- | Give the copy a home: a directory of its own holding the @meta.toml@ that
 describes it and, once it is edited, its journal.
