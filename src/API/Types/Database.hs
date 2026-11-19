@@ -485,18 +485,28 @@ instance FromJSON LoadDatabaseResponse where
     parseJSON = genericParseJSON stripLowerPrefix{tagSingleConstructors = True}
 
 {- | One classification filter in a delete request: the @system@ to match, the
-@value@ to look for, and whether the match is exact (else token-contains).
-Mirrors the search endpoint's classification query parameters so the deleted
-set is exactly the searched set.
+@value@ to look for, and the @mode@ it is matched in (@contains@, @exact@,
+@not-contains@ or @not-exact@, as a search address spells them), so the deleted
+set is exactly the searched set. The mode is required and no other field is
+accepted: an entry a client misspelt would otherwise delete something other
+than what it meant.
 -}
 data DeleteClassFilter = DeleteClassFilter
     { dcfSystem :: Text
     , dcfValue :: Text
-    , dcfExact :: Bool
+    , dcfMode :: Text
     }
     deriving (Generic)
-    deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeleteClassFilter)
+    deriving (ToJSON, ToSchema) via (Stripped DeleteClassFilter)
 
+instance FromJSON DeleteClassFilter where
+    parseJSON = parseClosed
+
+{- | A delete by selection. @spare@ has no default: the client says whether the
+processes it deletes may take with them the ones the remaining processes still
+use, so the engine never guesses that for it. The body is read closed, for the
+reason its classification entries are.
+-}
 data DeleteSelectionRequest = DeleteSelectionRequest
     { dsqName :: Maybe Text -- Filter by activity name
     , dsqLocation :: Maybe Text -- Filter by location
@@ -508,15 +518,26 @@ data DeleteSelectionRequest = DeleteSelectionRequest
     , dsqIds :: Maybe [Text] -- Delete exactly these process ids (no filter fields allowed)
     , dsqNote :: Maybe Text -- Why, kept in the database's history
     , dsqSource :: Maybe Source -- Where its figures come from, kept beside the reason
+    , dsqExcludeName :: Maybe [Text] -- Names whose processes the delete leaves out
+    , dsqExcludeLocation :: Maybe [Text] -- Places whose processes the delete leaves out
+    , dsqSpare :: Bool -- Keep the matched processes the remaining ones still use
+    , dsqDryRun :: Maybe Bool -- Say what would go and what would be spared, and change nothing
     }
     deriving (Generic)
-    deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeleteSelectionRequest)
+    deriving (ToJSON, ToSchema) via (Stripped DeleteSelectionRequest)
 
--- | Response for delete-by-selection: count of activities removed.
+instance FromJSON DeleteSelectionRequest where
+    parseJSON = parseClosed
+
+{- | Response for delete-by-selection: how many processes went (in a dry run,
+would go), and how many were spared.
+-}
 data DeleteSelectionResponse = DeleteSelectionResponse
     { dsrSuccess :: Bool
     , dsrMessage :: Text
     , dsrDeleted :: Int
+    , dsrSpared :: Int
+    -- ^ Matched processes kept because the remaining ones use them; zero when the request cuts.
     , dsrTransient :: Bool
     {- ^ True when the deletion lives in memory only, because the database is
     one the engine reads from configuration rather than owns. Reloading it

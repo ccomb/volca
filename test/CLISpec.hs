@@ -11,11 +11,13 @@ import Options.Applicative (
 import System.Exit (ExitCode (..))
 import Test.Hspec
 
-import CLI.Client (ImpactTarget (..), MethodRow (..), contributionPath, resolveImpactTarget)
+import CLI.Client (ImpactTarget (..), MethodRow (..), contributionPath, requireWire, resolveImpactTarget)
 import CLI.Parser (cliParserInfo)
 import CLI.Types
+import Data.Aeson (object, (.=))
 import Data.Either (isLeft)
 import qualified Data.Text as T
+import Database.Edit (SpareChoice (..))
 
 -- Parse argv and return either the parsed config (Right) or the failure summary (Left).
 runParse :: [String] -> Either String CLIConfig
@@ -316,6 +318,37 @@ spec = do
             case runParse ["impacts", "abc"] of
                 Left _ -> pure ()
                 Right _ -> expectationFailure "Expected parse failure (missing --method)"
+
+    describe "database delete-activities" $ do
+        let deleting extra = ["database", "delete-activities", "db", "--name", "x"] <> extra
+
+        it "needs --spare-suppliers or --cut-suppliers" $
+            runParse (deleting []) `shouldSatisfy` isLeft
+
+        it "takes only one of them" $
+            runParse (deleting ["--spare-suppliers", "--cut-suppliers"]) `shouldSatisfy` isLeft
+
+        it "reads the choice, the exclusions and the dry run" $ do
+            cmd <- parseCmd (deleting ["--cut-suppliers", "--exclude-name", "CIQUAL", "--exclude-name", "Bio", "--exclude-location", "FR", "--dry-run"])
+            case cmd of
+                Database (DbDeleteActivities args) -> do
+                    ddaSpare args `shouldBe` CutSuppliers
+                    ddaExcludeName args `shouldBe` ["CIQUAL", "Bio"]
+                    ddaExcludeLocation args `shouldBe` ["FR"]
+                    ddaDryRun args `shouldBe` True
+                _ -> expectationFailure ("Unexpected command: " <> show cmd)
+
+        it "deletes for real unless told to dry-run" $ do
+            cmd <- parseCmd (deleting ["--spare-suppliers"])
+            case cmd of
+                Database (DbDeleteActivities args) -> (ddaSpare args, ddaDryRun args) `shouldBe` (SpareSuppliers, False)
+                _ -> expectationFailure ("Unexpected command: " <> show cmd)
+
+        it "refuses an engine below 114" $ do
+            let engineAt wire = object ["wireVersion" .= (wire :: Int)]
+            requireWire 114 "delete-activities" (engineAt 113) `shouldSatisfy` either (\err -> all (`T.isInfixOf` T.pack err) ["delete-activities", "114", "113"]) (const False)
+            requireWire 114 "delete-activities" (engineAt 114) `shouldBe` Right ()
+            requireWire 114 "delete-activities" (object []) `shouldSatisfy` isLeft
 
     describe "what impacts --method names" $ do
         let land = MethodRow "31aa" "Land occupied" "plain-indicators"

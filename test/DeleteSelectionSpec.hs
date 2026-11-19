@@ -18,13 +18,15 @@ Delete is reconstruction over an immutable 'Database':
 module DeleteSelectionSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
+import qualified Data.ByteString.Lazy as BL
 import Data.JournalFile (noOrigin)
 import Data.List (sort)
+import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as S
-import Data.Text (Text, isInfixOf)
+import Data.Text (Text, isInfixOf, unpack)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
@@ -65,6 +67,7 @@ import Database.Manager (
  )
 import Database.Rebuild (deleteActivities)
 import Matrix (Inventory, computeInventoryMatrix)
+import Service (exclusionsOf, noExclusions)
 import SharedSolver (SharedSolver, createSharedSolver)
 import SynonymDB (emptySynonymDB)
 import Types (
@@ -117,6 +120,10 @@ emptyDeleteArgs =
         , ddaKeep = []
         , ddaExtra = []
         , ddaIds = []
+        , ddaExcludeName = []
+        , ddaExcludeLocation = []
+        , ddaSpare = CutSuppliers
+        , ddaDryRun = False
         }
 
 -- | Empty 'DeleteRequest'; tests tweak only the fields they need.
@@ -131,6 +138,9 @@ emptyDelete =
         , drKeep = []
         , drExtra = []
         , drIds = Nothing
+        , drExcluded = noExclusions
+        , drSpare = CutSuppliers
+        , drDryRun = False
         , drStated = nothingStated
         }
 
@@ -473,12 +483,102 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 Left err -> expectationFailure ("deleteActivitiesInDB failed: " <> show err)
                 Right deleted -> doRemoved deleted `shouldBe` 1
 
+    describe "deleteActivitiesInDB (what a delete spares, and what it announces first)" $ do
+        it "counts in a dry run what would go and what is spared, and changes nothing" $ do
+            let c = keptChain 3100
+            (manager, db) <- installedFrom "dry-run" (chParts c)
+            before <- heldKeys manager "dry-run"
+            outcome <- outcomeOf manager "dry-run" (namingKeys db SpareSuppliers (chMatched c)){drDryRun = True}
+            (doRemoved outcome, doSpared outcome) `shouldBe` (1, 3)
+            heldKeys manager "dry-run" `shouldReturn` before
+
+        it "runs in a dry run the refusals the delete runs" $ do
+            (manager, db) <- installedFrom "refused" (classifiedDB 3200)
+            everyone <- heldKeys manager "refused"
+            let request = namingKeys db CutSuppliers everyone
+            dry <- deleteActivitiesInDB manager "refused" noOrigin request{drDryRun = True}
+            real <- deleteActivitiesInDB manager "refused" noOrigin request
+            refusal real `shouldSatisfy` maybe False (isInfixOf "no processes")
+            refusal dry `shouldBe` refusal real
+
+        it "refuses in a dry run, as the delete does, while a loaded database depends on it" $ do
+            manager <- initDatabaseManager defaultConfig NoCache
+            base <- buildOrFail (classifiedDB 3250)
+            installLoaded manager "base" base
+            dep <- buildOrFail (classifiedDB 3260)
+            installLoaded manager "dependent" dep{dbDependsOn = ["base"]}
+            let request = (namingKeys base CutSuppliers [(mkUUID 3251, mkUUID 3251)]){drDryRun = True}
+            dry <- deleteActivitiesInDB manager "base" noOrigin request
+            refusal dry `shouldSatisfy` maybe False (isInfixOf "still required by")
+
+        it "deletes exactly what its dry run announced" $ do
+            let c = keptChain 3300
+            (manager, db) <- installedFrom "announced" (chParts c)
+            before <- heldKeys manager "announced"
+            let request = namingKeys db SpareSuppliers (chMatched c)
+            announced <- outcomeOf manager "announced" request{drDryRun = True}
+            done <- outcomeOf manager "announced" request
+            (doRemoved done, doSpared done) `shouldBe` (doRemoved announced, doSpared announced)
+            after <- heldKeys manager "announced"
+            S.fromList after `shouldBe` S.delete (chX c) (S.fromList before)
+
+        it "cuts every matched process when asked to, and spares none" $ do
+            let c = keptChain 3350
+            (manager, db) <- installedFrom "cut" (chParts c)
+            outcome <- outcomeOf manager "cut" (namingKeys db CutSuppliers (chMatched c))
+            (doRemoved outcome, doSpared outcome) `shouldBe` (4, 0)
+
+        it "an everything-except delete made of exclusions only spares the suppliers" $ do
+            (manager, _) <- installedFrom "except" (exceptDB 3400)
+            let request =
+                    emptyDelete
+                        { drExcluded = exclusionsOf ["CIQUAL"] [] [categoryHolding "Agricultural", categoryHolding "Packaging"]
+                        , drSpare = SpareSuppliers
+                        }
+            outcome <- outcomeOf manager "except" request
+            (doRemoved outcome, doSpared outcome) `shouldBe` (1, 1)
+            names <- activityNamesIn manager "except"
+            sort names `shouldBe` ["CIQUAL yogurt", "carton", "dairy farm", "mill"]
+
+        it "exclusions that leave nothing to delete change nothing" $ do
+            (manager, _) <- installedFrom "nothing-left" (classifiedDB 3500)
+            before <- heldKeys manager "nothing-left"
+            outcome <- outcomeOf manager "nothing-left" emptyDelete{drExcluded = exclusionsOf [] [] [categoryHolding "food", categoryHolding "energy"]}
+            (doRemoved outcome, doSpared outcome) `shouldBe` (0, 0)
+            heldKeys manager "nothing-left" `shouldReturn` before
+
+        it "ids refuse exclusions as they refuse filter fields" $ do
+            (manager, db) <- installedFrom "ids-and-exclusions" (classifiedDB 3600)
+            let foodA = processIdToText db (pidFor2 db (mkUUID 3601) (mkUUID 3601))
+            r <- deleteActivitiesInDB manager "ids-and-exclusions" noOrigin emptyDelete{drIds = Just [foodA], drExcluded = exclusionsOf ["energy"] [] []}
+            refusal r `shouldSatisfy` maybe False (isInfixOf "cannot be combined")
+
     describe "DeleteSelectionRequest wire compatibility" $ do
         it "decodes a request without the ids key (old clients)" $ do
-            let json = "{\"classifications\":[],\"exact\":false,\"keep\":[],\"extra\":[]}"
+            let json = "{\"classifications\":[],\"exact\":false,\"keep\":[],\"extra\":[],\"spare\":false}"
             case eitherDecode json :: Either String DeleteSelectionRequest of
                 Left err -> expectationFailure ("decode failed: " <> err)
                 Right req -> dsqIds req `shouldBe` Nothing
+
+        it "reads the exclusions, the spare choice and the dry run" $ do
+            let json = "{\"classifications\":[{\"system\":\"category\",\"value\":\"food\",\"mode\":\"not-exact\"}],\"keep\":[],\"extra\":[],\"excludeName\":[\"CIQUAL\"],\"excludeLocation\":[\"FR\"],\"spare\":true,\"dryRun\":true}"
+            case eitherDecode json :: Either String DeleteSelectionRequest of
+                Left err -> expectationFailure ("decode failed: " <> err)
+                Right req -> do
+                    (dsqExcludeName req, dsqExcludeLocation req) `shouldBe` (Just ["CIQUAL"], Just ["FR"])
+                    (dsqSpare req, dsqDryRun req) `shouldBe` (True, Just True)
+
+        it "refuses a body without spare, naming the field" $
+            refusedNaming "spare" (decodedDelete "{\"classifications\":[],\"keep\":[],\"extra\":[]}") `shouldBe` True
+
+        it "refuses a body with an unknown field" $
+            refusedNaming "dryrun" (decodedDelete "{\"classifications\":[],\"keep\":[],\"extra\":[],\"spare\":true,\"dryrun\":true}") `shouldBe` True
+
+        it "refuses a classification entry without mode" $
+            refusedNaming "mode" (decodedDelete "{\"classifications\":[{\"system\":\"category\",\"value\":\"food\"}],\"keep\":[],\"extra\":[],\"spare\":true}") `shouldBe` True
+
+        it "refuses a classification entry with a field it does not have" $
+            refusedNaming "exact" (decodedDelete "{\"classifications\":[{\"system\":\"category\",\"value\":\"food\",\"mode\":\"exact\",\"exact\":true}],\"keep\":[],\"extra\":[],\"spare\":true}") `shouldBe` True
 
         it "CLI --id values reach the server as the ids selection" $ do
             -- The CLI builds this body by hand (CLI.Client.deleteSelectionBody);
@@ -497,9 +597,64 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                     dsqIds req `shouldBe` Nothing
                     dsqName req `shouldBe` Just "electricity"
 
+        it "CLI spare choice, exclusions and dry run reach the server" $ do
+            let args = emptyDeleteArgs{ddaSpare = SpareSuppliers, ddaExcludeName = ["CIQUAL"], ddaExcludeLocation = ["FR"], ddaDryRun = True}
+            case eitherDecode (encode (deleteSelectionBody args)) :: Either String DeleteSelectionRequest of
+                Left err -> expectationFailure ("decode failed: " <> err)
+                Right req -> do
+                    (dsqSpare req, dsqDryRun req) `shouldBe` (True, Just True)
+                    (dsqExcludeName req, dsqExcludeLocation req) `shouldBe` (Just ["CIQUAL"], Just ["FR"])
+
+        it "CLI --cut-suppliers sends spare false" $
+            case eitherDecode (encode (deleteSelectionBody emptyDeleteArgs)) :: Either String DeleteSelectionRequest of
+                Left err -> expectationFailure ("decode failed: " <> err)
+                Right req -> (dsqSpare req, dsqDryRun req) `shouldBe` (False, Just False)
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
+
+-- | The body of a delete request as a client sent it.
+decodedDelete :: BL.ByteString -> Either String DeleteSelectionRequest
+decodedDelete = eitherDecode
+
+-- | Whether a decoding was refused with a message that names this word.
+refusedNaming :: String -> Either String a -> Bool
+refusedNaming word = either (L.isInfixOf word) (const False)
+
+-- | Why a delete was refused, if it was.
+refusal :: Either Text DeleteOutcome -> Maybe Text
+refusal = either Just (const Nothing)
+
+-- | A manager holding the database, and the database as installed.
+installedFrom :: Text -> SimpleParts -> IO (DatabaseManager, Database)
+installedFrom name parts = do
+    manager <- initDatabaseManager defaultConfig NoCache
+    db <- buildOrFail parts
+    installLoaded manager name db
+    pure (manager, db)
+
+-- | A delete naming these processes, sparing or cutting what they supply.
+namingKeys :: Database -> SpareChoice -> [(UUID, UUID)] -> DeleteRequest
+namingKeys db choice keys =
+    emptyDelete{drIds = Just [processIdToText db (pidOfKey db key) | key <- keys], drSpare = choice}
+
+-- | What a delete did, the example failing when it was refused.
+outcomeOf :: DatabaseManager -> Text -> DeleteRequest -> IO DeleteOutcome
+outcomeOf manager name request = deleteActivitiesInDB manager name noOrigin request >>= either (fail . unpack) pure
+
+-- | The keys of the processes a loaded database holds.
+heldKeys :: DatabaseManager -> Text -> IO [(UUID, UUID)]
+heldKeys manager name =
+    maybe [] (V.toList . dbProcessIdTable . ldDatabase) . M.lookup name <$> readTVarIO (dmLoadedDbs manager)
+
+activityNamesIn :: DatabaseManager -> Text -> IO [Text]
+activityNamesIn manager name =
+    maybe [] (map activityName . V.toList . dbActivities . ldDatabase) . M.lookup name <$> readTVarIO (dmLoadedDbs manager)
+
+-- | A classification filter on the @category@ system.
+categoryHolding :: Text -> ClassificationFilter
+categoryHolding value = ClassificationFilter{clfSystem = "category", clfValue = value, clfMatch = MatchContains}
 
 pidFor :: Database -> Int -> Int -> ProcessId
 pidFor db offset i = pidFor2 db (mkUUID (offset + 10 * i + 1)) (mkUUID (offset + 10 * i + 1))
@@ -809,6 +964,31 @@ classifiedDB offset =
                 , (energ, mkTechFlow energ "energy")
                 ]
             )
+            units
+
+{- | A named yogurt, a farm and a carton, the mill the yogurt buys from, and a
+process nothing uses. Deleting everything but what the name @CIQUAL@ and the
+classifications @Agricultural@ and @Packaging@ name leaves the mill to be
+spared and the unused process to go.
+-}
+exceptDB :: Int -> SimpleParts
+exceptDB offset =
+    let yogurt = mkUUID (offset + 1)
+        farm = mkUUID (offset + 11)
+        carton = mkUUID (offset + 21)
+        mill = mkUUID (offset + 31)
+        junk = mkUUID (offset + 41)
+        classifiedAs = M.singleton "category"
+     in SimpleParts
+            ( M.fromList
+                [ ((yogurt, yogurt), mkActivity "CIQUAL yogurt" "GLO" (classifiedAs "Food") [refOut yogurt yogurt, inputFrom mill mill])
+                , ((farm, farm), mkActivity "dairy farm" "GLO" (classifiedAs "Agricultural\\Milk") [refOut farm farm])
+                , ((carton, carton), mkActivity "carton" "GLO" (classifiedAs "Packaging\\Box") [refOut carton carton])
+                , ((mill, mill), mkActivity "mill" "GLO" (classifiedAs "Industry") [refOut mill mill])
+                , ((junk, junk), mkActivity "junk" "GLO" (classifiedAs "Industry") [refOut junk junk])
+                ]
+            )
+            (techFlows [(yogurt, "yogurt"), (farm, "milk"), (carton, "box"), (mill, "flour"), (junk, "scrap")])
             units
 
 -- ---------------------------------------------------------------------------

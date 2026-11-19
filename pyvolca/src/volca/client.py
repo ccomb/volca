@@ -244,34 +244,46 @@ def _format_query_value(value: Any) -> Any:
     return str(value)
 
 
+def _mode_word(exact: bool) -> str:
+    return "exact" if exact else "contains"
+
+
 def _coerce_class_filter(c: dict | tuple) -> dict:
     """Normalize one classification filter to the wire ``DeleteClassFilter``.
 
-    Accepts a ``{"system", "value", "exact"?}`` dict or a
-    ``(system, value, exact?)`` tuple. ``exact`` defaults to False. Raises
-    VoLCAError on a malformed entry rather than silently dropping fields.
+    Accepts a ``{"system", "value", "mode"?}`` dict or a
+    ``(system, value, mode?)`` tuple, ``mode`` being one of ``contains``,
+    ``exact``, ``not-contains`` or ``not-exact`` (the engine refuses any other
+    word). The earlier ``exact`` flag is still read, as a bool in a dict or in
+    the tuple's third place, and means ``exact`` or ``contains``; an entry that
+    gives both it and a mode is ambiguous and refused. With neither, the mode
+    is ``contains``. The wire always carries the mode, never the flag.
+    Raises VoLCAError on a malformed entry rather than silently dropping fields.
     """
     if isinstance(c, dict):
         missing = {"system", "value"} - set(c)
         if missing:
             raise VoLCAError(
                 f"Classification filter missing keys: {sorted(missing)}. "
-                "Expected {'system', 'value', 'exact'?}."
+                "Expected {'system', 'value', 'mode'?}."
             )
-        return {
-            "system": c["system"],
-            "value": c["value"],
-            "exact": bool(c.get("exact", False)),
-        }
+        if "mode" in c and "exact" in c:
+            raise VoLCAError(
+                "Classification filter gives both mode and exact: say it with "
+                "mode or exact, not both."
+            )
+        mode = c["mode"] if "mode" in c else _mode_word(bool(c.get("exact", False)))
+        return {"system": c["system"], "value": c["value"], "mode": mode}
     if isinstance(c, (tuple, list)):
         if len(c) not in (2, 3):
             raise VoLCAError(
-                f"Classification filter tuple must be (system, value[, exact]); "
+                f"Classification filter tuple must be (system, value[, mode]); "
                 f"got {len(c)} items."
             )
         system, value = c[0], c[1]
-        exact = bool(c[2]) if len(c) == 3 else False
-        return {"system": system, "value": value, "exact": exact}
+        third = c[2] if len(c) == 3 else False
+        mode = _mode_word(third) if isinstance(third, bool) else third
+        return {"system": system, "value": value, "mode": mode}
     raise VoLCAError(
         f"Classification filter must be a dict or tuple, got {type(c).__name__}."
     )
@@ -1140,28 +1152,49 @@ class Client:
         keep: list[str] | None = None,
         extra: list[str] | None = None,
         ids: list[str] | None = None,
+        exclude_name: list[str] | None = None,
+        exclude_location: list[str] | None = None,
+        dry_run: bool = False,
         note: str | None = None,
         source: dict | None = None,
         db_name: str | None = None,
+        spare: bool,
     ) -> dict:
         """Delete activities selected by filter, or exactly the ``ids`` list.
 
         Builds a ``DeleteSelectionRequest``: the filter fields select the whole
         matching set, ``keep`` spares matched process ids, and ``extra`` adds
         ones the filter missed. ``classifications`` is a list of
-        ``{"system", "value", "exact"}`` dicts or ``(system, value, exact)``
-        tuples.
+        ``{"system", "value", "mode"}`` dicts or ``(system, value, mode)``
+        tuples, ``mode`` being ``contains``, ``exact``, ``not-contains`` or
+        ``not-exact``; the negative two leave out what they match. The older
+        ``exact`` flag is still read in place of ``mode``.
+
+        ``exclude_name`` and ``exclude_location`` leave out the processes whose
+        name, or location, they find, whatever else the filter matched.
+
+        ``spare`` has no default, because the two answers delete different
+        things. ``True`` keeps every matched process that a remaining one still
+        uses, however far upstream: removing what stays needs would leave it
+        with a hole. ``False`` deletes every matched process and cuts the
+        remaining ones' links to it.
+
+        ``dry_run=True`` changes nothing and answers what a real call would do:
+        the same counts, the same refusals.
 
         ``ids`` names the selection verbatim instead of filtering; the filter
-        arguments (and ``exact``) must then stay unset: the two modes are
-        exclusive, mirroring the engine. Needs an engine speaking wire
-        revision 3 (>= v0.9.3): an older one would silently drop the unknown
-        ``ids`` key and read the request as an empty filter ("everything"),
-        so pyvolca refuses to send it rather than let the engine guess.
+        arguments (and ``exact``) and the exclusions must then stay unset: the
+        modes are exclusive, mirroring the engine.
 
-        Returns the ``DeleteSelectionResponse`` dict
-        (``{"success", "message", "deleted"}``); raises VoLCAError on
-        ``success=false``.
+        Needs an engine speaking wire revision 114 (>= v0.19.0): an older one
+        drops the ``spare`` key it does not know, so a delete meant to spare
+        would cut. pyvolca refuses to send the request rather than let the
+        engine guess.
+
+        Returns the ``DeleteSelectionResponse`` dict (``{"success", "message",
+        "deleted", "spared", "transient", "warnings"}``); ``spared`` counts the
+        matched processes kept because the remaining ones use them. Raises
+        VoLCAError on ``success=false``.
 
         ``note`` says why, in a sentence: it is kept in the database's history
         (:meth:`database_history`) and in the changes report its export
@@ -1171,10 +1204,19 @@ class Client:
         "page": 7, "passage": ...}`` (page and passage are optional): it is
         kept beside the reason. Needs wire revision 111.
         """
-        if ids is not None and (name or location or product or classifications or exact):
+        if ids is not None and (
+            name
+            or location
+            or product
+            or classifications
+            or exact
+            or exclude_name
+            or exclude_location
+        ):
             raise VoLCAError(
                 "delete_activities: ids cannot be combined with the filter "
-                "arguments (name/location/product/classifications/exact)"
+                "arguments (name/location/product/classifications/exact) or "
+                "the exclusions (exclude_name/exclude_location)"
             )
         # Omit blank filters entirely: sending "name":"" makes the engine treat
         # an empty string as a real (unsatisfiable) name filter, so a
@@ -1186,13 +1228,22 @@ class Client:
             "exact": exact,
             "keep": keep or [],
             "extra": extra or [],
+            "spare": spare,
         }
         for key, value in (("name", name), ("location", location), ("product", product)):
             if value:
                 body[key] = value
+        for key, value in (
+            ("excludeName", exclude_name),
+            ("excludeLocation", exclude_location),
+        ):
+            if value:
+                body[key] = list(value)
+        if dry_run:
+            body["dryRun"] = True
         if ids is not None:
-            self._require_wire(3, "delete_activities(ids=...)", engine_hint="0.9.3")
             body["ids"] = list(ids)
+        self._require_wire(114, "delete_activities", engine_hint="0.19.0")
         body.update(self._stated(note, source, "delete_activities"))
         target = self._db(db_name)
         payload = self._json(

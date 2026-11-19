@@ -44,7 +44,7 @@ import Config (DatabaseConfig (..), defaultConfig)
 import Data.Foldable (toList)
 import Database.Author (ExchangeEdit (..))
 import Database.Child (childOf)
-import Database.Edit (DeleteRequest (..), Derivation (..), databaseHistory, deleteActivitiesInDB, deriveDatabase, editExchanges)
+import Database.Edit (DeleteRequest (..), Derivation (..), SpareChoice (..), databaseHistory, deleteActivitiesInDB, deriveDatabase, editExchanges)
 import Database.ExportSupplier (noDependencies, unnamedWarnings)
 import Database.History (Carried (..), HistoryLine (..), Journal (..), Provenance (..), changesReport)
 import Database.Journal (Stated (..), noteFrom, nothingStated)
@@ -62,6 +62,7 @@ import Database.Manager (
  )
 import Database.SystemModel (Traced (..), parseSystemModel, takenProcesses, traceOf, tracedRule)
 import Database.Upload (DatabaseFormat (..))
+import Service (noExclusions)
 import TestHelpers (modelDividingBy, withScratchDataDir, withinTolerance)
 import Types (
     Activity (..),
@@ -498,6 +499,9 @@ deleteIds ids =
         , drKeep = []
         , drExtra = []
         , drIds = Just ids
+        , drExcluded = noExclusions
+        , drSpare = CutSuppliers
+        , drDryRun = False
         , drStated = nothingStated
         }
 

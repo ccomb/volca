@@ -879,8 +879,13 @@ volca database delete my-db                     # delete
 # Edit and export loaded databases
 volca database copy my-db my-db-v2              # copy under a new name
 volca database relink my-db --to bg-db --mapping aliases.csv
-volca database delete-activities my-db --name "electricity"  # delete filtered set
-volca database delete-activities my-db --id UUID_UUID --id UUID_UUID  # delete exactly these
+volca database delete-activities my-db --name "electricity" --spare-suppliers  # delete filtered set
+#   --spare-suppliers keeps every matched process the remaining ones still use,
+#   --cut-suppliers deletes it and cuts their links; one of the two is required
+volca database delete-activities my-db --name "electricity" --exclude-location CH --spare-suppliers --dry-run
+#   --exclude-name and --exclude-location leave out what they find (repeatable);
+#   --dry-run says what would go and what would be spared, and changes nothing
+volca database delete-activities my-db --id UUID_UUID --id UUID_UUID --cut-suppliers  # delete exactly these
 volca database export my-db --format simapro --out out.csv
 #   formats: simapro | ecospold1 | ecospold2 | ilcd | brightway | openlca
 #   all but ecospold1 and ilcd keep parameters and formulas
@@ -944,7 +949,7 @@ volca method delete ef-31                        # delete
 | Setup / dependencies | `GET /db/{name}/setup`, `POST .../{add,remove}-dependency/{dep}`, `POST .../set-data-path`, `POST .../accept-substitution` | – |
 | Copy database | `POST /db/{name}/copy/{newName}` | `database copy SRC NEW_NAME` |
 | Derive a parent or a child | `POST /db/{name}/derive/{newName}`, `GET /db/{name}/system-model` | – |
-| Delete activities (by filter or ids) | `POST /db/{name}/delete` | `database delete-activities DB [filters\|--id …]` |
+| Delete activities (by filter or ids, with exclusions, sparing or cutting what stays needs, optional dry run) | `POST /db/{name}/delete` | `database delete-activities DB [filters\|--id …] (--spare-suppliers\|--cut-suppliers) [--exclude-name …] [--exclude-location …] [--dry-run]` |
 | Export database | `POST /db/{name}/export` (`{"format": FMT, "package": "ro-crate"}`, package optional) | `database export DB --format FMT [--package ro-crate] --out FILE` |
 | Delete database | `DELETE /db/{name}` | `database delete NAME` |
 | **Method Management** | | |

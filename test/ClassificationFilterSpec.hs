@@ -48,6 +48,7 @@ import CLI.Client (deleteSelectionBody)
 import CLI.Types (DbDeleteArgs (..))
 import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), defaultConfig)
 import Database (buildDatabaseWithMatrices)
+import Database.Edit (SpareChoice (..))
 import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), initDatabaseManager)
 import SharedSolver (createSharedSolver)
 import Types (
@@ -281,6 +282,40 @@ spec = describe "classification filter match mode" $ do
                 fmap dsrDeleted cli `shouldBe` Right n
                 activitiesLeft cliManager `shouldReturn` Just (activityTotal - n)
 
+    describe "delete-by-selection modes and exclusions" $ do
+        it "leaves out what a not-contains entry names, and deletes the rest" $ do
+            (manager, _) <- loadedFixture
+            -- The supplier, the root and energy: "food" and "Food waste" both hold the value.
+            rest <- runRest manager (deleteActivitiesHandler fixtureName (deleteRequestWith "not-contains"))
+            fmap dsrDeleted rest `shouldBe` Right 3
+            activitiesLeft manager `shouldReturn` Just (activityTotal - 3)
+
+        it "reads the mode case-blind, and refuses a word that is none of the four, naming them" $ do
+            (manager, _) <- loadedFixture
+            shouted <- runRest manager (deleteActivitiesHandler fixtureName (deleteRequestWith "NOT-EXACT"))
+            fmap dsrDeleted shouted `shouldBe` Right 4
+            (other, _) <- loadedFixture
+            refused <- runRest other (deleteActivitiesHandler fixtureName (deleteRequestWith "maybe"))
+            case refused of
+                Left err -> do
+                    errHTTPCode err `shouldBe` 400
+                    forM_ ["contains", "exact", "not-contains", "not-exact"] $ \word ->
+                        BSL.toStrict (errBody err) `shouldSatisfy` BS.isInfixOf word
+                Right _ -> expectationFailure "an unknown mode was accepted"
+            activitiesLeft other `shouldReturn` Just activityTotal
+
+        it "drops a blank exclusion instead of leaving everything out" $ do
+            (manager, _) <- loadedFixture
+            rest <- runRest manager (deleteActivitiesHandler fixtureName (deleteRequestWith "contains"){dsqExcludeName = Just ["", "  "], dsqExcludeLocation = Just [""]})
+            fmap dsrDeleted rest `shouldBe` Right 2
+
+        it "announces a dry run without deleting, and says what it spares" $ do
+            (manager, _) <- loadedFixture
+            rest <- runRest manager (deleteActivitiesHandler fixtureName (deleteRequestWith "contains"){dsqSpare = True, dsqDryRun = Just True})
+            -- The root consumes both matched processes, so a sparing delete keeps them.
+            fmap (\r -> (dsrDeleted r, dsrSpared r)) rest `shouldBe` Right (0, 2)
+            activitiesLeft manager `shouldReturn` Just activityTotal
+
 -- ---------------------------------------------------------------------------
 -- Surfaces
 -- ---------------------------------------------------------------------------
@@ -397,14 +432,22 @@ deleteRequest exact =
         { dsqName = Nothing
         , dsqLocation = Nothing
         , dsqProduct = Nothing
-        , dsqClassifications = [DeleteClassFilter "category" "food" exact]
+        , dsqClassifications = [DeleteClassFilter "category" "food" (if exact then "exact" else "contains")]
         , dsqExact = Nothing
         , dsqKeep = []
         , dsqExtra = []
         , dsqIds = Nothing
         , dsqNote = Nothing
         , dsqSource = Nothing
+        , dsqExcludeName = Nothing
+        , dsqExcludeLocation = Nothing
+        , dsqSpare = False
+        , dsqDryRun = Nothing
         }
+
+-- | A delete that cuts, with one classification entry in this mode on @category = food@.
+deleteRequestWith :: Text -> DeleteSelectionRequest
+deleteRequestWith mode = (deleteRequest False){dsqClassifications = [DeleteClassFilter "category" "food" mode]}
 
 deleteArgs :: Bool -> DbDeleteArgs
 deleteArgs exact =
@@ -419,6 +462,10 @@ deleteArgs exact =
         , ddaKeep = []
         , ddaExtra = []
         , ddaIds = []
+        , ddaExcludeName = []
+        , ddaExcludeLocation = []
+        , ddaSpare = CutSuppliers
+        , ddaDryRun = False
         }
 
 activitiesLeft :: DatabaseManager -> IO (Maybe Int)

@@ -1336,6 +1336,13 @@ readClassificationMode word = case T.toCaseFold word of
     "not-exact" -> Right (Excluding MatchExact)
     _ -> Left ("Unknown classification mode '" <> word <> "': use contains, exact, not-contains or not-exact.")
 
+{- | Whether a delete keeps the matched processes the remaining ones still use.
+Here and not beside the delete because the command line has to name it too, and
+the modules that plan a delete depend on the command line's types.
+-}
+data SpareChoice = SpareSuppliers | CutSuppliers
+    deriving (Eq, Show)
+
 {- | Filters as a request states them, a mode with the system and value it
 applies to, divided into those that keep what they match and those that leave
 it out.

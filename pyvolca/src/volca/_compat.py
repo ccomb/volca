@@ -42,8 +42,8 @@ revision only matter to a client that opted out of that check with
 KNOWN_WIRE = 114
 """The newest wire revision this pyvolca understands (revision 114 added the
 exclusions of a search, the ``not-contains`` and ``not-exact`` classification
-modes and the required ``spare`` and the dry run of a delete, which this client
-does not send; revision 113 counted the
+modes and the required ``spare`` and the dry run of a delete, which
+``delete_activities`` sends and refuses to send to an older engine; revision 113 counted the
 supply chain, the path to a supplier and every scope of an aggregate for one
 unit of the reference product, as impacts and inventories already were, renamed
 the fields holding them ``quantity_per_unit``, ``cumulative_quantity_per_unit``
