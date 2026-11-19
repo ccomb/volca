@@ -2205,9 +2205,10 @@ getPathTo unitCfg geographies depLookup refusing db dbName solver pidText subs t
 
 {- | The consumers of one process inside a root's chain, across the dependency
 databases it buys from, each with its part of the process's quantity and the
-lines it buys it on. Read from the same chain as the supply-chain route, at
-the same minimum quantity, so the consumers listed are those its consumer count
-counts. The databases in @refusing@ are withheld: their consumers are not
+lines it buys it on. Read from the same chain as the supply-chain route, under
+the same swaps and at the same minimum quantity, so the consumers listed are
+those its consumer count counts. The lines are the database's: what a swap
+moved onto the process is in the part but on no line. The databases in @refusing@ are withheld: their consumers are not
 listed. What they and the consumers under the minimum account for is given as
 unexplained.
 -}
