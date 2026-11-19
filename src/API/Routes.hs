@@ -2813,14 +2813,10 @@ getActivityPathTo dbName processIdText targetParam targetIdParam = counted Readi
     refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
     result <- liftIO $ Service.getPathTo unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing db dbName solver processIdText target
     case result of
+        -- The sentence says which target found no path, and why; the shared mapping would drop it.
         Left (Service.ActivityNotFound msg) ->
             throwError err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
-        Left (Service.InvalidProcessId msg) ->
-            throwError err400{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
-        Left (Service.AmbiguousActivity msg) ->
-            throwError err400{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
-        Left err ->
-            throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
+        Left err -> throwServiceError err
         Right val -> return val
 
 -- | One activity against another, in this database or in another loaded one.

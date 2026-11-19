@@ -2205,8 +2205,8 @@ getPathTo unitCfg geographies depLookup refusing db dbName solver pidText target
                     Right supplyVec -> do
                         eChain <- collectChain unitCfg geographies depLookup db dbName rootPid supplyVec [] wholeChain
                         pure $ do
-                            (Collected _ entries edges _, _, _) <- eChain
-                            steps <- pathIn target (rootStep rootPid rootAct supplyVec) entries edges
+                            (Collected _ entries edges _, withheld, _) <- eChain
+                            steps <- pathIn target (rootStep rootPid rootAct supplyVec) (map wprDatabase withheld) entries edges
                             Right (pathAnswer (functionalUnitIn db rootAct) steps)
   where
     wholeChain :: SupplyChainFilter
@@ -2242,9 +2242,13 @@ data PathStep = PathStep
 the target names. A process the chain reached by two routes in a dependency
 is listed once per route, each with its part of the scaling: the parts are
 summed, so a step carries the whole quantity.
+
+A listed process can have no path: the edges of a withheld database are
+withheld with it, so a process reached only through one is cut off. The
+answer then names those databases rather than deny the process is listed.
 -}
-pathIn :: PathTarget -> PathStep -> [SupplyChainEntry] -> [SupplyChainEdge] -> Either ServiceError [PathStep]
-pathIn target root entries edges =
+pathIn :: PathTarget -> PathStep -> [Text] -> [SupplyChainEntry] -> [SupplyChainEdge] -> Either ServiceError [PathStep]
+pathIn target root withheld entries edges =
     maybe (Left notFound) Right (traverse stepOf =<< bfsToPattern (pstId root) (\i -> maybe False aimed (M.lookup i listed)) suppliers)
   where
     listed :: M.Map Text PathStep
@@ -2274,9 +2278,16 @@ pathIn target root entries edges =
             }
 
     notFound :: ServiceError
-    notFound = ActivityNotFound $ case target of
-        TargetNamed part -> "No listed upstream process of " <> pstId root <> " has a name holding '" <> unNamePattern part <> "'"
-        TargetProcess pid -> "The process " <> pid <> " is not among the listed upstream processes of " <> pstId root
+    notFound
+        | not (null withheld), any aimed (M.elems listed) = ActivityNotFound (aimedAt <> ", but every route to it from " <> pstId root <> " runs through " <> T.intercalate ", " withheld <> ", whose licence keeps its amounts")
+        | otherwise = ActivityNotFound $ case target of
+            TargetNamed part -> "No listed upstream process of " <> pstId root <> " has a name holding '" <> unNamePattern part <> "'"
+            TargetProcess pid -> "The process " <> pid <> " is not among the listed upstream processes of " <> pstId root
+
+    aimedAt :: Text
+    aimedAt = case target of
+        TargetNamed part -> "An upstream process of " <> pstId root <> " has a name holding '" <> unNamePattern part <> "'"
+        TargetProcess pid -> "The process " <> pid <> " is listed"
 
 -- | A path as the route answers it: each step's quantity, and the ratio from the step before.
 pathAnswer :: FunctionalUnit -> [PathStep] -> Value

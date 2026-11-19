@@ -2,4 +2,5 @@
   chicken of a food database built on another one could list its soy beans
   among its suppliers, yet asking for the path to them answered "No upstream
   node matching". The path never runs through a database whose licence keeps
-  its amounts.
+  its amounts: a supplier reached only through one is answered with that
+  database's name.

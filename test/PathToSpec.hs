@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | The path from a process to one of its suppliers, when the supplier lives
@@ -11,18 +12,24 @@ module PathToSpec (spec) where
 
 import Data.Aeson (Value (..))
 import qualified Data.Aeson.KeyMap as KM
+import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Foldable (toList)
+import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
+import Servant (ServerError (..))
 import Test.Hspec
 
 import API.Routes (getActivityPathTo)
+import Config (defaultConfig)
+import qualified Database.Manager as DM
 import Types
 
-import CrossDBRegionalLCIAFixture (mkDB)
-import DependencyLicenceSpec (dependency, inventoryKept, managerOn, referenceOf, root, rootPid, runIn)
+import CrossDBRegionalLCIAFixture (linkAt, mkDB)
+import DependencyFlowClosureSpec (install)
+import DependencyLicenceSpec (configFor, dependency, inventoryKept, managerOn, producing, referenceOf, root, rootPid, runIn, runInError)
 
 -- | The id and the local ratio of each step of a path, or the HTTP code it was refused with.
 pathOn :: Database -> Licence -> Maybe Text -> Maybe Text -> IO (Either Int [(Value, Value)])
@@ -52,6 +59,24 @@ twoDeep =
     base :: Database
     base = mkDB 1 ["FR", "FR"] [(0, 2.0)]
 
+{- | Three databases in a row: the root buys from @dep@, whose licence keeps
+its amounts, and @dep@ buys from @far@, open. The supply chain lists @far@'s
+process; the only route to it crosses @dep@.
+-}
+behindWithheld :: IO DM.DatabaseManager
+behindWithheld = do
+    manager <- DM.initDatabaseManager defaultConfig DM.NoCache
+    DM.addDatabase manager (configFor "root" LicenceUnstated)
+    DM.addDatabase manager (configFor "dep" inventoryKept)
+    DM.addDatabase manager (configFor "far" LicenceUnstated)
+    install manager "far" far
+    install manager "dep" (linkAt dependency far "far" 0 1.0){dbDependsOn = ["far"]}
+    install manager "root" root
+    pure manager
+  where
+    far :: Database
+    far = producing 200 [(0, 1.0)]
+
 spec :: Spec
 spec = do
     it "reaches a supplier of another database by its name" $
@@ -74,3 +99,11 @@ spec = do
 
     it "refuses a request with no target" $
         pathOn dependency LicenceUnstated Nothing Nothing `shouldReturn` Left 400
+
+    it "says the route crosses a withheld database when it does" $ do
+        manager <- behindWithheld
+        answer <- runInError manager (getActivityPathTo "root" rootPid Nothing (Just ("far::" <> processIdToText (producing 200 [(0, 1.0)]) 0)))
+        fmap (\e -> (errHTTPCode e, BSL.unpack (errBody e))) (either Just (const Nothing) answer)
+            `shouldSatisfy` \case
+                Just (404, body) -> "dep" `isInfixOf` body && "licence" `isInfixOf` body
+                _ -> False
