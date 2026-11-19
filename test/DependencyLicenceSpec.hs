@@ -18,10 +18,12 @@ module DependencyLicenceSpec (
     inventoryKept,
     managerOn,
     own,
+    producing,
     referenceOf,
     root,
     rootPid,
     runIn,
+    runInError,
     spec,
 ) where
 
@@ -39,7 +41,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
-import Servant (errHTTPCode, runHandler)
+import Servant (ServerError, errHTTPCode, runHandler)
 import Test.Hspec
 
 import API.MCP (callTool, noRequestId)
@@ -218,7 +220,11 @@ numbersAt list field o =
     ]
 
 runIn :: DM.DatabaseManager -> AppM a -> IO (Either Int a)
-runIn manager handler = either (Left . errHTTPCode) Right <$> runHandler (runApp env handler)
+runIn manager handler = either (Left . errHTTPCode) Right <$> runInError manager handler
+
+-- | The handler's answer, or the whole error it was refused with, body included.
+runInError :: DM.DatabaseManager -> AppM a -> IO (Either ServerError a)
+runInError manager handler = runHandler (runApp env handler)
   where
     env :: AppEnv
     env =

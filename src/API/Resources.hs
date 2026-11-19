@@ -834,7 +834,8 @@ description r = case r of
         \substring."
     GetPathTo ->
         "LCA / ACV: shortest upstream path from a process to the first \
-        \upstream process whose name matches a pattern. Each step: \
+        \upstream process whose name matches a pattern, in its database or \
+        \in a dependency database it buys from. Each step: \
         \cumulativeQuantityPerUnit (cumulative amount for 1 unit of the \
         \reference product; see the top-level 'functionalUnit'), scalingFactor, \
         \localStepRatio (supplier's ÷ consumer's scalingFactor); total_ratio, \

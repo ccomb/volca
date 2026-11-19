@@ -142,7 +142,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> QueryParam "flow" Text :> QueryParam "limit" Int :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] InventoryExport
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> QueryParam "name" Text :> QueryParam "limit" Int :> QueryParam "min-quantity" Double :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] SupplyChainResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "consumers" :> QueryParam "name" Text :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> Get '[JSON] ConsumersResponse
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> Get '[JSON] Value
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> QueryParam "target-id" Text :> Get '[JSON] Value
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "compare" :> QueryParam "other_process_id" Text :> QueryParam "other_database" Text :> Get '[JSON] ActivityComparison
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "changes-present" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesPresence
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "apply-changes" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesApplied
@@ -1673,7 +1673,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 114: exclusions, the activity search leaving out what an
+(revision 115: the path to a supplier reaching the dependency databases the
+chain buys from, and its @target-id@ parameter naming the process it leads to
+by its process id;
+revision 114: exclusions, the activity search leaving out what an
 @exclude-name@, an @exclude-location@ or a @not-contains@ / @not-exact@
 classification mode names; the four classification modes, @equals@ now reading
 as @exact@; the required @spare@ of a delete and its dry run;
@@ -1927,7 +1930,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 114
+currentWireVersion = 115
 
 getVersion :: AppM Value
 getVersion = do
@@ -2796,25 +2799,24 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
                 }
     either throwServiceError pure (Service.getConsumers (DM.managerGeographies dbManager) db dbName processIdText cnf)
 
-getActivityPathTo :: Text -> Text -> Maybe Text -> AppM Value
-getActivityPathTo dbName processIdText targetParam = counted Reading dbName (ProcessKey processIdText) $ do
+getActivityPathTo :: Text -> Text -> Maybe Text -> Maybe Text -> AppM Value
+getActivityPathTo dbName processIdText targetParam targetIdParam = counted Reading dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
+    dbManager <- asks aeDbManager
     (db, solver) <- requireDatabaseByName dbName
-    target <-
-        maybe
-            (throwError err400{errBody = "Missing required 'target' query parameter"})
-            pure
-            targetParam
-    result <- liftIO $ Service.getPathTo db solver processIdText (Service.NamePattern target)
+    target <- case (targetParam, targetIdParam) of
+        (Just name, Nothing) -> pure (Service.TargetNamed (Service.NamePattern name))
+        (Nothing, Just pid) -> pure (Service.TargetProcess pid)
+        (Just _, Just _) -> badRequest "Name the target by 'target' or by 'target-id', not both"
+        (Nothing, Nothing) -> badRequest "Missing the target: 'target' for part of its name, or 'target-id' for its process id"
+    unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+    refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
+    result <- liftIO $ Service.getPathTo unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing db dbName solver processIdText target
     case result of
+        -- The sentence says which target found no path, and why; the shared mapping would drop it.
         Left (Service.ActivityNotFound msg) ->
             throwError err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
-        Left (Service.InvalidProcessId msg) ->
-            throwError err400{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
-        Left (Service.AmbiguousActivity msg) ->
-            throwError err400{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
-        Left err ->
-            throwError err500{errBody = BSL.fromStrict $ T.encodeUtf8 $ T.pack $ show err}
+        Left err -> throwServiceError err
         Right val -> return val
 
 -- | One activity against another, in this database or in another loaded one.
