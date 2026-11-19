@@ -4,7 +4,7 @@
 
 module Service where
 
-import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), FunctionalUnit (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProbableMissEntry (..), ProbableMisses (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, selectorAPI, subAnchorRef, unresolvedFlowName)
+import API.Types (ActivityForAPI (..), ActivityInfo (..), ActivityLinks (..), ActivityMetadata (..), ActivityStats (..), ActivitySummary (..), ApiFlow (..), ChainConsumer (..), ChainConsumers (..), ClassificationSystem (..), ConsumerResult (..), ConsumersResponse (..), CutoffWasteFlow (..), EdgeType (..), ExchangeDetail (..), ExchangeName (..), ExchangeWithUnit (..), ExportNode (..), FlowDetail (..), FlowInfo (..), FlowRole (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest (..), FormulaCheckResponse (..), FunctionalUnit (..), GraphEdge (..), GraphExport (..), GraphNode (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), InventoryStatistics (..), LCIABatchResult (..), LCIAResult (..), NodeType (..), ParameterAPI (..), ParameterValue (..), Perturbation (..), ProbableMissEntry (..), ProbableMisses (..), ProducerFilter (..), RootDb (..), SearchResults (..), Substitution (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), ThisDb (..), TreeEdge (..), TreeExport (..), TreeMetadata (..), Unexplained (..), WithheldExchanges (..), WithheldInput (..), WithheldProcesses (..), WithheldShare (..), apiFlowOfKind, parseSubRef, selectorAPI, subAnchorRef, unresolvedFlowName)
 import CLI.Types (DebugMatricesOptions (..))
 import Control.Applicative ((<|>))
 import Control.Concurrent.Async (mapConcurrently)
@@ -2195,6 +2195,65 @@ getPathTo ::
     PathTarget ->
     IO (Either ServiceError Value)
 getPathTo unitCfg geographies depLookup refusing db dbName solver pidText target =
+    (>>= path) <$> wholeChainOf unitCfg geographies depLookup refusing db dbName solver pidText
+  where
+    path :: WholeChain -> Either ServiceError Value
+    path wc = pathAnswer (wcFunctionalUnit wc) <$> pathIn target (stepOf (wcRoot wc)) (wcWithheld wc) (map stepOf (cEntries (wcCollected wc))) (cEdges (wcCollected wc))
+
+{- | The consumers of one process inside a root's chain, across the dependency
+databases it buys from, each with its part of the process's quantity and the
+lines it buys it on. Read from the same chain as the supply-chain route, the
+databases in @refusing@ withheld: their consumers are not listed, and the part
+they account for is given as unexplained.
+-}
+getChainConsumers ::
+    UnitConfig ->
+    Geographies ->
+    SharedSolver.DepSolverLookup ->
+    -- | the databases whose licence keeps their amounts
+    S.Set Text ->
+    Database ->
+    Text ->
+    SharedSolver ->
+    Text ->
+    -- | the process asked about, by the id the supply chain gives it
+    Text ->
+    IO (Either ServiceError ChainConsumers)
+getChainConsumers unitCfg geographies depLookup refusing db dbName solver pidText target =
+    wholeChainOf unitCfg geographies depLookup refusing db dbName solver pidText >>= \case
+        Left err -> pure (Left err)
+        Right wc -> case consumersIn target (wcRoot wc) (wcWithheld wc) (wcCollected wc) of
+            Left err -> pure (Left err)
+            Right (asked, parts, unexplained) -> do
+                eConsumers <- traverse withLines parts
+                pure (fmap (\consumers -> ChainConsumers asked consumers unexplained) (sequence eConsumers))
+  where
+    withLines :: (SupplyChainEntry, Double) -> IO (Either ServiceError ChainConsumer)
+    withLines (consumer, amount) = fmap (ChainConsumer consumer amount) <$> linesToward depLookup db dbName target consumer
+
+{- | The root solved and its whole chain collected, across the dependencies it
+buys from, the refusing databases withheld: what a path and the consumers of a
+process are read from. No filter, no threshold, no page.
+-}
+data WholeChain = WholeChain
+    { wcRoot :: !SupplyChainEntry
+    -- ^ the root as an entry at depth 0, with its consumers in the chain when a loop buys it back
+    , wcFunctionalUnit :: !FunctionalUnit
+    , wcCollected :: !Collected
+    , wcWithheld :: ![Text]
+    }
+
+wholeChainOf ::
+    UnitConfig ->
+    Geographies ->
+    SharedSolver.DepSolverLookup ->
+    S.Set Text ->
+    Database ->
+    Text ->
+    SharedSolver ->
+    Text ->
+    IO (Either ServiceError WholeChain)
+wholeChainOf unitCfg geographies depLookup refusing db dbName solver pidText =
     case resolveScorable db pidText of
         Left err -> pure (Left err)
         Right (rootPid, rootAct) -> case demandFor db rootPid of
@@ -2205,9 +2264,14 @@ getPathTo unitCfg geographies depLookup refusing db dbName solver pidText target
                     Right supplyVec -> do
                         eChain <- collectChain unitCfg geographies depLookup db dbName rootPid supplyVec [] wholeChain
                         pure $ do
-                            (Collected _ entries edges _, withheld, _) <- eChain
-                            steps <- pathIn target (rootStep rootPid rootAct supplyVec) (map wprDatabase withheld) entries edges
-                            Right (pathAnswer (functionalUnitIn db rootAct) steps)
+                            (collected, withheld, _) <- eChain
+                            Right
+                                WholeChain
+                                    { wcRoot = rootEntry rootPid rootAct supplyVec collected
+                                    , wcFunctionalUnit = functionalUnitIn db rootAct
+                                    , wcCollected = collected
+                                    , wcWithheld = map wprDatabase withheld
+                                    }
   where
     wholeChain :: SupplyChainFilter
     wholeChain =
@@ -2219,15 +2283,101 @@ getPathTo unitCfg geographies depLookup refusing db dbName solver pidText target
             , scfWithheld = refusing
             }
 
-    rootStep :: ProcessId -> Activity -> U.Vector Double -> PathStep
-    rootStep rootPid rootAct supplyVec =
-        PathStep
-            { pstId = processIdToText db rootPid
-            , pstName = activityName rootAct
-            , pstLocation = activityLocation rootAct
-            , pstUnit = activityUnit rootAct
-            , pstScaling = processScaling db supplyVec rootPid
-            }
+    rootEntry :: ProcessId -> Activity -> U.Vector Double -> Collected -> SupplyChainEntry
+    rootEntry rootPid rootAct supplyVec collected =
+        let rootId = processIdToText db rootPid
+            scaling = processScaling db supplyVec rootPid
+         in SupplyChainEntry
+                { sceProcessId = rootId
+                , sceDatabaseName = dbName
+                , sceActivityName = activityName rootAct
+                , sceLocation = activityLocation rootAct
+                , sceQuantityPerUnit = scaling
+                , sceUnit = activityUnit rootAct
+                , sceScalingFactor = scaling
+                , sceClassifications = activityClassification rootAct
+                , sceDepth = 0
+                , sceUpstreamCount = length (filter ((== rootId) . sceEdgeFrom) (cEdges collected))
+                }
+
+-- | A listed process as a step of a path.
+stepOf :: SupplyChainEntry -> PathStep
+stepOf e =
+    PathStep
+        { pstId = sceProcessId e
+        , pstName = sceActivityName e
+        , pstLocation = sceLocation e
+        , pstUnit = sceUnit e
+        , pstScaling = sceScalingFactor e
+        }
+
+{- | The process asked about, its consumers in the chain with the part of its
+quantity each one accounts for (the consumer's quantity times the amount the
+edge says it buys per unit of its product), and what they leave unexplained.
+
+Without a withheld database the parts add up to the quantity, up to rounding
+and to links in different units to one supplier. The rest is returned when it
+exceeds a millionth of the parts, never dropped.
+-}
+consumersIn :: Text -> SupplyChainEntry -> [Text] -> Collected -> Either ServiceError (SupplyChainEntry, [(SupplyChainEntry, Double)], Maybe Unexplained)
+consumersIn target root withheld collected
+    | target == sceProcessId root = Left (ActivityNotFound ("The process " <> target <> " is the root of its chain: it has no consumer listed upstream of it"))
+    | otherwise = case M.lookup target listed of
+        Nothing -> Left (ActivityNotFound ("The process " <> target <> " is not among the listed upstream processes of " <> sceProcessId root))
+        Just asked -> Right (asked, parts, unexplainedOf asked)
+  where
+    listed :: M.Map Text SupplyChainEntry
+    listed = M.fromList [(sceProcessId e, e) | e <- root : cEntries collected]
+
+    parts :: [(SupplyChainEntry, Double)]
+    parts =
+        [ (consumer, sceQuantityPerUnit consumer * sceEdgeAmount e)
+        | e <- cEdges collected
+        , sceEdgeFrom e == target
+        , Just consumer <- [M.lookup (sceEdgeTo e) listed]
+        ]
+
+    unexplainedOf :: SupplyChainEntry -> Maybe Unexplained
+    unexplainedOf asked =
+        let rest = sceQuantityPerUnit asked - sum (map snd parts)
+         in if abs rest > 1e-6 * sum (map (abs . snd) parts)
+                then Just (Unexplained rest withheld)
+                else Nothing
+
+{- | A consumer's lines buying one supplier, as the consumer's own page shows
+them, comment and pedigree included. A line's supplier is named bare in its own
+database and qualified in another; a consumer listed in a dependency is
+qualified, and so must be the suppliers its lines name in that database.
+-}
+linesToward :: SharedSolver.DepSolverLookup -> Database -> Text -> Text -> SupplyChainEntry -> IO (Either ServiceError [ExchangeWithUnit])
+linesToward depLookup rootDb rootDbName target consumer = do
+    mDb <-
+        if consumerDb == rootDbName
+            then pure (Just rootDb)
+            else fmap fst <$> depLookup consumerDb
+    pure $ case mDb of
+        Nothing -> Left (MatrixError ("The database " <> consumerDb <> " of a listed consumer is no longer loaded"))
+        Just db -> do
+            (pid, act) <- resolveActivityAndProcessId db bare
+            Right
+                [ line
+                | line <- zipWith (toExchangeWithUnit db (buildCrossDBLinkMap db pid)) [0 ..] (exchanges act)
+                , fmap named (ewuTargetProcessId line) == Just target
+                ]
+  where
+    consumerDb :: Text
+    consumerDb = sceDatabaseName consumer
+
+    prefix :: Text
+    prefix = qualifyRef consumerDb ""
+
+    bare :: Text
+    bare = fromMaybe (sceProcessId consumer) (T.stripPrefix prefix (sceProcessId consumer))
+
+    named :: Text -> Text
+    named supplier
+        | prefix `T.isPrefixOf` sceProcessId consumer && not ("::" `T.isInfixOf` supplier) = qualifyRef consumerDb supplier
+        | otherwise = supplier
 
 -- | One process on a path, as the chain lists it.
 data PathStep = PathStep
@@ -2239,26 +2389,24 @@ data PathStep = PathStep
     }
 
 {- | The shortest path, in edges, from the root to the first listed process
-the target names. A process the chain reached by two routes in a dependency
-is listed once per route, each with its part of the scaling: the parts are
-summed, so a step carries the whole quantity.
+the target names.
 
 A listed process can have no path: the edges of a withheld database are
 withheld with it, so a process reached only through one is cut off. The
 answer then names those databases rather than deny the process is listed.
 -}
-pathIn :: PathTarget -> PathStep -> [Text] -> [SupplyChainEntry] -> [SupplyChainEdge] -> Either ServiceError [PathStep]
-pathIn target root withheld entries edges =
-    maybe (Left notFound) Right (traverse stepOf =<< bfsToPattern (pstId root) (\i -> maybe False aimed (M.lookup i listed)) suppliers)
+pathIn :: PathTarget -> PathStep -> [Text] -> [PathStep] -> [SupplyChainEdge] -> Either ServiceError [PathStep]
+pathIn target root withheld steps edges =
+    maybe (Left notFound) Right (traverse stepAt =<< bfsToPattern (pstId root) (\i -> maybe False aimed (M.lookup i listed)) suppliers)
   where
     listed :: M.Map Text PathStep
-    listed = M.fromListWith (\a b -> a{pstScaling = pstScaling a + pstScaling b}) [(sceProcessId e, fromEntry e) | e <- entries]
+    listed = M.fromList [(pstId e, e) | e <- steps]
 
     suppliers :: M.Map Text [Text]
     suppliers = NE.toList <$> groupInOrder [(sceEdgeTo e, sceEdgeFrom e) | e <- edges, M.member (sceEdgeFrom e) listed]
 
-    stepOf :: Text -> Maybe PathStep
-    stepOf i
+    stepAt :: Text -> Maybe PathStep
+    stepAt i
         | i == pstId root = Just root
         | otherwise = M.lookup i listed
 
@@ -2266,16 +2414,6 @@ pathIn target root withheld entries edges =
     aimed step = case target of
         TargetNamed part -> Normalize.caseInsensitiveInfixOf (unNamePattern part) (pstName step)
         TargetProcess pid -> pstId step == pid
-
-    fromEntry :: SupplyChainEntry -> PathStep
-    fromEntry e =
-        PathStep
-            { pstId = sceProcessId e
-            , pstName = sceActivityName e
-            , pstLocation = sceLocation e
-            , pstUnit = sceUnit e
-            , pstScaling = sceScalingFactor e
-            }
 
     notFound :: ServiceError
     notFound
@@ -2524,9 +2662,10 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                 let r = fromIntegral row
                     c = fromIntegral col
                     adj' = IM.insertWith (++) c [r] adj
+                    -- A consumer buying one supplier on two lines is still one consumer.
                     counts' =
                         if IS.member r activeSet && IS.member c activeSet
-                            then IM.insertWith (+) r (1 :: Int) counts
+                            then IM.insertWith IS.union r (IS.singleton c) counts
                             else counts
                  in (adj', counts')
 
@@ -2574,7 +2713,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                     , sceScalingFactor = scalingFactor
                     , sceClassifications = activityClassification activity
                     , sceDepth = IM.findWithDefault (-1) (fromIntegral pid) depthMap
-                    , sceUpstreamCount = IM.findWithDefault 0 (fromIntegral pid) consumerCounts
+                    , sceUpstreamCount = maybe 0 IS.size (IM.lookup (fromIntegral pid) consumerCounts)
                     }
 
         filteredEntries =
@@ -2584,24 +2723,26 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
             ]
 
         allIdxSet = S.fromList (maybe [] ((: []) . fromIntegral) mRootPid ++ map (fromIntegral . fst) allEntries)
+        -- One edge per pair: a consumer buying one supplier on two lines buys the sum.
         edges = case scfEdges scf of
             EntriesOnly -> []
             WithEdges ->
-                U.foldl'
-                    ( \acc (SparseTriple row col val) ->
-                        if S.member (fromIntegral row :: Int) allIdxSet && S.member (fromIntegral col :: Int) allIdxSet
-                            then
-                                SupplyChainEdge
-                                    (qualify (fromIntegral row))
-                                    dbName
-                                    (qualify (fromIntegral col))
-                                    dbName
-                                    val
-                                    : acc
+                [ SupplyChainEdge (qualify (fromIntegral row)) dbName (qualify (fromIntegral col)) dbName amount
+                | ((row, col), amount) <- M.toList pairAmounts
+                , amount /= 0
+                ]
+        pairAmounts :: M.Map (Int, Int) Double
+        pairAmounts =
+            U.foldl'
+                ( \acc (SparseTriple row col val) ->
+                    let r = fromIntegral row
+                        c = fromIntegral col
+                     in if S.member r allIdxSet && S.member c allIdxSet
+                            then M.insertWith (+) (r, c) val acc
                             else acc
-                    )
-                    []
-                    (dbTechnosphereTriples db)
+                )
+                M.empty
+                (dbTechnosphereTriples db)
      in Collected (length allEntries) filteredEntries edges [SharedSolver.Reached dbName db supplyVec]
 
 {- | Sort, offset, and limit a list of supply-chain entries using the shared
@@ -2754,6 +2895,13 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor 
 {- | The chain a root reaches, in its own database and in every dependency it
 buys from, with the edges when the filter asks for them, and what the refusing
 databases withhold already taken out. Neither sorted nor cut into a page.
+
+Each process is listed once and each pair of processes linked once: a
+dependency reached by two routes is walked twice, each walk with its part of
+the scaling. Each entry counts its consumers from those edges, so the count
+crosses databases and leaves out what a refusing database withholds. The
+edges are always collected for that count, and dropped afterwards when the
+filter did not ask for them.
 -}
 collectChain ::
     UnitConfig ->
@@ -2767,11 +2915,46 @@ collectChain ::
     SupplyChainFilter ->
     IO (Either ServiceError (Collected, [WithheldProcesses], [WithheldInput]))
 collectChain unitCfg geographies depLookup rootDb rootDbName rootPid rootScaling extraLinks scf =
-    fmap (withholdEntries (refusingFor rootDbName scf) . (rootCollected <>))
-        <$> walkDepLevels unitCfg geographies depLookup (Consumer rootDbName rootDb (RootLevel rootPid) rootScaling) extraLinks scf 1 S.empty
+    fmap (asked . withholdEntries (refusingFor rootDbName scf) . oncePerProcess . (rootCollected <>))
+        <$> walkDepLevels unitCfg geographies depLookup (Consumer rootDbName rootDb (RootLevel rootPid) rootScaling) extraLinks withEdges 1 S.empty
   where
+    withEdges :: SupplyChainFilter
+    withEdges = scf{scfEdges = WithEdges}
+
     rootCollected :: Collected
-    rootCollected = collectSupplyChainEntries geographies rootDb rootDbName (RootLevel rootPid) rootScaling scf
+    rootCollected = collectSupplyChainEntries geographies rootDb rootDbName (RootLevel rootPid) rootScaling withEdges
+
+    asked :: (Collected, [WithheldProcesses], [WithheldInput]) -> (Collected, [WithheldProcesses], [WithheldInput])
+    asked (c, withheld, inputs) =
+        let counted = countConsumers c
+         in case scfEdges scf of
+                WithEdges -> (counted, withheld, inputs)
+                EntriesOnly -> (counted{cEdges = []}, withheld, [])
+
+{- | One entry per process, its quantities summed over the routes that reached
+it, and one edge per pair: two walks of a database give a pair the same amount.
+-}
+oncePerProcess :: Collected -> Collected
+oncePerProcess c =
+    c
+        { cEntries = M.elems (M.fromListWith joined [(sceProcessId e, e) | e <- cEntries c])
+        , cEdges = M.elems (M.fromList [((sceEdgeFrom e, sceEdgeTo e), e) | e <- cEdges c])
+        }
+  where
+    joined :: SupplyChainEntry -> SupplyChainEntry -> SupplyChainEntry
+    joined a b =
+        a
+            { sceQuantityPerUnit = sceQuantityPerUnit a + sceQuantityPerUnit b
+            , sceScalingFactor = sceScalingFactor a + sceScalingFactor b
+            , sceDepth = min (sceDepth a) (sceDepth b)
+            }
+
+-- | Each entry's consumers in the chain, one per edge it supplies: edges are one per pair.
+countConsumers :: Collected -> Collected
+countConsumers c = c{cEntries = [e{sceUpstreamCount = M.findWithDefault 0 (sceProcessId e) counts} | e <- cEntries c]}
+  where
+    counts :: M.Map Text Int
+    counts = M.fromListWith (+) [(sceEdgeFrom e, 1) | e <- cEdges c]
 
 -- | The databases a chain withholds: those the filter names, never the one asked.
 refusingFor :: Text -> SupplyChainFilter -> S.Set Text

@@ -8,7 +8,7 @@ On the two databases of 'DependencyLicenceSpec' the root buys one unit of the
 dependency's process. Both processes are named "act-FR", so only the process
 id tells the root's namesake from the supplier.
 -}
-module PathToSpec (spec) where
+module PathToSpec (behindWithheld, depPid, spec) where
 
 import Data.Aeson (Value (..))
 import qualified Data.Aeson.KeyMap as KM
