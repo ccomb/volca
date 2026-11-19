@@ -258,6 +258,27 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                     added <- addDependencyToStaged manager (DependencyEdit "consumer" "consumer")
                     fromLeft "accepted" added `shouldBe` "consumer cannot depend on itself"
 
+        it "is refused when an earlier edit, not yet finalized, already leads back" $
+            withSystemTempDirectory "volca-dependency-crossed" $ \tmp ->
+                withMappedConsumer (consumerConfig (tmp </> "consumer-data")) $ \manager -> do
+                    addLoaded manager "beta" =<< buildOrFail (supplierDB 200 ["p2"])
+                    loaded <- readTVarIO (dmLoadedDbs manager)
+                    atomically $
+                        modifyTVar' (dmIndexedDbs manager) (M.insert "consumer" (buildIndexedDatabaseFromDB "consumer" emptySynonymDB (ldDatabase (loaded M.! "consumer"))))
+                    -- The consumer is staged by this edit, so no longer loaded.
+                    addDependencyToStaged manager (DependencyEdit "consumer" "beta") >>= (`shouldSatisfy` isRight)
+                    added <- addDependencyToStaged manager (DependencyEdit "beta" "consumer")
+                    fromLeft "accepted" added
+                        `shouldBe` "beta cannot depend on consumer: consumer depends on beta, so they would form a loop, which cannot be solved: a database is solved after the ones it depends on"
+
+        it "is refused when a mapping relink would pin it" $
+            withSystemTempDirectory "volca-dependency-mapping" $ \tmp ->
+                withMappedConsumer (consumerConfig (tmp </> "consumer-data")) $ \manager -> do
+                    addLoaded manager "beta" . (\db -> db{dbDependsOn = ["consumer"]}) =<< buildOrFail (supplierDB 200 ["p1"])
+                    relinked <- relinkDatabaseWithMapping manager "consumer" "beta" q1IsP1
+                    fromLeft "accepted" (void relinked)
+                        `shouldBe` "consumer cannot depend on beta: beta depends on consumer, so they would form a loop, which cannot be solved: a database is solved after the ones it depends on"
+
     describe "a mapping relink stays in force" $ do
         it "keeps the links it made through a later relink, the one an edit or a dependency reload runs" $
             withSystemTempDirectory "volca-mapping-kept" $ \tmp ->
@@ -335,6 +356,14 @@ withMappedConsumer config act = do
         modifyTVar' (dmAvailableDbs manager) (M.insert "consumer" config)
         modifyTVar' (dmIndexedDbs manager) (M.insert "alpha" (buildIndexedDatabaseFromDB "alpha" emptySynonymDB alphaDb))
     act manager
+
+-- | Load a supplier database under @name@, indexed so another can depend on it.
+addLoaded :: DatabaseManager -> Text -> Database -> IO ()
+addLoaded manager name db = do
+    solver <- mkSolver name db
+    atomically $ do
+        modifyTVar' (dmLoadedDbs manager) (M.insert name (loadedFor db solver (supplierLoadedConfig name)))
+        modifyTVar' (dmIndexedDbs manager) (M.insert name (buildIndexedDatabaseFromDB name emptySynonymDB db))
 
 -- | How many links between databases a loaded database holds.
 linkCount :: DatabaseManager -> Text -> IO Int

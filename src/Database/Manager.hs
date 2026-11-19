@@ -3019,10 +3019,15 @@ recordDependencies manager dbName = do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
     stagedDbs <- readTVarIO (dmStagedDbs manager)
     configs <- readTVarIO (dmAvailableDbs manager)
-    let standing = (dbDependsOn . ldDatabase <$> M.lookup dbName loadedDbs) <|> (sdSelectedDeps <$> M.lookup dbName stagedDbs)
+    let standing = standingDependencies loadedDbs stagedDbs dbName
         recorded = maybe [] dcDepends (M.lookup dbName configs)
     forM_ standing $ \deps ->
         unless (sameSet deps recorded) $ persistUploadDepends manager dbName deps
+
+-- | The dependencies a database stands on now: loaded, or staged, as a dependency edit leaves it.
+standingDependencies :: Map Text LoadedDatabase -> Map Text StagedDatabase -> Text -> Maybe [Text]
+standingDependencies loadedDbs stagedDbs dbName =
+    (dbDependsOn . ldDatabase <$> M.lookup dbName loadedDbs) <|> (sdSelectedDeps <$> M.lookup dbName stagedDbs)
 
 {- | A self-relink that failed wrote nothing, and the caller carries on: what
 was loaded is usable, its cross-database links are just not converged.
@@ -3574,12 +3579,14 @@ relinkDatabaseWithMapping ::
 relinkDatabaseWithMapping manager dbName depDb mapping = withLogScope dbName $ do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
     configs <- readTVarIO (dmAvailableDbs manager)
+    loop <- refuseLoop manager (DependencyEdit dbName depDb)
     relinked <- case M.lookup dbName loadedDbs of
         Nothing -> relinkStaged manager dbName (Just (depDb, mapping))
         Just loaded
             | not (M.member depDb loadedDbs) ->
                 return $ Left $ "Dependency database not loaded: " <> depDb <> " (load it first)"
             | Left refusal <- admission configs (ldConfig loaded) depDb -> return (Left refusal)
+            | Left refusal <- loop -> return (Left refusal)
             | otherwise -> do
                 -- Declare the dependency in-memory if it isn't already pinned, so an
                 -- in-memory pipeline (copy → delete → relink) composes in one pass
@@ -3627,6 +3634,7 @@ relinkStaged manager dbName chosen = withLogScope dbName $ runExceptT $ do
         unless (M.member dep indexedDbs) $
             throwE ("Dependency database not loaded: " <> dep <> " (load it first)")
         except (admission configs (sdConfig staged) dep)
+        ExceptT (refuseLoop manager (DependencyEdit dbName dep))
     synonymDB <- liftIO $ getMergedSynonymDB manager
     unitConfig <- liftIO $ getMergedUnitConfig manager
     let pinnedDeps = withChosenDep (sdSelectedDeps staged)
@@ -4844,14 +4852,14 @@ data DependencyEdit = DependencyEdit
 Runs cross-DB linking against the new dependency
 -}
 addDependencyToStaged :: DatabaseManager -> DependencyEdit -> IO (Either Text DatabaseSetupInfo)
-addDependencyToStaged manager DependencyEdit{deDatabase = dbName, deDependency = depName} = do
+addDependencyToStaged manager edit@DependencyEdit{deDatabase = dbName, deDependency = depName} = do
     stagedResult <- getOrStageDatabase manager dbName
     {- Read after staging, as the removal path does. Staging is the slow step
     here, and a snapshot taken before it judges whether the dependency is
     loaded on state that may be older than the answer. -}
     indexedDbs <- readTVarIO (dmIndexedDbs manager)
     configs <- readTVarIO (dmAvailableDbs manager)
-    loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    loop <- refuseLoop manager edit
     case stagedResult of
         Left err -> return $ Left err
         Right staged
@@ -4859,8 +4867,8 @@ addDependencyToStaged manager DependencyEdit{deDatabase = dbName, deDependency =
                 return $ Left $ "Dependency database not loaded: " <> depName
             | Left refusal <- admission configs (sdConfig staged) depName ->
                 return (Left refusal)
-            | Just loop <- loopClosedBy loadedDbs dbName depName ->
-                return (Left (loopRefusal dbName depName loop))
+            | Left refusal <- loop ->
+                return (Left refusal)
             | otherwise ->
                 applyStagedDeps
                     manager
@@ -4874,28 +4882,38 @@ addDependencyToStaged manager DependencyEdit{deDatabase = dbName, deDependency =
                                 else depName : sdSelectedDeps staged
                         }
 
-{- | The databases from @depName@ back to @dbName@ through 'dbDependsOn', when
-making @dbName@ depend on @depName@ would close that loop; @[dbName]@ alone
-when the two are one. The configuration file refuses a loop for the same
-reason: a database is solved after the ones it depends on, and in a loop none
-comes first. A name is matched even when it is not loaded, as a staged
-database is not.
+{- | Refuse the dependency an edit adds when it would close a loop. The
+configuration file refuses a loop for the same reason: a database is solved
+after the ones it depends on, and in a loop none comes first. Every route that
+adds a dependency asks this, the mapping relink as well as @add-dependency@.
 -}
-loopClosedBy :: Map Text LoadedDatabase -> Text -> Text -> Maybe [Text]
-loopClosedBy loaded dbName = walk S.empty
+refuseLoop :: DatabaseManager -> DependencyEdit -> IO (Either Text ())
+refuseLoop manager edit = do
+    loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    stagedDbs <- readTVarIO (dmStagedDbs manager)
+    configs <- readTVarIO (dmAvailableDbs manager)
+    {- A database neither loaded nor staged stands on what its configuration
+    records, which is what it will load with. -}
+    let dependenciesOf name = fromMaybe (maybe [] dcDepends (M.lookup name configs)) (standingDependencies loadedDbs stagedDbs name)
+    pure (maybe (Right ()) (Left . loopRefusal edit) (loopClosedBy dependenciesOf edit))
+
+{- | The databases from the dependency back to the database being changed, when
+the edit would close that loop; that database alone when the two are one. A
+database an edit has staged is walked through its staged dependencies, since
+it is no longer loaded.
+-}
+loopClosedBy :: (Text -> [Text]) -> DependencyEdit -> Maybe [Text]
+loopClosedBy dependenciesOf DependencyEdit{deDatabase = dbName, deDependency = depName} = walk S.empty depName
   where
     walk :: S.Set Text -> Text -> Maybe [Text]
     walk seen name
         | name == dbName = Just [name]
         | S.member name seen = Nothing
-        | otherwise = (name :) <$> asum (map (walk (S.insert name seen)) (depsOf name))
-
-    depsOf :: Text -> [Text]
-    depsOf name = maybe [] (dbDependsOn . ldDatabase) (M.lookup name loaded)
+        | otherwise = (name :) <$> asum (map (walk (S.insert name seen)) (dependenciesOf name))
 
 -- | The sentence refusing a dependency that would close a loop.
-loopRefusal :: Text -> Text -> [Text] -> Text
-loopRefusal dbName depName loop
+loopRefusal :: DependencyEdit -> [Text] -> Text
+loopRefusal DependencyEdit{deDatabase = dbName, deDependency = depName} loop
     | depName == dbName = dbName <> " cannot depend on itself"
     | otherwise =
         dbName
