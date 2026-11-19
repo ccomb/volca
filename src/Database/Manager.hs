@@ -201,7 +201,7 @@ import Data.Bifunctor (bimap, first)
 import Data.Char (toLower)
 import qualified Data.Csv as Csv
 import Data.Either (fromRight, isLeft, lefts, partitionEithers, rights)
-import Data.Foldable (toList)
+import Data.Foldable (asum, toList)
 import Data.Functor ((<&>))
 import Data.Indexing (groupInOrder, uniqueIndex)
 import qualified Data.Indexing as Indexing
@@ -4851,6 +4851,7 @@ addDependencyToStaged manager DependencyEdit{deDatabase = dbName, deDependency =
     loaded on state that may be older than the answer. -}
     indexedDbs <- readTVarIO (dmIndexedDbs manager)
     configs <- readTVarIO (dmAvailableDbs manager)
+    loadedDbs <- readTVarIO (dmLoadedDbs manager)
     case stagedResult of
         Left err -> return $ Left err
         Right staged
@@ -4858,6 +4859,8 @@ addDependencyToStaged manager DependencyEdit{deDatabase = dbName, deDependency =
                 return $ Left $ "Dependency database not loaded: " <> depName
             | Left refusal <- admission configs (sdConfig staged) depName ->
                 return (Left refusal)
+            | Just loop <- loopClosedBy loadedDbs dbName depName ->
+                return (Left (loopRefusal dbName depName loop))
             | otherwise ->
                 applyStagedDeps
                     manager
@@ -4870,6 +4873,37 @@ addDependencyToStaged manager DependencyEdit{deDatabase = dbName, deDependency =
                                 then sdSelectedDeps staged
                                 else depName : sdSelectedDeps staged
                         }
+
+{- | The databases from @depName@ back to @dbName@ through 'dbDependsOn', when
+making @dbName@ depend on @depName@ would close that loop; @[dbName]@ alone
+when the two are one. The configuration file refuses a loop for the same
+reason: a database is solved after the ones it depends on, and in a loop none
+comes first. A name is matched even when it is not loaded, as a staged
+database is not.
+-}
+loopClosedBy :: Map Text LoadedDatabase -> Text -> Text -> Maybe [Text]
+loopClosedBy loaded dbName = walk S.empty
+  where
+    walk :: S.Set Text -> Text -> Maybe [Text]
+    walk seen name
+        | name == dbName = Just [name]
+        | S.member name seen = Nothing
+        | otherwise = (name :) <$> asum (map (walk (S.insert name seen)) (depsOf name))
+
+    depsOf :: Text -> [Text]
+    depsOf name = maybe [] (dbDependsOn . ldDatabase) (M.lookup name loaded)
+
+-- | The sentence refusing a dependency that would close a loop.
+loopRefusal :: Text -> Text -> [Text] -> Text
+loopRefusal dbName depName loop
+    | depName == dbName = dbName <> " cannot depend on itself"
+    | otherwise =
+        dbName
+            <> " cannot depend on "
+            <> depName
+            <> ": "
+            <> T.intercalate " depends on " loop
+            <> ", so they would form a loop, which cannot be solved: a database is solved after the ones it depends on"
 
 -- | Remove a dependency from a staged (or partially-linked loaded) database
 removeDependencyFromStaged :: DatabaseManager -> DependencyEdit -> IO (Either Text DatabaseSetupInfo)

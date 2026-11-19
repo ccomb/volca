@@ -23,6 +23,7 @@ import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (bracket_)
 import Control.Monad (void)
 import qualified Data.ByteString as BS
+import Data.Either (fromLeft)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Data.Text (Text)
@@ -227,6 +228,35 @@ spec = describe "relinkDatabase strict dependency pin" $ do
             finalizeDatabase manager "consumer" >>= either (expectationFailure . show) (const (pure ()))
             loaded <- readTVarIO (dmLoadedDbs manager)
             map cdlSourceDatabase (dbCrossDBLinks (ldDatabase (loaded M.! "consumer"))) `shouldBe` ["alpha"]
+
+    describe "a dependency that would close a loop" $ do
+        it "is refused, naming the databases that already lead back" $
+            withSystemTempDirectory "volca-dependency-loop" $ \tmp ->
+                withMappedConsumer (consumerConfig (tmp </> "consumer-data")) $ \manager -> do
+                    -- beta already depends on the consumer, through gamma.
+                    betaDb <- (\db -> db{dbDependsOn = ["gamma"]}) <$> buildOrFail (supplierDB 200 ["p2"])
+                    gammaDb <- (\db -> db{dbDependsOn = ["consumer"]}) <$> buildOrFail (supplierDB 400 ["p4"])
+                    betaSolver <- mkSolver "beta" betaDb
+                    gammaSolver <- mkSolver "gamma" gammaDb
+                    atomically $ do
+                        modifyTVar' (dmLoadedDbs manager) $
+                            M.insert "beta" (loadedFor betaDb betaSolver (supplierLoadedConfig "beta"))
+                                . M.insert "gamma" (loadedFor gammaDb gammaSolver (supplierLoadedConfig "gamma"))
+                        modifyTVar' (dmIndexedDbs manager) $
+                            M.insert "beta" (buildIndexedDatabaseFromDB "beta" emptySynonymDB betaDb)
+                                . M.insert "gamma" (buildIndexedDatabaseFromDB "gamma" emptySynonymDB gammaDb)
+                    added <- addDependencyToStaged manager (DependencyEdit "consumer" "beta")
+                    fromLeft "accepted" added
+                        `shouldBe` "consumer cannot depend on beta: beta depends on gamma depends on consumer, so they would form a loop, which cannot be solved: a database is solved after the ones it depends on"
+
+        it "is refused when it names the database itself" $
+            withSystemTempDirectory "volca-dependency-self" $ \tmp ->
+                withMappedConsumer (consumerConfig (tmp </> "consumer-data")) $ \manager -> do
+                    loaded <- readTVarIO (dmLoadedDbs manager)
+                    atomically $
+                        modifyTVar' (dmIndexedDbs manager) (M.insert "consumer" (buildIndexedDatabaseFromDB "consumer" emptySynonymDB (ldDatabase (loaded M.! "consumer"))))
+                    added <- addDependencyToStaged manager (DependencyEdit "consumer" "consumer")
+                    fromLeft "accepted" added `shouldBe` "consumer cannot depend on itself"
 
     describe "a mapping relink stays in force" $ do
         it "keeps the links it made through a later relink, the one an edit or a dependency reload runs" $
