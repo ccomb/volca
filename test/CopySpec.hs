@@ -27,7 +27,9 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Test.Hspec
 
-import API.Types (ParameterValue (..), ScenarioAPI (..))
+import API.DatabaseHandlers (copyDatabaseHandler)
+import API.Types (ActivateResponse (..), DatabaseStatusAPI (..), ParameterValue (..), ScenarioAPI (..))
+import App.Env (AppEnv (..), runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Database (buildDatabaseWithMatrices)
 import Database.Edit (copyDatabase, refusalMessage)
@@ -40,6 +42,7 @@ import Database.Manager (
 import Database.Scenarios (dropScenario, listScenarios, saveScenario, savedForExport)
 import qualified Database.UploadedDatabase as UploadedDB
 import Matrix (buildDemandVector)
+import Servant (runHandler)
 import SharedSolver (
     SharedSolver,
     createSharedSolver,
@@ -91,7 +94,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
         installLoaded manager "source" srcDb
 
         result <- copyDatabase manager "source" "mycopy"
-        result `shouldBe` Right ()
+        fmap copyName result `shouldBe` Right "mycopy"
 
         loaded <- readTVarIO (dmLoadedDbs manager)
         available <- readTVarIO (dmAvailableDbs manager)
@@ -198,12 +201,12 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
         installLoaded manager "taken" otherDb
 
         result <- copyDatabase manager "source" "taken"
-        result `shouldBe` Left "Database already exists: taken"
+        fmap copyName result `shouldBe` Left "Database already exists: taken"
 
     it "fails when the source is not loaded" $ do
         manager <- initDatabaseManager defaultConfig NoCache
         result <- copyDatabase manager "ghost" "mycopy"
-        result `shouldBe` Left "Database not loaded: ghost"
+        fmap copyName result `shouldBe` Left "Database not loaded: ghost"
 
     it "slugifies a path-traversal copy name to a filesystem-safe slug" $ do
         -- The copy is registered as an uploaded database and later deleted by
@@ -213,11 +216,19 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
         srcDb <- buildOrFail (supplierDB 800 ["p1", "p2"])
         installLoaded manager "source" srcDb
         result <- copyDatabase manager "source" "../../etc/passwd"
-        result `shouldBe` Right ()
+        fmap copyName result `shouldSatisfy` either (const False) (\n -> not ("/" `isInfixOf` n) && not (".." `isInfixOf` n))
         loaded <- readTVarIO (dmLoadedDbs manager)
         let copyNames = filter (/= "source") (M.keys loaded)
         copyNames `shouldSatisfy` (not . null)
         copyNames `shouldSatisfy` all (\n -> not ("/" `isInfixOf` n) && not (".." `isInfixOf` n))
+
+    it "answers over HTTP the copy's status, named as registered" $ do
+        -- A client typed a name; the answer is how it finds the copy again.
+        manager <- initDatabaseManager defaultConfig NoCache
+        srcDb <- buildOrFail (supplierDB 950 ["p1", "p2"])
+        installLoaded manager "source" srcDb
+        answer <- runHandler (runApp (envOf manager) (copyDatabaseHandler "source" "My copy"))
+        fmap (fmap dsaName . arDatabase) answer `shouldBe` Right (Just "my-copy")
 
     it "rejects a copy name with no usable characters" $ do
         manager <- initDatabaseManager defaultConfig NoCache
@@ -226,7 +237,7 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
         result <- copyDatabase manager "source" "///"
         case result of
             Left msg -> msg `shouldSatisfy` isInfixOf "Invalid copy name"
-            Right () -> expectationFailure "expected empty-slug copy name to be rejected"
+            Right _ -> expectationFailure "expected empty-slug copy name to be rejected"
 
     scenariosSpec
 
@@ -240,7 +251,7 @@ scenariosSpec = describe "saved scenarios" $ do
             manager <- initDatabaseManager defaultConfig NoCache
             srcDb <- buildOrFail (supplierDB 100 ["p1"])
             installLoaded manager "source" srcDb{dbParameters = M.fromList [("salt_kg", Parameter (InputParameter 0.01 Nothing) Nothing "")]}
-            copyDatabase manager "source" "mine" `shouldReturn` Right ()
+            (fmap copyName <$> copyDatabase manager "source" "mine") `shouldReturn` Right "mine"
             run manager
         listed manager name = either (fail . T.unpack . refusalMessage) (pure . map (\s -> (saName s, map pvValue (saParameters s), saProblem s))) =<< listScenarios manager name
         refusal = fmap (either refusalMessage (const ""))
@@ -331,7 +342,7 @@ scenariosSpec = describe "saved scenarios" $ do
 
     it "goes along with a copy of its database" $ withCopy $ \manager -> do
         refusal (saveScenario manager "mine" noOrigin "high salt" [salted 0.02]) `shouldReturn` ""
-        copyDatabase manager "mine" "yours" `shouldReturn` Right ()
+        (fmap copyName <$> copyDatabase manager "mine" "yours") `shouldReturn` Right "yours"
         listed manager "yours" `shouldReturn` [("high salt", [0.02], Nothing)]
         refusal (dropScenario manager "yours" noOrigin "high salt") `shouldReturn` ""
         listed manager "mine" `shouldReturn` [("high salt", [0.02], Nothing)]
@@ -386,6 +397,25 @@ mkConfig name =
         , dcRequires = []
         , dcAdded = Nothing
         }
+
+-- | An engine around the manager, unhosted, as a local server runs.
+envOf :: DatabaseManager -> AppEnv
+envOf manager =
+    AppEnv
+        { aeDbManager = manager
+        , aeMaxTreeDepth = 5
+        , aePassword = Nothing
+        , aeHostingConfig = Nothing
+        , aeClassificationPresets = []
+        , aeDataVersion = Nothing
+        , aeUsageLog = Nothing
+        , aeReader = Nothing
+        , aeAuthor = Nothing
+        }
+
+-- | The name a copy was registered under.
+copyName :: LoadedDatabase -> Text
+copyName = dcName . ldConfig
 
 buildOrFail :: SimpleParts -> IO Database
 buildOrFail (SimpleParts acts flows units) = do
