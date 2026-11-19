@@ -10,7 +10,8 @@ nobody, B at depth 2, its dependency supplier at depth 3.
 -}
 module SwapLinksSpec (spec) where
 
-import Data.Aeson (Value (..))
+import Data.Aeson (Object, Value (..), object, (.=))
+import Data.Aeson.Key (Key)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
@@ -21,6 +22,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
+import API.MCP (callTool, noRequestId)
 import API.Routes (getActivityPathTo, postActivityPathTo)
 import API.Types (Substitution (..), SubstitutionRequest (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..))
 import Database.Cutoffs (gapIndexOf)
@@ -28,15 +30,17 @@ import Service
 import TestHelpers (mkDepLookupFromMap, mkSolverFromDb, shippedGeographies)
 import Types
 import UnitConversion (defaultUnitConfig)
+import Usage (anonymous)
 
 import CrossDBRegionalLCIAFixture (mkDB)
 import DependencyLicenceSpec (managerOn, producing, referenceOf, runIn)
+import FlowContributionSpec (payloadOf)
 
--- | Root 0 buys C 1 and D 4; C and D buy A 2; B 3 buys from the dependency.
+-- | Root 0 buys C 1 and D 4; C and D buy A 2; B 3 buys from the dependency. Each is named after its letter.
 swapRoot :: Database
 swapRoot =
     base
-        { dbActivities = V.imap (\i act -> act{activityLines = packExchanges [referenceOf (300 + i)]}) (dbActivities base)
+        { dbActivities = V.izipWith (\i name act -> act{activityName = name, activityLines = packExchanges [referenceOf (300 + i)]}) (V.fromList ["Root", "Charlie", "Alpha", "Bravo", "Delta"]) (dbActivities base)
         , dbTechnosphereTriples = U.fromList [SparseTriple 1 0 1.0, SparseTriple 4 0 1.0, SparseTriple 2 1 2.0, SparseTriple 2 4 3.0]
         , dbCrossDBLinks = [boughtByB]
         , dbDependsOn = ["dep"]
@@ -129,6 +133,22 @@ pathUnder subs target = do
             ]
     steps _ = []
 
+-- | The id and the quantity of each step of the path the MCP tool answers, under these arguments.
+mcpPathTo :: [(Key, Value)] -> IO [(Value, Value)]
+mcpPathTo extraArgs = do
+    manager <- managerOn swapRoot dep LicenceUnstated
+    reply <- callTool anonymous manager [] Nothing Nothing noRequestId "get_path_to" (KM.fromList ([("database", String "root"), ("process_id", String rootP)] ++ extraArgs))
+    o <- maybe (fail ("unexpected reply: " <> show reply)) pure (payloadOf reply)
+    pure (stepsOf o)
+  where
+    stepsOf :: Object -> [(Value, Value)]
+    stepsOf o
+        | Just (Array path) <- KM.lookup "path" o =
+            [ (fromMaybe Null (KM.lookup "processId" s), fromMaybe Null (KM.lookup "cumulativeQuantityPerUnit" s))
+            | Object s <- toList path
+            ]
+    stepsOf _ = []
+
 spec :: Spec
 spec = do
     describe "the links of a chain under a swap" $ do
@@ -182,3 +202,7 @@ spec = do
         it "is the published one with no swap" $ do
             answer <- pathUnder [] aP
             fmap (\s -> (length s, last s)) answer `shouldBe` Right (3, (String aP, Number 5))
+
+        it "is read under the swaps the MCP tool is given" $ do
+            path <- mcpPathTo [("target", String "bravo"), ("substitutions", Array (V.singleton (object ["from" .= aP, "to" .= bP])))]
+            (length path, last path) `shouldBe` (3, (String bP, Number 5))
