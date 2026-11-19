@@ -31,11 +31,10 @@ module Matrix (
     linkConsumer,
     computeProcessLCIAContributions,
     Solve,
-    perturbA,
     perturbABatch,
-    perturbGlobal,
+    rankOneCarry,
+    carriedBy,
     applyShermanMorrison,
-    applyShermanMorrisonV,
     buildDemandVector,
     referenceSign,
     solveOnce,
@@ -251,56 +250,6 @@ computeProcessLCIAContributions db scalingVec cfMap =
                                  in M.insertWith (+) pid (bioVal * s * cfVal) acc
      in U.foldl' step M.empty bioTriples
 
-{- |
-Rank-1 perturbation of (I-A) via Sherman-Morrison (~4ms per call).
-
-Given a baseline scaling vector @x@ such that @(I-A) x = d@, this returns
-@x'@ for the perturbed system @(I-A + u·e_col^T) x' = d@, where @u@ is a
-sparse vector on the supplier (row) axis and @e_col@ selects a single
-consumer column. The kernel reuses the cached factorization:
-
-    x' = x - z * (v^T * x) / (1 + v^T * z)
-
-with @z = inv(I-A) * u@ (one back-substitution) and @v = e_col@.
-
-== Sign convention
-
-A positive entry in @perturb@ adds to @(I-A)@, which __decreases__ @A@ by
-the same amount. So @perturb = [(i, Δ)]@ at @col = j@ encodes
-@A_ij -= Δ@. To __increase__ @A_ij@ by @Δ@, pass @[(i, -Δ)]@.
-
-== Encoding common changes
-
-* __Single matrix entry__ @A_ij -= Δ@ – @col = j@, @perturb = [(i, Δ)]@.
-* __Symmetric supplier swap__ at consumer @j@ (drop @old@ at coefficient
-  @a@, add @new@ at the same amount) – @col = j@,
-  @perturb = [(old, +a), (new, -a)]@. The @+a@ on @old@ subtracts @a@
-  from @A_(old,j)@ (was @a@, becomes @0@); the @-a@ on @new@ adds @a@
-  to @A_(new,j)@ (was @0@, becomes @a@).
-* __Asymmetric cross-DB substitution__ where one side lives in a dep DB –
-  pass only the root-side entry; the dep-side change is carried by a
-  virtual 'CrossDBLink'.
-* __No-op__ – @perturb = []@ returns @x@ unchanged (bypasses the
-  singularity check).
-
-Returns @Left@ if the update is singular (@|1 + v^T·z| < epsilon@), which
-means the perturbation drives @(I-A)@ into a degenerate state.
--}
-perturbA ::
-    -- | The solver of the system @x@ solves
-    Solve ->
-    -- | Baseline scaling vector x
-    Vector ->
-    -- | Consumer column index (j in @A_ij@)
-    Int ->
-    -- | Sparse perturbation u on the supplier axis: list of (row i, Δ)
-    [(Int, Double)] ->
-    -- | Perturbed scaling vector x'
-    IO (Either T.Text Vector)
-perturbA solve x col perturb
-    | null perturb = pure (Right x)
-    | otherwise = (>>= applyShermanMorrison x col) <$> solveRankOneZ solve (U.length x) perturb
-
 {- | Solve the system for several right-hand sides at once, answering in their
 order, or say why one of them has no answer: the one way the rank-1 paths
 reach a solver, so a solver that corrects its answers is never bypassed.
@@ -308,8 +257,7 @@ reach a solver, so a solver that corrects its answers is never bypassed.
 type Solve = [Vector] -> IO (Either Text [Vector])
 
 {- | Solve @z = inv(I-A) * u@ for a sparse supplier-axis perturbation @u@.
-Shared by the per-edge ('perturbA') and global ('perturbGlobal') rank-1 paths
-so the back-sub plumbing lives in one place.
+Shared by every rank-1 path so the back-sub plumbing lives in one place.
 -}
 solveRankOneZ :: Solve -> Int -> [(Int, Double)] -> IO (Either T.Text Vector)
 solveRankOneZ solve n perturb =
@@ -320,53 +268,64 @@ solveRankOneZ solve n perturb =
 
 {- | Apply the Sherman-Morrison rank-1 formula given the precomputed
 z = inv(I-A) * u, with the left projection fixed at the basis column
-@e_col@. Thin wrapper over 'applyShermanMorrisonV'.
+@e_col@.
 -}
 applyShermanMorrison :: Vector -> Int -> Vector -> Either T.Text Vector
-applyShermanMorrison x col = applyShermanMorrisonV x [(col, 1.0)]
+applyShermanMorrison x col z = ($ x) <$> shermanMorrison [(col, 1.0)] z
 
-{- | Generalized Sherman-Morrison: the left projection @v@ is an arbitrary
-sparse vector rather than a single basis column. The rank-1 update is
-@(I-A) + u·vᵀ@; with @v = e_col@ this is the per-edge update, while a full
-technosphere row @v = row_A(A)@ applies a __global__ supplier swap (every
-consumer of one activity at once) in a single back-substitution. @z =
-inv(I-A)·u@ is supplied by the caller.
+{- | Sherman-Morrison for @(I-A) + u·vᵀ@ given @z = inv(I-A)·u@: how a
+solution @x@ of the system becomes the solution of the updated one, @x - z·(v·x)/(1 + v·z)@.
+Refused when @1 + v·z@ vanishes, which means the update makes the system singular.
 -}
-applyShermanMorrisonV :: Vector -> [(Int, Double)] -> Vector -> Either T.Text Vector
-applyShermanMorrisonV x v z =
-    let dot w = sum [c * (w U.! i) | (i, c) <- v]
-        denom = 1.0 + dot z
-     in if abs denom < 1e-12
-            then Left "Sherman-Morrison update is singular \x2014 perturbation drives (I-A) into a degenerate state"
-            else
-                let scale = dot x / denom
-                 in Right $ U.imap (\i xi -> xi - scale * (z U.! i)) x
+shermanMorrison :: [(Int, Double)] -> Vector -> Either T.Text (Vector -> Vector)
+shermanMorrison v z
+    | abs denom < 1e-12 = Left "Sherman-Morrison update is singular \x2014 perturbation drives (I-A) into a degenerate state"
+    | otherwise = Right (\x -> let scale = dot x / denom in U.imap (\i xi -> xi - scale * (z U.! i)) x)
+  where
+    dot w = sum [c * (w U.! i) | (i, c) <- v]
+    denom = 1.0 + dot z
 
-{- | Rank-1 update for a __global__ supplier substitution: replace activity
-@A@ by @B@ in every consumer that sources from @A@, in one solve. @u@ is the
-supplier-axis perturbation (@e_A - κ·e_B@ within a DB, or @e_A@ alone when
-@B@ lives in a dependency DB); @v@ is the consumer-axis projection – @A@'s
-technosphere row (its coefficient at each consumer). The single back-sub
-@z = inv(I-A)·u@ replaces the @N@ solves an edge-by-edge expansion needs.
+{- | How a solution of the system becomes the solution once @(I-A) + u·vᵀ@
+replaces it, by Sherman-Morrison with @z = inv(I-A)·u@ solved here, once:
+@x' = x - z·(v·x)/(1 + v·z)@. With @v = e_col@ the update changes one consumer
+column; with @v@ a supplier's row it swaps that supplier on every consumer at
+once. An empty @u@ or @v@ changes nothing and solves nothing.
 
-An empty @u@ or @v@ leaves @x@ unchanged; callers surface "A consumed
-nowhere" as an explicit error before reaching here, so an empty @v@ is
-never a silent no-op in practice.
+== Sign convention
+
+A positive entry of @u@ adds to @(I-A)@, which __decreases__ @A@ by the same
+amount: @u = [(i, Δ)]@ with @v = e_j@ encodes @A_ij -= Δ@.
+
+* __Supplier swap at consumer @j@__ (drop @old@ at coefficient @a@, take
+  @new@ at the same amount): @u = [(old, +a), (new, -a)]@, @v = e_j@.
+* __One side in a dependency database__: only the root-side entry goes in
+  @u@; the other side is carried by a virtual 'CrossDBLink'.
+
+Refused when the solver refuses, or when @|1 + v·z|@ vanishes: the update
+makes the system singular.
+
+Several updates chain only when each one's @z@ is solved by the system the
+earlier ones left: 'carriedBy' gives that system's solver.
 -}
-perturbGlobal ::
+rankOneCarry ::
     Solve ->
-    Vector ->
+    -- | Size of the system
+    Int ->
     -- | u : sparse supplier-axis perturbation
     [(Int, Double)] ->
-    -- | v : sparse consumer-axis projection (A's technosphere row)
+    -- | v : sparse consumer-axis projection
     [(Int, Double)] ->
-    IO (Either T.Text Vector)
-perturbGlobal solve x u v
-    | null u || null v = pure (Right x)
-    | otherwise = (>>= applyShermanMorrisonV x v) <$> solveRankOneZ solve (U.length x) u
+    IO (Either T.Text (Vector -> Vector))
+rankOneCarry solve n u v
+    | null u || null v = pure (Right id)
+    | otherwise = (>>= shermanMorrison v) <$> solveRankOneZ solve n u
+
+-- | The solver of the updated system: every answer of the solver before it, carried.
+carriedBy :: (Vector -> Vector) -> Solve -> Solve
+carriedBy carry solve = fmap (fmap (map carry)) . solve
 
 {- |
-Batched 'perturbA': computes z_k = inv(I-A) * u_k for every non-empty
+Batched rank-1 updates at one consumer each: computes z_k = inv(I-A) * u_k for every non-empty
 perturbation in one call to the solver, then applies the Sherman-Morrison
 formula to each.
 

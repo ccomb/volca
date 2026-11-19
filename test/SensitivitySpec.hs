@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | Tests for the rank-1 perturbation primitive 'perturbA' and the
+{- | Tests for the rank-1 perturbation primitive 'rankOneCarry' and the
 'computeSensitivities' service that drives the @POST /sensitivity@
 endpoint.
 
@@ -20,7 +20,7 @@ import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector.Unboxed as U
-import Matrix (Demand (..), applyShermanMorrison, buildDemandVector, perturbA)
+import Matrix (Demand (..), applyShermanMorrison, buildDemandVector, rankOneCarry)
 import Matrix.Sparse (factorize, solve)
 import Service (computeSensitivities)
 import SharedSolver (solveMultiWithSharedSolver, solveWithSharedSolver)
@@ -30,16 +30,16 @@ import Types
 
 spec :: Spec
 spec = do
-    describe "perturbA primitive" $ do
+    describe "rankOneCarry primitive" $ do
         it "with empty perturbation returns x identical (no-op)" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             solver <- mkSolverFromDb db "SAMPLE.min3"
             let demand = buildDemandVector db 0
             x <- either (fail . show) pure =<< solveWithSharedSolver solver =<< either (fail . show) pure demand
-            r <- perturbA (fmap (first (T.pack . show)) . solveMultiWithSharedSolver solver . map Demand) x 0 []
+            r <- rankOneCarry (fmap (first (T.pack . show)) . solveMultiWithSharedSolver solver . map Demand) (U.length x) [] [(0, 1.0)]
             case r of
-                Right x' -> U.toList x' `shouldBe` U.toList x
-                Left e -> expectationFailure ("perturbA failed: " <> T.unpack e)
+                Right carry -> U.toList (carry x) `shouldBe` U.toList x
+                Left e -> expectationFailure ("rankOneCarry failed: " <> T.unpack e)
 
     describe "applyShermanMorrison singularity guard" $ do
         -- Regression gate: the rank-1 update is well-defined iff 1 + v^T z /= 0.
