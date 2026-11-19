@@ -385,7 +385,7 @@ data ChainConsumers = ChainConsumers
 data ChainConsumer = ChainConsumer
     { chnProcess :: SupplyChainEntry -- the consumer, as the upstream lists it; the root is listed at depth 0
     , chnAmount :: Double -- its part of the asked process's quantity, in that process's unit, for one unit of the root's product
-    , chnLines :: [ExchangeWithUnit] -- its lines buying the asked process, as its own page shows them; none when no line names that supplier
+    , chnLines :: [ExchangeWithUnit] -- its lines buying the asked process, as its own page shows them; none when no line names that supplier, and none for what a swap moved onto it, which the amount counts
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ChainConsumer)

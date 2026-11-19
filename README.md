@@ -553,6 +553,7 @@ GET    /api/v1/db/{dbName}/activity/{processId}/supply-chain             Flat su
 POST   /api/v1/db/{dbName}/activity/{processId}/supply-chain             Same, with substitutions applied
 GET    /api/v1/db/{dbName}/activity/{processId}/consumers                Downstream activities consuming this one
 GET    /api/v1/db/{dbName}/activity/{processId}/supply-chain/consumers?of=  Consumers, inside this process's upstream, of one process it lists: each one's part of its quantity and the lines it buys it on (min-quantity as for the supply chain)
+POST   /api/v1/db/{dbName}/activity/{processId}/supply-chain/consumers?of=  Same, with parameter values and substitutions applied
 GET    /api/v1/db/{dbName}/activity/{processId}/path-to?target=          Shortest supply-chain path to a target activity, named by part of its name (target) or by its process id (target-id)
 POST   /api/v1/db/{dbName}/activity/{processId}/path-to?target=          Same, with substitutions applied
 GET    /api/v1/db/{dbName}/activity/{processId}/aggregate                SQL-style group/filter on exchanges, supply chain, biosphere, or consumption edges
@@ -919,7 +920,7 @@ volca method delete ef-31                        # delete
 | Supply chain (flat) | `GET\|POST /db/{db}/activity/{id}/supply-chain` | `supply-chain ID --name --geo --product --max-depth --min-quantity` |
 | Supply chain graph | `GET /db/{db}/activity/{id}/graph?cutoff=` | – |
 | Downstream consumers | `GET /db/{db}/activity/{id}/consumers` | `consumers ID --name --geo --product --max-depth` |
-| Consumers inside the upstream | `GET /db/{db}/activity/{id}/supply-chain/consumers?of=` | – |
+| Consumers inside the upstream | `GET\|POST /db/{db}/activity/{id}/supply-chain/consumers?of=` | – |
 | Path to target | `GET\|POST /db/{db}/activity/{id}/path-to?target=` or `?target-id=` | `path-to ID NAME` |
 | Aggregate | `GET /db/{db}/activity/{id}/aggregate` | – |
 | Life cycle inventory | `GET\|POST /db/{db}/activity/{id}/inventory` | `inventory ID` |

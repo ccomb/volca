@@ -144,6 +144,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "consumers" :> QueryParam "name" Text :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> Get '[JSON] ConsumersResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> QueryParam "target-id" Text :> Get '[JSON] Value
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> "consumers" :> QueryParam "of" Text :> QueryParam "min-quantity" Double :> Get '[JSON] ChainConsumers
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> "consumers" :> QueryParam "of" Text :> QueryParam "min-quantity" Double :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] ChainConsumers
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> QueryParam "target-id" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] Value
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "compare" :> QueryParam "other_process_id" Text :> QueryParam "other_database" Text :> Get '[JSON] ActivityComparison
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "changes-present" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesPresence
@@ -1675,7 +1676,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 117: the path to a supplier asked under parameter values and
+(revision 118: the consumers of an upstream process asked under parameter
+values and swaps, by a POST to the @supply-chain/consumers@ route carrying
+them as the supply-chain POST does;
+revision 117: the path to a supplier asked under parameter values and
 swaps, by a POST to the path-to route carrying them as the supply-chain POST
 does, and the links, depths and consumer counts of a chain under a swap
 following the swap;
@@ -1940,7 +1944,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 117
+currentWireVersion = 118
 
 getVersion :: AppM Value
 getVersion = do
@@ -2839,20 +2843,27 @@ activityPathToCore dbName processIdText targetParam targetIdParam mSub = counted
 with its part of the process's quantity and the lines it buys it on.
 -}
 getChainConsumers :: Text -> Text -> Maybe Text -> Maybe Double -> AppM ChainConsumers
-getChainConsumers dbName processIdText ofParam minQuantity = counted Reading dbName (ProcessKey processIdText) $ do
+getChainConsumers dbName processIdText ofParam minQuantity = chainConsumersCore dbName processIdText ofParam minQuantity Nothing
+
+-- | The consumers under parameter values and swaps, in the chain the supply-chain POST lists.
+postChainConsumers :: Text -> Text -> Maybe Text -> Maybe Double -> SubstitutionRequest -> AppM ChainConsumers
+postChainConsumers dbName processIdText ofParam minQuantity req = chainConsumersCore dbName processIdText ofParam minQuantity (Just req)
+
+chainConsumersCore :: Text -> Text -> Maybe Text -> Maybe Double -> Maybe SubstitutionRequest -> AppM ChainConsumers
+chainConsumersCore dbName processIdText ofParam minQuantity mSub = counted Reading dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
-    (db, solver) <- requireDatabaseByName dbName
     target <- maybe (badRequest "Missing 'of': the process id of the upstream process whose consumers to list, as the upstream list gives it") pure ofParam
-    unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-    refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
-    result <- liftIO $ Service.getChainConsumers unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing minQuantity db dbName solver processIdText target
-    case result of
-        -- The sentence says why the process has no consumers to list; the shared mapping would drop it.
-        Left (Service.ActivityNotFound msg) ->
-            throwError err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
-        Left err -> throwServiceError err
-        Right answer -> return answer
+    withRequestDatabase dbName mSub $ \db solver -> do
+        unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+        refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
+        result <- liftIO $ Service.getChainConsumers unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing minQuantity db dbName solver processIdText (maybe [] srSubstitutions mSub) target
+        case result of
+            -- The sentence says why the process has no consumers to list; the shared mapping would drop it.
+            Left (Service.ActivityNotFound msg) ->
+                throwError err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
+            Left err -> throwServiceError err
+            Right answer -> return answer
 
 -- | One activity against another, in this database or in another loaded one.
 getActivityComparison :: Text -> Text -> Maybe Text -> Maybe Text -> AppM ActivityComparison
@@ -3583,6 +3594,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getActivityConsumers
             :<|> getActivityPathTo
             :<|> getChainConsumers
+            :<|> postChainConsumers
             :<|> postActivityPathTo
             :<|> getActivityComparison
             :<|> postChangesPresent
