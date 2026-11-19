@@ -20,7 +20,7 @@ Then paste the rendered block at the top of this file and tighten wording.
 
 ## [0.15.0] - Unreleased
 
-This release speaks wire revisions 113 to 117, and needs engine 0.19.0. An
+This release speaks wire revisions 113 to 118, and needs engine 0.19.0. An
 older engine is refused when the client first talks to it. Use pyvolca 0.14.3
 with an older engine.
 

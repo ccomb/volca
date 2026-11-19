@@ -2223,11 +2223,13 @@ getChainConsumers ::
     Text ->
     SharedSolver ->
     Text ->
+    -- | the swaps the chain is read under, none for the published process
+    [Substitution] ->
     -- | the process asked about, by the id the supply chain gives it
     Text ->
     IO (Either ServiceError ChainConsumers)
-getChainConsumers unitCfg geographies depLookup refusing minQuantity db dbName solver pidText target =
-    wholeChainOf unitCfg geographies depLookup refusing minQuantity db dbName solver pidText [] >>= \case
+getChainConsumers unitCfg geographies depLookup refusing minQuantity db dbName solver pidText subs target =
+    wholeChainOf unitCfg geographies depLookup refusing minQuantity db dbName solver pidText subs >>= \case
         Left err -> pure (Left err)
         Right wc -> case consumersIn target (wcRoot wc) (wcWithheld wc) (wcCollected wc) of
             Left err -> pure (Left err)
@@ -2338,8 +2340,10 @@ data Attributed = Attributed
 {- | The consumers of a listed process, attributed their parts.
 
 Without a withheld database or a minimum quantity, the parts add up to the
-quantity, up to rounding and to links in different units to one supplier. The rest is returned when it
-exceeds a millionth of the parts, never dropped.
+quantity, up to rounding, to links in different units to one supplier, and to
+a swap for a supplier that buys the one swapped out: that supplier then buys
+itself, a link the chain does not draw. The rest is returned when it exceeds a
+millionth of the parts, never dropped.
 -}
 consumersIn :: Text -> SupplyChainEntry -> [Text] -> Collected -> Either ServiceError Attributed
 consumersIn target root withheld collected

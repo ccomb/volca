@@ -7,7 +7,7 @@ In @solo@ the root buys 2 of A and 1 of B; A buys 0.5 of C per unit, B buys C
 on two lines (0.6 and 0.4); A sends 0.25 per unit of its waste D to be treated,
 a negative input. So C is 2 (1 from A, 1 from B) and D is −0.5.
 -}
-module ChainConsumersSpec (spec) where
+module ChainConsumersSpec (buying, spec) where
 
 import qualified Data.List as L
 import qualified Data.Map.Strict as M

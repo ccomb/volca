@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.15.0** speaks wire formats **113 to 117** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.15.0** speaks wire formats **113 to 118** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -2213,7 +2213,7 @@ Or with no TOML of one's own, the databases and methods named by path::
         client = Client(base_url=srv.base_url, db="agb")
         client.load_database("agb")
 
-**Constructor**: `Server(config: str | None = 'volca.toml', port: Union[int, Literal['auto']] = 0, binary: str = 'volca', databases: collections.abc.Mapping[str, str | pathlib.Path] | None = None, methods: collections.abc.Mapping[str, str | pathlib.Path] | None = None)`
+**Constructor**: `Server(config: str | None = 'volca.toml', port: Union[int, Literal['auto']] = 0, binary: str = 'volca', databases: collections.abc.Mapping[str, str | pathlib._local.Path] | None = None, methods: collections.abc.Mapping[str, str | pathlib._local.Path] | None = None)`
 
 #### Properties
 

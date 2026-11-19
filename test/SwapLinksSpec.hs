@@ -6,7 +6,8 @@ The root buys one unit of C and one of D; C buys 2 of A, D buys 3 of A. B, in
 the same database, is bought by nobody until a swap puts it in A's place; B
 buys half a unit of a process of the dependency. Swapping A for B moves the
 amounts, and the links drawn must move with them: B linked to C and D, A to
-nobody, B at depth 2, its dependency supplier at depth 3.
+nobody, B at depth 2, its dependency supplier at depth 3. C writes its purchase
+of A as a line of its own, which a swap does not rewrite.
 -}
 module SwapLinksSpec (spec) where
 
@@ -14,6 +15,7 @@ import Data.Aeson (Object, Value (..), object, (.=))
 import Data.Aeson.Key (Key)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Foldable (toList)
+import qualified Data.List as L
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -23,15 +25,16 @@ import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
 import API.MCP (callTool, noRequestId)
-import API.Routes (getActivityPathTo, postActivityPathTo)
-import API.Types (Substitution (..), SubstitutionRequest (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..))
+import API.Routes (getActivityPathTo, getChainConsumers, postActivityPathTo, postChainConsumers)
+import API.Types (ChainConsumer (..), ChainConsumers (..), Substitution (..), SubstitutionRequest (..), SubstitutionScope (..), SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..))
 import Database.Cutoffs (gapIndexOf)
-import Service
+import Service hiding (getChainConsumers)
 import TestHelpers (mkDepLookupFromMap, mkSolverFromDb, shippedGeographies)
 import Types
 import UnitConversion (defaultUnitConfig)
 import Usage (anonymous)
 
+import ChainConsumersSpec (buying)
 import CrossDBRegionalLCIAFixture (mkDB)
 import DependencyLicenceSpec (managerOn, producing, referenceOf, runIn)
 import FlowContributionSpec (payloadOf)
@@ -40,7 +43,7 @@ import FlowContributionSpec (payloadOf)
 swapRoot :: Database
 swapRoot =
     base
-        { dbActivities = V.izipWith (\i name act -> act{activityName = name, activityLines = packExchanges [referenceOf (300 + i)]}) (V.fromList ["Root", "Charlie", "Alpha", "Bravo", "Delta"]) (dbActivities base)
+        { dbActivities = V.izipWith (\i name act -> act{activityName = name, activityLines = packExchanges (linesOf i)}) (V.fromList ["Root", "Charlie", "Alpha", "Bravo", "Delta"]) (dbActivities base)
         , dbTechnosphereTriples = U.fromList [SparseTriple 1 0 1.0, SparseTriple 4 0 1.0, SparseTriple 2 1 2.0, SparseTriple 2 4 3.0]
         , dbCrossDBLinks = [boughtByB]
         , dbDependsOn = ["dep"]
@@ -48,6 +51,10 @@ swapRoot =
   where
     base :: Database
     base = mkDB 300 (replicate 5 "FR") []
+
+    linesOf :: Int -> [Exchange]
+    linesOf 1 = [referenceOf 301, buying 302 2.0 "C buys A"]
+    linesOf i = [referenceOf (300 + i)]
 
     boughtByB :: CrossDBLink
     boughtByB =
@@ -133,6 +140,21 @@ pathUnder subs target = do
             ]
     steps _ = []
 
+-- | Each consumer of a listed process under these swaps, with its part and its number of lines, or the HTTP code it was refused with.
+consumersUnder :: [Substitution] -> Text -> IO (Either Int [(Text, Double, Int)])
+consumersUnder subs target = do
+    manager <- managerOn swapRoot dep LicenceUnstated
+    fmap rows
+        <$> runIn
+            manager
+            ( if null subs
+                then getChainConsumers "root" rootP (Just target) Nothing
+                else postChainConsumers "root" rootP (Just target) Nothing (SubstitutionRequest subs [])
+            )
+  where
+    rows :: ChainConsumers -> [(Text, Double, Int)]
+    rows answer = L.sort [(sceProcessId (chnProcess c), chnAmount c, length (chnLines c)) | c <- chcConsumers answer]
+
 -- | The id and the quantity of each step of the path the MCP tool answers, under these arguments.
 mcpPathTo :: [(Key, Value)] -> IO [(Value, Value)]
 mcpPathTo extraArgs = do
@@ -206,3 +228,13 @@ spec = do
         it "is read under the swaps the MCP tool is given" $ do
             path <- mcpPathTo [("target", String "bravo"), ("substitutions", Array (V.singleton (object ["from" .= aP, "to" .= bP])))]
             (length path, last path) `shouldBe` (3, (String bP, Number 5))
+
+    describe "the consumers of a process under a swap" $ do
+        it "list where the swap put the new supplier, with no line of the database under it" $
+            consumersUnder [swapAtC] bP `shouldReturn` Right [(cP, 2.0, 0)]
+
+        it "no longer list the consumer the swap took the old supplier from" $
+            consumersUnder [swapAtC] aP `shouldReturn` Right [(dP, 3.0, 0)]
+
+        it "are the published ones, with their lines, with no swap" $
+            consumersUnder [] aP `shouldReturn` Right [(cP, 2.0, 1), (dP, 3.0, 0)]
