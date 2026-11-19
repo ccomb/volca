@@ -839,7 +839,8 @@ description r = case r of
         \cumulativeQuantityPerUnit (cumulative amount for 1 unit of the \
         \reference product; see the top-level 'functionalUnit'), scalingFactor, \
         \localStepRatio (supplier's ÷ consumer's scalingFactor); total_ratio, \
-        \their product, is the end-to-end conversion factor."
+        \their product, is the end-to-end conversion factor. Under \
+        \substitutions, read in the chain get_supply_chain lists with them."
     GetConsumers ->
         "LCA / ACV: every process consuming a supplier, directly or \
         \not, as a flat list; crDepth 1 = direct consumer, 2 = \
@@ -1527,6 +1528,8 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "target" "string" Required "Case-insensitive name substring to stop at"
+        , pSubstitutions
+        , pParameters
         ]
     CountSearchMatches ->
         [ pDatabase
