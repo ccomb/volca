@@ -243,9 +243,11 @@ Scoring sets are what `list_scoring_sets` / `score_activity` /
 
 ### What-if and cross-database solving
 
-- **What-if substitution** – `Matrix.perturbA` / `perturbABatch` apply an upstream
-  activity swap to the `A` matrix and the system is re-solved, yielding a modified
-  inventory and impacts in one call (~120 ms) without touching the original database.
+- **What-if substitution** – `Matrix.rankOneCarry` applies an upstream activity swap
+  to the `A` matrix as a rank-1 update on the cached factorisation, and `carriedBy`
+  chains several swaps; `perturbABatch` answers many separate perturbations at once.
+  The modified inventory and impacts come in one call without touching the original
+  database.
 - **Cross-DB solving** – when a database declares `dbCrossDBLinks` (e.g. a sector
   database referencing Agribalyse), the root scaling vector feeds supplier demand
   vectors into each dependency database. Each dependency runs its own multi-RHS

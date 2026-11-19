@@ -616,7 +616,7 @@ data ExplainedStepAPI = ExplainedStepAPI
 
 @delta@ is __relative__: the resolved coefficient @a@ is multiplied by
 @(1 + delta)@. So @delta = +0.05@ means \"+5%\", and @delta = -1.0@
-removes the link entirely. The kernel passes @a * delta@ to 'perturbA'.
+removes the link entirely. The kernel passes @a * delta@ to 'perturbABatch'.
 -}
 data Perturbation = Perturbation
     { perConsumer :: Text -- Consumer ProcessId (column j of A) – root DB only in V1

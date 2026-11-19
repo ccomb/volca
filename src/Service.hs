@@ -3350,28 +3350,17 @@ data DepRef = DepRef
     , drRef :: !ProcessRef
     }
 
-{- | A planned rank-1 perturbation of one consumer column plus any virtual
-cross-DB links the substitution introduces or cancels. Computed purely
-from resolved endpoints by 'planUpdate'; consumed effectfully by
-'applyRankOne'. Separating the two keeps the four substitution cases
-out of the IO layer and makes them straightforward to test in isolation.
+{- | A planned rank-1 update @(I-A) + u·vᵀ@ for one swap, plus the virtual
+cross-DB links it introduces or cancels. @ruU@ is the supplier-axis
+perturbation; @ruV@ the consumer-axis projection: @e_consumer@ for a swap at
+one consumer ('planUpdate'), the replaced supplier's technosphere row for a
+swap at every consumer ('planGlobalWithinDB'). Planned purely from resolved
+endpoints, applied by 'rankOneCarry'.
 -}
 data RankOneUpdate = RankOneUpdate
-    { ruConsumerPid :: !ProcessId
-    , ruPerturb :: ![(Int, Double)]
-    , ruExtras :: ![CrossDBLink]
-    }
-
-{- | A planned __global__ rank-1 update: replace one supplier by another on
-every consumer at once. @gruU@ is the supplier-axis perturbation, @gruV@
-the consumer-axis projection (the replaced supplier's technosphere row),
-and @gruExtras@ the virtual cross-DB links (only when the new supplier
-lives in a dep DB). Consumed by 'rankOneCarry'. See 'planGlobalWithinDB'.
--}
-data GlobalRankOneUpdate = GlobalRankOneUpdate
-    { gruU :: ![(Int, Double)]
-    , gruV :: ![(Int, Double)]
-    , gruExtras :: ![CrossDBLink]
+    { ruU :: ![(Int, Double)]
+    , ruV :: ![(Int, Double)]
+    , ruLinks :: ![CrossDBLink]
     }
 
 {- | The two ends of one technosphere coefficient @A[supplier, consumer]@.
@@ -3395,7 +3384,7 @@ data Swap = Swap
 
 {- | The replaced supplier's technosphere row: every consumer that sources
 from @supplier@, paired with the (normalized) coefficient. Index space
-matches 'perturbA' / 'findTechCoefficient' (ProcessId == matrix index).
+matches 'rankOneCarry' / 'findTechCoefficient' (ProcessId == matrix index).
 Empty when the supplier is consumed nowhere.
 -}
 technosphereRow :: Database -> ProcessId -> [(Int, Double)]
@@ -3453,23 +3442,25 @@ substitutionUnitFactor unitCfg db (Swap fromPid toPid) = do
 removes it from every consumer; the @-κ@ at @to@ adds the unit-converted
 demand. No virtual links (both suppliers live in this DB).
 -}
-planGlobalWithinDB :: UnitConfig -> Database -> Swap -> Either ServiceError GlobalRankOneUpdate
+planGlobalWithinDB :: UnitConfig -> Database -> Swap -> Either ServiceError RankOneUpdate
 planGlobalWithinDB unitCfg db swap@(Swap fromPid toPid) = do
     v <- requireConsumers db fromPid
     kappa <- substitutionUnitFactor unitCfg db swap
-    Right $ GlobalRankOneUpdate [(fromIntegral fromPid, 1.0), (fromIntegral toPid, negate kappa)] v []
+    Right $ RankOneUpdate [(fromIntegral fromPid, 1.0), (fromIntegral toPid, negate kappa)] v []
 
-{- | One substitution, resolved and planned: the supplier it replaces, where
-(one consumer, or 'Nothing' for every consumer of it), and its rank-1 update
-@(I-A) + u·vᵀ@ with the virtual cross-DB links it adds or cancels.
--}
+-- | A supplier, by its database and its process.
+data Supplier = Supplier !Text !ProcessId
+    deriving (Eq)
+
+-- | Where a swap applies, once its consumer is resolved.
+data SwapAt = AtEveryConsumer | AtConsumer !ProcessId
+
+-- | One substitution, resolved and planned: the supplier it swaps out, where, and its update.
 data PlannedSwap = PlannedSwap
     { psSub :: !Substitution
-    , psReplaced :: !(Text, ProcessId)
-    , psAt :: !(Maybe ProcessId)
-    , psU :: ![(Int, Double)]
-    , psV :: ![(Int, Double)]
-    , psLinks :: ![CrossDBLink]
+    , psSwappedOut :: !Supplier
+    , psAt :: !SwapAt
+    , psUpdate :: !RankOneUpdate
     }
 
 {- | Two swaps of one supplier at one consumer would each remove the
@@ -3487,11 +3478,22 @@ refuseOverlaps planned = case [(a, b) | (a : rest) <- L.tails planned, b <- rest
                 <> subTo (psSub a)
                 <> " and by "
                 <> subTo (psSub b)
-                <> " replace it at the same consumer: keep one"
+                <> " swap it out at the same consumer: keep one"
   where
-    meet a b = psReplaced a == psReplaced b && sameConsumer (psAt a) (psAt b)
-    sameConsumer (Just x) (Just y) = x == y
-    sameConsumer _ _ = True
+    meet :: PlannedSwap -> PlannedSwap -> Bool
+    meet a b = psSwappedOut a == psSwappedOut b && sameConsumer (psAt a) (psAt b)
+
+    sameConsumer :: SwapAt -> SwapAt -> Bool
+    sameConsumer (AtConsumer x) (AtConsumer y) = x == y
+    sameConsumer AtEveryConsumer _ = True
+    sameConsumer _ AtEveryConsumer = True
+
+-- | The scalings and virtual links the swaps applied so far leave, and the solver of the system they leave.
+data Carried = Carried
+    { crScalings :: ![U.Vector Double]
+    , crLinks :: ![CrossDBLink]
+    , crSolve :: !Solve
+    }
 
 {- | Apply all substitutions whose consumer lives in @thisDbName@ to the
 given scaling vectors. Substitutions whose consumer lives elsewhere are
@@ -3538,8 +3540,8 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
         localSubs -> runExceptT $ do
             planned <- traverse plan localSubs
             hoistEither (refuseOverlaps planned)
-            (xs, links, _) <- foldM apply (scalings, [], suppliesFor thisDb solver) planned
-            pure (xs, links)
+            done <- foldM apply (Carried scalings [] (suppliesFor thisDb solver)) planned
+            pure (crScalings done, crLinks done)
   where
     thisDbName = unThisDb thisDbObj
 
@@ -3559,27 +3561,34 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
     -- failing 'from' wins when both refs are unresolvable. A 'OneEdge' sub
     -- swaps the supplier on its single consumer column; an 'AllConsumers'
     -- sub swaps it on every consumer at once via one global rank-1 update.
+    plan :: Substitution -> ExceptT ServiceError IO PlannedSwap
     plan sub = case subScope sub of
         OneEdge cRef -> do
             let (_, cPidText) = parseSubRef rootDb cRef
             (cPid, _) <- hoistEither $ resolveScorable thisDb cPidText
             (fromEp, toEp) <- resolveFromTo sub
-            upd <- hoistEither $ planUpdate sub cPid fromEp toEp
-            pure $ PlannedSwap sub (endpointKey fromEp) (Just cPid) (ruPerturb upd) [(fromIntegral cPid, 1.0)] (ruExtras upd)
+            PlannedSwap sub (supplierOf fromEp) (AtConsumer cPid) <$> hoistEither (planUpdate sub cPid fromEp toEp)
         AllConsumers -> do
             (fromEp, toEp) <- resolveFromTo sub
-            gupd <- hoistEither $ planGlobalUpdate fromEp toEp
-            pure $ PlannedSwap sub (endpointKey fromEp) Nothing (gruU gupd) (gruV gupd) (gruExtras gupd)
+            PlannedSwap sub (supplierOf fromEp) AtEveryConsumer <$> hoistEither (planGlobalUpdate fromEp toEp)
 
-    endpointKey (Here pid) = (thisDbName, pid)
-    endpointKey (Elsewhere ref) = (drDbName ref, drPid ref)
+    supplierOf :: Endpoint -> Supplier
+    supplierOf (Here pid) = Supplier thisDbName pid
+    supplierOf (Elsewhere ref) = Supplier (drDbName ref) (drPid ref)
 
     -- Each update is solved by the system the earlier ones left, and hands
     -- the next one the system it leaves: a second swap reaching a consumer
     -- the first one changed reads that consumer's new supplier.
-    apply (xs, links, solve) ps = do
-        carry <- ExceptT $ first MatrixError <$> rankOneCarry solve (fromIntegral (dbActivityCount thisDb)) (psU ps) (psV ps)
-        pure (map carry xs, links ++ psLinks ps, carriedBy carry solve)
+    apply :: Carried -> PlannedSwap -> ExceptT ServiceError IO Carried
+    apply (Carried xs links solve) ps = do
+        let upd = psUpdate ps
+        carry <- ExceptT $ first (singularAt (psSub ps)) <$> rankOneCarry solve (fromIntegral (dbActivityCount thisDb)) (ruU upd) (ruV upd)
+        pure (Carried (map carry xs) (links ++ ruLinks upd) (carriedBy carry solve))
+
+    -- Name the swap a refusal comes from: a singular system can depend on
+    -- the swaps listed before it.
+    singularAt :: Substitution -> Text -> ServiceError
+    singularAt sub why = MatrixError $ "The swap of " <> subFrom sub <> " by " <> subTo sub <> ", after the swaps listed before it: " <> why
 
     resolveFromTo sub = do
         let (fromDb, fromPidText) = parseSubRef rootDb (subFrom sub)
@@ -3601,8 +3610,8 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
         a <- requireTech sub cPid fromPid
         Right $
             RankOneUpdate
-                cPid
                 [(fromIntegral fromPid, a), (fromIntegral toPid, -a)]
+                (atConsumer cPid)
                 []
     -- Case B: drop this-DB oldSup, route demand to other-DB newSup.
     -- aRaw = aNorm * normFactor (the cross-DB link stores *raw* coefficients).
@@ -3610,14 +3619,14 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
         a <- requireTech sub cPid fromPid
         let aRaw = a * activityNormalizationFactor thisDb cPid
             newLk = virtualLinkTo cPid toRef aRaw
-        Right $ RankOneUpdate cPid [(fromIntegral fromPid, a)] [newLk]
+        Right $ RankOneUpdate [(fromIntegral fromPid, a)] (atConsumer cPid) [newLk]
     -- Case C: cancel existing cross-DB link, pull new this-DB supplier.
     planUpdate sub cPid (Elsewhere fromRef) (Here toPid) = do
         s <- requireStatic sub cPid fromRef
         let aRaw = cdlCoefficient s
             aNorm = aRaw / activityNormalizationFactor thisDb cPid
             cancel = s{cdlCoefficient = -aRaw}
-        Right $ RankOneUpdate cPid [(fromIntegral toPid, -aNorm)] [cancel]
+        Right $ RankOneUpdate [(fromIntegral toPid, -aNorm)] (atConsumer cPid) [cancel]
     -- Case D: re-route demand between two other DBs; this-DB x unchanged.
     -- Unlike Case B, the new-link coefficient is the *raw* static value,
     -- not aNorm*normFactor – we're forwarding what the cancelled link carried.
@@ -3626,13 +3635,17 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
         let aRaw = cdlCoefficient s
             cancel = s{cdlCoefficient = -aRaw}
             newLk = virtualLinkTo cPid toRef aRaw
-        Right $ RankOneUpdate cPid [] [cancel, newLk]
+        Right $ RankOneUpdate [] (atConsumer cPid) [cancel, newLk]
 
     -- Global swap @from → to@ over every consumer of @from@. @from@ must
     -- live in this (root) DB; @to@ either lives here (within-DB, two-sided
     -- rank-1 with unit factor κ) or in a dep DB (one-sided removal of @from@
     -- plus one virtual link per consumer carrying its raw demand to @to@).
-    planGlobalUpdate :: Endpoint -> Endpoint -> Either ServiceError GlobalRankOneUpdate
+    -- The projection of a swap at one consumer: that consumer's column.
+    atConsumer :: ProcessId -> [(Int, Double)]
+    atConsumer cPid = [(fromIntegral cPid, 1.0)]
+
+    planGlobalUpdate :: Endpoint -> Endpoint -> Either ServiceError RankOneUpdate
     planGlobalUpdate fromEp toEp = case fromEp of
         Elsewhere _ ->
             Left $ MatrixError "a global swap requires the supplier swapped out (from) to live in the root database"
@@ -3644,7 +3657,7 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
                         [ virtualLinkTo (fromIntegral j) toRef (a * activityNormalizationFactor thisDb (fromIntegral j))
                         | (j, a) <- v
                         ]
-                Right $ GlobalRankOneUpdate [(fromIntegral fromPid, 1.0)] v links
+                Right $ RankOneUpdate [(fromIntegral fromPid, 1.0)] v links
 
     virtualLinkTo :: ProcessId -> DepRef -> Double -> CrossDBLink
     virtualLinkTo = mkVirtualLink thisDb
