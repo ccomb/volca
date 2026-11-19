@@ -371,6 +371,36 @@ data SupplyChainEdge = SupplyChainEdge
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped SupplyChainEdge)
 
+{- | The consumers, inside one root's upstream, of one process it lists: who
+buys it, how much of its quantity each one accounts for, and on which lines.
+-}
+data ChainConsumers = ChainConsumers
+    { chcProcess :: SupplyChainEntry -- the process asked about, as the upstream lists it
+    , chcConsumers :: [ChainConsumer]
+    , chcUnexplained :: Maybe Unexplained -- the part of the quantity no listed consumer accounts for, when there is one
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ChainConsumers)
+
+data ChainConsumer = ChainConsumer
+    { chnProcess :: SupplyChainEntry -- the consumer, as the upstream lists it; the root is listed at depth 0
+    , chnAmount :: Double -- its part of the asked process's quantity, in that process's unit, for one unit of the root's product
+    , chnLines :: [ExchangeWithUnit] -- its lines buying the asked process, as its own page shows them; none when no line names that supplier
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped ChainConsumer)
+
+{- | What the listed consumers leave of a quantity: consumers in databases
+whose licence keeps their amounts are not listed, and links in different units
+to one supplier can leave a small rest.
+-}
+data Unexplained = Unexplained
+    { unxAmount :: Double
+    , unxWithheld :: [Text] -- the databases of the upstream whose licence keeps their amounts
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped Unexplained)
+
 {- | Request body for POST endpoints that accept substitutions and parameter
 values. The parameters are set first, then the substitutions are made on the
 database at those values.
