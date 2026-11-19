@@ -33,7 +33,8 @@ module Matrix (
     Solve,
     perturbA,
     perturbABatch,
-    perturbGlobal,
+    rankOneCarry,
+    carriedBy,
     applyShermanMorrison,
     applyShermanMorrisonV,
     buildDemandVector,
@@ -297,9 +298,7 @@ perturbA ::
     [(Int, Double)] ->
     -- | Perturbed scaling vector x'
     IO (Either T.Text Vector)
-perturbA solve x col perturb
-    | null perturb = pure (Right x)
-    | otherwise = (>>= applyShermanMorrison x col) <$> solveRankOneZ solve (U.length x) perturb
+perturbA solve x col perturb = fmap ($ x) <$> rankOneCarry solve (U.length x) perturb [(col, 1.0)]
 
 {- | Solve the system for several right-hand sides at once, answering in their
 order, or say why one of them has no answer: the one way the rank-1 paths
@@ -308,8 +307,7 @@ reach a solver, so a solver that corrects its answers is never bypassed.
 type Solve = [Vector] -> IO (Either Text [Vector])
 
 {- | Solve @z = inv(I-A) * u@ for a sparse supplier-axis perturbation @u@.
-Shared by the per-edge ('perturbA') and global ('perturbGlobal') rank-1 paths
-so the back-sub plumbing lives in one place.
+Shared by every rank-1 path so the back-sub plumbing lives in one place.
 -}
 solveRankOneZ :: Solve -> Int -> [(Int, Double)] -> IO (Either T.Text Vector)
 solveRankOneZ solve n perturb =
@@ -333,37 +331,45 @@ consumer of one activity at once) in a single back-substitution. @z =
 inv(I-A)·u@ is supplied by the caller.
 -}
 applyShermanMorrisonV :: Vector -> [(Int, Double)] -> Vector -> Either T.Text Vector
-applyShermanMorrisonV x v z =
-    let dot w = sum [c * (w U.! i) | (i, c) <- v]
-        denom = 1.0 + dot z
-     in if abs denom < 1e-12
-            then Left "Sherman-Morrison update is singular \x2014 perturbation drives (I-A) into a degenerate state"
-            else
-                let scale = dot x / denom
-                 in Right $ U.imap (\i xi -> xi - scale * (z U.! i)) x
+applyShermanMorrisonV x v z = ($ x) <$> shermanMorrison v z
 
-{- | Rank-1 update for a __global__ supplier substitution: replace activity
-@A@ by @B@ in every consumer that sources from @A@, in one solve. @u@ is the
-supplier-axis perturbation (@e_A - κ·e_B@ within a DB, or @e_A@ alone when
-@B@ lives in a dependency DB); @v@ is the consumer-axis projection – @A@'s
-technosphere row (its coefficient at each consumer). The single back-sub
-@z = inv(I-A)·u@ replaces the @N@ solves an edge-by-edge expansion needs.
-
-An empty @u@ or @v@ leaves @x@ unchanged; callers surface "A consumed
-nowhere" as an explicit error before reaching here, so an empty @v@ is
-never a silent no-op in practice.
+{- | Sherman-Morrison for @(I-A) + u·vᵀ@ given @z = inv(I-A)·u@: how a
+solution @x@ of the system becomes the solution of the updated one, @x - z·(v·x)/(1 + v·z)@.
+Refused when @1 + v·z@ vanishes, which means the update makes the system singular.
 -}
-perturbGlobal ::
+shermanMorrison :: [(Int, Double)] -> Vector -> Either T.Text (Vector -> Vector)
+shermanMorrison v z
+    | abs denom < 1e-12 = Left "Sherman-Morrison update is singular \x2014 perturbation drives (I-A) into a degenerate state"
+    | otherwise = Right (\x -> let scale = dot x / denom in U.imap (\i xi -> xi - scale * (z U.! i)) x)
+  where
+    dot w = sum [c * (w U.! i) | (i, c) <- v]
+    denom = 1.0 + dot z
+
+{- | How a solution of the system becomes the solution once @(I-A) + u·vᵀ@
+replaces it, by Sherman-Morrison with @z = inv(I-A)·u@ solved here, once.
+With @v = e_col@ this is one coefficient's change ('perturbA'); with @v@ a
+supplier's row it swaps that supplier on every consumer at once. An empty @u@
+or @v@ changes nothing and solves nothing.
+
+Several updates chain only when each one's @z@ is solved by the system the
+earlier ones left: 'carriedBy' gives that system's solver.
+-}
+rankOneCarry ::
     Solve ->
-    Vector ->
+    -- | Size of the system
+    Int ->
     -- | u : sparse supplier-axis perturbation
     [(Int, Double)] ->
-    -- | v : sparse consumer-axis projection (A's technosphere row)
+    -- | v : sparse consumer-axis projection
     [(Int, Double)] ->
-    IO (Either T.Text Vector)
-perturbGlobal solve x u v
-    | null u || null v = pure (Right x)
-    | otherwise = (>>= applyShermanMorrisonV x v) <$> solveRankOneZ solve (U.length x) u
+    IO (Either T.Text (Vector -> Vector))
+rankOneCarry solve n u v
+    | null u || null v = pure (Right id)
+    | otherwise = (>>= shermanMorrison v) <$> solveRankOneZ solve n u
+
+-- | The solver of the updated system: every answer of the solver before it, carried.
+carriedBy :: (Vector -> Vector) -> Solve -> Solve
+carriedBy carry solve = fmap (fmap (map carry)) . solve
 
 {- |
 Batched 'perturbA': computes z_k = inv(I-A) * u_k for every non-empty

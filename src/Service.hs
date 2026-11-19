@@ -36,7 +36,7 @@ import Database.Author (lineSelector)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, cutoffsReached, gapIndexOf)
 import Database.MatrixBuild (findProducer, linkedProducer)
 import Impact (PartScore (..))
-import Matrix (Demand (..), DepDemands, Inventory, Solve, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, depDemandsToVector, inSupplierUnit, linkConsumer, perturbA, perturbABatch, perturbGlobal, processScaling, toList)
+import Matrix (Demand (..), DepDemands, Inventory, Solve, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, carriedBy, depDemandsToVector, inSupplierUnit, linkConsumer, perturbABatch, processScaling, rankOneCarry, toList)
 import qualified Matrix.Export as MatrixExport
 import Method.Mapping (LongTermMode (..))
 import qualified Method.Mapping as Mapping
@@ -3366,7 +3366,7 @@ data RankOneUpdate = RankOneUpdate
 every consumer at once. @gruU@ is the supplier-axis perturbation, @gruV@
 the consumer-axis projection (the replaced supplier's technosphere row),
 and @gruExtras@ the virtual cross-DB links (only when the new supplier
-lives in a dep DB). Consumed by 'perturbGlobal'. See 'planGlobalWithinDB'.
+lives in a dep DB). Consumed by 'rankOneCarry'. See 'planGlobalWithinDB'.
 -}
 data GlobalRankOneUpdate = GlobalRankOneUpdate
     { gruU :: ![(Int, Double)]
@@ -3459,6 +3459,40 @@ planGlobalWithinDB unitCfg db swap@(Swap fromPid toPid) = do
     kappa <- substitutionUnitFactor unitCfg db swap
     Right $ GlobalRankOneUpdate [(fromIntegral fromPid, 1.0), (fromIntegral toPid, negate kappa)] v []
 
+{- | One substitution, resolved and planned: the supplier it replaces, where
+(one consumer, or 'Nothing' for every consumer of it), and its rank-1 update
+@(I-A) + u·vᵀ@ with the virtual cross-DB links it adds or cancels.
+-}
+data PlannedSwap = PlannedSwap
+    { psSub :: !Substitution
+    , psReplaced :: !(Text, ProcessId)
+    , psAt :: !(Maybe ProcessId)
+    , psU :: ![(Int, Double)]
+    , psV :: ![(Int, Double)]
+    , psLinks :: ![CrossDBLink]
+    }
+
+{- | Two swaps of one supplier at one consumer would each remove the
+coefficient the database lists there, leaving a negative amount of it. A swap
+at every consumer meets any other swap of its supplier.
+-}
+refuseOverlaps :: [PlannedSwap] -> Either ServiceError ()
+refuseOverlaps planned = case [(a, b) | (a : rest) <- L.tails planned, b <- rest, meet a b] of
+    [] -> Right ()
+    (a, b) : _ ->
+        Left . MatrixError $
+            "The swaps of "
+                <> subFrom (psSub a)
+                <> " by "
+                <> subTo (psSub a)
+                <> " and by "
+                <> subTo (psSub b)
+                <> " replace it at the same consumer: keep one"
+  where
+    meet a b = psReplaced a == psReplaced b && sameConsumer (psAt a) (psAt b)
+    sameConsumer (Just x) (Just y) = x == y
+    sameConsumer _ _ = True
+
 {- | Apply all substitutions whose consumer lives in @thisDbName@ to the
 given scaling vectors. Substitutions whose consumer lives elsewhere are
 skipped at this level – they'll match at the DB where their consumer
@@ -3501,7 +3535,11 @@ applySubstitutionsAt ::
 applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings allSubs =
     case filter anchorLivesHere allSubs of
         [] -> pure $ Right (scalings, [])
-        localSubs -> runExceptT $ foldM step (scalings, []) localSubs
+        localSubs -> runExceptT $ do
+            planned <- traverse plan localSubs
+            hoistEither (refuseOverlaps planned)
+            (xs, links, _) <- foldM apply (scalings, [], suppliesFor thisDb solver) planned
+            pure (xs, links)
   where
     thisDbName = unThisDb thisDbObj
 
@@ -3517,25 +3555,31 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
         let (aDb, _) = parseSubRef rootDb (subAnchorRef sub)
          in aDb == thisDbName
 
-    -- Resolve, plan, and apply one substitution; thread the K scalings and
-    -- the accumulated virtual links. 'from' is resolved before 'to' so a
+    -- Resolve and plan one substitution. 'from' is resolved before 'to' so a
     -- failing 'from' wins when both refs are unresolvable. A 'OneEdge' sub
     -- swaps the supplier on its single consumer column; an 'AllConsumers'
     -- sub swaps it on every consumer at once via one global rank-1 update.
-    solve = suppliesFor thisDb solver
-    step (xs, links) sub = case subScope sub of
+    plan sub = case subScope sub of
         OneEdge cRef -> do
             let (_, cPidText) = parseSubRef rootDb cRef
             (cPid, _) <- hoistEither $ resolveScorable thisDb cPidText
             (fromEp, toEp) <- resolveFromTo sub
             upd <- hoistEither $ planUpdate sub cPid fromEp toEp
-            (xs', extra) <- ExceptT $ applyRankOne xs upd
-            pure (xs', links ++ extra)
+            pure $ PlannedSwap sub (endpointKey fromEp) (Just cPid) (ruPerturb upd) [(fromIntegral cPid, 1.0)] (ruExtras upd)
         AllConsumers -> do
             (fromEp, toEp) <- resolveFromTo sub
             gupd <- hoistEither $ planGlobalUpdate fromEp toEp
-            (xs', extra) <- ExceptT $ applyGlobalRankOne xs gupd
-            pure (xs', links ++ extra)
+            pure $ PlannedSwap sub (endpointKey fromEp) Nothing (gruU gupd) (gruV gupd) (gruExtras gupd)
+
+    endpointKey (Here pid) = (thisDbName, pid)
+    endpointKey (Elsewhere ref) = (drDbName ref, drPid ref)
+
+    -- Each update is solved by the system the earlier ones left, and hands
+    -- the next one the system it leaves: a second swap reaching a consumer
+    -- the first one changed reads that consumer's new supplier.
+    apply (xs, links, solve) ps = do
+        carry <- ExceptT $ first MatrixError <$> rankOneCarry solve (fromIntegral (dbActivityCount thisDb)) (psU ps) (psV ps)
+        pure (map carry xs, links ++ psLinks ps, carriedBy carry solve)
 
     resolveFromTo sub = do
         let (fromDb, fromPidText) = parseSubRef rootDb (subFrom sub)
@@ -3612,23 +3656,6 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
     requireStatic sub cPid fromRef =
         maybe (Left $ noStaticLink sub cPid (drDbName fromRef) (drPid fromRef)) Right $
             findStaticCrossDBLink thisDb cPid (drDbName fromRef) (drRef fromRef)
-
-    applyRankOne xs upd = do
-        -- Apply the same rank-1 update to each of the K vectors. z depends
-        -- only on u (not x); a future optimization can compute z once.
-        results <-
-            mapM
-                (\x -> perturbA solve x (fromIntegral (ruConsumerPid upd)) (ruPerturb upd))
-                xs
-        pure $ case sequence results of
-            Left msg -> Left (MatrixError msg)
-            Right xs' -> Right (xs', ruExtras upd)
-
-    applyGlobalRankOne xs gupd = do
-        results <- mapM (\x -> perturbGlobal solve x (gruU gupd) (gruV gupd)) xs
-        pure $ case sequence results of
-            Left msg -> Left (MatrixError msg)
-            Right xs' -> Right (xs', gruExtras gupd)
 
     noTechLink sub cPid =
         MatrixError $

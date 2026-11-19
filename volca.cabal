@@ -293,6 +293,7 @@ test-suite lca-tests
                      , IndexInjectivitySpec
                      , MatrixExportSpec
                      , MethodSpec
+                     , MultiSwapSpec
                      , MethodPatchSpec
                      , MethodConfigScoringSpec
                      , ExchangePatchSpec
