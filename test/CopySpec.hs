@@ -27,7 +27,9 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Test.Hspec
 
-import API.Types (ParameterValue (..), ScenarioAPI (..))
+import API.DatabaseHandlers (copyDatabaseHandler)
+import API.Types (ActivateResponse (..), DatabaseStatusAPI (..), ParameterValue (..), ScenarioAPI (..))
+import App.Env (AppEnv (..), runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import Database (buildDatabaseWithMatrices)
 import Database.Edit (copyDatabase, refusalMessage)
@@ -40,6 +42,7 @@ import Database.Manager (
 import Database.Scenarios (dropScenario, listScenarios, saveScenario, savedForExport)
 import qualified Database.UploadedDatabase as UploadedDB
 import Matrix (buildDemandVector)
+import Servant (runHandler)
 import SharedSolver (
     SharedSolver,
     createSharedSolver,
@@ -219,6 +222,14 @@ spec = around_ withScratchDataDir $ describe "Database.Edit copy primitive" $ do
         copyNames `shouldSatisfy` (not . null)
         copyNames `shouldSatisfy` all (\n -> not ("/" `isInfixOf` n) && not (".." `isInfixOf` n))
 
+    it "answers over HTTP the copy's status, named as registered" $ do
+        -- A client typed a name; the answer is how it finds the copy again.
+        manager <- initDatabaseManager defaultConfig NoCache
+        srcDb <- buildOrFail (supplierDB 950 ["p1", "p2"])
+        installLoaded manager "source" srcDb
+        answer <- runHandler (runApp (envOf manager) (copyDatabaseHandler "source" "My copy"))
+        fmap (fmap dsaName . arDatabase) answer `shouldBe` Right (Just "my-copy")
+
     it "rejects a copy name with no usable characters" $ do
         manager <- initDatabaseManager defaultConfig NoCache
         srcDb <- buildOrFail (supplierDB 900 ["p1", "p2"])
@@ -385,6 +396,21 @@ mkConfig name =
         , dcRelease = Nothing
         , dcRequires = []
         , dcAdded = Nothing
+        }
+
+-- | An engine around the manager, unhosted, as a local server runs.
+envOf :: DatabaseManager -> AppEnv
+envOf manager =
+    AppEnv
+        { aeDbManager = manager
+        , aeMaxTreeDepth = 5
+        , aePassword = Nothing
+        , aeHostingConfig = Nothing
+        , aeClassificationPresets = []
+        , aeDataVersion = Nothing
+        , aeUsageLog = Nothing
+        , aeReader = Nothing
+        , aeAuthor = Nothing
         }
 
 -- | The name a copy was registered under.

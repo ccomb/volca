@@ -650,7 +650,8 @@ coverageReportToAPI mLimit r =
             }
 
 {- | Copy a loaded database under a new name. The copy is an independent
-in-memory database registered under @newName@; the source is untouched.
+in-memory database registered under the slug of @newName@, which the status
+answered names; the source is untouched.
 -}
 copyDatabaseHandler :: Text -> Text -> AppM ActivateResponse
 copyDatabaseHandler dbName newName = do
