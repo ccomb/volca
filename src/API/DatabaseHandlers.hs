@@ -343,7 +343,7 @@ import Types (
     BiosphereFlow (..),
     BlockerReason (..),
     ClassificationFilter (..),
-    ClassificationMode,
+    ClassificationMode (..),
     Database (..),
     DisplayName,
     FileReading (..),
@@ -761,10 +761,8 @@ deleteActivitiesHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
     origin <- httpOrigin
-    -- A mode word the engine does not know refuses the whole request: reading
-    -- it as contains would turn an exclusion into the opposite.
     (classFilters, leftOut) <-
-        either (failWith err400) pure (modeled (dsqClassifications req))
+        either (failWith err400) pure (readFilters (dsqClassifications req))
     let
         -- A present-but-blank filter (e.g. JSON "name":"") is no filter at all.
         -- Collapse it to Nothing so name candidates fall back to "all activities"
@@ -808,8 +806,24 @@ deleteActivitiesHandler dbName req = do
                     , dsrWarnings = doWarnings outcome
                     }
   where
-    modeled :: [DeleteClassFilter] -> Either Text ([ClassificationFilter], [ClassificationFilter])
-    modeled entries = splitByMode <$> traverse entry entries
+    {- A mode word the engine does not know refuses the whole request: reading
+    it as contains would turn an exclusion into the opposite. A blank exclusion
+    is refused too, where a search drops it: dropped, it would widen the delete
+    (no filter, one process kept and a blank name would delete all the others). -}
+    readFilters :: [DeleteClassFilter] -> Either Text ([ClassificationFilter], [ClassificationFilter])
+    readFilters entries = do
+        parsed <- traverse entry entries
+        refuseBlank
+            [ ("excludeName", fromMaybe [] (dsqExcludeName req))
+            , ("excludeLocation", fromMaybe [] (dsqExcludeLocation req))
+            , ("classifications", [value | (Excluding _, _, value) <- parsed])
+            ]
+        pure (splitByMode parsed)
+
+    refuseBlank :: [(Text, [Text])] -> Either Text ()
+    refuseBlank fields = case [field | (field, values) <- fields, any (T.null . T.strip) values] of
+        [] -> Right ()
+        field : _ -> Left (field <> " has a blank entry. Remove it: a blank exclusion is refused rather than ignored, because ignoring it would widen the delete.")
 
     entry :: DeleteClassFilter -> Either Text (ClassificationMode, Text, Text)
     entry f = do

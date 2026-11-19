@@ -304,10 +304,26 @@ spec = describe "classification filter match mode" $ do
                 Right _ -> expectationFailure "an unknown mode was accepted"
             activitiesLeft other `shouldReturn` Just activityTotal
 
-        it "drops a blank exclusion instead of leaving everything out" $ do
-            (manager, _) <- loadedFixture
-            rest <- runRest manager (deleteActivitiesHandler fixtureName (deleteRequestWith "contains"){dsqExcludeName = Just ["", "  "], dsqExcludeLocation = Just [""]})
-            fmap dsrDeleted rest `shouldBe` Right 2
+        -- Dropped, a blank exclusion would widen the delete: with no filter and one
+        -- process kept, it would delete every process but that one.
+        describe "refuses a blank exclusion, naming the field, and leaves the database alone"
+            $ forM_
+                [ ("excludeName", \req -> req{dsqExcludeName = Just [" "]})
+                , ("excludeLocation", \req -> req{dsqExcludeLocation = Just [""]})
+                , ("classifications", \req -> req{dsqClassifications = [DeleteClassFilter "category" "  " "not-contains"]})
+                ]
+            $ \(field, blank) ->
+                it (T.unpack field) $ do
+                    (manager, db) <- loadedFixture
+                    root <- processOf db rootU
+                    let everythingButRoot = (deleteRequest False){dsqClassifications = [], dsqKeep = [root], dsqSpare = False}
+                    refused <- runRest manager (deleteActivitiesHandler fixtureName (blank everythingButRoot))
+                    case refused of
+                        Left err -> do
+                            errHTTPCode err `shouldBe` 400
+                            BSL.toStrict (errBody err) `shouldSatisfy` BS.isInfixOf (encodeUtf8 field)
+                        Right outcome -> expectationFailure ("a blank exclusion was accepted: " <> show (dsrDeleted outcome) <> " deleted")
+                    activitiesLeft manager `shouldReturn` Just activityTotal
 
         it "announces a dry run without deleting, and says what it spares" $ do
             (manager, _) <- loadedFixture

@@ -7,8 +7,12 @@
   was kept in `spared`. Search addresses, the supply chain, the consumers and
   `search_activities` read the same four mode words, and a word that is none
   of them is now refused with the four named, where it used to read as
-  `contains`, so a typo can no longer turn an exclusion into its opposite. A
-  blank exclusion, which would remove every activity, is dropped.
+  `contains`, so a typo can no longer turn an exclusion into its opposite. On
+  a search address, `classification-mode=equals` now means `exact`, where it
+  used to mean `contains`. A blank exclusion, which would remove every
+  activity, is dropped from a search, and refused in a delete with a message
+  naming the field, because dropping it there would delete more than was
+  asked.
 - `volca database delete-activities` needs exactly one of `--spare-suppliers`
   and `--cut-suppliers`, and `delete_activities` in pyvolca needs `spare=`,
   both refusing an engine older than wire revision 114 before sending
