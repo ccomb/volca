@@ -1343,9 +1343,9 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
                 else do
                     -- Substitution-aware: re-solve the root scaling, then build from it.
                     (processId, _) <- liftService (Service.resolveScorable db pid)
-                    (scalingVec, virtualLinks) <-
+                    root <-
                         liftIO (Service.computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db dbName solver processId subs) >>= liftShow
-                    liftIO (Service.buildSupplyChainFromScalingVectorCrossDB unitCfg (DM.managerGeographies dbManager) depLookup (DM.getGapIndex dbManager) db dbName processId scalingVec virtualLinks scf) >>= liftShow
+                    liftIO (Service.buildSupplyChainFromScalingVectorCrossDB unitCfg (DM.managerGeographies dbManager) depLookup (DM.getGapIndex dbManager) db dbName processId root scf) >>= liftShow
         pure $ toolSuccessJson rid (withCutoffNotice (Cutoffs (scrCutoffInputs chain) (scrWithheldCutoffs chain)) (toJSON chain))
 
 {- | Generic SQL-group-by aggregation. One small primitive for "how much X is
@@ -1430,24 +1430,27 @@ callGetPathTo :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetPathTo dbManager rid args = runTool rid $ do
     (dbName, pid) <- except $ (,) <$> requireText "database" args <*> requireText "process_id" args
     target <- except (requireText "target" args)
+    subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
     ld <- requireDatabase dbManager dbName
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
-    val <-
-        liftIO
-            ( Service.getPathTo
-                unitCfg
-                (DM.managerGeographies dbManager)
-                (DM.mkDepSolverLookup dbManager)
-                refusing
-                (ldDatabase ld)
-                dbName
-                (ldSharedSolver ld)
-                pid
-                (Service.TargetNamed (Service.NamePattern target))
-            )
-            >>= liftShow
-    pure (toolSuccessJson rid val)
+    withParameters dbManager dbName args ld $ \db solver -> do
+        val <-
+            liftIO
+                ( Service.getPathTo
+                    unitCfg
+                    (DM.managerGeographies dbManager)
+                    (DM.mkDepSolverLookup dbManager)
+                    refusing
+                    db
+                    dbName
+                    solver
+                    pid
+                    subs
+                    (Service.TargetNamed (Service.NamePattern target))
+                )
+                >>= liftShow
+        pure (toolSuccessJson rid val)
 
 callGetConsumers :: Geographies -> [ClassificationPreset] -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetConsumers geographies presets rid args (db, _) = runTool rid $ do

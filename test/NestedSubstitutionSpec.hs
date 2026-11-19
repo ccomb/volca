@@ -24,10 +24,12 @@ import Service (
     ServiceError (..),
     SortOrder (..),
     SupplyChainFilter (..),
+    Swapped (..),
     applySubstitutionsAt,
     buildSupplyChainFromScalingVectorCrossDB,
     inventoryWithSubsAndDeps,
     noExclusions,
+    unswapped,
  )
 import SharedSolver (
     SharedSolver,
@@ -72,7 +74,7 @@ spec = do
                 noDeps _ = pure Nothing
             res <- applySubstitutionsAt defaultUnitConfig noDeps db (ThisDb "root") (RootDb "root") solver [baselineX] [sub]
             case res of
-                Right ([x'], links) -> do
+                Right (Swapped [x'] links _) -> do
                     links `shouldBe` []
                     U.toList x' `shouldBe` U.toList baselineX
                 Right other -> expectationFailure ("unexpected shape: " <> show other)
@@ -87,7 +89,7 @@ spec = do
             let noDeps _ = pure Nothing
             res <- applySubstitutionsAt defaultUnitConfig noDeps db (ThisDb "root") (RootDb "root") solver [baselineX] []
             case res of
-                Right (xs, links) -> do
+                Right (Swapped xs links _) -> do
                     links `shouldBe` []
                     length xs `shouldBe` 1
                     U.toList (head xs) `shouldBe` U.toList baselineX
@@ -111,7 +113,7 @@ spec = do
                 noDeps _ = pure Nothing
             res <- applySubstitutionsAt defaultUnitConfig noDeps db (ThisDb "dep") (RootDb "root") solver [baselineX, baselineX, baselineX] [sub]
             case res of
-                Right (xs, _) -> length xs `shouldBe` 3
+                Right (Swapped xs _ _) -> length xs `shouldBe` 3
                 Left e -> expectationFailure ("K>1 filter failed: " <> show e)
 
         it "skips bare consumer subs when walker is in a dep DB" $ do
@@ -135,7 +137,7 @@ spec = do
                 noDeps _ = pure Nothing
             res <- applySubstitutionsAt defaultUnitConfig noDeps db (ThisDb "dep") (RootDb "root") solver [baselineX] [sub]
             case res of
-                Right ([x'], links) -> do
+                Right (Swapped [x'] links _) -> do
                     links `shouldBe` []
                     U.toList x' `shouldBe` U.toList baselineX
                 Right other -> expectationFailure ("unexpected shape: " <> show other)
@@ -291,8 +293,7 @@ spec = do
                     root
                     "root"
                     pid
-                    scaling
-                    []
+                    (unswapped root scaling)
                     everything
             case eResp of
                 Left e -> expectationFailure ("supply-chain CrossDB failed: " <> show e)
@@ -336,8 +337,7 @@ spec = do
                             db
                             "root"
                             pid
-                            scaling
-                            []
+                            (unswapped db scaling)
                             everything
             one <- chain root
             ten <- chain tenfold

@@ -27,6 +27,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Matrix (buildDemandVector)
 import Service (
+    RootSolution (..),
     ServiceError (..),
     Swap (..),
     computeScalingVectorWithSubstitutionsCrossDB,
@@ -54,9 +55,11 @@ spec = do
                     refSolver <- createSharedSolver "ref" (relocateRow db aPid bPid) (fromIntegral (dbActivityCount db))
                     xRef <- either (fail . show) pure =<< solveWithSharedSolver refSolver =<< either (fail . show) pure (buildDemandVector db 0)
                     case gRes of
-                        Right (xGlobal, links) -> do
+                        Right (RootSolution xGlobal triples links) -> do
                             links `shouldBe` []
                             U.toList xGlobal `shouldSatisfy` vecNear (U.toList xRef)
+                            -- The links the chain draws are those of the matrix the amounts solve.
+                            byPair triples `shouldSatisfy` pairsNear (byPair (relocateRow db aPid bPid))
                         Left e -> expectationFailure ("global swap failed: " <> show e)
 
         it "identity swap (from == to) is a no-op" $ do
@@ -70,7 +73,7 @@ spec = do
                     base <- computeScalingVectorWithSubstitutionsCrossDB defaultUnitConfig noDeps db "root" solver 0 []
                     gRes <- computeScalingVectorWithSubstitutionsCrossDB defaultUnitConfig noDeps db "root" solver 0 [ident]
                     case (base, gRes) of
-                        (Right (x0, _), Right (xg, _)) -> U.toList xg `shouldSatisfy` vecNear (U.toList x0)
+                        (Right (RootSolution x0 _ _), Right (RootSolution xg _ _)) -> U.toList xg `shouldSatisfy` vecNear (U.toList x0)
                         _ -> expectationFailure "identity or baseline solve failed"
 
         it "fails loudly when 'from' is consumed nowhere (no silent no-op)" $ do
@@ -118,9 +121,10 @@ spec = do
                     refSolver <- createSharedSolver "ref" (deleteRow root aPid) (fromIntegral (dbActivityCount root))
                     xRef <- either (fail . show) pure =<< solveWithSharedSolver refSolver =<< either (fail . show) pure (buildDemandVector root 0)
                     case gRes of
-                        Right (xGlobal, links) -> do
+                        Right (RootSolution xGlobal triples links) -> do
                             length links `shouldBe` nConsumers
                             U.toList xGlobal `shouldSatisfy` vecNear (U.toList xRef)
+                            byPair triples `shouldSatisfy` pairsNear (byPair (deleteRow root aPid))
                         Left e -> expectationFailure ("cross-DB global failed: " <> show e)
 
     describe "substitutionUnitFactor (κ guard)" $
@@ -184,6 +188,16 @@ activityByInfix db nm =
         ]
 
 -- | Elementwise closeness of two scaling vectors.
+
+{- | Each supplier and consumer pair's coefficient, summed, without a
+process's link to itself, which the links a chain draws leave out.
+-}
+byPair :: U.Vector SparseTriple -> M.Map (Int32, Int32) Double
+byPair triples = M.filter ((> 1e-12) . abs) (M.fromListWith (+) [((i, j), v) | SparseTriple i j v <- U.toList triples, i /= j])
+
+pairsNear :: M.Map (Int32, Int32) Double -> M.Map (Int32, Int32) Double -> Bool
+pairsNear ref xs = M.keys ref == M.keys xs && and (M.intersectionWith (\a b -> abs (a - b) < 1e-9) ref xs)
+
 vecNear :: [Double] -> [Double] -> Bool
 vecNear ref xs = length ref == length xs && and (zipWith (\a b -> abs (a - b) < 1e-9) ref xs)
 

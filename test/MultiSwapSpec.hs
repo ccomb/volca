@@ -11,6 +11,7 @@ swap took out of the chain.
 -}
 module MultiSwapSpec (spec) where
 
+import qualified Data.List as L
 import Data.Text (Text)
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
@@ -62,7 +63,7 @@ swapA2 = Substitution (pidOf a2) (pidOf b2) AllConsumers
 amountsUnder :: [Substitution] -> IO (Either ServiceError [Double])
 amountsUnder subs = do
     solver <- mkSolverFromDb twoSwapRoot "root"
-    fmap (U.toList . fst) <$> computeScalingVectorWithSubstitutionsCrossDB defaultUnitConfig noDeps twoSwapRoot "root" solver root subs
+    fmap (U.toList . rsScaling) <$> computeScalingVectorWithSubstitutionsCrossDB defaultUnitConfig noDeps twoSwapRoot "root" solver root subs
   where
     noDeps _ = pure Nothing
 
@@ -99,6 +100,12 @@ spec = describe "two swaps" $ do
     it "gives the amounts of the swapped coefficients solved afresh" $ do
         fresh <- solvedOn [SparseTriple c root 1.0, SparseTriple b2 root 1.0, SparseTriple b1 c 2.0, SparseTriple c b2 0.1]
         (`shouldBeNear` fresh) =<< amountsUnder [swapA1, swapA2]
+
+    it "draws the links of the swapped coefficients" $ do
+        solver <- mkSolverFromDb twoSwapRoot "root"
+        answer <- either (fail . show) pure =<< computeScalingVectorWithSubstitutionsCrossDB defaultUnitConfig (\_ -> pure Nothing) twoSwapRoot "root" solver root [swapA1, swapA2]
+        L.sort (map (\(SparseTriple i j v) -> (i, j, v)) (U.toList (rsTriples answer)))
+            `shouldBe` L.sort [(c, root, 1.0), (b2, root, 1.0), (b1, c, 2.0), (c, b2, 0.1)]
 
     it "reads a swap to a supplier another swap replaces against the database as published" $ do
         -- A1's consumers buy A2, and A2's published consumers buy B2.

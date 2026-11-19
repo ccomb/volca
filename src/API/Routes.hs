@@ -13,7 +13,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
+import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChainConsumers, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter)
 import App.Env (AppEnv (..), AppM, counted, countedEach, httpOrigin, runApp)
 import Config (DatabaseConfig (..))
 import qualified Config
@@ -143,6 +143,8 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> QueryParam "name" Text :> QueryParam "limit" Int :> QueryParam "min-quantity" Double :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] SupplyChainResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "consumers" :> QueryParam "name" Text :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> Get '[JSON] ConsumersResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> QueryParam "target-id" Text :> Get '[JSON] Value
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> "consumers" :> QueryParam "of" Text :> QueryParam "min-quantity" Double :> Get '[JSON] ChainConsumers
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> QueryParam "target-id" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] Value
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "compare" :> QueryParam "other_process_id" Text :> QueryParam "other_database" Text :> Get '[JSON] ActivityComparison
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "changes-present" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesPresence
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "apply-changes" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesApplied
@@ -1673,7 +1675,15 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 115: the path to a supplier reaching the dependency databases the
+(revision 117: the path to a supplier asked under parameter values and
+swaps, by a POST to the path-to route carrying them as the supply-chain POST
+does, and the links, depths and consumer counts of a chain under a swap
+following the swap;
+revision 116: the @supply-chain/consumers@ route, listing the consumers of
+one upstream process with their parts of its quantity and their lines; a
+supply chain listing each process once and each pair of processes linked once,
+and counting each process's consumers across databases;
+revision 115: the path to a supplier reaching the dependency databases the
 chain buys from, and its @target-id@ parameter naming the process it leads to
 by its process id;
 revision 114: exclusions, the activity search leaving out what an
@@ -1930,7 +1940,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 115
+currentWireVersion = 117
 
 getVersion :: AppM Value
 getVersion = do
@@ -2241,7 +2251,7 @@ activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity o
                             subs
                 case scalingResult of
                     Left err -> throwServiceError err
-                    Right (scalingVec, virtualLinks) -> do
+                    Right root -> do
                         eResp <-
                             liftIO $
                                 Service.buildSupplyChainFromScalingVectorCrossDB
@@ -2252,8 +2262,7 @@ activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity o
                                     db
                                     dbName
                                     processId
-                                    scalingVec
-                                    virtualLinks
+                                    root
                                     scf
                         either throwServiceError pure eResp
 
@@ -2800,24 +2809,50 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
     either throwServiceError pure (Service.getConsumers (DM.managerGeographies dbManager) db dbName processIdText cnf)
 
 getActivityPathTo :: Text -> Text -> Maybe Text -> Maybe Text -> AppM Value
-getActivityPathTo dbName processIdText targetParam targetIdParam = counted Reading dbName (ProcessKey processIdText) $ do
+getActivityPathTo dbName processIdText targetParam targetIdParam = activityPathToCore dbName processIdText targetParam targetIdParam Nothing
+
+-- | The path under parameter values and swaps, the chain the supply-chain POST lists.
+postActivityPathTo :: Text -> Text -> Maybe Text -> Maybe Text -> SubstitutionRequest -> AppM Value
+postActivityPathTo dbName processIdText targetParam targetIdParam req = activityPathToCore dbName processIdText targetParam targetIdParam (Just req)
+
+activityPathToCore :: Text -> Text -> Maybe Text -> Maybe Text -> Maybe SubstitutionRequest -> AppM Value
+activityPathToCore dbName processIdText targetParam targetIdParam mSub = counted Reading dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
-    (db, solver) <- requireDatabaseByName dbName
     target <- case (targetParam, targetIdParam) of
         (Just name, Nothing) -> pure (Service.TargetNamed (Service.NamePattern name))
         (Nothing, Just pid) -> pure (Service.TargetProcess pid)
         (Just _, Just _) -> badRequest "Name the target by 'target' or by 'target-id', not both"
         (Nothing, Nothing) -> badRequest "Missing the target: 'target' for part of its name, or 'target-id' for its process id"
+    withRequestDatabase dbName mSub $ \db solver -> do
+        unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+        refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
+        result <- liftIO $ Service.getPathTo unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing db dbName solver processIdText (maybe [] srSubstitutions mSub) target
+        case result of
+            -- The sentence says which target found no path, and why; the shared mapping would drop it.
+            Left (Service.ActivityNotFound msg) ->
+                throwError err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
+            Left err -> throwServiceError err
+            Right val -> return val
+
+{- | The consumers, inside a root's upstream, of one process it lists: each
+with its part of the process's quantity and the lines it buys it on.
+-}
+getChainConsumers :: Text -> Text -> Maybe Text -> Maybe Double -> AppM ChainConsumers
+getChainConsumers dbName processIdText ofParam minQuantity = counted Reading dbName (ProcessKey processIdText) $ do
+    DBHandlers.refuseUnlessGranted ReadInventory dbName
+    dbManager <- asks aeDbManager
+    (db, solver) <- requireDatabaseByName dbName
+    target <- maybe (badRequest "Missing 'of': the process id of the upstream process whose consumers to list, as the upstream list gives it") pure ofParam
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
-    result <- liftIO $ Service.getPathTo unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing db dbName solver processIdText target
+    result <- liftIO $ Service.getChainConsumers unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing minQuantity db dbName solver processIdText target
     case result of
-        -- The sentence says which target found no path, and why; the shared mapping would drop it.
+        -- The sentence says why the process has no consumers to list; the shared mapping would drop it.
         Left (Service.ActivityNotFound msg) ->
             throwError err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
         Left err -> throwServiceError err
-        Right val -> return val
+        Right answer -> return answer
 
 -- | One activity against another, in this database or in another loaded one.
 getActivityComparison :: Text -> Text -> Maybe Text -> Maybe Text -> AppM ActivityComparison
@@ -3547,6 +3582,8 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> postActivitySupplyChain
             :<|> getActivityConsumers
             :<|> getActivityPathTo
+            :<|> getChainConsumers
+            :<|> postActivityPathTo
             :<|> getActivityComparison
             :<|> postChangesPresent
             :<|> postApplyChanges
