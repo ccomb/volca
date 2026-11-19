@@ -98,13 +98,13 @@ import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName, (</>))
 import TOML (DecodeTOML (..), Decoder, TOMLError, Table, Value (..), decode, decodeFile, getArrayOf, getField, getFieldWith)
 import qualified TOML
-import Types (AddedAt, ClassificationFilter (..), ClassificationMatch (..), ExchangePatch (..), ExchangePatchMatch (..), FileReading (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), Reading (..), Release (..), Requirement, licenceFromKeys, parseFileReading)
+import Types (AddedAt, ClassificationFilter (..), ClassificationMatch (..), ClassificationMode (..), ExchangePatch (..), ExchangePatchMatch (..), FileReading (..), GeographyPolicy (..), Licence, LicenceKeys (..), PatchOp (..), Reading (..), Release (..), Requirement, licenceFromKeys, parseFileReading, readClassificationMode)
 
 -- | A single classification filter entry (system + value)
 data ClassificationEntry = ClassificationEntry
     { ceSystem :: !Text
     , ceValue :: !Text
-    , ceMode :: !Text -- "exact" (default) or "contains"
+    , ceMode :: !ClassificationMatch
     }
     deriving (Show, Eq, Generic)
 
@@ -130,7 +130,7 @@ expandClassificationPreset presets (Just name) =
     case filter ((== name) . cpName) presets of
         p : _ ->
             Right
-                [ ClassificationFilter{clfSystem = ceSystem e, clfValue = ceValue e, clfMatch = if ceMode e == "exact" then MatchExact else MatchContains}
+                [ ClassificationFilter{clfSystem = ceSystem e, clfValue = ceValue e, clfMatch = ceMode e}
                 | e <- cpFilters p
                 ]
         [] -> Left (unknownPresetMessage presets name)
@@ -933,8 +933,16 @@ instance DecodeTOML ClassificationEntry where
     tomlDecoder = do
         ceSystem <- getField "system"
         ceValue <- getField "value"
-        ceMode <- fromMaybe "exact" <$> getFieldOpt "mode"
+        ceMode <- maybe (pure MatchExact) presetMatch =<< getFieldOpt "mode"
         pure ClassificationEntry{..}
+      where
+        -- A preset keeps what it names; leaving out is the page's chips.
+        -- A word read as contains would turn a negative mode into its opposite.
+        presetMatch :: Text -> Decoder ClassificationMatch
+        presetMatch word = case readClassificationMode word of
+            Right (Including match) -> pure match
+            Right (Excluding _) -> fail ("a classification preset keeps what it names: mode '" <> T.unpack word <> "' leaves it out; use exact or contains")
+            Left err -> fail (T.unpack err)
 
 instance DecodeTOML ClassificationPreset where
     tomlDecoder = do

@@ -9,6 +9,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Options.Applicative
 import qualified Options.Applicative as OA
+import Types (SpareChoice (..))
 import Version (buildTarget, gitHash, gitTag, version)
 
 -- ---------------------------------------------------------------------------
@@ -235,6 +236,12 @@ deleteActivitiesArgsParser =
         <*> many (textOpt "keep" Nothing "PID" "Process id (activityUUID_productUUID) to spare from deletion (repeatable)")
         <*> many (textOpt "add" Nothing "PID" "Process id to add to deletion (repeatable)")
         <*> many (textOpt "id" Nothing "PID" "Delete exactly this process id (repeatable, excludes the filter options)")
+        <*> many (textOpt "exclude-name" Nothing "NAME" "Leave out the processes this name finds (repeatable)")
+        <*> many (textOpt "exclude-location" Nothing "GEO" "Leave out the processes at this location (repeatable)")
+        <*> ( flag' SpareSuppliers (long "spare-suppliers" <> help "Keep every matched process the remaining ones still use, however far upstream")
+                <|> flag' CutSuppliers (long "cut-suppliers" <> help "Delete every matched process, even one the remaining ones use")
+            )
+        <*> switch (long "dry-run" <> help "Say what would be deleted and what would be spared, and change nothing")
 
 -- | Method command parser with optional subcommand (defaults to list)
 methodParser :: Parser Command

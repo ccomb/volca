@@ -216,10 +216,12 @@ import Database.Crate (Changes (..), CrateInput (..), Package (..), Packaging (.
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
+    DeleteRun (..),
     EditReport (..),
     MissingRequest (..),
     MutationOutcome (..),
     ParametersReport (..),
+    SpareChoice (..),
     WriteRefusal (..),
     WriteReport (..),
     WriteVerb (..),
@@ -336,17 +338,19 @@ import Method.Mapping (BuildProvenance (..), CF (..), CFUnit (..), provenanceStr
 import Method.ParserFactorTable (Dropped (..), familyCollections, isFactorTable, readFactorTable)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (mcMethods))
 import Method.WriterCSV (serializeColumnarMethodCSV)
+import Service (Exclusions (..))
 import Types (
     AddedAt,
     BiosphereFlow (..),
     BlockerReason (..),
-    ClassificationFilter (..),
-    ClassificationMatch (..),
+    ClassificationFilters (..),
+    ClassificationMode (..),
     Database (..),
     DisplayName,
     FileReading (..),
     GeographyPolicy (..),
     Licence (..),
+    ModedFilter (..),
     ModelException (..),
     ModelParameter (..),
     ModelSubstitution (..),
@@ -370,9 +374,11 @@ import Types (
     nonBlankText,
     processRefText,
     ratioValue,
+    readClassificationMode,
     readingKey,
     reasonText,
     spdxId,
+    splitByMode,
     unresolvedCount,
     withheldSentence,
  )
@@ -751,24 +757,25 @@ deleteDatabaseHandler dbName = do
     simpleAction (removeDatabase dbManager dbName) ("Deleted database: " <> dbName)
 
 {- | Delete the whole filtered set of activities from a loaded database, in
-place. The filter selects the full matching set (pagination ignored); the
-keep/extra lists adjust the set individually. Rebuilds matrices and unlinks
-surviving references; returns the count removed.
+place. The filter selects the full matching set (pagination ignored), less what
+the exclusions name; the keep/extra lists adjust the set individually. Rebuilds
+matrices and unlinks surviving references; returns the count removed and the
+count spared. A dry run answers the same counts and changes nothing.
 -}
 deleteActivitiesHandler :: Text -> DeleteSelectionRequest -> AppM DeleteSelectionResponse
 deleteActivitiesHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
     origin <- httpOrigin
-    let classFilters =
-            [ ClassificationFilter{clfSystem = dcfSystem f, clfValue = dcfValue f, clfMatch = if dcfExact f then MatchExact else MatchContains}
-            | f <- dsqClassifications req
-            ]
+    ClassificationFilters{cfKept = classFilters, cfLeftOut = leftOut} <-
+        either (failWith err400) pure (readFilters (dsqClassifications req))
+    let
         -- A present-but-blank filter (e.g. JSON "name":"") is no filter at all.
         -- Collapse it to Nothing so name candidates fall back to "all activities"
         -- instead of a BM25/full-scan path that yields zero (index present) or all
         -- (index absent), an index-dependent ALL-vs-NONE divergence.
         nonBlank = mfilter (not . T.null . T.strip)
+        run = if fromMaybe False (dsqDryRun req) then DryRun else RealRun
     result <-
         liftIO $
             deleteActivitiesInDB
@@ -784,6 +791,14 @@ deleteActivitiesHandler dbName req = do
                     , drKeep = dsqKeep req
                     , drExtra = dsqExtra req
                     , drIds = dsqIds req
+                    , drExcluded =
+                        Exclusions
+                            { exNames = fromMaybe [] (dsqExcludeName req)
+                            , exLocations = fromMaybe [] (dsqExcludeLocation req)
+                            , exClassifications = leftOut
+                            }
+                    , drSpare = if dsqSpare req then SpareSuppliers else CutSuppliers
+                    , drRun = run
                     , drStated = statedFrom (dsqNote req) (dsqSource req)
                     }
     case result of
@@ -794,11 +809,50 @@ deleteActivitiesHandler dbName req = do
         Right outcome ->
             return $
                 DeleteSelectionResponse
-                    True
-                    ("Deleted " <> T.pack (show (doRemoved outcome)) <> " processes from " <> dbName)
-                    (doRemoved outcome)
-                    (not (doPersisted outcome))
-                    (doWarnings outcome)
+                    { dsrSuccess = True
+                    , dsrMessage = deleteSentence run dbName outcome
+                    , dsrDeleted = doRemoved outcome
+                    , dsrSpared = doSpared outcome
+                    , dsrTransient = not (doPersisted outcome)
+                    , dsrWarnings = doWarnings outcome
+                    }
+  where
+    {- A mode word the engine does not know refuses the whole request: reading
+    it as contains would turn an exclusion into the opposite. A blank exclusion
+    is refused too, where a search drops it: dropped, it would widen the delete
+    (no filter, one process kept and a blank name would delete all the others). -}
+    readFilters :: [DeleteClassFilter] -> Either Text ClassificationFilters
+    readFilters entries = do
+        parsed <- traverse entry entries
+        refuseBlank
+            [ ("excludeName", fromMaybe [] (dsqExcludeName req))
+            , ("excludeLocation", fromMaybe [] (dsqExcludeLocation req))
+            , ("classifications", [mfValue f | f@ModedFilter{mfMode = Excluding _} <- parsed])
+            ]
+        pure (splitByMode parsed)
+
+    refuseBlank :: [(Text, [Text])] -> Either Text ()
+    refuseBlank fields = case [field | (field, values) <- fields, any (T.null . T.strip) values] of
+        [] -> Right ()
+        field : _ -> Left (field <> " has a blank entry. Remove it: a blank exclusion is refused rather than ignored, because ignoring it would widen the delete.")
+
+    entry :: DeleteClassFilter -> Either Text ModedFilter
+    entry f = do
+        mode <- readClassificationMode (dcfMode f)
+        pure ModedFilter{mfSystem = dcfSystem f, mfValue = dcfValue f, mfMode = mode}
+
+-- | What a delete did, or in a dry run would do, in a sentence a person reads.
+deleteSentence :: DeleteRun -> Text -> DeleteOutcome -> Text
+deleteSentence run dbName outcome =
+    (if run == DryRun then "Would delete " else "Deleted ") <> count (doRemoved outcome) <> " processes from " <> dbName <> spared
+  where
+    spared :: Text
+    spared
+        | doSpared outcome == 0 = ""
+        | otherwise = (if run == DryRun then " and spare " else " and spared ") <> count (doSpared outcome) <> " that the remaining ones use"
+
+    count :: Int -> Text
+    count = T.pack . show
 
 {- | Write new activities into a loaded database.
 

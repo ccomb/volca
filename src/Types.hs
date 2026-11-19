@@ -1314,6 +1314,72 @@ data ClassificationFilter = ClassificationFilter
     }
     deriving (Eq, Show, Generic, NFData)
 
+{- | What a query does with the activities a classification filter matches:
+keep them, or leave them out. How a surface spells it is 'readClassificationMode'.
+-}
+data ClassificationMode
+    = Including ClassificationMatch
+    | Excluding ClassificationMatch
+    deriving (Eq, Show)
+
+{- | The one reading of a mode word, case-blind: @contains@, @exact@ (also
+@equals@), and their negations @not-contains@ and @not-exact@. A word that is
+none of them is refused with the four, so a typo never turns an exclusion into
+an inclusion.
+-}
+readClassificationMode :: Text -> Either Text ClassificationMode
+readClassificationMode word = case T.toCaseFold word of
+    "contains" -> Right (Including MatchContains)
+    "exact" -> Right (Including MatchExact)
+    "equals" -> Right (Including MatchExact)
+    "not-contains" -> Right (Excluding MatchContains)
+    "not-exact" -> Right (Excluding MatchExact)
+    _ -> Left ("Unknown classification mode '" <> word <> "': use contains, exact, not-contains or not-exact.")
+
+{- | Whether a delete keeps the matched processes the remaining ones still use.
+Here and not beside the delete because the command line has to name it too, and
+the modules that plan a delete depend on the command line's types.
+-}
+data SpareChoice = SpareSuppliers | CutSuppliers
+    deriving (Eq, Show)
+
+{- | A classification filter as a request states it: the system and value it
+names, and the mode it is written with.
+-}
+data ModedFilter = ModedFilter
+    { mfSystem :: !Text
+    , mfValue :: !Text
+    , mfMode :: !ClassificationMode
+    }
+    deriving (Eq, Show)
+
+{- | Classification filters divided into those that keep what they match and
+those that leave it out. Named fields, so a caller cannot take one for the
+other: in a delete that would remove exactly what was to be kept.
+-}
+data ClassificationFilters = ClassificationFilters
+    { cfKept :: [ClassificationFilter]
+    , cfLeftOut :: [ClassificationFilter]
+    }
+    deriving (Eq, Show)
+
+-- | Divide filters by the mode each is written with.
+splitByMode :: [ModedFilter] -> ClassificationFilters
+splitByMode entries =
+    ClassificationFilters
+        { cfKept = [filterBy match entry | entry@ModedFilter{mfMode = Including match} <- entries]
+        , cfLeftOut = [filterBy match entry | entry@ModedFilter{mfMode = Excluding match} <- entries]
+        }
+  where
+    filterBy :: ClassificationMatch -> ModedFilter -> ClassificationFilter
+    filterBy match entry = ClassificationFilter{clfSystem = mfSystem entry, clfValue = mfValue entry, clfMatch = match}
+
+-- | The word a positive match is written with, as 'readClassificationMode' reads it.
+matchWord :: ClassificationMatch -> Text
+matchWord = \case
+    MatchExact -> "exact"
+    MatchContains -> "contains"
+
 {- | Whether a classification holds the filter's value under its system,
 case-blind. One filter; how several combine is the caller's.
 -}

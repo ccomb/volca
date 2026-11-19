@@ -18,11 +18,16 @@ Delete is reconstruction over an immutable 'Database':
 module DeleteSelectionSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
+import Control.Monad (forM_)
+import qualified Data.ByteString.Lazy as BL
 import Data.JournalFile (noOrigin)
+import Data.List (sort)
+import qualified Data.List as L
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Set as S
-import Data.Text (Text, isInfixOf)
+import Data.Text (Text, isInfixOf, unpack)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
@@ -35,13 +40,27 @@ import CLI.Types (DbDeleteArgs (..))
 import Config (DatabaseConfig (..), defaultConfig)
 import Data.Aeson (eitherDecode, encode)
 import Database (buildDatabaseWithMatrices)
+import Database.Allocation (Allocating (..), allocate)
+import Database.CrossLinking (
+    IndexedDatabase,
+    LinkingContext (..),
+    buildIndexedDatabase,
+    defaultLinkingThreshold,
+    emptyAliasMap,
+    locationHierarchy,
+ )
 import Database.Edit (
     DeleteOutcome (..),
+    DeletePlan (..),
     DeleteRequest (..),
+    DeleteRun (..),
     DeleteSelection (..),
+    SpareChoice (..),
     deleteActivitiesInDB,
+    planDeletion,
     resolveDeleteSelection,
  )
+import Database.Loader (findAllCrossDBLinks)
 import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
@@ -49,13 +68,21 @@ import Database.Manager (
     initDatabaseManager,
  )
 import Database.Rebuild (deleteActivities)
+import Matrix (Inventory, computeInventoryMatrix)
+import Service (Exclusions (..), noExclusions)
 import SharedSolver (SharedSolver, createSharedSolver)
+import SynonymDB (emptySynonymDB)
 import Types (
     Activity (..),
+    AllocationKey (..),
+    BioDirection (..),
     BuildInputs (..),
     ClassificationFilter (..),
     ClassificationMatch (..),
+    CrossDBLink (..),
+    CrossDBLinkingStats (..),
     Database (..),
+    DeclaredShare (..),
     Exchange (..),
     FileReading (..),
     GeographyPolicy (..),
@@ -77,6 +104,7 @@ import Types (
     noProperties,
     packExchanges,
     processIdToText,
+    toSimpleDatabase,
  )
 import UnitConversion (defaultUnitConfig)
 
@@ -94,6 +122,10 @@ emptyDeleteArgs =
         , ddaKeep = []
         , ddaExtra = []
         , ddaIds = []
+        , ddaExcludeName = []
+        , ddaExcludeLocation = []
+        , ddaSpare = CutSuppliers
+        , ddaDryRun = False
         }
 
 -- | Empty 'DeleteRequest'; tests tweak only the fields they need.
@@ -108,6 +140,9 @@ emptyDelete =
         , drKeep = []
         , drExtra = []
         , drIds = Nothing
+        , drExcluded = noExclusions
+        , drSpare = CutSuppliers
+        , drRun = RealRun
         , drStated = nothingStated
         }
 
@@ -231,6 +266,77 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
             case deleteActivities allPids db of
                 Left _ -> pure ()
                 Right _ -> expectationFailure "expected delete-all to be refused"
+
+    describe "planDeletion" $ do
+        it "spares the suppliers the remaining activities use, however far upstream" $ do
+            let c = keptChain 2000
+            db <- buildOrFail (chParts c)
+            S.fromList [chA c, chB c] `shouldSatisfy` (`S.isSubsetOf` snd (planKeys SpareSuppliers db (chMatched c)))
+
+        it "spares a waste treatment the remaining activities send to" $ do
+            let c = keptChain 2100
+            db <- buildOrFail (chParts c)
+            S.member (chT c) (snd (planKeys SpareSuppliers db (chMatched c))) `shouldBe` True
+
+        it "deletes what nothing remaining uses" $ do
+            let c = keptChain 2200
+            db <- buildOrFail (chParts c)
+            planKeys SpareSuppliers db (chMatched c) `shouldBe` (S.fromList [chX c], S.fromList [chA c, chB c, chT c])
+
+        it "cuts every matched activity when asked to" $ do
+            let c = keptChain 2300
+            db <- buildOrFail (chParts c)
+            planKeys CutSuppliers db (chMatched c) `shouldBe` (S.fromList (chMatched c), S.empty)
+
+        it "spares a supplier of a remaining activity the allocation refuses" $ do
+            let (parts, supplier) = refusedConsumerDB 2400
+            db <- buildOrFail parts
+            planKeys SpareSuppliers db [supplier] `shouldBe` (S.empty, S.singleton supplier)
+
+        it "spares a coproduct bought from a block kept whole" $ do
+            let (parts, block) = wholeBlockDB 2500
+            db <- buildOrFail parts
+            planKeys SpareSuppliers db [block] `shouldBe` (S.empty, S.singleton block)
+
+        it "spares a supplier linked at amount zero" $ do
+            let (parts, supplier) = zeroLinkDB 2600
+            db <- buildOrFail parts
+            planKeys SpareSuppliers db [supplier] `shouldBe` (S.empty, S.singleton supplier)
+
+        it "leaves the scores of every remaining activity unchanged" $ do
+            let c = keptChain 2700
+            db <- buildOrFail (chParts c)
+            db' <- afterDelete db (dpDeleted (planDeletion SpareSuppliers db (map (pidOfKey db) (chMatched c))))
+            keptScoresUnchanged db db'
+
+        it "leaves a spared process as the allocation of its block made it when its sibling goes" $ do
+            let (parts, kept, deleted) = siblingsDB 2800
+            db <- buildOrFail parts
+            planKeys SpareSuppliers db [kept, deleted] `shouldBe` (S.singleton deleted, S.singleton kept)
+            db' <- afterDelete db [pidOfKey db deleted]
+            keptScoresUnchanged db db'
+
+        it "keeps every link the remaining activities make to another database" $ do
+            let c = keptChain 2900
+                bg = indexBackground (chBackground c)
+            db <- buildOrFail (chParts c)
+            let matched = map (pidOfKey db) (chMatched c)
+            spared <- afterDelete db (dpDeleted (planDeletion SpareSuppliers db matched))
+            crossLinks spared bg spared `shouldBe` crossLinks spared bg db
+            -- Cutting the suppliers is what hands the remaining line to the
+            -- other database: the behaviour the opt-out asks for.
+            cut <- afterDelete db (dpDeleted (planDeletion CutSuppliers db matched))
+            let boughtAt links = [(consumer, supplier) | (consumer, supplier, _) <- links]
+            boughtAt (crossLinks cut bg cut) `shouldSatisfy` elem (chK c, chA c)
+            boughtAt (crossLinks db bg db) `shouldNotSatisfy` elem (chK c, chA c)
+
+        it "spares every block that could answer a coproduct its link leaves ambiguous" $ do
+            let (parts, background, oneBlock, unrelated) = ambiguousBlocksDB 3000
+                bg = indexBackground background
+            db <- buildOrFail parts
+            planKeys SpareSuppliers db [oneBlock, unrelated] `shouldBe` (S.singleton unrelated, S.singleton oneBlock)
+            db' <- afterDelete db (dpDeleted (planDeletion SpareSuppliers db (map (pidOfKey db) [oneBlock, unrelated])))
+            crossLinks db' bg db' `shouldBe` crossLinks db' bg db
 
     describe "deleteActivitiesInDB (filter-driven, in-place)" $ do
         it "deletes the whole filtered set and respects keep" $ do
@@ -379,12 +485,117 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                 Left err -> expectationFailure ("deleteActivitiesInDB failed: " <> show err)
                 Right deleted -> doRemoved deleted `shouldBe` 1
 
+    describe "deleteActivitiesInDB (what a delete spares, and what it announces first)" $ do
+        it "counts in a dry run what would go and what is spared, and changes nothing" $ do
+            let c = keptChain 3100
+            (manager, db) <- installedFrom "dry-run" (chParts c)
+            before <- heldKeys manager "dry-run"
+            outcome <- outcomeOf manager "dry-run" (namingKeys db SpareSuppliers (chMatched c)){drRun = DryRun}
+            (doRemoved outcome, doSpared outcome) `shouldBe` (1, 3)
+            heldKeys manager "dry-run" `shouldReturn` before
+
+        it "runs in a dry run the refusals the delete runs" $ do
+            (manager, db) <- installedFrom "refused" (classifiedDB 3200)
+            everyone <- heldKeys manager "refused"
+            let request = namingKeys db CutSuppliers everyone
+            dry <- deleteActivitiesInDB manager "refused" noOrigin request{drRun = DryRun}
+            real <- deleteActivitiesInDB manager "refused" noOrigin request
+            refusal real `shouldSatisfy` maybe False (isInfixOf "no processes")
+            refusal dry `shouldBe` refusal real
+
+        it "refuses in a dry run, as the delete does, while a loaded database depends on it" $ do
+            manager <- initDatabaseManager defaultConfig NoCache
+            base <- buildOrFail (classifiedDB 3250)
+            installLoaded manager "base" base
+            dep <- buildOrFail (classifiedDB 3260)
+            installLoaded manager "dependent" dep{dbDependsOn = ["base"]}
+            let request = (namingKeys base CutSuppliers [(mkUUID 3251, mkUUID 3251)]){drRun = DryRun}
+            dry <- deleteActivitiesInDB manager "base" noOrigin request
+            refusal dry `shouldSatisfy` maybe False (isInfixOf "still required by")
+
+        it "deletes exactly what its dry run announced" $ do
+            let c = keptChain 3300
+            (manager, db) <- installedFrom "announced" (chParts c)
+            before <- heldKeys manager "announced"
+            let request = namingKeys db SpareSuppliers (chMatched c)
+            announced <- outcomeOf manager "announced" request{drRun = DryRun}
+            done <- outcomeOf manager "announced" request
+            (doRemoved done, doSpared done) `shouldBe` (doRemoved announced, doSpared announced)
+            after <- heldKeys manager "announced"
+            S.fromList after `shouldBe` S.delete (chX c) (S.fromList before)
+
+        it "cuts every matched process when asked to, and spares none" $ do
+            let c = keptChain 3350
+            (manager, db) <- installedFrom "cut" (chParts c)
+            outcome <- outcomeOf manager "cut" (namingKeys db CutSuppliers (chMatched c))
+            (doRemoved outcome, doSpared outcome) `shouldBe` (4, 0)
+
+        it "an everything-except delete made of exclusions only spares the suppliers" $ do
+            (manager, _) <- installedFrom "except" (exceptDB 3400)
+            let request =
+                    emptyDelete
+                        { drExcluded = noExclusions{exNames = ["CIQUAL"], exClassifications = [categoryHolding "Agricultural", categoryHolding "Packaging"]}
+                        , drSpare = SpareSuppliers
+                        }
+            outcome <- outcomeOf manager "except" request
+            (doRemoved outcome, doSpared outcome) `shouldBe` (1, 1)
+            names <- activityNamesIn manager "except"
+            sort names `shouldBe` ["CIQUAL yogurt", "carton", "dairy farm", "mill"]
+
+        it "exclusions that leave nothing to delete change nothing" $ do
+            (manager, _) <- installedFrom "nothing-left" (classifiedDB 3500)
+            before <- heldKeys manager "nothing-left"
+            outcome <- outcomeOf manager "nothing-left" emptyDelete{drExcluded = noExclusions{exClassifications = [categoryHolding "food", categoryHolding "energy"]}}
+            (doRemoved outcome, doSpared outcome) `shouldBe` (0, 0)
+            heldKeys manager "nothing-left" `shouldReturn` before
+
+        -- A misspelt exclusion removes nothing, so the delete would take
+        -- what it was meant to keep.
+        it "refuses an exclusion that leaves out no process, dry run or not" $ do
+            (manager, _) <- installedFrom "idle-exclusion" (classifiedDB 3700)
+            before <- heldKeys manager "idle-exclusion"
+            let misspelt =
+                    [ noExclusions{exNames = ["zzzqx"]}
+                    , noExclusions{exLocations = ["Atlantis"]}
+                    , noExclusions{exClassifications = [categoryHolding "foood"]}
+                    ]
+            forM_ misspelt $ \ex -> forM_ [DryRun, RealRun] $ \run -> do
+                r <- deleteActivitiesInDB manager "idle-exclusion" noOrigin emptyDelete{drExcluded = ex, drRun = run}
+                refusal r `shouldSatisfy` maybe False (isInfixOf "removes no process")
+            heldKeys manager "idle-exclusion" `shouldReturn` before
+
+        it "ids refuse exclusions as they refuse filter fields" $ do
+            (manager, db) <- installedFrom "ids-and-exclusions" (classifiedDB 3600)
+            let foodA = processIdToText db (pidFor2 db (mkUUID 3601) (mkUUID 3601))
+            r <- deleteActivitiesInDB manager "ids-and-exclusions" noOrigin emptyDelete{drIds = Just [foodA], drExcluded = noExclusions{exNames = ["energy"]}}
+            refusal r `shouldSatisfy` maybe False (isInfixOf "cannot be combined")
+
     describe "DeleteSelectionRequest wire compatibility" $ do
         it "decodes a request without the ids key (old clients)" $ do
-            let json = "{\"classifications\":[],\"exact\":false,\"keep\":[],\"extra\":[]}"
+            let json = "{\"classifications\":[],\"exact\":false,\"keep\":[],\"extra\":[],\"spare\":false}"
             case eitherDecode json :: Either String DeleteSelectionRequest of
                 Left err -> expectationFailure ("decode failed: " <> err)
                 Right req -> dsqIds req `shouldBe` Nothing
+
+        it "reads the exclusions, the spare choice and the dry run" $ do
+            let json = "{\"classifications\":[{\"system\":\"category\",\"value\":\"food\",\"mode\":\"not-exact\"}],\"keep\":[],\"extra\":[],\"excludeName\":[\"CIQUAL\"],\"excludeLocation\":[\"FR\"],\"spare\":true,\"dryRun\":true}"
+            case eitherDecode json :: Either String DeleteSelectionRequest of
+                Left err -> expectationFailure ("decode failed: " <> err)
+                Right req -> do
+                    (dsqExcludeName req, dsqExcludeLocation req) `shouldBe` (Just ["CIQUAL"], Just ["FR"])
+                    (dsqSpare req, dsqDryRun req) `shouldBe` (True, Just True)
+
+        it "refuses a body without spare, naming the field" $
+            refusedNaming "spare" (decodedDelete "{\"classifications\":[],\"keep\":[],\"extra\":[]}") `shouldBe` True
+
+        it "refuses a body with an unknown field" $
+            refusedNaming "dryrun" (decodedDelete "{\"classifications\":[],\"keep\":[],\"extra\":[],\"spare\":true,\"dryrun\":true}") `shouldBe` True
+
+        it "refuses a classification entry without mode" $
+            refusedNaming "mode" (decodedDelete "{\"classifications\":[{\"system\":\"category\",\"value\":\"food\"}],\"keep\":[],\"extra\":[],\"spare\":true}") `shouldBe` True
+
+        it "refuses a classification entry with a field it does not have" $
+            refusedNaming "exact" (decodedDelete "{\"classifications\":[{\"system\":\"category\",\"value\":\"food\",\"mode\":\"exact\",\"exact\":true}],\"keep\":[],\"extra\":[],\"spare\":true}") `shouldBe` True
 
         it "CLI --id values reach the server as the ids selection" $ do
             -- The CLI builds this body by hand (CLI.Client.deleteSelectionBody);
@@ -403,9 +614,64 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
                     dsqIds req `shouldBe` Nothing
                     dsqName req `shouldBe` Just "electricity"
 
+        it "CLI spare choice, exclusions and dry run reach the server" $ do
+            let args = emptyDeleteArgs{ddaSpare = SpareSuppliers, ddaExcludeName = ["CIQUAL"], ddaExcludeLocation = ["FR"], ddaDryRun = True}
+            case eitherDecode (encode (deleteSelectionBody args)) :: Either String DeleteSelectionRequest of
+                Left err -> expectationFailure ("decode failed: " <> err)
+                Right req -> do
+                    (dsqSpare req, dsqDryRun req) `shouldBe` (True, Just True)
+                    (dsqExcludeName req, dsqExcludeLocation req) `shouldBe` (Just ["CIQUAL"], Just ["FR"])
+
+        it "CLI --cut-suppliers sends spare false" $
+            case eitherDecode (encode (deleteSelectionBody emptyDeleteArgs)) :: Either String DeleteSelectionRequest of
+                Left err -> expectationFailure ("decode failed: " <> err)
+                Right req -> (dsqSpare req, dsqDryRun req) `shouldBe` (False, Just False)
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
+
+-- | The body of a delete request as a client sent it.
+decodedDelete :: BL.ByteString -> Either String DeleteSelectionRequest
+decodedDelete = eitherDecode
+
+-- | Whether a decoding was refused with a message that names this word.
+refusedNaming :: String -> Either String a -> Bool
+refusedNaming word = either (L.isInfixOf word) (const False)
+
+-- | Why a delete was refused, if it was.
+refusal :: Either Text DeleteOutcome -> Maybe Text
+refusal = either Just (const Nothing)
+
+-- | A manager holding the database, and the database as installed.
+installedFrom :: Text -> SimpleParts -> IO (DatabaseManager, Database)
+installedFrom name parts = do
+    manager <- initDatabaseManager defaultConfig NoCache
+    db <- buildOrFail parts
+    installLoaded manager name db
+    pure (manager, db)
+
+-- | A delete naming these processes, sparing or cutting what they supply.
+namingKeys :: Database -> SpareChoice -> [(UUID, UUID)] -> DeleteRequest
+namingKeys db choice keys =
+    emptyDelete{drIds = Just [processIdToText db (pidOfKey db key) | key <- keys], drSpare = choice}
+
+-- | What a delete did, the example failing when it was refused.
+outcomeOf :: DatabaseManager -> Text -> DeleteRequest -> IO DeleteOutcome
+outcomeOf manager name request = deleteActivitiesInDB manager name noOrigin request >>= either (fail . unpack) pure
+
+-- | The keys of the processes a loaded database holds.
+heldKeys :: DatabaseManager -> Text -> IO [(UUID, UUID)]
+heldKeys manager name =
+    maybe [] (V.toList . dbProcessIdTable . ldDatabase) . M.lookup name <$> readTVarIO (dmLoadedDbs manager)
+
+activityNamesIn :: DatabaseManager -> Text -> IO [Text]
+activityNamesIn manager name =
+    maybe [] (map activityName . V.toList . dbActivities . ldDatabase) . M.lookup name <$> readTVarIO (dmLoadedDbs manager)
+
+-- | A classification filter on the @category@ system.
+categoryHolding :: Text -> ClassificationFilter
+categoryHolding value = ClassificationFilter{clfSystem = "category", clfValue = value, clfMatch = MatchContains}
 
 pidFor :: Database -> Int -> Int -> ProcessId
 pidFor db offset i = pidFor2 db (mkUUID (offset + 10 * i + 1)) (mkUUID (offset + 10 * i + 1))
@@ -458,24 +724,25 @@ mkConfig name =
         }
 
 buildOrFail :: SimpleParts -> IO Database
-buildOrFail (SimpleParts acts flows units) = do
-    r <-
-        buildDatabaseWithMatrices
-            (BuildInputs defaultUnitConfig mempty ReadDeclared [])
-            SimpleDatabase
-                { sdbActivities = acts
-                , sdbTechFlows = flows
-                , sdbBioFlows = M.empty
-                , sdbWasteFlows = M.empty
-                , sdbUnits = units
-                , sdbDocumentation = noDocumentation
-                , sdbParameters = M.empty
-                , sdbProductSystems = []
-                , sdbReferenceConvention = SignedReferences
-                }
+buildOrFail parts = do
+    r <- buildDatabaseWithMatrices (BuildInputs defaultUnitConfig mempty ReadDeclared []) (simpleOf parts)
     case r of
         Right db -> pure db
         Left err -> fail ("buildDatabaseWithMatrices: " <> show err)
+
+simpleOf :: SimpleParts -> SimpleDatabase
+simpleOf (SimpleParts acts flows unitTable) =
+    SimpleDatabase
+        { sdbActivities = acts
+        , sdbTechFlows = flows
+        , sdbBioFlows = M.empty
+        , sdbWasteFlows = M.empty
+        , sdbUnits = unitTable
+        , sdbDocumentation = noDocumentation
+        , sdbParameters = M.empty
+        , sdbProductSystems = []
+        , sdbReferenceConvention = SignedReferences
+        }
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
@@ -715,3 +982,276 @@ classifiedDB offset =
                 ]
             )
             units
+
+{- | A named yogurt, a farm and a carton, the mill the yogurt buys from, and a
+process nothing uses. Deleting everything but what the name @CIQUAL@ and the
+classifications @Agricultural@ and @Packaging@ name leaves the mill to be
+spared and the unused process to go.
+-}
+exceptDB :: Int -> SimpleParts
+exceptDB offset =
+    let yogurt = mkUUID (offset + 1)
+        farm = mkUUID (offset + 11)
+        carton = mkUUID (offset + 21)
+        mill = mkUUID (offset + 31)
+        junk = mkUUID (offset + 41)
+        classifiedAs = M.singleton "category"
+     in SimpleParts
+            ( M.fromList
+                [ ((yogurt, yogurt), mkActivity "CIQUAL yogurt" "GLO" (classifiedAs "Food") [refOut yogurt yogurt, inputFrom mill mill])
+                , ((farm, farm), mkActivity "dairy farm" "GLO" (classifiedAs "Agricultural\\Milk") [refOut farm farm])
+                , ((carton, carton), mkActivity "carton" "GLO" (classifiedAs "Packaging\\Box") [refOut carton carton])
+                , ((mill, mill), mkActivity "mill" "GLO" (classifiedAs "Industry") [refOut mill mill])
+                , ((junk, junk), mkActivity "junk" "GLO" (classifiedAs "Industry") [refOut junk junk])
+                ]
+            )
+            (techFlows [(yogurt, "yogurt"), (farm, "milk"), (carton, "box"), (mill, "flour"), (junk, "scrap")])
+            units
+
+-- ---------------------------------------------------------------------------
+-- What a delete spares
+-- ---------------------------------------------------------------------------
+
+-- | A plan read back as process keys: what goes, and what is spared.
+planKeys :: SpareChoice -> Database -> [(UUID, UUID)] -> (S.Set (UUID, UUID), S.Set (UUID, UUID))
+planKeys choice db keys =
+    let plan = planDeletion choice db (map (pidOfKey db) keys)
+        keysOf = S.fromList . map (\pid -> dbProcessIdTable db V.! fromIntegral pid)
+     in (keysOf (dpDeleted plan), keysOf (dpSpared plan))
+
+pidOfKey :: Database -> (UUID, UUID) -> ProcessId
+pidOfKey db = uncurry (pidFor2 db)
+
+afterDelete :: Database -> [ProcessId] -> IO Database
+afterDelete db pids = either (fail . show) pure (deleteActivities pids db)
+
+{- | Every inventory left after the delete equals the one before it, flow by
+flow, to a relative 1e-9: the solve runs on a smaller matrix.
+-}
+keptScoresUnchanged :: Database -> Database -> Expectation
+keptScoresUnchanged db db' = do
+    before <- inventoriesByKey db
+    after <- inventoriesByKey db'
+    M.null after `shouldBe` False
+    M.keys after `shouldBe` M.keys (M.restrictKeys before (M.keysSet (dbProcessIdLookup db')))
+    [ (key, flow, x, y)
+      | (key, inventory') <- M.toList after
+      , let inventory = M.findWithDefault M.empty key before
+      , flow <- S.toList (M.keysSet inventory <> M.keysSet inventory')
+      , let x = M.findWithDefault 0 flow inventory
+            y = M.findWithDefault 0 flow inventory'
+      , abs (x - y) > 1e-9 * max (abs x) (abs y)
+      ]
+        `shouldBe` []
+
+inventoriesByKey :: Database -> IO (M.Map (UUID, UUID) Inventory)
+inventoriesByKey db = M.fromList . concat <$> traverse one [0 .. dbActivityCount db - 1]
+  where
+    one pid = either (const []) (\inventory -> [(dbProcessIdTable db V.! fromIntegral pid, inventory)]) <$> computeInventoryMatrix db pid
+
+-- | The links to another database the processes of @kept@ make in @db@: consumer, supplier, amount.
+crossLinks :: Database -> IndexedDatabase -> Database -> [((UUID, UUID), (UUID, UUID), Double)]
+crossLinks kept bg db =
+    sort
+        [ (consumer, (cdlSupplierActUUID l, cdlSupplierProdUUID l), cdlCoefficient l)
+        | l <- cdlLinks (findAllCrossDBLinks (linkingTo bg) (toSimpleDatabase db))
+        , let consumer = (cdlConsumerActUUID l, cdlConsumerProdUUID l)
+        , M.member consumer (dbProcessIdLookup kept)
+        ]
+
+linkingTo :: IndexedDatabase -> LinkingContext
+linkingTo bg =
+    LinkingContext
+        { lcIndexedDatabases = [bg]
+        , lcSynonymDB = emptySynonymDB
+        , lcUnitConfig = defaultUnitConfig
+        , lcThreshold = defaultLinkingThreshold
+        , lcLocationHierarchy = locationHierarchy
+        , lcGeographyPolicy = GeoGlobal
+        , lcSupplierAliases = emptyAliasMap
+        }
+
+indexBackground :: SimpleParts -> IndexedDatabase
+indexBackground = buildIndexedDatabase "bg" emptySynonymDB . simpleOf
+
+{- | @K → A → B@, @K@ sending waste to the treatment @T@ and buying from a
+supplier of another database by its identifier, and an unrelated @X@. The
+background ships @A@ under the same identifier, and the supplier @K@ buys there.
+-}
+data Chain = Chain
+    { chParts :: SimpleParts
+    , chBackground :: SimpleParts
+    , chK :: (UUID, UUID)
+    , chA :: (UUID, UUID)
+    , chB :: (UUID, UUID)
+    , chT :: (UUID, UUID)
+    , chX :: (UUID, UUID)
+    }
+
+chMatched :: Chain -> [(UUID, UUID)]
+chMatched c = [chA c, chB c, chT c, chX c]
+
+keptChain :: Int -> Chain
+keptChain offset =
+    let k = mkUUID (offset + 1)
+        a = mkUUID (offset + 11)
+        b = mkUUID (offset + 21)
+        t = mkUUID (offset + 31)
+        x = mkUUID (offset + 41)
+        elsewhere = mkUUID (offset + 51)
+        co2 = mkUUID (offset + 99)
+        flows = techFlows [(k, "kept"), (a, "a"), (b, "b"), (t, "treatment"), (x, "unrelated"), (elsewhere, "elsewhere")]
+     in Chain
+            { chParts =
+                SimpleParts
+                    ( M.fromList
+                        [ ((k, k), mkActivity "kept" "GLO" M.empty [refOut k k, inputById a, wasteOut t t, inputById elsewhere, emits co2 1])
+                        , ((a, a), mkActivity "a" "GLO" M.empty [refOut a a, inputFrom b b, emits co2 0.25])
+                        , ((b, b), mkActivity "b" "GLO" M.empty [refOut b b, emits co2 2])
+                        , ((t, t), mkActivity "treatment" "GLO" M.empty [refOut t t, emits co2 3])
+                        , ((x, x), mkActivity "unrelated" "GLO" M.empty [refOut x x, emits co2 5])
+                        ]
+                    )
+                    flows
+                    units
+            , chBackground =
+                SimpleParts
+                    ( M.fromList
+                        [ ((a, a), mkActivity "a" "GLO" M.empty [refOut a a])
+                        , ((elsewhere, elsewhere), mkActivity "elsewhere" "GLO" M.empty [refOut elsewhere elsewhere])
+                        ]
+                    )
+                    flows
+                    units
+            , chK = (k, k)
+            , chA = (a, a)
+            , chB = (b, b)
+            , chT = (t, t)
+            , chX = (x, x)
+            }
+
+-- | A remaining activity the allocation refuses (a coproduct with no share), buying from a supplier.
+refusedConsumerDB :: Int -> (SimpleParts, (UUID, UUID))
+refusedConsumerDB offset =
+    let r = mkUUID (offset + 1)
+        whey = mkUUID (offset + 2)
+        s = mkUUID (offset + 11)
+        refused = mkActivity "refused" "GLO" M.empty [refOut r r, (refOut r whey){techRole = Coproduct}, inputFrom s s]
+     in ( SimpleParts
+            (M.fromList [((r, r), refused), ((s, s), mkActivity "supplier" "GLO" M.empty [refOut s s])])
+            (techFlows [(r, "cheese"), (whey, "whey"), (s, "milk")])
+            units
+        , (s, s)
+        )
+
+-- | A block kept whole (every product declares a share), whose coproduct a remaining activity buys.
+wholeBlockDB :: Int -> (SimpleParts, (UUID, UUID))
+wholeBlockDB offset =
+    let w = mkUUID (offset + 1)
+        cheese = mkUUID (offset + 2)
+        cream = mkUUID (offset + 3)
+        c = mkUUID (offset + 11)
+        block = mkActivity "dairy" "GLO" M.empty [productRow w cheese ReferenceProduct 51, productRow w cream Coproduct 49]
+     in ( SimpleParts
+            (M.fromList [((w, cheese), block), ((c, c), mkActivity "consumer" "GLO" M.empty [refOut c c, inputFrom w cream])])
+            (techFlows [(cheese, "cheese"), (cream, "cream"), (c, "consumer")])
+            units
+        , (w, cheese)
+        )
+
+-- | A remaining activity linked to its supplier by a line of amount zero.
+zeroLinkDB :: Int -> (SimpleParts, (UUID, UUID))
+zeroLinkDB offset =
+    let z = mkUUID (offset + 1)
+        s = mkUUID (offset + 11)
+     in ( SimpleParts
+            ( M.fromList
+                [ ((z, z), mkActivity "zero" "GLO" M.empty [refOut z z, (inputFrom s s){techAmount = 0}])
+                , ((s, s), mkActivity "supplier" "GLO" M.empty [refOut s s])
+                ]
+            )
+            (techFlows [(z, "zero"), (s, "supplier")])
+            units
+        , (s, s)
+        )
+
+{- | A block split by its declared shares into two processes, one bought by a
+remaining activity, the other by nothing: the kept one and the deleted one.
+-}
+siblingsDB :: Int -> (SimpleParts, (UUID, UUID), (UUID, UUID))
+siblingsDB offset =
+    let sib = mkUUID (offset + 1)
+        cheese = mkUUID (offset + 2)
+        whey = mkUUID (offset + 3)
+        k = mkUUID (offset + 11)
+        s = mkUUID (offset + 21)
+        co2 = mkUUID (offset + 99)
+        block = mkActivity "dairy" "GLO" M.empty [productRow sib cheese ReferenceProduct 60, productRow sib whey Coproduct 40, (inputFrom s s){techAmount = 10}, emits co2 4]
+        processes = NE.toList (allocate Allocating{alKey = Declared, alUnitConfig = defaultUnitConfig, alUnitDB = units} block)
+        keyOf p = (sib, head [techFlowId ex | ex@TechnosphereExchange{techRole = ReferenceProduct} <- exchanges p])
+     in ( SimpleParts
+            ( M.fromList
+                ( [(keyOf p, p) | p <- processes]
+                    <> [ ((k, k), mkActivity "kept" "GLO" M.empty [refOut k k, inputFrom sib cheese])
+                       , ((s, s), mkActivity "milk" "GLO" M.empty [refOut s s, emits co2 1])
+                       ]
+                )
+            )
+            (techFlows [(cheese, "cheese"), (whey, "whey"), (k, "kept"), (s, "milk")])
+            units
+        , (sib, cheese)
+        , (sib, whey)
+        )
+
+{- | Two blocks kept whole under one activity, both making cream, so a link to
+that cream names neither; a remaining activity buys it by the activity's
+identifier, which the background ships. Returns the database, the background,
+one of the two blocks, and an unrelated process.
+-}
+ambiguousBlocksDB :: Int -> (SimpleParts, SimpleParts, (UUID, UUID), (UUID, UUID))
+ambiguousBlocksDB offset =
+    let mill = mkUUID (offset + 1)
+        cheese = mkUUID (offset + 2)
+        whey = mkUUID (offset + 3)
+        cream = mkUUID (offset + 4)
+        c = mkUUID (offset + 11)
+        x = mkUUID (offset + 21)
+        flows = techFlows [(cheese, "cheese"), (whey, "whey"), (cream, "cream"), (c, "consumer"), (x, "unrelated")]
+     in ( SimpleParts
+            ( M.fromList
+                [ ((mill, cheese), mkActivity "cheese" "GLO" M.empty [productRow mill cheese ReferenceProduct 51, productRow mill cream Coproduct 49])
+                , ((mill, whey), mkActivity "whey" "GLO" M.empty [productRow mill whey ReferenceProduct 60, productRow mill cream Coproduct 40])
+                , ((c, c), mkActivity "consumer" "GLO" M.empty [refOut c c, (inputFrom mill cream){techSupplierClaim = ClaimById mill}])
+                , ((x, x), mkActivity "unrelated" "GLO" M.empty [refOut x x])
+                ]
+            )
+            flows
+            units
+        , SimpleParts (M.fromList [((mill, cream), mkActivity "cream" "GLO" M.empty [refOut mill cream])]) flows units
+        , (mill, whey)
+        , (x, x)
+        )
+
+techFlows :: [(UUID, Text)] -> M.Map UUID TechnosphereFlow
+techFlows named = M.fromList [(fid, mkTechFlow fid name) | (fid, name) <- named]
+
+-- | An input naming its supplier by the activity's identifier, as EcoSpold 2 does.
+inputById :: UUID -> Exchange
+inputById supplier = (inputFrom supplier supplier){techSupplierClaim = ClaimById supplier}
+
+-- | A product output of a block, with the share the source declares for it.
+productRow :: UUID -> UUID -> TechRole -> Double -> Exchange
+productRow act flow role share = (refOut act flow){techRole = role, techShare = Just (DeclaredShare share Nothing Nothing)}
+
+emits :: UUID -> Double -> Exchange
+emits flow amount =
+    BiosphereExchange
+        { bioFlowId = flow
+        , bioAmount = amount
+        , bioUnitId = kgUnitId
+        , bioDirection = Emission
+        , bioLocation = ""
+        , bioComment = Nothing
+        , bioPedigree = Nothing
+        , bioFormula = Nothing
+        }

@@ -9,6 +9,7 @@ module CLI.Client (
     apiGet,
     apiPost,
     deleteSelectionBody,
+    requireWire,
     MethodRow (..),
     ImpactTarget (..),
     resolveImpactTarget,
@@ -57,6 +58,7 @@ import Progress (ProgressLevel (Warning), reportError, reportProgress)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
 import System.IO (IOMode (ReadMode), hFileSize, withBinaryFile)
+import Types (SpareChoice (..))
 
 -- | Configuration for connecting to a remote VoLCA server
 data RemoteConfig = RemoteConfig
@@ -107,7 +109,9 @@ executeRemoteCommand mgr rc globalOpts cmd = do
             executeUpload mgr rc fmt jp "/api/v1/db/upload" args
         Database (DbDelete name) ->
             apiDelete mgr rc ("/api/v1/db/" ++ T.unpack name) >>= output fmt jp
-        Database (DbDeleteActivities args) ->
+        Database (DbDeleteActivities args) -> do
+            -- 114 is the first engine that reads the spare choice; an older one would cut whatever was asked.
+            requireEngineWire mgr rc 114 "delete-activities"
             apiPost mgr rc ("/api/v1/db/" ++ T.unpack (ddaDb args) ++ "/delete") (deleteSelectionBody args)
                 >>= outputStatus fmt jp "delete"
         Database (DbCopy srcName newName) ->
@@ -438,12 +442,37 @@ deleteSelectionBody args =
         , "keep" .= ddaKeep args
         , "extra" .= ddaExtra args
         , "ids" .= (if null (ddaIds args) then Nothing else Just (ddaIds args))
+        , "excludeName" .= ddaExcludeName args
+        , "excludeLocation" .= ddaExcludeLocation args
+        , "spare" .= (ddaSpare args == SpareSuppliers)
+        , "dryRun" .= ddaDryRun args
         ]
   where
     classifications = case (ddaClassSystem args, ddaClassValue args) of
         (Just sys, Just val) ->
-            [object ["system" .= sys, "value" .= val, "exact" .= ddaExact args]]
+            [object ["system" .= sys, "value" .= val, "mode" .= (if ddaExact args then "exact" else "contains" :: Text)]]
         _ -> [] :: [Value]
+
+-- | Stop before sending a command to a server whose engine speaks an older wire than the command needs.
+requireEngineWire :: Manager -> RemoteConfig -> Int -> String -> IO ()
+requireEngineWire mgr rc minimum' subcommand = do
+    spoken <- (>>= requireWire minimum' subcommand) <$> apiGet mgr rc "/api/v1/version"
+    either (\err -> reportError err >> exitFailure) pure spoken
+
+{- | Refuse an engine that speaks an older wire revision than a command needs,
+from what its version route answered. An older engine drops the fields it does
+not know and would read the request as another: a delete meant to spare would
+cut.
+-}
+requireWire :: Int -> String -> Value -> Either String ()
+requireWire minimum' subcommand answer = case parseMaybe (withObject "version" (.: "wireVersion")) answer of
+    Just wire
+        | wire >= minimum' -> Right ()
+        | otherwise -> Left (refusal ("wire " ++ show (wire :: Int)))
+    Nothing -> Left (refusal "an unknown wire")
+  where
+    refusal spoken =
+        subcommand ++ " needs an engine speaking wire " ++ show minimum' ++ " or later; this one speaks " ++ spoken ++ ". Upgrade the engine."
 
 {- | Body for POST /api/v1/db/{db}/relink with an inline alias mapping.
 Keys mirror 'API.Types.RelinkRequest' after the @Stripped@ prefix transform

@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.15.0** speaks wire format **113** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.15.0** speaks wire formats **113 to 114** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -830,26 +830,43 @@ The method collection the configuration offers a reader first, by
 name; ``None`` when it names none, and against an engine older than
 wire revision 52.
 
-##### `Client.delete_activities(*, name: str = '', location: str = '', product: str = '', classifications: list[dict | tuple] | None = None, exact: bool = False, keep: list[str] | None = None, extra: list[str] | None = None, ids: list[str] | None = None, note: str | None = None, source: dict | None = None, db_name: str | None = None) -> dict`
+##### `Client.delete_activities(*, name: str = '', location: str = '', product: str = '', classifications: list[dict | tuple] | None = None, exact: bool = False, keep: list[str] | None = None, extra: list[str] | None = None, ids: list[str] | None = None, exclude_name: list[str] | None = None, exclude_location: list[str] | None = None, dry_run: bool = False, note: str | None = None, source: dict | None = None, db_name: str | None = None, spare: bool) -> dict`
 
 Delete activities selected by filter, or exactly the ``ids`` list.
 
 Builds a ``DeleteSelectionRequest``: the filter fields select the whole
 matching set, ``keep`` spares matched process ids, and ``extra`` adds
 ones the filter missed. ``classifications`` is a list of
-``{"system", "value", "exact"}`` dicts or ``(system, value, exact)``
-tuples.
+``{"system", "value", "mode"}`` dicts or ``(system, value, mode)``
+tuples, ``mode`` being ``contains``, ``exact``, ``not-contains`` or
+``not-exact``; the negative two leave out what they match. The older
+``exact`` flag is still read in place of ``mode``.
+
+``exclude_name`` and ``exclude_location`` leave out the processes whose
+name, or location, they find, whatever else the filter matched.
+
+``spare`` has no default, because the two answers delete different
+things. ``True`` keeps every matched process that a remaining one still
+uses, however far upstream: removing what stays needs would leave it
+with a hole. ``False`` deletes every matched process and cuts the
+remaining ones' links to it.
+
+``dry_run=True`` changes nothing and answers what a real call would do:
+the same counts, the same refusals.
 
 ``ids`` names the selection verbatim instead of filtering; the filter
-arguments (and ``exact``) must then stay unset: the two modes are
-exclusive, mirroring the engine. Needs an engine speaking wire
-revision 3 (>= v0.9.3): an older one would silently drop the unknown
-``ids`` key and read the request as an empty filter ("everything"),
-so pyvolca refuses to send it rather than let the engine guess.
+arguments (and ``exact``) and the exclusions must then stay unset: the
+modes are exclusive, mirroring the engine.
 
-Returns the ``DeleteSelectionResponse`` dict
-(``{"success", "message", "deleted"}``); raises VoLCAError on
-``success=false``.
+Needs an engine speaking wire revision 114 (>= v0.19.0): an older one
+drops the ``spare`` key it does not know, so a delete meant to spare
+would cut. pyvolca refuses to send the request rather than let the
+engine guess.
+
+Returns the ``DeleteSelectionResponse`` dict (``{"success", "message",
+"deleted", "spared", "transient", "warnings"}``); ``spared`` counts the
+matched processes kept because the remaining ones use them. Raises
+VoLCAError on ``success=false``.
 
 ``note`` says why, in a sentence: it is kept in the database's history
 (`database_history`) and in the changes report its export

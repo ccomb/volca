@@ -45,8 +45,10 @@ import Database.Author (ExchangeEdit (..), ExchangeSelector (..))
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
+    DeleteRun (..),
     MissingRequest (..),
     MutationOutcome (..),
+    SpareChoice (..),
     copyDatabase,
     deleteActivitiesInDB,
     editActivities,
@@ -76,6 +78,7 @@ import Database.Manager (
 import Database.RelinkMapping (SupplierMapping, readSupplierMapping)
 import Database.Upload (DatabaseFormat (..))
 import Database.UploadedDatabase (UploadMeta (..), metaVersion, readUploadMeta, writeUploadMeta)
+import Service (noExclusions)
 import SharedSolver (SharedSolver, createSharedSolver)
 import TestHelpers (modelDividingBy)
 import Types (
@@ -124,6 +127,15 @@ spec = describe "persisting an edit" $ do
                 listDirectory (home </> "data") >>= (`shouldSatisfy` ((== 2) . length))
                 journal <- readJournal home
                 fmap length journal `shouldBe` Right 1
+
+        it "writes nothing when a delete is only a dry run" $
+            withEcoSpold1Database $ \manager home -> do
+                keys <- processKeysOf manager "bafu-like"
+                r <- deleteActivitiesInDB manager "bafu-like" noOrigin (deleteIds [head' keys]){drRun = DryRun}
+                fmap doRemoved r `shouldBe` Right 1
+                processKeysOf manager "bafu-like" `shouldReturn` keys
+                journal <- readJournal home
+                fmap length journal `shouldBe` Right 0
 
         it "reloads to what was written, under the identities it was written with" $
             -- The point of the whole path. EcoSpold 1 derives its identities
@@ -733,6 +745,9 @@ deleteIds ids =
         , drKeep = []
         , drExtra = []
         , drIds = Just ids
+        , drExcluded = noExclusions
+        , drSpare = CutSuppliers
+        , drRun = RealRun
         , drStated = nothingStated
         }
 

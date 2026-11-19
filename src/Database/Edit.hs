@@ -34,7 +34,11 @@ module Database.Edit (
     derivationOf,
     resolveDeleteSelection,
     DeleteSelection (..),
+    SpareChoice (..),
+    DeletePlan (..),
+    planDeletion,
     DeleteRequest (..),
+    DeleteRun (..),
     DeleteOutcome (..),
     deleteActivitiesInDB,
     MutationOutcome (..),
@@ -83,7 +87,7 @@ import System.FilePath ((</>))
 import Config (DatabaseConfig (..), licenceOf)
 import Data.JournalFile (Origin)
 import Database (Geographies)
-import Database.Allocation (Allocating (..), describePropertyRefusal, keptWhole, propertyKeyRefusals)
+import Database.Allocation (Allocating (..), describePropertyRefusal, keptWhole, producerCandidatesBy, propertyKeyRefusals)
 import Database.Author (
     ActivityText (..),
     AuthorContext (..),
@@ -141,7 +145,7 @@ import Database.Manager (
     unloadDatabase,
     withReservedName,
  )
-import Database.Rebuild (processKey, resolveProcess)
+import Database.Rebuild (activityMap, processKey, resolveProcess)
 import Database.RelinkMapping (SupplierMapping (..))
 import Database.SystemModel (parseSystemModel, severalProducts)
 import Database.Upload (DatabaseFormat (..), slugify)
@@ -149,7 +153,7 @@ import qualified Database.UploadedDatabase as UploadedDB
 import Parametric (editedParameters)
 import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
-import Service (ActivityFilterCore (..), SearchFilter (..), SortOrder (..), activityMatches)
+import Service (ActivityFilterCore (..), Exclusions, SearchFilter (..), SortOrder (..), activityMatches, idleExclusions, noExclusions, placeReading)
 import Types (
     Activity,
     AddedAt,
@@ -163,13 +167,17 @@ import Types (
     ProcessId,
     ProcessRef (..),
     Reading (..),
+    SpareChoice (..),
     SystemModel (..),
     addedNow,
     allocationKeyText,
+    exchangeActivityLinkId,
+    exchangeFlowId,
     findProcessIdByActivityUUID,
     getActivity,
     initializeRuntimeFields,
     modelOf,
+    nonPlainExchanges,
     parseProcessRef,
     processIdToRef,
     processRefText,
@@ -1112,11 +1120,8 @@ mutateReserved :: DatabaseManager -> Text -> Origin -> NonEmpty Change -> IO (Ei
 mutateReserved manager dbName origin changes =
     getDatabase manager dbName >>= \case
         Nothing -> pure $ Left $ "Database not loaded: " <> dbName
-        Just loaded -> do
-            loadedDbs <- readTVarIO (dmLoadedDbs manager)
-            configs <- readTVarIO (dmAvailableDbs manager)
-            ctx <- authorContext manager (ldDatabase loaded)
-            case guardDependents configs dbName loadedDbs *> applyOps ctx (fmap changeOp changes) of
+        Just loaded ->
+            editedDatabase manager dbName loaded (fmap changeOp changes) >>= \case
                 Left err -> pure (Left err)
                 Right edited -> do
                     home <- editHome (ldConfig loaded)
@@ -1124,6 +1129,17 @@ mutateReserved manager dbName origin changes =
                     case sequence recorded of
                         Left err -> pure (Left err)
                         Right _ -> Right <$> commitMutation manager dbName loaded edited home
+
+{- | The database a loaded one becomes under these operations, or why they are
+refused. A live edit commits what this returns, and the dry run of a delete only
+reads it, so the two cannot disagree about what is refused.
+-}
+editedDatabase :: DatabaseManager -> Text -> LoadedDatabase -> NonEmpty JournalOp -> IO (Either Text Database)
+editedDatabase manager dbName loaded ops = do
+    loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    configs <- readTVarIO (dmAvailableDbs manager)
+    ctx <- authorContext manager (ldDatabase loaded)
+    pure (guardDependents configs dbName loadedDbs *> applyOps ctx ops)
 
 {- | Everything an edit is judged against: the database it applies to, the
 dependencies its suppliers may live in, and the units its amounts are stated
@@ -1183,14 +1199,7 @@ commitMutation manager dbName loaded edited home = do
         -- The transient path must not relink: 'relinkDatabase' saves the
         -- matrix cache when links change, which would half-persist an edit
         -- the caller is being told is memory-only. Say what that costs.
-        Nothing ->
-            pure
-                [ "the edit cleared the links to "
-                    <> T.intercalate ", " (dbDependsOn edited)
-                    <> "; they return at the next load, and cross-database totals undercount until then"
-                | not (null (dbDependsOn edited))
-                , null (dbCrossDBLinks edited)
-                ]
+        Nothing -> pure (unrelinkedWarnings edited)
         Just dir -> do
             -- Rebuilding cleared the cross-database links; rebuild them against
             -- the current dependency set before the cache records the result.
@@ -1204,6 +1213,16 @@ commitMutation manager dbName loaded edited home = do
             { moPersisted = isJust home
             , moWarnings = warnings
             }
+
+-- | What an edit kept in memory only costs: the cross-database links it cleared stay cleared until the next load.
+unrelinkedWarnings :: Database -> [Text]
+unrelinkedWarnings edited =
+    [ "the edit cleared the links to "
+        <> T.intercalate ", " (dbDependsOn edited)
+        <> "; they return at the next load, and cross-database totals undercount until then"
+    | not (null (dbDependsOn edited))
+    , null (dbCrossDBLinks edited)
+    ]
 
 -- ---------------------------------------------------------------------------
 -- Selection resolver
@@ -1237,6 +1256,72 @@ resolveDeleteSelection sel =
   where
     toSet = IS.fromList . map fromIntegral
 
+-- | What a delete removes, and the matched processes it keeps because the remaining ones use them.
+data DeletePlan = DeletePlan
+    { dpDeleted :: [ProcessId]
+    , dpSpared :: [ProcessId]
+    }
+
+{- | Split the matched processes into those a delete removes and those it
+spares.
+
+Sparing keeps every matched process the remaining ones reach, however far
+upstream, through the links a delete would clear: every technosphere and
+waste line carrying a link. The walk follows every producer the unlinking
+could resolve a line to, not the single answer
+'Database.Allocation.producerKeyOf' gives: a link that two whole blocks could
+answer is answered by neither today, and a delete that kept one of them would
+start answering it there, so both are spared. A walk through 'producerKeyOf'
+alone would look simpler and let one of them go. The lines are read, not the
+matrix, because the matrix holds no column for an activity the allocation
+refuses, no entry for a coproduct bought from a block kept whole and none for
+a linked line of amount zero, and the delete clears all three. Cut spares
+nothing.
+-}
+planDeletion :: SpareChoice -> Database -> [ProcessId] -> DeletePlan
+planDeletion choice db matched = case choice of
+    CutSuppliers -> DeletePlan{dpDeleted = pids matchedSet, dpSpared = []}
+    SpareSuppliers ->
+        DeletePlan
+            { dpDeleted = pids (IS.difference matchedSet used)
+            , dpSpared = pids (IS.intersection matchedSet used)
+            }
+  where
+    matchedSet :: IS.IntSet
+    matchedSet = IS.fromList (map fromIntegral matched)
+
+    remaining :: [Int]
+    remaining = filter (`IS.notMember` matchedSet) [0 .. V.length (dbActivities db) - 1]
+
+    used :: IS.IntSet
+    used = reachable (linkedSuppliers db (activityMap db)) remaining
+
+    pids :: IS.IntSet -> [ProcessId]
+    pids = map fromIntegral . IS.toList
+
+{- | The processes a process's lines are linked to, as a delete resolves them;
+a link two whole blocks could answer reaches both.
+-}
+linkedSuppliers :: Database -> M.Map (UUID.UUID, UUID.UUID) Activity -> Int -> [Int]
+linkedSuppliers db activities pid =
+    [ fromIntegral supplier
+    | Just act <- [dbActivities db V.!? pid]
+    , ex <- nonPlainExchanges act
+    , Just link <- [exchangeActivityLinkId ex]
+    , key <- producerCandidatesBy id activities (link, exchangeFlowId ex)
+    , Just supplier <- [M.lookup key (dbProcessIdLookup db)]
+    ]
+
+-- | Every node reachable from the given ones, through @next@, the given ones included.
+reachable :: (Int -> [Int]) -> [Int] -> IS.IntSet
+reachable next = go IS.empty
+  where
+    go :: IS.IntSet -> [Int] -> IS.IntSet
+    go seen [] = seen
+    go seen (node : rest)
+        | IS.member node seen = go seen rest
+        | otherwise = go (IS.insert node seen) (next node <> rest)
+
 {- | Resolve a filter to the full set of matching 'ProcessId's, ignoring
 pagination.
 
@@ -1249,25 +1334,18 @@ was not, the button would delete rows the table never showed.
 
 Order is irrelevant: the result is consumed as a set.
 -}
-filteredProcessIds ::
-    Geographies ->
-    Database ->
-    Maybe Text -> -- name
-    Maybe Text -> -- location
-    Maybe Text -> -- product
-    [ClassificationFilter] -> -- classification
-    Bool -> -- exact name match
-    [ProcessId]
-filteredProcessIds geographies db nameP geoP prodP classFilters exactMatch =
-    map fst (activityMatches geographies db (SearchFilter core exactMatch))
+filteredProcessIds :: Geographies -> Database -> DeleteRequest -> [ProcessId]
+filteredProcessIds geographies db req =
+    map fst (activityMatches geographies db (SearchFilter core (drExactName req)))
   where
     core :: ActivityFilterCore
     core =
         ActivityFilterCore
-            { afcName = nameP
-            , afcLocation = geoP
-            , afcProduct = prodP
-            , afcClassifications = classFilters
+            { afcName = drName req
+            , afcLocation = drLocation req
+            , afcProduct = drProduct req
+            , afcClassifications = drClassifications req
+            , afcExcluded = drExcluded req
             , afcLimit = Nothing
             , afcOffset = Nothing
             , afcSort = Nothing
@@ -1280,9 +1358,11 @@ filteredProcessIds geographies db nameP geoP prodP classFilters exactMatch =
 
 {- | One delete-by-selection request against a loaded database. Two exclusive
 selection modes: the filter fields select the whole matching set (@drIds =
-Nothing@), or @drIds@ names the set exactly: every filter field must then be
-absent, so a request can never silently mean two things. @drKeep@ spares and
-@drExtra@ adds explicit process ids in both modes.
+Nothing@), or @drIds@ names the set exactly: every filter field and exclusion
+must then be absent, so a request can never silently mean two things. @drKeep@
+spares and @drExtra@ adds explicit process ids in both modes. @drExcluded@
+leaves processes out of the filtered set, and @drSpare@ says what happens to the
+matched processes the remaining ones use.
 -}
 data DeleteRequest = DeleteRequest
     { drName :: Maybe Text
@@ -1293,26 +1373,76 @@ data DeleteRequest = DeleteRequest
     , drKeep :: [Text]
     , drExtra :: [Text]
     , drIds :: Maybe [Text]
+    , drExcluded :: Exclusions
+    , drSpare :: SpareChoice
+    , drRun :: DeleteRun
     , drStated :: Stated
     }
 
-{- | What a delete-by-selection request did: how many activities went, and
-whether the database it edited keeps the change past an unload.
+{- | Whether a delete happens, or only works out what would go and what would
+be spared, changing nothing.
+-}
+data DeleteRun = DryRun | RealRun
+    deriving (Eq, Show)
+
+{- | What a delete-by-selection request did, or in a dry run would do: how many
+processes go, how many are spared, and whether the database it edits keeps the
+change past an unload.
 -}
 data DeleteOutcome = DeleteOutcome
     { doRemoved :: Int
+    , doSpared :: Int
     , doPersisted :: Bool
     , doWarnings :: [Text]
     }
 
+{- | What a request deletes and what it spares in a database: its selection
+resolved ('drIds' verbatim, else the filter's full matching set), adjusted by
+the explicit keep and extra process ids, then divided by 'planDeletion'. Pure,
+so the delete and its dry run ask the same question and cannot disagree.
+-}
+deletionPlan :: Geographies -> Database -> DeleteRequest -> Either Text DeletePlan
+deletionPlan geographies db req = do
+    keepPids <- traverse (resolveProcess db) (drKeep req)
+    extraPids <- traverse (resolveProcess db) (drExtra req)
+    filtered <- selection
+    refuseIdle (idleExclusions geographies db (placeReading (drExactName req)) (drExcluded req))
+    pure . planDeletion (drSpare req) db $
+        resolveDeleteSelection DeleteSelection{dsFiltered = filtered, dsKeep = keepPids, dsExtra = extraPids}
+  where
+    -- The two selection modes are exclusive: ids name the set verbatim,
+    -- filters compute it. A request carrying both is ambiguous, so it is
+    -- refused rather than guessed at: exact included, since it only modifies
+    -- name/classification matching.
+    selection :: Either Text [ProcessId]
+    selection = case drIds req of
+        Just ids
+            | hasFilter -> Left "ids cannot be combined with name/location/product/classification/exact filters or exclusions"
+            | otherwise -> traverse (resolveProcess db) ids
+        Nothing -> Right (filteredProcessIds geographies db req)
+
+    hasFilter :: Bool
+    hasFilter =
+        any isJust [drName req, drLocation req, drProduct req]
+            || not (null (drClassifications req))
+            || drExactName req
+            || drExcluded req /= noExclusions
+
+    refuseIdle :: [Text] -> Either Text ()
+    refuseIdle = \case
+        [] -> Right ()
+        idle -> Left ("Leaving out " <> T.intercalate ", " idle <> " removes no process from this database. Check the spelling or remove it: an exclusion that matches nothing would let the delete take what it was meant to keep.")
+
 {- | Delete a selection from a loaded database, in place under the same name.
 
-Resolves the selection ('drIds' verbatim, else the filter's full matching
-set), resolves the explicit keep/extra process-id strings, applies the
-adjustments, then hands the deletion to 'mutateUploadedDatabase', which
-rebuilds, rewrites the sources of a database that owns them, and swaps the
-result in. Fails (Left) when the database is not loaded, an ids/keep/extra id
-is unknown, 'drIds' is combined with filter fields, the format cannot record
+Works out the plan ('deletionPlan'), then hands the deletion to
+'mutateUploadedDatabase', which rebuilds, rewrites the sources of a database
+that owns them, and swaps the result in. A dry run stops short of that: it
+builds the reduced database through the same refusals ('editedDatabase') and
+answers with the same counts, leaving the database, its sources and its
+journal as they were. Fails (Left) when the database is not loaded, an
+ids/keep/extra id is unknown, 'drIds' is combined with filter fields or
+exclusions, a loaded database depends on this one, the format cannot record
 what the edit produced, or the rebuild reports an inconsistency.
 
 A deletion from a database with its own files now outlives the process: the
@@ -1326,42 +1456,37 @@ deleteActivitiesInDB ::
     Origin ->
     DeleteRequest ->
     IO (Either Text DeleteOutcome)
-deleteActivitiesInDB manager dbName origin DeleteRequest{drName = nameP, drLocation = geoP, drProduct = prodP, drClassifications = classFilters, drExactName = exactMatch, drKeep = keep, drExtra = extra, drIds = mIds, drStated = stated} =
+deleteActivitiesInDB manager dbName origin req =
     getDatabase manager dbName >>= \case
         Nothing -> pure $ Left $ "Database not loaded: " <> dbName
-        Just loaded -> do
-            let db = ldDatabase loaded
-                geographies = managerGeographies manager
-                -- The two selection modes are exclusive: ids name the set
-                -- verbatim, filters compute it. A request carrying both is
-                -- ambiguous, so it is refused rather than guessed at: exact
-                -- included, since it only modifies name/classification matching.
-                hasFilter =
-                    any isJust [nameP, geoP, prodP] || not (null classFilters) || exactMatch
-                selectionE = case mIds of
-                    Just ids
-                        | hasFilter -> Left "ids cannot be combined with name/location/product/classification/exact filters"
-                        | otherwise -> traverse (resolveProcess db) ids
-                    Nothing -> Right (filteredProcessIds geographies db nameP geoP prodP classFilters exactMatch)
-            case (,,) <$> traverse (resolveProcess db) keep <*> traverse (resolveProcess db) extra <*> selectionE of
-                Left err -> pure $ Left err
-                Right (keepPids, extraPids, filtered) -> do
-                    let toDelete =
-                            resolveDeleteSelection
-                                DeleteSelection{dsFiltered = filtered, dsKeep = keepPids, dsExtra = extraPids}
-                    case traverse (fmap processRefText . processKey db) toDelete of
-                        Left err -> pure (Left err)
-                        -- A filter that matched nothing changes nothing: no
-                        -- rebuild, and no line in the journal saying an empty
-                        -- deletion happened.
-                        Right [] -> pure (Right (removed 0 (dcIsUploaded (ldConfig loaded)) []))
-                        Right targets -> do
-                            outcome <- mutateUploadedDatabase manager dbName origin (pure (Change stated (Deleted targets)))
-                            pure $ flip fmap outcome $ \done ->
-                                removed (length targets) (moPersisted done) (moWarnings done)
+        Just loaded ->
+            either (pure . Left) (carryOut loaded) (deletionPlan (managerGeographies manager) (ldDatabase loaded) req)
   where
-    removed count persisted warnings =
-        DeleteOutcome{doRemoved = count, doPersisted = persisted, doWarnings = warnings}
+    carryOut :: LoadedDatabase -> DeletePlan -> IO (Either Text DeleteOutcome)
+    carryOut loaded plan = case traverse (fmap processRefText . processKey (ldDatabase loaded)) (dpDeleted plan) of
+        Left err -> pure (Left err)
+        -- A plan that leaves nothing to delete changes nothing: no rebuild,
+        -- and no line in the journal saying an empty deletion happened.
+        Right [] -> pure (Right (outcome plan uploaded []))
+        Right targets
+            | drRun req == DryRun ->
+                fmap (outcome plan uploaded . dryRunWarnings)
+                    <$> editedDatabase manager dbName loaded (pure (Deleted targets))
+            | otherwise ->
+                fmap (\done -> outcome plan (moPersisted done) (moWarnings done))
+                    <$> mutateUploadedDatabase manager dbName origin (pure (Change (drStated req) (Deleted targets)))
+      where
+        uploaded :: Bool
+        uploaded = dcIsUploaded (ldConfig loaded)
+
+        -- A database with files relinks when the edit is saved; one without
+        -- cannot, and the dry run says what the real call will warn.
+        dryRunWarnings :: Database -> [Text]
+        dryRunWarnings edited = if uploaded then [] else unrelinkedWarnings edited
+
+    outcome :: DeletePlan -> Bool -> [Text] -> DeleteOutcome
+    outcome plan persisted warnings =
+        DeleteOutcome{doRemoved = length (dpDeleted plan), doSpared = length (dpSpared plan), doPersisted = persisted, doWarnings = warnings}
 
 {- | A database's changes, in its reader's words: those of the parent it is
 divided from, then its own, each oldest first. A database read only from its

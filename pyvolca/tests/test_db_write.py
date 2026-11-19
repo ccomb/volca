@@ -51,16 +51,18 @@ def _ok(session, json_body: dict) -> None:
 class TestDelete:
     def test_body_shape_with_dict_classifications(self, mocked_client):
         client, session = mocked_client
-        _ok(session, {"success": True, "message": "ok", "deleted": 3})
+        _version_ok(session, wire=114)
+        _ok(session, {"success": True, "message": "ok", "deleted": 3, "spared": 1})
         result = client.delete_activities(
             name="wheat",
             location="FR",
-            classifications=[{"system": "ISIC", "value": "01", "exact": True}],
+            classifications=[{"system": "ISIC", "value": "01", "mode": "exact"}],
             exact=True,
             keep=["a_b"],
             extra=["c_d"],
+            spare=True,
         )
-        assert result["deleted"] == 3
+        assert (result["deleted"], result["spared"]) == (3, 1)
         url = session.post.call_args[0][0]
         assert url == "http://test.local/api/v1/db/testdb/delete"
         body = session.post.call_args[1]["json"]
@@ -69,27 +71,49 @@ class TestDelete:
         assert body == {
             "name": "wheat",
             "location": "FR",
-            "classifications": [{"system": "ISIC", "value": "01", "exact": True}],
+            "classifications": [{"system": "ISIC", "value": "01", "mode": "exact"}],
             "exact": True,
             "keep": ["a_b"],
             "extra": ["c_d"],
+            "spare": True,
         }
 
-    def test_tuple_classifications_coerced(self, mocked_client):
+    def test_classification_entries_are_sent_as_a_mode(self, mocked_client):
         client, session = mocked_client
-        _ok(session, {"success": True, "message": "ok", "deleted": 0})
-        client.delete_activities(classifications=[("CPC", "012"), ("ISIC", "01", True)])
+        _version_ok(session, wire=114)
+        _ok(session, {"success": True, "message": "ok", "deleted": 0, "spared": 0})
+        client.delete_activities(
+            classifications=[
+                ("CPC", "012"),
+                ("ISIC", "01", True),
+                ("ISIC", "02", "not-contains"),
+                {"system": "NAICS", "value": "11", "exact": True},
+                {"system": "NAICS", "value": "12", "mode": "not-exact"},
+            ],
+            spare=False,
+        )
         body = session.post.call_args[1]["json"]
         assert body["classifications"] == [
-            {"system": "CPC", "value": "012", "exact": False},
-            {"system": "ISIC", "value": "01", "exact": True},
+            {"system": "CPC", "value": "012", "mode": "contains"},
+            {"system": "ISIC", "value": "01", "mode": "exact"},
+            {"system": "ISIC", "value": "02", "mode": "not-contains"},
+            {"system": "NAICS", "value": "11", "mode": "exact"},
+            {"system": "NAICS", "value": "12", "mode": "not-exact"},
         ]
 
-    def test_defaults_are_empty(self, mocked_client):
+    def test_spare_is_always_chosen_by_the_caller(self, mocked_client):
         client, session = mocked_client
-        _ok(session, {"success": True, "message": "ok", "deleted": 0})
-        client.delete_activities(product="x")
+        with pytest.raises(TypeError, match="spare"):
+            client.delete_activities(product="x")  # type: ignore[call-arg]
+        session.post.assert_not_called()
+
+    def test_spare_false_is_sent_not_left_out(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=114)
+        _ok(session, {"success": True, "message": "ok", "deleted": 0, "spared": 0})
+        client.delete_activities(product="x", spare=False)
         body = session.post.call_args[1]["json"]
+        assert body["spare"] is False
         assert body["classifications"] == []
         assert body["keep"] == []
         assert body["extra"] == []
@@ -98,11 +122,37 @@ class TestDelete:
         # always-send-empty-string body would make the engine read "name":""
         # as a real (unsatisfiable) filter and silently delete nothing.
         assert "name" not in body
+        assert "excludeName" not in body and "dryRun" not in body
+
+    def test_exclusions_and_dry_run_are_sent(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=114)
+        _ok(session, {"success": True, "message": "ok", "deleted": 2, "spared": 1})
+        client.delete_activities(
+            exclude_name=["CIQUAL"],
+            exclude_location=["FR", "DE"],
+            spare=True,
+            dry_run=True,
+        )
+        body = session.post.call_args[1]["json"]
+        assert body["excludeName"] == ["CIQUAL"]
+        assert body["excludeLocation"] == ["FR", "DE"]
+        assert body["dryRun"] is True
+
+    def test_a_bare_string_is_one_exclusion(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=114)
+        _ok(session, {"success": True, "message": "ok", "deleted": 2, "spared": 0})
+        client.delete_activities(exclude_name="bread", exclude_location="FR", spare=False)
+        body = session.post.call_args[1]["json"]
+        assert body["excludeName"] == ["bread"]
+        assert body["excludeLocation"] == ["FR"]
 
     def test_blank_filters_are_omitted(self, mocked_client):
         client, session = mocked_client
-        _ok(session, {"success": True, "message": "ok", "deleted": 0})
-        client.delete_activities(product="milk")
+        _version_ok(session, wire=114)
+        _ok(session, {"success": True, "message": "ok", "deleted": 0, "spared": 0})
+        client.delete_activities(product="milk", spare=True)
         body = session.post.call_args[1]["json"]
         assert "name" not in body
         assert "location" not in body
@@ -111,13 +161,32 @@ class TestDelete:
     def test_malformed_classification_dict_raises(self, mocked_client):
         client, _ = mocked_client
         with pytest.raises(VoLCAError, match="missing keys"):
-            client.delete_activities(classifications=[{"system": "ISIC"}])
+            client.delete_activities(classifications=[{"system": "ISIC"}], spare=True)
+
+    def test_both_exact_and_mode_in_one_entry_raises(self, mocked_client):
+        client, session = mocked_client
+        with pytest.raises(VoLCAError, match="mode or exact"):
+            client.delete_activities(
+                classifications=[{"system": "ISIC", "value": "01", "exact": True, "mode": "exact"}],
+                spare=True,
+            )
+        session.post.assert_not_called()
 
     def test_in_band_failure_raises(self, mocked_client):
         client, session = mocked_client
+        _version_ok(session, wire=114)
         _ok(session, {"success": False, "message": "nothing matched"})
         with pytest.raises(VoLCAError, match="nothing matched"):
-            client.delete_activities(name="x")
+            client.delete_activities(name="x", spare=True)
+
+    def test_refuses_an_engine_below_114(self, mocked_client):
+        # An older engine would not read spare: it drops the unknown key, and a
+        # delete that was meant to spare would cut, so nothing is sent.
+        client, session = mocked_client
+        _version_ok(session, wire=113)
+        with pytest.raises(VoLCAError, match="wire revision >= 114"):
+            client.delete_activities(name="x", spare=True)
+        session.post.assert_not_called()
 
 
 def _version_ok(session, wire: int) -> None:
@@ -138,9 +207,9 @@ def _version_ok(session, wire: int) -> None:
 class TestDeleteByIds:
     def test_ids_body_shape_behind_the_wire_gate(self, mocked_client):
         client, session = mocked_client
-        _version_ok(session, wire=3)
-        _ok(session, {"success": True, "message": "ok", "deleted": 2})
-        result = client.delete_activities(ids=["a_b", "c_d"], keep=["a_b"])
+        _version_ok(session, wire=114)
+        _ok(session, {"success": True, "message": "ok", "deleted": 2, "spared": 0})
+        result = client.delete_activities(ids=["a_b", "c_d"], keep=["a_b"], spare=False)
         assert result["deleted"] == 2
         body = session.post.call_args[1]["json"]
         assert body["ids"] == ["a_b", "c_d"]
@@ -151,18 +220,17 @@ class TestDeleteByIds:
     def test_ids_refused_with_filter_arguments(self, mocked_client):
         client, session = mocked_client
         with pytest.raises(VoLCAError, match="cannot be combined"):
-            client.delete_activities(ids=["a_b"], name="wheat")
+            client.delete_activities(ids=["a_b"], name="wheat", spare=True)
         with pytest.raises(VoLCAError, match="cannot be combined"):
-            client.delete_activities(ids=["a_b"], exact=True)
+            client.delete_activities(ids=["a_b"], exact=True, spare=True)
         session.post.assert_not_called()
 
-    def test_ids_never_sent_to_a_wire2_engine(self, mocked_client):
-        # A wire-2 engine would drop the unknown "ids" key and read the request
-        # as an empty filter ("everything"); the client must refuse to send it.
+    def test_ids_refused_with_exclusions(self, mocked_client):
         client, session = mocked_client
-        _version_ok(session, wire=2)
-        with pytest.raises(VoLCAError, match="wire revision >= 3"):
-            client.delete_activities(ids=["a_b"])
+        with pytest.raises(VoLCAError, match="cannot be combined"):
+            client.delete_activities(ids=["a_b"], exclude_name=["x"], spare=True)
+        with pytest.raises(VoLCAError, match="cannot be combined"):
+            client.delete_activities(ids=["a_b"], exclude_location=["FR"], spare=True)
         session.post.assert_not_called()
 
 

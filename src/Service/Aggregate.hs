@@ -58,6 +58,7 @@ import Service (
     functionalUnitIn,
     getActivityExchangeDetails,
     getReferenceProductName,
+    noExclusions,
     resolveScorable,
     supplyFor,
  )
@@ -272,6 +273,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                     , afcLocation = Nothing
                     , afcProduct = Nothing
                     , afcClassifications = []
+                    , afcExcluded = noExclusions
                     , afcLimit = Just maxBound
                     , afcOffset = Nothing
                     , afcSort = Nothing

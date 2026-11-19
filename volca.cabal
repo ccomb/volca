@@ -438,6 +438,7 @@ test-suite lca-tests
                      , AggregateSpec
                      , CatalogueSpec
                      , ClassificationFilterSpec
+                     , ExclusionSpec
                      , CopySpec
                      , CompareSpec
                      , CompareMethodsSpec

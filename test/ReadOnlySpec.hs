@@ -205,6 +205,10 @@ mutatingHandlers =
             , dsqIds = Just []
             , dsqNote = Nothing
             , dsqSource = Nothing
+            , dsqExcludeName = Nothing
+            , dsqExcludeLocation = Nothing
+            , dsqSpare = False
+            , dsqDryRun = Nothing
             }
 
 -- | Whether an MCP reply is flagged as an error.

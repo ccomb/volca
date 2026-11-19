@@ -5,6 +5,7 @@ module CLI.Types where
 import Data.Char (isAsciiUpper)
 import Data.Text (Text)
 import GHC.Generics
+import Types (SpareChoice)
 
 -- | Output format for CLI commands
 data OutputFormat
@@ -163,7 +164,8 @@ data DbRelinkArgs = DbRelinkArgs
 
 {- | Arguments for delete-by-selection. The filter fields mirror the activity
 search filter; @ddaKeep@ spares matched ProcessIds and @ddaExtra@ adds ones
-the filter missed.
+the filter missed. The exclusions leave out what they name, @ddaSpare@ is
+chosen on every call, and a dry run only reports what would go.
 -}
 data DbDeleteArgs = DbDeleteArgs
     { ddaDb :: Text
@@ -176,6 +178,10 @@ data DbDeleteArgs = DbDeleteArgs
     , ddaKeep :: [Text]
     , ddaExtra :: [Text]
     , ddaIds :: [Text] -- Delete exactly these process ids (@--id@, excludes filters)
+    , ddaExcludeName :: [Text] -- Names whose processes the delete leaves out (@--exclude-name@)
+    , ddaExcludeLocation :: [Text] -- Places whose processes the delete leaves out (@--exclude-location@)
+    , ddaSpare :: SpareChoice -- @--spare-suppliers@ or @--cut-suppliers@, one of the two
+    , ddaDryRun :: Bool -- Report what would go and what would be spared, and change nothing (@--dry-run@)
     }
     deriving (Eq, Show, Generic)
 

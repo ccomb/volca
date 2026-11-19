@@ -41,6 +41,7 @@ import Service (
     functionalUnitOf,
     getConsumers,
     mkActivitySummary,
+    noExclusions,
     resolveActivityAndProcessId,
  )
 import Service.Compare (Sides (..), compareDatabases)
@@ -213,6 +214,7 @@ consumers =
             , afcLocation = Nothing
             , afcProduct = Nothing
             , afcClassifications = []
+            , afcExcluded = noExclusions
             , afcLimit = Nothing
             , afcOffset = Nothing
             , afcSort = Nothing
