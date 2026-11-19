@@ -2832,7 +2832,7 @@ getChainConsumers dbName processIdText ofParam minQuantity = counted Reading dbN
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     (db, solver) <- requireDatabaseByName dbName
-    target <- maybe (badRequest "Missing 'of': the process id of the upstream process whose consumers to list, as the supply chain gives it") pure ofParam
+    target <- maybe (badRequest "Missing 'of': the process id of the upstream process whose consumers to list, as the upstream list gives it") pure ofParam
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
     result <- liftIO $ Service.getChainConsumers unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing minQuantity db dbName solver processIdText target

@@ -199,6 +199,21 @@ spec = do
             Right answer <- consumersOf manager "root" (processIdToText (producing 100 []) 0) (Just farId)
             parts answer `shouldSatisfy` closeTo (L.sort [(processIdToText (producing 100 []) 0, 2.0), ("dep::" <> processIdToText dependency 0, 1.0)])
 
+        it "counts a process reached by two routes once in the chain's total" $ do
+            manager <- twoRoutes
+            Right chain <- chainOf manager "root" (processIdToText (producing 100 []) 0)
+            (scrTotalActivities chain, scrFilteredActivities chain) `shouldBe` (2, 2)
+
+        it "reads the minimum quantity on the whole quantity of a process reached by two routes" $ do
+            manager <- twoRoutes
+            let topId = processIdToText (producing 100 []) 0
+            -- far needs 3.0 in all, 1.0 of it through dep: above 2.5, with dep under it
+            Right chain <- chainAt manager "root" topId (Just 2.5)
+            M.lookup farId (rows chain) `shouldBe` Just (3.0, 1)
+            Right answer <- consumersAt manager "root" topId (Just farId) (Just 1.5)
+            parts answer `shouldSatisfy` closeTo [(topId, 2.0)]
+            fmap unxAmount (chcUnexplained answer) `shouldBe` Just 1.0
+
         it "gives what a withheld database's consumers account for as unexplained, naming it" $ do
             manager <- behindWithheld
             Right answer <- consumersOf manager "root" rootPid (Just farId)

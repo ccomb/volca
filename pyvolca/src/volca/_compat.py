@@ -40,7 +40,9 @@ revision only matter to a client that opted out of that check with
 ``VOLCA_SKIP_COMPAT_CHECK``; they stay for that case."""
 
 KNOWN_WIRE = 116
-"""The newest wire revision this pyvolca understands (revision 115 let
+"""The newest wire revision this pyvolca understands (revision 116 added the
+consumers of one upstream process inside a root's upstream, which no method of
+this client reads yet; revision 115 let
 ``get_path_to`` reach a supplier in a dependency database; revision 114 added the
 exclusions of a search, the ``not-contains`` and ``not-exact`` classification
 modes and the required ``spare`` and the dry run of a delete, which

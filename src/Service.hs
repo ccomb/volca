@@ -134,8 +134,9 @@ data SearchFilter = SearchFilter
     , sfExactMatch :: !Bool
     }
 
-{- | Whether a walk also reports every technosphere edge inside the subgraph it
-reached. Edges cost an extra pass over the triples, so they are asked for.
+{- | Whether the answer carries every technosphere edge of the chain. The
+edges are collected either way, since each entry's consumer count is read from
+them; only the answer leaves them out.
 -}
 data Edges = WithEdges | EntriesOnly
 
@@ -2228,12 +2229,17 @@ getChainConsumers unitCfg geographies depLookup refusing minQuantity db dbName s
         Left err -> pure (Left err)
         Right wc -> case consumersIn target (wcRoot wc) (wcWithheld wc) (wcCollected wc) of
             Left err -> pure (Left err)
-            Right (asked, parts, unexplained) -> do
-                eConsumers <- traverse withLines parts
-                pure (fmap (\consumers -> ChainConsumers asked consumers unexplained) (sequence eConsumers))
+            Right attributed -> do
+                indexed <- M.fromList . catMaybes <$> traverse withIndex (S.toList (S.fromList (map (sceDatabaseName . fst) (atParts attributed))))
+                pure $ do
+                    consumers <- traverse (\(consumer, amount) -> ChainConsumer consumer amount <$> linesToward indexed target consumer) (atParts attributed)
+                    Right (ChainConsumers (atAsked attributed) consumers (atUnexplained attributed))
   where
-    withLines :: (SupplyChainEntry, Double) -> IO (Either ServiceError ChainConsumer)
-    withLines (consumer, amount) = fmap (ChainConsumer consumer amount) <$> linesToward depLookup db dbName target consumer
+    -- A database of the consumers, with its links between databases indexed once for all of them.
+    withIndex :: Text -> IO (Maybe (Text, (Database, M.Map UUID (M.Map UUID CrossDBLink))))
+    withIndex name = do
+        mDb <- if name == dbName then pure (Just db) else fmap fst <$> depLookup name
+        pure ((\found -> (name, (found, crossDBLinkIndex found))) <$> mDb)
 
 {- | The root solved and its whole chain collected, across the dependencies it
 buys from, the refusing databases withheld: what a path and the consumers of a
@@ -2318,19 +2324,27 @@ stepOf e =
         }
 
 {- | The process asked about, its consumers in the chain with the part of its
-quantity each one accounts for (the consumer's quantity times the amount the
-edge says it buys per unit of its product), and what they leave unexplained.
+quantity each one accounts for, and what they leave unexplained.
+-}
+data Attributed = Attributed
+    { atAsked :: !SupplyChainEntry
+    , atParts :: ![(SupplyChainEntry, Double)]
+    -- ^ each consumer, with its quantity times the amount the edge says it buys per unit of its product
+    , atUnexplained :: !(Maybe Unexplained)
+    }
+
+{- | The consumers of a listed process, attributed their parts.
 
 Without a withheld database or a minimum quantity, the parts add up to the
 quantity, up to rounding and to links in different units to one supplier. The rest is returned when it
 exceeds a millionth of the parts, never dropped.
 -}
-consumersIn :: Text -> SupplyChainEntry -> [Text] -> Collected -> Either ServiceError (SupplyChainEntry, [(SupplyChainEntry, Double)], Maybe Unexplained)
+consumersIn :: Text -> SupplyChainEntry -> [Text] -> Collected -> Either ServiceError Attributed
 consumersIn target root withheld collected
-    | target == sceProcessId root = Left (ActivityNotFound ("The process " <> target <> " is the root of its chain: it has no consumer listed upstream of it"))
+    | target == sceProcessId root = Left (ActivityNotFound ("The process " <> target <> " is the root the upstream processes are read for, not one of them: ask for the consumers of a process it lists"))
     | otherwise = case M.lookup target listed of
         Nothing -> Left (ActivityNotFound ("The process " <> target <> " is not among the listed upstream processes of " <> sceProcessId root))
-        Just asked -> Right (asked, parts, unexplainedOf asked)
+        Just asked -> Right (Attributed asked parts (unexplainedOf asked))
   where
     listed :: M.Map Text SupplyChainEntry
     listed = M.fromList [(sceProcessId e, e) | e <- root : cEntries collected]
@@ -2355,19 +2369,15 @@ them, comment and pedigree included. A line's supplier is named bare in its own
 database and qualified in another; a consumer listed in a dependency is
 qualified, and so must be the suppliers its lines name in that database.
 -}
-linesToward :: SharedSolver.DepSolverLookup -> Database -> Text -> Text -> SupplyChainEntry -> IO (Either ServiceError [ExchangeWithUnit])
-linesToward depLookup rootDb rootDbName target consumer = do
-    mDb <-
-        if consumerDb == rootDbName
-            then pure (Just rootDb)
-            else fmap fst <$> depLookup consumerDb
-    pure $ case mDb of
+linesToward :: M.Map Text (Database, M.Map UUID (M.Map UUID CrossDBLink)) -> Text -> SupplyChainEntry -> Either ServiceError [ExchangeWithUnit]
+linesToward indexed target consumer =
+    case M.lookup consumerDb indexed of
         Nothing -> Left (MatrixError ("The database " <> consumerDb <> " of a listed consumer is no longer loaded"))
-        Just db -> do
+        Just (db, index) -> do
             (pid, act) <- resolveActivityAndProcessId db bare
             Right
                 [ line
-                | line <- zipWith (toExchangeWithUnit db (buildCrossDBLinkMap db pid)) [0 ..] (exchanges act)
+                | line <- zipWith (toExchangeWithUnit db (crossDBLinksOf db index pid)) [0 ..] (exchanges act)
                 , fmap named (ewuTargetProcessId line) == Just target
                 ]
   where
@@ -2536,12 +2546,12 @@ enteredDepths consumer extras =
     depths :: IM.IntMap Int
     depths = levelDepths (buildAdjacencyFromTriples (dbTechnosphereTriples db)) (coLevel consumer)
 
-{- | The links of a level, by dependency, from the processes the chain keeps:
-the requested process itself, and any whose scaling clears the minimum
-quantity, as for the edges inside a database.
+{- | The links of a level, by dependency, from the processes the chain reaches:
+the requested process itself, and any whose scaling is not zero. The minimum
+quantity is read later, on the whole chain ('settled').
 -}
-consumerLinks :: Double -> Consumer -> [CrossDBLink] -> M.Map Text [ConsumerLink]
-consumerLinks minQ consumer extras =
+consumerLinks :: Consumer -> [CrossDBLink] -> M.Map Text [ConsumerLink]
+consumerLinks consumer extras =
     M.fromListWith
         (++)
         [ (cdlSourceDatabase link, [linkOf pid normFactor link])
@@ -2563,7 +2573,7 @@ consumerLinks minQ consumer extras =
     db = coDb consumer
 
     kept :: ProcessId -> Bool
-    kept pid = isRoot (coLevel consumer) || abs (processScaling db (coScaling consumer) pid) > minQ
+    kept pid = isRoot (coLevel consumer) || processScaling db (coScaling consumer) pid /= 0
       where
         isRoot :: WalkLevel -> Bool
         isRoot RootLevel{rlRoot = r} = r == pid
@@ -2571,11 +2581,11 @@ consumerLinks minQ consumer extras =
 
 {- | The edges from a dependency's suppliers to the processes that buy from
 them, one per pair: a substitution's cancelling link and the static one it
-cancels sum to their net, and a pair netting to zero is no edge. Both ends
-clear the same bar as an edge inside a database.
+cancels sum to their net, and a pair netting to zero is no edge, nor is one
+from a supplier the dependency does not need.
 -}
-crossEdges :: UnitConfig -> Double -> DepCall -> Consumer -> Either Text [SupplyChainEdge]
-crossEdges unitCfg minQ call Consumer{coName = depDbName, coDb = depDb, coScaling = depScaling} = do
+crossEdges :: UnitConfig -> DepCall -> Consumer -> Either Text [SupplyChainEdge]
+crossEdges unitCfg call Consumer{coName = depDbName, coDb = depDb, coScaling = depScaling} = do
     resolved <- traverse inUnit (dcLinks call)
     pure
         [ SupplyChainEdge
@@ -2587,7 +2597,7 @@ crossEdges unitCfg minQ call Consumer{coName = depDbName, coDb = depDb, coScalin
             }
         | (EdgeEnds consumer consumerDb pid, amount) <- M.toList (M.fromListWith (+) (catMaybes resolved))
         , amount /= 0
-        , abs (processScaling depDb depScaling pid) > minQ
+        , processScaling depDb depScaling pid /= 0
         ]
   where
     inUnit :: ConsumerLink -> Either Text (Maybe (EdgeEnds, Double))
@@ -2603,12 +2613,14 @@ data EdgeEnds = EdgeEnds
     }
     deriving (Eq, Ord)
 
-{- | What one database contributes to a supply chain: how many non-zero rows it
-had before filtering, the entries that passed, and the edges. Summed across
-levels, pointwise, nearer level first.
+{- | What one database contributes to a supply chain: the amount of every
+process it reaches, the entries that passed the filter, and the edges. Summed
+across levels, pointwise, nearer level first; a database walked by two routes
+sums its amounts.
 -}
 data Collected = Collected
-    { cUnfilteredCount :: !Int
+    { cAmounts :: !(M.Map Text Double)
+    -- ^ every process reached with a non-zero amount, by the id it is listed under, filter or not
     , cEntries :: ![SupplyChainEntry]
     , cEdges :: ![SupplyChainEdge]
     , cReached :: ![SharedSolver.Reached]
@@ -2616,17 +2628,18 @@ data Collected = Collected
     }
 
 instance Semigroup Collected where
-    Collected t1 es1 ed1 r1 <> Collected t2 es2 ed2 r2 =
-        Collected (t1 + t2) (es1 ++ es2) (ed1 ++ ed2) (r1 ++ r2)
+    Collected a1 es1 ed1 r1 <> Collected a2 es2 ed2 r2 =
+        Collected (M.unionWith (+) a1 a2) (es1 ++ es2) (ed1 ++ ed2) (r1 ++ r2)
 
 instance Monoid Collected where
-    mempty = Collected 0 [] [] []
+    mempty = Collected M.empty [] [] []
 
 {- | Collect filtered supply-chain entries + edges from a single DB's scaling
-vector. Applies @minQuantity@, name/location/product/class/maxDepth filters,
-BFS depth assignment, and upstream-count accumulation – but deliberately
-does NOT sort, limit, or offset. Callers merge collections from multiple
-databases and then apply sorting/pagination once on the combined list.
+vector. Applies the name/location/product/class filters and the BFS depth
+assignment, but neither the minimum quantity nor the depth cap: a process
+reached by two routes is only known whole once the routes are summed, so
+'settled' applies those. Nor does it count consumers ('countConsumers'), sort,
+limit, or offset: callers merge collections from multiple databases first.
 
 Entry @sceProcessId@ is qualified with @dbName::@ at a dep level only; root
 entries stay bare for callers that navigate on bare root PIDs.
@@ -2644,7 +2657,6 @@ collectSupplyChainEntries ::
     Collected
 collectSupplyChainEntries geographies db dbName level supplyVec scf =
     let core = scfCore scf
-        minQ = fromMaybe 0 (scfMinQuantity scf)
 
         mRootPid = case level of
             RootLevel{rlRoot = r} -> Just r
@@ -2655,25 +2667,11 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
             [ (fromIntegral i :: ProcessId, supplyVec U.! i)
             | i <- [0 .. n - 1]
             , let v = supplyVec U.! i
-            , abs v > minQ
+            , v /= 0
             , Just (fromIntegral i) /= mRootPid
             ]
 
-        -- One pass: adjacency (for BFS + edges) + consumer counts.
-        rootIdx = maybe (-1) fromIntegral mRootPid :: Int
-        activeSet = IS.fromList (rootIdx : [fromIntegral pid | (pid, _) <- allEntries])
-        (!adjacency, !consumerCounts) = U.foldl' accumulate (IM.empty, IM.empty) (dbTechnosphereTriples db)
-          where
-            accumulate (!adj, !counts) (SparseTriple row col _val) =
-                let r = fromIntegral row
-                    c = fromIntegral col
-                    adj' = IM.insertWith (++) c [r] adj
-                    -- A consumer buying one supplier on two lines is still one consumer.
-                    counts' =
-                        if IS.member r activeSet && IS.member c activeSet
-                            then IM.insertWith IS.union r (IS.singleton c) counts
-                            else counts
-                 in (adj', counts')
+        adjacency = buildAdjacencyFromTriples (dbTechnosphereTriples db)
 
         depthMap = levelDepths adjacency level
 
@@ -2701,9 +2699,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                 locOk = maybe True (\pat -> locationAnswers geographies pat (activityLocation activity)) (afcLocation core)
                 productOk = maybe True (\pat -> any (textMatches pat) (getProductNames activity)) (afcProduct core)
                 classOk = matchClassifications activity (afcClassifications core)
-                depth = IM.findWithDefault maxBound (fromIntegral pid) depthMap
-                depthOk = maybe True (depth <=) (scfMaxDepth scf)
-             in nameOk && locOk && productOk && classOk && depthOk && stays (pid, activity)
+             in nameOk && locOk && productOk && classOk && stays (pid, activity)
 
         qualify = nameAt level dbName db
 
@@ -2719,7 +2715,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                     , sceScalingFactor = scalingFactor
                     , sceClassifications = activityClassification activity
                     , sceDepth = IM.findWithDefault (-1) (fromIntegral pid) depthMap
-                    , sceUpstreamCount = maybe 0 IS.size (IM.lookup (fromIntegral pid) consumerCounts)
+                    , sceUpstreamCount = 0
                     }
 
         filteredEntries =
@@ -2730,13 +2726,11 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
 
         allIdxSet = S.fromList (maybe [] ((: []) . fromIntegral) mRootPid ++ map (fromIntegral . fst) allEntries)
         -- One edge per pair: a consumer buying one supplier on two lines buys the sum.
-        edges = case scfEdges scf of
-            EntriesOnly -> []
-            WithEdges ->
-                [ SupplyChainEdge (qualify (fromIntegral row)) dbName (qualify (fromIntegral col)) dbName amount
-                | ((row, col), amount) <- M.toList pairAmounts
-                , amount /= 0
-                ]
+        edges =
+            [ SupplyChainEdge (qualify (fromIntegral row)) dbName (qualify (fromIntegral col)) dbName amount
+            | ((row, col), amount) <- M.toList pairAmounts
+            , amount /= 0
+            ]
         pairAmounts :: M.Map (Int, Int) Double
         pairAmounts =
             U.foldl'
@@ -2749,7 +2743,8 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                 )
                 M.empty
                 (dbTechnosphereTriples db)
-     in Collected (length allEntries) filteredEntries edges [SharedSolver.Reached dbName db supplyVec]
+        amounts = M.fromList [(qualify pid, v) | (pid, v) <- allEntries]
+     in Collected amounts filteredEntries edges [SharedSolver.Reached dbName db supplyVec]
 
 {- | Sort, offset, and limit a list of supply-chain entries using the shared
 filter core's @afcSort@ / @afcOrder@ / @afcLimit@ / @afcOffset@. All
@@ -2784,14 +2779,17 @@ buildSupplyChainFromScalingVector ::
 buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf =
     let rootActivity = dbActivities db V.! fromIntegral processId
         rootRefAmount = getReferenceProductAmount rootActivity
-        Collected totalActs entries edges _ =
-            collectSupplyChainEntries
-                geographies
-                db
-                dbName
-                (RootLevel processId)
-                supplyVec
-                scf
+        Collected amounts entries edges _ =
+            countConsumers
+                ( settled (processIdToText db processId) scf $
+                    collectSupplyChainEntries
+                        geographies
+                        db
+                        dbName
+                        (RootLevel processId)
+                        supplyVec
+                        scf
+                )
         rootBlock = sourceBlockOf db processId
         rootSummary =
             ActivitySummary
@@ -2815,10 +2813,12 @@ buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf 
      in SupplyChainResponse
             { scrRoot = rootSummary
             , scrFunctionalUnit = functionalUnitIn db rootActivity
-            , scrTotalActivities = totalActs
+            , scrTotalActivities = M.size amounts
             , scrFilteredActivities = length entries
             , scrSupplyChain = sortAndPaginate (scfCore scf) entries
-            , scrEdges = edges
+            , scrEdges = case scfEdges scf of
+                WithEdges -> edges
+                EntriesOnly -> []
             , scrWithheldDatabases = []
             , scrWithheldInputs = []
             , scrCutoffInputs = cutoffShown cutoffs
@@ -2881,14 +2881,14 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor 
     eChain <- collectChain unitCfg geographies depLookup rootDb rootDbName rootPid rootScaling extraLinks scf
     case eChain of
         Left err -> pure (Left err)
-        Right (Collected total entries edges reached, withheld, withheldInputs) -> do
+        Right (Collected amounts entries edges reached, withheld, withheldInputs) -> do
             cutoffs <- cutoffsOf indexFor (refusingFor rootDbName scf) reached
             pure $
                 Right
                     SupplyChainResponse
                         { scrRoot = rootSummary
                         , scrFunctionalUnit = functionalUnitIn rootDb rootActivity
-                        , scrTotalActivities = total
+                        , scrTotalActivities = M.size amounts
                         , scrFilteredActivities = length entries
                         , scrSupplyChain = sortAndPaginate (scfCore scf) entries
                         , scrEdges = edges
@@ -2904,10 +2904,11 @@ databases withhold already taken out. Neither sorted nor cut into a page.
 
 Each process is listed once and each pair of processes linked once: a
 dependency reached by two routes is walked twice, each walk with its part of
-the scaling. Each entry counts its consumers from those edges, so the count
-crosses databases and leaves out what a refusing database withholds. The
-edges are always collected for that count, and dropped afterwards when the
-filter did not ask for them.
+the scaling, and the minimum quantity and the depth cap are read once the
+walks are summed. Each entry counts its consumers from those edges, so the
+count crosses databases and leaves out what a refusing database withholds.
+The edges are always collected for that count, and dropped afterwards when
+the filter did not ask for them.
 -}
 collectChain ::
     UnitConfig ->
@@ -2921,14 +2922,11 @@ collectChain ::
     SupplyChainFilter ->
     IO (Either ServiceError (Collected, [WithheldProcesses], [WithheldInput]))
 collectChain unitCfg geographies depLookup rootDb rootDbName rootPid rootScaling extraLinks scf =
-    fmap (asked . withholdEntries (refusingFor rootDbName scf) . oncePerProcess . (rootCollected <>))
-        <$> walkDepLevels unitCfg geographies depLookup (Consumer rootDbName rootDb (RootLevel rootPid) rootScaling) extraLinks withEdges 1 S.empty
+    fmap (asked . withholdEntries (refusingFor rootDbName scf) . settled (processIdToText rootDb rootPid) scf . (rootCollected <>))
+        <$> walkDepLevels unitCfg geographies depLookup (Consumer rootDbName rootDb (RootLevel rootPid) rootScaling) extraLinks scf 1 S.empty
   where
-    withEdges :: SupplyChainFilter
-    withEdges = scf{scfEdges = WithEdges}
-
     rootCollected :: Collected
-    rootCollected = collectSupplyChainEntries geographies rootDb rootDbName (RootLevel rootPid) rootScaling withEdges
+    rootCollected = collectSupplyChainEntries geographies rootDb rootDbName (RootLevel rootPid) rootScaling scf
 
     asked :: (Collected, [WithheldProcesses], [WithheldInput]) -> (Collected, [WithheldProcesses], [WithheldInput])
     asked (c, withheld, inputs) =
@@ -2936,6 +2934,31 @@ collectChain unitCfg geographies depLookup rootDb rootDbName rootPid rootScaling
          in case scfEdges scf of
                 WithEdges -> (counted, withheld, inputs)
                 EntriesOnly -> (counted{cEdges = []}, withheld, [])
+
+{- | The chain at the filter's minimum quantity and depth cap, read on each
+process's whole quantity: one entry per process and one edge per pair, both
+ends of an edge above the minimum or the root. The amounts keep the processes
+above the minimum, filter or not, which the chain's total counts.
+-}
+settled :: Text -> SupplyChainFilter -> Collected -> Collected
+settled rootId scf collected =
+    merged
+        { cAmounts = above
+        , cEntries = filter kept (cEntries merged)
+        , cEdges = filter linked (cEdges merged)
+        }
+  where
+    merged :: Collected
+    merged = oncePerProcess collected
+
+    above :: M.Map Text Double
+    above = M.filter ((> fromMaybe 0 (scfMinQuantity scf)) . abs) (cAmounts merged)
+
+    kept :: SupplyChainEntry -> Bool
+    kept e = M.member (sceProcessId e) above && maybe True (\cap -> sceDepth e >= 0 && sceDepth e <= cap) (scfMaxDepth scf)
+
+    linked :: SupplyChainEdge -> Bool
+    linked e = M.member (sceEdgeFrom e) above && (sceEdgeTo e == rootId || M.member (sceEdgeTo e) above)
 
 {- | One entry per process, its quantities summed over the routes that reached
 it, and one edge per pair: two walks of a database give a pair the same amount.
@@ -2973,8 +2996,8 @@ total stays, a count of what the chain reaches; the entries are filtered
 before a page is cut, so no page comes out short.
 -}
 withholdEntries :: S.Set Text -> Collected -> (Collected, [WithheldProcesses], [WithheldInput])
-withholdEntries refusing (Collected total entries edges reached) =
-    ( Collected total shown (filter (not . touches) edges) reached
+withholdEntries refusing (Collected amounts entries edges reached) =
+    ( Collected amounts shown (filter (not . touches) edges) reached
     , [ WithheldProcesses{wprDatabase = name, wprProcesses = n, wprReason = withheldSentence name ReadInventory}
       | (name, n) <- M.toList (M.fromListWith (+) [(sceDatabaseName e, 1) | e <- hidden])
       ]
@@ -3017,10 +3040,7 @@ walkDepLevels ::
 walkDepLevels unitCfg geographies depLookup consumer extras scf depth visited
     | depth >= SharedSolver.maxDepsDepth = pure (Right mempty)
     | otherwise = do
-        -- Edges are only drawn when asked for, like those inside a database.
-        let links = case scfEdges scf of
-                EntriesOnly -> M.empty
-                WithEdges -> consumerLinks (fromMaybe 0 (scfMinQuantity scf)) consumer extras
+        let links = consumerLinks consumer extras
             entered = enteredDepths consumer extras
             calls =
                 [ DepCall
@@ -3078,9 +3098,9 @@ resolveOneDep unitCfg geographies depLookup scf depth visited call
                 scf
                 (depth + 1)
                 (S.insert depDbName visited)
-        pure $ case crossEdges unitCfg (fromMaybe 0 (scfMinQuantity scf)) call supplier of
+        pure $ case crossEdges unitCfg call supplier of
             Left err -> Left (MatrixError err)
-            Right edges -> ((local <> Collected 0 [] edges []) <>) <$> eDeeper
+            Right edges -> ((local <> Collected M.empty [] edges []) <>) <$> eDeeper
       where
         level :: WalkLevel
         level = DepLevel (enteredAt depDb)
@@ -3109,9 +3129,8 @@ resolveOneDep unitCfg geographies depLookup scf depth visited call
 
 {- | Build reverse adjacency (consumer -> [supplier]) from a vector of
 technosphere sparse triplets. Each triplet @(row=supplier, col=consumer)@
-contributes one edge into @col@'s neighbour list. Supplies BFS callers
-that don't also need a fused pass (see 'collectSupplyChainEntries' for
-the fused variant that computes counts in the same traversal).
+contributes one edge into @col@'s neighbour list, which a breadth-first
+search reads depths from.
 -}
 buildAdjacencyFromTriples :: U.Vector SparseTriple -> IM.IntMap [Int]
 buildAdjacencyFromTriples =
