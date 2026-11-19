@@ -360,6 +360,7 @@ test-suite lca-tests
                      , DependencyLicenceSpec
                      , CrossDBEdgesSpec
                      , PathToSpec
+                     , ChainConsumersSpec
                      , SwapLinksSpec
                      , MethodResolveSpec
                      , ChemSynonymsSpec
