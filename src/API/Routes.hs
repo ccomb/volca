@@ -144,6 +144,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "consumers" :> QueryParam "name" Text :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> Get '[JSON] ConsumersResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> QueryParam "target-id" Text :> Get '[JSON] Value
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> "consumers" :> QueryParam "of" Text :> QueryParam "min-quantity" Double :> Get '[JSON] ChainConsumers
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> QueryParam "target-id" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] Value
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "compare" :> QueryParam "other_process_id" Text :> QueryParam "other_database" Text :> Get '[JSON] ActivityComparison
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "changes-present" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesPresence
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "apply-changes" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesApplied
@@ -1674,7 +1675,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 116: the @supply-chain/consumers@ route, listing the consumers of
+(revision 117: the path to a supplier asked under parameter values and
+swaps, by a POST to the path-to route carrying them as the supply-chain POST
+does, and the links, depths and consumer counts of a chain under a swap
+following the swap;
+revision 116: the @supply-chain/consumers@ route, listing the consumers of
 one upstream process with their parts of its quantity and their lines; a
 supply chain listing each process once and each pair of processes linked once,
 and counting each process's consumers across databases;
@@ -1935,7 +1940,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 116
+currentWireVersion = 117
 
 getVersion :: AppM Value
 getVersion = do
@@ -2246,7 +2251,7 @@ activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity o
                             subs
                 case scalingResult of
                     Left err -> throwServiceError err
-                    Right (scalingVec, virtualLinks) -> do
+                    Right root -> do
                         eResp <-
                             liftIO $
                                 Service.buildSupplyChainFromScalingVectorCrossDB
@@ -2257,8 +2262,7 @@ activitySupplyChainCore dbName processIdText nameFilter limitParam minQuantity o
                                     db
                                     dbName
                                     processId
-                                    scalingVec
-                                    virtualLinks
+                                    root
                                     scf
                         either throwServiceError pure eResp
 
@@ -2805,24 +2809,31 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
     either throwServiceError pure (Service.getConsumers (DM.managerGeographies dbManager) db dbName processIdText cnf)
 
 getActivityPathTo :: Text -> Text -> Maybe Text -> Maybe Text -> AppM Value
-getActivityPathTo dbName processIdText targetParam targetIdParam = counted Reading dbName (ProcessKey processIdText) $ do
+getActivityPathTo dbName processIdText targetParam targetIdParam = activityPathToCore dbName processIdText targetParam targetIdParam Nothing
+
+-- | The path under parameter values and swaps, the chain the supply-chain POST lists.
+postActivityPathTo :: Text -> Text -> Maybe Text -> Maybe Text -> SubstitutionRequest -> AppM Value
+postActivityPathTo dbName processIdText targetParam targetIdParam req = activityPathToCore dbName processIdText targetParam targetIdParam (Just req)
+
+activityPathToCore :: Text -> Text -> Maybe Text -> Maybe Text -> Maybe SubstitutionRequest -> AppM Value
+activityPathToCore dbName processIdText targetParam targetIdParam mSub = counted Reading dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
-    (db, solver) <- requireDatabaseByName dbName
     target <- case (targetParam, targetIdParam) of
         (Just name, Nothing) -> pure (Service.TargetNamed (Service.NamePattern name))
         (Nothing, Just pid) -> pure (Service.TargetProcess pid)
         (Just _, Just _) -> badRequest "Name the target by 'target' or by 'target-id', not both"
         (Nothing, Nothing) -> badRequest "Missing the target: 'target' for part of its name, or 'target-id' for its process id"
-    unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-    refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
-    result <- liftIO $ Service.getPathTo unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing db dbName solver processIdText target
-    case result of
-        -- The sentence says which target found no path, and why; the shared mapping would drop it.
-        Left (Service.ActivityNotFound msg) ->
-            throwError err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
-        Left err -> throwServiceError err
-        Right val -> return val
+    withRequestDatabase dbName mSub $ \db solver -> do
+        unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+        refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
+        result <- liftIO $ Service.getPathTo unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing db dbName solver processIdText (maybe [] srSubstitutions mSub) target
+        case result of
+            -- The sentence says which target found no path, and why; the shared mapping would drop it.
+            Left (Service.ActivityNotFound msg) ->
+                throwError err404{errBody = BSL.fromStrict $ T.encodeUtf8 msg}
+            Left err -> throwServiceError err
+            Right val -> return val
 
 {- | The consumers, inside a root's upstream, of one process it lists: each
 with its part of the process's quantity and the lines it buys it on.
@@ -3572,6 +3583,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getActivityConsumers
             :<|> getActivityPathTo
             :<|> getChainConsumers
+            :<|> postActivityPathTo
             :<|> getActivityComparison
             :<|> postChangesPresent
             :<|> postApplyChanges

@@ -61,6 +61,7 @@ import Service (
     noExclusions,
     resolveScorable,
     supplyFor,
+    unswapped,
  )
 import SharedSolver (DepSolverLookup, Reached (..), SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
@@ -221,8 +222,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                                             db
                                             dbName
                                             processId
-                                            supplyVec
-                                            []
+                                            (unswapped db supplyVec)
                                             af
                                     return $ fmap (\resp -> (reduce params functionalUnit (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
                     ScopeBiosphere -> do

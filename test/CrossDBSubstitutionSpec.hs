@@ -14,6 +14,7 @@ import API.Types (RootDb (..), Substitution (..), SubstitutionScope (..), parseS
 import qualified Data.Text as T
 import qualified Data.Vector.Unboxed as U
 import Service (
+    RootSolution (..),
     ServiceError (..),
     computeScalingVectorWithSubstitutionsCrossDB,
     inventoryWithSubsAndDeps,
@@ -49,7 +50,7 @@ spec = do
             let noDeps _ = pure Nothing
             res <- computeScalingVectorWithSubstitutionsCrossDB defaultUnitConfig noDeps db "root" solver 0 []
             case res of
-                Right (x, links) -> do
+                Right (RootSolution x _ links) -> do
                     U.length x `shouldBe` fromIntegral (dbActivityCount db)
                     links `shouldBe` []
                 Left e -> expectationFailure ("expected Right, got " <> show e)

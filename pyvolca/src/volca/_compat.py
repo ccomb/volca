@@ -39,8 +39,10 @@ to it. The per-capability gates of ``Client._require_wire`` that name a lower
 revision only matter to a client that opted out of that check with
 ``VOLCA_SKIP_COMPAT_CHECK``; they stay for that case."""
 
-KNOWN_WIRE = 116
-"""The newest wire revision this pyvolca understands (revision 116 added the
+KNOWN_WIRE = 117
+"""The newest wire revision this pyvolca understands (revision 117 let the
+engine's path-to route take parameter values and swaps, and drew a chain's links
+under a swap as the swap leaves them; revision 116 added the
 consumers of one upstream process inside a root's upstream, which no method of
 this client reads yet; revision 115 let
 ``get_path_to`` reach a supplier in a dependency database; revision 114 added the

@@ -530,4 +530,4 @@ lookupKey _ _ = Nothing
 -- | The path to a process named after a part of @name@, in one database with no dependency to cross.
 pathInOne :: Database -> SharedSolver -> Text -> Text -> IO (Either ServiceError Value)
 pathInOne db solver pid name =
-    getPathTo defaultUnitConfig shippedGeographies (mkDepLookupFromMap M.empty) S.empty db "test" solver pid (TargetNamed (NamePattern name))
+    getPathTo defaultUnitConfig shippedGeographies (mkDepLookupFromMap M.empty) S.empty db "test" solver pid [] (TargetNamed (NamePattern name))
