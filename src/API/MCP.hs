@@ -798,7 +798,7 @@ dispatchTool Caller{callerReader = reader, callerAuthor = by} dbManager presets 
     R.GetScoreContributingActivities -> callGetScoreContributingActivities dbManager mBaseUrl rid args
     R.ListGeographies -> callListGeographies dbManager rid args
     R.ListClassifications -> withDb dbManager rid args $ callListClassifications rid args
-    R.GetPathTo -> withDb dbManager rid args $ callGetPathTo rid args
+    R.GetPathTo -> callGetPathTo dbManager rid args
     R.GetConsumers -> withDb dbManager rid args $ callGetConsumers (DM.managerGeographies dbManager) presets rid args
     R.CompareImpacts -> callCompareImpacts dbManager rid args
     R.CompareActivities -> withDb dbManager rid args $ callCompareActivities dbManager rid args
@@ -1426,11 +1426,27 @@ callAggregate dbManager presets rid args (db, solver) =
                         match = if T.drop 1 mode == "exact" then MatchExact else MatchContains
                      in Just ClassificationFilter{clfSystem = T.strip sys, clfValue = T.strip val, clfMatch = match}
 
-callGetPathTo :: RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callGetPathTo rid args (db, solver) = runTool rid $ do
-    pid <- except (requireText "process_id" args)
+callGetPathTo :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callGetPathTo dbManager rid args = runTool rid $ do
+    (dbName, pid) <- except $ (,) <$> requireText "database" args <*> requireText "process_id" args
     target <- except (requireText "target" args)
-    val <- liftIO (Service.getPathTo db solver pid (Service.NamePattern target)) >>= liftShow
+    ld <- requireDatabase dbManager dbName
+    unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
+    refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
+    val <-
+        liftIO
+            ( Service.getPathTo
+                unitCfg
+                (DM.managerGeographies dbManager)
+                (DM.mkDepSolverLookup dbManager)
+                refusing
+                (ldDatabase ld)
+                dbName
+                (ldSharedSolver ld)
+                pid
+                (Service.TargetNamed (Service.NamePattern target))
+            )
+            >>= liftShow
     pure (toolSuccessJson rid val)
 
 callGetConsumers :: Geographies -> [ClassificationPreset] -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value

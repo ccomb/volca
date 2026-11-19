@@ -13,6 +13,7 @@ import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Bifunctor (first)
 import Data.Either (fromRight, lefts, rights)
+import Data.Indexing (groupInOrder)
 import Data.Int (Int32)
 import qualified Data.IntMap.Strict as IM
 import qualified Data.IntSet as IS
@@ -2163,82 +2164,147 @@ getSupplyChain unitCfg geographies depLookup indexFor db dbName sharedSolver pro
                                 []
                                 af
 
-{- | Find the shortest supply chain path from a root process to the first upstream activity
-whose name contains the given substring (case-insensitive).
+{- | The process a path leads to: the first whose name holds a pattern, or
+one process exactly, by the id the supply chain gives it (bare in the
+database asked, @db::@ qualified in a dependency).
+-}
+data PathTarget
+    = TargetNamed NamePattern
+    | TargetProcess Text
+    deriving (Eq, Show)
+
+{- | The shortest supply chain path from a root process to its target, across
+the dependency databases the chain buys from.
 Returns path steps ordered root → target, each with its quantity per unit of the
 root's reference product (the scaling factor) and localStepRatio (upstream ÷
 downstream scaling factors). The unit is one of the product, not the amount the
 root declares, so a root written for 10 does not inflate its suppliers tenfold.
+The path is read from the chain the supply-chain route lists, the databases in
+@refusing@ withheld, so it never runs through a process that listing hides.
 -}
-getPathTo :: Database -> SharedSolver -> Text -> NamePattern -> IO (Either ServiceError Value)
-getPathTo db solver pidText target = do
+getPathTo ::
+    UnitConfig ->
+    Geographies ->
+    SharedSolver.DepSolverLookup ->
+    -- | the databases whose licence keeps their amounts
+    S.Set Text ->
+    Database ->
+    Text ->
+    SharedSolver ->
+    Text ->
+    PathTarget ->
+    IO (Either ServiceError Value)
+getPathTo unitCfg geographies depLookup refusing db dbName solver pidText target =
     case resolveScorable db pidText of
-        Left err -> return $ Left err
-        Right (rootPid, rootAct) ->
-            case validateProcessIdInMatrixIndex db rootPid of
-                Left err -> return $ Left err
-                Right () -> do
-                    eVec <- first MatrixError <$> SharedSolver.computeScalingVectorCached db solver rootPid
-                    case eVec of
-                        Left err -> return $ Left err
-                        Right supplyVec ->
-                            let adj = buildAdjacencyFromTriples (dbTechnosphereTriples db)
-                                mPath =
-                                    bfsToPattern
-                                        (fromIntegral rootPid)
-                                        ( \i ->
-                                            Normalize.caseInsensitiveInfixOf
-                                                (unNamePattern target)
-                                                (activityName (dbActivities db V.! i))
-                                        )
-                                        adj
-                             in return $ case mPath of
-                                    Nothing ->
-                                        Left $
-                                            ActivityNotFound $
-                                                "No upstream node matching '" <> unNamePattern target <> "' reachable from " <> pidText
-                                    Just [] ->
-                                        Left $
-                                            ActivityNotFound $
-                                                "BFS returned empty path from " <> pidText
-                                    Just pids@(firstPid : restPids) ->
-                                        let scalingOf i = supplyVec U.! i
-                                            mkStep i mRatio =
-                                                let act = dbActivities db V.! i
-                                                    sf = scalingOf i
-                                                    base =
-                                                        [ "processId" .= processIdToText db (fromIntegral i)
-                                                        , "activityName" .= activityName act
-                                                        , "location" .= activityLocation act
-                                                        , "unit" .= activityUnit act
-                                                        , "cumulativeQuantityPerUnit" .= sf
-                                                        , "scalingFactor" .= sf
-                                                        ]
-                                                 in object $ case mRatio of
-                                                        Nothing -> base
-                                                        Just r -> base ++ ["localStepRatio" .= r]
-                                            steps =
-                                                mkStep firstPid (Nothing :: Maybe Double)
-                                                    : [ mkStep c (Just ratio)
-                                                      | (p, c) <- zip pids restPids
-                                                      , let ratio =
-                                                                if scalingOf p == 0
-                                                                    then 0
-                                                                    else scalingOf c / scalingOf p
-                                                      ]
-                                            totalRatio =
-                                                product
-                                                    [ scalingOf c / scalingOf p
-                                                    | (p, c) <- zip pids restPids
-                                                    , scalingOf p /= 0
-                                                    ]
-                                         in Right $
-                                                object
-                                                    [ "functionalUnit" .= functionalUnitIn db rootAct
-                                                    , "path" .= steps
-                                                    , "path_length" .= length pids
-                                                    , "total_ratio" .= totalRatio
-                                                    ]
+        Left err -> pure (Left err)
+        Right (rootPid, rootAct) -> case demandFor db rootPid of
+            Left err -> pure (Left err)
+            Right demand ->
+                supplyFor db solver demand >>= \case
+                    Left err -> pure (Left err)
+                    Right supplyVec -> do
+                        eChain <- collectChain unitCfg geographies depLookup db dbName rootPid supplyVec [] wholeChain
+                        pure $ do
+                            (Collected _ entries edges _, _, _) <- eChain
+                            steps <- pathIn target (rootStep rootPid rootAct supplyVec) entries edges
+                            Right (pathAnswer (functionalUnitIn db rootAct) steps)
+  where
+    wholeChain :: SupplyChainFilter
+    wholeChain =
+        SupplyChainFilter
+            { scfCore = ActivityFilterCore Nothing Nothing Nothing [] noExclusions Nothing Nothing Nothing Forward
+            , scfMaxDepth = Nothing
+            , scfMinQuantity = Nothing
+            , scfEdges = WithEdges
+            , scfWithheld = refusing
+            }
+
+    rootStep :: ProcessId -> Activity -> U.Vector Double -> PathStep
+    rootStep rootPid rootAct supplyVec =
+        PathStep
+            { pstId = processIdToText db rootPid
+            , pstName = activityName rootAct
+            , pstLocation = activityLocation rootAct
+            , pstUnit = activityUnit rootAct
+            , pstScaling = processScaling db supplyVec rootPid
+            }
+
+-- | One process on a path, as the chain lists it.
+data PathStep = PathStep
+    { pstId :: !Text
+    , pstName :: !Text
+    , pstLocation :: !Text
+    , pstUnit :: !Text
+    , pstScaling :: !Double
+    }
+
+{- | The shortest path, in edges, from the root to the first listed process
+the target names. A process the chain reached by two routes in a dependency
+is listed once per route, each with its part of the scaling: the parts are
+summed, so a step carries the whole quantity.
+-}
+pathIn :: PathTarget -> PathStep -> [SupplyChainEntry] -> [SupplyChainEdge] -> Either ServiceError [PathStep]
+pathIn target root entries edges =
+    maybe (Left notFound) Right (traverse stepOf =<< bfsToPattern (pstId root) (\i -> maybe False aimed (M.lookup i listed)) suppliers)
+  where
+    listed :: M.Map Text PathStep
+    listed = M.fromListWith (\a b -> a{pstScaling = pstScaling a + pstScaling b}) [(sceProcessId e, fromEntry e) | e <- entries]
+
+    suppliers :: M.Map Text [Text]
+    suppliers = NE.toList <$> groupInOrder [(sceEdgeTo e, sceEdgeFrom e) | e <- edges, M.member (sceEdgeFrom e) listed]
+
+    stepOf :: Text -> Maybe PathStep
+    stepOf i
+        | i == pstId root = Just root
+        | otherwise = M.lookup i listed
+
+    aimed :: PathStep -> Bool
+    aimed step = case target of
+        TargetNamed part -> Normalize.caseInsensitiveInfixOf (unNamePattern part) (pstName step)
+        TargetProcess pid -> pstId step == pid
+
+    fromEntry :: SupplyChainEntry -> PathStep
+    fromEntry e =
+        PathStep
+            { pstId = sceProcessId e
+            , pstName = sceActivityName e
+            , pstLocation = sceLocation e
+            , pstUnit = sceUnit e
+            , pstScaling = sceScalingFactor e
+            }
+
+    notFound :: ServiceError
+    notFound = ActivityNotFound $ case target of
+        TargetNamed part -> "No listed upstream process of " <> pstId root <> " has a name holding '" <> unNamePattern part <> "'"
+        TargetProcess pid -> "The process " <> pid <> " is not among the listed upstream processes of " <> pstId root
+
+-- | A path as the route answers it: each step's quantity, and the ratio from the step before.
+pathAnswer :: FunctionalUnit -> [PathStep] -> Value
+pathAnswer unit steps =
+    object
+        [ "functionalUnit" .= unit
+        , "path" .= zipWith stepJson (Nothing : map Just steps) steps
+        , "path_length" .= length steps
+        , "total_ratio" .= product [pstScaling c / pstScaling p | (p, c) <- links, pstScaling p /= 0]
+        ]
+  where
+    links :: [(PathStep, PathStep)]
+    links = zip steps (drop 1 steps)
+
+    stepJson :: Maybe PathStep -> PathStep -> Value
+    stepJson before step =
+        object $
+            [ "processId" .= pstId step
+            , "activityName" .= pstName step
+            , "location" .= pstLocation step
+            , "unit" .= pstUnit step
+            , "cumulativeQuantityPerUnit" .= pstScaling step
+            , "scalingFactor" .= pstScaling step
+            ]
+                ++ ["localStepRatio" .= ratio p step | Just p <- [before]]
+
+    ratio :: PathStep -> PathStep -> Double
+    ratio p c = if pstScaling p == 0 then 0 else pstScaling c / pstScaling p
 
 {- | Where a supply-chain collection stands.
 
@@ -2635,14 +2701,6 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor 
     let rootActivity = dbActivities rootDb V.! fromIntegral rootPid
         rootRefAmount = getReferenceProductAmount rootActivity
         rootBlock = sourceBlockOf rootDb rootPid
-        rootCollected =
-            collectSupplyChainEntries
-                geographies
-                rootDb
-                rootDbName
-                (RootLevel rootPid)
-                rootScaling
-                scf
         rootSummary =
             ActivitySummary
                 { prsProcessId = processIdToText rootDb rootPid
@@ -2662,14 +2720,11 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor 
                 , prsBlock = sbName rootBlock
                 , prsBlockProducts = sbProducts rootBlock
                 }
-    eDep <- walkDepLevels unitCfg geographies depLookup (Consumer rootDbName rootDb (RootLevel rootPid) rootScaling) extraLinks scf 1 S.empty
-    case eDep of
+    eChain <- collectChain unitCfg geographies depLookup rootDb rootDbName rootPid rootScaling extraLinks scf
+    case eChain of
         Left err -> pure (Left err)
-        Right depCollected -> do
-            let walked = rootCollected <> depCollected
-                refusing = S.delete rootDbName (scfWithheld scf)
-                (Collected total entries edges _, withheld, withheldInputs) = withholdEntries refusing walked
-            cutoffs <- cutoffsOf indexFor refusing (cReached walked)
+        Right (Collected total entries edges reached, withheld, withheldInputs) -> do
+            cutoffs <- cutoffsOf indexFor (refusingFor rootDbName scf) reached
             pure $
                 Right
                     SupplyChainResponse
@@ -2684,6 +2739,32 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor 
                         , scrCutoffInputs = cutoffShown cutoffs
                         , scrWithheldCutoffs = cutoffWithheld cutoffs
                         }
+
+{- | The chain a root reaches, in its own database and in every dependency it
+buys from, with the edges when the filter asks for them, and what the refusing
+databases withhold already taken out. Neither sorted nor cut into a page.
+-}
+collectChain ::
+    UnitConfig ->
+    Geographies ->
+    SharedSolver.DepSolverLookup ->
+    Database ->
+    Text ->
+    ProcessId ->
+    U.Vector Double ->
+    [CrossDBLink] ->
+    SupplyChainFilter ->
+    IO (Either ServiceError (Collected, [WithheldProcesses], [WithheldInput]))
+collectChain unitCfg geographies depLookup rootDb rootDbName rootPid rootScaling extraLinks scf =
+    fmap (withholdEntries (refusingFor rootDbName scf) . (rootCollected <>))
+        <$> walkDepLevels unitCfg geographies depLookup (Consumer rootDbName rootDb (RootLevel rootPid) rootScaling) extraLinks scf 1 S.empty
+  where
+    rootCollected :: Collected
+    rootCollected = collectSupplyChainEntries geographies rootDb rootDbName (RootLevel rootPid) rootScaling scf
+
+-- | The databases a chain withholds: those the filter names, never the one asked.
+refusingFor :: Text -> SupplyChainFilter -> S.Set Text
+refusingFor rootDbName scf = S.delete rootDbName (scfWithheld scf)
 
 {- | Take the entries of the refusing databases out of a chain, and the edges
 touching them: each of those databases leaves one line counting its
@@ -2875,27 +2956,27 @@ bfsDepthFrom starts adj = go (S.fromList [(d, node) | (node, d) <- IM.toList sta
 {- | BFS from root; stop at the first node (other than root) satisfying a predicate.
 Returns the path from root to that node (inclusive), or Nothing.
 -}
-bfsToPattern :: Int -> (Int -> Bool) -> IM.IntMap [Int] -> Maybe [Int]
-bfsToPattern from matches adj = go (Empty |> from) (IM.singleton from from)
+bfsToPattern :: (Ord k) => k -> (k -> Bool) -> M.Map k [k] -> Maybe [k]
+bfsToPattern from matches adj = go (Empty |> from) (M.singleton from from)
   where
     go Empty _ = Nothing
     go (node :<| queue) parents
         | node /= from && matches node = Just (reconstruct node parents)
         | otherwise =
-            let neighbors = IM.findWithDefault [] node adj
+            let neighbors = M.findWithDefault [] node adj
                 (queue', parents') =
                     L.foldl'
                         ( \(q, p) n ->
-                            if IM.member n p
+                            if M.member n p
                                 then (q, p)
-                                else (q |> n, IM.insert n node p)
+                                else (q |> n, M.insert n node p)
                         )
                         (queue, parents)
                         neighbors
              in go queue' parents'
     reconstruct n ps
         | n == from = [n]
-        | otherwise = reconstruct (ps IM.! n) ps ++ [n]
+        | otherwise = reconstruct (ps M.! n) ps ++ [n]
 
 -- | Get reference product amount for an activity (defaults to 1.0)
 getReferenceProductAmount :: Activity -> Double

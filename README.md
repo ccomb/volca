@@ -552,7 +552,7 @@ GET    /api/v1/db/{dbName}/activity/{processId}/graph?cutoff=            Force-d
 GET    /api/v1/db/{dbName}/activity/{processId}/supply-chain             Flat supply-chain table (filters, sort, paging)
 POST   /api/v1/db/{dbName}/activity/{processId}/supply-chain             Same, with substitutions applied
 GET    /api/v1/db/{dbName}/activity/{processId}/consumers                Downstream activities consuming this one
-GET    /api/v1/db/{dbName}/activity/{processId}/path-to?target=          Shortest supply-chain path to a target activity
+GET    /api/v1/db/{dbName}/activity/{processId}/path-to?target=          Shortest supply-chain path to a target activity, named by part of its name (target) or by its process id (target-id)
 GET    /api/v1/db/{dbName}/activity/{processId}/aggregate                SQL-style group/filter on exchanges, supply chain, biosphere, or consumption edges
 
 # Inventory and impacts
@@ -917,7 +917,7 @@ volca method delete ef-31                        # delete
 | Supply chain (flat) | `GET\|POST /db/{db}/activity/{id}/supply-chain` | `supply-chain ID --name --geo --product --max-depth --min-quantity` |
 | Supply chain graph | `GET /db/{db}/activity/{id}/graph?cutoff=` | – |
 | Downstream consumers | `GET /db/{db}/activity/{id}/consumers` | `consumers ID --name --geo --product --max-depth` |
-| Path to target | `GET /db/{db}/activity/{id}/path-to?target=` | `path-to ID NAME` |
+| Path to target | `GET /db/{db}/activity/{id}/path-to?target=` or `?target-id=` | `path-to ID NAME` |
 | Aggregate | `GET /db/{db}/activity/{id}/aggregate` | – |
 | Life cycle inventory | `GET\|POST /db/{db}/activity/{id}/inventory` | `inventory ID` |
 | LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | `impacts ID --method COLLECTION` |

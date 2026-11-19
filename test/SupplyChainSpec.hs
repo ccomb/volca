@@ -7,9 +7,9 @@ import Data.Aeson (Value (..), toJSON)
 import Data.Aeson.Key (fromText)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Foldable (toList)
-import qualified Data.IntMap.Strict as IM
 import Data.List (sort)
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import Data.Text (Text, pack)
 import Data.UUID (nil)
 import GoldenData
@@ -20,6 +20,8 @@ import Service (
     ConsumerFilter (..),
     Edges (..),
     NamePattern (..),
+    PathTarget (..),
+    ServiceError,
     SortOrder (..),
     SupplyChainFilter (..),
     bfsToPattern,
@@ -30,10 +32,11 @@ import Service (
     noExclusions,
     sortOrderOf,
  )
-import SharedSolver (createSharedSolver)
+import SharedSolver (SharedSolver, createSharedSolver)
 import Test.Hspec
 import TestHelpers
 import Types
+import UnitConversion (defaultUnitConfig)
 
 -- | Empty 'ActivityFilterCore'; tests tweak only the fields they need.
 emptyCore :: ActivityFilterCore
@@ -411,7 +414,7 @@ spec = do
     -- -----------------------------------------------------------------------
     describe "bfsToPattern" $ do
         -- Graph: 0 -> [1, 2], 1 -> [3], 2 -> [], 3 -> []
-        let adj = IM.fromList [(0, [1, 2]), (1, [3])]
+        let adj = M.fromList [(0 :: Int, [1, 2]), (1, [3])]
 
         it "finds direct neighbour" $
             bfsToPattern 0 (== 2) adj `shouldBe` Just [0, 2]
@@ -435,7 +438,7 @@ spec = do
                 actCount = fromIntegral (dbActivityCount db)
             solver <- createSharedSolver "test" techTriples actCount
             let rootPid = processIdToText db 0
-            result <- getPathTo db solver rootPid (NamePattern "product Z")
+            result <- pathInOne db solver rootPid "product Z"
             case result of
                 Left err -> expectationFailure $ "Expected Right but got Left: " ++ show err
                 Right val -> do
@@ -449,7 +452,7 @@ spec = do
             -- it takes a tenth of that: 0.06 of Y and 0.024 of Z, not 0.6 and 0.24.
             db <- rebuilt . withActivityWrittenForTen 0 =<< loadSampleDatabase "SAMPLE.min3"
             solver <- createSharedSolver "test" (dbTechnosphereTriples db) (fromIntegral (dbActivityCount db))
-            result <- getPathTo db solver (processIdToText db 0) (NamePattern "product Z")
+            result <- pathInOne db solver (processIdToText db 0) "product Z"
             case result of
                 Left err -> expectationFailure $ "Expected Right but got Left: " ++ show err
                 Right val -> do
@@ -468,7 +471,7 @@ spec = do
         it "gives each step as written when the root declares zero" $ do
             db <- rebuilt . withActivityWrittenFor 0 0 =<< loadSampleDatabase "SAMPLE.min3"
             solver <- createSharedSolver "test" (dbTechnosphereTriples db) (fromIntegral (dbActivityCount db))
-            result <- getPathTo db solver (processIdToText db 0) (NamePattern "product Z")
+            result <- pathInOne db solver (processIdToText db 0) "product Z"
             case result of
                 Left err -> expectationFailure $ "Expected Right but got Left: " ++ show err
                 Right val -> do
@@ -485,7 +488,7 @@ spec = do
         it "states its functional unit" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             solver <- createSharedSolver "test" (dbTechnosphereTriples db) (fromIntegral (dbActivityCount db))
-            result <- getPathTo db solver (processIdToText db 0) (NamePattern "product Z")
+            result <- pathInOne db solver (processIdToText db 0) "product Z"
             case result of
                 Left err -> expectationFailure $ "Expected Right but got Left: " ++ show err
                 Right val -> lookupKey "functionalUnit" val `shouldBe` Just (toJSON (FunctionalUnit "kg" "product X"))
@@ -496,7 +499,7 @@ spec = do
                 actCount = fromIntegral (dbActivityCount db)
             solver <- createSharedSolver "test" techTriples actCount
             let rootPid = processIdToText db 0
-            result <- getPathTo db solver rootPid (NamePattern "no such activity")
+            result <- pathInOne db solver rootPid "no such activity"
             case result of
                 Left _ -> return ()
                 Right _ -> expectationFailure "Expected Left but got Right"
@@ -523,3 +526,8 @@ toText = pack
 lookupKey :: String -> Value -> Maybe Value
 lookupKey k (Object o) = KM.lookup (fromText (toText k)) o
 lookupKey _ _ = Nothing
+
+-- | The path to a process named after a part of @name@, in one database with no dependency to cross.
+pathInOne :: Database -> SharedSolver -> Text -> Text -> IO (Either ServiceError Value)
+pathInOne db solver pid name =
+    getPathTo defaultUnitConfig shippedGeographies (mkDepLookupFromMap M.empty) S.empty db "test" solver pid (TargetNamed (NamePattern name))

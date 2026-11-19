@@ -20,7 +20,7 @@ Then paste the rendered block at the top of this file and tighten wording.
 
 ## [0.15.0] - Unreleased
 
-This release speaks wire revisions 113 and 114, and needs engine 0.19.0. An
+This release speaks wire revisions 113 to 115, and needs engine 0.19.0. An
 older engine is refused when the client first talks to it. Use pyvolca 0.14.3
 with an older engine.
 
@@ -92,6 +92,9 @@ is missing.
 
 ### Fixed
 
+- `get_path_to()` reaches a supplier in a dependency database, on engine wire
+  revision 115. It used to answer that no upstream process matched, though
+  `get_supply_chain()` listed that supplier.
 - `ensure_database()` loads a closed upload that was edited, relinked by a
   mapping or divided by a system model. Engine 0.18.0 answers 404 for the
   setup of such a database, which 0.14.2 raised on; an older engine answered
