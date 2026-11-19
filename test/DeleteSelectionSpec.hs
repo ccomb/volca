@@ -18,6 +18,7 @@ Delete is reconstruction over an immutable 'Database':
 module DeleteSelectionSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
+import Control.Monad (forM_)
 import qualified Data.ByteString.Lazy as BL
 import Data.JournalFile (noOrigin)
 import Data.List (sort)
@@ -52,6 +53,7 @@ import Database.Edit (
     DeleteOutcome (..),
     DeletePlan (..),
     DeleteRequest (..),
+    DeleteRun (..),
     DeleteSelection (..),
     SpareChoice (..),
     deleteActivitiesInDB,
@@ -67,7 +69,7 @@ import Database.Manager (
  )
 import Database.Rebuild (deleteActivities)
 import Matrix (Inventory, computeInventoryMatrix)
-import Service (exclusionsOf, noExclusions)
+import Service (Exclusions (..), noExclusions)
 import SharedSolver (SharedSolver, createSharedSolver)
 import SynonymDB (emptySynonymDB)
 import Types (
@@ -140,7 +142,7 @@ emptyDelete =
         , drIds = Nothing
         , drExcluded = noExclusions
         , drSpare = CutSuppliers
-        , drDryRun = False
+        , drRun = RealRun
         , drStated = nothingStated
         }
 
@@ -488,7 +490,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
             let c = keptChain 3100
             (manager, db) <- installedFrom "dry-run" (chParts c)
             before <- heldKeys manager "dry-run"
-            outcome <- outcomeOf manager "dry-run" (namingKeys db SpareSuppliers (chMatched c)){drDryRun = True}
+            outcome <- outcomeOf manager "dry-run" (namingKeys db SpareSuppliers (chMatched c)){drRun = DryRun}
             (doRemoved outcome, doSpared outcome) `shouldBe` (1, 3)
             heldKeys manager "dry-run" `shouldReturn` before
 
@@ -496,7 +498,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
             (manager, db) <- installedFrom "refused" (classifiedDB 3200)
             everyone <- heldKeys manager "refused"
             let request = namingKeys db CutSuppliers everyone
-            dry <- deleteActivitiesInDB manager "refused" noOrigin request{drDryRun = True}
+            dry <- deleteActivitiesInDB manager "refused" noOrigin request{drRun = DryRun}
             real <- deleteActivitiesInDB manager "refused" noOrigin request
             refusal real `shouldSatisfy` maybe False (isInfixOf "no processes")
             refusal dry `shouldBe` refusal real
@@ -507,7 +509,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
             installLoaded manager "base" base
             dep <- buildOrFail (classifiedDB 3260)
             installLoaded manager "dependent" dep{dbDependsOn = ["base"]}
-            let request = (namingKeys base CutSuppliers [(mkUUID 3251, mkUUID 3251)]){drDryRun = True}
+            let request = (namingKeys base CutSuppliers [(mkUUID 3251, mkUUID 3251)]){drRun = DryRun}
             dry <- deleteActivitiesInDB manager "base" noOrigin request
             refusal dry `shouldSatisfy` maybe False (isInfixOf "still required by")
 
@@ -516,7 +518,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
             (manager, db) <- installedFrom "announced" (chParts c)
             before <- heldKeys manager "announced"
             let request = namingKeys db SpareSuppliers (chMatched c)
-            announced <- outcomeOf manager "announced" request{drDryRun = True}
+            announced <- outcomeOf manager "announced" request{drRun = DryRun}
             done <- outcomeOf manager "announced" request
             (doRemoved done, doSpared done) `shouldBe` (doRemoved announced, doSpared announced)
             after <- heldKeys manager "announced"
@@ -532,7 +534,7 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
             (manager, _) <- installedFrom "except" (exceptDB 3400)
             let request =
                     emptyDelete
-                        { drExcluded = exclusionsOf ["CIQUAL"] [] [categoryHolding "Agricultural", categoryHolding "Packaging"]
+                        { drExcluded = noExclusions{exNames = ["CIQUAL"], exClassifications = [categoryHolding "Agricultural", categoryHolding "Packaging"]}
                         , drSpare = SpareSuppliers
                         }
             outcome <- outcomeOf manager "except" request
@@ -543,14 +545,29 @@ spec = describe "Database.Edit delete-by-selection primitive" $ do
         it "exclusions that leave nothing to delete change nothing" $ do
             (manager, _) <- installedFrom "nothing-left" (classifiedDB 3500)
             before <- heldKeys manager "nothing-left"
-            outcome <- outcomeOf manager "nothing-left" emptyDelete{drExcluded = exclusionsOf [] [] [categoryHolding "food", categoryHolding "energy"]}
+            outcome <- outcomeOf manager "nothing-left" emptyDelete{drExcluded = noExclusions{exClassifications = [categoryHolding "food", categoryHolding "energy"]}}
             (doRemoved outcome, doSpared outcome) `shouldBe` (0, 0)
             heldKeys manager "nothing-left" `shouldReturn` before
+
+        -- A misspelt exclusion removes nothing, so the delete would take
+        -- what it was meant to keep.
+        it "refuses an exclusion that leaves out no process, dry run or not" $ do
+            (manager, _) <- installedFrom "idle-exclusion" (classifiedDB 3700)
+            before <- heldKeys manager "idle-exclusion"
+            let misspelt =
+                    [ noExclusions{exNames = ["zzzqx"]}
+                    , noExclusions{exLocations = ["Atlantis"]}
+                    , noExclusions{exClassifications = [categoryHolding "foood"]}
+                    ]
+            forM_ misspelt $ \ex -> forM_ [DryRun, RealRun] $ \run -> do
+                r <- deleteActivitiesInDB manager "idle-exclusion" noOrigin emptyDelete{drExcluded = ex, drRun = run}
+                refusal r `shouldSatisfy` maybe False (isInfixOf "removes no process")
+            heldKeys manager "idle-exclusion" `shouldReturn` before
 
         it "ids refuse exclusions as they refuse filter fields" $ do
             (manager, db) <- installedFrom "ids-and-exclusions" (classifiedDB 3600)
             let foodA = processIdToText db (pidFor2 db (mkUUID 3601) (mkUUID 3601))
-            r <- deleteActivitiesInDB manager "ids-and-exclusions" noOrigin emptyDelete{drIds = Just [foodA], drExcluded = exclusionsOf ["energy"] [] []}
+            r <- deleteActivitiesInDB manager "ids-and-exclusions" noOrigin emptyDelete{drIds = Just [foodA], drExcluded = noExclusions{exNames = ["energy"]}}
             refusal r `shouldSatisfy` maybe False (isInfixOf "cannot be combined")
 
     describe "DeleteSelectionRequest wire compatibility" $ do

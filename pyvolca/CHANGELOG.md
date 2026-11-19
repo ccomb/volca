@@ -20,9 +20,9 @@ Then paste the rendered block at the top of this file and tighten wording.
 
 ## [0.15.0] - Unreleased
 
-This release speaks wire revision 113 only, and needs engine 0.19.0. An older
-engine is refused when the client first talks to it. Use pyvolca 0.14.3 with
-an older engine.
+This release speaks wire revisions 113 and 114, and needs engine 0.19.0. An
+older engine is refused when the client first talks to it. Use pyvolca 0.14.3
+with an older engine.
 
 ### Changed
 
@@ -58,8 +58,16 @@ an older engine.
   now come from the engine's `direct` aggregate, so they stay on the basis of
   the energies and masses the engine counts, which are now for one unit.
 
+- `delete_activities()` needs `spare=True` or `spare=False`, and an engine
+  speaking wire revision 114. With `spare=True` it keeps the selected
+  processes the remaining ones still use. A script that called it without
+  `spare` now stops on the missing argument rather than have the engine pick.
+
 ### Added
 
+- `delete_activities()` takes `exclude_name` and `exclude_location`, which
+  leave out what a name or a place finds, and `dry_run=True`, which answers
+  what the delete would do and changes nothing.
 - `aggregate()` takes `filter_exchange_type` (`"technosphere"`, `"biosphere"`
   or `"waste"`) to keep one kind of exchange in the `direct` scope, which the
   engine already offered.

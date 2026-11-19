@@ -13,6 +13,14 @@
   activity, is dropped from a search, and refused in a delete with a message
   naming the field, because dropping it there would delete more than was
   asked.
+- A delete refuses an exclusion that removes no process from the database,
+  such as a misspelt name or a place the database never writes: honoured, it
+  would leave out nothing, and the delete would take what it was meant to
+  keep. A dry run refuses it the same way.
+- A classification preset in the configuration reads its `mode` with the same
+  words, case-blind. It used to read any word but `exact` as `contains`; a
+  word it does not know, or a negative mode, now stops the load, since a
+  preset keeps what it names.
 - `volca database delete-activities` needs exactly one of `--spare-suppliers`
   and `--cut-suppliers`, and `delete_activities` in pyvolca needs `spare=`,
   both refusing an engine older than wire revision 114 before sending

@@ -216,6 +216,7 @@ import Database.Crate (Changes (..), CrateInput (..), Package (..), Packaging (.
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
+    DeleteRun (..),
     EditReport (..),
     MissingRequest (..),
     MutationOutcome (..),
@@ -337,18 +338,19 @@ import Method.Mapping (BuildProvenance (..), CF (..), CFUnit (..), provenanceStr
 import Method.ParserFactorTable (Dropped (..), familyCollections, isFactorTable, readFactorTable)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (mcMethods))
 import Method.WriterCSV (serializeColumnarMethodCSV)
-import Service (exclusionsOf)
+import Service (Exclusions (..))
 import Types (
     AddedAt,
     BiosphereFlow (..),
     BlockerReason (..),
-    ClassificationFilter (..),
+    ClassificationFilters (..),
     ClassificationMode (..),
     Database (..),
     DisplayName,
     FileReading (..),
     GeographyPolicy (..),
     Licence (..),
+    ModedFilter (..),
     ModelException (..),
     ModelParameter (..),
     ModelSubstitution (..),
@@ -761,7 +763,7 @@ deleteActivitiesHandler dbName req = do
     guardMutation
     dbManager <- asks aeDbManager
     origin <- httpOrigin
-    (classFilters, leftOut) <-
+    ClassificationFilters{cfKept = classFilters, cfLeftOut = leftOut} <-
         either (failWith err400) pure (readFilters (dsqClassifications req))
     let
         -- A present-but-blank filter (e.g. JSON "name":"") is no filter at all.
@@ -769,7 +771,7 @@ deleteActivitiesHandler dbName req = do
         -- instead of a BM25/full-scan path that yields zero (index present) or all
         -- (index absent), an index-dependent ALL-vs-NONE divergence.
         nonBlank = mfilter (not . T.null . T.strip)
-        dry = fromMaybe False (dsqDryRun req)
+        run = if fromMaybe False (dsqDryRun req) then DryRun else RealRun
     result <-
         liftIO $
             deleteActivitiesInDB
@@ -785,9 +787,14 @@ deleteActivitiesHandler dbName req = do
                     , drKeep = dsqKeep req
                     , drExtra = dsqExtra req
                     , drIds = dsqIds req
-                    , drExcluded = exclusionsOf (fromMaybe [] (dsqExcludeName req)) (fromMaybe [] (dsqExcludeLocation req)) leftOut
+                    , drExcluded =
+                        Exclusions
+                            { exNames = fromMaybe [] (dsqExcludeName req)
+                            , exLocations = fromMaybe [] (dsqExcludeLocation req)
+                            , exClassifications = leftOut
+                            }
                     , drSpare = if dsqSpare req then SpareSuppliers else CutSuppliers
-                    , drDryRun = dry
+                    , drRun = run
                     , drStated = statedFrom (dsqNote req) (dsqSource req)
                     }
     case result of
@@ -799,7 +806,7 @@ deleteActivitiesHandler dbName req = do
             return $
                 DeleteSelectionResponse
                     { dsrSuccess = True
-                    , dsrMessage = deleteSentence dry dbName outcome
+                    , dsrMessage = deleteSentence run dbName outcome
                     , dsrDeleted = doRemoved outcome
                     , dsrSpared = doSpared outcome
                     , dsrTransient = not (doPersisted outcome)
@@ -810,13 +817,13 @@ deleteActivitiesHandler dbName req = do
     it as contains would turn an exclusion into the opposite. A blank exclusion
     is refused too, where a search drops it: dropped, it would widen the delete
     (no filter, one process kept and a blank name would delete all the others). -}
-    readFilters :: [DeleteClassFilter] -> Either Text ([ClassificationFilter], [ClassificationFilter])
+    readFilters :: [DeleteClassFilter] -> Either Text ClassificationFilters
     readFilters entries = do
         parsed <- traverse entry entries
         refuseBlank
             [ ("excludeName", fromMaybe [] (dsqExcludeName req))
             , ("excludeLocation", fromMaybe [] (dsqExcludeLocation req))
-            , ("classifications", [value | (Excluding _, _, value) <- parsed])
+            , ("classifications", [mfValue f | f@ModedFilter{mfMode = Excluding _} <- parsed])
             ]
         pure (splitByMode parsed)
 
@@ -825,20 +832,20 @@ deleteActivitiesHandler dbName req = do
         [] -> Right ()
         field : _ -> Left (field <> " has a blank entry. Remove it: a blank exclusion is refused rather than ignored, because ignoring it would widen the delete.")
 
-    entry :: DeleteClassFilter -> Either Text (ClassificationMode, Text, Text)
+    entry :: DeleteClassFilter -> Either Text ModedFilter
     entry f = do
         mode <- readClassificationMode (dcfMode f)
-        pure (mode, dcfSystem f, dcfValue f)
+        pure ModedFilter{mfSystem = dcfSystem f, mfValue = dcfValue f, mfMode = mode}
 
 -- | What a delete did, or in a dry run would do, in a sentence a person reads.
-deleteSentence :: Bool -> Text -> DeleteOutcome -> Text
-deleteSentence dry dbName outcome =
-    (if dry then "Would delete " else "Deleted ") <> count (doRemoved outcome) <> " processes from " <> dbName <> spared
+deleteSentence :: DeleteRun -> Text -> DeleteOutcome -> Text
+deleteSentence run dbName outcome =
+    (if run == DryRun then "Would delete " else "Deleted ") <> count (doRemoved outcome) <> " processes from " <> dbName <> spared
   where
     spared :: Text
     spared
         | doSpared outcome == 0 = ""
-        | otherwise = (if dry then " and spare " else " and spared ") <> count (doSpared outcome) <> " that the remaining ones use"
+        | otherwise = (if run == DryRun then " and spare " else " and spared ") <> count (doSpared outcome) <> " that the remaining ones use"
 
     count :: Int -> Text
     count = T.pack . show

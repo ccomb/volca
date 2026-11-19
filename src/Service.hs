@@ -106,16 +106,16 @@ data Exclusions = Exclusions
 noExclusions :: Exclusions
 noExclusions = Exclusions{exNames = [], exLocations = [], exClassifications = []}
 
-{- | What a request leaves out. A blank name, place or classification value is
+{- | What a request leaves out, its blanks dropped. A blank name, place or classification value is
 dropped: a blank name means no filter, so kept as an exclusion it would remove
 every row, and a blank value would remove every row classified on its system.
 -}
-exclusionsOf :: [Text] -> [Text] -> [ClassificationFilter] -> Exclusions
-exclusionsOf names places classifications =
+withoutBlanks :: Exclusions -> Exclusions
+withoutBlanks ex =
     Exclusions
-        { exNames = nonBlank names
-        , exLocations = nonBlank places
-        , exClassifications = filter (not . isBlank . clfValue) classifications
+        { exNames = nonBlank (exNames ex)
+        , exLocations = nonBlank (exLocations ex)
+        , exClassifications = filter (not . isBlank . clfValue) (exClassifications ex)
         }
   where
     nonBlank :: [Text] -> [Text]
@@ -1096,7 +1096,7 @@ tab counter disagreeing with the tab it labels is worse than no counter.
 -}
 activityMatches :: Geographies -> Database -> SearchFilter -> [(ProcessId, Activity)]
 activityMatches geographies db sFilter@(SearchFilter core exactMatch) =
-    filter (survivesExclusions geographies db exactMatch (afcExcluded core)) (positiveMatches geographies db sFilter)
+    filter (survivesExclusions geographies db (placeReading exactMatch) (afcExcluded core)) (positiveMatches geographies db sFilter)
 
 {- | The rows a filter asks for, before its exclusions take any away, in the
 order the search presents them.
@@ -1144,24 +1144,51 @@ positiveMatches geographies db sFilter@(SearchFilter core exactMatch) =
 Partly applied to the exclusions, it works out once which rows the names
 remove, then answers for as many rows as it is asked about.
 -}
-survivesExclusions :: Geographies -> Database -> Bool -> Exclusions -> (ProcessId, Activity) -> Bool
-survivesExclusions geographies db exact ex = \(pid, activity) ->
-    not (IS.member (fromIntegral pid) namedOut || excludedByPlaceOrClass geographies exact ex activity)
+survivesExclusions :: Geographies -> Database -> PlaceReading -> Exclusions -> (ProcessId, Activity) -> Bool
+survivesExclusions geographies db reading ex = \(pid, activity) ->
+    not (IS.member (fromIntegral pid) namedOut || excludedByPlaceOrClass geographies reading ex activity)
   where
     namedOut :: IS.IntSet
     namedOut = excludedByName geographies db (exNames ex)
 
-{- | Whether a place or a classification exclusion removes an activity. Under
-@exact@ a place is read as that place alone, the way the positive filter reads
-it; otherwise every place that answers for it goes too.
+{- | How an excluded place is read: as that place alone, the way an exact
+search reads its place, or with every place that answers for it.
 -}
-excludedByPlaceOrClass :: Geographies -> Bool -> Exclusions -> Activity -> Bool
-excludedByPlaceOrClass geographies exact ex activity =
-    any (`inPlace` activityLocation activity) (exLocations ex)
+data PlaceReading = PlaceAlone | PlaceAndWithin
+    deriving (Eq, Show)
+
+-- | The reading of a place that a search's @exact@ flag asks for.
+placeReading :: Bool -> PlaceReading
+placeReading exact = if exact then PlaceAlone else PlaceAndWithin
+
+-- | Whether an excluded place takes an activity's place.
+inPlace :: Geographies -> PlaceReading -> Text -> Text -> Bool
+inPlace geographies = \case
+    PlaceAlone -> locationIs
+    PlaceAndWithin -> locationAnswers geographies
+
+-- | Whether a place or a classification exclusion removes an activity.
+excludedByPlaceOrClass :: Geographies -> PlaceReading -> Exclusions -> Activity -> Bool
+excludedByPlaceOrClass geographies reading ex activity =
+    any (\place -> inPlace geographies reading place (activityLocation activity)) (exLocations ex)
         || any (`classificationMatches` activityClassification activity) (exClassifications ex)
+
+{- | The exclusions that leave out no process of the database at all, each in
+words a person can find in the request. A delete refuses them: an exclusion
+with a misspelt name or place removes nothing, so the delete takes what it was
+meant to keep.
+-}
+idleExclusions :: Geographies -> Database -> PlaceReading -> Exclusions -> [Text]
+idleExclusions geographies db reading ex =
+    ["the name '" <> name <> "'" | name <- exNames ex, IS.null (excludedByName geographies db [name])]
+        <> ["the location '" <> place <> "'" | place <- exLocations ex, not (any (inPlace geographies reading place . activityLocation) activities)]
+        <> [ "the classification " <> clfSystem f <> " '" <> clfValue f <> "'"
+           | f <- exClassifications ex
+           , not (any (classificationMatches f . activityClassification) activities)
+           ]
   where
-    inPlace :: Text -> Text -> Bool
-    inPlace = if exact then locationIs else locationAnswers geographies
+    activities :: [Activity]
+    activities = V.toList (dbActivities db)
 
 -- | The processes a search for each of the names, taken alone, finds.
 excludedByName :: Geographies -> Database -> [Text] -> IS.IntSet
@@ -1199,7 +1226,7 @@ hold is left out, the way a search leaves out what it does not find.
 -}
 activitiesNamed :: Geographies -> Database -> SearchFilter -> [ProcessId] -> [(ProcessId, Activity)]
 activitiesNamed geographies db (SearchFilter core exactMatch) =
-    filter (survivesExclusions geographies db exactMatch (afcExcluded core))
+    filter (survivesExclusions geographies db (placeReading exactMatch) (afcExcluded core))
         . applyStructuredFilters geographies db (afcLocation core) (afcProduct core) (afcClassifications core) exactMatch
         . mapMaybe (\pid -> (,) pid <$> findActivityByProcessId db pid)
 
@@ -2445,7 +2472,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
             , Just flow <- [M.lookup (exchangeFlowId ex) (dbTechFlows db)]
             ]
 
-        stays = survivesExclusions geographies db False (afcExcluded core)
+        stays = survivesExclusions geographies db PlaceAndWithin (afcExcluded core)
 
         matchesFilters activity pid =
             let nameOk = nameMatchesPid pid
@@ -3676,7 +3703,7 @@ getConsumers geographies db dbName processIdText cnf = do
 
         classMatches activity = matchClassifications activity (afcClassifications core)
 
-        stays = survivesExclusions geographies db False (afcExcluded core)
+        stays = survivesExclusions geographies db PlaceAndWithin (afcExcluded core)
 
         limit = fromMaybe 1000 (afcLimit core)
         offset = fromMaybe 0 (afcOffset core)

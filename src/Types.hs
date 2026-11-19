@@ -1343,18 +1343,42 @@ the modules that plan a delete depend on the command line's types.
 data SpareChoice = SpareSuppliers | CutSuppliers
     deriving (Eq, Show)
 
-{- | Filters as a request states them, a mode with the system and value it
-applies to, divided into those that keep what they match and those that leave
-it out.
+{- | A classification filter as a request states it: the system and value it
+names, and the mode it is written with.
 -}
-splitByMode :: [(ClassificationMode, Text, Text)] -> ([ClassificationFilter], [ClassificationFilter])
+data ModedFilter = ModedFilter
+    { mfSystem :: !Text
+    , mfValue :: !Text
+    , mfMode :: !ClassificationMode
+    }
+    deriving (Eq, Show)
+
+{- | Classification filters divided into those that keep what they match and
+those that leave it out. Named fields, so a caller cannot take one for the
+other: in a delete that would remove exactly what was to be kept.
+-}
+data ClassificationFilters = ClassificationFilters
+    { cfKept :: [ClassificationFilter]
+    , cfLeftOut :: [ClassificationFilter]
+    }
+    deriving (Eq, Show)
+
+-- | Divide filters by the mode each is written with.
+splitByMode :: [ModedFilter] -> ClassificationFilters
 splitByMode entries =
-    ( [filterBy match system value | (Including match, system, value) <- entries]
-    , [filterBy match system value | (Excluding match, system, value) <- entries]
-    )
+    ClassificationFilters
+        { cfKept = [filterBy match entry | entry@ModedFilter{mfMode = Including match} <- entries]
+        , cfLeftOut = [filterBy match entry | entry@ModedFilter{mfMode = Excluding match} <- entries]
+        }
   where
-    filterBy :: ClassificationMatch -> Text -> Text -> ClassificationFilter
-    filterBy match system value = ClassificationFilter{clfSystem = system, clfValue = value, clfMatch = match}
+    filterBy :: ClassificationMatch -> ModedFilter -> ClassificationFilter
+    filterBy match entry = ClassificationFilter{clfSystem = mfSystem entry, clfValue = mfValue entry, clfMatch = match}
+
+-- | The word a positive match is written with, as 'readClassificationMode' reads it.
+matchWord :: ClassificationMatch -> Text
+matchWord = \case
+    MatchExact -> "exact"
+    MatchContains -> "contains"
 
 {- | Whether a classification holds the filter's value under its system,
 case-blind. One filter; how several combine is the caller's.

@@ -1452,15 +1452,14 @@ mergeClassFilters ::
     [Text] ->
     [Text] ->
     [Text] ->
-    Either Text ([ClassificationFilter], [ClassificationFilter])
+    Either Text ClassificationFilters
 mergeClassFilters presets presetParam systems values modes = do
     fromPreset <- Config.expandClassificationPreset presets presetParam
-    explicit <- sequence (zipWith3 modeled systems values (modes ++ repeat "contains"))
-    let (kept, left) = splitByMode explicit
-    pure (fromPreset ++ kept, left)
+    explicit <- splitByMode <$> sequence (zipWith3 modeled systems values (modes ++ repeat "contains"))
+    pure explicit{cfKept = fromPreset ++ cfKept explicit}
   where
-    modeled :: Text -> Text -> Text -> Either Text (ClassificationMode, Text, Text)
-    modeled s v m = (,s,v) <$> readClassificationMode m
+    modeled :: Text -> Text -> Text -> Either Text ModedFilter
+    modeled system value mode = (\m -> ModedFilter{mfSystem = system, mfValue = value, mfMode = m}) <$> readClassificationMode mode
 
 -- | Build a 'Service.SupplyChainFilter' shared by GET and POST handlers.
 buildSupplyChainFilter ::
@@ -1483,7 +1482,7 @@ buildSupplyChainFilter ::
     Service.Edges ->
     Either Text Service.SupplyChainFilter
 buildSupplyChainFilter refusing presets nameFilter limitParam minQuantity offsetParam maxDepthParam locationFilter productFilter presetParam classSystems classValues classModes sortParam orderParam edges = do
-    (classifications, excluded) <- mergeClassFilters presets presetParam classSystems classValues classModes
+    ClassificationFilters{cfKept = classifications, cfLeftOut = excluded} <- mergeClassFilters presets presetParam classSystems classValues classModes
     pure
         Service.SupplyChainFilter
             { Service.scfCore =
@@ -1492,7 +1491,7 @@ buildSupplyChainFilter refusing presets nameFilter limitParam minQuantity offset
                     , Service.afcLocation = locationFilter
                     , Service.afcProduct = productFilter
                     , Service.afcClassifications = classifications
-                    , Service.afcExcluded = Service.exclusionsOf [] [] excluded
+                    , Service.afcExcluded = Service.withoutBlanks Service.noExclusions{Service.exClassifications = excluded}
                     , Service.afcLimit = limitParam
                     , Service.afcOffset = offsetParam
                     , Service.afcSort = sortParam
@@ -2012,7 +2011,7 @@ getClassificationPresets = do
             { cpiName = Config.cpName p
             , cpiLabel = Config.cpLabel p
             , cpiDescription = Config.cpDescription p
-            , cpiFilters = map (\e -> ClassificationEntryInfo (Config.ceSystem e) (Config.ceValue e) (Config.ceMode e)) (Config.cpFilters p)
+            , cpiFilters = map (\e -> ClassificationEntryInfo (Config.ceSystem e) (Config.ceValue e) (matchWord (Config.ceMode e))) (Config.cpFilters p)
             }
 
 getLogsHandler :: Maybe Int -> AppM Value
@@ -2777,7 +2776,7 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
     presets <- asks aeClassificationPresets
     dbManager <- asks aeDbManager
     (db, _) <- requireDatabaseByName dbName
-    (classifications, excluded) <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
+    ClassificationFilters{cfKept = classifications, cfLeftOut = excluded} <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
     let cnf =
             Service.ConsumerFilter
                 { Service.cnfCore =
@@ -2786,7 +2785,7 @@ getActivityConsumers dbName processIdText nameFilter locationFilter productFilte
                         , Service.afcLocation = locationFilter
                         , Service.afcProduct = productFilter
                         , Service.afcClassifications = classifications
-                        , Service.afcExcluded = Service.exclusionsOf [] [] excluded
+                        , Service.afcExcluded = Service.withoutBlanks Service.noExclusions{Service.exClassifications = excluded}
                         , Service.afcLimit = limitParam
                         , Service.afcOffset = offsetParam
                         , Service.afcSort = sortParam
@@ -3456,7 +3455,7 @@ searchActivitiesWithCount dbName nameParam geoParam productParam exactParam pres
     presets <- asks aeClassificationPresets
     geographies <- asks (DM.managerGeographies . aeDbManager)
     (db, _) <- requireDatabaseByName dbName
-    (classifications, excluded) <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
+    ClassificationFilters{cfKept = classifications, cfLeftOut = excluded} <- either badRequest pure (mergeClassFilters presets presetParam classSystems classValues classModes)
     let sf =
             Service.SearchFilter
                 { Service.sfCore =
@@ -3465,7 +3464,7 @@ searchActivitiesWithCount dbName nameParam geoParam productParam exactParam pres
                         , Service.afcLocation = geoParam
                         , Service.afcProduct = productParam
                         , Service.afcClassifications = classifications
-                        , Service.afcExcluded = Service.exclusionsOf excludedNames excludedLocations excluded
+                        , Service.afcExcluded = Service.withoutBlanks Service.Exclusions{Service.exNames = excludedNames, Service.exLocations = excludedLocations, Service.exClassifications = excluded}
                         , Service.afcLimit = limitParam
                         , Service.afcOffset = offsetParam
                         , Service.afcSort = sortParam

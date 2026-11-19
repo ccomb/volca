@@ -1238,7 +1238,8 @@ class Client:
             ("excludeLocation", exclude_location),
         ):
             if value:
-                body[key] = list(value)
+                # A bare string is one exclusion, not one per letter.
+                body[key] = [value] if isinstance(value, str) else list(value)
         if dry_run:
             body["dryRun"] = True
         if ids is not None:

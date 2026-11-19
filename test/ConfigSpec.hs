@@ -39,7 +39,7 @@ import Config (
     withBuiltins,
     withSourcePatches,
  )
-import Data.Either (isRight)
+import Data.Either (isLeft, isRight)
 import Data.List (sort)
 import qualified Data.Map.Strict as M
 import Data.Maybe (isJust, listToMaybe)
@@ -217,6 +217,18 @@ spec = do
             filter (T.isPrefixOf "methods.scoring.variables") (keyPaths configKeys)
                 `shouldBe` ["methods.scoring.variables"]
 
+    describe "a classification preset's mode" $ do
+        let modeOf t = ceMode <$> (TOML.decode ("system = \"AGB\"\nvalue = \"Food\"\n" <> t) :: Either TOML.TOMLError ClassificationEntry)
+        it "reads exact when none is written, and the words every other surface reads" $ do
+            modeOf "" `shouldBe` Right MatchExact
+            modeOf "mode = \"contains\"\n" `shouldBe` Right MatchContains
+            modeOf "mode = \"Equals\"\n" `shouldBe` Right MatchExact
+
+        -- Read as contains, a negative mode would keep exactly what it names.
+        it "refuses a mode that leaves out, and an unknown one" $ do
+            modeOf "mode = \"not-exact\"\n" `shouldSatisfy` isLeft
+            modeOf "mode = \"exatc\"\n" `shouldSatisfy` isLeft
+
     describe "expandClassificationPreset" $ do
         let raw =
                 ClassificationPreset
@@ -224,8 +236,8 @@ spec = do
                     , cpLabel = "Raw"
                     , cpDescription = Nothing
                     , cpFilters =
-                        [ ClassificationEntry{ceSystem = "AGB", ceValue = "Agriculture", ceMode = "exact"}
-                        , ClassificationEntry{ceSystem = "AGB", ceValue = "Food", ceMode = "contains"}
+                        [ ClassificationEntry{ceSystem = "AGB", ceValue = "Agriculture", ceMode = MatchExact}
+                        , ClassificationEntry{ceSystem = "AGB", ceValue = "Food", ceMode = MatchContains}
                         ]
                     }
         it "expands a configured preset into its filters" $

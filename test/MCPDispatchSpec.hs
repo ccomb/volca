@@ -29,7 +29,7 @@ import qualified Data.UUID as UUID
 import Database.Manager (CachePolicy (..), DatabaseManager (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
 import TestHelpers (withScratchDataDir)
-import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
+import Types (ClassificationMatch (..), FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
 import Usage (anonymous)
 
 -- | The tool definition advertised under a given MCP name.
@@ -383,7 +383,7 @@ spec = describe "MCP database load/unload tools" $ do
                     { cpName = "raw"
                     , cpLabel = "Raw"
                     , cpDescription = Nothing
-                    , cpFilters = [ClassificationEntry{ceSystem = "AGB", ceValue = "Agriculture", ceMode = "exact"}]
+                    , cpFilters = [ClassificationEntry{ceSystem = "AGB", ceValue = "Agriculture", ceMode = MatchExact}]
                     }
             callWithPreset name = do
                 manager <- initDatabaseManager defaultConfig NoCache

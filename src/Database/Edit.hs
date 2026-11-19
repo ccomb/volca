@@ -38,6 +38,7 @@ module Database.Edit (
     DeletePlan (..),
     planDeletion,
     DeleteRequest (..),
+    DeleteRun (..),
     DeleteOutcome (..),
     deleteActivitiesInDB,
     MutationOutcome (..),
@@ -152,7 +153,7 @@ import qualified Database.UploadedDatabase as UploadedDB
 import Parametric (editedParameters)
 import Progress (ProgressLevel (..), reportProgress)
 import qualified Search.BM25 as BM25
-import Service (ActivityFilterCore (..), Exclusions, SearchFilter (..), SortOrder (..), activityMatches, noExclusions)
+import Service (ActivityFilterCore (..), Exclusions, SearchFilter (..), SortOrder (..), activityMatches, idleExclusions, noExclusions, placeReading)
 import Types (
     Activity,
     AddedAt,
@@ -172,11 +173,11 @@ import Types (
     allocationKeyText,
     exchangeActivityLinkId,
     exchangeFlowId,
-    exchanges,
     findProcessIdByActivityUUID,
     getActivity,
     initializeRuntimeFields,
     modelOf,
+    nonPlainExchanges,
     parseProcessRef,
     processIdToRef,
     processRefText,
@@ -1195,14 +1196,7 @@ commitMutation manager dbName loaded edited home = do
         -- The transient path must not relink: 'relinkDatabase' saves the
         -- matrix cache when links change, which would half-persist an edit
         -- the caller is being told is memory-only. Say what that costs.
-        Nothing ->
-            pure
-                [ "the edit cleared the links to "
-                    <> T.intercalate ", " (dbDependsOn edited)
-                    <> "; they return at the next load, and cross-database totals undercount until then"
-                | not (null (dbDependsOn edited))
-                , null (dbCrossDBLinks edited)
-                ]
+        Nothing -> pure (unrelinkedWarnings edited)
         Just dir -> do
             -- Rebuilding cleared the cross-database links; rebuild them against
             -- the current dependency set before the cache records the result.
@@ -1216,6 +1210,16 @@ commitMutation manager dbName loaded edited home = do
             { moPersisted = isJust home
             , moWarnings = warnings
             }
+
+-- | What an edit kept in memory only costs: the cross-database links it cleared stay cleared until the next load.
+unrelinkedWarnings :: Database -> [Text]
+unrelinkedWarnings edited =
+    [ "the edit cleared the links to "
+        <> T.intercalate ", " (dbDependsOn edited)
+        <> "; they return at the next load, and cross-database totals undercount until then"
+    | not (null (dbDependsOn edited))
+    , null (dbCrossDBLinks edited)
+    ]
 
 -- ---------------------------------------------------------------------------
 -- Selection resolver
@@ -1280,9 +1284,16 @@ planDeletion choice db matched = case choice of
             , dpSpared = pids (IS.intersection matchedSet used)
             }
   where
+    matchedSet :: IS.IntSet
     matchedSet = IS.fromList (map fromIntegral matched)
+
+    remaining :: [Int]
     remaining = filter (`IS.notMember` matchedSet) [0 .. V.length (dbActivities db) - 1]
+
+    used :: IS.IntSet
     used = reachable (linkedSuppliers db (activityMap db)) remaining
+
+    pids :: IS.IntSet -> [ProcessId]
     pids = map fromIntegral . IS.toList
 
 {- | The processes a process's lines are linked to, as a delete resolves them;
@@ -1292,7 +1303,7 @@ linkedSuppliers :: Database -> M.Map (UUID.UUID, UUID.UUID) Activity -> Int -> [
 linkedSuppliers db activities pid =
     [ fromIntegral supplier
     | Just act <- [dbActivities db V.!? pid]
-    , ex <- exchanges act
+    , ex <- nonPlainExchanges act
     , Just link <- [exchangeActivityLinkId ex]
     , key <- producerCandidatesBy id activities (link, exchangeFlowId ex)
     , Just supplier <- [M.lookup key (dbProcessIdLookup db)]
@@ -1302,6 +1313,7 @@ linkedSuppliers db activities pid =
 reachable :: (Int -> [Int]) -> [Int] -> IS.IntSet
 reachable next = go IS.empty
   where
+    go :: IS.IntSet -> [Int] -> IS.IntSet
     go seen [] = seen
     go seen (node : rest)
         | IS.member node seen = go seen rest
@@ -1360,10 +1372,15 @@ data DeleteRequest = DeleteRequest
     , drIds :: Maybe [Text]
     , drExcluded :: Exclusions
     , drSpare :: SpareChoice
-    , drDryRun :: Bool
-    -- ^ Work out what would go and what would be spared, and change nothing
+    , drRun :: DeleteRun
     , drStated :: Stated
     }
+
+{- | Whether a delete happens, or only works out what would go and what would
+be spared, changing nothing.
+-}
+data DeleteRun = DryRun | RealRun
+    deriving (Eq, Show)
 
 {- | What a delete-by-selection request did, or in a dry run would do: how many
 processes go, how many are spared, and whether the database it edits keeps the
@@ -1386,6 +1403,7 @@ deletionPlan geographies db req = do
     keepPids <- traverse (resolveProcess db) (drKeep req)
     extraPids <- traverse (resolveProcess db) (drExtra req)
     filtered <- selection
+    refuseIdle (idleExclusions geographies db (placeReading (drExactName req)) (drExcluded req))
     pure . planDeletion (drSpare req) db $
         resolveDeleteSelection DeleteSelection{dsFiltered = filtered, dsKeep = keepPids, dsExtra = extraPids}
   where
@@ -1393,16 +1411,24 @@ deletionPlan geographies db req = do
     -- filters compute it. A request carrying both is ambiguous, so it is
     -- refused rather than guessed at: exact included, since it only modifies
     -- name/classification matching.
+    selection :: Either Text [ProcessId]
     selection = case drIds req of
         Just ids
             | hasFilter -> Left "ids cannot be combined with name/location/product/classification/exact filters or exclusions"
             | otherwise -> traverse (resolveProcess db) ids
         Nothing -> Right (filteredProcessIds geographies db req)
+
+    hasFilter :: Bool
     hasFilter =
         any isJust [drName req, drLocation req, drProduct req]
             || not (null (drClassifications req))
             || drExactName req
             || drExcluded req /= noExclusions
+
+    refuseIdle :: [Text] -> Either Text ()
+    refuseIdle = \case
+        [] -> Right ()
+        idle -> Left ("Leaving out " <> T.intercalate ", " idle <> " removes no process from this database. Check the spelling or remove it: an exclusion that matches nothing would let the delete take what it was meant to keep.")
 
 {- | Delete a selection from a loaded database, in place under the same name.
 
@@ -1438,14 +1464,22 @@ deleteActivitiesInDB manager dbName origin req =
         Left err -> pure (Left err)
         -- A plan that leaves nothing to delete changes nothing: no rebuild,
         -- and no line in the journal saying an empty deletion happened.
-        Right [] -> pure (Right (outcome plan (dcIsUploaded (ldConfig loaded)) []))
+        Right [] -> pure (Right (outcome plan uploaded []))
         Right targets
-            | drDryRun req ->
-                fmap (const (outcome plan (dcIsUploaded (ldConfig loaded)) []))
+            | drRun req == DryRun ->
+                fmap (outcome plan uploaded . dryRunWarnings)
                     <$> editedDatabase manager dbName loaded (pure (Deleted targets))
             | otherwise ->
                 fmap (\done -> outcome plan (moPersisted done) (moWarnings done))
                     <$> mutateUploadedDatabase manager dbName origin (pure (Change (drStated req) (Deleted targets)))
+      where
+        uploaded :: Bool
+        uploaded = dcIsUploaded (ldConfig loaded)
+
+        -- A database with files relinks when the edit is saved; one without
+        -- cannot, and the dry run says what the real call will warn.
+        dryRunWarnings :: Database -> [Text]
+        dryRunWarnings edited = if uploaded then [] else unrelinkedWarnings edited
 
     outcome :: DeletePlan -> Bool -> [Text] -> DeleteOutcome
     outcome plan persisted warnings =

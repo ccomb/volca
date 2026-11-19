@@ -2,7 +2,8 @@
   `exclude-name` and `exclude-location`, each of which may be repeated, remove
   the activities a name or a place finds, and a classification filter can be
   written `not-contains` or `not-exact`, which removes what it matches where
-  the other modes keep it. The supply chain and the consumers read the same.
+  the other modes keep it. The supply chain and the consumers read the two
+  negative modes too, but not `exclude-name` nor `exclude-location`.
   An assistant over MCP gets the same from `search_activities`, through
   `exclude_name`, `exclude_location` and a list of classification filters that
   each give a system, a value and a mode; a search made only of exclusions

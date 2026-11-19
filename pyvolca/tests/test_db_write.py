@@ -139,6 +139,15 @@ class TestDelete:
         assert body["excludeLocation"] == ["FR", "DE"]
         assert body["dryRun"] is True
 
+    def test_a_bare_string_is_one_exclusion(self, mocked_client):
+        client, session = mocked_client
+        _version_ok(session, wire=114)
+        _ok(session, {"success": True, "message": "ok", "deleted": 2, "spared": 0})
+        client.delete_activities(exclude_name="bread", exclude_location="FR", spare=False)
+        body = session.post.call_args[1]["json"]
+        assert body["excludeName"] == ["bread"]
+        assert body["excludeLocation"] == ["FR"]
+
     def test_blank_filters_are_omitted(self, mocked_client):
         client, session = mocked_client
         _version_ok(session, wire=114)

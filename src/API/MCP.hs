@@ -81,7 +81,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, matchWord, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
 import Usage (Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -1085,7 +1085,7 @@ callListPresets presets rid =
                     , "label" .= cpLabel p
                     , "description" .= cpDescription p
                     , "filters"
-                        .= [ object ["system" .= ceSystem e, "value" .= ceValue e, "mode" .= ceMode e]
+                        .= [ object ["system" .= ceSystem e, "value" .= ceValue e, "mode" .= matchWord (ceMode e)]
                            | e <- cpFilters p
                            ]
                     ]
@@ -1105,12 +1105,12 @@ data ClassificationArg = ClassificationArg
 instance FromJSON ClassificationArg where
     parseJSON = parseClosed
 
-{- | The classification filters a call names, as (kept, left out): either the
+{- | The classification filters a call names, kept and left out: either the
 @classification@ + @classification_value@ pair (honouring
 @classification_match@) or the @classifications@ list, never both. Shared by the
 search, consumers, and supply-chain handlers.
 -}
-explicitClassFilters :: KeyMap Value -> Either Text ([ClassificationFilter], [ClassificationFilter])
+explicitClassFilters :: KeyMap Value -> Either Text ClassificationFilters
 explicitClassFilters args = do
     listed <- parseArrayArg "classifications" Nothing args
     let single = case (textArg "classification" args, textArg "classification_value" args) of
@@ -1120,10 +1120,10 @@ explicitClassFilters args = do
         Left "Give either classification with classification_value, or classifications, not both."
     splitByMode <$> traverse modeled (single ++ listed)
   where
-    modeled :: ClassificationArg -> Either Text (ClassificationMode, Text, Text)
+    modeled :: ClassificationArg -> Either Text ModedFilter
     modeled (ClassificationArg sys val mode) = do
         chosen <- maybe (Right (Including MatchContains)) readClassificationMode mode
-        pure (chosen, sys, val)
+        pure ModedFilter{mfSystem = sys, mfValue = val, mfMode = chosen}
 
 -- | The @preset@ argument expanded, as every tool advertising that parameter must.
 presetFilters :: [ClassificationPreset] -> KeyMap Value -> Either Text [ClassificationFilter]
@@ -1132,15 +1132,15 @@ presetFilters presets args = expandClassificationPreset presets (textArg "preset
 {- | The filters a call keeps and those it leaves out: the preset's filters
 and the explicit ones. Shared by the search, consumers and supply-chain handlers.
 -}
-classificationFilters :: [ClassificationPreset] -> KeyMap Value -> Either Text ([ClassificationFilter], [ClassificationFilter])
+classificationFilters :: [ClassificationPreset] -> KeyMap Value -> Either Text ClassificationFilters
 classificationFilters presets args = do
     fromPreset <- presetFilters presets args
-    (kept, left) <- explicitClassFilters args
-    pure (fromPreset ++ kept, left)
+    explicit <- explicitClassFilters args
+    pure explicit{cfKept = fromPreset ++ cfKept explicit}
 
 callSearchActivities :: Geographies -> [ClassificationPreset] -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callSearchActivities geographies presets rid args (db, _) = runTool rid $ do
-    (classifications, excluded) <- except (classificationFilters presets args)
+    ClassificationFilters{cfKept = classifications, cfLeftOut = excluded} <- except (classificationFilters presets args)
     excludedNames <- except (parseArrayArg "exclude_name" Nothing args)
     excludedLocations <- except (parseArrayArg "exclude_location" Nothing args)
     let sf =
@@ -1151,7 +1151,7 @@ callSearchActivities geographies presets rid args (db, _) = runTool rid $ do
                         , Service.afcLocation = textArg "geo" args
                         , Service.afcProduct = textArg "product" args
                         , Service.afcClassifications = classifications
-                        , Service.afcExcluded = Service.exclusionsOf excludedNames excludedLocations excluded
+                        , Service.afcExcluded = Service.withoutBlanks Service.Exclusions{Service.exNames = excludedNames, Service.exLocations = excludedLocations, Service.exClassifications = excluded}
                         , Service.afcLimit = intArg "limit" args <|> Just 20
                         , Service.afcOffset = Nothing
                         , Service.afcSort = Nothing
@@ -1310,7 +1310,7 @@ callGetSupplyChain :: DatabaseManager -> [ClassificationPreset] -> RequestId -> 
 callGetSupplyChain dbManager presets rid args = runTool rid $ do
     (dbName, pid) <- except $ (,) <$> requireText "database" args <*> requireText "process_id" args
     ld <- requireDatabase dbManager dbName
-    (classifications, excluded) <- except (classificationFilters presets args)
+    ClassificationFilters{cfKept = classifications, cfLeftOut = excluded} <- except (classificationFilters presets args)
     refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
     withParameters dbManager dbName args ld $ \db solver -> do
         let depLookup = DM.mkDepSolverLookup dbManager
@@ -1322,7 +1322,7 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
                             , Service.afcLocation = textArg "location" args
                             , Service.afcProduct = Nothing
                             , Service.afcClassifications = classifications
-                            , Service.afcExcluded = Service.exclusionsOf [] [] excluded
+                            , Service.afcExcluded = Service.withoutBlanks Service.noExclusions{Service.exClassifications = excluded}
                             , Service.afcLimit = intArg "limit" args
                             , Service.afcOffset = Nothing
                             , Service.afcSort = Nothing
@@ -1436,7 +1436,7 @@ callGetPathTo rid args (db, solver) = runTool rid $ do
 callGetConsumers :: Geographies -> [ClassificationPreset] -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
 callGetConsumers geographies presets rid args (db, _) = runTool rid $ do
     pid <- except (requireText "process_id" args)
-    (classifications, excluded) <- except (classificationFilters presets args)
+    ClassificationFilters{cfKept = classifications, cfLeftOut = excluded} <- except (classificationFilters presets args)
     let dbName = fromMaybe "" (textArg "database" args) -- validated by withDb
         cnf =
             Service.ConsumerFilter
@@ -1446,7 +1446,7 @@ callGetConsumers geographies presets rid args (db, _) = runTool rid $ do
                         , Service.afcLocation = textArg "location" args
                         , Service.afcProduct = textArg "product" args
                         , Service.afcClassifications = classifications
-                        , Service.afcExcluded = Service.exclusionsOf [] [] excluded
+                        , Service.afcExcluded = Service.withoutBlanks Service.noExclusions{Service.exClassifications = excluded}
                         , Service.afcLimit = intArg "limit" args
                         , Service.afcOffset = Nothing
                         , Service.afcSort = Nothing

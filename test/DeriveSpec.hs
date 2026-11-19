@@ -44,7 +44,7 @@ import Config (DatabaseConfig (..), defaultConfig)
 import Data.Foldable (toList)
 import Database.Author (ExchangeEdit (..))
 import Database.Child (childOf)
-import Database.Edit (DeleteRequest (..), Derivation (..), SpareChoice (..), databaseHistory, deleteActivitiesInDB, deriveDatabase, editExchanges)
+import Database.Edit (DeleteRequest (..), DeleteRun (..), Derivation (..), SpareChoice (..), databaseHistory, deleteActivitiesInDB, deriveDatabase, editExchanges)
 import Database.ExportSupplier (noDependencies, unnamedWarnings)
 import Database.History (Carried (..), HistoryLine (..), Journal (..), Provenance (..), changesReport)
 import Database.Journal (Stated (..), noteFrom, nothingStated)
@@ -501,7 +501,7 @@ deleteIds ids =
         , drIds = Just ids
         , drExcluded = noExclusions
         , drSpare = CutSuppliers
-        , drDryRun = False
+        , drRun = RealRun
         , drStated = nothingStated
         }
 

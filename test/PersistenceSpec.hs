@@ -45,6 +45,7 @@ import Database.Author (ExchangeEdit (..), ExchangeSelector (..))
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
+    DeleteRun (..),
     MissingRequest (..),
     MutationOutcome (..),
     SpareChoice (..),
@@ -130,7 +131,7 @@ spec = describe "persisting an edit" $ do
         it "writes nothing when a delete is only a dry run" $
             withEcoSpold1Database $ \manager home -> do
                 keys <- processKeysOf manager "bafu-like"
-                r <- deleteActivitiesInDB manager "bafu-like" noOrigin (deleteIds [head' keys]){drDryRun = True}
+                r <- deleteActivitiesInDB manager "bafu-like" noOrigin (deleteIds [head' keys]){drRun = DryRun}
                 fmap doRemoved r `shouldBe` Right 1
                 processKeysOf manager "bafu-like" `shouldReturn` keys
                 journal <- readJournal home
@@ -741,7 +742,7 @@ deleteIds ids =
         , drIds = Just ids
         , drExcluded = noExclusions
         , drSpare = CutSuppliers
-        , drDryRun = False
+        , drRun = RealRun
         , drStated = nothingStated
         }
 

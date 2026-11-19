@@ -54,6 +54,7 @@ import SharedSolver (createSharedSolver)
 import Types (
     Activity (..),
     BuildInputs (..),
+    ClassificationMatch (..),
     Database (..),
     Exchange (..),
     FileReading (..),
@@ -139,7 +140,7 @@ spec = describe "classification filter match mode" $ do
             refusalOf listed `shouldSatisfy` maybe False (T.isInfixOf "not-exact")
 
     describe "a preset entry's mode" $
-        forM_ [("exact", 1), ("contains", 2), ("Exact", 2)] $ \(mode, n) ->
+        forM_ [(MatchExact, 1), (MatchContains, 2)] $ \(mode, n) ->
             it (show mode <> " selects " <> show n) $ do
                 (manager, _) <- loadedFixture
                 let preset = ClassificationPreset "p" "P" Nothing [ClassificationEntry "category" "food" mode]
