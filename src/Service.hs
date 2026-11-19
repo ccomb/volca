@@ -2195,16 +2195,18 @@ getPathTo ::
     PathTarget ->
     IO (Either ServiceError Value)
 getPathTo unitCfg geographies depLookup refusing db dbName solver pidText target =
-    (>>= path) <$> wholeChainOf unitCfg geographies depLookup refusing db dbName solver pidText
+    (>>= path) <$> wholeChainOf unitCfg geographies depLookup refusing Nothing db dbName solver pidText
   where
     path :: WholeChain -> Either ServiceError Value
     path wc = pathAnswer (wcFunctionalUnit wc) <$> pathIn target (stepOf (wcRoot wc)) (wcWithheld wc) (map stepOf (cEntries (wcCollected wc))) (cEdges (wcCollected wc))
 
 {- | The consumers of one process inside a root's chain, across the dependency
 databases it buys from, each with its part of the process's quantity and the
-lines it buys it on. Read from the same chain as the supply-chain route, the
-databases in @refusing@ withheld: their consumers are not listed, and the part
-they account for is given as unexplained.
+lines it buys it on. Read from the same chain as the supply-chain route, at
+the same minimum quantity, so the consumers listed are those its consumer count
+counts. The databases in @refusing@ are withheld: their consumers are not
+listed. What they and the consumers under the minimum account for is given as
+unexplained.
 -}
 getChainConsumers ::
     UnitConfig ->
@@ -2212,6 +2214,8 @@ getChainConsumers ::
     SharedSolver.DepSolverLookup ->
     -- | the databases whose licence keeps their amounts
     S.Set Text ->
+    -- | the minimum quantity per unit of the root a process needs to be listed
+    Maybe Double ->
     Database ->
     Text ->
     SharedSolver ->
@@ -2219,8 +2223,8 @@ getChainConsumers ::
     -- | the process asked about, by the id the supply chain gives it
     Text ->
     IO (Either ServiceError ChainConsumers)
-getChainConsumers unitCfg geographies depLookup refusing db dbName solver pidText target =
-    wholeChainOf unitCfg geographies depLookup refusing db dbName solver pidText >>= \case
+getChainConsumers unitCfg geographies depLookup refusing minQuantity db dbName solver pidText target =
+    wholeChainOf unitCfg geographies depLookup refusing minQuantity db dbName solver pidText >>= \case
         Left err -> pure (Left err)
         Right wc -> case consumersIn target (wcRoot wc) (wcWithheld wc) (wcCollected wc) of
             Left err -> pure (Left err)
@@ -2233,7 +2237,8 @@ getChainConsumers unitCfg geographies depLookup refusing db dbName solver pidTex
 
 {- | The root solved and its whole chain collected, across the dependencies it
 buys from, the refusing databases withheld: what a path and the consumers of a
-process are read from. No filter, no threshold, no page.
+process are read from. No filter and no page; a minimum quantity only when one
+is given.
 -}
 data WholeChain = WholeChain
     { wcRoot :: !SupplyChainEntry
@@ -2248,12 +2253,13 @@ wholeChainOf ::
     Geographies ->
     SharedSolver.DepSolverLookup ->
     S.Set Text ->
+    Maybe Double ->
     Database ->
     Text ->
     SharedSolver ->
     Text ->
     IO (Either ServiceError WholeChain)
-wholeChainOf unitCfg geographies depLookup refusing db dbName solver pidText =
+wholeChainOf unitCfg geographies depLookup refusing minQuantity db dbName solver pidText =
     case resolveScorable db pidText of
         Left err -> pure (Left err)
         Right (rootPid, rootAct) -> case demandFor db rootPid of
@@ -2278,7 +2284,7 @@ wholeChainOf unitCfg geographies depLookup refusing db dbName solver pidText =
         SupplyChainFilter
             { scfCore = ActivityFilterCore Nothing Nothing Nothing [] noExclusions Nothing Nothing Nothing Forward
             , scfMaxDepth = Nothing
-            , scfMinQuantity = Nothing
+            , scfMinQuantity = minQuantity
             , scfEdges = WithEdges
             , scfWithheld = refusing
             }
@@ -2315,8 +2321,8 @@ stepOf e =
 quantity each one accounts for (the consumer's quantity times the amount the
 edge says it buys per unit of its product), and what they leave unexplained.
 
-Without a withheld database the parts add up to the quantity, up to rounding
-and to links in different units to one supplier. The rest is returned when it
+Without a withheld database or a minimum quantity, the parts add up to the
+quantity, up to rounding and to links in different units to one supplier. The rest is returned when it
 exceeds a millionth of the parts, never dropped.
 -}
 consumersIn :: Text -> SupplyChainEntry -> [Text] -> Collected -> Either ServiceError (SupplyChainEntry, [(SupplyChainEntry, Double)], Maybe Unexplained)

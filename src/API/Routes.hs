@@ -143,7 +143,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> QueryParam "name" Text :> QueryParam "limit" Int :> QueryParam "min-quantity" Double :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] SupplyChainResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "consumers" :> QueryParam "name" Text :> QueryParam "location" Text :> QueryParam "product" Text :> QueryParam "preset" Text :> QueryParams "classification" Text :> QueryParams "classification-value" Text :> QueryParams "classification-mode" Text :> QueryParam "limit" Int :> QueryParam "offset" Int :> QueryParam "max-depth" Int :> QueryParam "sort" Text :> QueryParam "order" Text :> QueryParam "include-edges" Bool :> Get '[JSON] ConsumersResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "path-to" :> QueryParam "target" Text :> QueryParam "target-id" Text :> Get '[JSON] Value
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> "consumers" :> QueryParam "of" Text :> Get '[JSON] ChainConsumers
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "supply-chain" :> "consumers" :> QueryParam "of" Text :> QueryParam "min-quantity" Double :> Get '[JSON] ChainConsumers
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "compare" :> QueryParam "other_process_id" Text :> QueryParam "other_database" Text :> Get '[JSON] ActivityComparison
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "changes-present" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesPresence
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "apply-changes" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesApplied
@@ -2827,15 +2827,15 @@ getActivityPathTo dbName processIdText targetParam targetIdParam = counted Readi
 {- | The consumers, inside a root's upstream, of one process it lists: each
 with its part of the process's quantity and the lines it buys it on.
 -}
-getChainConsumers :: Text -> Text -> Maybe Text -> AppM ChainConsumers
-getChainConsumers dbName processIdText ofParam = counted Reading dbName (ProcessKey processIdText) $ do
+getChainConsumers :: Text -> Text -> Maybe Text -> Maybe Double -> AppM ChainConsumers
+getChainConsumers dbName processIdText ofParam minQuantity = counted Reading dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
     (db, solver) <- requireDatabaseByName dbName
     target <- maybe (badRequest "Missing 'of': the process id of the upstream process whose consumers to list, as the supply chain gives it") pure ofParam
     unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
     refusing <- liftIO (DM.refusingDatabases dbManager ReadInventory)
-    result <- liftIO $ Service.getChainConsumers unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing db dbName solver processIdText target
+    result <- liftIO $ Service.getChainConsumers unitCfg (DM.managerGeographies dbManager) (DM.mkDepSolverLookup dbManager) refusing minQuantity db dbName solver processIdText target
     case result of
         -- The sentence says why the process has no consumers to list; the shared mapping would drop it.
         Left (Service.ActivityNotFound msg) ->

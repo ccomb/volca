@@ -61,16 +61,23 @@ managerFor dbs = do
     pure manager
 
 consumersOf :: DM.DatabaseManager -> Text -> Text -> Maybe Text -> IO (Either Int ChainConsumers)
-consumersOf manager dbName rootId target = runIn manager (getChainConsumers dbName rootId target)
+consumersOf manager dbName rootId target = consumersAt manager dbName rootId target Nothing
+
+-- | The consumers at a minimum quantity, as the supply chain lists them at it.
+consumersAt :: DM.DatabaseManager -> Text -> Text -> Maybe Text -> Maybe Double -> IO (Either Int ChainConsumers)
+consumersAt manager dbName rootId target minQuantity = runIn manager (getChainConsumers dbName rootId target minQuantity)
 
 -- | Each consumer's id and part, in id order.
 parts :: ChainConsumers -> [(Text, Double)]
 parts answer = L.sort [(sceProcessId (chnProcess c), chnAmount c) | c <- chcConsumers answer]
 
 chainOf :: DM.DatabaseManager -> Text -> Text -> IO (Either Int SupplyChainResponse)
-chainOf manager dbName rootId =
+chainOf manager dbName rootId = chainAt manager dbName rootId Nothing
+
+chainAt :: DM.DatabaseManager -> Text -> Text -> Maybe Double -> IO (Either Int SupplyChainResponse)
+chainAt manager dbName rootId minQuantity =
     runIn manager $
-        getActivitySupplyChain dbName rootId Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing [] [] [] Nothing Nothing Nothing
+        getActivitySupplyChain dbName rootId Nothing Nothing minQuantity Nothing Nothing Nothing Nothing Nothing [] [] [] Nothing Nothing Nothing
 
 -- | Each listed process's quantity and consumer count, by id.
 rows :: SupplyChainResponse -> M.Map Text (Double, Int)
@@ -92,6 +99,26 @@ twoRoutes = managerFor [("root", top), ("dep", middle), ("far", far)]
 
 farId :: Text
 farId = "far::" <> processIdToText (producing 200 []) 0
+
+{- | A dependency whose first process buys 0.5 of its second on a line of its
+own database, the root buying one of the first.
+-}
+nextDoor :: IO DM.DatabaseManager
+nextDoor = managerFor [("root", (linkAt (producing 100 []) inner "dep" 0 1.0){dbDependsOn = ["dep"]}), ("dep", inner)]
+
+inner :: Database
+inner =
+    base
+        { dbActivities = V.imap (\i act -> act{activityLines = packExchanges (linesOf i)}) (dbActivities base)
+        , dbTechnosphereTriples = U.fromList [SparseTriple 1 0 0.5]
+        }
+  where
+    base :: Database
+    base = mkDB 200 ["FR", "FR"] []
+
+    linesOf :: Int -> [Exchange]
+    linesOf 0 = [referenceOf 200, buying 201 0.5 "bought next door"]
+    linesOf i = [referenceOf (200 + i)]
 
 -- | The root of 'DependencyLicenceSpec', its link to the dependency read from a line that says why.
 rootOnALine :: Database
@@ -138,7 +165,21 @@ spec = do
             parts answer `shouldSatisfy` closeTo [(soloId 0, 2.0)]
             map (sceDepth . chnProcess) (chcConsumers answer) `shouldBe` [0]
 
+        it "lists, at a minimum quantity, the consumers the count counts, and leaves the others unexplained" $ do
+            manager <- managerFor [("solo", solo)]
+            Right chain <- chainAt manager "solo" (soloId 0) (Just 1.5)
+            fmap snd (M.lookup (soloId 3) (rows chain)) `shouldBe` Just 1
+            Right answer <- consumersAt manager "solo" (soloId 0) (Just (soloId 3)) (Just 1.5)
+            parts answer `shouldSatisfy` closeTo [(soloId 1, 1.0)]
+            fmap (\u -> (unxAmount u, unxWithheld u)) (chcUnexplained answer) `shouldBe` Just (1.0, [])
+
     describe "across databases" $ do
+        it "finds the line a dependency's process buys another of its database on" $ do
+            manager <- nextDoor
+            Right answer <- consumersOf manager "root" (processIdToText (producing 100 []) 0) (Just (depPid inner 1))
+            parts answer `shouldSatisfy` closeTo [(depPid inner 0, 0.5)]
+            concatMap (map ewuExComment . chnLines) (chcConsumers answer) `shouldBe` [Just "bought next door"]
+
         it "counts the consumer of a dependency's process in the database buying it" $ do
             manager <- managerFor [("root", root), ("dep", dependency)]
             Right chain <- chainOf manager "root" rootPid
