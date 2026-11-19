@@ -1343,9 +1343,9 @@ callGetSupplyChain dbManager presets rid args = runTool rid $ do
                 else do
                     -- Substitution-aware: re-solve the root scaling, then build from it.
                     (processId, _) <- liftService (Service.resolveScorable db pid)
-                    (scalingVec, virtualLinks) <-
+                    root <-
                         liftIO (Service.computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db dbName solver processId subs) >>= liftShow
-                    liftIO (Service.buildSupplyChainFromScalingVectorCrossDB unitCfg (DM.managerGeographies dbManager) depLookup (DM.getGapIndex dbManager) db dbName processId scalingVec virtualLinks scf) >>= liftShow
+                    liftIO (Service.buildSupplyChainFromScalingVectorCrossDB unitCfg (DM.managerGeographies dbManager) depLookup (DM.getGapIndex dbManager) db dbName processId root scf) >>= liftShow
         pure $ toolSuccessJson rid (withCutoffNotice (Cutoffs (scrCutoffInputs chain) (scrWithheldCutoffs chain)) (toJSON chain))
 
 {- | Generic SQL-group-by aggregation. One small primitive for "how much X is
@@ -1444,6 +1444,7 @@ callGetPathTo dbManager rid args = runTool rid $ do
                 dbName
                 (ldSharedSolver ld)
                 pid
+                []
                 (Service.TargetNamed (Service.NamePattern target))
             )
             >>= liftShow

@@ -2160,8 +2160,7 @@ getSupplyChain unitCfg geographies depLookup indexFor db dbName sharedSolver pro
                                 db
                                 dbName
                                 processId
-                                supplyVec
-                                []
+                                (unswapped db supplyVec)
                                 af
 
 {- | The process a path leads to: the first whose name holds a pattern, or
@@ -2179,8 +2178,9 @@ Returns path steps ordered root → target, each with its quantity per unit of t
 root's reference product (the scaling factor) and localStepRatio (upstream ÷
 downstream scaling factors). The unit is one of the product, not the amount the
 root declares, so a root written for 10 does not inflate its suppliers tenfold.
-The path is read from the chain the supply-chain route lists, the databases in
-@refusing@ withheld, so it never runs through a process that listing hides.
+The path is read from the chain the supply-chain route lists, under the same
+swaps and with the databases in @refusing@ withheld, so it never runs through
+a link that listing does not draw.
 -}
 getPathTo ::
     UnitConfig ->
@@ -2192,22 +2192,22 @@ getPathTo ::
     Text ->
     SharedSolver ->
     Text ->
+    -- | the swaps the chain is read under, none for the published process
+    [Substitution] ->
     PathTarget ->
     IO (Either ServiceError Value)
-getPathTo unitCfg geographies depLookup refusing db dbName solver pidText target =
+getPathTo unitCfg geographies depLookup refusing db dbName solver pidText subs target =
     case resolveScorable db pidText of
         Left err -> pure (Left err)
-        Right (rootPid, rootAct) -> case demandFor db rootPid of
-            Left err -> pure (Left err)
-            Right demand ->
-                supplyFor db solver demand >>= \case
-                    Left err -> pure (Left err)
-                    Right supplyVec -> do
-                        eChain <- collectChain unitCfg geographies depLookup db dbName rootPid supplyVec [] wholeChain
-                        pure $ do
-                            (Collected _ entries edges _, withheld, _) <- eChain
-                            steps <- pathIn target (rootStep rootPid rootAct supplyVec) (map wprDatabase withheld) entries edges
-                            Right (pathAnswer (functionalUnitIn db rootAct) steps)
+        Right (rootPid, rootAct) ->
+            computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db dbName solver rootPid subs >>= \case
+                Left err -> pure (Left err)
+                Right root -> do
+                    eChain <- collectChain unitCfg geographies depLookup db dbName rootPid root wholeChain
+                    pure $ do
+                        (Collected _ entries edges _, withheld, _) <- eChain
+                        steps <- pathIn target (rootStep rootPid rootAct (rsScaling root)) (map wprDatabase withheld) entries edges
+                        Right (pathAnswer (functionalUnitIn db rootAct) steps)
   where
     wholeChain :: SupplyChainFilter
     wholeChain =
@@ -2331,7 +2331,8 @@ whatever amount the root declares: a scaling is already per unit, in the root's
 database and in every dependency alike.
 -}
 data WalkLevel
-    = RootLevel {rlRoot :: !ProcessId}
+    = -- | The process asked, and the links of its database as its swaps left them.
+      RootLevel {rlRoot :: !ProcessId, rlTriples :: !(U.Vector SparseTriple)}
     | -- | The matrix columns the dependency is bought at, each one deeper than the process buying it.
       DepLevel {dlEntered :: !(IM.IntMap Int)}
 
@@ -2339,6 +2340,11 @@ data WalkLevel
 levelDepths :: IM.IntMap [Int] -> WalkLevel -> IM.IntMap Int
 levelDepths adjacency RootLevel{rlRoot = r} = bfsDepth (fromIntegral r) adjacency
 levelDepths adjacency DepLevel{dlEntered = entered} = bfsDepthFrom entered adjacency
+
+-- | The links a level walks: the root's as its swaps left them, a dependency's as loaded.
+levelTriples :: Database -> WalkLevel -> U.Vector SparseTriple
+levelTriples _ RootLevel{rlTriples = triples} = triples
+levelTriples db DepLevel{} = dbTechnosphereTriples db
 
 -- | How a supply chain names a process: bare in the requested database, qualified in a dependency.
 nameAt :: WalkLevel -> Text -> Database -> ProcessId -> Text
@@ -2390,7 +2396,7 @@ enteredDepths consumer extras =
     db = coDb consumer
 
     depths :: IM.IntMap Int
-    depths = levelDepths (buildAdjacencyFromTriples (dbTechnosphereTriples db)) (coLevel consumer)
+    depths = levelDepths (buildAdjacencyFromTriples (levelTriples db (coLevel consumer))) (coLevel consumer)
 
 {- | The links of a level, by dependency, from the processes the chain keeps:
 the requested process itself, and any whose scaling clears the minimum
@@ -2518,7 +2524,8 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
         -- One pass: adjacency (for BFS + edges) + consumer counts.
         rootIdx = maybe (-1) fromIntegral mRootPid :: Int
         activeSet = IS.fromList (rootIdx : [fromIntegral pid | (pid, _) <- allEntries])
-        (!adjacency, !consumerCounts) = U.foldl' accumulate (IM.empty, IM.empty) (dbTechnosphereTriples db)
+        triples = levelTriples db level
+        (!adjacency, !consumerCounts) = U.foldl' accumulate (IM.empty, IM.empty) triples
           where
             accumulate (!adj, !counts) (SparseTriple row col _val) =
                 let r = fromIntegral row
@@ -2601,7 +2608,7 @@ collectSupplyChainEntries geographies db dbName level supplyVec scf =
                             else acc
                     )
                     []
-                    (dbTechnosphereTriples db)
+                    triples
      in Collected (length allEntries) filteredEntries edges [SharedSolver.Reached dbName db supplyVec]
 
 {- | Sort, offset, and limit a list of supply-chain entries using the shared
@@ -2642,7 +2649,7 @@ buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf 
                 geographies
                 db
                 dbName
-                (RootLevel processId)
+                (RootLevel processId (dbTechnosphereTriples db))
                 supplyVec
                 scf
         rootBlock = sourceBlockOf db processId
@@ -2689,8 +2696,8 @@ get qualified process IDs (@"depName::actUUID_prodUUID"@) and are tagged
 with their own @sceDatabaseName@. Recursion is bounded by
 'SharedSolver.maxDepsDepth' to match the LCIA path.
 
-The root scaling vector must already reflect any substitutions; @extraLinks@
-carries virtual cross-DB links synthesised by the substitution classifier.
+The root solution carries the swaps already applied: the amounts, the root's
+links as they moved them, and the virtual cross-DB links they synthesised.
 -}
 buildSupplyChainFromScalingVectorCrossDB ::
     UnitConfig ->
@@ -2702,13 +2709,10 @@ buildSupplyChainFromScalingVectorCrossDB ::
     -- | root DB + name
     Text ->
     ProcessId ->
-    -- | root PID + its scaling
-    U.Vector Double ->
-    -- | extra virtual links from subs
-    [CrossDBLink] ->
+    RootSolution ->
     SupplyChainFilter ->
     IO (Either ServiceError SupplyChainResponse)
-buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor rootDb rootDbName rootPid rootScaling extraLinks scf = do
+buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor rootDb rootDbName rootPid root scf = do
     let rootActivity = dbActivities rootDb V.! fromIntegral rootPid
         rootRefAmount = getReferenceProductAmount rootActivity
         rootBlock = sourceBlockOf rootDb rootPid
@@ -2731,7 +2735,7 @@ buildSupplyChainFromScalingVectorCrossDB unitCfg geographies depLookup indexFor 
                 , prsBlock = sbName rootBlock
                 , prsBlockProducts = sbProducts rootBlock
                 }
-    eChain <- collectChain unitCfg geographies depLookup rootDb rootDbName rootPid rootScaling extraLinks scf
+    eChain <- collectChain unitCfg geographies depLookup rootDb rootDbName rootPid root scf
     case eChain of
         Left err -> pure (Left err)
         Right (Collected total entries edges reached, withheld, withheldInputs) -> do
@@ -2762,16 +2766,18 @@ collectChain ::
     Database ->
     Text ->
     ProcessId ->
-    U.Vector Double ->
-    [CrossDBLink] ->
+    RootSolution ->
     SupplyChainFilter ->
     IO (Either ServiceError (Collected, [WithheldProcesses], [WithheldInput]))
-collectChain unitCfg geographies depLookup rootDb rootDbName rootPid rootScaling extraLinks scf =
+collectChain unitCfg geographies depLookup rootDb rootDbName rootPid root scf =
     fmap (withholdEntries (refusingFor rootDbName scf) . (rootCollected <>))
-        <$> walkDepLevels unitCfg geographies depLookup (Consumer rootDbName rootDb (RootLevel rootPid) rootScaling) extraLinks scf 1 S.empty
+        <$> walkDepLevels unitCfg geographies depLookup (Consumer rootDbName rootDb level (rsScaling root)) (rsExtraLinks root) scf 1 S.empty
   where
+    level :: WalkLevel
+    level = RootLevel rootPid (rsTriples root)
+
     rootCollected :: Collected
-    rootCollected = collectSupplyChainEntries geographies rootDb rootDbName (RootLevel rootPid) rootScaling scf
+    rootCollected = collectSupplyChainEntries geographies rootDb rootDbName level (rsScaling root) scf
 
 -- | The databases a chain withholds: those the filter names, never the one asked.
 refusingFor :: Text -> SupplyChainFilter -> S.Set Text
@@ -3216,7 +3222,7 @@ goWithSubsAndDeps unitCfg depLookup thisDb thisDbName rootDb solver demands allS
         Right scalings ->
             applySubstitutionsAt unitCfg depLookup thisDb thisDbName rootDb solver scalings allSubs >>= \case
                 Left e -> pure (Left e)
-                Right (scalings', virtualLks) -> propagate scalings' virtualLks
+                Right (Swapped scalings' virtualLks _) -> propagate scalings' virtualLks
   where
     propagate scalings' virtualLks = do
         let localInvs = map (applyBiosphereMatrix thisDb) scalings'
@@ -3277,6 +3283,22 @@ resolveDepWithSubs unitCfg depLookup rootDb perRootDepDemands allSubs depth depD
                     sols <- goWithSubsAndDeps unitCfg depLookup depDb (ThisDb depDbName) rootDb depSolver depDemandVecs allSubs (depth + 1)
                     pure $ fmap (map Just) sols
 
+{- | A root's solved amounts with the links they were solved with: its own
+database's, as the swaps moved them, and the links to other databases the
+swaps add or cancel. One value, so a chain never draws amounts against links
+they were not solved with.
+-}
+data RootSolution = RootSolution
+    { rsScaling :: !(U.Vector Double)
+    , rsTriples :: !(U.Vector SparseTriple)
+    , rsExtraLinks :: ![CrossDBLink]
+    }
+    deriving (Show)
+
+-- | A root solved with no swap: its database's links as loaded.
+unswapped :: Database -> U.Vector Double -> RootSolution
+unswapped db x = RootSolution x (dbTechnosphereTriples db) []
+
 {- | Cross-DB substitution resolver (root-only path, used by supply-chain).
 
 Solves the root scaling vector then delegates to 'applySubstitutionsAt'
@@ -3295,7 +3317,7 @@ computeScalingVectorWithSubstitutionsCrossDB ::
     SharedSolver ->
     ProcessId ->
     [Substitution] ->
-    IO (Either ServiceError (U.Vector Double, [CrossDBLink]))
+    IO (Either ServiceError RootSolution)
 computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db rootDbName solver pid subs =
     -- A global @from@ outside root is reported as such (not as a "consumer"
     -- error); the per-edge consumer guard below then applies only to 'OneEdge'.
@@ -3316,9 +3338,8 @@ computeScalingVectorWithSubstitutionsCrossDB unitCfg depLookup db rootDbName sol
                             res <- applySubstitutionsAt unitCfg depLookup db (ThisDb rootDbName) rootDb solver [originalX] subs
                             pure $ case res of
                                 Left e -> Left e
-                                Right ([x'], links) -> Right (x', links)
-                                Right (x' : _, links) -> Right (x', links) -- unreachable: K=1
-                                Right ([], _) -> Right (originalX, []) -- unreachable
+                                Right (Swapped (x' : _) links moves) -> Right (RootSolution x' (movedTriples moves (dbTechnosphereTriples db)) links)
+                                Right (Swapped [] _ _) -> Right (unswapped db originalX) -- unreachable: K=1
   where
     rootDb = RootDb rootDbName
     firstNonRootAnchor =
@@ -3383,6 +3404,60 @@ data TechLink = TechLink
     { tlConsumer :: !ProcessId
     , tlSupplier :: !ProcessId
     }
+    deriving (Eq, Ord, Show)
+
+{- | What the swaps of one level did: the scalings they lead to, the links to
+other databases they add or cancel, and what they added to the level's own
+coefficients, summed per link. The last is read from the very updates the
+solve applied, so the links drawn are the ones the amounts were solved with.
+-}
+data Swapped = Swapped
+    { swScalings :: ![U.Vector Double]
+    , swLinks :: ![CrossDBLink]
+    , swMoves :: !(M.Map TechLink Double)
+    }
+    deriving (Show)
+
+{- | What a per-edge update adds to the coefficients: @[(i, Δ)]@ at column @j@
+takes @Δ@ off @A_ij@ ('perturbA').
+-}
+movesOfEdge :: RankOneUpdate -> M.Map TechLink Double
+movesOfEdge upd =
+    M.fromListWith (+) [(TechLink (ruConsumerPid upd) (fromIntegral i), negate d) | (i, d) <- ruPerturb upd]
+
+-- | What a global update adds to the coefficients: it takes @u_i·v_j@ off @A_ij@ ('perturbGlobal').
+movesOfGlobal :: GlobalRankOneUpdate -> M.Map TechLink Double
+movesOfGlobal upd =
+    M.fromListWith (+) [(TechLink (fromIntegral j) (fromIntegral i), negate (ui * vj)) | (i, ui) <- gruU upd, (j, vj) <- gruV upd]
+
+{- | A database's links as swaps moved them. An untouched pair keeps its
+triples as stored. A touched pair becomes one triple, its stored coefficients
+summed and then its moves added, and none when that nets to nothing, or when
+it would link a process to itself, which a loaded database never does.
+-}
+movedTriples :: M.Map TechLink Double -> U.Vector SparseTriple -> U.Vector SparseTriple
+movedTriples moves triples
+    | M.null moves = triples
+    | otherwise = U.filter (not . touched) triples U.++ U.fromList (M.elems (M.mapMaybeWithKey moved moves))
+  where
+    linkOf :: SparseTriple -> TechLink
+    linkOf (SparseTriple row col _) = TechLink (fromIntegral col) (fromIntegral row)
+
+    touched :: SparseTriple -> Bool
+    touched t = linkOf t `M.member` moves
+
+    stored :: M.Map TechLink Double
+    stored = M.fromListWith (flip (+)) [(linkOf t, v) | t@(SparseTriple _ _ v) <- U.toList triples, touched t]
+
+    moved :: TechLink -> Double -> Maybe SparseTriple
+    moved link@(TechLink consumer supplier) move
+        | consumer == supplier = Nothing
+        -- Moves that cancel a coefficient leave rounding behind, not a link.
+        | abs net <= 1e-12 * max (abs before) (abs move) = Nothing
+        | otherwise = Just (SparseTriple (fromIntegral supplier) (fromIntegral consumer) net)
+      where
+        before = M.findWithDefault 0 link stored
+        net = before + move
 
 {- | A global substitution within one database: every consumer of @swapFrom@
 buys @swapTo@ instead. Two 'ProcessId's again, and swapping them inverts the
@@ -3497,11 +3572,11 @@ applySubstitutionsAt ::
     [U.Vector Double] ->
     -- | full sub list (filtered to anchor==this)
     [Substitution] ->
-    IO (Either ServiceError ([U.Vector Double], [CrossDBLink]))
+    IO (Either ServiceError Swapped)
 applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings allSubs =
     case filter anchorLivesHere allSubs of
-        [] -> pure $ Right (scalings, [])
-        localSubs -> runExceptT $ foldM step (scalings, []) localSubs
+        [] -> pure $ Right (Swapped scalings [] M.empty)
+        localSubs -> runExceptT $ foldM step (Swapped scalings [] M.empty) localSubs
   where
     thisDbName = unThisDb thisDbObj
 
@@ -3523,19 +3598,19 @@ applySubstitutionsAt unitCfg depLookup thisDb thisDbObj rootDb solver scalings a
     -- swaps the supplier on its single consumer column; an 'AllConsumers'
     -- sub swaps it on every consumer at once via one global rank-1 update.
     solve = suppliesFor thisDb solver
-    step (xs, links) sub = case subScope sub of
+    step (Swapped xs links moves) sub = case subScope sub of
         OneEdge cRef -> do
             let (_, cPidText) = parseSubRef rootDb cRef
             (cPid, _) <- hoistEither $ resolveScorable thisDb cPidText
             (fromEp, toEp) <- resolveFromTo sub
             upd <- hoistEither $ planUpdate sub cPid fromEp toEp
             (xs', extra) <- ExceptT $ applyRankOne xs upd
-            pure (xs', links ++ extra)
+            pure (Swapped xs' (links ++ extra) (M.unionWith (+) moves (movesOfEdge upd)))
         AllConsumers -> do
             (fromEp, toEp) <- resolveFromTo sub
             gupd <- hoistEither $ planGlobalUpdate fromEp toEp
             (xs', extra) <- ExceptT $ applyGlobalRankOne xs gupd
-            pure (xs', links ++ extra)
+            pure (Swapped xs' (links ++ extra) (M.unionWith (+) moves (movesOfGlobal gupd)))
 
     resolveFromTo sub = do
         let (fromDb, fromPidText) = parseSubRef rootDb (subFrom sub)

@@ -152,7 +152,7 @@ supplied :: Database -> Exclusions -> [Text]
 supplied db excluded =
     sort
         [ sceActivityName entry
-        | entry <- cEntries (collectSupplyChainEntries places db "db" (RootLevel (steel db)) (U.replicate (V.length (dbActivities db)) 1) (walking excluded))
+        | entry <- cEntries (collectSupplyChainEntries places db "db" (RootLevel (steel db) (dbTechnosphereTriples db)) (U.replicate (V.length (dbActivities db)) 1) (walking excluded))
         ]
 
 -- | The processes buying, however far, from the steel sheet, by name.

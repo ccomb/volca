@@ -1,0 +1,1 @@
+- Wire revision 116. The path to a supplier can be asked under parameter values and swaps, by a POST to the path-to route with the same body as the supply-chain POST. Its steps then follow the swapped chain: the new supplier can be the target, and every quantity is the one the swapped supply chain lists.
