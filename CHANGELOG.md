@@ -1,5 +1,180 @@
 # Changelog
 
+## [0.19.0] - 2026-11-20
+
+### Added
+
+- A search for activities can leave activities out. In a search address,
+  `exclude-name` and `exclude-location`, each of which may be repeated, remove
+  the activities a name or a place finds, and a classification filter can be
+  written `not-contains` or `not-exact`, which removes what it matches where
+  the other modes keep it. The supply chain and the consumers read the two
+  negative modes too, but not `exclude-name` nor `exclude-location`.
+  An assistant over MCP gets the same from `search_activities`, through
+  `exclude_name`, `exclude_location` and a list of classification filters that
+  each give a system, a value and a mode; a search made only of exclusions
+  needs no name. A place excluded removes every place that answers for it.
+- Deleting activities by selection can leave activities out the same way, with
+  `excludeName` and `excludeLocation` in the request, `--exclude-name` and
+  `--exclude-location` on the command line, and `exclude_name` and
+  `exclude_location` in pyvolca, and it can say what it would do before doing
+  it. With `dryRun`, `--dry-run` or `dry_run=True` the engine answers the same
+  counts and the same refusals as the real call, and changes nothing.
+- A delete can keep the activities the remaining ones still use. With
+  `spare` true, every selected activity that one of the remaining activities
+  buys from, however far up its supply chain, is kept, so that no remaining
+  activity loses a supplier and has its line handed to another database. The
+  response says how many were kept in `spared`.
+- The path to a supplier can name it by `target-id`, the process id the
+  supply chain lists, beside `target`, part of its name. A name can belong to
+  several processes, often to one in each database; an id names one. Wire
+  revision 115.
+- The `supply-chain/consumers` route says, for one upstream process of a
+  root, which processes of that root's upstream consume it, how much of its
+  quantity each one accounts for, and the lines it is bought on, with their
+  comments. Read at the same `min-quantity` as the upstream list, it lists the
+  consumers the row counts. What the consumers under that minimum, or in a
+  database whose licence keeps its amounts, account for is given as
+  unexplained. Wire revision 116.
+- The path to a supplier can be asked under parameter values and swaps, by a
+  POST to the path-to route with the same body as the supply-chain POST. Its
+  steps then follow the swapped chain: the new supplier can be the target, and
+  every quantity is the one the swapped supply chain lists. The MCP
+  `get_path_to` tool takes the same `substitutions` and `parameters` as
+  `get_supply_chain`. Wire revision 117.
+- The consumers of an upstream process can be asked under parameter values
+  and swaps, by a POST to the `supply-chain/consumers` route with the same
+  body as the supply-chain POST. They are then the consumers the swapped
+  supply chain links it to: the new supplier lists the processes a swap put it
+  under, and the swapped-out one no longer lists them. The lines shown stay
+  the database's own: what a swap moved onto a supplier is in the consumer's
+  part but on no line, so a link made by a swap shows no line, and a consumer
+  that already bought the new supplier shows a part larger than its lines.
+  Wire revision 118.
+
+### Changed
+
+- Copying a database answers the copy's status, as finalizing an upload does, so a client learns the name the copy was registered under: a copy asked as "My draft" is `my-draft`.
+- The supply chain, the path to a supplier and every scope of an aggregate now
+  count for one unit of the product asked, as the impacts and the inventory
+  already did. Their numbers change for any process whose declared amount is
+  not 1: a process written for 10 kg of cheese now reports a tenth of what it
+  did in its supply chain, in the path to a supplier, and in every scope of an
+  aggregate but `biosphere`, which already counted for one unit. The `direct`
+  scope of an aggregate divides as the others do, by what the process makes
+  net of what it consumes of its own product: a process making 1 kg and
+  eating 0.1 kg of it is counted for one of the 0.9 kg it delivers. The fields
+  holding these numbers are renamed (`quantity` becomes `quantityPerUnit`,
+  `cumulativeQuantity` becomes `cumulativeQuantityPerUnit`, `filteredTotal`
+  becomes `filteredTotalPerUnit`), so a client written for the old numbers
+  stops instead of reading new ones under old names. The amount an activity
+  declares for its own product is unchanged (`productAmount`), and so are the
+  amounts of its exchanges.
+- Every computed response carries `functionalUnit`, the amount, unit and
+  product it counts for, where the scores carried a text such as "1 kg". Wire
+  revision 113.
+- A database whose processes each list thousands of elementary flows, as a
+  package of aggregated inventories does, takes less memory once loaded: the
+  index of the processes using each flow is ten times smaller. Database caches
+  are rebuilt once on the first load after the upgrade.
+- Such a database also takes far less memory to hold and to load. Its
+  biosphere lines that carry no comment, no data quality score and no formula,
+  which is nearly all of them, are kept in columns where each was an object of
+  its own. A package of 4,600 aggregated processes and 29 million lines takes
+  1.7 GB once loaded where it took 5.5. Its first load needs 14 GB of the
+  machine's memory where it needed 25, and it reloads from its cache in
+  4 seconds where it took 31. Nothing changes in what the engine answers or
+  exports.
+- The first load of an ILCD package builds each process as soon as its file is
+  read, where it first read every file and kept them all. The same package now
+  loads the first time in 6 GB of the machine's memory where it needed 14, and
+  in under 4 minutes where it took nearly 6.
+- A method given as an archive is read from its files once. What they come to
+  is kept in a file inside the directory the archive is extracted to, and
+  later starts read that file: the Environmental Footprint 3.1 package of the
+  JRC took 8 seconds of every start, and takes a quarter of a second. An engine
+  started on a new data directory also worked out the method's candidate
+  synonyms again, 7 seconds more; they now come from the same file. With that
+  method and one database, the engine answers 2 seconds after it starts where
+  it took 9, or 16 on a new data directory. Each new version of the engine
+  reads its methods from their files once more, and `--no-cache` reads them at
+  every start.
+- The descriptions of the tools use one word for each notion: process,
+  consumer, supplier, amount, upstream, emissions and resources, impact
+  category, method collection and swap. They used several for the same thing,
+  such as activity and process, or method and impact category. No tool,
+  parameter or field is renamed.
+- The request that deletes activities by selection must now
+  say `spare`, true or false, with no default: the two answers delete
+  different things, and a client that left it out would otherwise get one of
+  them without choosing. Each classification entry in it carries `mode`, one
+  of `contains`, `exact`, `not-contains` and `not-exact`, in place of `exact`,
+  and the request refuses a field it does not know. The response counts what
+  was kept in `spared`. Search addresses, the supply chain, the consumers and
+  `search_activities` read the same four mode words, and a word that is none
+  of them is now refused with the four named, where it used to read as
+  `contains`, so a typo can no longer turn an exclusion into its opposite. On
+  a search address, `classification-mode=equals` now means `exact`, where it
+  used to mean `contains`. A blank exclusion, which would remove every
+  activity, is dropped from a search, and refused in a delete with a message
+  naming the field, because dropping it there would delete more than was
+  asked. Wire revision 114.
+- A delete refuses an exclusion that removes no process from the database,
+  such as a misspelt name or a place the database never writes: honoured, it
+  would leave out nothing, and the delete would take what it was meant to
+  keep. A dry run refuses it the same way.
+- A classification preset in the configuration reads its `mode` with the same
+  words, case-blind. It used to read any word but `exact` as `contains`; a
+  word it does not know, or a negative mode, now stops the load, since a
+  preset keeps what it names.
+- `volca database delete-activities` needs exactly one of `--spare-suppliers`
+  and `--cut-suppliers`, and `delete_activities` in pyvolca needs `spare=`,
+  both refusing an engine older than wire revision 114 before sending
+  anything, since an older engine would not read the choice and a delete meant
+  to spare would cut. pyvolca takes a `mode` in each classification entry, and
+  still reads the older `exact` flag when no mode is given.
+- Asked to score activities against a collection the engine has not loaded,
+  `score_activities` names the collections that are loaded, as
+  `score_activity` and `list_scoring_sets` already did, where it answered that
+  the collection had no scoring sets. Given no scoring set where the
+  collection has several, or a name that is none of them, it writes out each
+  argument that would work, such as `"scoring_sets":["PEF"]`, and says that a
+  scoring set is neither an impact category nor a collection.
+
+### Fixed
+
+- With two swaps or more, the amounts are right when a later swap reaches a process an earlier swap changed. Each swap was computed against the database as loaded, so the demand it added there went to the supplier the earlier swap had taken out (which kept a share of the chain) instead of to its replacement. Every amount, score and inventory under several swaps could be off.
+- Two swaps of the same supplier at the same consumer are refused, with a message naming both, instead of removing the coefficient twice and answering a negative amount. A swap at every consumer meets any other swap of its supplier. The web interface never sent this.
+- A swap that would make the system singular once the earlier swaps hold is refused, with a message naming it, even when the full set of swaps would not be singular. This is rare, and depends on the order the swaps are listed in.
+- Adding a dependency to a database is refused when it would close a loop, with a message naming the databases that already lead back, and so is a database depending on itself. This holds for `add-dependency` and for a mapping relink, which pins the dependency it retargets, and it counts the dependencies an edit not yet finalized has set. The configuration file already refused such a loop, but these routes did not check it. Through a loop, a computation at given parameter values read part of the chain at the database's default values.
+- Finalizing an uploaded database that needs more memory than the engine may
+  use now says so, and says the engine is stopping. It used to answer
+  "Server exception: KilledByThreadManager (Just heap overflow)".
+- The Docker image stops as soon as it is asked to. `docker stop` used to wait
+  its ten seconds out and then kill the engine, and a machine shutting down
+  with the container running waited for it up to a minute and a half: the
+  engine ran as the container's first process, to which a stop request is
+  never delivered. Stopping now takes a third of a second.
+- The path to a supplier now reaches a supplier of a dependency database. A
+  chicken of a food database built on another one could list its soy beans
+  among its suppliers, yet asking for the path to them answered "No upstream
+  node matching". The path never runs through a database whose licence keeps
+  its amounts: a supplier reached only through one is answered with that
+  database's name.
+- Under a swap of a supplier of the database asked, the supply chain drew its links from the database as loaded: the new supplier had no link to the processes now buying it, the old one kept its link, and the depths and consumer counts of the new supplier and of everything above it were wrong. The links, depths and consumer counts now follow the swap, on the supply-chain POST and in the MCP `get_supply_chain` tool with substitutions.
+- The upstream list showed a process of a dependency database twice when it
+  reached that database by two routes, each line with part of the quantity.
+  It now shows it once, with the whole quantity, and the minimum quantity and
+  the maximum depth are read on that whole quantity.
+- The total of upstream processes counted such a process twice.
+- The consumer count of an upstream row now counts processes, not lines: a
+  process buying on two lines counts once. It also counts the consumers in
+  another database, so a supplier bought only from another database no longer
+  shows 0.
+- The graph of the upstream processes no longer receives the same link twice
+  when a process buys from another on two lines, or when a dependency
+  database is reached by two routes.
+
 ## [0.18.0] - 2026-11-14
 
 ### Added
