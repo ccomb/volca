@@ -18,7 +18,7 @@ git cliff --unreleased --tag pyvolca-v0.X.Y   # render as a released section
 
 Then paste the rendered block at the top of this file and tighten wording.
 
-## [0.15.0] - Unreleased
+## [0.15.0] - 2026-11-20
 
 This release speaks wire revisions 113 to 118, and needs engine 0.19.0. An
 older engine is refused when the client first talks to it. Use pyvolca 0.14.3
@@ -57,7 +57,6 @@ with an older engine.
   Its coproducts, which it read from the activity as the dataset writes them,
   now come from the engine's `direct` aggregate, so they stay on the basis of
   the energies and masses the engine counts, which are now for one unit.
-
 - `delete_activities()` needs `spare=True` or `spare=False`, and an engine
   speaking wire revision 114. With `spare=True` it keeps the selected
   processes the remaining ones still use. A script that called it without
@@ -71,6 +70,8 @@ with an older engine.
 - `aggregate()` takes `filter_exchange_type` (`"technosphere"`, `"biosphere"`
   or `"waste"`) to keep one kind of exchange in the `direct` scope, which the
   engine already offered.
+- `get_path_to()` reaches a supplier of a dependency database, which engine
+  0.19.0 finds where 0.18.0 answered that no upstream process matched.
 
 ## [0.14.3] - 2026-11-14
 
