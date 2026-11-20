@@ -1,1 +1,0 @@
-- Copying a database answers the copy's status, as finalizing an upload does, so a client learns the name the copy was registered under: a copy asked as "My draft" is `my-draft`.
