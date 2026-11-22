@@ -969,6 +969,170 @@ class ClassificationFilter:
         object.__setattr__(self, "mode", resolved)
 
 
+class Attribution(_StrEnum):
+    """What a group's part of a score is.
+
+    ``FIRST_MATCH``: the whole chain below the first process of a group met
+    on the way up from the root, what it buys included. ``OWN``: its
+    processes' own emissions only.
+    """
+
+    FIRST_MATCH = "first-match"
+    OWN = "own"
+
+
+AttributionLike = Union[Attribution, Literal["first-match", "own"]]
+
+
+@dataclass(frozen=True)
+class Group:
+    """One group of a split between groups: ``name`` is the line its part gets.
+
+    A process goes to the first group of the list it answers. ``activity_name``
+    and ``product`` are contained in the process's, ``location`` answers for
+    its place, ``classifications`` are alternatives within one system and all
+    required across systems, and ``left_out`` leaves out what it matches. The
+    engine refuses a group that keeps nothing: ``left_out`` alone is not enough.
+    """
+
+    name: str
+    activity_name: str | None = None
+    product: str | None = None
+    location: str | None = None
+    classifications: tuple[ClassificationFilter, ...] = ()
+    left_out: tuple[ClassificationFilter, ...] = ()
+
+    def to_wire(self) -> dict:
+        classes = [{"system": c.system, "value": c.value, "mode": c.mode.value} for c in self.classifications] + [
+            {"system": c.system, "value": c.value, "mode": "not-" + c.mode.value} for c in self.left_out
+        ]
+        written = {"name": self.activity_name, "product": self.product, "location": self.location, "classifications": classes or None}
+        return {"name": self.name, "filter": {k: v for k, v in written.items() if v is not None}}
+
+    @classmethod
+    def from_json(cls, d: dict) -> "Group":
+        f = d["filter"]
+        # The engine reads a mode case-blind and takes "equals" for "exact"; read it as it does.
+        read = [(c, c["mode"].lower()) for c in f.get("classifications") or []]
+
+        def written(c: dict, mode: str) -> ClassificationFilter:
+            word = mode.removeprefix("not-")
+            return ClassificationFilter(c["system"], c["value"], MatchMode("exact" if word == "equals" else word))
+
+        return cls(
+            name=d["name"],
+            activity_name=f.get("name"),
+            product=f.get("product"),
+            location=f.get("location"),
+            classifications=tuple(written(c, m) for c, m in read if not m.startswith("not-")),
+            left_out=tuple(written(c, m) for c, m in read if m.startswith("not-")),
+        )
+
+
+@dataclass
+class ScoredMethod(FromJson):
+    """A method a response scores: its ``id``, ``name`` and ``unit``."""
+
+    id: str
+    name: str
+    unit: str
+
+
+@dataclass
+class GroupPart(FromJson):
+    """One group's part of each score, by method id, and how many of its
+    processes carry one."""
+
+    name: str
+    scores: dict[str, float]
+    activities_counted: int
+
+
+@dataclass
+class WithheldScores(FromJson):
+    """The part of each score, by method id, of a database whose licence keeps
+    its detail: its processes are in no group."""
+
+    database: str
+    scores: dict[str, float]
+
+
+@dataclass
+class GroupContributions:
+    """A score split between groups, from :meth:`Client.group_contributions`.
+
+    For each method, by its id, the ``groups``, the ``rest`` and the
+    ``withheld_databases`` add up to the ``total``.
+    """
+
+    attribution: Attribution
+    methods: list[ScoredMethod]
+    total: dict[str, float]
+    groups: list[GroupPart]
+    rest: dict[str, float]
+    withheld_databases: list[WithheldScores]
+    functional_unit: FunctionalUnit
+
+    @classmethod
+    def from_json(cls, d: dict) -> "GroupContributions":
+        return cls(
+            attribution=Attribution(d["attribution"]),
+            methods=[ScoredMethod.from_json(m) for m in d["methods"]],
+            total=d["total"],
+            groups=[GroupPart.from_json(g) for g in d["groups"]],
+            rest=d["rest"],
+            withheld_databases=[WithheldScores.from_json(w) for w in d["withheldDatabases"]],
+            functional_unit=FunctionalUnit.from_json(d["functionalUnit"]),
+        )
+
+
+@dataclass
+class GroupSet:
+    """Groups made ready for one classification ``system``, from
+    :meth:`Client.group_sets`: what a database whose processes carry it can be
+    split by without writing a group."""
+
+    name: str
+    system: str
+    groups: list[Group]
+
+    @classmethod
+    def from_json(cls, d: dict) -> "GroupSet":
+        return cls(name=d["name"], system=d["system"], groups=[Group.from_json(g) for g in d["groups"]])
+
+
+@dataclass
+class GroupCandidate:
+    """One group a process could start: the ``group``, ready to add at the end
+    of the list, how many processes of the chain it takes something of, its
+    part of the score once added, and the products of its heaviest processes."""
+
+    group: Group
+    activities_counted: int
+    score: float
+    examples: list[str]
+
+    @classmethod
+    def from_json(cls, d: dict) -> "GroupCandidate":
+        return cls(group=Group.from_json(d["group"]), activities_counted=d["activitiesCounted"], score=d["score"], examples=d["examples"])
+
+
+@dataclass
+class GroupCandidates:
+    """The groups a process could start, from :meth:`Client.group_candidates`,
+    the narrowest first; of two that would take the same processes, the
+    broader alone. ``total`` is the method's score of the root."""
+
+    method: str
+    unit: str
+    total: float
+    candidates: list[GroupCandidate]
+
+    @classmethod
+    def from_json(cls, d: dict) -> "GroupCandidates":
+        return cls(method=d["method"], unit=d["unit"], total=d["total"], candidates=[GroupCandidate.from_json(c) for c in d["candidates"]])
+
+
 @dataclass
 class Activity(FromJson):
     """One activity in a database: the row returned by /activities search.

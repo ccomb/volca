@@ -144,6 +144,49 @@ def fixture_spec() -> dict[str, Any]:
                     ],
                 },
             },
+            "/api/v1/db/{dbName}/activity/{processId}/groups/{collection}": {
+                "post": {
+                    "operationId": "get_group_contributions",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "processId", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "collection", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "exclude-long-term", "in": "query", "required": False, "schema": {"type": "boolean"}},
+                    ],
+                },
+            },
+            "/api/v1/db/{dbName}/activity/{processId}/group-members/{collection}/{methodId}": {
+                "post": {
+                    "operationId": "get_group_members",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "processId", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "collection", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "methodId", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "exclude-long-term", "in": "query", "required": False, "schema": {"type": "boolean"}},
+                    ],
+                },
+            },
+            "/api/v1/db/{dbName}/activity/{processId}/group-candidates/{collection}/{methodId}": {
+                "post": {
+                    "operationId": "get_group_candidates",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "processId", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "collection", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "methodId", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "exclude-long-term", "in": "query", "required": False, "schema": {"type": "boolean"}},
+                    ],
+                },
+            },
+            "/api/v1/db/{dbName}/group-sets": {
+                "get": {
+                    "operationId": "list_group_sets",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                    ],
+                },
+            },
             "/api/v1/formula-language": {
                 "get": {"operationId": "get_formula_language", "parameters": []},
             },

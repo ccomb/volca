@@ -42,9 +42,9 @@ revision only matter to a client that opted out of that check with
 KNOWN_WIRE = 120
 """The newest wire revision this pyvolca understands (revision 120 added the
 groups made ready for a classification system and the groups a process could
-start, which no method of this client reads yet; revision 119 split a
-score between groups of processes, which no method of this client reads
-yet, and added the starts-with classification mode, ``MatchMode.STARTS_WITH``;
+start, which ``group_sets`` and ``group_candidates`` read; revision 119 split a
+score between groups of processes, which ``group_contributions`` and
+``group_members`` read, and added the starts-with classification mode, ``MatchMode.STARTS_WITH``;
 revision 118 let the
 engine's consumers route take parameter values and swaps, which no method of
 this client reads yet; revision 117 let the
