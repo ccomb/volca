@@ -148,6 +148,35 @@ spec = do
             -- What the block said beyond the category survives on every process.
             map (M.lookup "Category type" . activityClassification) processes `shouldBe` replicate 3 (Just "material")
 
+        it "gives a process read whole what its reference row says, the row winning on a shared system" $ do
+            let whole =
+                    (activity [productRow cheeseId 1.0 ReferenceProduct Nothing (M.fromList [("CPC", "2225: Cheese"), ("ISIC", "1050:Dairy")]), input 10.0])
+                        { activityClassification = M.fromList [("ISIC", "10:Food"), ("Category type", "material")]
+                        }
+            map activityClassification (NE.toList (allocate declaredOn whole))
+                `shouldBe` [M.fromList [("CPC", "2225: Cheese"), ("ISIC", "1050:Dairy"), ("Category type", "material")]]
+
+        it "keeps a split product's process free of what another product row says" $ do
+            let split =
+                    activity
+                        [ productRow cheeseId 1.0 ReferenceProduct (Just 50) (M.singleton "HS" "0406: Cheese")
+                        , productRow wheyId 2.0 Coproduct (Just 50) (M.singleton "CPC" "2290: Whey")
+                        , input 10.0
+                        ]
+            map activityClassification (NE.toList (allocate declaredOn split))
+                `shouldBe` [M.singleton "HS" "0406: Cheese", M.singleton "CPC" "2290: Whey"]
+
+        it "keeps a block read whole as the source classed it, so a later split gives each product its own row only" $ do
+            let block =
+                    activity
+                        [ productRow cheeseId 1.0 ReferenceProduct (Just 50) (M.singleton "HS" "0406: Cheese")
+                        , productRow wheyId 2.0 Coproduct (Just 50) (M.singleton "CPC" "2290: Whey")
+                        , input 10.0
+                        ]
+                readWhole = allocate declaredOn{alKey = Unallocated}
+            map activityClassification (NE.toList (allocate declaredOn =<< readWhole block))
+                `shouldBe` [M.singleton "HS" "0406: Cheese", M.singleton "CPC" "2290: Whey"]
+
         it "applies a single product's share as declared, 0 % included" $ do
             let zero = activity [productRow cheeseId 1.0 ReferenceProduct (Just 0) M.empty, input 10.0]
                 half = activity [productRow cheeseId 1.0 ReferenceProduct (Just 51) M.empty, input 10.0]
@@ -271,7 +300,7 @@ spec = do
 
         it "does not choose between two non-zero outputs" $ do
             let act = activity [productRow wheyId 2.0 Coproduct Nothing M.empty, productRow creamId 1.0 Coproduct Nothing M.empty]
-            any exchangeIsReference (concatMap exchanges (allocate declaredOn act)) `shouldBe` False
+            any (any exchangeIsReference . exchanges) (allocate declaredOn act) `shouldBe` False
 
         it "drops a reference listed at zero beside the one the dataset makes" $ do
             let act = activity [productRow wheyId 0.0 ReferenceProduct Nothing M.empty, productRow cheeseId 1.0 ReferenceProduct Nothing M.empty]

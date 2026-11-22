@@ -169,6 +169,13 @@ perExchangeComments = describe "per-exchange comments" $ do
                 [exchangeAmount e | e@TechnosphereExchange{techRole = ReferenceProduct} <- exchanges act]
                     `shouldBe` [-1.0]
 
+    describe "classification of a product row" $ do
+        it "keeps a product's taxonomy on its row, without the waste marker, and none on an input" $
+            withClassifiedProducts $ \ParsedDataset{pdActivity = act} -> do
+                [(techRole e, techClassification e) | e@TechnosphereExchange{} <- exchanges act]
+                    `shouldBe` [(ReferenceProduct, M.singleton "CPC" "2511: Pulp"), (Input, M.empty)]
+                activityClassification act `shouldBe` M.singleton "ISIC rev.4" "1701:Manufacture of pulp"
+
     -- -----------------------------------------------------------------------
     -- Robustness: malformed input should never crash; we expect a clean Left.
     -- The byte-level fuzzing inputs are the ones the parser actually sees in
@@ -922,6 +929,57 @@ parseWasteReference = withSystemTempDirectory "es2-waste-ref" $ \dir -> do
 withWasteReferenceFixture :: (ParsedDataset -> IO ()) -> IO ()
 withWasteReferenceFixture k =
     parseWasteReference >>= either (expectationFailure . ("Parse failed: " ++)) k
+
+-- | An activity classified by industry, whose product and one input carry a product taxonomy.
+classifiedProductsXml :: BS.ByteString
+classifiedProductsXml =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    \<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold02\">\n\
+    \  <activityDataset>\n\
+    \    <activityDescription>\n\
+    \      <activity id=\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\" activityNameId=\"pulp\">\n\
+    \        <activityName xml:lang=\"en\">pulp production</activityName>\n\
+    \      </activity>\n\
+    \      <classification classificationId=\"isic\">\n\
+    \        <classificationSystem xml:lang=\"en\">ISIC rev.4</classificationSystem>\n\
+    \        <classificationValue xml:lang=\"en\">1701:Manufacture of pulp</classificationValue>\n\
+    \      </classification>\n\
+    \      <geography geographyId=\"GLO\"><shortname xml:lang=\"en\">GLO</shortname></geography>\n\
+    \    </activityDescription>\n\
+    \    <flowData>\n\
+    \      <intermediateExchange id=\"ref\" unitId=\"unit-kg\" amount=\"1.0\"\n\
+    \                           intermediateExchangeId=\"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\">\n\
+    \        <name xml:lang=\"en\">pulp</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <classification classificationId=\"bp\">\n\
+    \          <classificationSystem xml:lang=\"en\">By-product classification</classificationSystem>\n\
+    \          <classificationValue xml:lang=\"en\">allocatable product</classificationValue>\n\
+    \        </classification>\n\
+    \        <classification classificationId=\"cpc-pulp\">\n\
+    \          <classificationSystem xml:lang=\"en\">CPC</classificationSystem>\n\
+    \          <classificationValue xml:lang=\"en\">2511: Pulp</classificationValue>\n\
+    \        </classification>\n\
+    \        <outputGroup>0</outputGroup>\n\
+    \      </intermediateExchange>\n\
+    \      <intermediateExchange id=\"wood\" unitId=\"unit-kg\" amount=\"2.0\"\n\
+    \                           intermediateExchangeId=\"cccccccc-cccc-cccc-cccc-cccccccccccc\">\n\
+    \        <name xml:lang=\"en\">wood chips</name>\n\
+    \        <unitName xml:lang=\"en\">kg</unitName>\n\
+    \        <classification classificationId=\"cpc-wood\">\n\
+    \          <classificationSystem xml:lang=\"en\">CPC</classificationSystem>\n\
+    \          <classificationValue xml:lang=\"en\">3151: Wood chips</classificationValue>\n\
+    \        </classification>\n\
+    \        <inputGroup>5</inputGroup>\n\
+    \      </intermediateExchange>\n\
+    \    </flowData>\n\
+    \  </activityDataset>\n\
+    \</ecoSpold>\n"
+
+withClassifiedProducts :: (ParsedDataset -> IO ()) -> IO ()
+withClassifiedProducts k = withSystemTempDirectory "es2-classified" $ \dir -> do
+    let path = dir </> "12345678-1234-5678-9abc-123456789011_12345678-1234-5678-9abc-123456789012.spold"
+    BS.writeFile path classifiedProductsXml
+    streamParseActivityAndFlowsFromFile M.empty path >>= either (expectationFailure . ("Parse failed: " ++)) k
 
 {- | Synthetic dataset exercising mathematicalRelation checking:
   - a reference output carrying variableName="production" (amount 1.0)

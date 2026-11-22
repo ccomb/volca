@@ -217,6 +217,31 @@ spec = do
             classificationMatches prefix (classified "6411: Local transport") `shouldBe` True
             classificationMatches prefix (classified "2364: Cement") `shouldBe` False
             readClassificationMode "not-starts-with" `shouldBe` Right (Excluding MatchPrefix)
+
+    describe "what a process could be grouped by" $ do
+        let kept = cfKept . crClassifications . snd
+        it "offers the product, then a code by its prefixes, a plain value, then a path by its levels" $ do
+            let offered =
+                    candidateCriteria
+                        ["transport, freight, lorry", "ignored second product"]
+                        (M.fromList [("CPC", "6511: Road transport services of freight"), ("Category type", "transport"), ("Category", "Transport\\Road\\Freight")])
+            map fst offered `shouldBe` ["transport, freight, lorry", "CPC 6511", "CPC 651", "CPC 65", "transport", "Transport\\Road\\Freight", "Transport\\Road", "Transport"]
+            map (crProduct . snd) (take 1 offered) `shouldBe` [Just "transport, freight, lorry"]
+            kept (offered !! 3) `shouldBe` [ClassificationFilter "CPC" "65" MatchPrefix]
+            kept (offered !! 6) `shouldBe` [ClassificationFilter "Category" "Transport\\Road" MatchExact, ClassificationFilter "Category" "Transport\\Road\\" MatchPrefix]
+        it "takes a level of a path and what lies under it, not a sibling that starts the same" $ do
+            let level = concatMap kept (take 1 (candidateCriteria [] (M.singleton "Category" "Transport\\Road")))
+                answers value = any (`classificationMatches` M.singleton "Category" value) level
+            map answers ["Transport\\Road", "Transport\\Road\\Freight", "Transport\\Roadside"] `shouldBe` [True, True, False]
+        it "cuts a path at its backslashes when a level holds a slash, and reads a bare code as it is" $ do
+            map fst (candidateCriteria [] (M.singleton "Category" "Materials\\Wood/paper")) `shouldBe` ["Materials\\Wood/paper", "Materials"]
+            map fst (candidateCriteria [] (M.singleton "CPC" "31100")) `shouldBe` ["31100"]
+            map fst (candidateCriteria ["  "] (M.singleton "CPC" " ")) `shouldBe` []
+        it "offers no empty level of a path that starts with its separator" $
+            map fst (candidateCriteria [] (M.singleton "Category" "/Agriculture")) `shouldBe` ["/Agriculture"]
+        it "keeps one criterion per set of processes taken, the broadest, at the place of the narrowest" $
+            distinctTakers [("product" :: Text, "a" :: String), ("CPC 651", "ab"), ("CPC 65", ""), ("ISIC 4923", "a"), ("ISIC 49", "ab")]
+                `shouldBe` ["ISIC 4923", "ISIC 49"]
   where
     closeTo' got expected = abs (got - expected) `shouldSatisfy` (<= 1e-9 * max 1 (abs expected))
     isLeft = either (const True) (const False)

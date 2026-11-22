@@ -53,6 +53,7 @@ import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..), defaultConfig)
 import qualified Database.Manager as DM
 import FlowContributionSpec (payloadOf)
+import Groups (maxGroups)
 import Impact (LicencedSolution (..), WithheldPart (..), partitionByLicence, scoreSolution)
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..))
 import qualified SharedSolver as SS
@@ -350,6 +351,32 @@ spec = do
                     members reading Nothing `shouldReturn` (Just (Number 1), [1])
                 )
                 ["first-match", "own"]
+
+    describe "MCP, the groups a process could start" $ do
+        let candidates manager extra = callOn manager "get_group_candidates" (("candidate", String ("dep::" <> processIdToText dependency 0)) : extra)
+        it "offers the broadest level of the dependency's class, with the part a split gives it once added, in both readings" $ do
+            -- Every level of the code takes the same one process: only the broadest stays.
+            let classed = dependency{dbActivities = V.map (\a -> a{activityClassification = M.singleton "CPC" "6511: Road transport services of freight"}) (dbActivities dependency)}
+            manager <- managerOn root classed LicenceUnstated
+            mapM_
+                ( \reading -> do
+                    o <- payload =<< candidates manager [("groups", Array V.empty), ("attribution", String reading)]
+                    let names = [name | Just (Array cs) <- [KM.lookup "candidates" o], Object c <- toList cs, Just (Object g) <- [KM.lookup "group" c], Just (String name) <- [KM.lookup "name" g]]
+                    (KM.lookup "total" o, names, numbersAt "candidates" "score" o, numbersAt "candidates" "activitiesCounted" o)
+                        `shouldBe` (Just (Number 21), ["CPC 65"], [20], [1])
+                )
+                ["first-match", "own"]
+
+        it "refuses a process whose database keeps what weighs in its scores" $ do
+            manager <- managerWith detailKept
+            reply <- candidates manager [("groups", Array V.empty)]
+            errorText reply `shouldBe` Just (withheldSentence "dep" SeeDetailedScores)
+
+        it "refuses a list that already holds as many groups as it can" $ do
+            manager <- managerWith LicenceUnstated
+            let full = Array (V.fromList [Object (KM.fromList [("name", String ("Group " <> T.pack (show k))), ("filter", Object (KM.singleton "location" (String "DE")))]) | k <- [1 .. maxGroups]])
+            reply <- candidates manager [("groups", full)]
+            errorText reply `shouldSatisfy` maybe False ("remove one to add another" `T.isInfixOf`)
 
     describe "under a dependency keeping its amounts" $ do
         it "refuses the inventory over REST and MCP" $ do

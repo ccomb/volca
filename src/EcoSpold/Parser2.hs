@@ -1100,7 +1100,11 @@ parseWithXeno conversions xmlContent = do
                                     , techPedigree = Nothing
                                     , techFormula = Nothing
                                     , techShare = Nothing
-                                    , techClassification = M.empty
+                                    , -- A product's taxonomy (CPC, HS) is carried onto
+                                      -- its process; the waste marker is not a taxonomy,
+                                      -- and an input's classification describes another
+                                      -- process's product, which that process carries.
+                                      techClassification = if isInput then M.empty else M.delete "By-product classification" (idClassifications idata)
                                     , techProperties = idProperties idata
                                     }
                             techFlow = TechnosphereFlow flowUUID resolvedFlowName unitUUID (idSynonyms idata) Nothing Nothing

@@ -94,10 +94,12 @@ data Resource
     | GetContributingActivities
     | GetGroupContributions
     | GetGroupMembers
+    | GetGroupCandidates
     | GetScoreContributingFlows
     | GetScoreContributingActivities
     | ListGeographies
     | ListClassifications
+    | ListGroupSets
     | GetPathTo
     | GetConsumers
     | CountSearchMatches
@@ -204,10 +206,12 @@ resourceMutates r = case r of
     GetContributingActivities -> False
     GetGroupContributions -> False
     GetGroupMembers -> False
+    GetGroupCandidates -> False
     GetScoreContributingFlows -> False
     GetScoreContributingActivities -> False
     ListGeographies -> False
     ListClassifications -> False
+    ListGroupSets -> False
     GetPathTo -> False
     GetConsumers -> False
     CountSearchMatches -> False
@@ -280,6 +284,7 @@ resourceNeeds r = case r of
     GetContributingActivities -> Just SeeDetailedScores
     GetGroupContributions -> Just SeeDetailedScores
     GetGroupMembers -> Just SeeDetailedScores
+    GetGroupCandidates -> Just SeeDetailedScores
     GetScoreContributingFlows -> Just SeeDetailedScores
     GetScoreContributingActivities -> Just SeeDetailedScores
     -- Trimmed by the operation itself.
@@ -299,6 +304,7 @@ resourceNeeds r = case r of
     SearchFlows -> Nothing
     CountSearchMatches -> Nothing
     ListClassifications -> Nothing
+    ListGroupSets -> Nothing
     ListGeographies -> Nothing
     GetFormulaLanguage -> Nothing
     ListMethods -> Nothing
@@ -351,6 +357,7 @@ resourceUsage r = case r of
     GetContributingActivities -> Just Contributing
     GetGroupContributions -> Just Contributing
     GetGroupMembers -> Just Contributing
+    GetGroupCandidates -> Just Contributing
     GetScoreContributingFlows -> Just Contributing
     GetScoreContributingActivities -> Just Contributing
     CompareImpacts -> Just Comparing
@@ -371,6 +378,7 @@ resourceUsage r = case r of
     SearchFlows -> Nothing
     CountSearchMatches -> Nothing
     ListClassifications -> Nothing
+    ListGroupSets -> Nothing
     ListGeographies -> Nothing
     GetFormulaLanguage -> Nothing
     ListMethods -> Nothing
@@ -447,10 +455,12 @@ apiPath r = case r of
     GetContributingActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-activities", "{collection}", "{methodId}"])
     GetGroupContributions -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "groups", "{collection}"])
     GetGroupMembers -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "group-members", "{collection}", "{methodId}"])
+    GetGroupCandidates -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "group-candidates", "{collection}", "{methodId}"])
     GetScoreContributingFlows -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-flows", "{collection}", "score", "{scoringSet}", "{score}"])
     GetScoreContributingActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-activities", "{collection}", "score", "{scoringSet}", "{score}"])
     ListGeographies -> Nothing -- MCP-only: synthesizes geography list from in-memory database, no HTTP route
     ListClassifications -> Just (GET, ["db", "{dbName}", "classifications"])
+    ListGroupSets -> Just (GET, ["db", "{dbName}", "group-sets"])
     GetPathTo -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "path-to"])
     GetConsumers -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "consumers"])
     CountSearchMatches -> Just (GET, ["db", "{dbName}", "search-counts"])
@@ -525,10 +535,12 @@ mcpName r = case r of
     GetContributingActivities -> "get_contributing_activities"
     GetGroupContributions -> "get_group_contributions"
     GetGroupMembers -> "get_group_members"
+    GetGroupCandidates -> "get_group_candidates"
     GetScoreContributingFlows -> "get_score_contributing_flows"
     GetScoreContributingActivities -> "get_score_contributing_activities"
     ListGeographies -> "list_geographies"
     ListClassifications -> "list_classifications"
+    ListGroupSets -> "list_group_sets"
     GetPathTo -> "get_path_to"
     GetConsumers -> "get_consumers"
     CountSearchMatches -> "count_search_matches"
@@ -835,6 +847,14 @@ description r = case r of
         \first-match, each process where the chain enters the group, with all \
         \it brings. They add up to the group's part. 'basis' as on \
         \score_activity."
+    GetGroupCandidates ->
+        "LCA / ACV: groups a process could start, narrowest first: its \
+        \product, then each level of its classifications. Each is tried at \
+        \the end of 'groups' and comes back with its part of one impact \
+        \category, how many processes it takes and the products of the \
+        \heaviest; a group taking nothing, or the same processes as a broader \
+        \one, is left out. 'candidate' is a process id as get_group_members \
+        \writes it. Add the group chosen to 'groups' as it comes."
     GetScoreContributingFlows ->
         "LCA / ACV: emissions and resources weighing most in one \
         \score of a scoring set (one number weighing a method \
@@ -862,6 +882,11 @@ description r = case r of
         \No 'system': names and process counts only. \
         \With it: all its values, 'filter' narrowing by \
         \substring."
+    ListGroupSets ->
+        "LCA / ACV: groups made ready (transport, electricity, waste…) for \
+        \the classification systems a database's processes carry, first \
+        \set first. Pass a set's 'groups' to get_group_contributions as \
+        \they come."
     GetPathTo ->
         "LCA / ACV: shortest upstream path from a process to the first \
         \upstream process whose name matches a pattern, in its database or \
@@ -1565,6 +1590,16 @@ params r = case r of
         , pLimit "Max processes to return, sorted by contribution (default 10)"
         , pExcludeLongTerm
         ]
+    GetGroupCandidates ->
+        [ pDatabase
+        , pProcessId
+        , Param "method_id" "string" Required "UUID of the impact category"
+        , pCollection
+        , pAttribution
+        , pGroups
+        , Param "candidate" "string" Required "Process to group by, as get_group_members writes its id (db::id for another database)"
+        , pExcludeLongTerm
+        ]
     GetScoreContributingFlows ->
         [ pDatabase
         , pProcessId
@@ -1590,6 +1625,9 @@ params r = case r of
         [ pDatabase
         , Param "system" "string" Optional "Classification system name to inspect (e.g. 'ISIC rev.4 ecoinvent'). If omitted, returns only system names and counts."
         , Param "filter" "string" Optional "Substring filter applied to values when a system is specified (case-insensitive)."
+        ]
+    ListGroupSets ->
+        [ pDatabase
         ]
     GetPathTo ->
         [ pDatabase

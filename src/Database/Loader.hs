@@ -646,6 +646,9 @@ History of manual bumps:
      array, where it held them in a list.
 - 86: the plain biosphere lines of an activity are held in columns, where
      each was an exchange in a list.
+- 87: an EcoSpold2 process carries the classification of its reference
+     product (CPC, HS), where it carried the activity's alone. Nothing
+     changes type, so a cache written just before would keep it without.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -653,7 +656,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 86
+     in hi `xor` lo `xor` 87
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

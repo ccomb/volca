@@ -18,6 +18,7 @@ module Builtin (
     builtinMethodDescription,
     builtinMethodContent,
     builtinMethodCatalog,
+    builtinGroupSets,
     DataVersion (..),
     builtinDataVersion,
 ) where
@@ -78,6 +79,10 @@ builtinMethodContent BuiltinPlainIndicators = decode L.plainIndicatorsCsv
 -- | The method collections an engine offers to download, as @data/method-catalog.toml@ states them.
 builtinMethodCatalog :: BL.ByteString
 builtinMethodCatalog = decode L.methodCatalogToml
+
+-- | The sets of groups made ready for a classification system, as @data/group-sets.json@ writes them.
+builtinGroupSets :: BL.ByteString
+builtinGroupSets = decode L.groupSetsJson
 
 decode :: String -> BL.ByteString
 decode = BL.fromStrict . B64.decodeLenient . BC.pack
