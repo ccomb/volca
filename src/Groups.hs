@@ -42,6 +42,7 @@ module Groups (
     GroupIndex (..),
     groupNamed,
     candidateCriteria,
+    distinctTakers,
 
     -- * Which process goes where
     Assignment,
@@ -70,6 +71,7 @@ module Groups (
 
 import Control.Monad (forM, join)
 import Data.Char (isDigit)
+import Data.Containers.ListUtils (nubOrd)
 import Data.Either (partitionEithers)
 import Data.Function (on)
 import Data.List (findIndex, nubBy, sortOn)
@@ -220,12 +222,24 @@ candidateCriteria products classes =
                 , [ (level, classified [ClassificationFilter system level MatchExact, ClassificationFilter system (level <> sep) MatchPrefix])
                   | n <- [length parts, length parts - 1 .. 1]
                   , let level = T.intercalate sep (take n parts)
+                  , not (T.null level)
                   ]
                 )
         | otherwise = (Plain, [(value, classified [ClassificationFilter system value MatchExact])])
 
     classified :: [ClassificationFilter] -> Criteria
     classified kept = Criteria{crName = Nothing, crProduct = Nothing, crLocation = Nothing, crClassifications = ClassificationFilters{cfKept = kept, cfLeftOut = []}}
+
+{- | Of criteria tried in the order offered, each with the processes it would
+take, those taking something, one per set of processes taken. A set shows
+at the place of its first criterion, under the last criterion taking it: the
+broadest says the same and holds better when the chain changes, and keeping
+the place means a cut on the count never drops the set with its twin.
+-}
+distinctTakers :: (Ord k) => [(t, [k])] -> [t]
+distinctTakers tried = mapMaybe broadest (nubOrd [taken | (_, taken) <- tried, not (null taken)])
+  where
+    broadest taken = NE.last <$> NE.nonEmpty [t | (t, same) <- tried, same == taken]
 
 -- | How a classification value reads, in the order its levels are offered.
 data ValueShape = Coded | Plain | Path

@@ -2816,19 +2816,8 @@ callGetGroupMembers dbManager mBaseUrl rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
         (attribution, specs) <- except (groupsArgs args)
-        let ld = lrLoaded req
-            root =
-                GroupRoot
-                    { grName = lrDbName req
-                    , grDatabase = ldDatabase ld
-                    , grSolver = ldSharedSolver ld
-                    , grProcess = raPid (lrResolved req)
-                    , grFunctionalUnit = raFunctionalUnit (lrResolved req)
-                    , grLongTerm = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-                    , grCollection = lrCollection req
-                    }
-            lim = fromMaybe 10 (intArg "limit" args)
-        result <- liftIO (groupMembersOf dbManager root (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
+        let lim = fromMaybe 10 (intArg "limit" args)
+        result <- liftIO (groupMembersOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
         GroupMembers{gmSolution = sol, gmParts = parts} <- either (throwE . groupFailureText) pure result
         processesAnswer dbManager mBaseUrl rid req lim sol parts
 
@@ -2838,19 +2827,21 @@ callGetGroupCandidates dbManager rid args =
         req <- loadLcaRequest dbManager args
         (attribution, specs) <- except (groupsArgs args)
         candidate <- except (requireText "candidate" args)
-        let ld = lrLoaded req
-            root =
-                GroupRoot
-                    { grName = lrDbName req
-                    , grDatabase = ldDatabase ld
-                    , grSolver = ldSharedSolver ld
-                    , grProcess = raPid (lrResolved req)
-                    , grFunctionalUnit = raFunctionalUnit (lrResolved req)
-                    , grLongTerm = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-                    , grCollection = lrCollection req
-                    }
-        result <- liftIO (groupCandidatesOf dbManager root (lrMethod req) (GroupCandidatesRequest attribution specs candidate))
+        result <- liftIO (groupCandidatesOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupCandidatesRequest attribution specs candidate))
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . toJSON) result
+
+-- | The root a group tool names: the request's process, under the long-term policy its arguments ask.
+lcaGroupRoot :: LcaRequest -> KeyMap Value -> GroupRoot
+lcaGroupRoot req args =
+    GroupRoot
+        { grName = lrDbName req
+        , grDatabase = ldDatabase (lrLoaded req)
+        , grSolver = ldSharedSolver (lrLoaded req)
+        , grProcess = raPid (lrResolved req)
+        , grFunctionalUnit = raFunctionalUnit (lrResolved req)
+        , grLongTerm = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
+        , grCollection = lrCollection req
+        }
 
 -- | One score of a scoring set, with the activity it is asked of, solved.
 data ScoreRequest = ScoreRequest

@@ -9,7 +9,7 @@ between the parser and the index:
 
 * 'allocate' splits an activity whose product outputs all carry a declared
   share into one process per product, the shared exchanges scaled by that
-  share. It never refuses: what it cannot split it hands back unchanged.
+  share. It never refuses: what it cannot split it hands back whole.
 * 'asAllocated' is the gate. An activity still carrying a 'Coproduct', or
   not carrying exactly one reference exchange, has no column the matrix could
   fill honestly. The matrix builder, the compute path and the quality report
@@ -149,14 +149,17 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
         Unallocated -> deducePrices (normalise act)
         _ -> normalise act
 
-    -- A process read whole takes what its reference row says on top, as a
-    -- process split for one product does; several references name no one.
+    -- A process of one product takes what its product row says on top, as a
+    -- process split for one product does. A block of several products kept
+    -- whole stays as the source classed it: a later split (a child reading
+    -- it under its own key) starts from it, and would hand the reference's
+    -- classes to every coproduct.
     normalised :: Activity
     normalised =
         act
             { activityLines = packExchanges (map snd placed)
-            , activityClassification = case filter exchangeIsReference (map snd placed) of
-                [reference] -> M.union (exchangeClassification reference) (activityClassification act)
+            , activityClassification = case products of
+                [(_, only)] -> M.union (exchangeClassification only) (activityClassification act)
                 _ -> activityClassification act
             }
 

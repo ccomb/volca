@@ -237,6 +237,11 @@ spec = do
             map fst (candidateCriteria [] (M.singleton "Category" "Materials\\Wood/paper")) `shouldBe` ["Materials\\Wood/paper", "Materials"]
             map fst (candidateCriteria [] (M.singleton "CPC" "31100")) `shouldBe` ["31100"]
             map fst (candidateCriteria ["  "] (M.singleton "CPC" " ")) `shouldBe` []
+        it "offers no empty level of a path that starts with its separator" $
+            map fst (candidateCriteria [] (M.singleton "Category" "/Agriculture")) `shouldBe` ["/Agriculture"]
+        it "keeps one criterion per set of processes taken, the broadest, at the place of the narrowest" $
+            distinctTakers [("product" :: Text, "a" :: String), ("CPC 651", "ab"), ("CPC 65", ""), ("ISIC 4923", "a"), ("ISIC 49", "ab")]
+                `shouldBe` ["ISIC 4923", "ISIC 49"]
   where
     closeTo' got expected = abs (got - expected) `shouldSatisfy` (<= 1e-9 * max 1 (abs expected))
     isLeft = either (const True) (const False)

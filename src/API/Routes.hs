@@ -40,7 +40,7 @@ import Data.Foldable (asum)
 import Data.Indexing (groupInOrder)
 import Data.Int (Int32)
 import qualified Data.JournalFile as JournalFile (Source)
-import Data.List (find, intercalate, nub, partition, sortOn, tails, (!?))
+import Data.List (find, intercalate, nub, partition, sortOn, (!?))
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
@@ -3340,14 +3340,16 @@ groupCandidatesOf dbManager root method GroupCandidatesRequest{gcqAttribution = 
     trials <- withExceptT GroupsRefused (except (traverse (trial reached) offered))
     let scalings = Groups.summedByName (SharedSolver.csScalings sol)
         taking = [(t, Groups.processesOfGroup assigned scalings newest) | t@(_, assigned) <- trials]
-        kept = take candidatesShown [t | ((t, taken), broader) <- zip taking (drop 1 (tails taking)), not (null taken), all ((/= taken) . snd) broader]
+        kept = take candidatesShown (Groups.distinctTakers taking)
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) (grCollection root) (grDatabase root) method)
     let ownParts s = withExceptT GroupScoringFailed (ExceptT (Impact.processContributionsOf dbManager (grCollection root) method tables s))
     own <- ownParts sol
     weights <- case attribution of
-        Groups.WholeChainBelowFirstMatch | not (null kept) -> Just <$> wholeChainWeights dbManager root mFlows ownParts sol
-        _ -> pure Nothing
+        Groups.WholeChainBelowFirstMatch
+            | null kept -> pure Nothing
+            | otherwise -> Just <$> wholeChainWeights dbManager root mFlows ownParts sol
+        Groups.OwnEmissions -> pure Nothing
     candidates <- forM kept $ \(group, assigned) -> do
         parts <- partsUnder dbManager root sol attribution assigned
         taken <- maybe (throwE (GroupsRefused "The group tried has no part in this split.")) pure (Groups.partsTaken parts !? newestAt)
