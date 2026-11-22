@@ -959,3 +959,58 @@ data GroupContributions = GroupContributions
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped GroupContributions)
+
+{- | Groups made ready for one classification system: what a database whose
+processes carry it can be split by without writing a group.
+-}
+data GroupSet = GroupSet
+    { gstName :: Text
+    , gstSystem :: Text
+    , gstGroups :: [GroupSpec]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupSet)
+
+instance FromJSON GroupSet where
+    parseJSON = parseClosed
+
+{- | What a process could be grouped by, under the groups and reading of a
+'GroupsRequest': the @candidate@ is the process as a row of the processes of
+a group names it.
+-}
+data GroupCandidatesRequest = GroupCandidatesRequest
+    { gcqAttribution :: Maybe Text
+    , gcqGroups :: [GroupSpec]
+    , gcqCandidate :: Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupCandidatesRequest)
+
+instance FromJSON GroupCandidatesRequest where
+    parseJSON = parseClosed
+
+{- | One group a process could start: the group, ready to be added at the end
+of the list, how many processes of the chain it takes something of, its part
+of the score and the products of its heaviest processes.
+-}
+data GroupCandidate = GroupCandidate
+    { gcdGroup :: GroupSpec
+    , gcdActivitiesCounted :: Int
+    , gcdScore :: Double
+    , gcdExamples :: [Text]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupCandidate)
+
+{- | The groups a process could start, the narrowest first, each part as it
+would be once added at the end of the list; of two that would take the same
+processes, the broader alone.
+-}
+data GroupCandidates = GroupCandidates
+    { gcsMethod :: Text
+    , gcsUnit :: Text
+    , gcsTotal :: Double
+    , gcsCandidates :: [GroupCandidate]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupCandidates)

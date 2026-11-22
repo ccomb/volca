@@ -1,0 +1,276 @@
+[
+  {
+    "name": "CPC",
+    "system": "CPC",
+    "groups": [
+      {
+        "name": "Transport",
+        "filter": {
+          "classifications": [
+            {
+              "system": "CPC",
+              "value": "64",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "65",
+              "mode": "starts-with"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Electricity",
+        "filter": {
+          "classifications": [
+            {
+              "system": "CPC",
+              "value": "171",
+              "mode": "starts-with"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Heat and fuels",
+        "filter": {
+          "classifications": [
+            {
+              "system": "CPC",
+              "value": "11",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "12",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "172",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "173",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "3331",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "3334",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "33360",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "3337",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "3341",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "33429",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "69120",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "69220",
+              "mode": "starts-with"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Fertilisers",
+        "filter": {
+          "classifications": [
+            {
+              "system": "CPC",
+              "value": "3461",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "3462",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "3463",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "3464",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "3465",
+              "mode": "starts-with"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Pesticides",
+        "filter": {
+          "classifications": [
+            {
+              "system": "CPC",
+              "value": "3466",
+              "mode": "starts-with"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Field work and machinery",
+        "filter": {
+          "classifications": [
+            {
+              "system": "CPC",
+              "value": "8611",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "441",
+              "mode": "starts-with"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Infrastructure",
+        "filter": {
+          "classifications": [
+            {
+              "system": "CPC",
+              "value": "53",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "54",
+              "mode": "starts-with"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Waste",
+        "filter": {
+          "classifications": [
+            {
+              "system": "CPC",
+              "value": "3921",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "39240",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "39250",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "39260",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "39270",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "39290",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "393",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "399",
+              "mode": "starts-with"
+            },
+            {
+              "system": "CPC",
+              "value": "94",
+              "mode": "starts-with"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "SimaPro category types",
+    "system": "Category type",
+    "groups": [
+      {
+        "name": "Transport",
+        "filter": {
+          "classifications": [
+            {
+              "system": "Category type",
+              "value": "transport",
+              "mode": "exact"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Energy",
+        "filter": {
+          "classifications": [
+            {
+              "system": "Category type",
+              "value": "energy",
+              "mode": "exact"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Waste treatment",
+        "filter": {
+          "classifications": [
+            {
+              "system": "Category type",
+              "value": "waste treatment",
+              "mode": "exact"
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

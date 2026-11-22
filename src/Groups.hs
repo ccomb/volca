@@ -41,6 +41,7 @@ module Groups (
     maxGroups,
     GroupIndex (..),
     groupNamed,
+    candidateCriteria,
 
     -- * Which process goes where
     Assignment,
@@ -48,6 +49,8 @@ module Groups (
     firstGroup,
     assignment,
     unassigned,
+    groupOfProcess,
+    processesOfGroup,
 
     -- * The parts
     Scalings,
@@ -65,9 +68,11 @@ module Groups (
     assembled,
 ) where
 
-import Control.Monad (forM)
+import Control.Monad (forM, join)
+import Data.Char (isDigit)
 import Data.Either (partitionEithers)
-import Data.List (findIndex)
+import Data.Function (on)
+import Data.List (findIndex, nubBy, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -190,6 +195,42 @@ groupNamed gs name =
         (Right . GroupIndex)
         (findIndex ((== name) . groupName) (groupList gs))
 
+{- | What a process could be grouped by, each with the name its group would
+take, the narrowest first: its product; a code by each of its prefixes down
+to two digits (@6511: Road transport@ by 6511, 651 and 65); a value that is
+neither code nor path as it is (a SimaPro category type); a path by each of
+its levels, before the path a source files whole databases under.
+-}
+candidateCriteria :: [Text] -> M.Map Text Text -> [(Text, Criteria)]
+candidateCriteria products classes =
+    nubBy ((==) `on` snd) $
+        [(p, (classified []){crProduct = Just p}) | p <- take 1 (filter (not . T.null) (map T.strip products))]
+            ++ concatMap snd (sortOn fst [reading system (T.strip value) | (system, value) <- M.toList classes, not (T.null (T.strip value))])
+  where
+    reading :: Text -> Text -> (ValueShape, [(Text, Criteria)])
+    reading system value
+        | (digits, rest) <- T.span isDigit value
+        , not (T.null digits)
+        , ":" `T.isPrefixOf` T.stripStart rest =
+            (Coded, [(system <> " " <> code, classified [ClassificationFilter system code MatchPrefix]) | n <- [T.length digits, T.length digits - 1 .. min 2 (T.length digits)], let code = T.take n digits])
+        -- A backslash first: a SimaPro path may hold a slash inside one of its levels.
+        | sep : _ <- filter (`T.isInfixOf` value) ["\\", "/"] =
+            let parts = T.splitOn sep value
+             in ( Path
+                , [ (level, classified [ClassificationFilter system level MatchExact, ClassificationFilter system (level <> sep) MatchPrefix])
+                  | n <- [length parts, length parts - 1 .. 1]
+                  , let level = T.intercalate sep (take n parts)
+                  ]
+                )
+        | otherwise = (Plain, [(value, classified [ClassificationFilter system value MatchExact])])
+
+    classified :: [ClassificationFilter] -> Criteria
+    classified kept = Criteria{crName = Nothing, crProduct = Nothing, crLocation = Nothing, crClassifications = ClassificationFilters{cfKept = kept, cfLeftOut = []}}
+
+-- | How a classification value reads, in the order its levels are offered.
+data ValueShape = Coded | Plain | Path
+    deriving (Eq, Ord)
+
 -- | The first group whose filter an activity answers.
 firstGroup :: Geographies -> Database -> Groups -> Activity -> Maybe GroupIndex
 firstGroup geographies db gs activity = GroupIndex <$> findIndex (answers . criteriaOf . groupFilterOf) (groupList gs)
@@ -216,6 +257,25 @@ assignment groupOf root db =
              , Just pid /= root
              , Just g <- [groupOf (dbActivities db V.! fromIntegral pid)]
              ]
+
+-- | The group a process of the solution goes to, if any.
+groupOfProcess :: Assigned -> Scalings -> (Text, ProcessId) -> Maybe GroupIndex
+groupOfProcess assigned scalings (name, p) = do
+    (d, _) <- M.lookup name scalings
+    asg <- M.lookup name (assignedColumns assigned)
+    column <- dbActivityIndex d V.!? fromIntegral p
+    join (asg V.!? fromIntegral column)
+
+-- | The processes the solution reaches that go to a group, by database and column.
+processesOfGroup :: Assigned -> Scalings -> GroupIndex -> [(Text, Int)]
+processesOfGroup assigned scalings g =
+    [ (name, column)
+    | (name, (_, v)) <- M.toList scalings
+    , Just asg <- [M.lookup name (assignedColumns assigned)]
+    , (column, x) <- zip [0 ..] (U.toList v)
+    , x /= 0
+    , asg V.!? column == Just (Just g)
+    ]
 
 -- | No process of the database in any group, as in a database whose detail is withheld.
 unassigned :: Database -> Assignment

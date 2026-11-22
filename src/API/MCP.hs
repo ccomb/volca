@@ -57,9 +57,9 @@ import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupContributionsOf, groupMembersOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
+import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupMembersRequest (..), GroupSpec, GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec, GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
@@ -830,10 +830,12 @@ dispatchTool Caller{callerReader = reader, callerAuthor = by} dbManager presets 
     R.GetContributingActivities -> callGetContributingActivities dbManager mBaseUrl rid args
     R.GetGroupContributions -> callGetGroupContributions dbManager rid args
     R.GetGroupMembers -> callGetGroupMembers dbManager mBaseUrl rid args
+    R.GetGroupCandidates -> callGetGroupCandidates dbManager rid args
     R.GetScoreContributingFlows -> callGetScoreContributingFlows dbManager mBaseUrl rid args
     R.GetScoreContributingActivities -> callGetScoreContributingActivities dbManager mBaseUrl rid args
     R.ListGeographies -> callListGeographies dbManager rid args
     R.ListClassifications -> withDb dbManager rid args $ callListClassifications rid args
+    R.ListGroupSets -> withDb dbManager rid args $ \(db, _) -> pure (either (toolError rid) (toolSuccessJson rid . toJSON) (groupSetsOf db))
     R.GetPathTo -> callGetPathTo dbManager rid args
     R.GetConsumers -> withDb dbManager rid args $ callGetConsumers (DM.managerGeographies dbManager) presets rid args
     R.CompareImpacts -> callCompareImpacts dbManager rid args
@@ -2786,6 +2788,7 @@ groupFailureText :: GroupFailure -> Text
 groupFailureText (GroupsMisread why) = why
 groupFailureText (GroupsRefused why) = why
 groupFailureText (GroupScoringFailed why) = why
+groupFailureText (GroupsWithheld why) = why
 
 callGetGroupContributions :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetGroupContributions dbManager rid args =
@@ -2828,6 +2831,26 @@ callGetGroupMembers dbManager mBaseUrl rid args =
         result <- liftIO (groupMembersOf dbManager root (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
         GroupMembers{gmSolution = sol, gmParts = parts} <- either (throwE . groupFailureText) pure result
         processesAnswer dbManager mBaseUrl rid req lim sol parts
+
+callGetGroupCandidates :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callGetGroupCandidates dbManager rid args =
+    runTool rid $ do
+        req <- loadLcaRequest dbManager args
+        (attribution, specs) <- except (groupsArgs args)
+        candidate <- except (requireText "candidate" args)
+        let ld = lrLoaded req
+            root =
+                GroupRoot
+                    { grName = lrDbName req
+                    , grDatabase = ldDatabase ld
+                    , grSolver = ldSharedSolver ld
+                    , grProcess = raPid (lrResolved req)
+                    , grFunctionalUnit = raFunctionalUnit (lrResolved req)
+                    , grLongTerm = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
+                    , grCollection = lrCollection req
+                    }
+        result <- liftIO (groupCandidatesOf dbManager root (lrMethod req) (GroupCandidatesRequest attribution specs candidate))
+        either (throwE . groupFailureText) (pure . toolSuccessJson rid . toJSON) result
 
 -- | One score of a scoring set, with the activity it is asked of, solved.
 data ScoreRequest = ScoreRequest
