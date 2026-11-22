@@ -14,6 +14,7 @@ buys 1 D2 (emits 11). The score is 3 + 2·(5 + 7 + 11) = 49.
 -}
 module GroupsSpec (spec) where
 
+import Control.Monad (forM)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -25,10 +26,11 @@ import Test.Hspec
 import CrossDBRegionalLCIAFixture (kgUnitConfig, linkAt, mkDB)
 import DependencyLicenceSpec (referenceOf)
 import Groups
-import Matrix (buildDemandVector)
-import SharedSolver (CrossDBSolution (..), DepSolverLookup, Reached (..), SharedSolver, computeInventoryMatrixWithDepsCached)
-import TestHelpers (mkSolverFromDb)
+import Matrix (Demand (..), buildDemandVector)
+import SharedSolver (CrossDBSolution (..), DepSolverLookup, Reached (..), SharedSolver, chainWeights, computeInventoryMatrixWithDepsCached, goWithDeps, weightAt)
+import TestHelpers (mkSolverFromDb, unitDef)
 import Types hiding (Attribution)
+import UnitConversion (defaultDimensionOrder, mkUnitConfig)
 
 -- | A database whose processes each produce one unit of their own product.
 producing :: Int -> [(Int, Double)] -> [SparseTriple] -> Database
@@ -152,6 +154,29 @@ spec = do
                 reached = Reached "R" linkedRoot (U.fromList [1, 1]) :| [Reached "D" looped (U.fromList [2, 2, 2])]
             databaseCycle reached `shouldBe` Just ["R", "D", "R"]
             databaseCycle (Reached "R" linkedRoot (U.fromList [1, 1]) :| [Reached "D" linkedDep (U.fromList [2, 2, 2])]) `shouldBe` Nothing
+
+    describe "every process weighed across linked databases" $
+        it "weighs each process as solving for one unit of it, its dependencies included, does" $ do
+            -- R buys from D, and in grams from E; D and E both buy from F.
+            let f = producing 1000 [(0, 1), (1, 1)] [SparseTriple 1 0 0.5]
+                d = linkAt (producing 1100 [(0, 1), (1, 1)] [SparseTriple 1 0 0.3, SparseTriple 0 1 0.2]) f "F" 1 2
+                e = linkAt (producing 1200 [(0, 1)] []) f "F" 0 3
+                inGrams db = db{dbCrossDBLinks = map (\link -> link{cdlExchangeUnit = "g"}) (dbCrossDBLinks db)}
+                r = linkAt (inGrams (linkAt (producing 1300 [(0, 1), (1, 1)] [SparseTriple 1 0 1]) e "E" 0 500)) d "D" 1 4
+                withGrams = mkUnitConfig defaultDimensionOrder (M.fromList [("kg", unitDef "mass" 1), ("g", unitDef "mass" 0.001)])
+            loaded <- forM [("R", r), ("D", d), ("E", e), ("F", f)] $ \(name, db) -> (\solver -> (name, (db, solver))) <$> mkSolverFromDb db name
+            let deps name = pure (lookup name loaded)
+                alone = M.fromList [(name, U.generate (fromIntegral (dbActivityCount db)) (\c -> fromIntegral (3 + 7 * c + 11 * k))) | (k, (name, (db, _))) <- zip [0 :: Int ..] loaded]
+            weights <- either (error . T.unpack) id <$> chainWeights withGrams deps alone "R"
+            M.keys weights `shouldBe` ["D", "E", "F", "R"]
+            pairs <- fmap concat . forM loaded $ \(name, (db, solver)) -> do
+                let n = fromIntegral (dbActivityCount db)
+                forM [0 .. n - 1] $ \c -> do
+                    [answer] <- goWithDeps withGrams deps db name solver [Right (Demand (U.generate n (\i -> if i == c then 1 else 0)))] 0
+                    let solvedOnce = either (error . T.unpack) (scoreFromPerUnit alone . summedByName . csScalings) answer
+                    pure (M.lookup name weights >>= \(_, w) -> weightAt w c, solvedOnce)
+            map fst pairs `shouldNotContain` [Nothing]
+            concatMap (maybe [] pure . fst) pairs `closeTo` map snd pairs
 
     describe "which process goes where" $ do
         it "never puts the root in a group" $ do

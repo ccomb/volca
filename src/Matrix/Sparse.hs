@@ -21,6 +21,9 @@ module Matrix.Sparse (
     Unsolvable (..),
     factorize,
     solve,
+    Weights,
+    weigh,
+    weightAt,
     Extent (..),
     extent,
 ) where
@@ -28,6 +31,7 @@ module Matrix.Sparse (
 import Control.DeepSeq (NFData (..), rwhnf)
 import Control.Monad (unless, when)
 import Control.Monad.ST (ST, runST)
+import Data.Maybe (fromMaybe)
 import Data.Primitive.PrimArray
 import Data.Primitive.SmallArray
 import qualified Data.Vector.Unboxed as U
@@ -593,3 +597,96 @@ solveKnot lu asked first = do
             writePrimArray asked (first + place) supplied
             subtractScaled asked first (stretch (upper lu) (upperValue lu) place) supplied
         ascend (place - 1)
+
+{- | What one unit of each process weighs with its whole supply chain, by
+column: its own weight, plus what it takes from each supplier times what one
+unit of that supplier weighs. 'solve' answers one demand at a time; this
+answers every process at once, in one pass over the same factors, the first
+knot first: it solves the transposed system.
+-}
+newtype Weights = Weights (U.Vector Double)
+
+{- | The weight of the process at a column. None when its own weight is
+unknown, when it takes from a process whose weight is, or when its supply
+chain reaches a process that cannot be solved for: where 'solve' refuses the
+demand of one unit of it.
+-}
+weightAt :: Weights -> Int -> Maybe Double
+weightAt (Weights byColumn) column = case byColumn U.!? column of
+    Just weight | not (isNaN weight || isInfinite weight) -> Just weight
+    _ -> Nothing
+
+{- | The weight of every process, from what each weighs alone, by column, if
+that is known. An unknown weight is carried as a NaN, which every sum and
+product it enters keeps; 'weightAt' is the only way out, and turns it back
+into none.
+-}
+weigh :: Factors -> (Int -> Maybe Double) -> Weights
+weigh factors own = Weights $ runST $ do
+    weights <- newPrimArray count
+    forRange 0 count (\place -> writePrimArray weights place (fromMaybe unknown (own (indexPrimArray (columnAt factors) place))))
+    ascend weights 0 0
+    byColumn <- MU.unsafeNew count
+    forRange 0 count (\place -> readPrimArray weights place >>= MU.unsafeWrite byColumn (indexPrimArray (columnAt factors) place))
+    U.unsafeFreeze byColumn
+  where
+    count :: Int
+    count = size factors
+    unknown :: Double
+    unknown = 0 / 0
+    -- From the first knot to the last: a knot only ever takes from earlier ones.
+    ascend :: forall s. MutablePrimArray s Double -> Int -> Int -> ST s ()
+    ascend weights !nth !start
+        | nth >= sizeofSmallArray (knots factors) = pure ()
+        | otherwise = case indexSmallArray (knots factors) nth of
+            Alone inverse -> do
+                takenFromEarlier weights start
+                readPrimArray weights start >>= writePrimArray weights start . (* inverse)
+                ascend weights (nth + 1) (start + 1)
+            Looped held lu -> do
+                forRange start (start + held) (takenFromEarlier weights)
+                weighKnot lu weights start
+                ascend weights (nth + 1) (start + held)
+            Refused held _ -> do
+                forRange start (start + held) (\place -> writePrimArray weights place unknown)
+                ascend weights (nth + 1) (start + held)
+    -- What a place takes from earlier knots, at their weights, comes off what it is asked.
+    takenFromEarlier :: MutablePrimArray s Double -> Int -> ST s ()
+    takenFromEarlier weights place = do
+        let Links from values = between factors
+        taken <- gathered weights 0 (stretch from values place)
+        readPrimArray weights place >>= writePrimArray weights place . subtract taken
+
+{- | The weights of a knot from what is asked of it, in place: up through the
+transpose of U, then down through that of L. Each column of U or L read whole
+is a row of its transpose.
+-}
+weighKnot :: forall s. LU -> MutablePrimArray s Double -> Int -> ST s ()
+weighKnot lu weights first = do
+    forRange 0 count $ \place -> do
+        taken <- gathered weights first (stretch (upper lu) (upperValue lu) place)
+        asked <- readPrimArray weights (first + place)
+        writePrimArray weights (first + place) ((asked - taken) * indexPrimArray (reciprocal lu) place)
+    down (count - 1)
+  where
+    count :: Int
+    count = sizeofPrimArray (reciprocal lu)
+    down :: Int -> ST s ()
+    down !place = when (place >= 0) $ do
+        taken <- gathered weights first (stretch (lower lu) (lowerValue lu) place)
+        readPrimArray weights (first + place) >>= writePrimArray weights (first + place) . subtract taken
+        down (place - 1)
+
+{- | @Σ value × target[offset + item]@ along a stretch of finished factors:
+what a transposed solve gathers where 'subtractScaled' scatters.
+-}
+gathered :: forall s. MutablePrimArray s Double -> Int -> Stretch (PrimArray Double) -> ST s Double
+gathered target !offset (Stretch items values (Span from to)) = go from 0
+  where
+    go :: Int -> Double -> ST s Double
+    go !at !sofar
+        | at >= to = pure sofar
+        | otherwise = do
+            weight <- readPrimArray target (offset + indexPrimArray items at)
+            go (at + 1) (sofar + indexPrimArray values at * weight)
+{-# NOINLINE gathered #-}
