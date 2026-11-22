@@ -18,8 +18,7 @@ and through MCP for AI assistants.
   openLCA JSON-LD and Brightway Excel, straight from a `.zip`, `.7z`, `.gz` or
   `.xz` archive.
 - **Holds several databases at once and links them**, even across
-  nomenclatures: a sector database can buy its electricity from Agribalyse or
-  ecoinvent.
+  nomenclatures: a sector database can buy its ingredients from Agribalyse.
 - **Walks the supply chain**: upstream tree and graph, a flat upstream list with
   filters, the consumers downstream, the shortest path to a supplier, and a
   breakdown by ISIC or CPC classification.
@@ -51,7 +50,7 @@ and through MCP for AI assistants.
 
 The engine is a computation layer: you bring the interface. The
 [hosted VoLCA app](https://app.volca.run/) is one example of what can be built
-on it: a web interface in which each workspace runs its own engine. The
+on it: a web interface over a managed instance of the engine. The
 [desktop app](https://www.volca.run/desktop/) is another, the same interface on
 your own machine. The [runnable examples](https://www.volca.run/examples/) are
 Python scripts that import, substitute, compare and export through the engine,
@@ -73,22 +72,27 @@ iwr -useb https://raw.githubusercontent.com/ccomb/volca/main/install.ps1 | iex
 ```
 
 The installer downloads the latest release and its reference data, checks both
-against their checksums, and puts a `volca` command in `~/.local/bin`. The
+against their checksums, and puts a `volca` command in `~/.local/bin` (on
+Windows, `%LOCALAPPDATA%\volca\bin`). The
 binaries are also on the [releases page](https://github.com/ccomb/volca/releases).
 The Python client is `pip install pyvolca`. To build from source, see
 [docs/building.md](docs/building.md).
 
-## Quick start
+## Getting started
 
 Describe your databases and method collections in a TOML file. The
 [`volca.toml`](volca.toml) of this repository is a commented starting point;
-the smallest useful one names one database:
+the smallest useful one names a database and a method collection:
 
 ```toml
 [[databases]]
 name = "agribalyse"
 path = "DBs/agribalyse.csv"
 load = true
+
+[[methods]]
+name = "EF-3.1"
+path = "DBs/EF-3.1.zip"
 ```
 
 Start the server once: it loads the databases into memory. Then query it from
@@ -147,8 +151,8 @@ peak, not on what the data weighs.
 The full documentation is on the site, at
 **[www.volca.run/docs](https://www.volca.run/docs/)**:
 
-- [First steps](https://www.volca.run/docs/guides/entry-points/): the browser,
-  the desktop app, the CLI, the HTTP API, Python or MCP;
+- [Ways to use VoLCA](https://www.volca.run/docs/guides/entry-points/): the
+  hosted app, the desktop app, the CLI, the HTTP API, Python or MCP;
 - [Configuration](https://www.volca.run/docs/guides/configuration/): every key
   of `volca.toml`;
 - [CLI](https://www.volca.run/docs/cli/),
