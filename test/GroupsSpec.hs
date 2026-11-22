@@ -26,7 +26,7 @@ import Test.Hspec
 import CrossDBRegionalLCIAFixture (kgUnitConfig, linkAt, mkDB)
 import DependencyLicenceSpec (referenceOf)
 import Groups
-import Matrix (Demand (..), buildDemandVector)
+import Matrix (Demand (..), Vector, buildDemandVector)
 import SharedSolver (CrossDBSolution (..), DepSolverLookup, Reached (..), SharedSolver, chainWeights, computeInventoryMatrixWithDepsCached, goWithDeps, weightAt)
 import TestHelpers (mkSolverFromDb, unitDef)
 import Types hiding (Attribution)
@@ -100,6 +100,13 @@ firstMatch deps sol db root asg = do
     let demand = either (error . T.unpack) id (buildDemandVector db root)
     either (error . T.unpack) id <$> firstMatchParts (Solving kgUnitConfig deps id) sol demand (Assigned twoGroups asg)
 
+{- | The score of a part, each process's scaling times its score per unit:
+the score is linear in the scalings, so this is the score of the part without
+building its inventory.
+-}
+scoreFromPerUnit :: M.Map Text Vector -> Scalings -> Double
+scoreFromPerUnit perUnit part = sum (M.intersectionWith (\unitScores (_, v) -> U.sum (U.zipWith (*) unitScores v)) perUnit part)
+
 spec :: Spec
 spec = do
     describe "a loop of two groups" $ do
@@ -155,7 +162,7 @@ spec = do
             databaseCycle reached `shouldBe` Just ["R", "D", "R"]
             databaseCycle (Reached "R" linkedRoot (U.fromList [1, 1]) :| [Reached "D" linkedDep (U.fromList [2, 2, 2])]) `shouldBe` Nothing
 
-    describe "every process weighed across linked databases" $
+    describe "every process weighed across linked databases" $ do
         it "weighs each process as solving for one unit of it, its dependencies included, does" $ do
             -- R buys from D, and in grams from E; D and E both buy from F.
             let f = producing 1000 [(0, 1), (1, 1)] [SparseTriple 1 0 0.5]
@@ -177,6 +184,16 @@ spec = do
                     pure (M.lookup name weights >>= \(_, w) -> weightAt w c, solvedOnce)
             map fst pairs `shouldNotContain` [Nothing]
             concatMap (maybe [] pure . fst) pairs `closeTo` map snd pairs
+
+        it "leaves out a link that carries no amount, as a solve does, whatever its unit" $ do
+            let f = producing 1000 [(0, 1)] []
+                inFurlongs db = db{dbCrossDBLinks = map (\link -> link{cdlExchangeUnit = "furlong"}) (dbCrossDBLinks db)}
+                r = inFurlongs (linkAt (producing 1300 [(0, 1), (1, 1)] [SparseTriple 1 0 1]) f "F" 0 0)
+            loaded <- forM [("R", r), ("F", f)] $ \(name, db) -> (\solver -> (name, (db, solver))) <$> mkSolverFromDb db name
+            let deps name = pure (lookup name loaded)
+                alone = M.fromList [("R", U.fromList [2, 3]), ("F", U.fromList [5])]
+            weights <- either (error . T.unpack) id <$> chainWeights kgUnitConfig deps alone "R"
+            [M.lookup "R" weights >>= \(_, w) -> weightAt w c | c <- [0, 1]] `shouldBe` [Just 5, Just 3]
 
     describe "which process goes where" $ do
         it "never puts the root in a group" $ do

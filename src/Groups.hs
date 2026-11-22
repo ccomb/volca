@@ -62,7 +62,6 @@ module Groups (
     entryParts,
     everyProcessOnce,
     perUnitByColumn,
-    scoreFromPerUnit,
     assembled,
 ) where
 
@@ -393,10 +392,15 @@ entryParts :: M.Map Text (Database, Weights) -> Scalings -> Either Text [((Text,
 entryParts weights taken = concat <$> traverse entriesIn (M.toList taken)
   where
     entriesIn :: (Text, (Database, Vector)) -> Either Text [((Text, ProcessId), Double)]
-    entriesIn (name, (db, y)) = traverse entry [(column, v) | (column, v) <- zip [0 ..] (U.toList y), v /= 0]
+    entriesIn (name, (db, y)) = case M.lookup name weights of
+        Nothing -> Left ("The database '" <> name <> "' is no longer loaded.")
+        Just (_, w) -> traverse (entry w) [(column, v) | (column, v) <- zip [0 ..] (U.toList y), v /= 0]
       where
+        processes :: V.Vector ProcessId
         processes = processesByColumn db
-        entry (column, v) = case M.lookup name weights >>= \(_, w) -> weightAt w column of
+
+        entry :: Weights -> (Int, Double) -> Either Text ((Text, ProcessId), Double)
+        entry w (column, v) = case weightAt w column of
             Just weight -> Right ((name, processes V.! column), v * weight)
             Nothing ->
                 Left
@@ -404,7 +408,7 @@ entryParts weights taken = concat <$> traverse entriesIn (M.toList taken)
                         <> processIdToText db (processes V.! column)
                         <> " of '"
                         <> name
-                        <> "' has no score per unit: its supply chain reaches a process that cannot be solved for, or a link to another database whose unit cannot be converted."
+                        <> "' has no score per unit: its upstream processes reach one that cannot be solved for, or a link to another database whose unit cannot be converted."
                     )
 
 {- | Every process of each database at one unit: each process's own part of
@@ -421,13 +425,6 @@ perUnitByColumn reached perUnit = M.mapWithKey columns reached
   where
     columns :: Text -> (Database, Vector) -> Vector
     columns name (db, _) = let processes = processesByColumn db in U.generate (V.length processes) (\c -> M.findWithDefault 0 (name, processes V.! c) perUnit)
-
-{- | The score of a part, each process's scaling times its score per unit:
-the score is linear in the scalings, so this is the score of the part without
-building its inventory.
--}
-scoreFromPerUnit :: M.Map Text Vector -> Scalings -> Double
-scoreFromPerUnit perUnit part = sum (M.intersectionWith (\unitScores (_, v) -> U.sum (U.zipWith (*) unitScores v)) perUnit part)
 
 -- | The process of each column of a database's matrix.
 processesByColumn :: Database -> V.Vector ProcessId

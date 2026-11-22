@@ -678,7 +678,9 @@ weighKnot lu weights first = do
         down (place - 1)
 
 {- | @Σ value × target[offset + item]@ along a stretch of finished factors:
-what a transposed solve gathers where 'subtractScaled' scatters.
+what a transposed solve gathers where 'subtractScaled' scatters. A stored zero
+(duplicates that cancel) carries nothing, not even an unknown weight, since a
+solve asks nothing through it.
 -}
 gathered :: forall s. MutablePrimArray s Double -> Int -> Stretch (PrimArray Double) -> ST s Double
 gathered target !offset (Stretch items values (Span from to)) = go from 0
@@ -687,6 +689,10 @@ gathered target !offset (Stretch items values (Span from to)) = go from 0
     go !at !sofar
         | at >= to = pure sofar
         | otherwise = do
-            weight <- readPrimArray target (offset + indexPrimArray items at)
-            go (at + 1) (sofar + indexPrimArray values at * weight)
+            let value = indexPrimArray values at
+            if value == 0
+                then go (at + 1) sofar
+                else do
+                    weight <- readPrimArray target (offset + indexPrimArray items at)
+                    go (at + 1) (sofar + value * weight)
 {-# NOINLINE gathered #-}

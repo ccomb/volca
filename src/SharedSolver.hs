@@ -52,7 +52,7 @@ import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
 import Control.DeepSeq (NFData, force)
 import Control.Exception (evaluate)
-import Control.Monad (foldM, when)
+import Control.Monad (foldM, guard, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT, throwE)
 import Data.Bifunctor (first)
@@ -504,23 +504,27 @@ chainWeights unitConfig depLookup alone root = runExceptT (weighed [] M.empty ro
         | name `elem` path = throwE ("The databases this chain reaches loop into each other (" <> T.intercalate " \8594 " (reverse (name : path)) <> ").")
         | otherwise = case M.lookup name alone of
             Nothing -> pure done
-            Just own -> lift (depLookup name) >>= maybe (pure done) (weighedWith path done name own)
-
-    weighedWith :: [Text] -> M.Map Text (Database, Weights) -> Text -> Vector -> (Database, SharedSolver) -> ExceptT Text IO (M.Map Text (Database, Weights))
-    weighedWith path done name own (db, solver) = do
-        suppliers <- foldM (weighed (name : path)) done (S.toList (S.fromList (map cdlSourceDatabase (dbCrossDBLinks db))))
-        let bought = boughtWeights db suppliers
-        weights <- ExceptT (weighWithSharedSolver solver (\column -> (+) <$> own U.!? column <*> M.findWithDefault (Just 0) column bought))
-        pure (M.insert name (db, weights) suppliers)
+            Just own ->
+                lift (depLookup name)
+                    >>= maybe
+                        (pure done)
+                        ( \(db, solver) -> do
+                            suppliers <- foldM (weighed (name : path)) done (S.toList (S.fromList (map cdlSourceDatabase (dbCrossDBLinks db))))
+                            let bought = boughtWeights db suppliers
+                            weights <- ExceptT (weighWithSharedSolver solver (\column -> (+) <$> own U.!? column <*> M.findWithDefault (Just 0) column bought))
+                            pure (M.insert name (db, weights) suppliers)
+                        )
 
     -- What one unit of each consumer takes from other databases, at the
     -- weights of its suppliers there, by column. A link whose unit cannot be
-    -- converted leaves its consumer unweighed, as a solve that reaches it is refused.
+    -- converted leaves its consumer unweighed, as a solve that reaches it is
+    -- refused; a link carrying no amount is left out, as a solve leaves it out.
     boughtWeights :: Database -> M.Map Text (Database, Weights) -> M.Map Int (Maybe Double)
     boughtWeights db suppliers = M.fromListWith (liftA2 (+)) (mapMaybe bought (dbCrossDBLinks db))
       where
         bought :: CrossDBLink -> Maybe (Int, Maybe Double)
         bought link = do
+            guard (cdlCoefficient link /= 0)
             (consumer, normFactor) <- linkConsumer db link
             (depDb, weights) <- M.lookup (cdlSourceDatabase link) suppliers
             let asked = StatedAmount{saUnit = cdlExchangeUnit link, saAmount = cdlCoefficient link / normFactor}
