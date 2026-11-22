@@ -992,7 +992,7 @@ class Group:
     and ``product`` are contained in the process's, ``location`` answers for
     its place, ``classifications`` are alternatives within one system and all
     required across systems, and ``left_out`` leaves out what it matches. The
-    engine refuses a group that sets none of them.
+    engine refuses a group that keeps nothing: ``left_out`` alone is not enough.
     """
 
     name: str
@@ -1012,16 +1012,20 @@ class Group:
     @classmethod
     def from_json(cls, d: dict) -> "Group":
         f = d["filter"]
-        classes = f.get("classifications") or []
+        # The engine reads a mode case-blind and takes "equals" for "exact"; read it as it does.
+        read = [(c, c["mode"].lower()) for c in f.get("classifications") or []]
+
+        def written(c: dict, mode: str) -> ClassificationFilter:
+            word = mode.removeprefix("not-")
+            return ClassificationFilter(c["system"], c["value"], "exact" if word == "equals" else word)
+
         return cls(
             name=d["name"],
             activity_name=f.get("name"),
             product=f.get("product"),
             location=f.get("location"),
-            classifications=tuple(ClassificationFilter(c["system"], c["value"], c["mode"]) for c in classes if not c["mode"].startswith("not-")),
-            left_out=tuple(
-                ClassificationFilter(c["system"], c["value"], c["mode"].removeprefix("not-")) for c in classes if c["mode"].startswith("not-")
-            ),
+            classifications=tuple(written(c, m) for c, m in read if not m.startswith("not-")),
+            left_out=tuple(written(c, m) for c, m in read if m.startswith("not-")),
         )
 
 

@@ -4184,7 +4184,7 @@ A process goes to the first group of the list it answers. ``activity_name``
 and ``product`` are contained in the process's, ``location`` answers for
 its place, ``classifications`` are alternatives within one system and all
 required across systems, and ``left_out`` leaves out what it matches. The
-engine refuses a group that sets none of them.
+engine refuses a group that keeps nothing: ``left_out`` alone is not enough.
 
 | Field | Type | Default |
 |-------|------|---------|

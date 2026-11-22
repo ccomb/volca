@@ -42,6 +42,12 @@ def test_a_group_reads_back_from_the_engine_as_it_is_sent():
     assert group.to_wire() == wire
 
 
+def test_a_group_reads_a_mode_as_the_engine_does():
+    group = Group.from_json({"name": "Fuel", "filter": {"classifications": [{"system": "CPC", "value": "33", "mode": "Equals"}, {"system": "CPC", "value": "333", "mode": "Not-Exact"}]}})
+    assert group.classifications == (ClassificationFilter("CPC", "33", MatchMode.EXACT),)
+    assert group.left_out == (ClassificationFilter("CPC", "333", MatchMode.EXACT),)
+
+
 def test_group_contributions_sends_the_groups_and_reads_every_line(mocked_client, make_response):
     client, session = _client(mocked_client, 119)
     session.post.return_value = make_response(
