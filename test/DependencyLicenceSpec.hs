@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 {- | What an answer reads in a database it reaches through a dependency.
@@ -31,6 +32,7 @@ import Control.Concurrent.STM (atomically, modifyTVar')
 import Control.Monad (void)
 import Data.Aeson (Object, Value (..))
 import Data.Aeson.Key (Key)
+import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Foldable (toList)
 import qualified Data.List.NonEmpty as NE
@@ -312,6 +314,27 @@ spec = do
             o <- payload =<< callOn manager "get_impacts" [("include_diagnostics", Bool True)]
             KM.lookup "withheld" o
                 `shouldBe` Just (Array (V.singleton (String "The licence of dep keeps the amounts of its exchanges to itself.")))
+
+        it "gives its processes to no group, and shows it as a line of a split between groups" $ do
+            manager <- managerWith detailKept
+            -- Every process is in France: only the root, which no group takes, and the dependency's would answer.
+            let france = Array (V.singleton (Object (KM.fromList [("name", String "France"), ("filter", Object (KM.singleton "location" (String "FR")))])))
+                score :: Value -> Maybe Value
+                score = \case
+                    Object scores -> KM.lookup (Key.fromText (UUID.toText (methodId climate))) scores
+                    _ -> Nothing
+                parts o =
+                    ( score =<< KM.lookup "total" o
+                    , score =<< KM.lookup "rest" o
+                    , [score =<< KM.lookup "scores" g | Just (Array gs) <- [KM.lookup "groups" o], Object g <- toList gs]
+                    , [(KM.lookup "database" w, score =<< KM.lookup "scores" w) | Just (Array ws) <- [KM.lookup "withheldDatabases" o], Object w <- toList ws]
+                    )
+            mapM_
+                ( \reading -> do
+                    o <- payload =<< callOn manager "get_group_contributions" [("groups", france), ("attribution", String reading)]
+                    parts o `shouldBe` (Just (Number 21), Just (Number 1), [Just (Number 0)], [(Just (String "dep"), Just (Number 20))])
+                )
+                ["first-match", "own"]
 
     describe "under a dependency keeping its amounts" $ do
         it "refuses the inventory over REST and MCP" $ do
