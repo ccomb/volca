@@ -838,8 +838,9 @@ Builds a ``DeleteSelectionRequest``: the filter fields select the whole
 matching set, ``keep`` spares matched process ids, and ``extra`` adds
 ones the filter missed. ``classifications`` is a list of
 ``{"system", "value", "mode"}`` dicts or ``(system, value, mode)``
-tuples, ``mode`` being ``contains``, ``exact``, ``not-contains`` or
-``not-exact``; the negative two leave out what they match. The older
+tuples, ``mode`` being ``contains``, ``exact``, ``starts-with``,
+``not-contains``, ``not-exact`` or ``not-starts-with``; the ``not-``
+forms leave out what they match. The older
 ``exact`` flag is still read in place of ``mode``.
 
 ``exclude_name`` and ``exclude_location`` leave out the processes whose
@@ -1212,7 +1213,7 @@ Args:
     max_depth: Max hops from supplier. 1 = direct consumers only.
     classification_filters: ClassificationFilter entries restricting
         the results. Multiple filters are AND-combined by the server.
-        Mode is `MatchMode.EXACT` or `MatchMode.CONTAINS`.
+        Mode is a `MatchMode` member.
     sort: Sort key: ``"name"``, ``"location"``, ``"product"``,
         ``"amount"``, or ``"unit"``. Default orders by depth.
     order: ``"desc"`` to reverse; ascending otherwise.
@@ -1858,8 +1859,9 @@ Args:
     classification: System name (``"ISIC rev.4 ecoinvent"``).
     classification_value: Substring within that system's value.
     classification_match: How ``classification_value`` is compared:
-        `MatchMode.CONTAINS` (default, substring) or
-        `MatchMode.EXACT` (case-insensitive equality). Ignored
+        `MatchMode.CONTAINS` (default, substring),
+        `MatchMode.EXACT` (case-insensitive equality) or
+        `MatchMode.STARTS_WITH` (a code and those under it). Ignored
         when ``classification`` is unset.
     page: 1-based page number. Must be paired with ``page_size``:
         offset cannot be derived from page alone.
@@ -2193,9 +2195,11 @@ serialises as the bare wire string.
 How a `ClassificationFilter` value is compared against the entry.
 
 ``EXACT``: case-insensitive equality. ``CONTAINS``: case-insensitive
-substring. Inherits from `str` so ``json.dumps(MatchMode.EXACT)``
-and ``dataclasses.asdict(filter)["mode"]`` both serialise as the bare
-string ``"exact"`` / ``"contains"``.
+substring. ``STARTS_WITH``: the value as the start of the entry's, so a
+code takes the codes under it (``"49"`` takes ``"4923:Freight transport
+by road"``, not ``"1049: …"``). Inherits from `str` so
+``json.dumps(MatchMode.EXACT)`` and ``dataclasses.asdict(filter)["mode"]``
+both serialise as the bare string ``"exact"`` / ``"contains"``.
 
 ### `Server`
 

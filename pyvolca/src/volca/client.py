@@ -253,8 +253,8 @@ def _coerce_class_filter(c: dict | tuple) -> dict:
 
     Accepts a ``{"system", "value", "mode"?}`` dict or a
     ``(system, value, mode?)`` tuple, ``mode`` being one of ``contains``,
-    ``exact``, ``not-contains`` or ``not-exact`` (the engine refuses any other
-    word). The earlier ``exact`` flag is still read, as a bool in a dict or in
+    ``exact``, ``starts-with``, ``not-contains``, ``not-exact`` or
+    ``not-starts-with`` (the engine refuses any other word). The earlier ``exact`` flag is still read, as a bool in a dict or in
     the tuple's third place, and means ``exact`` or ``contains``; an entry that
     gives both it and a mode is ambiguous and refused. With neither, the mode
     is ``contains``. The wire always carries the mode, never the flag.
@@ -1166,8 +1166,9 @@ class Client:
         matching set, ``keep`` spares matched process ids, and ``extra`` adds
         ones the filter missed. ``classifications`` is a list of
         ``{"system", "value", "mode"}`` dicts or ``(system, value, mode)``
-        tuples, ``mode`` being ``contains``, ``exact``, ``not-contains`` or
-        ``not-exact``; the negative two leave out what they match. The older
+        tuples, ``mode`` being ``contains``, ``exact``, ``starts-with``,
+        ``not-contains``, ``not-exact`` or ``not-starts-with``; the ``not-``
+        forms leave out what they match. The older
         ``exact`` flag is still read in place of ``mode``.
 
         ``exclude_name`` and ``exclude_location`` leave out the processes whose
@@ -2388,8 +2389,9 @@ class Client:
             classification: System name (``"ISIC rev.4 ecoinvent"``).
             classification_value: Substring within that system's value.
             classification_match: How ``classification_value`` is compared:
-                :class:`MatchMode.CONTAINS` (default, substring) or
-                :class:`MatchMode.EXACT` (case-insensitive equality). Ignored
+                :class:`MatchMode.CONTAINS` (default, substring),
+                :class:`MatchMode.EXACT` (case-insensitive equality) or
+                :class:`MatchMode.STARTS_WITH` (a code and those under it). Ignored
                 when ``classification`` is unset.
             page: 1-based page number. Must be paired with ``page_size``:
                 offset cannot be derived from page alone.
@@ -2752,10 +2754,10 @@ class Client:
             aggregate: :class:`AggregateOp` member or wire string
                 (``"sum_quantity"`` by default, ``"count"``, or ``"share"``).
         """
-        # filter_classification goes over the wire as "System=Value[:exact]" strings.
+        # filter_classification goes over the wire as "System=Value[:exact|:starts-with]" strings.
         if filter_classification:
             filter_strings = [
-                f"{f.system}={f.value}" + (":exact" if f.mode is MatchMode.EXACT else "")
+                f"{f.system}={f.value}" + ("" if f.mode is MatchMode.CONTAINS else f":{f.mode.value}")
                 for f in filter_classification
             ]
         else:
@@ -2816,7 +2818,7 @@ class Client:
             max_depth: Max hops from supplier. 1 = direct consumers only.
             classification_filters: ClassificationFilter entries restricting
                 the results. Multiple filters are AND-combined by the server.
-                Mode is :class:`MatchMode.EXACT` or :class:`MatchMode.CONTAINS`.
+                Mode is a :class:`MatchMode` member.
             sort: Sort key: ``"name"``, ``"location"``, ``"product"``,
                 ``"amount"``, or ``"unit"``. Default orders by depth.
             order: ``"desc"`` to reverse; ascending otherwise.

@@ -104,6 +104,7 @@ def fixture_spec() -> dict[str, Any]:
                         {"name": "max_depth", "in": "query", "required": False, "schema": {"type": "integer"}},
                         {"name": "filter_name", "in": "query", "required": False, "schema": {"type": "string"}},
                         {"name": "preset", "in": "query", "required": False, "schema": {"type": "string"}},
+                        {"name": "filter_classification", "in": "query", "required": False, "schema": {"type": "array", "items": {"type": "string"}}},
                     ],
                 },
             },
