@@ -10,7 +10,7 @@ import Data.Primitive.PrimArray (primArrayFromList, primArrayToList)
 import qualified Data.Set as S
 import qualified Data.Vector.Unboxed as U
 import Matrix.Dense (factorLU, solveLU)
-import Matrix.Sparse (Extent (..), Unsolvable (..), extent, factorize, solve)
+import Matrix.Sparse (Extent (..), Unsolvable (..), extent, factorize, solve, weigh, weightAt)
 import Matrix.Sparse.Arrays (Lists (..))
 import Matrix.Sparse.Order (Elimination (..), eliminate, loops)
 import Test.Hspec
@@ -130,6 +130,27 @@ spec = do
             -- Process 0 takes back all it makes, 1 takes from it, 2 from nobody.
             let lone = factorize 3 (U.fromList [SparseTriple 0 0 1, SparseTriple 0 1 0.5])
              in (solve lone (U.fromList [0, 1, 0]), solve lone (U.fromList [0, 0, 1])) `shouldBe` (Left (Singular 0), Right (U.fromList [0, 0, 1]))
+
+    describe "every process weighed at once" $ do
+        it "weighs each process as solving for one unit of it, then weighing what it takes, does" $
+            forAll asked $ \(n, triples, alone) ->
+                let factors = factorize n (U.fromList triples)
+                    costs = U.fromList alone
+                    weights = weigh factors (Just . (costs U.!))
+                    one at = U.generate n (\i -> if i == at then 1 else 0)
+                    agrees at = case (solve factors (one at), weightAt weights at) of
+                        (Right supplied, Just weight) ->
+                            let parts = U.zipWith (*) costs supplied
+                             in abs (weight - U.sum parts) <= 1e-9 * (1 + U.sum (U.map abs parts))
+                        _ -> False
+                 in counterexample (show [(at, solve factors (one at), weightAt weights at) | at <- [0 .. n - 1]]) (all agrees [0 .. n - 1])
+        it "weighs no process whose supply chain reaches one that cannot be solved for, or whose own weight is unknown" $
+            -- The technosphere above with a loop that cannot be solved: 0 and 1
+            -- feed each other whole, 0 takes from 5, 2 takes from 0, 3 from 4.
+            let stuck = factorize 6 (U.fromList [SparseTriple 0 1 1, SparseTriple 1 0 1, SparseTriple 5 0 0.5, SparseTriple 0 2 0.5, SparseTriple 4 3 0.5])
+                weighed alone = map (weightAt (weigh stuck alone)) [0 .. 5]
+             in (weighed (const (Just 1)), weighed (\column -> if column == 4 then Nothing else Just 1))
+                    `shouldBe` ([Nothing, Nothing, Nothing, Just 1.5, Just 1, Just 1], [Nothing, Nothing, Nothing, Nothing, Nothing, Just 1])
 
     describe "what a factorisation holds" $ do
         it "counts one loop for processes that feed each other, and the entries left between the others" $

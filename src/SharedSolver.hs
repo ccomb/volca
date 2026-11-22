@@ -40,23 +40,32 @@ module SharedSolver (
     maxDepsDepth,
     mergeSolutions,
     prepareDepDemandVecs,
+
+    -- * Every process weighed at once
+    Weights,
+    weightAt,
+    weighWithSharedSolver,
+    chainWeights,
 ) where
 
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, readMVar)
 import Control.DeepSeq (NFData, force)
 import Control.Exception (evaluate)
-import Control.Monad (when)
+import Control.Monad (foldM, guard, when)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Except (ExceptT (..), runExceptT, throwE)
 import Data.Bifunctor (first)
 import Data.Either (rights)
 import Data.List (transpose)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import EcoSpold.Common (acrossCapabilities)
 import Matrix (
@@ -69,10 +78,12 @@ import Matrix (
     buildDemandVector,
     countingSolve,
     depDemandsToVector,
+    inSupplierUnit,
+    linkConsumer,
     unsolvableText,
  )
 import Matrix.Dense (LU, factorLU, solveLU)
-import Matrix.Sparse (Extent (..), Factors, Unsolvable, extent, factorize, solve)
+import Matrix.Sparse (Extent (..), Factors, Unsolvable, Weights, extent, factorize, solve, weigh, weightAt)
 import Method.Mapping (LongTermMode (..))
 import Progress
 import Types
@@ -203,6 +214,18 @@ solveWhereAsked solver why demands = countingSolve $ do
     -- they would all be computed afterwards, on the one thread that reads them,
     -- and a refusal would hold on to whatever @why@ reads, a whole database.
     acrossCapabilities (either (pure . Left) (evaluate . force . first why . answered solver factors)) demands
+
+{- | What one unit of each process weighs with its whole supply chain, from
+what each weighs alone, by column: one pass over the factors for every process,
+where solving for each would take one solve apiece. Refused for a corrected
+solver, whose transpose would need a correction of its own.
+-}
+weighWithSharedSolver :: SharedSolver -> (Int -> Maybe Double) -> IO (Either Text Weights)
+weighWithSharedSolver solver own = case solverCorrection solver of
+    Just _ -> pure (Left ("The solver of '" <> solverDbName solver <> "' carries a change of columns, which processes are not weighed through."))
+    Nothing -> countingSolve $ do
+        factors <- factorsOf solver
+        Right <$> evaluate (weigh factors own)
 
 {- | Why a solver refused a demand, for whoever made it: the database, since a
 supply chain crosses several, and the process in the way.
@@ -460,3 +483,56 @@ resolveDep unitConfig depLookup perRootDepDemands depth depDbName = do
         Just (depDb, depSolver) ->
             map (fmap Just)
                 <$> goWithDeps unitConfig depLookup depDb depDbName depSolver (map (>>= depDemandVector unitConfig depDbName depDb) perRootDepDemands) (depth + 1)
+
+{- | What one unit of each process weighs with its whole supply chain, by
+database and column, from what each process weighs alone. A process also
+weighs what it takes from another database, times what one unit of that
+supplier weighs there: a link is followed as 'accumulateDepDemandsWith'
+follows it and converted as 'depDemandsToVector' converts it, so each weight
+is what 'goWithDeps' on one unit of the process, weighed process by process,
+would give, for one transposed solve per database. A database is weighed after
+those it takes from, each once. One not loaded, or given no weights, adds
+nothing, as it adds nothing to a solve. Refused when the databases loop into
+each other, which would leave no database to weigh first.
+-}
+chainWeights :: UnitConfig -> DepSolverLookup -> M.Map Text Vector -> Text -> IO (Either Text (M.Map Text (Database, Weights)))
+chainWeights unitConfig depLookup alone root = runExceptT (weighed [] M.empty root)
+  where
+    weighed :: [Text] -> M.Map Text (Database, Weights) -> Text -> ExceptT Text IO (M.Map Text (Database, Weights))
+    weighed path done name
+        | M.member name done = pure done
+        | name `elem` path = throwE ("The databases this chain reaches loop into each other (" <> T.intercalate " \8594 " (reverse (name : path)) <> ").")
+        | otherwise = case M.lookup name alone of
+            Nothing -> pure done
+            Just own ->
+                lift (depLookup name)
+                    >>= maybe
+                        (pure done)
+                        ( \(db, solver) -> do
+                            suppliers <- foldM (weighed (name : path)) done (S.toList (S.fromList (map cdlSourceDatabase (dbCrossDBLinks db))))
+                            let bought = boughtWeights db suppliers
+                            weights <- ExceptT (weighWithSharedSolver solver (\column -> (+) <$> own U.!? column <*> M.findWithDefault (Just 0) column bought))
+                            pure (M.insert name (db, weights) suppliers)
+                        )
+
+    -- What one unit of each consumer takes from other databases, at the
+    -- weights of its suppliers there, by column. A link whose unit cannot be
+    -- converted leaves its consumer unweighed, as a solve that reaches it is
+    -- refused; a link carrying no amount is left out, as a solve leaves it out.
+    boughtWeights :: Database -> M.Map Text (Database, Weights) -> M.Map Int (Maybe Double)
+    boughtWeights db suppliers = M.fromListWith (liftA2 (+)) (mapMaybe bought (dbCrossDBLinks db))
+      where
+        bought :: CrossDBLink -> Maybe (Int, Maybe Double)
+        bought link = do
+            guard (cdlCoefficient link /= 0)
+            (consumer, normFactor) <- linkConsumer db link
+            (depDb, weights) <- M.lookup (cdlSourceDatabase link) suppliers
+            let asked = StatedAmount{saUnit = cdlExchangeUnit link, saAmount = cdlCoefficient link / normFactor}
+                weightOf supplier = weightAt weights (fromIntegral (dbActivityIndex depDb V.! fromIntegral supplier))
+            pure
+                ( fromIntegral (dbActivityIndex db V.! fromIntegral consumer)
+                , case inSupplierUnit unitConfig (cdlSourceDatabase link) depDb (linkSupplier link) asked of
+                    Left _ -> Nothing
+                    Right Nothing -> Just 0
+                    Right (Just (supplier, amount)) -> (amount *) <$> weightOf supplier
+                )

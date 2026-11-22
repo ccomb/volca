@@ -3125,7 +3125,7 @@ activitiesResult dbManager dbName heading lim Impact.ProcessParts{Impact.ppShown
 data GroupFailure
     = -- | The request does not read: a group without a filter, a reading or a group that is not one
       GroupsMisread !Text
-    | -- | What was asked has no answer: a chain that cannot be cut, a group entered by too many processes
+    | -- | What was asked has no answer: a chain that cannot be cut or weighed
       GroupsRefused !Text
     | -- | A score could not be computed: the collection's tables disagree
       GroupScoringFailed !Text
@@ -3258,12 +3258,10 @@ groupMembersOf dbManager root method request = runExceptT $ do
         (Groups.WholeChainBelowFirstMatch, Nothing) -> inTarget <$> ownParts (Groups.assembled mFlows sol (Groups.partsRest parts))
         (Groups.WholeChainBelowFirstMatch, Just (Groups.GroupIndex g)) -> do
             taken <- maybe (throwE (GroupsRefused "The group asked has no part in this split.")) pure (Groups.partsTaken parts !? g)
-            let entering = Groups.takenCount taken
-            when (entering > Groups.maxEntries) . throwE . GroupsRefused $
-                T.concat ["This group is entered by ", T.pack (show entering), " processes: at most ", T.pack (show Groups.maxEntries), " are listed one by one. Split it into narrower groups."]
             unitCfg <- liftIO (getMergedUnitConfig dbManager)
             perUnit <- Groups.perUnitByColumn reached <$> ownParts (Groups.assembled mFlows sol (Groups.everyProcessOnce reached))
-            entries <- withExceptT GroupsRefused (ExceptT (Groups.entryChains unitCfg (DM.mkDepSolverLookup dbManager) (Groups.scoreFromPerUnit perUnit) taken))
+            weights <- withExceptT GroupsRefused (ExceptT (SharedSolver.chainWeights unitCfg (DM.mkDepSolverLookup dbManager) perUnit (grName root)))
+            entries <- withExceptT GroupsRefused (except (Groups.entryParts weights taken))
             pure Impact.ProcessParts{Impact.ppShown = M.fromListWith (+) entries, Impact.ppWithheld = []}
     pure (GroupMembers sol members)
 

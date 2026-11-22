@@ -59,15 +59,12 @@ module Groups (
     cutDatabase,
     databaseCycle,
     firstMatchParts,
-    entryChains,
-    maxEntries,
+    entryParts,
     everyProcessOnce,
     perUnitByColumn,
-    scoreFromPerUnit,
     assembled,
 ) where
 
-import Control.Exception (evaluate)
 import Control.Monad (forM)
 import Data.Either (partitionEithers)
 import Data.List (findIndex)
@@ -81,11 +78,11 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Database (Geographies, locationAnswers, referenceProductNames)
-import Matrix (Demand (..), Vector, applyBiosphereMatrix, chunksOf, linkConsumer)
+import Matrix (Demand (..), Vector, applyBiosphereMatrix, linkConsumer)
 import Method.Mapping (applyLongTermMode)
 import qualified Search.Normalize as Normalize
 import Service (matchClassifications)
-import SharedSolver (CrossDBSolution (..), DepSolverLookup, Reached (..))
+import SharedSolver (CrossDBSolution (..), DepSolverLookup, Reached (..), Weights, weightAt)
 import qualified SharedSolver
 import Types hiding (Attribution)
 import UnitConversion (UnitConfig)
@@ -385,35 +382,34 @@ firstMatchParts Solving{solvingUnits = unitCfg, solvingDeps = depLookup, solving
                 answers <- SharedSolver.goWithDeps unitCfg depLookup db name solver (map demand ys) 0
                 pure (map (summedByName . csScalings) <$> sequence answers)
 
-{- | The most processes a group's part is listed by under the whole-chain
-reading. Each is a solve of its own, so the time grows with their number: a
-thousand take a few seconds on a database of some twenty-five thousand
-processes.
--}
-maxEntries :: Int
-maxEntries = 1000
-
 {- | What each process that receives something of a group brings into its part
-under the whole-chain reading, read by the function given: what reaches it
-times the chain of one unit of it, solved on the loaded matrices, 64 at a
-time, each chain read as soon as it is solved so that no more than 64 are
-held. They add up to the part.
+under the whole-chain reading: what reaches it times what one unit of it weighs
+with its whole chain, solved on the loaded matrices. They add up to the part.
+Refused, naming the process, for one that has no weight, which the score
+having an answer rules out: its chain is part of the score's.
 -}
-entryChains :: UnitConfig -> DepSolverLookup -> (Scalings -> Double) -> Scalings -> IO (Either Text [((Text, ProcessId), Double)])
-entryChains unitCfg depLookup reading taken = fmap concat . sequence <$> traverse chainsIn (M.toList taken)
+entryParts :: M.Map Text (Database, Weights) -> Scalings -> Either Text [((Text, ProcessId), Double)]
+entryParts weights taken = concat <$> traverse entriesIn (M.toList taken)
   where
-    chainsIn :: (Text, (Database, Vector)) -> IO (Either Text [((Text, ProcessId), Double)])
-    chainsIn (name, (_, y)) =
-        depLookup name >>= \case
-            Nothing -> pure (Left ("The database '" <> name <> "' is no longer loaded."))
-            Just (db, solver) -> do
-                let width = fromIntegral (dbActivityCount db)
-                    processes = processesByColumn db
-                    entries = [(c, v) | (c, v) <- zip [0 ..] (U.toList y), v /= 0]
-                answered <- forM (chunksOf 64 entries) $ \chunk -> do
-                    answers <- SharedSolver.goWithDeps unitCfg depLookup db name solver [Right (Demand (U.generate width (\i -> if i == c then v else 0))) | (c, v) <- chunk] 0
-                    traverse (traverse (\(c, answer) -> ((name, processes V.! c),) <$> evaluate (reading (summedByName (csScalings answer))))) (zip (map fst chunk) <$> sequence answers)
-                pure (concat <$> sequence answered)
+    entriesIn :: (Text, (Database, Vector)) -> Either Text [((Text, ProcessId), Double)]
+    entriesIn (name, (db, y)) = case M.lookup name weights of
+        Nothing -> Left ("The database '" <> name <> "' is no longer loaded.")
+        Just (_, w) -> traverse (entry w) [(column, v) | (column, v) <- zip [0 ..] (U.toList y), v /= 0]
+      where
+        processes :: V.Vector ProcessId
+        processes = processesByColumn db
+
+        entry :: Weights -> (Int, Double) -> Either Text ((Text, ProcessId), Double)
+        entry w (column, v) = case weightAt w column of
+            Just weight -> Right ((name, processes V.! column), v * weight)
+            Nothing ->
+                Left
+                    ( "The process "
+                        <> processIdToText db (processes V.! column)
+                        <> " of '"
+                        <> name
+                        <> "' has no score per unit: its upstream processes reach one that cannot be solved for, or a link to another database whose unit cannot be converted."
+                    )
 
 {- | Every process of each database at one unit: each process's own part of
 the score of this is that process's score per unit of it.
@@ -429,13 +425,6 @@ perUnitByColumn reached perUnit = M.mapWithKey columns reached
   where
     columns :: Text -> (Database, Vector) -> Vector
     columns name (db, _) = let processes = processesByColumn db in U.generate (V.length processes) (\c -> M.findWithDefault 0 (name, processes V.! c) perUnit)
-
-{- | The score of a part, each process's scaling times its score per unit:
-the score is linear in the scalings, so this is the score of the part without
-building its inventory.
--}
-scoreFromPerUnit :: M.Map Text Vector -> Scalings -> Double
-scoreFromPerUnit perUnit part = sum (M.intersectionWith (\unitScores (_, v) -> U.sum (U.zipWith (*) unitScores v)) perUnit part)
 
 -- | The process of each column of a database's matrix.
 processesByColumn :: Database -> V.Vector ProcessId
