@@ -116,7 +116,8 @@ To connect an AI assistant, point its MCP client at the same server:
 ```
 
 The [CLI first steps](https://www.volca.run/docs/first-steps/cli/) walk
-through the same thing with a public database you can download.
+through the same thing with a public database you can download. To build the
+engine from source instead of installing it, see [docs/building.md](docs/building.md).
 
 ## Performance
 
@@ -153,8 +154,8 @@ The full documentation is on the site, at
 
 - [Ways to use VoLCA](https://www.volca.run/docs/guides/entry-points/): the
   hosted app, the desktop app, the CLI, the HTTP API, Python or MCP;
-- [Configuration](https://www.volca.run/docs/guides/configuration/): every key
-  of `volca.toml`;
+- [Configuration](https://www.volca.run/docs/guides/configuration/): how to
+  write `volca.toml`;
 - [CLI](https://www.volca.run/docs/cli/),
   [HTTP API](https://www.volca.run/docs/api/) and its
   [generated reference](https://www.volca.run/docs/api/reference/),
@@ -169,6 +170,7 @@ specification at `GET /api/v1/openapi.json`, and `volca dump-mcp-tools` prints
 its MCP tools.
 
 For contributors, this repository holds what changes with the code:
+[docs/configuration.md](docs/configuration.md) (every configuration key),
 [docs/building.md](docs/building.md) (building and testing),
 [docs/architecture.md](docs/architecture.md),
 [docs/flow-matching.md](docs/flow-matching.md) (the exact rule a flow follows to

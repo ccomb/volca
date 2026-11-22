@@ -11,7 +11,7 @@ via sparse-matrix algebra, and applies characterization methods for impact asses
 Multiple databases load simultaneously with cross-database flow linking and what-if
 substitutions. It exposes a Servant REST API and an MCP server, plus a CLI/REPL.
 
-`README.md` is the short overview of what the engine offers; the reference documentation is on the site (www.volca.run/docs). `docs/` holds what changes with the code: building and testing, the architecture, and the flow-matching rule.
+`README.md` is the short overview of what the engine offers; the reference documentation is on the site (www.volca.run/docs). `docs/` holds what changes with the code: the configuration reference, building and testing, the architecture, and the flow-matching rule.
 
 ## Glossary
 
@@ -152,7 +152,7 @@ writing it or reading someone else's.
   - Claude Code also auto-formats `.hs` on edit (`.claude/settings.json`).
 
 ### Documentation
-- **Re-read this file + README before each PR.** Update them when: (a) you hit a statement contradicting the code, (b) a new convention appears, (c) a command changes; a config key that changes is described in the comments of `volca.toml`. The README stays a short overview: a reference table (routes, tools, config keys, commands) belongs to the site's documentation, never to the README. NON-trigger: adding a module, tool, or endpoint that follows the stated conventions – the rules cover it, no list to grow.
+- **Re-read this file + README before each PR.** Update them when: (a) you hit a statement contradicting the code, (b) a new convention appears, (c) a command changes; a config key that is added, removed or changed is described in `docs/configuration.md`. The README stays a short overview: a reference table (routes, tools, config keys, commands) belongs to the site's documentation, never to the README. NON-trigger: adding a module, tool, or endpoint that follows the stated conventions – the rules cover it, no list to grow.
 - **A change to how a flow meets a factor says so where a reader looks.** A PR that adds, removes or reorders a step of the matching cascade, or changes when one fires, describes the step in `docs/flow-matching.md`, in the same PR, adding it there if the file does not name it yet. A row added to `data/flows.csv` says in its `note` why the two names are one substance: a row nobody can justify from its note is one nobody can catch being wrong.
 - Never write hand-maintained counts, versions, or enumerations the code already knows – state the naming rule and point at the source of truth (`versions.env`, `API.Resources`, `volca dump-mcp-tools`, `volca dump-config-schema`).
 
