@@ -55,7 +55,7 @@ import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (activitiesReportToAPI, copyRefusal, coverageReportToAPI, databaseHistoryToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
 import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
-import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPath, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
+import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPagePath, groupsQuery, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
@@ -2749,13 +2749,13 @@ callGetContributingActivities dbManager mBaseUrl rid args =
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
         contributions <- ExceptT (Impact.processContributionsOf dbManager collection method tables sol)
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
-        processesAnswer dbManager mBaseUrl rid req lim sol (Impact.splitProcessParts withheld contributions) []
+        toolSuccessJson rid . object <$> processesFields dbManager mBaseUrl req lim sol (Impact.splitProcessParts withheld contributions)
 
 {- | The heaviest processes of a part of a score, with the cut-offs and basis
-of the solution it was read from, and the fields the caller adds.
+of the solution it was read from.
 -}
-processesAnswer :: DatabaseManager -> Maybe Text -> RequestId -> LcaRequest -> Int -> SharedSolver.CrossDBSolution -> Impact.ProcessParts -> [Pair] -> ExceptT Text IO Value
-processesAnswer dbManager mBaseUrl rid req lim sol parts extra = do
+processesFields :: DatabaseManager -> Maybe Text -> LcaRequest -> Int -> SharedSolver.CrossDBSolution -> Impact.ProcessParts -> ExceptT Text IO [Pair]
+processesFields dbManager mBaseUrl req lim sol parts = do
     (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
     cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
     basis <- liftIO (DM.solutionBasis dbManager sol (lrCollection req) (DM.Asked [] []))
@@ -2764,19 +2764,16 @@ processesAnswer dbManager mBaseUrl rid req lim sol parts extra = do
         method = lrMethod req
     rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager (lrDbName req) mBaseUrl view mUnits score) top
     pure $
-        toolSuccessJson rid $
-            object $
-                [ "method" .= methodName method
-                , "unit" .= methodUnit method
-                , "functional_unit" .= raFunctionalUnit (lrResolved req)
-                , "total_score" .= score
-                , "has_negative_contributions" .= any ((< 0) . snd) top
-                , "basis" .= basis
-                , "processes" .= rows
-                ]
-                    ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
-                    ++ cutoffFields cutoffs
-                    ++ extra
+        [ "method" .= methodName method
+        , "unit" .= methodUnit method
+        , "functional_unit" .= raFunctionalUnit (lrResolved req)
+        , "total_score" .= score
+        , "has_negative_contributions" .= any ((< 0) . snd) top
+        , "basis" .= basis
+        , "processes" .= rows
+        ]
+            ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
+            ++ cutoffFields cutoffs
 
 {- | The groups an assistant names, as the route reads them: @attribution@
 and @groups@.
@@ -2799,7 +2796,8 @@ callGetGroupContributions dbManager mBaseUrl rid args =
         mc <- requireCollection dbManager collName
         (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
         (attribution, specs) <- except (groupsArgs args)
-        let root =
+        let request = GroupsRequest attribution specs
+            root =
                 GroupRoot
                     { grName = dbName
                     , grDatabase = ldDatabase ld
@@ -2809,8 +2807,8 @@ callGetGroupContributions dbManager mBaseUrl rid args =
                     , grLongTerm = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
                     , grCollection = DM.CollectionName collName
                     }
-        result <- liftIO (groupContributionsOf dbManager root (mcMethods mc) (GroupsRequest attribution specs))
-        let link = (<> groupsPath dbName pidText (DM.CollectionName collName) Nothing attribution specs) <$> groupsPageBase mBaseUrl args
+        result <- liftIO (groupContributionsOf dbManager root (mcMethods mc) request)
+        let link = (<> (groupsPagePath dbName pidText (DM.CollectionName collName) <> groupsQuery request)) <$> groupsPageBase mBaseUrl args
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . addWebUrlMaybe link . toJSON) result
 
 callGetGroupMembers :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
@@ -2821,8 +2819,8 @@ callGetGroupMembers dbManager mBaseUrl rid args =
         let lim = fromMaybe 10 (intArg "limit" args)
         result <- liftIO (groupMembersOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
         GroupMembers{gmSolution = sol, gmParts = parts} <- either (throwE . groupFailureText) pure result
-        processesAnswer dbManager mBaseUrl rid req lim sol parts $
-            webUrlField (groupsPageBase mBaseUrl args) (groupsPath (lrDbName req) (raText (lrResolved req)) (lrCollection req) (Just (lrMethodIdText req)) attribution specs)
+        let path = groupsPagePath (lrDbName req) (raText (lrResolved req)) (lrCollection req) <> "/" <> encodeSegment (lrMethodIdText req) <> groupsQuery (GroupsRequest attribution specs)
+        toolSuccessJson rid . object . (<> webUrlField (groupsPageBase mBaseUrl args) path) <$> processesFields dbManager mBaseUrl req lim sol parts
 
 {- | Where a link to the groups page starts. None when long-term emissions are
 left out: the page counts them, so it would show other totals.

@@ -17,7 +17,8 @@ import API.MCP.Enrich (
     attachMarketHintByName,
     encodeSegment,
     filterScoringSets,
-    groupsPath,
+    groupsPagePath,
+    groupsQuery,
     isMarketActivityName,
     scoreActivityWebUrl,
     slimLCIAPanel,
@@ -32,7 +33,7 @@ import Data.Text (Text)
 import qualified Data.Vector as V
 import Test.Hspec
 
-import API.Types (FunctionalUnit (..), GroupClassification (..), GroupFilterSpec (..), GroupSpec (..))
+import API.Types (FunctionalUnit (..), GroupClassification (..), GroupFilterSpec (..), GroupSpec (..), GroupsRequest (..))
 import Database.Manager (CollectionName (..))
 
 butter :: Value
@@ -101,17 +102,18 @@ twoGroups =
 
 spec :: Spec
 spec = do
-    describe "groupsPath" $ do
-        -- The web app's address test reads this exact string back into the list.
+    describe "groupsQuery" $ do
         it "spells the reading, then each group at its rank, every value escaped" $
-            groupsPath "agb" "p1" (CollectionName "EF 3.1") (Just "m1") (Just "own") twoGroups
-                `shouldBe` "/db/agb/activity/p1/groups/EF%203.1/m1?reading=own&g1=Packaging%20%26%20films&g1-product=film&g1-classification=ISIC%20rev.4&g1-classification-value=2220%3Aplastics%2Frubber&g1-classification-mode=starts-with&g1-classification=CPC&g1-classification-value=36&g1-classification-mode=not-exact&g2=Transport&g2-name=transport&g2-location=FR"
-        it "leaves the whole chain reading and the category out when not named" $
-            groupsPath "agb" "p1" (CollectionName "EF 3.1") Nothing (Just "first-match") (take 1 (drop 1 twoGroups))
-                `shouldBe` "/db/agb/activity/p1/groups/EF%203.1?g1=Transport&g1-name=transport&g1-location=FR"
+            groupsQuery (GroupsRequest (Just "own") twoGroups)
+                `shouldBe` "?reading=own&g1=Packaging%20%26%20films&g1-product=film&g1-classification=ISIC%20rev.4&g1-classification-value=2220%3Aplastics%2Frubber&g1-classification-mode=starts-with&g1-classification=CPC&g1-classification-value=36&g1-classification-mode=not-exact&g2=Transport&g2-name=transport&g2-location=FR"
+        it "leaves the whole chain reading out" $
+            groupsQuery (GroupsRequest (Just "first-match") (drop 1 twoGroups))
+                `shouldBe` "?g1=Transport&g1-name=transport&g1-location=FR"
         it "says an empty list, which is not the ready-made set" $
-            groupsPath "agb" "p1" (CollectionName "EF 3.1") Nothing Nothing []
-                `shouldBe` "/db/agb/activity/p1/groups/EF%203.1?groups=none"
+            groupsQuery (GroupsRequest Nothing []) `shouldBe` "?groups=none"
+    describe "groupsPagePath" $
+        it "escapes the collection like the other pages" $
+            groupsPagePath "agb" "p1" (CollectionName "EF 3.1") `shouldBe` "/db/agb/activity/p1/groups/EF%203.1"
     describe "scoreActivityWebUrl" $ do
         it "encodes every dynamic segment (no raw slashes leak through)" $
             scoreActivityWebUrl (Just "https://volca.run") "db/with-slash" "pid/with-slash" "EF 3.1"

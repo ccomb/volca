@@ -18,7 +18,8 @@ module API.MCP.Enrich (
     encodeSegment,
     impactsPath,
     sensitivityPath,
-    groupsPath,
+    groupsPagePath,
+    groupsQuery,
     scoreActivityWebUrl,
 
     -- * web_url enrichment
@@ -60,7 +61,7 @@ import qualified Data.Vector as V
 import Network.URI (escapeURIString, isUnreserved)
 import Numeric (showGFloat)
 
-import API.Types (CutoffInput (..), GroupClassification (..), GroupFilterSpec (..), GroupSpec (..), WithheldCutoffs (..))
+import API.Types (CutoffInput (..), GroupClassification (..), GroupFilterSpec (..), GroupSpec (..), GroupsRequest (..), WithheldCutoffs (..))
 import Database.Cutoffs (Cutoffs (..))
 import Database.Manager (CollectionName (..))
 
@@ -114,24 +115,28 @@ impactsPath = activityPagePath "impacts"
 sensitivityPath :: Text -> Text -> CollectionName -> Text
 sensitivityPath = activityPagePath "sensitivity"
 
-{- | The groups page with this split: the reading, then one numbered rank per
-group, @g1=<name>@ then @g1-name@, @g1-product@, @g1-location@ and one
-@g1-classification@, @-value@, @-mode@ triple per classification, in the
-order the group lists them. An empty list is @groups=none@, since the page
-opens a ready-made set when the address names no group.
+-- | The groups page; a method id appended to it names the category it opens on, then 'groupsQuery'.
+groupsPagePath :: Text -> Text -> CollectionName -> Text
+groupsPagePath = activityPagePath "groups"
+
+{- | The query of the groups page with this split: the reading, then one
+numbered rank per group, @g1=<name>@ then @g1-name@, @g1-product@,
+@g1-location@ and one @g1-classification@, @-value@, @-mode@ triple per
+classification, in the order the group lists them. An empty list is
+@groups=none@, since the page opens a ready-made set when the address names
+no group.
 -}
-groupsPath :: Text -> Text -> CollectionName -> Maybe Text -> Maybe Text -> [GroupSpec] -> Text
-groupsPath dbName pidText coll methodId attribution specs =
-    activityPagePath "groups" dbName pidText coll
-        <> foldMap (("/" <>) . encodeSegment) methodId
-        <> query (reading <> ranks)
+groupsQuery :: GroupsRequest -> Text
+groupsQuery GroupsRequest{grqAttribution = attribution, grqGroups = specs} =
+    "?" <> T.intercalate "&" [key <> "=" <> encodeSegment value | (key, value) <- reading <> ranks]
   where
-    query [] = ""
-    query pairs = "?" <> T.intercalate "&" [key <> "=" <> encodeSegment value | (key, value) <- pairs]
+    reading :: [(Text, Text)]
     reading = [("reading", "own") | attribution == Just "own"]
+    ranks :: [(Text, Text)]
     ranks = case specs of
         [] -> [("groups", "none")]
         _ -> concat (zipWith rankPairs [1 :: Int ..] specs)
+    rankPairs :: Int -> GroupSpec -> [(Text, Text)]
     rankPairs rank GroupSpec{gspName = name, gspFilter = f} =
         let key suffix = "g" <> T.pack (show rank) <> suffix
             field suffix = foldMap (\value -> [(key suffix, value)])
