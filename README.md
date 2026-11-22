@@ -1,43 +1,124 @@
 # VoLCA
 
-**VoLCA** is a Life Cycle Assessment engine that turns LCA databases into inspectable, queryable answers – fast.
+**VoLCA** is an open-source Life Cycle Assessment engine. It loads LCA
+databases, computes their inventories and impact scores, and lets you trace
+every number back to the data it comes from. It runs in memory, on your own
+machine or server, and answers from the command line, over HTTP, from Python
+and through MCP for AI assistants.
 
-It loads EcoSpold2, EcoSpold1, SimaPro CSV, ILCD process, openLCA JSON-LD, and Brightway Excel databases, builds supply chain dependency trees, computes life cycle inventories using sparse matrix algebra, and applies characterization methods for impact assessment. Everything runs in-memory against your own data.
+**[Documentation](https://www.volca.run/docs/)** ·
+**[Runnable examples](https://www.volca.run/examples/)** ·
+**[Use cases](https://www.volca.run/use-cases/)** ·
+**[Try the hosted app](https://app.volca.run/)** ·
+[Website](https://www.volca.run/)
 
-## What It Does
+## What the engine does
 
-- **Browse** activities and flows across multiple databases
-- **Explore** supply chain trees, force-directed dependency graphs, downstream consumers, shortest-path routing, and supply chain analysis by sector classification
-- **Compute** life cycle inventories (LCI) and impact scores (LCIA) – single method or whole collection – with per-flow and per-activity contribution breakdowns
-- **What-if substitutions** – swap an upstream activity (or a cross-database supplier) and recompute inventory and impacts in a single call
-- **Normalize and weight** LCIA results; a single score in Pt for every scoring set, whether a SimaPro method file brings it or the configuration declares it
-- **Map** method characterization factors to database flows through a matching cascade, with coverage statistics
-- **Link** databases across nomenclatures (e.g., a sector database referencing Agribalyse)
-- **Upload** databases and method collections via the API, without touching config files
+- **Reads the main LCA formats**: EcoSpold 2, EcoSpold 1, SimaPro CSV, ILCD,
+  openLCA JSON-LD and Brightway Excel, straight from a `.zip`, `.7z`, `.gz` or
+  `.xz` archive.
+- **Holds several databases at once and links them**, even across
+  nomenclatures: a sector database can buy its ingredients from Agribalyse.
+- **Walks the supply chain**: upstream tree and graph, a flat upstream list with
+  filters, the consumers downstream, the shortest path to a supplier, and a
+  breakdown by ISIC or CPC classification.
+- **Computes inventories and impact scores** with sparse matrix algebra, with
+  the contribution of each flow, each upstream process and each group of
+  processes you name (transport, electricity…), and scores a whole database
+  in one solve.
+- **Answers what-if questions**: swap a supplier at any depth, even in another
+  database, or score a process at other parameter values, and save those
+  values as named scenarios.
+- **Works with method collections**: reads ILCD packages, SimaPro method CSV,
+  openLCA and tabular CSV, turns impact scores into single scores through
+  normalization and weighting, copies a collection to change its factors with a
+  journal and an undo, and compares two collections factor by factor.
+- **Explains its flow mapping**: how a database flow meets a characterization
+  factor is written in data files you can read and change, with coverage
+  statistics and an `explain-cf` that says why a flow has, or lacks, a factor.
+- **Edits databases**: change a process, delete a set of processes, copy a
+  database, or divide multi-output processes by price or by mass. Every change
+  is kept in a journal and replayed at the next load.
+- **Checks quality**: what is malformed in a database, what it computes against
+  its own norms, and what is left without a supplier after linking.
+- **Exports** to SimaPro CSV, EcoSpold 1 and 2, ILCD, Brightway and openLCA,
+  or as a package another engine can open when your model is built on a
+  database you may not hand over.
+- **Honours licences**: a database can refuse downloads, inventories or detailed
+  scores, and ask its readers to accept its terms first.
 
----
+## What you can build on it
 
-## Key Features
+The engine is a computation layer: you bring the interface. The
+[hosted VoLCA app](https://app.volca.run/) is one example of what can be built
+on it: a web interface over a managed instance of the engine. The
+[desktop app](https://www.volca.run/desktop/) is another, the same interface on
+your own machine. The [runnable examples](https://www.volca.run/examples/) are
+Python scripts that import, substitute, compare and export through the engine,
+and [Build your own frontend](https://www.volca.run/build-your-own-frontend/)
+shows how to put a product of your own on top of it.
 
-- **Multiple database formats**: EcoSpold2 (.spold), EcoSpold1 (.xml), SimaPro CSV, ILCD process datasets, openLCA JSON-LD packages (zip with `openlca.json`), Brightway Excel (.xlsx)
-- **Archive support**: Load databases directly from .zip, .7z, .gz, or .xz archives – no manual extraction
-- **Cross-database linking**: Resolve supplier references across databases, with configurable dependencies and topological load ordering. EcoSpold2 inputs link to a loaded background by exact `activityLinkId` identity (so a partial import resolves against its matching release), falling back to attribute matching – flagged as approximate – when the background is a different release
-- **Cross-DB what-if substitutions**: Swap an upstream activity at any depth – including suppliers in dependency databases – and recompute inventory and impacts through one endpoint
-- **Editing databases**: on an uploaded or copied database, change what an activity consumes and emits (each line addressed by the `selector` `get_activity` gives it), its name, location and description; every change is kept in a journal and replayed at the next load
-- **Parameters, formulas and scenarios**: parameters (with their uncertainty) and line formulas read from EcoSpold 2, SimaPro CSV, openLCA JSON-LD and Brightway Excel, in one formula language whatever the source; edited with every dependent line restated; scored at other values without editing, one set or a batch of sets per request; saved as named scenarios, an openLCA package's parameter sets listed as the scenarios it ships; written back by the SimaPro, openLCA, EcoSpold 2 and Brightway exports
-- **LCIA method collections**: Load ILCD method packages (ZIP or directory), SimaPro method CSV exports, openLCA JSON-LD impact categories, or tabular CSV from config, beside a built-in `plain-indicators` collection that counts raw physical quantities; export any loaded collection back as SimaPro method CSV, columnar CSV (one column per impact category – the spreadsheet view), an openLCA JSON-LD zip, or an ILCD method package zip
-- **Normalization and weighting**: a method collection carries scoring sets, each turning impact scores into named single scores (Pt). A SimaPro method file gives one per normalization-weighting set, named after it, whose variables are its damage categories: each sums the impact categories it groups, times their coefficients, and the `Single score` adds up the damages that have a weight, and a normalization as well unless the set normalizes nothing (SimaPro's normalization switched off). A damage that groups no impact category reads as zero. Variable names are short names the engine makes from the damage names (lowercase ASCII letters and digits, each run of anything else one underscore); the `labels` and `units` of the set carry the names and units as the file wrote them. A file with damage categories and no normalization-weighting set gives one set named `Damage assessment`, with no score
-- **Contribution analysis**: Per-flow and per-activity contributions to any LCIA score, ranked by share
-- **Flow mapping engine**: matching cascade with per-strategy coverage statistics
-- **Activity classifications**: ISIC, CPC, and category fields parsed from EcoSpold1/2 and ILCD, with named TOML presets for common filter bundles
-- **Per-exchange comments**: Free-text exchange comments extracted from EcoSpold1/2, SimaPro, and ILCD and surfaced in API responses
-- **Fuzzy search**: Typo (edit distance) and stem (trigram) tolerance on activity and supply-chain name filters
-- **Auto-extracted synonyms**: Synonym pairs extracted automatically from loaded databases and method packages, available for toggling and download
-- **Reference data management**: Flow synonyms, compartment mappings, and unit definitions can be configured in TOML, uploaded via the API, or toggled independently
-- **Fast cache**: Per-database cache co-located with the source path, rebuilt when the cache schema changes or when what it was read under besides its source files (unit table, location aliases, allocation key, patches) is no longer what is in force (figures in the Performance table below). A method given as an archive has its own, written inside the directory the archive is extracted to and read back only by the engine build that wrote it
-- **Optional access control**: Single-code login with cookie-based session
+## Install
 
----
+Linux and macOS (read the script before you run it):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ccomb/volca/main/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/ccomb/volca/main/install.ps1 | iex
+```
+
+The installer downloads the latest release and its reference data, checks both
+against their checksums, and puts a `volca` command in `~/.local/bin` (on
+Windows, `%LOCALAPPDATA%\volca\bin`). The
+binaries are also on the [releases page](https://github.com/ccomb/volca/releases).
+The Python client is `pip install pyvolca`. To build from source, see
+[docs/building.md](docs/building.md).
+
+## Getting started
+
+Describe your databases and method collections in a TOML file. The
+[`volca.toml`](volca.toml) of this repository is a commented starting point;
+the smallest useful one names a database and a method collection:
+
+```toml
+[[databases]]
+name = "agribalyse"
+path = "DBs/agribalyse.csv"
+load = true
+
+[[methods]]
+name = "EF-3.1"
+path = "DBs/EF-3.1.zip"
+```
+
+Start the server once: it loads the databases into memory. Then query it from
+another terminal, or interactively:
+
+```bash
+volca --config volca.toml server --port 8080
+# The API, to explore in a browser: http://localhost:8080/api/v1/docs
+
+volca --config volca.toml --db agribalyse activities --name "wheat" --geo FR
+volca --config volca.toml --db agribalyse inventory PROCESS_ID
+volca --config volca.toml --db agribalyse impacts PROCESS_ID --method "Climate change"
+
+volca --config volca.toml repl
+```
+
+To connect an AI assistant, point its MCP client at the same server:
+
+```json
+{ "mcpServers": { "volca": { "url": "http://localhost:8080/mcp" } } }
+```
+
+The [CLI first steps](https://www.volca.run/docs/first-steps/cli/) walk
+through the same thing with a public database you can download. To build the
+engine from source instead of installing it, see [docs/building.md](docs/building.md).
 
 ## Performance
 
@@ -67,1045 +148,34 @@ three times what the loaded database itself has to hold, and it holds it longer
 on a machine with memory to spare than on a small one. Size a machine on the
 peak, not on what the data weighs.
 
----
-
-## Getting Started
-
-### Web Server
-
-```bash
-./build.sh
-
-# Start the server
-volca --config volca.toml server --port 8080
-# Open http://localhost:8080
-```
-
-### Command Line
-
-The CLI is a lightweight HTTP client that connects to a running server (~0.2s per command). Start the server once, then query it freely:
-
-```bash
-# Start server (loads databases into memory once)
-volca --config volca.toml server --port 8080
-
-# In another terminal – all commands talk to the server via HTTP
-volca --config volca.toml activities --name "electricity" --geo "FR"
-volca --config volca.toml --db agribalyse inventory "12345678-..."
-volca --config volca.toml --db agribalyse impacts "12345678-..." --method "Climate change"
-```
-
-### Interactive REPL
-
-```bash
-# Launch REPL (auto-starts the server if not running)
-volca --config volca.toml repl
-
-# Inside the REPL:
-# volca> activities --name "wheat grain"
-# volca> use agribalyse
-# volca[agribalyse]> inventory UUID
-# volca[agribalyse]> :format table
-# volca[agribalyse]> impacts UUID --method "Climate change"
-# volca[agribalyse]> :help
-# volca[agribalyse]> :quit
-```
-
----
-
-## Configuration
-
-A TOML config file enables multi-database setups, method collections, and reference data:
-
-```toml
-# Single-path reference data (all optional). Top-level keys stay above the
-# first [section] header: below one they parse as members of that section,
-# which startup reports by name.
-# geographies = "data/geographies.csv"         # code,display_name,parents
-# chem-synonyms = "data/chem_synonyms.csv"     # PubChem snapshot for the suggester
-# substance-edges = "data/substance_edges.csv" # typed flow-correspondence edges
-
-[server]
-port = 8080
-host = "127.0.0.1"             # interface to listen on; "0.0.0.0" answers the
-                               # network over IPv4, "::" over IPv6
-password = "mysecret"          # optional – omit to disable auth
-name = "lab-archive"           # optional – how this server introduces itself over MCP
-usage_log = true               # optional – keep a line per computation, see "Usage log"
-
-[[databases]]
-name = "agribalyse-3.2"
-displayName = "Agribalyse 3.2"
-path = "DBs/AGB32_final.CSV"
-description = "SimaPro CSV"
-load = true
-
-[[databases]]
-name = "my-sector-db"
-displayName = "Sector DB"      # the name shown; an upload is renamed with
-                               # PUT /db/{name}/display-name, its name staying
-description = "Food sector"    # changed on an upload with PUT /db/{name}/description
-path = "DBs/sector.CSV"
-depends = ["agribalyse-3.2"]   # loads agribalyse first, then links
-load = true
-default = false                # preselected database in the UI
-deletable = false              # allow deletion via the API
-geography_policy = "global"    # CF regionalization: exact | parent | global
-allocation = "declared"        # how a multi-output block is read:
-                               # declared | none. none keeps a block of several
-                               # products whole, as the parent of databases
-                               # divided by a system model (by price, dry mass
-                               # or wet mass), which are derived at runtime with
-                               # POST /db/{name}/derive/{newName}
-licence = "CC-BY-4.0"          # the licence it is published under, by SPDX identifier:
-                               # CC0-1.0 | CC-BY-4.0 | CC-BY-SA-4.0 | CC-BY-NC-4.0 |
-                               # ODbL-1.0 | etalab-2.0. Its permissions follow from
-                               # its text. To refuse more, write an own licence
-                               # instead of `licence`:
-# licence_text = "..."         #   its text, shown on its setup
-# refuses = ["download"]       #   inventory | scores | download | results | resell |
-                               #   paid-applications. The engine enforces three:
-                               #   download (export, literature files); inventory
-                               #   (exchange amounts, supply chain, tree, path to a
-                               #   supplier: refused,
-                               #   and an activity names its exchanges without
-                               #   amounts); scores (contributing flows and
-                               #   processes, sensitivity: refused, and a
-                               #   score keeps its total and categories). The rest
-                               #   is shown as the reader's commitment. Each level
-                               #   rebuilds the one above, so refusing scores
-                               #   refuses inventory and download too, and
-                               #   refusing inventory refuses download.
-                               #   Reached as another database's dependency,
-                               #   it holds the same: refusing scores, it is
-                               #   one line of the score, "dep: 42 %";
-                               #   refusing inventory, the aggregated
-                               #   inventory is refused and the supply chain
-                               #   counts its processes in one line
-# attribution = true           #   results must name the publisher (the default)
-# accept = true                #   readers accept its text before reading it, or
-                               #   anything built on it: refused until they send
-                               #   the text's fingerprint in the volca_terms
-                               #   cookie, or call the MCP tool accept_terms.
-                               #   New text, asked again. Off by default
-# usage = "anonymous"          #   counts each computation on its release in the
-                               #   usage log, for its publisher: "anonymous"
-                               #   counts only, "organizations" adds each
-                               #   reader's organization and email domain.
-                               #   Needs accept = true, since readers accept the
-                               #   clause with the text. Absent, nothing is counted
-                               # A copy is served under its source's licence; an
-                               # upload's owner sets its own with PUT /db/{name}/licence
-# release = { name = "ecoinvent", version = "3.12", system_model = "Allocation, cut-off by classification" }
-                               # which published database this is; name and version
-                               # both required. An upload's owner declares it with
-                               # PUT /db/{name}/release (null clears it), and its
-                               # setup shows the system models its activities state.
-                               # A copy declares its own: it is made to be changed
-# locationAliases = { "FR" = "France" }   # per-database location renames
-
-# Optional patches adjust the amounts a database states, at load time.
-# Selector fields combine with AND; at least one is required. Exactly one of
-# `scale` (multiply) or `set-value` (replace) per patch. A patch reaches the
-# inputs, the emissions, the waste sent to treatment and the avoided products
-# of a process, never the rows saying what it makes. A `set-value` is in the
-# unit the engine records the row in (a SimaPro row written in g is recorded
-# in kg), and applies to each process a multi-output block was divided into. A patch matching no exchange logs a
-# warning at load time, and a database whose patch list changed is rebuilt
-# from source rather than read from its matrix cache.
-#   [[databases.patches]]
-#   description = "example: the preservative a trellis is no longer treated with"
-#   match = { product-name-contains = "trellis", flow-name-contains = "creosote" }
-#   # other selectors: activity-name-contains, location (exact), flow-name (exact)
-#   set-value = 0.0
-
-[[methods]]
-name = "EF-3.1"
-path = "DBs/EF-v3.1.zip"      # ILCD method package (ZIP or directory)
-default = true                 # the collection a reader is offered first (at most one)
-
-# SimaPro method CSV exports and tabular CSV are also accepted:
-# path = "DBs/EF3.1_methods.csv"
-
-# An openLCA method package holds several methods; package-method names the one
-# to read, with its normalisation and weighting sets:
-# path = "DBs/openLCA LCIA Methods.zip"
-# package-method = "EF 3.1 Method (adapted)"
-
-# "plain-indicators" (land occupied, water used, fossil CO2, methane, primary
-# energy, waste heat, cadmium, every factor 1.0) is built into the engine and
-# loaded beside the collections listed here. Name it with a path to replace it,
-# or with no path to switch it off or to give it scoring sets and patches:
-#   [[methods]]
-#   name = "plain-indicators"
-#   active = false
-
-# Optional scoring sets on a method collection: named variables per impact
-# category, computed expressions, then normalization + weighting factors
-# producing a single score (see "Normalization and weighting" above).
-#   [[methods.scoring]]
-#   name = "my-score"
-#   unit = "Pt"
-#   displayMultiplier = 1e6
-#     [methods.scoring.variables]      # var = exact category name
-#     cch = "Climate change"
-#     [methods.scoring.computed]       # derived variables (expressions)
-#     etf = "2 * etfo + etfi"
-#     [methods.scoring.normalization]  # per-variable factors
-#     cch = 7553.08
-#     [methods.scoring.weighting]
-#     cch = 0.2106
-#
-# global-methods = ["Water use", ...] de-regionalizes the named methods:
-# their region-tagged CFs are dropped so the method's global (unlocated)
-# CF is the single answer – for matching references that flattened
-# spatial factors. A name matching no method logs a warning.
-#
-# Optional patches adjust matched characterization factors at load time.
-# Selector fields combine with AND; at least one is required. Exactly one
-# of `scale` (multiply) or `set-value` (replace) per patch. A patch that
-# matches no factor logs a warning at load time.
-#   [[methods.patches]]
-#   description = "example: -40% on Uranium in Resource use, fossils"
-#   match = { category = "Resource use, fossils", flow-name-prefix = "Uranium" }
-#   # other selectors: flow-name (exact), cas, subcompartment-contains
-#   scale = 0.6
-
-# Reference data: the flow synonyms, compartment mapping, units and energy
-# densities (and the geographies) are built into the engine. A kind this file
-# says nothing about runs on the built-in table; a kind it lists is exactly
-# what it lists. Name the built-in ("Default flow synonyms", "Default
-# compartment mapping", "Default units", "Default energy densities") with a
-# path to replace it with your own file, with no path to keep it beside your
-# own, or with no path and `active = false` to switch it off.
-[[flow-synonyms]]
-name = "Default flow synonyms"
-path = "my-flows.csv"          # CSV: name1,name2[,direction[,cas[,note]]]
-
-[[compartment-mappings]]
-name = "Default compartment mapping"
-active = false
-
-[[classification-presets]]     # named filter bundles for classifications
-name = "agriculture"
-label = "Agriculture"
-filters = [{ system = "ISIC", value = "01", mode = "contains" }]  # mode: exact | contains | starts-with
-
-# [hosting] tunes upload/API limits when the engine runs behind a manager:
-# max_uploads, max_upload_mb, max_loaded_uploads, api_access,
-# upgrade_upload, upgrade_api, upgrade_vm_size, read_only, read_only_message,
-# max_batch_activities, max_top_flows, max_concurrent_scoring
-```
-
-`max_uploads` bounds how many databases of their own a caller may keep, and
-`max_loaded_uploads` how many of those may sit in memory at once. Both count
-only uploaded databases – the ones the config declares are what an uploaded
-inventory links against, so counting them would forbid the very thing
-uploading is for. A copy spends the same budget as an upload. Negative means
-unlimited; with no `[hosting]` section (local, CLI, desktop) neither applies.
-
-`read_only = true` makes the instance answer every analysis request and refuse
-every state change: loading and unloading, uploads, deletes, copies, relinks,
-dependency edits – and `POST /api/v1/shutdown` and `/api/v1/idle-timeout/{n}`,
-which decide how long the process lives. Refusals are `403` on REST and tool
-errors on MCP; nothing is silently ignored. This is what makes a single
-instance safe to put in front of many unrelated callers, none of whom should be
-able to change the working set or end the server for the others. Every refusal
-carries one sentence explaining the stance; `read_only_message` replaces it
-with the operator's own words, and `GET /api/v1/hosting` reports both flags so
-a client can say so before attempting a change.
-
-`max_batch_activities` and `max_top_flows` bound what one scoring request may
-ask for, which matters on the same kind of instance: scoring every activity of
-a large database holds all the cores for about a minute, and the other callers
-wait behind it. The first caps how many activities a batch score covers, and
-so also refuses the computed quality report on a database with more
-activities than that, since the report scores all of them; the second caps
-the top contributing flows a batch asks for per activity. Both hold on REST
-and MCP alike, and a refusal says the limit and what the request asked for.
-Absent, they set no limit. `GET /api/v1/hosting` reports both (`null` for no
-limit), so a client can size its requests instead of learning the limit from a
-refusal.
-
-`max_concurrent_scoring` bounds how many scoring requests compute at once;
-the others wait their turn rather than being refused. Every request in
-flight holds its solutions in memory, and many at once can exhaust it. Since
-nothing is refused, the hosting route does not report it.
-
-The `depends` field ensures dependency databases load first and their flows are available for cross-database linking. Setting `load = true` on a database transitively loads all its dependencies.
-
-A database's dependency set is **pinned**: it is seeded automatically when the database is first staged (the minimal set of supplier databases needed to resolve its links), and from then on it is authoritative. A plain `relink` re-resolves links *within* the pinned set only – it never silently adds another loaded database. Edit the pin explicitly with `add-dependency` / `remove-dependency`, then `finalize`; a dependency that would close a loop, or a database depending on itself, is refused, as the configuration file refuses it; the new set is written to the matrix cache and reused on every later open. This is how you restrict a consumer (e.g. an inventory built against a single Agribalyse version) to exactly the supplier databases it should depend on, even while other versions stay loaded for other consumers. (The one exception is a *mapping* relink – `relink` with a `depDb` and an alias CSV – which pins that chosen dependency in-memory if it isn't already, so a `copy → delete → relink` pipeline composes in one pass; links to the other pinned dependencies are preserved, not dropped.)
-
-A database uploaded as a **package** (the zip `export --package ro-crate`
-writes) arrives with what its description says: the licence it is published
-under, and the releases of the databases it was built on, kept in its
-`meta.toml` as `[[requires]]` blocks. The upload is refused when the export it
-carries does not match the digest the description gives. Such a database links
-only to a database whose declared release is one it requires, and the
-databases that are get loaded before it is staged; with ecoinvent 3.11 and
-3.12 both loaded, a model built on 3.12 links to 3.12 alone. Its setup lists
-each required release as `satisfied` (with the databases of that release),
-`missing` (with the databases of the same name at another version, which may
-stand in for it) or `substituted`. A reader who accepts another database in
-place of a missing release says so with
-`POST /db/{name}/accept-substitution` (`{"release": {...}, "database": "ei-311"}`):
-the choice is written to its `meta.toml`, the setup links again within it, and
-scores computed on it are no longer the author's.
-
-### How a flow meets a factor's subcompartment
-
-A method writes a factor per substance, medium and subcompartment; a database
-files each flow under its own. The compartment mapping (`data/compartments.csv`,
-replaced with `[[compartment-mappings]]`) holds two kinds of row, named in its
-`kind` column:
-
-- `same` (the default): one place written another way. SimaPro's `Air / low.
-  pop.` is EcoSpold 2's `air / non-urban air or from high stacks`. The row
-  rewrites a flow and a factor line alike, and never joins two places one
-  vocabulary keeps apart.
-- `if_absent`: two different places. `soil,forestry,,soil,non-agricultural,,if_absent`
-  says that a flow emitted to forest soil reads the factor written for
-  non-agricultural soil, but only under a method whose collection never writes
-  forestry. The EF 3.1 package has no forest soil, so the row holds there;
-  a method with forestry factors of its own keeps them. A comparison of two
-  method collections reads the row's two places as one only when each
-  collection writes one of them and never the other.
-
-A flow reads a factor at these places, in this order, and nowhere else:
-
-1. its own subcompartment;
-2. the line its substance writes for the whole medium, with no
-   subcompartment. That is what `(unspecified)` means in the SimaPro CSV format,
-   whose reader keys it there. In an ILCD package, a JSON-LD package or this
-   engine's CSV format, `unspecified` names one subcompartment like any other;
-3. the place an `if_absent` row sends it to;
-4. for a natural resource only, the line its own name, or a synonym of it,
-   has at `unspecified`.
-
-The fourth place exists because a resource's subcompartment says where a flow
-list files it, not a different damage. Ecological Scarcity 2021 as published
-for openLCA writes `Water, unspecified natural origin` and
-`Occupation, tropical rain forest` at `unspecified` only, and counts them for a
-database that files them `in water` and on `land`. An emission's subcompartment
-does change what it does, so an emission never reads it. Only a line that
-names the flow itself, by its name or a synonym `data/flows.csv` writes,
-reaches the fourth place. A line that lends it another name's factor (one
-sharing its CAS number, a proxy edge, the base substance of a region-suffixed
-name) reaches the first three, the places an author wrote: never a guessed
-place on top of a borrowed name. The same rule decides which database flow a
-method line is attached to.
-
-A region-suffixed name the method's collection writes itself, in any category,
-is never lent another name's factor. Ecological Scarcity 2021 writes
-`Water, river, RER` in "Water resources, net balance" and only `Water, river`
-in "Water resources, evaporated": the regional flow counts in the first and
-not in the second, so neither the base substance's line nor a line sharing its
-CAS number reaches it there. `explain-cf` marks the step `declined` and says
-why. A name an exclusion line writes counts as written, and so does one a
-synonym of the written name gives. A line located at a region rather than
-named with it does not.
-
-A flow that states no subcompartment is an `unspecified` emission. The engine
-borrows no factor across subcompartments beyond these places: a method that
-means a sea or long-term emission to count for nothing writes that line.
-This is how a score reads factors; comparing two method collections pairs
-their lines by a reading of its own.
-The same places decide which database flow a method line is matched to: the
-flow that reads it first, and none when no flow reads it. A line whose name
-ends in `*` and that is written at `unspecified` selects the flows filed at
-`unspecified`, not those of every subcompartment. It also selects only the
-flows its prefix names: the other names the registry gives them are not
-added, so `Energy, *` takes `Energy, from uranium` but not `Uranium`. A line
-naming the flow outranks the wildcard line that takes it.
-`explain-cf` names the step that answered (`exact_name`, `compartment_default`,
-`if_absent`, `resource_unspecified`, …).
-
-A method can write two values for one flow at one place. An ILCD package
-tells two such flows apart by their identifiers; written out as SimaPro CSV,
-they share a name and a compartment and nothing else. Scoring reads one value
-per place: the line that matched the flow more closely, and between two that
-matched alike, the larger value. Synonyms lead to the same choice when two
-names of a method reach one database flow. The log names each such place,
-with every value written there and the one read.
-
-### Changing a method collection
-
-A published method is never changed in place: copy it, then change the copy,
-and compare the copy with the original to see exactly what moved. The copy is
-loaded at once and scores as its source did. Each change is one line appended
-to a journal (`journal.jsonl`) beside the copy's files, which are never
-rewritten; loading the copy reads the files again and replays the journal over
-them. A line records the value it replaced, so a source file that no longer
-holds what a line changed stops the load, naming the line, rather than
-replaying it over something else.
-
-A collection the configuration declares, or one built into the engine, is
-copied the same way. Its copy starts with what the configuration added to the
-files (`patches`, `global-methods`, `scoring`), written as the journal's
-first lines, so the copy holds what the collection held. A copy of an uploaded
-collection or of another copy takes its source's journal as it is, and can undo
-the changes it inherits like its own. A copy reads its
-source's files, so the source cannot be deleted while the copy exists. A
-read-only engine refuses every change below.
-
-```bash
-# Copy a collection under a new name. The answer is the collection made, named
-# by the slug of the name asked for (here my-indicators)
-curl -X POST localhost:8080/api/v1/method-collections/plain-indicators/copy/My%20indicators
-
-# Change one factor's value: its category, its flow, its location if it has one,
-# and its present value when several factors answer at that place
-curl -X POST localhost:8080/api/v1/method-collections/my-indicators/factors \
-  -H 'Content-Type: application/json' \
-  -d '{"op": "set", "methodId": "<category id>", "flowId": "<flow id>", "newValue": 27}'
-
-# Remove it
-curl -X POST localhost:8080/api/v1/method-collections/my-indicators/factors \
-  -H 'Content-Type: application/json' \
-  -d '{"op": "remove", "methodId": "<category id>", "flowId": "<flow id>"}'
-
-# Add a factor to a category; the flows the collection already characterizes,
-# with the flow id and compartment to write, come from /flows?q=
-curl -X POST localhost:8080/api/v1/method-collections/my-indicators/factors \
-  -H 'Content-Type: application/json' \
-  -d '{"op": "add", "methodId": "<category id>", "factor": {"flowId": "<flow id>", "name": "Ammonia", "direction": "Output", "value": 3, "unit": "kg", "compartment": {"medium": "air", "subcompartment": "", "qualifier": ""}}}'
-
-# Scale, or set, every factor a selector reaches (the selector of a configuration patch)
-curl -X POST localhost:8080/api/v1/method-collections/my-indicators/factors \
-  -H 'Content-Type: application/json' \
-  -d '{"op": "scale", "match": {"flowNamePrefix": "Methane"}, "scale": 2}'
-
-# Add a category (it starts with no factor; the answer's methodId names it),
-# rename one, change its unit, or remove it with its factors
-curl -X POST localhost:8080/api/v1/method-collections/my-indicators/categories \
-  -H 'Content-Type: application/json' \
-  -d '{"op": "add", "name": "Water use", "unit": "m3"}'
-curl -X POST localhost:8080/api/v1/method-collections/my-indicators/categories \
-  -H 'Content-Type: application/json' \
-  -d '{"op": "rename", "methodId": "<category id>", "name": "Water consumption"}'
-
-# A collection's scoring sets as rows, then a set of one's own, a row added
-# to it (it joins the single score), and that row removed by its variable
-curl localhost:8080/api/v1/method-collections/my-indicators/scoring-sets
-curl -X POST localhost:8080/api/v1/method-collections/my-indicators/scoring-sets \
-  -H 'Content-Type: application/json' \
-  -d '{"op": "create", "set": "Mine", "rows": [{"label": "Gas", "terms": [{"methodId": "<category id>", "coefficient": 1}], "normalization": 2, "weight": 0.5}]}'
-curl -X POST localhost:8080/api/v1/method-collections/my-indicators/scoring-sets \
-  -H 'Content-Type: application/json' \
-  -d '{"op": "add-row", "set": "Mine", "row": {"label": "Water", "terms": [{"methodId": "<category id>", "coefficient": 1}], "weight": 0.25}}'
-curl -X POST localhost:8080/api/v1/method-collections/my-indicators/scoring-sets \
-  -H 'Content-Type: application/json' \
-  -d '{"op": "remove-row", "set": "Mine", "variable": "water"}'
-
-# Undo the latest change still in effect, or the line named
-curl -X POST localhost:8080/api/v1/method-collections/my-indicators/undo
-curl -X POST 'localhost:8080/api/v1/method-collections/my-indicators/undo?line=3'
-
-# The journal, line by line, and whether each line is still in effect
-curl localhost:8080/api/v1/method-collections/my-indicators/history
-```
-
-Undoing writes the change's inverse as a new line rather than erasing one, so
-the history keeps every step; undoing an undo line redoes the change it took
-back. Undoing a selector puts back the values it replaced, and is refused,
-naming the factor, when a later line changed one of them. Two factors written
-identically at one place cannot be changed one at a time, only together through
-a selector.
-
-A rename carries along the scoring sets and the unregionalized categories that
-named the category, in the same line, so they keep scoring it; the short names
-of a set's variables never change. A name already in use is refused, and so is
-removing a category a scoring set weighs, naming the set. A removal records the
-category whole, factors included, so its undo puts it back where it was.
-
-A scoring set reads as rows: each groups categories, each times a coefficient,
-under a label, with a normalization and a weight, and a row whose formula is
-no such sum is read as that formula. A row with a weight joins the score that
-adds up the rows, the `Single score` a new set starts with; a score written
-otherwise is left as it is, and says so. A gesture on a set (a row added,
-changed or removed, a rename, a formula written) is one journal line, which
-records each entry it changed with what it found, so an undo gives the set
-back exactly, a set a SimaPro file translates included. A formula naming
-nothing the set holds, two variables reading one another, a normalization of
-zero and a row removed while a score reads it otherwise are refused. A file
-writing a normalization of 0 counts that row as zero, which the rows read as
-a normalization of `"Infinity"`, since JSON has no infinity; a change cannot
-ask for one.
-
----
-
-## REST API
-
-All per-database resources are scoped under `/api/v1/db/{dbName}/`. POST variants of the analysis endpoints accept a `SubstitutionRequest` body for what-if scenarios:
-
-```
-# Activity inspection
-GET    /api/v1/db/{dbName}/activity/{processId}                          Activity details
-GET    /api/v1/db/{dbName}/activity/{processId}/flows                    Exchanges as flow summaries
-GET    /api/v1/db/{dbName}/activity/{processId}/inputs                   Input exchanges
-GET    /api/v1/db/{dbName}/activity/{processId}/outputs                  Output exchanges
-GET    /api/v1/db/{dbName}/activity/{processId}/reference-product        Reference product detail
-
-# Supply chain
-GET    /api/v1/db/{dbName}/activity/{processId}/tree                     Supply chain tree
-GET    /api/v1/db/{dbName}/activity/{processId}/graph?cutoff=            Force-directed graph
-GET    /api/v1/db/{dbName}/activity/{processId}/supply-chain             Flat supply-chain table (filters, sort, paging)
-POST   /api/v1/db/{dbName}/activity/{processId}/supply-chain             Same, with substitutions applied
-GET    /api/v1/db/{dbName}/activity/{processId}/consumers                Downstream activities consuming this one
-GET    /api/v1/db/{dbName}/activity/{processId}/supply-chain/consumers?of=  Consumers, inside this process's upstream, of one process it lists: each one's part of its quantity and the lines it buys it on (min-quantity as for the supply chain)
-POST   /api/v1/db/{dbName}/activity/{processId}/supply-chain/consumers?of=  Same, with parameter values and substitutions applied
-GET    /api/v1/db/{dbName}/activity/{processId}/path-to?target=          Shortest supply-chain path to a target activity, named by part of its name (target) or by its process id (target-id)
-POST   /api/v1/db/{dbName}/activity/{processId}/path-to?target=          Same, with substitutions applied
-GET    /api/v1/db/{dbName}/activity/{processId}/aggregate                SQL-style group/filter on exchanges, supply chain, biosphere, or consumption edges
-
-# Inventory and impacts
-GET    /api/v1/db/{dbName}/activity/{processId}/inventory                Life cycle inventory (LCI)
-POST   /api/v1/db/{dbName}/activity/{processId}/inventory                LCI with substitutions
-GET    /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}     Batch LCIA across a method collection (NW + single-score when available)
-POST   /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}     Batch LCIA with substitutions
-POST   /api/v1/db/{dbName}/activity/{processId}/reduced-model/{collection}   Scores as a function of chosen parameters, to run many values away from the engine
-GET    /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}/{methodId}   LCIA score for one method (with top-flows)
-POST   /api/v1/db/{dbName}/activity/{processId}/impacts/{collection}/{methodId}   Same, with substitutions
-GET    /api/v1/db/{dbName}/activity/{processId}/contributing-flows/{collection}/{methodId}        Top biosphere flows by score share
-GET    /api/v1/db/{dbName}/activity/{processId}/contributing-activities/{collection}/{methodId}   Top upstream activities by score share
-GET    /api/v1/db/{dbName}/activity/{processId}/contributing-flows/{collection}/score/{set}/{score}        Same, for one single score of a scoring set
-GET    /api/v1/db/{dbName}/activity/{processId}/contributing-activities/{collection}/score/{set}/{score}   Same, for one single score of a scoring set
-POST   /api/v1/db/{dbName}/activity/{processId}/groups/{collection}                 Score split between named groups of processes (transport, electricity…), every method at once
-POST   /api/v1/db/{dbName}/activity/{processId}/group-members/{collection}/{methodId}   The processes of one group, or of the rest, by score share
-POST   /api/v1/db/{dbName}/impacts/{collection}                          Batch-impacts for many activities (multi-RHS solve)
-POST   /api/v1/db/{dbName}/impacts/{collection}/{methodId}               Same, under one method of the collection
-GET    /api/v1/db/{dbName}/score-pairs?other_database=                   Activities paired with another database's, and what scales the other's scores to this one's units
-POST   /api/v1/db/{dbName}/score-units                                   What scales each asked activity's scores to one unit of the caller's choosing
-
-# Search and reference data
-GET    /api/v1/db/{dbName}/activities?name=&geo=&product=&preset=&classification=&sort=  Search activities
-GET    /api/v1/db/{dbName}/flows?q=&lang=&kind=                          Search flows
-GET    /api/v1/db/{dbName}/flow/{flowId}                                 Flow details
-GET    /api/v1/db/{dbName}/flow/{flowId}/activities?role=                Activities on one side of a flow (producer, consumer, any)
-GET    /api/v1/db/{dbName}/classifications                               Classification systems available in this DB
-GET    /api/v1/db/{dbName}/method/{methodId}/mapping                     Mapping coverage stats
-GET    /api/v1/db/{dbName}/method/{methodId}/flow-mapping                Per-flow mapping detail
-GET    /api/v1/db/{dbName}/method/{methodId}/characterization?flow=      Characterization factors for one DB flow
-
-# Database management
-GET    /api/v1/db                                                        List databases (status + dependencies)
-POST   /api/v1/db/upload                                                 Upload a database archive
-POST   /api/v1/db/{dbName}/load                                          Load a configured database
-POST   /api/v1/db/{dbName}/unload                                        Unload (keep config, free memory)
-POST   /api/v1/db/{dbName}/derive/{newName}                              Make a parent ({"parent": true}) or a child ({"systemModel": "<TOML>"})
-GET    /api/v1/db/{dbName}/system-model                                  A child's system model, and the processes each exception takes
-POST   /api/v1/db/{dbName}/relink                                        Re-resolve cross-DB links (optional JSON body: depDb + mappingCsv for an alias relink)
-GET    /api/v1/db/{dbName}/gap-report                                    Supplier-gap report (what is still unsupplied after linking)
-GET    /api/v1/db/{dbName}/quality-report                                Dataset-soundness report (what is malformed in the database)
-GET    /api/v1/db/{dbName}/quality-report.csv                            The same report as a downloadable file
-GET    /api/v1/db/{dbName}/computed-quality-report                       Computed checks (what the database computes, judged against its own norms)
-GET    /api/v1/db/{dbName}/computed-quality-report.csv                   The same report as a downloadable file
-POST   /api/v1/db/{dbName}/finalize                                      Finalize cross-DB linking
-DELETE /api/v1/db/{dbName}                                               Delete a database
-GET    /api/v1/db/{dbName}/setup                                         Setup info (path, dependencies)
-POST   /api/v1/db/{dbName}/add-dependency/{depName}                      Add a dep
-POST   /api/v1/db/{dbName}/remove-dependency/{depName}                   Remove a dep
-POST   /api/v1/db/{dbName}/accept-substitution                           Accept a database in place of a required release
-POST   /api/v1/db/{dbName}/set-data-path                                 Repoint the source path
-
-# Editing, parameters and scenarios
-POST   /api/v1/db/{dbName}/activity/{processId}/exchanges                Change an activity's lines, parameters, formulas and texts
-GET    /api/v1/db/{dbName}/parameters                                    The database's own parameters
-POST   /api/v1/db/{dbName}/parameters                                    Set or remove them, restating every process that reads them
-GET    /api/v1/db/{dbName}/scenarios                                     Saved scenarios, and those the database ships
-PUT    /api/v1/db/{dbName}/scenarios/{name}                              Save parameter values under a name
-DELETE /api/v1/db/{dbName}/scenarios/{name}                              Drop a saved scenario
-GET    /api/v1/formula-language                                          The formula language: functions, operators, rules
-POST   /api/v1/db/{dbName}/formula-check                                 A formula's value where it would be written, or its problem
-
-# Methods and method collections
-GET    /api/v1/methods                                                   List individual methods (flattened)
-GET    /api/v1/method/{methodId}                                         Method details
-GET    /api/v1/method/{methodId}/factors                                 Characterization factors
-GET    /api/v1/method-collections                                        List method collections
-POST   /api/v1/method-collections/{name}/load                            Load a method collection
-POST   /api/v1/method-collections/{name}/unload                          Unload a method collection
-POST   /api/v1/method-collections/upload                                 Upload a method package
-DELETE /api/v1/method-collections/{name}                                 Delete a method collection
-POST   /api/v1/method-collections/{name}/copy/{newName}                  Copy a method collection, to change it
-POST   /api/v1/method-collections/{name}/factors                         Change a copy's factors
-POST   /api/v1/method-collections/{name}/categories                      Add, rename, change the unit of or remove a copy's category
-GET    /api/v1/method-collections/{name}/scoring-sets                    A collection's scoring sets, as rows
-POST   /api/v1/method-collections/{name}/scoring-sets                    Change a copy's scoring sets: a set, a row, a formula, a score
-POST   /api/v1/method-collections/{name}/undo                            Undo a change (?line=)
-GET    /api/v1/method-collections/{name}/history                         A copy's journal of changes
-GET    /api/v1/method-collections/{name}/flows                           Flows a collection characterizes (?q=&limit=)
-
-# Reference data (synonyms / compartments / units share the same shape)
-GET    /api/v1/{flow-synonyms|compartment-mappings|units}                List
-POST   /api/v1/{flow-synonyms|compartment-mappings|units}/{name}/load    Activate
-POST   /api/v1/{flow-synonyms|compartment-mappings|units}/{name}/unload  Deactivate
-POST   /api/v1/{flow-synonyms|compartment-mappings|units}/upload         Upload
-DELETE /api/v1/{flow-synonyms|compartment-mappings|units}/{name}         Delete
-GET    /api/v1/flow-synonyms/{name}/groups                               Browse synonym groups
-GET    /api/v1/flow-synonyms/{name}/download                             Download synonym CSV
-GET    /api/v1/units/{name}/download                                     Download unit table CSV
-
-# Server
-GET    /api/v1/classification-presets                                    Named classification filter bundles (from TOML)
-GET    /api/v1/version                                                   Server version
-GET    /api/v1/stats                                                     Runtime stats (memory)
-GET    /api/v1/hosting                                                   Hosting config (managed instances)
-GET    /api/v1/logs?since=                                               Server logs
-GET    /api/v1/usage?after=                                              Usage log after a cursor (usage_log = true)
-DELETE /api/v1/usage?boot=&through=                                      Forget the usage lines a collector kept
-POST   /api/v1/auth                                                      Login (returns session cookie)
-```
-
-### Usage log
-
-With `usage_log = true` under `[server]`, the engine keeps one line for each computation on a process: reading it (its exchanges, supply chain, path, consumers), its inventory, its scores, what weighs in a score, or a comparison. A line names the kind, the database and process, what the database calls the process (`heldAs`: its activity name, product name and location; null once the database no longer holds it), the time, the releases read (the database's own and those of every database it depends on, transitively, a copy or a re-keyed database counting as a read of the one whose files it reads) and the reader, copied from the request's `Volca-Reader` header when one is sent. Only computations that answered are kept, from REST and MCP alike, and only for the releases whose database's terms ask its computations counted (`usage` beside `accept = true`, so its readers accepted the clause): without a release nothing says whose data was read, and without the clause nobody asked for a count. `counted` lists those releases, each with `disclosure`: `anonymous`, or `organizations` when the publisher sees the reader's organization and email domain. A batch keeps one line per process it scored, and a comparison one per side.
-
-The lines live in memory. `GET /api/v1/usage?after=N` returns those numbered after `N` (a page at a time, `more` saying whether others wait) with the `boot` they belong to; each start of the engine draws a new one and numbers from 1 again. `DELETE /api/v1/usage?boot=B&through=N` forgets the lines a collector kept, and is refused with 409 for a `boot` from another start. A read-only engine answers both, since the log is not its data, and neither keeps the engine from going idle. When nobody collects, the oldest lines go past 100,000 and the engine says how many. The engine trusts the header as sent: the server in front of it decides who a reader is, and is the one to strip the header from what callers send.
-
-A change to a database, a method collection or the scenarios of a database is signed the same way, whether or not the usage log is on: with `Volca-Reader` and `Volca-Author-Handle` (the account's public name) both sent, the journal line keeps `"by": {"account", "handle"}`, the history returns the name as `by`, and an export's `CHANGES.md` says `By: @name`. Without either, the line is unsigned. The server in front strips both headers from what callers send.
-
-The routes under `method/{methodId}` take an optional `?collection=`. A method's UUID derives from its name, so two collections can carry the same one; without `collection`, such a UUID is refused with a 409 naming the collections to choose from.
-
-Per-exchange data on inventory and impact responses includes `exComment` – the free-text comment (`generalComment` / `<comment>`) attached to each exchange in the source dataset, when present.
-
-The `impacts/{collection}` response carries every scoring set's scores in `scoringResults`, keyed by set name then score name. The per-category `normalizedScore`, `weightedScore` and `damageCategory`, and the batch's `normWeightSetName` and `availableNWsets`, are read from the first scoring set a SimaPro file gave; they are deprecated and go in 0.16.0.
-
-### OpenAPI spec
-
-The full OpenAPI 3.0 specification is served at runtime:
-
-- **`GET /api/v1/openapi.json`** – machine-readable spec (for code generation, tooling)
-- **`GET /api/v1/docs`** – Swagger UI (interactive browser)
-
-Use these to build your own frontend, generate a typed client, or explore the API interactively.
-
----
-
-## MCP Server
-
-VoLCA exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) endpoint at `POST /mcp`, making LCA data queryable by AI assistants (Claude, Cursor, etc.) natively.
-
-Configure it in your MCP client:
-
-```json
-{
-  "mcpServers": {
-    "volca": {
-      "url": "http://localhost:8080/mcp"
-    }
-  }
-}
-```
-
-Available tools – auto-derived at runtime from the single resource registry (`src/API/Resources.hs`) shared with the REST API and OpenAPI spec, so the three *served* surfaces never drift. This table is a hand-written copy; `volca dump-mcp-tools` prints the authoritative list:
-
-| Tool | Description |
-|------|-------------|
-| `list_databases` | List loaded databases (with dependencies) |
-| `list_presets` | List named classification filter presets |
-| `list_geographies` | List geographies present in a database |
-| `list_classifications` | List classification systems and values for a database |
-| `list_methods` | List loaded impact assessment methods |
-| `search_activities` | Search by name or source identifier, geography, product, classification, or preset |
-| `search_flows` | Search flows, filtered by kind |
-| `get_activity` | Activity details and exchanges (with comments) |
-| `aggregate` | SQL-style group/filter on exchanges, supply chain, biosphere, or consumption edges |
-| `get_supply_chain` | Flat upstream activity list with quantities and filters |
-| `get_consumers` | Downstream activities that consume a given activity |
-| `get_path_to` | Shortest supply-chain path from one activity to another |
-| `compare_activities` | Two activities side by side, exchange by exchange, in one database or across two |
-| `compare_databases` | Two loaded databases side by side: activities added, removed, changed and not paired, down to the exchanges |
-| `compare_method_collections` | Two loaded method collections side by side: for each pair of impact categories, the characterization factors added, removed and changed, with both values and their ratio |
-| `edit_exchanges` | Change an activity's lines, parameters, formulas, name, location and description |
-| `edit_activities` | The same for several activities at once, as one change that rebuilds the database once |
-| `supply_missing_product` | Give a missing product a supplier wherever the database asks for it, as one change |
-| `get_database_parameters` | The parameters a database's processes read unless they define their own |
-| `edit_database_parameters` | Set or remove database parameters, restating every process that reads them |
-| `get_database_history` | A database's journal of changes, each in words with the reason given for it |
-| `list_scenarios` | A database's scenarios, saved and shipped, each with the parameter values it sets |
-| `save_scenario` | Save parameter values under a name |
-| `drop_scenario` | Drop a saved scenario |
-| `get_formula_language` | The language formulas are written in, with an example of each function |
-| `check_formula` | A formula's value where it would be written, or its problem |
-| `get_reduced_model` | An activity's scores as a function of chosen parameters, to run many values away from the engine |
-| `copy_method_collection` | Copy a method collection under a new name, to change the copy |
-| `edit_method_factors` | Change a copy's factors: set, remove or add one, or scale or set every factor a selector reaches |
-| `edit_method_categories` | Change a copy's categories: add, rename, change the unit of or remove one |
-| `edit_scoring_sets` | Change a copy's scoring sets: create, rename or remove a set, add, change or remove a row, write a formula or a score |
-| `undo_method_edit` | Undo a change to a copy by writing its inverse, or redo one by undoing its undo |
-| `get_method_history` | A copy's journal of changes, and whether each is still in effect |
-| `search_method_flows` | The flows a loaded method collection characterizes, to name a new factor's flow |
-| `profile_method_collection` | What each impact category of a loaded method collection holds: factors per medium, regionalized factors and locations, zeros, pattern rows, and duplicates |
-| `get_inventory` | LCI biosphere flows (top N by quantity) |
-| `get_impacts` | LCIA score for an activity and method (accepts substitutions) |
-| `score_activity` | Full LCIA panel + every configured scoring set for one activity (replaces N×get_impacts calls) |
-| `score_activities` | Same shape as score_activity, batched over N activities in one multi-RHS solve |
-| `list_scoring_sets` | List formula-based scoring sets configured on every loaded method collection, and each as rows |
-| `get_contributing_flows` | Top biosphere flows contributing to an LCIA score |
-| `get_contributing_activities` | Top upstream activities contributing to an LCIA score |
-| `get_score_contributing_flows` | Top biosphere flows contributing to one score of a scoring set |
-| `get_score_contributing_activities` | Top upstream activities contributing to one score of a scoring set |
-| `get_flow_mapping` | CF-to-flow mapping coverage for a method |
-| `get_characterization` | Characterization factors for a flow under a method |
-
-Authentication uses the same password as the REST API.
-
----
-
-## CLI Commands
-
-### Global Options
-
-| Option | Description |
-|--------|-------------|
-| `--config FILE` | TOML config file for multi-database setup (optional for `server` and `stop`, which run on built-in defaults without it) |
-| `--url URL` | Server URL (default: from config; or set `VOLCA_URL`) |
-| `--password PWD` | Server password (or set `VOLCA_PASSWORD`) |
-| `--db NAME` | Database name to query |
-| `--format FORMAT` | Output format: `pretty` (default), `json`, `table`, `csv` |
-| `--jsonpath PATH` | Field holding the array to flatten for CSV output (e.g. `results`, `activity.exchanges`); only needed when a response carries several arrays |
-| `--no-cache` | Disable caching (for development) |
-
-### Modes of Operation
-
-```bash
-# Start server (loads databases – run once)
-volca --config volca.toml server --port 8080
-
-# Single HTTP command (connects to running server, ~0.2s)
-volca --config volca.toml [--db NAME] COMMAND [OPTIONS]
-
-# Interactive REPL (auto-starts server if not running)
-volca --config volca.toml repl
-```
-
-### Search
-
-```bash
-volca activities --name "electricity" --geo "DE" --limit 10
-volca activities --product "steel" --limit 10 --offset 20
-volca flows --query "carbon dioxide" --limit 5
-```
-
-### Analysis
-
-```bash
-# Activity details
-volca activity "12345678-..."
-
-# Life cycle inventory
-volca inventory "12345678-..."
-
-# Impact assessment. --method names a loaded method by UUID or name, or a
-# collection, whose every method is then scored
-volca impacts "12345678-..." --method "Climate change"
-volca impacts "12345678-..." --method EF-3.1
-# ... and --collection picks among collections carrying the same method
-volca impacts "12345678-..." --method "Climate change" --collection EF-3.1
-
-# What one method's score is made of: the flows, or the upstream processes
-volca contributing-flows "12345678-..." --method "Climate change" --limit 10
-volca contributing-activities "12345678-..." --method "Climate change" --exclude-long-term
-
-# How a database flow met, or missed, the method's factor
-volca explain-cf FLOW_UUID --method "Climate change"
-
-# Matrix export (Ecoinvent universal format – runs locally, not via HTTP)
-volca export-matrices ./output_dir
-```
-
-### Walking the supply chain
-
-```bash
-# Upstream, as a tree or as a flat list
-volca tree "12345678-..."
-volca supply-chain "12345678-..." --max-depth 2 --geo FR --min-quantity 0.01   # scaling factor above 0.01
-
-# Downstream: the processes that consume what this one makes
-volca consumers "12345678-..." --max-depth 1
-
-# The shortest upstream path to a process whose name contains "electricity"
-volca path-to "12345678-..." electricity
-```
-
-The `aggregate` endpoint and the breakdowns of a single score are reachable via
-the REST API and MCP. Use `curl` or the OpenAPI spec at `/api/v1/docs` to drive
-them while the CLI focuses on the most common commands.
-
-### Flow Mapping Diagnostics
-
-```bash
-# How well does a method match a database: counts per match strategy,
-# then the first 50 CFs that found no DB flow
-volca --db agribalyse flow-mapping METHOD_UUID
-
-# DB biosphere flows a CF reaches, with that CF and its match strategy
-volca --db agribalyse flow-mapping METHOD_UUID --matched
-
-# DB biosphere flows no CF reaches
-volca --db agribalyse flow-mapping METHOD_UUID --uncharacterized
-
-# Machine-readable output
-volca --db agribalyse flow-mapping METHOD_UUID --matched --format json
-```
-
-### Quality Reports
-
-The engine renders these two reports as CSV itself, so `--format csv` writes a
-file rather than a JSON dump. Load a database in one command, take its report
-in the next:
-
-```bash
-volca --config volca.toml database load agribalyse
-volca --config volca.toml --db agribalyse --format csv quality-report > quality.csv
-
-# What the database computes, judged against its own norms (needs a method collection)
-volca --config volca.toml --db agribalyse --format csv computed-quality-report --collection EF31 > computed.csv
-
-# Worst findings only, as JSON
-volca --config volca.toml --db agribalyse quality-report --limit 20
-```
-
-The same file over plain HTTP, named after the database it describes:
-
-```bash
-curl -OJ http://localhost:8080/api/v1/db/agribalyse/quality-report.csv
-```
-
-### Database and Method Management
-
-```bash
-# List, upload, delete databases
-volca database                                  # list (default)
-volca database upload mydb.7z --name "My DB"    # upload
-volca database delete my-db                     # delete
-
-# Edit and export loaded databases
-volca database copy my-db my-db-v2              # copy under a new name
-volca database relink my-db --to bg-db --mapping aliases.csv
-volca database delete-activities my-db --name "electricity" --spare-suppliers  # delete filtered set
-#   --spare-suppliers keeps every matched process the remaining ones still use,
-#   --cut-suppliers deletes it and cuts their links; one of the two is required
-volca database delete-activities my-db --name "electricity" --exclude-location CH --spare-suppliers --dry-run
-#   --exclude-name and --exclude-location leave out what they find (repeatable);
-#   --dry-run says what would go and what would be spared, and changes nothing
-volca database delete-activities my-db --id UUID_UUID --id UUID_UUID --cut-suppliers  # delete exactly these
-volca database export my-db --format simapro --out out.csv
-#   formats: simapro | ecospold1 | ecospold2 | ilcd | brightway | openlca
-#   all but ecospold1 and ilcd keep parameters and formulas
-volca database export my-db --format ecospold2 --package ro-crate --out my-db.zip
-#   the export, unchanged, beside an RO-Crate ro-crate-metadata.json naming its
-#   licence and the release of every database it links to (each must declare one)
-
-# List, upload, export, delete method collections
-volca method                                    # list (default)
-volca method upload EF-3.1.zip --name "EF 3.1"  # upload
-volca method export ef-31 --format simapro --out ef-31.csv  # export (formats: simapro | csv | openlca | ilcd)
-volca method delete ef-31                        # delete
-```
-
----
-
-## API and CLI Feature Matrix
-
-| Feature | REST API | CLI |
-|---------|----------|-----|
-| **Search** | | |
-| Search activities | `GET /db/{db}/activities?name=&geo=&product=&preset=&classification=` | `activities --name --geo --product` |
-| Search flows | `GET /db/{db}/flows?q=&lang=&kind=` | `flows --query --lang` |
-| Classifications | `GET /db/{db}/classifications` | – |
-| Classification presets | `GET /classification-presets` | – |
-| **Analysis** | | |
-| Activity details | `GET /db/{db}/activity/{id}` | `activity ID` |
-| Supply chain tree | `GET /db/{db}/activity/{id}/tree` | `tree ID` |
-| Supply chain (flat) | `GET\|POST /db/{db}/activity/{id}/supply-chain` | `supply-chain ID --name --geo --product --max-depth --min-quantity` |
-| Supply chain graph | `GET /db/{db}/activity/{id}/graph?cutoff=` | – |
-| Downstream consumers | `GET /db/{db}/activity/{id}/consumers` | `consumers ID --name --geo --product --max-depth` |
-| Consumers inside the upstream | `GET\|POST /db/{db}/activity/{id}/supply-chain/consumers?of=` | – |
-| Path to target | `GET\|POST /db/{db}/activity/{id}/path-to?target=` or `?target-id=` | `path-to ID NAME` |
-| Aggregate | `GET /db/{db}/activity/{id}/aggregate` | – |
-| Life cycle inventory | `GET\|POST /db/{db}/activity/{id}/inventory` | `inventory ID` |
-| LCIA batch (collection) | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}` | `impacts ID --method COLLECTION` |
-| LCIA single method | `GET\|POST /db/{db}/activity/{id}/impacts/{collection}/{methodId}` | `impacts ID --method METHOD` |
-| LCIA batch over many activities | `POST /db/{db}/impacts/{collection}` | – |
-| LCIA batch over many activities, one method | `POST /db/{db}/impacts/{collection}/{methodId}` | – |
-| Pairs of activities to score in two databases | `GET /db/{db}/score-pairs?other_database=OTHER` | – |
-| Scores of some activities per one chosen unit | `POST /db/{db}/score-units` | – |
-| Contributing flows | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/{methodId}` | `contributing-flows ID --method METHOD` |
-| Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | `contributing-activities ID --method METHOD` |
-| Contributing flows to a single score | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/score/{set}/{score}` | – |
-| Contributing activities to a single score | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/score/{set}/{score}` | – |
-| Score split between groups of processes | `POST /db/{db}/activity/{id}/groups/{collection}` | – |
-| Processes of one group | `POST /db/{db}/activity/{id}/group-members/{collection}/{methodId}` | – |
-| Flow details | `GET /db/{db}/flow/{flowId}` | `flow FLOW_ID` |
-| Flow activities | `GET /db/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
-| **Flow Mapping** | | |
-| Mapping coverage and unmatched CFs | `GET /db/{db}/method/{id}/mapping` | `flow-mapping METHOD_UUID` |
-| Per-flow mapping | `GET /db/{db}/method/{id}/flow-mapping` | `flow-mapping METHOD_UUID --matched` or `--uncharacterized`, `--collection NAME` when several carry it |
-| Characterization for flow | `GET /db/{db}/method/{id}/characterization?flow=` | – |
-| Why a flow has, or lacks, a factor | `GET /db/{db}/method/{id}/explain-cf/{flowId}` | `explain-cf FLOW_ID --method METHOD [--collection NAME]` |
-| Every factor a flow gets, in every collection | `GET /db/{db}/flow/{flowId}/factors[?collection=]` | – |
-| **Quality** | | |
-| Dataset soundness | `GET /db/{db}/quality-report[.csv]` | `quality-report [--limit N]` |
-| Computed checks | `GET /db/{db}/computed-quality-report[.csv]` | `computed-quality-report [--collection NAME]` |
-| **Database Management** | | |
-| List databases | `GET /db` | `database` |
-| Upload database | `POST /db/upload` | `database upload FILE --name NAME` |
-| Load / unload | `POST /db/{name}/(load\|unload)` | – (use config `load = true`) |
-| Relink / finalize | `POST /db/{name}/(relink\|finalize)` | `database relink DB --to DEP --mapping CSV` |
-| Setup / dependencies | `GET /db/{name}/setup`, `POST .../{add,remove}-dependency/{dep}`, `POST .../set-data-path`, `POST .../accept-substitution` | – |
-| Copy database | `POST /db/{name}/copy/{newName}` | `database copy SRC NEW_NAME` |
-| Derive a parent or a child | `POST /db/{name}/derive/{newName}`, `GET /db/{name}/system-model` | – |
-| Delete activities (by filter or ids, with exclusions, sparing or cutting what stays needs, optional dry run) | `POST /db/{name}/delete` | `database delete-activities DB [filters\|--id …] (--spare-suppliers\|--cut-suppliers) [--exclude-name …] [--exclude-location …] [--dry-run]` |
-| Export database | `POST /db/{name}/export` (`{"format": FMT, "package": "ro-crate"}`, package optional) | `database export DB --format FMT [--package ro-crate] --out FILE` |
-| Delete database | `DELETE /db/{name}` | `database delete NAME` |
-| **Method Management** | | |
-| List methods | `GET /methods` | `methods` |
-| Method details | `GET /method/{id}` | – |
-| Method factors | `GET /method/{id}/factors` | – |
-| List collections | `GET /method-collections` | `method` |
-| Upload collection | `POST /method-collections/upload` | `method upload FILE --name NAME` |
-| Load / unload collection | `POST /method-collections/{name}/(load\|unload)` | – |
-| Delete collection | `DELETE /method-collections/{name}` | `method delete NAME` |
-| Export collection (SimaPro CSV, columnar CSV, openLCA JSON-LD, or ILCD method package) | `POST /method-collections/{name}/export` | `method export NAME --format simapro --out FILE` |
-| **Reference Data** | | |
-| Flow synonyms | `GET /flow-synonyms` (+ load/unload/upload/delete/groups/download) | `synonyms` |
-| Compartment mappings | `GET /compartment-mappings` (+ load/unload/upload/delete) | `compartment-mappings` |
-| Units | `GET /units` (+ load/unload/upload/delete/download) | `units` |
-| **Matrix Export** | | |
-| Universal format | – | `export-matrices DIR` (local only) |
-| Debug matrices | – | `debug-matrices ID --output FILE` (local only) |
-| **Server** | | |
-| Version / stats / hosting / logs | `GET /version`, `/stats`, `/hosting`, `/logs?since=` | – |
-| Stop server | – | `stop` |
-| REPL | – | `repl` |
-| Login | `POST /auth` | – |
-
-All API routes are prefixed with `/api/v1/`. A dash (–) means the feature is only available in one interface.
-
----
-
-
-## Building
-
-### Linux
-
-Install dependencies, then build:
-
-```bash
-# Debian/Ubuntu
-sudo apt install build-essential python3 curl zlib1g-dev upx-ucl
-
-# Fedora
-sudo dnf install gcc gcc-c++ make python3 curl zlib-devel
-
-# Arch Linux
-sudo pacman -S base-devel python curl zlib
-```
-
-Install the [Haskell toolchain via GHCup](https://www.haskell.org/ghcup/), then:
-
-```bash
-./build.sh              # Build
-./build.sh --test       # Build and run tests
-```
-
-`build.sh` also accepts:
-
-- `--clean` / `--all` – discard `dist-newstyle/` before building
-- `--coverage` – run tests with coverage and emit an HTML report
-- `--static` – produce a statically-linked binary (Linux only)
-- `--no-optimize` – skip `strip` and UPX, leaving the binary as linked.
-  The macOS test run of CI uses it, then strips and signs with
-  `--optimize-only`.
-
-A build that ships splits every object into one ELF section per top-level
-symbol so the executable can be pruned to size, and that link is the one the
-default `ld.bfd` is slowest at: about 22 seconds, where every alternative
-takes one or two. Below `-O2` the split is off, since nothing prunes a test
-suite and the sections would be pure cost, and the link is a few seconds
-whatever the linker. Changing linker changes the link alone, so it costs
-nothing on an already compiled tree:
-
-```bash
-cabal build exe:volca --ghc-options=-optl-fuse-ld=lld
-```
-
-`-fuse-ld=` looks for a plain `ld.lld`, `ld.mold` or `ld.gold` on the
-`PATH`, and will not find a versioned `ld.lld-21`.
-
-### macOS (Apple Silicon)
-
-Tested on macOS 13 Ventura and later, arm64 only. The build pins
-`MACOSX_DEPLOYMENT_TARGET=13.0` so binaries produced on a recent macOS still
-load on Ventura.
-
-```bash
-# Xcode Command Line Tools (provides clang, ld64, the macOS SDK)
-xcode-select --install
-
-# Homebrew
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-eval "$(/opt/homebrew/bin/brew shellenv)"
-
-brew install ghcup python3 curl node rust elm upx
-
-# Haskell toolchain
-ghcup install ghc 9.12.4 --set
-ghcup install cabal latest
-source ~/.ghcup/env
-
-./build.sh              # Build
-./build.sh --test       # Build and run tests
-```
-
-### Windows (MSYS2)
-
-1. Install [MSYS2](https://www.msys2.org/) and open the "MSYS2 UCRT64" terminal
-2. Install dependencies:
-   ```bash
-   pacman -S \
-     mingw-w64-ucrt-x86_64-gcc \
-     mingw-w64-ucrt-x86_64-cmake \
-     mingw-w64-ucrt-x86_64-make \
-     mingw-w64-ucrt-x86_64-python \
-     mingw-w64-ucrt-x86_64-upx \
-     make python git curl tar
-   ```
-3. Install [GHCup](https://www.haskell.org/ghcup/) for the compiler toolchain
-4. Run:
-   ```bash
-   ./build.sh            # Same script as Linux/macOS
-   ```
-
-### Docker
-
-```bash
-docker build -f docker/Dockerfile -t volca .
-docker run -p 8080:8080 -v /path/to/data:/data volca
-```
-
----
-
-## Testing
-
-```bash
-./build.sh --test
-
-# One spec group, in a tree that script has already built
-cabal test lca-tests --test-options="--match /Inventory/"
-```
-
-`./build.sh --test` is the way in: it generates `src/Version.hs`, compiles at
-`-O0`, builds the `volca` executable and names it to the specs that start a
-server. A bare `cabal test` from a fresh clone does none of those: it stops on
-the missing `src/Version.hs`, and once that is generated the specs that want the
-executable stop too. `AGENTS.md` says the rest.
-
-Tests cover matrix construction (sign convention), inventory calculation (golden values), parsers (EcoSpold1/2, ILCD, SimaPro, Brightway Excel, classification fields), and matrix export format compliance.
-
----
+## Documentation
+
+The full documentation is on the site, at
+**[www.volca.run/docs](https://www.volca.run/docs/)**:
+
+- [Ways to use VoLCA](https://www.volca.run/docs/guides/entry-points/): the
+  hosted app, the desktop app, the CLI, the HTTP API, Python or MCP;
+- [Configuration](https://www.volca.run/docs/guides/configuration/): how to
+  write `volca.toml`;
+- [CLI](https://www.volca.run/docs/cli/),
+  [HTTP API](https://www.volca.run/docs/api/) and its
+  [generated reference](https://www.volca.run/docs/api/reference/),
+  [MCP tools](https://www.volca.run/docs/mcp/tools/),
+  [Python client](https://www.volca.run/docs/python/);
+- guides on [method collections](https://www.volca.run/docs/guides/lcia-methods/),
+  [flow mapping](https://www.volca.run/docs/guides/flow-mapping/) and
+  [editing databases](https://www.volca.run/docs/guides/editing-databases/).
+
+The engine also describes itself: a running server answers its OpenAPI
+specification at `GET /api/v1/openapi.json`, and `volca dump-mcp-tools` prints
+its MCP tools.
+
+For contributors, this repository holds what changes with the code:
+[docs/configuration.md](docs/configuration.md) (every configuration key),
+[docs/building.md](docs/building.md) (building and testing),
+[docs/architecture.md](docs/architecture.md),
+[docs/flow-matching.md](docs/flow-matching.md) (the exact rule a flow follows to
+meet a characterization factor) and [AGENTS.md](AGENTS.md) (the conventions).
 
 ## Contributors
 
