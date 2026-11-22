@@ -486,7 +486,7 @@ instance FromJSON LoadDatabaseResponse where
 
 {- | One classification filter in a delete request: the @system@ to match, the
 @value@ to look for, and the @mode@ it is matched in (@contains@, @exact@,
-@not-contains@ or @not-exact@, as a search address spells them), so the deleted
+@starts-with@, @not-contains@, @not-exact@ or @not-starts-with@, as a search address spells them), so the deleted
 set is exactly the searched set. The mode is required and no other field is
 accepted: an entry a client misspelt would otherwise delete something other
 than what it meant.

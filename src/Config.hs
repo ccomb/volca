@@ -941,7 +941,7 @@ instance DecodeTOML ClassificationEntry where
         presetMatch :: Text -> Decoder ClassificationMatch
         presetMatch word = case readClassificationMode word of
             Right (Including match) -> pure match
-            Right (Excluding _) -> fail ("a classification preset keeps what it names: mode '" <> T.unpack word <> "' leaves it out; use exact or contains")
+            Right (Excluding _) -> fail ("a classification preset keeps what it names: mode '" <> T.unpack word <> "' leaves it out; use exact, contains or starts-with")
             Left err -> fail (T.unpack err)
 
 instance DecodeTOML ClassificationPreset where

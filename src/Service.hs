@@ -195,9 +195,7 @@ This matches the documented behaviour in volca.toml classification-presets.
 matchClassifications :: Activity -> [ClassificationFilter] -> Bool
 matchClassifications activity filters =
     let groups = M.fromListWith (++) [(sys, [(val, match)]) | ClassificationFilter{clfSystem = sys, clfValue = val, clfMatch = match} <- filters]
-        matchOne v (q, match) = case match of
-            MatchExact -> T.toLower q == T.toLower v
-            MatchContains -> T.isInfixOf (T.toLower q) (T.toLower v)
+        matchOne v (q, match) = valueMatches match q v
         applyGroup acc (sys, pairs) =
             acc && case M.lookup sys (activityClassification activity) of
                 Just v -> any (matchOne v) pairs

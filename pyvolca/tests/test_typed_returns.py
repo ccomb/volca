@@ -326,6 +326,15 @@ class TestListPresetsTyped:
         from volca import MatchMode
         assert out[0].filters[0].mode is MatchMode.EXACT
 
+    def test_list_presets_reads_starts_with(self, mocked_client, make_response):
+        client, session = mocked_client
+        session.get.return_value = make_response([
+            {"name": "transport", "label": "Transport",
+             "filters": [{"system": "ISIC", "value": "49", "mode": "starts-with"}]},
+        ])
+        from volca import MatchMode
+        assert client.list_presets()[0].filters[0].mode is MatchMode.STARTS_WITH
+
 
 class TestServerVersionTyped:
     def test_get_version_returns_typed(self, mocked_client, make_response):
@@ -461,6 +470,22 @@ class TestAggregateAcceptsEnumOrString:
         params = dict(session.get.call_args[1]["params"])
         assert params["scope"] == "biosphere"
         assert params["aggregate"] == "count"
+
+    def test_aggregate_sends_each_classification_mode(self, mocked_client, make_response):
+        client, session = mocked_client
+        session.get.return_value = make_response({
+            "scope": "direct", "functionalUnit": {"amount": 1, "unit": "kg", "product": "p"},
+            "filteredTotalPerUnit": 1.0, "filteredCount": 1,
+            "groups": [],
+        })
+        from volca import ClassificationFilter
+        client.aggregate("pid", "direct", filter_classification=[
+            ClassificationFilter("ISIC", "49", "starts-with"),
+            ClassificationFilter("ISIC", "01", "exact"),
+            ClassificationFilter("ISIC", "Food"),
+        ])
+        params = session.get.call_args[1]["params"]
+        assert [v for k, v in params if k == "filter_classification"] == ["ISIC=49:starts-with", "ISIC=01:exact", "ISIC=Food"]
 
     def test_aggregate_accepts_raw_string(self, mocked_client, make_response):
         client, session = mocked_client

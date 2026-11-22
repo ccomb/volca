@@ -289,7 +289,7 @@ active = false
 [[classification-presets]]     # named filter bundles for classifications
 name = "agriculture"
 label = "Agriculture"
-filters = [{ system = "ISIC", value = "01", mode = "contains" }]  # mode: exact | contains
+filters = [{ system = "ISIC", value = "01", mode = "contains" }]  # mode: exact | contains | starts-with
 
 # [hosting] tunes upload/API limits when the engine runs behind a manager:
 # max_uploads, max_upload_mb, max_loaded_uploads, api_access,
@@ -570,6 +570,8 @@ GET    /api/v1/db/{dbName}/activity/{processId}/contributing-flows/{collection}/
 GET    /api/v1/db/{dbName}/activity/{processId}/contributing-activities/{collection}/{methodId}   Top upstream activities by score share
 GET    /api/v1/db/{dbName}/activity/{processId}/contributing-flows/{collection}/score/{set}/{score}        Same, for one single score of a scoring set
 GET    /api/v1/db/{dbName}/activity/{processId}/contributing-activities/{collection}/score/{set}/{score}   Same, for one single score of a scoring set
+POST   /api/v1/db/{dbName}/activity/{processId}/groups/{collection}                 Score split between named groups of processes (transport, electricity…), every method at once
+POST   /api/v1/db/{dbName}/activity/{processId}/group-members/{collection}/{methodId}   The processes of one group, or of the rest, by score share
 POST   /api/v1/db/{dbName}/impacts/{collection}                          Batch-impacts for many activities (multi-RHS solve)
 POST   /api/v1/db/{dbName}/impacts/{collection}/{methodId}               Same, under one method of the collection
 GET    /api/v1/db/{dbName}/score-pairs?other_database=                   Activities paired with another database's, and what scales the other's scores to this one's units
@@ -934,6 +936,8 @@ volca method delete ef-31                        # delete
 | Contributing activities | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/{methodId}` | `contributing-activities ID --method METHOD` |
 | Contributing flows to a single score | `GET /db/{db}/activity/{id}/contributing-flows/{collection}/score/{set}/{score}` | – |
 | Contributing activities to a single score | `GET /db/{db}/activity/{id}/contributing-activities/{collection}/score/{set}/{score}` | – |
+| Score split between groups of processes | `POST /db/{db}/activity/{id}/groups/{collection}` | – |
+| Processes of one group | `POST /db/{db}/activity/{id}/group-members/{collection}/{methodId}` | – |
 | Flow details | `GET /db/{db}/flow/{flowId}` | `flow FLOW_ID` |
 | Flow activities | `GET /db/{db}/flow/{flowId}/activities` | `flow FLOW_ID activities` |
 | **Flow Mapping** | | |

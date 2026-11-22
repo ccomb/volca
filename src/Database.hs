@@ -420,16 +420,7 @@ applyStructuredFilters geographies db geoParam productParam classFilters exactMa
                 | exactMatch -> [(pid, a) | (pid, a) <- candidates, locationIs geo (activityLocation a)]
                 | otherwise -> [(pid, a) | (pid, a) <- candidates, locationAnswers geographies geo (activityLocation a)]
 
-        -- exchangeIsReference covers both ReferenceProduct (output) and
-        -- ReferenceInput (treatment-process input). Both are the activity's
-        -- reference product for search purposes; excluding ReferenceInput
-        -- here used to hide waste-treatment activities from product filters.
-        getProductNames a' =
-            [ tfName flow
-            | ex <- nonPlainExchanges a'
-            , exchangeIsReference ex
-            , Just flow <- [M.lookup (exchangeFlowId ex) (dbTechFlows db)]
-            ]
+        getProductNames = referenceProductNames db
 
         productFiltered = case productParam of
             Nothing -> geoFiltered
@@ -557,3 +548,16 @@ flowNameRelevance query name
     | otherwise = 2
   where
     folded = T.toCaseFold name
+
+{- | The names of an activity's reference products, as a filter on the product
+reads them. 'exchangeIsReference' covers both a 'ReferenceProduct' (an output)
+and a 'ReferenceInput' (what a treatment takes in): leaving the inputs out used
+to hide waste treatments from product filters.
+-}
+referenceProductNames :: Database -> Activity -> [Text]
+referenceProductNames db activity =
+    [ tfName flow
+    | ex <- nonPlainExchanges activity
+    , exchangeIsReference ex
+    , Just flow <- [M.lookup (exchangeFlowId ex) (dbTechFlows db)]
+    ]
