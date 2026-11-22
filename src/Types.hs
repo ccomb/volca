@@ -622,7 +622,7 @@ data Exchange
         , techComment :: !(Maybe Text) -- Free-text per-exchange comment from source
         , techPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
         , techShare :: !(Maybe DeclaredShare) -- The share a product output was declared with; Nothing on inputs and where the source states none
-        , techClassification :: !(M.Map Text Text) -- What the source says of this product row (SimaPro "Category"); carried onto the process split for it
+        , techClassification :: !(M.Map Text Text) -- What the source says of this product row (SimaPro "Category", EcoSpold2 CPC); carried onto the process whose reference it is; empty on inputs
         , techProperties :: !ExchangeProperties -- Properties the source states of this line, the material an allocation key other than the declared one is computed from
         , techFormula :: !(Maybe ExchangeFormula) -- What makes the amount follow the dataset's parameters; Nothing where nothing does
         }

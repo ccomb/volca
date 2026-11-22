@@ -149,8 +149,16 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
         Unallocated -> deducePrices (normalise act)
         _ -> normalise act
 
+    -- A process read whole takes what its reference row says on top, as a
+    -- process split for one product does; several references name no one.
     normalised :: Activity
-    normalised = act{activityLines = packExchanges (map snd placed)}
+    normalised =
+        act
+            { activityLines = packExchanges (map snd placed)
+            , activityClassification = case filter exchangeIsReference (map snd placed) of
+                [reference] -> M.union (exchangeClassification reference) (activityClassification act)
+                _ -> activityClassification act
+            }
 
     products, shared :: [(Int, Exchange)]
     (products, shared) = partition (exchangeIsProductOutput . snd) placed
@@ -183,7 +191,7 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
             { activityLines = packExchanges (map unnamed (applied from share (asReference productEx) : map (scaled from productAt share) shared))
             , activityParameters = M.union (activityParameters normalised) namedLines
             , activityUnit = getUnitNameForExchange unitDB productEx
-            , activityClassification = M.union (exchangeClassification productEx) (activityClassification normalised)
+            , activityClassification = M.union (exchangeClassification productEx) (activityClassification act)
             }
 
     namedLines :: M.Map Text Parameter
