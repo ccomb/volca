@@ -70,6 +70,12 @@ from .types import (
     ConsumerResult,
     ConsumersResponse,
     ContributingActivities,
+    Attribution,
+    AttributionLike,
+    Group,
+    GroupCandidates,
+    GroupContributions,
+    GroupSet,
     ContributingFlows,
     DatabaseComparison,
     DatabaseInfo,
@@ -434,6 +440,14 @@ def _parse_spec(spec: dict) -> dict[str, _Operation]:
                 query_params=query_params,
             )
     return ops
+
+
+def _groups_body(groups: list[Group], attribution: AttributionLike | None) -> dict:
+    """The groups and reading every group route takes; left out, the reading is the engine's default."""
+    body: dict = {"groups": [g.to_wire() for g in groups]}
+    if attribution is not None:
+        body["attribution"] = Attribution(attribution).value
+    return body
 
 
 # ---------------------------------------------------------------------------
@@ -3788,6 +3802,117 @@ class Client:
             score=score,
             limit=limit,
         ))
+
+    # -- Groups of processes --
+    #
+    # A score split between named groups of processes, a process going to the
+    # first group it answers, and a "rest" line, so the parts add up to the
+    # total. Groups made ready per classification system come from
+    # group_sets(); group_candidates() proposes groups from one process.
+
+    def group_contributions(
+        self,
+        process_id: str,
+        groups: list[Group],
+        *,
+        attribution: AttributionLike | None = None,
+        collection: str | None = None,
+        exclude_long_term: bool | None = None,
+    ) -> GroupContributions:
+        """Each score of a collection split between ``groups``, plus the rest.
+
+        For each method the groups, the rest and the databases whose licence
+        withholds their detail add up to the total. ``attribution`` says what
+        a group's part is (``"first-match"``, the default, or ``"own"``, see
+        :class:`Attribution`).
+        """
+        self._require_wire(119, "group_contributions", engine_hint="0.19.1")
+        return GroupContributions.from_json(
+            self._call(
+                "get_group_contributions",
+                process_id=process_id,
+                collection=self._resolve_collection(collection),
+                exclude_long_term=exclude_long_term,
+                body=_groups_body(groups, attribution),
+            )
+        )
+
+    def group_members(
+        self,
+        process_id: str,
+        method_id: str,
+        groups: list[Group],
+        *,
+        group: str | None = None,
+        attribution: AttributionLike | None = None,
+        collection: str | None = None,
+        limit: int | None = None,
+        exclude_long_term: bool | None = None,
+    ) -> ContributingActivities:
+        """The processes of one group, by its name, or of the rest when
+        ``group`` is left out, the heaviest first, under ``groups`` and
+        ``attribution`` as :meth:`group_contributions` reads them. ``method_id``
+        takes a method name as well as a UUID.
+        """
+        self._require_wire(119, "group_members", engine_hint="0.19.1")
+        collection, method_id = self._resolve_method(method_id, collection)
+        body = _groups_body(groups, attribution)
+        if group is not None:
+            body["group"] = group
+        if limit is not None:
+            body["limit"] = limit
+        return ContributingActivities.from_json(
+            self._call(
+                "get_group_members",
+                process_id=process_id,
+                collection=collection,
+                method_id=method_id,
+                exclude_long_term=exclude_long_term,
+                body=body,
+            )
+        )
+
+    def group_candidates(
+        self,
+        process_id: str,
+        method_id: str,
+        groups: list[Group],
+        candidate: str,
+        *,
+        attribution: AttributionLike | None = None,
+        collection: str | None = None,
+        exclude_long_term: bool | None = None,
+    ) -> GroupCandidates:
+        """The groups ``candidate`` could start, the narrowest first: its
+        product, then each level of its classifications. Each comes with its
+        part of the score once added at the end of ``groups``, ready to append.
+
+        ``candidate`` is a process id as a row of :meth:`group_members` gives
+        it (``db::pid`` for a process of another database). The engine refuses
+        a list already holding the most groups it takes.
+        """
+        self._require_wire(120, "group_candidates", engine_hint="0.19.1")
+        collection, method_id = self._resolve_method(method_id, collection)
+        body = _groups_body(groups, attribution)
+        body["candidate"] = candidate
+        return GroupCandidates.from_json(
+            self._call(
+                "get_group_candidates",
+                process_id=process_id,
+                collection=collection,
+                method_id=method_id,
+                exclude_long_term=exclude_long_term,
+                body=body,
+            )
+        )
+
+    def group_sets(self) -> list[GroupSet]:
+        """The sets of groups made ready for a classification system that the
+        database's processes carry, the one to start with first. Each set's
+        ``groups`` go to :meth:`group_contributions` as they are.
+        """
+        self._require_wire(120, "group_sets", engine_hint="0.19.1")
+        return [GroupSet.from_json(s) for s in self._call("list_group_sets")]
 
     # -- Method collections --
     #

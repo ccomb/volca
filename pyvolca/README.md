@@ -1501,6 +1501,38 @@ Return server build metadata: version, git hash/tag, build target.
 Uses a direct HTTP call: ``/api/v1/version`` has no operationId
 since it predates the Resources ADT.
 
+##### `Client.group_candidates(process_id: str, method_id: str, groups: list[Group], candidate: str, *, attribution: AttributionLike | None = None, collection: str | None = None, exclude_long_term: bool | None = None) -> GroupCandidates`
+
+The groups ``candidate`` could start, the narrowest first: its
+product, then each level of its classifications. Each comes with its
+part of the score once added at the end of ``groups``, ready to append.
+
+``candidate`` is a process id as a row of `group_members` gives
+it (``db::pid`` for a process of another database). The engine refuses
+a list already holding the most groups it takes.
+
+##### `Client.group_contributions(process_id: str, groups: list[Group], *, attribution: AttributionLike | None = None, collection: str | None = None, exclude_long_term: bool | None = None) -> GroupContributions`
+
+Each score of a collection split between ``groups``, plus the rest.
+
+For each method the groups, the rest and the databases whose licence
+withholds their detail add up to the total. ``attribution`` says what
+a group's part is (``"first-match"``, the default, or ``"own"``, see
+`Attribution`).
+
+##### `Client.group_members(process_id: str, method_id: str, groups: list[Group], *, group: str | None = None, attribution: AttributionLike | None = None, collection: str | None = None, limit: int | None = None, exclude_long_term: bool | None = None) -> ContributingActivities`
+
+The processes of one group, by its name, or of the rest when
+``group`` is left out, the heaviest first, under ``groups`` and
+``attribution`` as `group_contributions` reads them. ``method_id``
+takes a method name as well as a UUID.
+
+##### `Client.group_sets()`
+
+The sets of groups made ready for a classification system that the
+database's processes carry, the one to start with first. Each set's
+``groups`` go to `group_contributions` as they are.
+
 ##### `Client.install_method_collection(name: str) -> dict`
 
 Download a collection `available_method_collections` offers,
@@ -2200,6 +2232,14 @@ code takes the codes under it (``"49"`` takes ``"4923:Freight transport
 by road"``, not ``"1049: …"``). Inherits from `str` so
 ``json.dumps(MatchMode.EXACT)`` and ``dataclasses.asdict(filter)["mode"]``
 both serialise as the bare string ``"exact"`` / ``"contains"``.
+
+### `Attribution`
+
+What a group's part of a score is.
+
+``FIRST_MATCH``: the whole chain below the first process of a group met
+on the way up from the root, what it buys included. ``OWN``: its
+processes' own emissions only.
 
 ### `Server`
 
@@ -4135,6 +4175,111 @@ baseline and every perturbed score are for.
 | `functional_unit` | `FunctionalUnit` | _required_ |
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
+
+### `Group`
+
+One group of a split between groups: ``name`` is the line its part gets.
+
+A process goes to the first group of the list it answers. ``activity_name``
+and ``product`` are contained in the process's, ``location`` answers for
+its place, ``classifications`` are alternatives within one system and all
+required across systems, and ``left_out`` leaves out what it matches. The
+engine refuses a group that sets none of them.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `activity_name` | `str \| None` | None |
+| `product` | `str \| None` | None |
+| `location` | `str \| None` | None |
+| `classifications` | `tuple[ClassificationFilter, ...]` | () |
+| `left_out` | `tuple[ClassificationFilter, ...]` | () |
+
+### `GroupCandidate`
+
+One group a process could start: the ``group``, ready to add at the end
+of the list, how many processes of the chain it takes something of, its
+part of the score once added, and the products of its heaviest processes.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `group` | `Group` | _required_ |
+| `activities_counted` | `int` | _required_ |
+| `score` | `float` | _required_ |
+| `examples` | `list[str]` | _required_ |
+
+### `GroupCandidates`
+
+The groups a process could start, from `Client.group_candidates`,
+the narrowest first; of two that would take the same processes, the
+broader alone. ``total`` is the method's score of the root.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `method` | `str` | _required_ |
+| `unit` | `str` | _required_ |
+| `total` | `float` | _required_ |
+| `candidates` | `list[GroupCandidate]` | _required_ |
+
+### `GroupContributions`
+
+A score split between groups, from `Client.group_contributions`.
+
+For each method, by its id, the ``groups``, the ``rest`` and the
+``withheld_databases`` add up to the ``total``.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `attribution` | `Attribution` | _required_ |
+| `methods` | `list[ScoredMethod]` | _required_ |
+| `total` | `dict[str, float]` | _required_ |
+| `groups` | `list[GroupPart]` | _required_ |
+| `rest` | `dict[str, float]` | _required_ |
+| `withheld_databases` | `list[WithheldScores]` | _required_ |
+| `functional_unit` | `FunctionalUnit` | _required_ |
+
+### `GroupPart`
+
+One group's part of each score, by method id, and how many of its
+processes carry one.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `scores` | `dict[str, float]` | _required_ |
+| `activities_counted` | `int` | _required_ |
+
+### `GroupSet`
+
+Groups made ready for one classification ``system``, from
+`Client.group_sets`: what a database whose processes carry it can be
+split by without writing a group.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `system` | `str` | _required_ |
+| `groups` | `list[Group]` | _required_ |
+
+### `ScoredMethod`
+
+A method a response scores: its ``id``, ``name`` and ``unit``.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `id` | `str` | _required_ |
+| `name` | `str` | _required_ |
+| `unit` | `str` | _required_ |
+
+### `WithheldScores`
+
+The part of each score, by method id, of a database whose licence keeps
+its detail: its processes are in no group.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `database` | `str` | _required_ |
+| `scores` | `dict[str, float]` | _required_ |
 
 ### `ServerVersion`
 
