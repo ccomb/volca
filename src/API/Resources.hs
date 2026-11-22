@@ -91,6 +91,8 @@ data Resource
     | GetFlowFactors
     | GetContributingFlows
     | GetContributingActivities
+    | GetGroupContributions
+    | GetGroupMembers
     | GetScoreContributingFlows
     | GetScoreContributingActivities
     | ListGeographies
@@ -199,6 +201,8 @@ resourceMutates r = case r of
     GetFlowFactors -> False
     GetContributingFlows -> False
     GetContributingActivities -> False
+    GetGroupContributions -> False
+    GetGroupMembers -> False
     GetScoreContributingFlows -> False
     GetScoreContributingActivities -> False
     ListGeographies -> False
@@ -273,6 +277,8 @@ resourceNeeds r = case r of
     CompareImpacts -> Just SeeDetailedScores
     GetContributingFlows -> Just SeeDetailedScores
     GetContributingActivities -> Just SeeDetailedScores
+    GetGroupContributions -> Just SeeDetailedScores
+    GetGroupMembers -> Just SeeDetailedScores
     GetScoreContributingFlows -> Just SeeDetailedScores
     GetScoreContributingActivities -> Just SeeDetailedScores
     -- Trimmed by the operation itself.
@@ -342,6 +348,8 @@ resourceUsage r = case r of
     CheckFormula -> Nothing
     GetContributingFlows -> Just Contributing
     GetContributingActivities -> Just Contributing
+    GetGroupContributions -> Just Contributing
+    GetGroupMembers -> Just Contributing
     GetScoreContributingFlows -> Just Contributing
     GetScoreContributingActivities -> Just Contributing
     CompareImpacts -> Just Comparing
@@ -436,6 +444,8 @@ apiPath r = case r of
     GetFlowFactors -> Just (GET, ["db", "{dbName}", "flow", "{flowId}", "factors"])
     GetContributingFlows -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-flows", "{collection}", "{methodId}"])
     GetContributingActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-activities", "{collection}", "{methodId}"])
+    GetGroupContributions -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "groups", "{collection}"])
+    GetGroupMembers -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "group-members", "{collection}", "{methodId}"])
     GetScoreContributingFlows -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-flows", "{collection}", "score", "{scoringSet}", "{score}"])
     GetScoreContributingActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-activities", "{collection}", "score", "{scoringSet}", "{score}"])
     ListGeographies -> Nothing -- MCP-only: synthesizes geography list from in-memory database, no HTTP route
@@ -512,6 +522,8 @@ mcpName r = case r of
     GetFlowFactors -> "get_flow_factors"
     GetContributingFlows -> "get_contributing_flows"
     GetContributingActivities -> "get_contributing_activities"
+    GetGroupContributions -> "get_group_contributions"
+    GetGroupMembers -> "get_group_members"
     GetScoreContributingFlows -> "get_score_contributing_flows"
     GetScoreContributingActivities -> "get_score_contributing_activities"
     ListGeographies -> "list_geographies"
@@ -618,7 +630,7 @@ description r = case r of
         \agricole, prairie, pâturage, intrants, filière, chaîne amont. Names are \
         \mostly English: translate into their language first (pomme de terre: \
         \potato, acier: steel). \
-        \Everything except: a not-contains or not-exact classification mode, or \
+        \Everything except: a not-contains, not-exact or not-starts-with classification mode, or \
         \exclude_name and exclude_location, leaves out what they match. \
         \Nothing fits: try the database's own wording, or a broader word."
     SearchFlows ->
@@ -657,7 +669,7 @@ description r = case r of
         \scope=consumption: one row per scaled supplier → consumer edge (with \
         \its product), so sums are real consumption; gross throughput by \
         \default, filter_consumer_not drops edges inside the family. Byproduct \
-        \edges stay negative. filter_classification: \"System=Value[:exact]\" \
+        \edges stay negative. filter_classification: \"System=Value[:exact|:starts-with]\" \
         \(default contains). Amounts are for 1 unit of the reference product; see \
         \'functionalUnit'. They are 'filteredTotalPerUnit' and, per group, \
         \'quantityPerUnit'. Inputs no loaded database supplies count as zero, in \
@@ -805,6 +817,23 @@ description r = case r of
         \'which suppliers drive my climate change score?'. Exact matrix \
         \computation, valid for cyclic chains. 'basis' as on score_activity."
             <> webUrlTip
+    GetGroupContributions ->
+        "LCA / ACV: how much transport, electricity, fertilisers… weigh in a \
+        \score, wherever they sit in the supply chain. Each group is a name and \
+        \a filter; a process goes to the first group it answers, the root to \
+        \none. attribution 'first-match' (default reading): a group counts the \
+        \whole chain below its first process met; 'own': its processes' own \
+        \emissions only. Every impact category at once, scores keyed by \
+        \method id: groups, 'rest' and 'withheldDatabases' add up to 'total'. \
+        \'activitiesCounted': processes of the group carrying a part. Exact, \
+        \valid for cyclic chains. Then get_group_members to see a group."
+    GetGroupMembers ->
+        "LCA / ACV: the processes of one group of get_group_contributions, or \
+        \of the rest when 'group' is left out, heaviest first, for one impact \
+        \category. Same 'attribution' and 'groups' as that call. Under \
+        \first-match, each process where the chain enters the group, with all \
+        \it brings. They add up to the group's part. 'basis' as on \
+        \score_activity."
     GetScoreContributingFlows ->
         "LCA / ACV: emissions and resources weighing most in one \
         \score of a scoring set (one number weighing a method \
@@ -1223,6 +1252,21 @@ pScoringSet = Param "scoring_set" "string" Required "Scoring set name (from list
 pScore :: Param
 pScore = Param "score" "string" Required "Name of one score of that scoring set (from list_scoring_sets)"
 
+pAttribution :: Param
+pAttribution = Param "attribution" "string" Optional "first-match (default): a group counts the whole chain below its first process met; own: its processes' own emissions"
+
+pGroups :: Param
+pGroups =
+    Param
+        "groups"
+        "array"
+        Required
+        "Groups in order, at most 20, names unique: {name, filter: {name?, product?, location?, \
+        \classifications?: [{system, value, mode}]}}. name and product: contained, case aside; location: \
+        \that place or one within it; mode: contains, exact, starts-with (CPC 65 takes 6511), or a not- form, \
+        \which leaves out what it matches. A filter keeps something: name, product, location or a \
+        \keeping classification."
+
 pLimit :: Text -> Param
 pLimit = Param "limit" "integer" Optional
 
@@ -1348,7 +1392,7 @@ params r = case r of
         , Param "preset" "string" Optional "Classification preset (list_presets), expanded to its filters; combines with explicit classification filters."
         , Param "classification" "string" Optional "Classification system (e.g. 'ISIC rev.4 ecoinvent', 'CPC'; list_classifications)."
         , Param "classification_value" "string" Optional "Value within the classification system to match"
-        , Param "classification_match" "string" Optional "Match mode, case aside: contains (substring, default), exact (or equals: the whole value), not-contains or not-exact (leave out what matches). Any other word is refused."
+        , Param "classification_match" "string" Optional "Match mode, case aside: contains (substring, default), exact (or equals: the whole value), starts-with (a code and the codes under it: 65 takes 6511 but not 2365), not-contains, not-exact or not-starts-with (leave out what matches). Any other word is refused."
         , Param "classifications" "array" Optional "Several classification filters, each {system, value, mode}, mode as classification_match gives it (default contains); instead of classification, classification_value and classification_match, not with them. Filters on one system keep what any of them matches; every not- filter leaves out what it matches."
         , Param "exclude_name" "array" Optional "Names to leave out: each removes the processes a search for that name alone finds. Blank ones are dropped."
         , Param "exclude_location" "array" Optional "Locations to leave out: each removes every process located there or inside it. Blank ones are dropped."
@@ -1378,7 +1422,7 @@ params r = case r of
         , Param "filter_name_not" "string" Optional "Comma-separated substring exclude list"
         , Param "filter_unit" "string" Optional "Whole unit name, case-insensitive: \"MJ\" and \"mj\" are the same unit, \"kg\" does not match \"kgm\""
         , Param "preset" "string" Optional "Name of a classification preset (from list_presets): expanded and merged into filter_classification."
-        , Param "filter_classification" "array" Optional "List of \"System=Value[:exact]\" strings; defaults to 'contains' mode"
+        , Param "filter_classification" "array" Optional "List of \"System=Value[:exact|:starts-with]\" strings; defaults to 'contains' mode"
         , Param "filter_target_name" "string" Optional "Only for scope=direct on consumed products, or scope=consumption: filter by supplier name"
         , Param "filter_consumer" "string" Optional "Only for scope=consumption: case-insensitive substring on the consumer's name"
         , Param "filter_consumer_not" "string" Optional "Only for scope=consumption: comma-separated consumer-name exclude list (each item is a substring; a name containing a comma cannot be expressed)"
@@ -1397,7 +1441,7 @@ params r = case r of
         , Param "preset" "string" Optional "Classification preset (list_presets), expanded to its filters; unioned with explicit classification filters."
         , Param "classification" "string" Optional "Classification system name (e.g. 'Category', 'Category type')"
         , Param "classification_value" "string" Optional "Value within the classification system"
-        , Param "classification_match" "string" Optional "Match mode, case aside: contains (substring, default), exact (or equals: the whole value), not-contains or not-exact (leave out what matches). Any other word is refused."
+        , Param "classification_match" "string" Optional "Match mode, case aside: contains (substring, default), exact (or equals: the whole value), starts-with (a code and the codes under it: 65 takes 6511 but not 2365), not-contains, not-exact or not-starts-with (leave out what matches). Any other word is refused."
         , pSubstitutions
         , pParameters
         ]
@@ -1498,6 +1542,25 @@ params r = case r of
         , pLimit "Max processes to return, sorted by contribution (default 10)"
         , pExcludeLongTerm
         ]
+    GetGroupContributions ->
+        [ pDatabase
+        , pProcessId
+        , Param "collection" "string" Required "Method collection name (list_methods)"
+        , pAttribution
+        , pGroups
+        , pExcludeLongTerm
+        ]
+    GetGroupMembers ->
+        [ pDatabase
+        , pProcessId
+        , Param "method_id" "string" Required "UUID of the impact category"
+        , pCollection
+        , pAttribution
+        , pGroups
+        , Param "group" "string" Optional "Name of the group to list; left out, the rest"
+        , pLimit "Max processes to return, sorted by contribution (default 10)"
+        , pExcludeLongTerm
+        ]
     GetScoreContributingFlows ->
         [ pDatabase
         , pProcessId
@@ -1544,7 +1607,7 @@ params r = case r of
         , Param "preset" "string" Optional "Name of a classification preset (from list_presets): expands to its bundled filters"
         , Param "classification" "string" Optional "Classification system name (e.g. 'ISIC rev.4 ecoinvent')"
         , Param "classification_value" "string" Optional "Classification value substring to match"
-        , Param "classification_match" "string" Optional "Match mode, case aside: contains (substring, default), exact (or equals: the whole value), not-contains or not-exact (leave out what matches). Any other word is refused."
+        , Param "classification_match" "string" Optional "Match mode, case aside: contains (substring, default), exact (or equals: the whole value), starts-with (a code and the codes under it: 65 takes 6511 but not 2365), not-contains, not-exact or not-starts-with (leave out what matches). Any other word is refused."
         , pLimit "Max results (default 1000)"
         , Param "max_depth" "integer" Optional "Max hops from supplier (1 = direct consumers only)"
         , Param "include_edges" "boolean" Optional "True: also every supplier → consumer edge between processes reachable from the supplier, to rebuild paths without get_path_to."
