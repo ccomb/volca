@@ -1301,6 +1301,10 @@ data ClassificationMatch
       MatchExact
     | -- | The value as a substring of the activity's.
       MatchContains
+    | {- | The value as the start of the activity's: a code and the codes under
+      it, @65@ for @6511: Road transport…@ but not for @2365: …@.
+      -}
+      MatchPrefix
     deriving (Eq, Show, Generic, NFData)
 
 {- | Narrows a query to the activities whose 'activityClassification' under
@@ -1323,8 +1327,9 @@ data ClassificationMode
     deriving (Eq, Show)
 
 {- | The one reading of a mode word, case-blind: @contains@, @exact@ (also
-@equals@), and their negations @not-contains@ and @not-exact@. A word that is
-none of them is refused with the four, so a typo never turns an exclusion into
+@equals@), @starts-with@, and their negations @not-contains@, @not-exact@ and
+@not-starts-with@. A word that is
+none of them is refused with the six, so a typo never turns an exclusion into
 an inclusion.
 -}
 readClassificationMode :: Text -> Either Text ClassificationMode
@@ -1334,7 +1339,9 @@ readClassificationMode word = case T.toCaseFold word of
     "equals" -> Right (Including MatchExact)
     "not-contains" -> Right (Excluding MatchContains)
     "not-exact" -> Right (Excluding MatchExact)
-    _ -> Left ("Unknown classification mode '" <> word <> "': use contains, exact, not-contains or not-exact.")
+    "starts-with" -> Right (Including MatchPrefix)
+    "not-starts-with" -> Right (Excluding MatchPrefix)
+    _ -> Left ("Unknown classification mode '" <> word <> "': use contains, exact, starts-with, not-contains, not-exact or not-starts-with.")
 
 {- | Whether a delete keeps the matched processes the remaining ones still use.
 Here and not beside the delete because the command line has to name it too, and
@@ -1379,6 +1386,7 @@ matchWord :: ClassificationMatch -> Text
 matchWord = \case
     MatchExact -> "exact"
     MatchContains -> "contains"
+    MatchPrefix -> "starts-with"
 
 {- | Whether a classification holds the filter's value under its system,
 case-blind. One filter; how several combine is the caller's.
@@ -1387,9 +1395,28 @@ classificationMatches :: ClassificationFilter -> M.Map Text Text -> Bool
 classificationMatches ClassificationFilter{clfSystem = sys, clfValue = want, clfMatch = match} classification =
     case M.lookup sys classification of
         Nothing -> False
-        Just have -> case match of
-            MatchExact -> T.toCaseFold want == T.toCaseFold have
-            MatchContains -> T.toCaseFold want `T.isInfixOf` T.toCaseFold have
+        Just have -> valueMatches match want have
+
+{- | A filter written @System=Value@, with an optional @:exact@ or
+@:starts-with@ after the value; anything else after it reads as @contains@.
+Nothing without an @=@.
+-}
+parseSystemValue :: Text -> Maybe ClassificationFilter
+parseSystemValue raw =
+    let (sys, rest) = T.breakOn "=" raw
+        (val, mode) = T.breakOn ":" (T.drop 1 rest)
+        match = case T.drop 1 mode of
+            "exact" -> MatchExact
+            "starts-with" -> MatchPrefix
+            _ -> MatchContains
+     in if T.null rest then Nothing else Just ClassificationFilter{clfSystem = T.strip sys, clfValue = T.strip val, clfMatch = match}
+
+-- | Whether one classification value answers a filter's, case-blind.
+valueMatches :: ClassificationMatch -> Text -> Text -> Bool
+valueMatches match want have = case match of
+    MatchExact -> T.toCaseFold want == T.toCaseFold have
+    MatchContains -> T.toCaseFold want `T.isInfixOf` T.toCaseFold have
+    MatchPrefix -> T.toCaseFold want `T.isPrefixOf` T.toCaseFold have
 
 {- | The source block one process came out of, as a listing needs to know it.
 

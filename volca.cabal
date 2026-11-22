@@ -58,6 +58,7 @@ library
                      , Service.CompareMethods
                      , Impact
                      , Impact.Score
+                     , Groups
                      , Tree
                      , Matrix
                      , Matrix.Export
@@ -294,6 +295,7 @@ test-suite lca-tests
                      , MatrixExportSpec
                      , MethodSpec
                      , MultiSwapSpec
+                     , GroupsSpec
                      , MethodPatchSpec
                      , MethodConfigScoringSpec
                      , ExchangePatchSpec

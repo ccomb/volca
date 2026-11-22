@@ -852,3 +852,110 @@ data ModelScoringSet = ModelScoringSet
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ModelScoringSet)
+
+{- | One classification a group asks of a process: the @system@, the @value@,
+and the @mode@ it is matched in (@contains@, @exact@, @starts-with@, or one of
+their @not-@ forms, which leave out what they match).
+-}
+data GroupClassification = GroupClassification
+    { gclSystem :: Text
+    , gclValue :: Text
+    , gclMode :: Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupClassification)
+
+instance FromJSON GroupClassification where
+    parseJSON = parseClosed
+
+{- | The processes a group takes: a name and a product they contain, a place
+that answers for theirs, and classifications (alternatives within a system,
+every system). At least one of them keeps something.
+-}
+data GroupFilterSpec = GroupFilterSpec
+    { gfsName :: Maybe Text
+    , gfsProduct :: Maybe Text
+    , gfsLocation :: Maybe Text
+    , gfsClassifications :: Maybe [GroupClassification]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupFilterSpec)
+
+instance FromJSON GroupFilterSpec where
+    parseJSON = parseClosed
+
+-- | One group: the name its part is given, and the processes it takes.
+data GroupSpec = GroupSpec
+    { gspName :: Text
+    , gspFilter :: GroupFilterSpec
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupSpec)
+
+instance FromJSON GroupSpec where
+    parseJSON = parseClosed
+
+{- | A score split between groups: what a group's part is (@first-match@, the
+whole chain below the first process of a group met, the reading when left out,
+or @own@, its processes' own emissions), and the groups, a process going to
+the first it answers.
+-}
+data GroupsRequest = GroupsRequest
+    { grqAttribution :: Maybe Text
+    , grqGroups :: [GroupSpec]
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupsRequest)
+
+instance FromJSON GroupsRequest where
+    parseJSON = parseClosed
+
+{- | The processes of one group, or of the rest when @group@ is left out, the
+heaviest first, under the groups and reading of a 'GroupsRequest'.
+-}
+data GroupMembersRequest = GroupMembersRequest
+    { gmqAttribution :: Maybe Text
+    , gmqGroups :: [GroupSpec]
+    , gmqGroup :: Maybe Text
+    , gmqLimit :: Maybe Int
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupMembersRequest)
+
+instance FromJSON GroupMembersRequest where
+    parseJSON = parseClosed
+
+-- | One group's part of each score, by method id, and how many of its processes carry one.
+data GroupPart = GroupPart
+    { gptName :: Text
+    , gptScores :: M.Map Text Double
+    , gptActivitiesCounted :: Int
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupPart)
+
+-- | The part of each score, by method id, of a database whose licence keeps its detail.
+data WithheldScores = WithheldScores
+    { wscDatabase :: Text
+    , wscScores :: M.Map Text Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped WithheldScores)
+
+{- | A score split between groups. For each method, by its id, the groups, the
+rest and the withheld databases add up to the total. A process of a withheld
+database is in no group: its own part is in that database's line. Under
+@first-match@ a group's part also counts what its processes buy from a
+withheld database, as one number.
+-}
+data GroupContributions = GroupContributions
+    { gctAttribution :: Text
+    , gctMethods :: [ReducedMethod]
+    , gctTotal :: M.Map Text Double
+    , gctGroups :: [GroupPart]
+    , gctRest :: M.Map Text Double
+    , gctWithheldDatabases :: [WithheldScores]
+    , gctFunctionalUnit :: FunctionalUnit
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupContributions)

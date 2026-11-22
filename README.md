@@ -23,8 +23,9 @@ and through MCP for AI assistants.
   filters, the consumers downstream, the shortest path to a supplier, and a
   breakdown by ISIC or CPC classification.
 - **Computes inventories and impact scores** with sparse matrix algebra, with
-  the contribution of each flow and each upstream process, and scores a whole
-  database in one solve.
+  the contribution of each flow, each upstream process and each group of
+  processes you name (transport, electricity…), and scores a whole database
+  in one solve.
 - **Answers what-if questions**: swap a supplier at any depth, even in another
   database, or score a process at other parameter values, and save those
   values as named scenarios.

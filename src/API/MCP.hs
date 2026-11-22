@@ -57,9 +57,9 @@ import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
+import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupContributionsOf, groupMembersOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupMembersRequest (..), GroupSpec, GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
@@ -81,7 +81,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, matchWord, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, matchWord, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
 import Usage (Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -411,6 +411,7 @@ paramsToSchema ps =
     objectItems name = case name of
         "substitutions" -> substitutionItemSchema
         "classifications" -> classificationItemSchema
+        "groups" -> groupItemSchema
         "parameters" -> parameterItemSchema
         "parameter_sets" -> object ["type" .= ("array" :: Text), "items" .= parameterItemSchema]
         "remove" -> selectorItemSchema
@@ -445,9 +446,42 @@ paramsToSchema ps =
                 .= object
                     [ "system" .= stringField "Classification system, as list_classifications names it"
                     , "value" .= stringField "Value within the system"
-                    , "mode" .= stringField "contains (default) | exact | not-contains | not-exact; a not- mode leaves out what it matches"
+                    , "mode" .= stringField "contains (default) | exact | starts-with | not-contains | not-exact | not-starts-with; a not- mode leaves out what it matches"
                     ]
             , "required" .= (["system", "value"] :: [Text])
+            ]
+
+    groupItemSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "name" .= stringField "Name of the group, unique in the list"
+                    , "filter"
+                        .= object
+                            [ "type" .= ("object" :: Text)
+                            , "properties"
+                                .= object
+                                    [ "name" .= stringField "Contained in the process name, case aside"
+                                    , "product" .= stringField "Contained in the reference product, case aside"
+                                    , "location" .= stringField "That place or one within it"
+                                    , "classifications" .= object ["type" .= ("array" :: Text), "items" .= groupClassificationSchema]
+                                    ]
+                            ]
+                    ]
+            , "required" .= (["name", "filter"] :: [Text])
+            ]
+
+    groupClassificationSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "system" .= stringField "Classification system, as list_classifications names it"
+                    , "value" .= stringField "Value within the system"
+                    , "mode" .= stringField "contains | exact | starts-with | not-contains | not-exact | not-starts-with; a not- mode leaves out what it matches"
+                    ]
+            , "required" .= (["system", "value", "mode"] :: [Text])
             ]
 
     parameterItemSchema =
@@ -794,6 +828,8 @@ dispatchTool Caller{callerReader = reader, callerAuthor = by} dbManager presets 
     R.GetFlowFactors -> callGetFlowFactors dbManager mBaseUrl rid args
     R.GetContributingFlows -> callGetContributingFlows dbManager mBaseUrl licence rid args
     R.GetContributingActivities -> callGetContributingActivities dbManager mBaseUrl rid args
+    R.GetGroupContributions -> callGetGroupContributions dbManager rid args
+    R.GetGroupMembers -> callGetGroupMembers dbManager mBaseUrl rid args
     R.GetScoreContributingFlows -> callGetScoreContributingFlows dbManager mBaseUrl rid args
     R.GetScoreContributingActivities -> callGetScoreContributingActivities dbManager mBaseUrl rid args
     R.ListGeographies -> callListGeographies dbManager rid args
@@ -1377,7 +1413,7 @@ callAggregate dbManager presets rid args (db, solver) =
                                                 maybe [] (map T.strip . T.splitOn ",") (textArg "filter_name_not" args)
                                             , Agg.apFilterUnit = textArg "filter_unit" args
                                             , Agg.apFilterClassifications =
-                                                fromPreset ++ mapMaybe parseClassFilter (textArrayArg "filter_classification" args)
+                                                fromPreset ++ mapMaybe parseSystemValue (textArrayArg "filter_classification" args)
                                             , Agg.apFilterTargetName = textArg "filter_target_name" args
                                             , Agg.apFilterConsumer = textArg "filter_consumer" args
                                             , Agg.apFilterConsumerNot =
@@ -1416,15 +1452,6 @@ callAggregate dbManager presets rid args (db, solver) =
         Just other -> case parseExchangeKind other of
             Just k -> Right (Just k)
             Nothing -> Left ("filter_exchange_type must be one of: " <> exchangeKindChoices <> " (got " <> other <> ")")
-    parseClassFilter raw =
-        let (sys, rest) = T.breakOn "=" raw
-         in if T.null rest
-                then Nothing
-                else
-                    let valAndMode = T.drop 1 rest
-                        (val, mode) = T.breakOn ":" valAndMode
-                        match = if T.drop 1 mode == "exact" then MatchExact else MatchContains
-                     in Just ClassificationFilter{clfSystem = T.strip sys, clfValue = T.strip val, clfMatch = match}
 
 callGetPathTo :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetPathTo dbManager rid args = runTool rid $ do
@@ -2707,7 +2734,6 @@ callGetContributingActivities dbManager mBaseUrl rid args =
             lim = fromMaybe 10 (intArg "limit" args)
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
         unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
-        (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
         solved <-
             ExceptT $
                 computeInventoryMatrixWithDepsCached
@@ -2721,24 +2747,87 @@ callGetContributingActivities dbManager mBaseUrl rid args =
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
         contributions <- ExceptT (Impact.processContributionsOf dbManager collection method tables sol)
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
-        cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
-        basis <- liftIO (DM.solutionBasis dbManager sol collection (DM.Asked [] []))
-        let view = ImpactsView{ivCollection = lrCollection req, ivFragment = "contributing-activities/" <> lrMethodIdText req}
-            ProcessLines{plScore = score, plTop = top, plWithheld = withheldLines} = processLines lim (Impact.splitProcessParts withheld contributions)
-        rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager dbName mBaseUrl view mUnits score) top
-        pure $
-            toolSuccessJson rid $
-                object $
-                    [ "method" .= methodName method
-                    , "unit" .= methodUnit method
-                    , "functional_unit" .= raFunctionalUnit ra
-                    , "total_score" .= score
-                    , "has_negative_contributions" .= any ((< 0) . snd) top
-                    , "basis" .= basis
-                    , "processes" .= rows
-                    ]
-                        ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
-                        ++ cutoffFields cutoffs
+        processesAnswer dbManager mBaseUrl rid req lim sol (Impact.splitProcessParts withheld contributions)
+
+{- | The heaviest processes of a part of a score, with the cut-offs and basis
+of the solution it was read from.
+-}
+processesAnswer :: DatabaseManager -> Maybe Text -> RequestId -> LcaRequest -> Int -> SharedSolver.CrossDBSolution -> Impact.ProcessParts -> ExceptT Text IO Value
+processesAnswer dbManager mBaseUrl rid req lim sol parts = do
+    (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
+    cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
+    basis <- liftIO (DM.solutionBasis dbManager sol (lrCollection req) (DM.Asked [] []))
+    let view = ImpactsView{ivCollection = lrCollection req, ivFragment = "contributing-activities/" <> lrMethodIdText req}
+        ProcessLines{plScore = score, plTop = top, plWithheld = withheldLines} = processLines lim parts
+        method = lrMethod req
+    rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager (lrDbName req) mBaseUrl view mUnits score) top
+    pure $
+        toolSuccessJson rid $
+            object $
+                [ "method" .= methodName method
+                , "unit" .= methodUnit method
+                , "functional_unit" .= raFunctionalUnit (lrResolved req)
+                , "total_score" .= score
+                , "has_negative_contributions" .= any ((< 0) . snd) top
+                , "basis" .= basis
+                , "processes" .= rows
+                ]
+                    ++ ["withheld_databases" .= withheldLines | not (null withheldLines)]
+                    ++ cutoffFields cutoffs
+
+{- | The groups an assistant names, as the route reads them: @attribution@
+and @groups@.
+-}
+groupsArgs :: KeyMap Value -> Either Text (Maybe Text, [GroupSpec])
+groupsArgs args = (,) (textArg "attribution" args) <$> parseArrayArg "groups" (Just "'groups' is required (array of {name, filter})") args
+
+-- | A failure of a split between groups, as a tool says it.
+groupFailureText :: GroupFailure -> Text
+groupFailureText (GroupsMisread why) = why
+groupFailureText (GroupsRefused why) = why
+groupFailureText (GroupScoringFailed why) = why
+
+callGetGroupContributions :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callGetGroupContributions dbManager rid args =
+    runTool rid $ do
+        (dbName, pidText, collName) <- except ((,,) <$> requireText "database" args <*> requireText "process_id" args <*> requireText "collection" args)
+        ld <- requireDatabase dbManager dbName
+        mc <- requireCollection dbManager collName
+        (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
+        (attribution, specs) <- except (groupsArgs args)
+        let root =
+                GroupRoot
+                    { grName = dbName
+                    , grDatabase = ldDatabase ld
+                    , grSolver = ldSharedSolver ld
+                    , grProcess = pid
+                    , grFunctionalUnit = Service.functionalUnitIn (ldDatabase ld) act
+                    , grLongTerm = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
+                    , grCollection = DM.CollectionName collName
+                    }
+        result <- liftIO (groupContributionsOf dbManager root (mcMethods mc) (GroupsRequest attribution specs))
+        either (throwE . groupFailureText) (pure . toolSuccessJson rid . toJSON) result
+
+callGetGroupMembers :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
+callGetGroupMembers dbManager mBaseUrl rid args =
+    runTool rid $ do
+        req <- loadLcaRequest dbManager args
+        (attribution, specs) <- except (groupsArgs args)
+        let ld = lrLoaded req
+            root =
+                GroupRoot
+                    { grName = lrDbName req
+                    , grDatabase = ldDatabase ld
+                    , grSolver = ldSharedSolver ld
+                    , grProcess = raPid (lrResolved req)
+                    , grFunctionalUnit = raFunctionalUnit (lrResolved req)
+                    , grLongTerm = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
+                    , grCollection = lrCollection req
+                    }
+            lim = fromMaybe 10 (intArg "limit" args)
+        result <- liftIO (groupMembersOf dbManager root (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
+        GroupMembers{gmSolution = sol, gmParts = parts} <- either (throwE . groupFailureText) pure result
+        processesAnswer dbManager mBaseUrl rid req lim sol parts
 
 -- | One score of a scoring set, with the activity it is asked of, solved.
 data ScoreRequest = ScoreRequest

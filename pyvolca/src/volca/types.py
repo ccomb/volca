@@ -915,16 +915,19 @@ class MatchMode(_StrEnum):
     """How a :class:`ClassificationFilter` value is compared against the entry.
 
     ``EXACT``: case-insensitive equality. ``CONTAINS``: case-insensitive
-    substring. Inherits from :class:`str` so ``json.dumps(MatchMode.EXACT)``
-    and ``dataclasses.asdict(filter)["mode"]`` both serialise as the bare
-    string ``"exact"`` / ``"contains"``.
+    substring. ``STARTS_WITH``: the value as the start of the entry's, so a
+    code takes the codes under it (``"49"`` takes ``"4923:Freight transport
+    by road"``, not ``"1049: …"``). Inherits from :class:`str` so
+    ``json.dumps(MatchMode.EXACT)`` and ``dataclasses.asdict(filter)["mode"]``
+    both serialise as the bare string ``"exact"`` / ``"contains"``.
     """
 
     EXACT = "exact"
     CONTAINS = "contains"
+    STARTS_WITH = "starts-with"
 
 
-MatchModeLike = Union[MatchMode, Literal["exact", "contains"]]
+MatchModeLike = Union[MatchMode, Literal["exact", "contains", "starts-with"]]
 """Internal alias: a :class:`MatchMode` member or its literal string form.
 
 Pyright autocompletes both shapes and rejects typos (``"exct"``, ``"Exact"``)
