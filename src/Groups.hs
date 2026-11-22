@@ -59,9 +59,13 @@ module Groups (
     firstMatchParts,
     entryChains,
     maxEntries,
+    everyProcessOnce,
+    perUnitByColumn,
+    scoreFromPerUnit,
     assembled,
 ) where
 
+import Control.Exception (evaluate)
 import Control.Monad (forM)
 import Data.Either (partitionEithers)
 import Data.List (findIndex)
@@ -378,19 +382,23 @@ firstMatchParts unitCfg depLookup holding sol rootDemand gs assignments = case d
                 pure (map (summedByName . csScalings) <$> sequence answers)
 
 {- | The most processes a group's part is listed by under the whole-chain
-reading, each solved on its own.
+reading. Each is a solve of its own, so the time grows with their number: a
+thousand take a few seconds on a database of some twenty-five thousand
+processes.
 -}
 maxEntries :: Int
 maxEntries = 1000
 
 {- | What each process that receives something of a group brings into its part
-under the whole-chain reading: what reaches it times the chain of one unit of
-it, solved on the loaded matrices, 64 at a time. They add up to the part.
+under the whole-chain reading, read by the function given: what reaches it
+times the chain of one unit of it, solved on the loaded matrices, 64 at a
+time, each chain read as soon as it is solved so that no more than 64 are
+held. They add up to the part.
 -}
-entryChains :: UnitConfig -> DepSolverLookup -> Scalings -> IO (Either Text [((Text, ProcessId), Scalings)])
-entryChains unitCfg depLookup taken = fmap concat . sequence <$> traverse chainsIn (M.toList taken)
+entryChains :: UnitConfig -> DepSolverLookup -> (Scalings -> Double) -> Scalings -> IO (Either Text [((Text, ProcessId), Double)])
+entryChains unitCfg depLookup reading taken = fmap concat . sequence <$> traverse chainsIn (M.toList taken)
   where
-    chainsIn :: (Text, (Database, Vector)) -> IO (Either Text [((Text, ProcessId), Scalings)])
+    chainsIn :: (Text, (Database, Vector)) -> IO (Either Text [((Text, ProcessId), Double)])
     chainsIn (name, (_, y)) =
         depLookup name >>= \case
             Nothing -> pure (Left ("The database '" <> name <> "' is no longer loaded."))
@@ -400,8 +408,29 @@ entryChains unitCfg depLookup taken = fmap concat . sequence <$> traverse chains
                     entries = [(c, v) | (c, v) <- zip [0 ..] (U.toList y), v /= 0]
                 answered <- forM (chunksOf 64 entries) $ \chunk -> do
                     answers <- SharedSolver.goWithDeps unitCfg depLookup db name solver [Right (Demand (U.generate width (\i -> if i == c then v else 0))) | (c, v) <- chunk] 0
-                    pure (zipWith (\(c, _) answer -> ((name, processes V.! c), summedByName (csScalings answer))) chunk <$> sequence answers)
+                    traverse (traverse (\(c, answer) -> ((name, processes V.! c),) <$> evaluate (reading (summedByName (csScalings answer))))) (zip (map fst chunk) <$> sequence answers)
                 pure (concat <$> sequence answered)
+
+{- | Every process of each database at one unit: each process's own part of
+the score of this is that process's score per unit of it.
+-}
+everyProcessOnce :: Scalings -> Scalings
+everyProcessOnce = M.map (\(db, v) -> (db, U.replicate (U.length v) 1))
+
+{- | Each process's score per unit of it, by database and column, from each
+process's own part of 'everyProcessOnce'. A process with no part scores zero.
+-}
+perUnitByColumn :: Scalings -> M.Map (Text, ProcessId) Double -> M.Map Text Vector
+perUnitByColumn reached perUnit = M.mapWithKey columns reached
+  where
+    columns name (db, _) = let processes = processesByColumn db in U.generate (V.length processes) (\c -> M.findWithDefault 0 (name, processes V.! c) perUnit)
+
+{- | The score of a part, each process's scaling times its score per unit:
+the score is linear in the scalings, so this is the score of the part without
+building its inventory.
+-}
+scoreFromPerUnit :: M.Map Text Vector -> Scalings -> Double
+scoreFromPerUnit perUnit part = sum (M.intersectionWith (\unitScores (_, v) -> U.sum (U.zipWith (*) unitScores v)) perUnit part)
 
 -- | The process of each column of a database's matrix.
 processesByColumn :: Database -> V.Vector ProcessId

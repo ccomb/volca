@@ -3237,9 +3237,9 @@ groupMembersOf dbManager root collectionName method ltMode request = runExceptT 
             when (entering > Groups.maxEntries) . throwE . GroupsRefused $
                 T.concat ["This group is entered by ", T.pack (show entering), " processes: at most ", T.pack (show Groups.maxEntries), " are listed one by one. Split it into narrower groups."]
             unitCfg <- liftIO (getMergedUnitConfig dbManager)
-            chains <- withExceptT GroupsRefused (ExceptT (Groups.entryChains unitCfg (DM.mkDepSolverLookup dbManager) taken))
-            scored <- forM chains $ \(key, chain) -> (key,) <$> scoringOn (Impact.scoreSolution dbManager collectionName method tables (Groups.assembled mFlows sol chain))
-            pure Impact.ProcessParts{Impact.ppShown = M.fromListWith (+) scored, Impact.ppWithheld = []}
+            perUnit <- Groups.perUnitByColumn reached <$> ownParts (Groups.assembled mFlows sol (Groups.everyProcessOnce reached))
+            entries <- withExceptT GroupsRefused (ExceptT (Groups.entryChains unitCfg (DM.mkDepSolverLookup dbManager) (Groups.scoreFromPerUnit perUnit) taken))
+            pure Impact.ProcessParts{Impact.ppShown = M.fromListWith (+) entries, Impact.ppWithheld = []}
     pure (sol, members)
 
 -- | A failure as the route answers it.

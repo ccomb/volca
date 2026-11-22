@@ -119,6 +119,13 @@ spec = do
             amounts sol parts `closeTo` [1001, (10 + 100 * 0.1) / 0.95, 3 * (100 + 10 * 0.5) / 0.95]
             sum (amounts sol parts) `closeTo'` total
 
+        it "scores a part from each process's score per unit as its inventory does" $ do
+            solver <- mkSolverFromDb loop "loop"
+            sol <- solved noDeps loop "loop" solver 0
+            parts <- firstMatch (\name -> pure (if name == "loop" then Just (loop, solver) else Nothing)) sol loop 0 asg
+            let perUnit = perUnitByColumn (summedByName (csScalings sol)) (M.fromList [(("loop", p), e) | (p, e) <- zip [0 ..] [1, 10, 100, 1000]])
+            map (scoreFromPerUnit perUnit) (partsRest parts : partsGroups parts) `closeTo` amounts sol parts
+
     describe "groups across linked databases" $ do
         -- Every loaded database, the root's too, as the engine's lookup answers.
         let loaded depSolver rootSolver = \case
