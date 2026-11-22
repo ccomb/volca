@@ -38,7 +38,7 @@ import Data.Foldable (asum)
 import Data.Indexing (groupInOrder)
 import Data.Int (Int32)
 import qualified Data.JournalFile as JournalFile (Source)
-import Data.List (intercalate, nub, partition, sortOn)
+import Data.List (intercalate, nub, partition, sortOn, (!?))
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
@@ -3257,8 +3257,8 @@ groupMembersOf dbManager root method request = runExceptT $ do
         (Groups.OwnEmissions, _) -> inTarget <$> ownParts sol
         (Groups.WholeChainBelowFirstMatch, Nothing) -> inTarget <$> ownParts (Groups.assembled mFlows sol (Groups.partsRest parts))
         (Groups.WholeChainBelowFirstMatch, Just (Groups.GroupIndex g)) -> do
-            let taken = Groups.partsTaken parts !! g
-                entering = Groups.takenCount taken
+            taken <- maybe (throwE (GroupsRefused "The group asked has no part in this split.")) pure (Groups.partsTaken parts !? g)
+            let entering = Groups.takenCount taken
             when (entering > Groups.maxEntries) . throwE . GroupsRefused $
                 T.concat ["This group is entered by ", T.pack (show entering), " processes: at most ", T.pack (show Groups.maxEntries), " are listed one by one. Split it into narrower groups."]
             unitCfg <- liftIO (getMergedUnitConfig dbManager)
