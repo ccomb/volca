@@ -3130,9 +3130,15 @@ data GroupFailure
     | -- | A score could not be computed: the collection's tables disagree
       GroupScoringFailed !Text
 
+-- | The reading and the groups a request names.
+data GroupsAsked = GroupsAsked
+    { gaAttribution :: !Groups.Attribution
+    , gaGroups :: !Groups.Groups
+    }
+
 -- | The reading and groups a request names, or why they are refused.
-readGroups :: Maybe Text -> [GroupSpec] -> Either Text (Groups.Attribution, Groups.Groups)
-readGroups word specs = (,) <$> maybe (Right Groups.WholeChainBelowFirstMatch) Groups.readAttribution word <*> (Groups.groups =<< traverse readGroup specs)
+readGroups :: Maybe Text -> [GroupSpec] -> Either Text GroupsAsked
+readGroups word specs = GroupsAsked <$> maybe (Right Groups.WholeChainBelowFirstMatch) Groups.readAttribution word <*> (Groups.groups =<< traverse readGroup specs)
   where
     readGroup :: GroupSpec -> Either Text Groups.Group
     readGroup GroupSpec{gspName = name, gspFilter = f} =
@@ -3143,20 +3149,33 @@ readGroups word specs = (,) <$> maybe (Right Groups.WholeChainBelowFirstMatch) G
     moded :: GroupClassification -> Either Text ModedFilter
     moded GroupClassification{gclSystem = system, gclValue = value, gclMode = mode} = ModedFilter system value <$> readClassificationMode mode
 
--- | A root as a split between groups reads it: its database, solver and process.
+{- | A root as a split between groups reads it: its database, solver and
+process, what its scores are for, the long-term policy of its solution and
+the collection its scores are read in.
+-}
 data GroupRoot = GroupRoot
     { grName :: !Text
     , grDatabase :: !Database
     , grSolver :: !SharedSolver
     , grProcess :: !ProcessId
+    , grFunctionalUnit :: !FunctionalUnit
+    , grLongTerm :: !LongTermMode
+    , grCollection :: !DM.CollectionName
     }
 
-{- | The root's solution under the long-term policy asked, where each of its
+-- | A root's solution, where each of its processes goes, and its parts.
+data GroupSplit = GroupSplit
+    { gsSolution :: !SharedSolver.CrossDBSolution
+    , gsAssigned :: !Groups.Assigned
+    , gsParts :: !Groups.Parts
+    }
+
+{- | The root's solution under its long-term policy, where each of its
 processes goes, and its parts in the reading asked. A process of a database
 whose licence withholds its detail goes to no group.
 -}
-splitIntoGroups :: DatabaseManager -> GroupRoot -> LongTermMode -> Groups.Attribution -> Groups.Groups -> ExceptT GroupFailure IO (SharedSolver.CrossDBSolution, M.Map Text Groups.Assignment, Groups.Parts)
-splitIntoGroups dbManager GroupRoot{grName = dbName, grDatabase = db, grSolver = solver, grProcess = pid} ltMode attribution gs = do
+splitIntoGroups :: DatabaseManager -> GroupRoot -> GroupsAsked -> ExceptT GroupFailure IO GroupSplit
+splitIntoGroups dbManager GroupRoot{grName = dbName, grDatabase = db, grSolver = solver, grProcess = pid, grLongTerm = ltMode} GroupsAsked{gaAttribution = attribution, gaGroups = gs} = do
     unitCfg <- liftIO (getMergedUnitConfig dbManager)
     let depLookup = DM.mkDepSolverLookup dbManager
     sol <- liftIO . Impact.withLongTermPolicy dbManager ltMode =<< refusedOn (SharedSolver.computeInventoryMatrixWithDepsCached unitCfg depLookup db dbName solver pid)
@@ -3165,34 +3184,27 @@ splitIntoGroups dbManager GroupRoot{grName = dbName, grDatabase = db, grSolver =
         assigned name (d, _)
             | name `elem` withheld = Groups.unassigned d
             | otherwise = Groups.assignment (Groups.firstGroup geographies d gs) (if name == dbName then Just pid else Nothing) d
-        assignments = M.mapWithKey assigned (Groups.summedByName (SharedSolver.csScalings sol))
+        assignments = Groups.Assigned gs (M.mapWithKey assigned (Groups.summedByName (SharedSolver.csScalings sol)))
         holding :: forall a. IO a -> IO a
         holding act = withMVar (DM.dmFactorisationLock dbManager) (const act)
     parts <- case attribution of
-        Groups.OwnEmissions -> pure (Groups.ownEmissionParts gs assignments sol)
+        Groups.OwnEmissions -> pure (Groups.ownEmissionParts assignments sol)
         Groups.WholeChainBelowFirstMatch -> do
             demand <- withExceptT GroupsRefused (except (Matrix.buildDemandVector db pid))
-            refusedOn (Groups.firstMatchParts unitCfg depLookup holding sol demand gs assignments)
-    pure (sol, assignments, parts)
+            refusedOn (Groups.firstMatchParts (Groups.Solving unitCfg depLookup holding) sol demand assignments)
+    pure (GroupSplit sol assignments parts)
   where
     refusedOn :: IO (Either Text a) -> ExceptT GroupFailure IO a
     refusedOn = withExceptT GroupsRefused . ExceptT
 
--- | Each method's score of a solution, by the method's id.
-scoresByMethod :: DatabaseManager -> GroupRoot -> DM.CollectionName -> [Method] -> SharedSolver.CrossDBSolution -> ExceptT GroupFailure IO (M.Map Text Double)
-scoresByMethod dbManager GroupRoot{grName = dbName, grDatabase = db} collectionName methods sol = do
-    byId <- liftIO (batchedScoresFor dbManager dbName collectionName db sol methods)
-    withExceptT GroupScoringFailed (except (M.fromList <$> traverse (\m -> (UUID.toText (methodId m),) <$> resolveBatchedScore m byId) methods))
-
 {- | A root's score split between groups, every method of the collection at
 once, as the route and the assistant tool answer it.
 -}
-groupContributionsOf :: DatabaseManager -> GroupRoot -> FunctionalUnit -> DM.CollectionName -> [Method] -> LongTermMode -> GroupsRequest -> IO (Either GroupFailure GroupContributions)
-groupContributionsOf dbManager root functionalUnit collectionName methods ltMode GroupsRequest{grqAttribution = word, grqGroups = specs} = runExceptT $ do
-    (attribution, gs) <- withExceptT GroupsMisread (except (readGroups word specs))
-    (sol, _, parts) <- splitIntoGroups dbManager root ltMode attribution gs
+groupContributionsOf :: DatabaseManager -> GroupRoot -> [Method] -> GroupsRequest -> IO (Either GroupFailure GroupContributions)
+groupContributionsOf dbManager root methods GroupsRequest{grqAttribution = word, grqGroups = specs} = runExceptT $ do
+    wanted <- withExceptT GroupsMisread (except (readGroups word specs))
+    GroupSplit{gsSolution = sol, gsParts = parts} <- splitIntoGroups dbManager root wanted
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
-    let scored = scoresByMethod dbManager root collectionName methods
     total <- scored sol
     rest <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores (Groups.assembled mFlows sol (Groups.partsRest parts)))
     restScores <- scored (Impact.lsShown rest)
@@ -3200,14 +3212,20 @@ groupContributionsOf dbManager root functionalUnit collectionName methods ltMode
     groupScores <- traverse (scored . Groups.assembled mFlows sol) (Groups.partsGroups parts)
     pure
         GroupContributions
-            { gctAttribution = Groups.attributionWord attribution
+            { gctAttribution = Groups.attributionWord (gaAttribution wanted)
             , gctMethods = [ReducedMethod (methodId m) (methodName m) (methodUnit m) | m <- methods]
             , gctTotal = total
-            , gctGroups = zipWith3 (\g scores taken -> GroupPart (Groups.groupName g) scores (Groups.takenCount taken)) (Groups.groupList gs) groupScores (Groups.partsTaken parts)
+            , gctGroups = zipWith3 (\g scores taken -> GroupPart (Groups.groupName g) scores (Groups.takenCount taken)) (Groups.groupList (gaGroups wanted)) groupScores (Groups.partsTaken parts)
             , gctRest = restScores
             , gctWithheldDatabases = withheld
-            , gctFunctionalUnit = functionalUnit
+            , gctFunctionalUnit = grFunctionalUnit root
             }
+  where
+    -- Each method's score of a solution, by the method's id.
+    scored :: SharedSolver.CrossDBSolution -> ExceptT GroupFailure IO (M.Map Text Double)
+    scored sol = do
+        byId <- liftIO (batchedScoresFor dbManager (grName root) (grCollection root) (grDatabase root) sol methods)
+        withExceptT GroupScoringFailed (except (M.fromList <$> traverse (\m -> (UUID.toText (methodId m),) <$> resolveBatchedScore m byId) methods))
 
 {- | The processes of a group, or of the rest, each with its part of one
 method's score, and the root's solution they were read from. For their own
@@ -3215,11 +3233,12 @@ emissions, each process's own part. For the whole chain, each process of the
 group that receives something with all it brings, and for the rest each
 process's own part. They add up to the part.
 -}
-groupMembersOf :: DatabaseManager -> GroupRoot -> DM.CollectionName -> Method -> LongTermMode -> GroupMembersRequest -> IO (Either GroupFailure (SharedSolver.CrossDBSolution, Impact.ProcessParts))
-groupMembersOf dbManager root collectionName method ltMode request = runExceptT $ do
-    (attribution, gs) <- withExceptT GroupsMisread (except (readGroups (gmqAttribution request) (gmqGroups request)))
-    target <- withExceptT GroupsMisread (except (traverse (Groups.groupNamed gs) (gmqGroup request)))
-    (sol, assignments, parts) <- splitIntoGroups dbManager root ltMode attribution gs
+groupMembersOf :: DatabaseManager -> GroupRoot -> Method -> GroupMembersRequest -> IO (Either GroupFailure GroupMembers)
+groupMembersOf dbManager root method request = runExceptT $ do
+    wanted <- withExceptT GroupsMisread (except (readGroups (gmqAttribution request) (gmqGroups request)))
+    target <- withExceptT GroupsMisread (except (traverse (Groups.groupNamed (gaGroups wanted)) (gmqGroup request)))
+    GroupSplit{gsSolution = sol, gsAssigned = assigned, gsParts = parts} <- splitIntoGroups dbManager root wanted
+    let collectionName = grCollection root
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) collectionName (grDatabase root) method)
     withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
@@ -3228,11 +3247,13 @@ groupMembersOf dbManager root collectionName method ltMode request = runExceptT 
         reached = Groups.summedByName (SharedSolver.csScalings sol)
         groupOf (name, p) = do
             (d, _) <- M.lookup name reached
-            asg <- M.lookup name assignments
+            asg <- M.lookup name (Groups.assignedColumns assigned)
             join (asg V.!? fromIntegral (dbActivityIndex d V.! fromIntegral p))
-        -- Each process of the group asked, or of the rest: its own part.
-        inTarget = Impact.splitProcessParts withheld . M.filterWithKey (\key _ -> groupOf key == target)
-    members <- case (attribution, target) of
+        -- Each process of the group wanted, or of the rest: its own part. A
+        -- withheld database's processes go to no group, so only the rest
+        -- names those databases.
+        inTarget = Impact.splitProcessParts (if isNothing target then withheld else []) . M.filterWithKey (\key _ -> groupOf key == target)
+    members <- case (gaAttribution wanted, target) of
         (Groups.OwnEmissions, _) -> inTarget <$> ownParts sol
         (Groups.WholeChainBelowFirstMatch, Nothing) -> inTarget <$> ownParts (Groups.assembled mFlows sol (Groups.partsRest parts))
         (Groups.WholeChainBelowFirstMatch, Just (Groups.GroupIndex g)) -> do
@@ -3244,7 +3265,13 @@ groupMembersOf dbManager root collectionName method ltMode request = runExceptT 
             perUnit <- Groups.perUnitByColumn reached <$> ownParts (Groups.assembled mFlows sol (Groups.everyProcessOnce reached))
             entries <- withExceptT GroupsRefused (ExceptT (Groups.entryChains unitCfg (DM.mkDepSolverLookup dbManager) (Groups.scoreFromPerUnit perUnit) taken))
             pure Impact.ProcessParts{Impact.ppShown = M.fromListWith (+) entries, Impact.ppWithheld = []}
-    pure (sol, members)
+    pure (GroupMembers sol members)
+
+-- | The processes of a group with their parts, and the root's solution they were read from.
+data GroupMembers = GroupMembers
+    { gmSolution :: !SharedSolver.CrossDBSolution
+    , gmParts :: !Impact.ProcessParts
+    }
 
 -- | A failure as the route answers it.
 groupFailure :: GroupFailure -> AppM a
@@ -3260,8 +3287,8 @@ postGroupContributions dbName processIdText collectionName mExcludeLT request = 
     (db, solver) <- requireDatabaseByName dbName
     (methods, _) <- loadCollection collectionName
     (pid, activity) <- resolveOrThrow db processIdText
-    let root = GroupRoot{grName = dbName, grDatabase = db, grSolver = solver, grProcess = pid}
-    liftIO (groupContributionsOf dbManager root (Service.functionalUnitIn db activity) collectionName methods (longTermModeFromExclude (fromMaybe False mExcludeLT)) request)
+    let root = GroupRoot{grName = dbName, grDatabase = db, grSolver = solver, grProcess = pid, grFunctionalUnit = Service.functionalUnitIn db activity, grLongTerm = longTermModeFromExclude (fromMaybe False mExcludeLT), grCollection = collectionName}
+    liftIO (groupContributionsOf dbManager root methods request)
         >>= either groupFailure pure
 
 postGroupMembers :: Text -> Text -> DM.CollectionName -> Text -> Maybe Bool -> GroupMembersRequest -> AppM ContributingActivitiesResult
@@ -3269,11 +3296,11 @@ postGroupMembers dbName processIdText collectionName methodIdText mExcludeLT req
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db solver pid activity method -> do
         dbManager <- asks aeDbManager
-        let root = GroupRoot{grName = dbName, grDatabase = db, grSolver = solver, grProcess = pid}
-        (sol, members) <- liftIO (groupMembersOf dbManager root collectionName method (longTermModeFromExclude (fromMaybe False mExcludeLT)) request) >>= either groupFailure pure
+        let root = GroupRoot{grName = dbName, grDatabase = db, grSolver = solver, grProcess = pid, grFunctionalUnit = Service.functionalUnitIn db activity, grLongTerm = longTermModeFromExclude (fromMaybe False mExcludeLT), grCollection = collectionName}
+        GroupMembers{gmSolution = sol, gmParts = members} <- liftIO (groupMembersOf dbManager root method request) >>= either groupFailure pure
         cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
         basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
-        let heading = Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs, hdBasis = basis, hdFunctionalUnit = Service.functionalUnitIn db activity}
+        let heading = Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs, hdBasis = basis, hdFunctionalUnit = grFunctionalUnit root}
         liftIO (activitiesResult dbManager dbName heading (fromMaybe 10 (gmqLimit request)) members)
 
 -- | What a single-score route is asked, as its path and query name it.

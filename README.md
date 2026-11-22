@@ -289,7 +289,7 @@ active = false
 [[classification-presets]]     # named filter bundles for classifications
 name = "agriculture"
 label = "Agriculture"
-filters = [{ system = "ISIC", value = "01", mode = "contains" }]  # mode: exact | contains
+filters = [{ system = "ISIC", value = "01", mode = "contains" }]  # mode: exact | contains | starts-with
 
 # [hosting] tunes upload/API limits when the engine runs behind a manager:
 # max_uploads, max_upload_mb, max_loaded_uploads, api_access,

@@ -57,7 +57,7 @@ import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (GroupFailure (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupContributionsOf, groupMembersOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
+import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupContributionsOf, groupMembersOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
 import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupMembersRequest (..), GroupSpec, GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
@@ -411,6 +411,7 @@ paramsToSchema ps =
     objectItems name = case name of
         "substitutions" -> substitutionItemSchema
         "classifications" -> classificationItemSchema
+        "groups" -> groupItemSchema
         "parameters" -> parameterItemSchema
         "parameter_sets" -> object ["type" .= ("array" :: Text), "items" .= parameterItemSchema]
         "remove" -> selectorItemSchema
@@ -448,6 +449,39 @@ paramsToSchema ps =
                     , "mode" .= stringField "contains (default) | exact | starts-with | not-contains | not-exact | not-starts-with; a not- mode leaves out what it matches"
                     ]
             , "required" .= (["system", "value"] :: [Text])
+            ]
+
+    groupItemSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "name" .= stringField "Name of the group, unique in the list"
+                    , "filter"
+                        .= object
+                            [ "type" .= ("object" :: Text)
+                            , "properties"
+                                .= object
+                                    [ "name" .= stringField "Contained in the process name, case aside"
+                                    , "product" .= stringField "Contained in the reference product, case aside"
+                                    , "location" .= stringField "That place or one within it"
+                                    , "classifications" .= object ["type" .= ("array" :: Text), "items" .= groupClassificationSchema]
+                                    ]
+                            ]
+                    ]
+            , "required" .= (["name", "filter"] :: [Text])
+            ]
+
+    groupClassificationSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "system" .= stringField "Classification system, as list_classifications names it"
+                    , "value" .= stringField "Value within the system"
+                    , "mode" .= stringField "contains | exact | starts-with | not-contains | not-exact | not-starts-with; a not- mode leaves out what it matches"
+                    ]
+            , "required" .= (["system", "value", "mode"] :: [Text])
             ]
 
     parameterItemSchema =
@@ -2761,9 +2795,17 @@ callGetGroupContributions dbManager rid args =
         mc <- requireCollection dbManager collName
         (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
         (attribution, specs) <- except (groupsArgs args)
-        let root = GroupRoot{grName = dbName, grDatabase = ldDatabase ld, grSolver = ldSharedSolver ld, grProcess = pid}
-            ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-        result <- liftIO (groupContributionsOf dbManager root (Service.functionalUnitIn (ldDatabase ld) act) (DM.CollectionName collName) (mcMethods mc) ltMode (GroupsRequest attribution specs))
+        let root =
+                GroupRoot
+                    { grName = dbName
+                    , grDatabase = ldDatabase ld
+                    , grSolver = ldSharedSolver ld
+                    , grProcess = pid
+                    , grFunctionalUnit = Service.functionalUnitIn (ldDatabase ld) act
+                    , grLongTerm = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
+                    , grCollection = DM.CollectionName collName
+                    }
+        result <- liftIO (groupContributionsOf dbManager root (mcMethods mc) (GroupsRequest attribution specs))
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . toJSON) result
 
 callGetGroupMembers :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
@@ -2772,11 +2814,19 @@ callGetGroupMembers dbManager mBaseUrl rid args =
         req <- loadLcaRequest dbManager args
         (attribution, specs) <- except (groupsArgs args)
         let ld = lrLoaded req
-            root = GroupRoot{grName = lrDbName req, grDatabase = ldDatabase ld, grSolver = ldSharedSolver ld, grProcess = raPid (lrResolved req)}
-            ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
+            root =
+                GroupRoot
+                    { grName = lrDbName req
+                    , grDatabase = ldDatabase ld
+                    , grSolver = ldSharedSolver ld
+                    , grProcess = raPid (lrResolved req)
+                    , grFunctionalUnit = raFunctionalUnit (lrResolved req)
+                    , grLongTerm = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
+                    , grCollection = lrCollection req
+                    }
             lim = fromMaybe 10 (intArg "limit" args)
-        result <- liftIO (groupMembersOf dbManager root (lrCollection req) (lrMethod req) ltMode (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
-        (sol, parts) <- either (throwE . groupFailureText) pure result
+        result <- liftIO (groupMembersOf dbManager root (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
+        GroupMembers{gmSolution = sol, gmParts = parts} <- either (throwE . groupFailureText) pure result
         processesAnswer dbManager mBaseUrl rid req lim sol parts
 
 -- | One score of a scoring set, with the activity it is asked of, solved.

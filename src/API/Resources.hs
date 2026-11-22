@@ -42,6 +42,7 @@ module API.Resources (
 import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Groups (maxGroups)
 import Network.HTTP.Types.Method (StdMethod (..))
 import ReducedModel (maxProcesses)
 import Types (Permission (..))
@@ -819,7 +820,7 @@ description r = case r of
             <> webUrlTip
     GetGroupContributions ->
         "LCA / ACV: how much transport, electricity, fertilisers… weigh in a \
-        \score, wherever they sit in the supply chain. Each group is a name and \
+        \score, wherever they sit upstream. Each group is a name and \
         \a filter; a process goes to the first group it answers, the root to \
         \none. attribution 'first-match' (default reading): a group counts the \
         \whole chain below its first process met; 'own': its processes' own \
@@ -1261,11 +1262,14 @@ pGroups =
         "groups"
         "array"
         Required
-        "Groups in order, at most 20, names unique: {name, filter: {name?, product?, location?, \
-        \classifications?: [{system, value, mode}]}}. name and product: contained, case aside; location: \
-        \that place or one within it; mode: contains, exact, starts-with (49 takes 4923), or a not- form, \
-        \which leaves out what it matches. A filter keeps something: name, product, location or a \
-        \keeping classification."
+        ( "Groups in order, at most "
+            <> T.pack (show maxGroups)
+            <> ", names unique: {name, filter: {name?, product?, location?, \
+               \classifications?: [{system, value, mode}]}}. name and product: contained, case aside; location: \
+               \that place or one within it; mode: contains, exact, starts-with (49 takes 4923), or a not- form, \
+               \which leaves out what it matches. A filter keeps something: name, product, location or a \
+               \keeping classification."
+        )
 
 pLimit :: Text -> Param
 pLimit = Param "limit" "integer" Optional

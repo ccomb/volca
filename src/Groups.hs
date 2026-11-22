@@ -44,6 +44,7 @@ module Groups (
 
     -- * Which process goes where
     Assignment,
+    Assigned (..),
     firstGroup,
     assignment,
     unassigned,
@@ -54,6 +55,7 @@ module Groups (
     takenCount,
     summedByName,
     ownEmissionParts,
+    Solving (..),
     cutDatabase,
     databaseCycle,
     firstMatchParts,
@@ -78,7 +80,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database (Geographies, locationAnswers)
+import Database (Geographies, locationAnswers, referenceProductNames)
 import Matrix (Demand (..), Vector, applyBiosphereMatrix, chunksOf, linkConsumer)
 import Method.Mapping (applyLongTermMode)
 import qualified Search.Normalize as Normalize
@@ -198,19 +200,10 @@ firstGroup geographies db gs activity = GroupIndex <$> findIndex (answers . crit
     answers :: Criteria -> Bool
     answers c =
         maybe True (`Normalize.caseInsensitiveInfixOf` activityName activity) (crName c)
-            && maybe True (\pat -> any (Normalize.caseInsensitiveInfixOf pat) products) (crProduct c)
+            && maybe True (\pat -> any (Normalize.caseInsensitiveInfixOf pat) (referenceProductNames db activity)) (crProduct c)
             && maybe True (\pat -> locationAnswers geographies pat (activityLocation activity)) (crLocation c)
             && matchClassifications activity (cfKept (crClassifications c))
             && not (any (`classificationMatches` activityClassification activity) (cfLeftOut (crClassifications c)))
-
-    products :: [Text]
-    products =
-        [ tfName flow
-        | ex <- nonPlainExchanges activity
-        , exchangeIsReference ex
-        , not (exchangeIsInput ex)
-        , Just flow <- [M.lookup (exchangeFlowId ex) (dbTechFlows db)]
-        ]
 
 -- | The group of each column of a database's matrix, if it has one.
 type Assignment = V.Vector (Maybe GroupIndex)
@@ -258,9 +251,17 @@ summedByName reached = M.fromListWith plus [(name, (db, v)) | Reached name db v 
 plus :: (Database, Vector) -> (Database, Vector) -> (Database, Vector)
 plus (db, a) (_, b) = (db, U.zipWith (+) a b)
 
+{- | The groups and where each process of each database reached goes among
+them, by database name.
+-}
+data Assigned = Assigned
+    { assignedGroups :: Groups
+    , assignedColumns :: M.Map Text Assignment
+    }
+
 -- | The scalings of each database split by the group of each process.
-splitBy :: Int -> M.Map Text Assignment -> Scalings -> Parts
-splitBy groupCount assignments scalings =
+splitBy :: Assigned -> Scalings -> Parts
+splitBy Assigned{assignedGroups = gs, assignedColumns = assignments} scalings =
     Parts
         { partsRest = keeping isNothing
         , partsGroups = taken
@@ -268,7 +269,7 @@ splitBy groupCount assignments scalings =
         }
   where
     taken :: [Scalings]
-    taken = [keeping (== Just (GroupIndex g)) | g <- [0 .. groupCount - 1]]
+    taken = [keeping (== Just (GroupIndex g)) | g <- [0 .. length (groupList gs) - 1]]
 
     keeping :: (Maybe GroupIndex -> Bool) -> Scalings
     keeping keep = M.mapWithKey (\name (db, v) -> (db, masked keep (M.findWithDefault (unassigned db) name assignments) v)) scalings
@@ -277,13 +278,22 @@ splitBy groupCount assignments scalings =
     masked keep asg = U.imap (\c x -> if keep (asg V.! c) then x else 0)
 
 -- | Each group's own emissions: the solution's scalings split by group.
-ownEmissionParts :: Groups -> M.Map Text Assignment -> CrossDBSolution -> Parts
-ownEmissionParts gs assignments sol = splitBy (length (groupList gs)) assignments (summedByName (csScalings sol))
+ownEmissionParts :: Assigned -> CrossDBSolution -> Parts
+ownEmissionParts assigned sol = splitBy assigned (summedByName (csScalings sol))
+
+-- | How the parts are solved: the units, the other databases, and the hold on factorising.
+data Solving = Solving
+    { solvingUnits :: UnitConfig
+    , solvingDeps :: DepSolverLookup
+    , solvingHold :: forall a. IO a -> IO a
+    -- ^ Holds the factorisation of the cut matrices
+    }
 
 {- | The database with the columns of its processes in a group emptied, and
 with no link to another database from them: whatever such a process buys is
-counted for its group, not followed from here. No triple is ever written on
-the diagonal, so an emptied column is that of the identity.
+counted for its group, not followed from here. Every triple of the column
+goes, one on the diagonal included, so an emptied column is that of the
+identity.
 -}
 cutDatabase :: Assignment -> Database -> Database
 cutDatabase asg db =
@@ -320,30 +330,26 @@ Refused when the databases reached loop into each other: a part solved again
 from a dependency would go deeper than the depth the score stopped at.
 -}
 firstMatchParts ::
-    UnitConfig ->
-    DepSolverLookup ->
-    -- | Holds the factorisation of the cut matrices
-    (forall a. IO a -> IO a) ->
+    Solving ->
     -- | The score's solution
     CrossDBSolution ->
     -- | The root's demand
     Demand ->
-    Groups ->
-    M.Map Text Assignment ->
+    Assigned ->
     IO (Either Text Parts)
-firstMatchParts unitCfg depLookup holding sol rootDemand gs assignments = case databaseCycle (csScalings sol) of
+firstMatchParts Solving{solvingUnits = unitCfg, solvingDeps = depLookup, solvingHold = holding} sol rootDemand assigned = case databaseCycle (csScalings sol) of
     Just loop -> pure (Left ("The databases this chain reaches loop into each other (" <> T.intercalate " → " loop <> "): only the own-emissions reading splits its score."))
     Nothing -> do
-        solvers <- M.traverseWithKey withSolver (M.intersectionWith (\asg (db, _) -> cutDatabase asg db) (M.filter (V.any isJust) assignments) reached)
+        solvers <- M.traverseWithKey withSolver (M.intersectionWith (\asg (db, _) -> cutDatabase asg db) (M.filter (V.any isJust) (assignedColumns assigned)) reached)
         let cutLookup name = maybe (depLookup name) (pure . Just) (M.lookup name solvers)
         if M.null solvers
-            then pure (Right (splitBy groupCount assignments reached))
+            then pure (Right (splitBy assigned reached))
             else
                 cutLookup rootName >>= \case
                     Nothing -> pure (Left ("The database '" <> rootName <> "' is no longer loaded."))
                     Just (cutRoot, cutSolver) ->
                         holding (SharedSolver.goWithDeps unitCfg cutLookup cutRoot rootName cutSolver [Right rootDemand] 0) >>= \case
-                            [Right solvedCut] -> belowFirstMatch (splitBy groupCount assignments (loaded (summedByName (csScalings solvedCut))))
+                            [Right solvedCut] -> belowFirstMatch (splitBy assigned (loaded (summedByName (csScalings solvedCut))))
                             [Left why] -> pure (Left why)
                             _ -> pure (Left "The chain cut at its groups gave no single answer to its one demand.")
   where
@@ -353,9 +359,7 @@ firstMatchParts unitCfg depLookup holding sol rootDemand gs assignments = case d
     rootName :: Text
     rootName = reachedName (NE.head (csScalings sol))
 
-    groupCount :: Int
-    groupCount = length (groupList gs)
-
+    withSolver :: Text -> Database -> IO (Database, SharedSolver.SharedSolver)
     withSolver name cutDb = (cutDb,) <$> SharedSolver.createSharedSolver (name <> " cut at its groups") (dbTechnosphereTriples cutDb) (fromIntegral (dbActivityCount cutDb))
 
     -- The loaded data of each database cut, in place of the cut one.
@@ -423,6 +427,7 @@ process's own part of 'everyProcessOnce'. A process with no part scores zero.
 perUnitByColumn :: Scalings -> M.Map (Text, ProcessId) Double -> M.Map Text Vector
 perUnitByColumn reached perUnit = M.mapWithKey columns reached
   where
+    columns :: Text -> (Database, Vector) -> Vector
     columns name (db, _) = let processes = processesByColumn db in U.generate (V.length processes) (\c -> M.findWithDefault 0 (name, processes V.! c) perUnit)
 
 {- | The score of a part, each process's scaling times its score per unit:
@@ -460,6 +465,7 @@ assembled flowDB sol part =
     placed :: S.Set Text -> NonEmpty Reached -> NonEmpty Reached
     placed seen (r :| rs) = here :| maybe [] (NE.toList . placed (S.insert (reachedName r) seen)) (NE.nonEmpty rs)
       where
+        here :: Reached
         here
             | reachedName r `S.member` seen = SharedSolver.atZero r
             | otherwise = maybe (SharedSolver.atZero r) (\(_, v) -> r{reachedScaling = v}) (M.lookup (reachedName r) part)

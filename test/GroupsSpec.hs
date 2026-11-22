@@ -96,7 +96,7 @@ noDeps _ = pure Nothing
 firstMatch :: DepSolverLookup -> CrossDBSolution -> Database -> ProcessId -> M.Map Text Assignment -> IO Parts
 firstMatch deps sol db root asg = do
     let demand = either (error . T.unpack) id (buildDemandVector db root)
-    either (error . T.unpack) id <$> firstMatchParts kgUnitConfig deps id sol demand twoGroups asg
+    either (error . T.unpack) id <$> firstMatchParts (Solving kgUnitConfig deps id) sol demand (Assigned twoGroups asg)
 
 spec :: Spec
 spec = do
@@ -108,8 +108,8 @@ spec = do
         it "gives each group its own emissions" $ do
             solver <- mkSolverFromDb loop "loop"
             sol <- solved noDeps loop "loop" solver 0
-            amounts sol (ownEmissionParts twoGroups asg sol) `closeTo` [1001, 10 * a, 100 * b]
-            sum (amounts sol (ownEmissionParts twoGroups asg sol)) `closeTo'` total
+            amounts sol (ownEmissionParts (Assigned twoGroups asg) sol) `closeTo` [1001, 10 * a, 100 * b]
+            sum (amounts sol (ownEmissionParts (Assigned twoGroups asg) sol)) `closeTo'` total
 
         it "gives each group the whole chain below its first process met" $ do
             solver <- mkSolverFromDb loop "loop"
@@ -145,7 +145,7 @@ spec = do
             sol <- solved (loaded depSolver rootSolver) linkedRoot "R" rootSolver 1
             parts <- firstMatch (loaded depSolver rootSolver) sol linkedRoot 1 (assignedAt "D" [(1, 1)])
             amounts sol parts `closeTo` [3 + 10, 0, 2 * (7 + 11)]
-            amounts sol (ownEmissionParts twoGroups (assignedAt "D" [(1, 1)]) sol) `closeTo` [3 + 10 + 22, 0, 14]
+            amounts sol (ownEmissionParts (Assigned twoGroups (assignedAt "D" [(1, 1)])) sol) `closeTo` [3 + 10 + 22, 0, 14]
 
         it "refuses the whole-chain reading when the databases loop" $ do
             let looped = linkAt linkedDep linkedRoot "R" 0 1

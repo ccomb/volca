@@ -13,4 +13,4 @@
 - A classification filter can be written `starts-with`, or `not-starts-with`,
   so that a code and everything below it are found together: `starts-with 49`
   finds `4923:Freight transport by road` and not `1049: …`. Search,
-  deletion by selection and classification presets read it too.
+  deletion by selection and classification presets read it too. Wire revision 119.
