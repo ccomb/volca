@@ -11,6 +11,6 @@
   `group-members`, and an assistant over MCP gets them as
   `get_group_contributions` and `get_group_members`.
 - A classification filter can be written `starts-with`, or `not-starts-with`,
-  so that a code and everything below it are found together: `starts-with 65`
-  finds `6511: Road transport services of freight` and not `2365: …`. Search,
+  so that a code and everything below it are found together: `starts-with 49`
+  finds `4923:Freight transport by road` and not `1049: …`. Search,
   deletion by selection and classification presets read it too.

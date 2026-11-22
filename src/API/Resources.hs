@@ -1263,7 +1263,7 @@ pGroups =
         Required
         "Groups in order, at most 20, names unique: {name, filter: {name?, product?, location?, \
         \classifications?: [{system, value, mode}]}}. name and product: contained, case aside; location: \
-        \that place or one within it; mode: contains, exact, starts-with (CPC 65 takes 6511), or a not- form, \
+        \that place or one within it; mode: contains, exact, starts-with (49 takes 4923), or a not- form, \
         \which leaves out what it matches. A filter keeps something: name, product, location or a \
         \keeping classification."
 
