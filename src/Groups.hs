@@ -334,7 +334,7 @@ firstMatchParts ::
 firstMatchParts unitCfg depLookup holding sol rootDemand gs assignments = case databaseCycle (csScalings sol) of
     Just loop -> pure (Left ("The databases this chain reaches loop into each other (" <> T.intercalate " → " loop <> "): only the own-emissions reading splits its score."))
     Nothing -> do
-        solvers <- traverse withSolver (M.intersectionWith (\asg (db, _) -> cutDatabase asg db) (M.filter (V.any isJust) assignments) reached)
+        solvers <- M.traverseWithKey withSolver (M.intersectionWith (\asg (db, _) -> cutDatabase asg db) (M.filter (V.any isJust) assignments) reached)
         let cutLookup name = maybe (depLookup name) (pure . Just) (M.lookup name solvers)
         if M.null solvers
             then pure (Right (splitBy groupCount assignments reached))
@@ -356,7 +356,7 @@ firstMatchParts unitCfg depLookup holding sol rootDemand gs assignments = case d
     groupCount :: Int
     groupCount = length (groupList gs)
 
-    withSolver cutDb = (cutDb,) <$> SharedSolver.createSharedSolver (rootName <> " cut at its groups") (dbTechnosphereTriples cutDb) (fromIntegral (dbActivityCount cutDb))
+    withSolver name cutDb = (cutDb,) <$> SharedSolver.createSharedSolver (name <> " cut at its groups") (dbTechnosphereTriples cutDb) (fromIntegral (dbActivityCount cutDb))
 
     -- The loaded data of each database cut, in place of the cut one.
     loaded :: Scalings -> Scalings

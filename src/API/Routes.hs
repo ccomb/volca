@@ -3123,7 +3123,9 @@ activitiesResult dbManager dbName heading lim Impact.ProcessParts{Impact.ppShown
 
 -- | Why a split between groups has no answer.
 data GroupFailure
-    = -- | What was asked has none: groups misread, a chain that cannot be cut
+    = -- | The request does not read: a group without a filter, a reading or a group that is not one
+      GroupsMisread !Text
+    | -- | What was asked has no answer: a chain that cannot be cut, a group entered by too many processes
       GroupsRefused !Text
     | -- | A score could not be computed: the collection's tables disagree
       GroupScoringFailed !Text
@@ -3187,7 +3189,7 @@ once, as the route and the assistant tool answer it.
 -}
 groupContributionsOf :: DatabaseManager -> GroupRoot -> FunctionalUnit -> DM.CollectionName -> [Method] -> LongTermMode -> GroupsRequest -> IO (Either GroupFailure GroupContributions)
 groupContributionsOf dbManager root functionalUnit collectionName methods ltMode GroupsRequest{grqAttribution = word, grqGroups = specs} = runExceptT $ do
-    (attribution, gs) <- withExceptT GroupsRefused (except (readGroups word specs))
+    (attribution, gs) <- withExceptT GroupsMisread (except (readGroups word specs))
     (sol, _, parts) <- splitIntoGroups dbManager root ltMode attribution gs
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     let scored = scoresByMethod dbManager root collectionName methods
@@ -3215,8 +3217,8 @@ process's own part. They add up to the part.
 -}
 groupMembersOf :: DatabaseManager -> GroupRoot -> DM.CollectionName -> Method -> LongTermMode -> GroupMembersRequest -> IO (Either GroupFailure (SharedSolver.CrossDBSolution, Impact.ProcessParts))
 groupMembersOf dbManager root collectionName method ltMode request = runExceptT $ do
-    (attribution, gs) <- withExceptT GroupsRefused (except (readGroups (gmqAttribution request) (gmqGroups request)))
-    target <- withExceptT GroupsRefused (except (traverse (Groups.groupNamed gs) (gmqGroup request)))
+    (attribution, gs) <- withExceptT GroupsMisread (except (readGroups (gmqAttribution request) (gmqGroups request)))
+    target <- withExceptT GroupsMisread (except (traverse (Groups.groupNamed gs) (gmqGroup request)))
     (sol, assignments, parts) <- splitIntoGroups dbManager root ltMode attribution gs
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) collectionName (grDatabase root) method)
@@ -3228,9 +3230,11 @@ groupMembersOf dbManager root collectionName method ltMode request = runExceptT 
             (d, _) <- M.lookup name reached
             asg <- M.lookup name assignments
             join (asg V.!? fromIntegral (dbActivityIndex d V.! fromIntegral p))
+        -- Each process of the group asked, or of the rest: its own part.
+        inTarget = Impact.splitProcessParts withheld . M.filterWithKey (\key _ -> groupOf key == target)
     members <- case (attribution, target) of
-        (Groups.OwnEmissions, _) -> Impact.splitProcessParts withheld . M.filterWithKey (\key _ -> groupOf key == target) <$> ownParts sol
-        (Groups.WholeChainBelowFirstMatch, Nothing) -> Impact.splitProcessParts withheld <$> ownParts (Groups.assembled mFlows sol (Groups.partsRest parts))
+        (Groups.OwnEmissions, _) -> inTarget <$> ownParts sol
+        (Groups.WholeChainBelowFirstMatch, Nothing) -> inTarget <$> ownParts (Groups.assembled mFlows sol (Groups.partsRest parts))
         (Groups.WholeChainBelowFirstMatch, Just (Groups.GroupIndex g)) -> do
             let taken = Groups.partsTaken parts !! g
                 entering = Groups.takenCount taken
@@ -3245,6 +3249,7 @@ groupMembersOf dbManager root collectionName method ltMode request = runExceptT 
 -- | A failure as the route answers it.
 groupFailure :: GroupFailure -> AppM a
 groupFailure = \case
+    GroupsMisread why -> badRequest why
     GroupsRefused why -> unprocessable why
     GroupScoringFailed why -> scoringError why
 

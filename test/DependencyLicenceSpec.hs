@@ -336,6 +336,21 @@ spec = do
                 )
                 ["first-match", "own"]
 
+    describe "MCP, the processes of a group" $ do
+        it "add up to the group's part, and those of the rest to the rest, in both readings" $ do
+            manager <- managerWith LicenceUnstated
+            -- The root goes to no group, so France takes the dependency's one process alone.
+            let france = Array (V.singleton (Object (KM.fromList [("name", String "France"), ("filter", Object (KM.singleton "location" (String "FR")))])))
+                members reading group = do
+                    o <- payload =<< callOn manager "get_group_members" ([("groups", france), ("attribution", String reading)] ++ [("group", String g) | Just g <- [group]])
+                    pure (KM.lookup "total_score" o, numbersAt "processes" "contribution" o)
+            mapM_
+                ( \reading -> do
+                    members reading (Just "France") `shouldReturn` (Just (Number 20), [20])
+                    members reading Nothing `shouldReturn` (Just (Number 1), [1])
+                )
+                ["first-match", "own"]
+
     describe "under a dependency keeping its amounts" $ do
         it "refuses the inventory over REST and MCP" $ do
             manager <- managerWith inventoryKept

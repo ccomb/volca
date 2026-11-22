@@ -2749,6 +2749,7 @@ groupsArgs args = (,) (textArg "attribution" args) <$> parseArrayArg "groups" (J
 
 -- | A failure of a split between groups, as a tool says it.
 groupFailureText :: GroupFailure -> Text
+groupFailureText (GroupsMisread why) = why
 groupFailureText (GroupsRefused why) = why
 groupFailureText (GroupScoringFailed why) = why
 
