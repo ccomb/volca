@@ -1017,7 +1017,7 @@ class Group:
 
         def written(c: dict, mode: str) -> ClassificationFilter:
             word = mode.removeprefix("not-")
-            return ClassificationFilter(c["system"], c["value"], "exact" if word == "equals" else word)
+            return ClassificationFilter(c["system"], c["value"], MatchMode("exact" if word == "equals" else word))
 
         return cls(
             name=d["name"],
