@@ -840,6 +840,7 @@ description r = case r of
         \method id: groups, 'rest' and 'withheldDatabases' add up to 'total'. \
         \'activitiesCounted': processes of the group carrying a part. Exact, \
         \valid for cyclic chains. Then get_group_members to see a group."
+            <> webUrlTip
     GetGroupMembers ->
         "LCA / ACV: the processes of one group of get_group_contributions, or \
         \of the rest when 'group' is left out, heaviest first, for one impact \
@@ -847,6 +848,7 @@ description r = case r of
         \first-match, each process where the chain enters the group, with all \
         \it brings. They add up to the group's part. 'basis' as on \
         \score_activity."
+            <> webUrlTip
     GetGroupCandidates ->
         "LCA / ACV: groups a process could start, narrowest first: its \
         \product, then each level of its classifications. Each is tried at \

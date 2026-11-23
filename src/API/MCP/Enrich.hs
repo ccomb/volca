@@ -18,6 +18,8 @@ module API.MCP.Enrich (
     encodeSegment,
     impactsPath,
     sensitivityPath,
+    groupsPagePath,
+    groupsQuery,
     scoreActivityWebUrl,
 
     -- * web_url enrichment
@@ -52,13 +54,14 @@ import qualified Data.Aeson.Key as Key
 import Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Pair)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.URI (escapeURIString, isUnreserved)
 import Numeric (showGFloat)
 
-import API.Types (CutoffInput (..), WithheldCutoffs (..))
+import API.Types (CutoffInput (..), GroupClassification (..), GroupFilterSpec (..), GroupSpec (..), GroupsRequest (..), WithheldCutoffs (..))
 import Database.Cutoffs (Cutoffs (..))
 import Database.Manager (CollectionName (..))
 
@@ -111,6 +114,40 @@ impactsPath = activityPagePath "impacts"
 -- | The sensitivity page; a method id appended to it names the indicator it opens on.
 sensitivityPath :: Text -> Text -> CollectionName -> Text
 sensitivityPath = activityPagePath "sensitivity"
+
+-- | The groups page; a method id appended to it names the category it opens on, then 'groupsQuery'.
+groupsPagePath :: Text -> Text -> CollectionName -> Text
+groupsPagePath = activityPagePath "groups"
+
+{- | The query of the groups page with this split: the reading, then one
+numbered rank per group, @g1=<name>@ then @g1-name@, @g1-product@,
+@g1-location@ and one @g1-classification@, @-value@, @-mode@ triple per
+classification, in the order the group lists them. An empty list is
+@groups=none@, since the page opens a ready-made set when the address names
+no group.
+-}
+groupsQuery :: GroupsRequest -> Text
+groupsQuery GroupsRequest{grqAttribution = attribution, grqGroups = specs} =
+    "?" <> T.intercalate "&" [key <> "=" <> encodeSegment value | (key, value) <- reading <> ranks]
+  where
+    reading :: [(Text, Text)]
+    reading = [("reading", "own") | attribution == Just "own"]
+    ranks :: [(Text, Text)]
+    ranks = case specs of
+        [] -> [("groups", "none")]
+        _ -> concat (zipWith rankPairs [1 :: Int ..] specs)
+    rankPairs :: Int -> GroupSpec -> [(Text, Text)]
+    rankPairs rank GroupSpec{gspName = name, gspFilter = f} =
+        let key suffix = "g" <> T.pack (show rank) <> suffix
+            field suffix = foldMap (\value -> [(key suffix, value)])
+         in (key "", name)
+                : field "-name" (gfsName f)
+                    <> field "-product" (gfsProduct f)
+                    <> field "-location" (gfsLocation f)
+                    <> concat
+                        [ [(key "-classification", system), (key "-classification-value", value), (key "-classification-mode", mode)]
+                        | GroupClassification{gclSystem = system, gclValue = value, gclMode = mode} <- fromMaybe [] (gfsClassifications f)
+                        ]
 
 {- | Activity-level impacts page URL (the LCIA batch view in the web UI).
 
