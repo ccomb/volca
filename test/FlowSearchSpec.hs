@@ -15,7 +15,7 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.UUID as UUID
-import Database (FlowFields (..), allFlows, filterByName, flowFieldsOf, flowMatches, flowMatchesQuery, flowQuery, plainFlowQuery)
+import Database (FlowFields (..), allFlows, filterByName, flowFieldsOf, flowMatches, flowQuery, plainFlowQuery)
 import Method.ChemSynonyms (ChemSynonyms, emptyChemSynonyms, parseChemSynonymsCSV)
 import Service (FlowFilter (..), SortOrder (..), flowSearchResults, sortOrderOf)
 import SynonymDB (buildFromPairs)
@@ -91,7 +91,12 @@ or of its CAS are nowhere in it.
 -}
 recognitionSpec :: Spec
 recognitionSpec = describe "Database.flowMatches" $ do
-    let registry = buildFromPairs [("Dinitrogen monoxide", "nitrous oxide"), ("Methane, fossil", "Methane, from fossil")]
+    let registry =
+            buildFromPairs
+                [ ("Dinitrogen monoxide", "nitrous oxide")
+                , ("Methane, fossil", "Methane, from fossil")
+                , ("Water", "Water, unspecified natural origin")
+                ]
         found chemicals query = flowMatches (flowQuery (Just registry) chemicals query) . flowFieldsOf
         n2o = BioKind (biosphere 9 "Dinitrogen monoxide" []){bfCAS = Just "010024-97-2"}
         withCas cas name = BioKind (biosphere 8 name []){bfCAS = Just cas}
@@ -121,13 +126,26 @@ recognitionSpec = describe "Database.flowMatches" $ do
     it "reads an unresolved exchange by its name alone" $
         flowMatches (flowQuery (Just registry) chemicals "nitrous oxide") (FlowFields ["Dinitrogen monoxide"] Nothing) `shouldBe` True
 
-    it "keeps the flows that are the substance over names that only hold its formula" $
-        map flowKindName (filterByName (flowQuery (Just registry) chemicals "N2O") flowFieldsOf [namedFlow "Disposal, LiMn2O4 battery" [], n2o])
+    it "filters by the substance when no name holds the query" $
+        map flowKindName (filterByName (flowQuery (Just registry) chemicals "N2O") flowFieldsOf [n2o, namedFlow "Ammonia" []])
             `shouldBe` ["Dinitrogen monoxide"]
+
+    it "filters by the names first: the registry does not narrow what the words keep" $
+        -- "water" is in the registry with one other name; every water flow
+        -- still holds the word, so the filter keeps them all.
+        map flowKindName (filterByName (flowQuery (Just registry) chemicals "water") flowFieldsOf (map (`namedFlow` []) ["Water, river", "Water, unspecified natural origin", "Water"]))
+            `shouldBe` ["Water, river", "Water, unspecified natural origin", "Water"]
+
+    it "filters by the names first: the registry adds nothing to an exact name" $
+        map flowKindName (filterByName (flowQuery (Just registry) chemicals "Methane, fossil") flowFieldsOf (map (`namedFlow` []) ["Methane, from fossil", "Methane, fossil"]))
+            `shouldBe` ["Methane, fossil"]
 
     it "lists the flows that are the substance first, then the names holding the query" $
         map fsrName (flowSearchResults M.empty (const Nothing) (flowQuery (Just registry) chemicals "N2O") sortByName{ffQuery = "N2O"} [namedFlow "Disposal, LiMn2O4 battery" [], n2o])
             `shouldBe` ["Dinitrogen monoxide", "Disposal, LiMn2O4 battery"]
+
+matchesWords :: Text -> FlowKind -> Bool
+matchesWords query = flowMatches (plainFlowQuery query) . flowFieldsOf
 
 -- | Two substances of the shipped list, as its file writes them.
 chemicals :: ChemSynonyms
@@ -136,37 +154,37 @@ chemicals =
         parseChemSynonymsCSV "cas;canonical_name;synonyms...\n10024-97-2;Nitrous oxide;N2O\n124-38-9;Carbon dioxide;CO2\n"
 
 matchSpec :: Spec
-matchSpec = describe "Database.flowMatchesQuery" $ do
+matchSpec = describe "Database.flowMatches, by words alone" $ do
     it "finds a name whose words the query didn't punctuate" $
-        flowMatchesQuery "water fossil" waterFossil `shouldBe` True
+        matchesWords "water fossil" waterFossil `shouldBe` True
 
     it "finds it whatever order the words come in" $
-        flowMatchesQuery "fossil water" waterFossil `shouldBe` True
+        matchesWords "fossil water" waterFossil `shouldBe` True
 
     it "still finds it when the query does punctuate" $
-        flowMatchesQuery "water, fossil" waterFossil `shouldBe` True
+        matchesWords "water, fossil" waterFossil `shouldBe` True
 
     it "requires every word, not just one" $
-        flowMatchesQuery "water fossil" (namedFlow "Water, lake" []) `shouldBe` False
+        matchesWords "water fossil" (namedFlow "Water, lake" []) `shouldBe` False
 
     it "keeps matching inside a word, which is how chemicals are searched" $
-        flowMatchesQuery "chlor" (namedFlow "Trichloroethane" []) `shouldBe` True
+        matchesWords "chlor" (namedFlow "Trichloroethane" []) `shouldBe` True
 
     it "reads the name and the synonyms as one text" $
-        flowMatchesQuery "laughing dinitrogen" laughingGas `shouldBe` True
+        matchesWords "laughing dinitrogen" laughingGas `shouldBe` True
 
     it "matches nothing when the query holds no word at all" $
-        flowMatchesQuery ", " waterFossil `shouldBe` False
+        matchesWords ", " waterFossil `shouldBe` False
 
     it "reads a query whose accents arrived decomposed" $
         -- Pasting from another application can deliver NFD, where the accent
         -- is a separate combining mark (here U+0301 after a plain "e").
         -- Splitting on it would search for "pe" and "trole" instead of the
         -- word the user typed.
-        flowMatchesQuery "Pe\769trole" (namedFlow "Pétrole brut" []) `shouldBe` True
+        matchesWords "Pe\769trole" (namedFlow "Pétrole brut" []) `shouldBe` True
 
     it "searches a punctuated name for the pieces the user typed" $
-        flowMatchesQuery "2,4-D" (namedFlow "2,4-D" []) `shouldBe` True
+        matchesWords "2,4-D" (namedFlow "2,4-D" []) `shouldBe` True
 
     it "looks in every family of flows, not only the biosphere" $
         map flowKindName (allFlows techMap bioMap wasteMap)

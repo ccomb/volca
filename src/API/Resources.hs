@@ -441,7 +441,7 @@ apiPath r = case r of
     ListPresets -> Just (GET, ["classification-presets"])
     SearchActivities -> Just (GET, ["db", "{dbName}", "activities"])
     SearchFlows -> Just (GET, ["db", "{dbName}", "flows"])
-    GetFlowActivities -> Just (GET, ["db", "{dbName}", "flow", "{flowId}", "activities"])
+    GetFlowActivities -> Nothing -- MCP-only: the REST route answers the bare list, with no total and no limit
     GetActivity -> Just (GET, ["db", "{dbName}", "activity", "{processId}"])
     Aggregate -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "aggregate"])
     GetSupplyChain -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "supply-chain"])
@@ -662,7 +662,8 @@ description r = case r of
         \emission released; other kinds have none. \
         \A whole query also finds by formula (N2O), by a name the \
         \synonym registry gives the same substance (nitrous oxide), or by CAS \
-        \(10024-97-2); a query of several words finds by its words only. \
+        \(10024-97-2). Only the whole query is read these ways: 'N2O \
+        \emission' finds by its words alone. \
         \Next: get_flow_activities lists the processes on one side of a flow."
     GetFlowActivities ->
         "LCA / ACV: the processes on one side of one flow, by its flow_id from \

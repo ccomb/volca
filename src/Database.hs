@@ -26,7 +26,7 @@ import Progress
 import qualified Search.BM25.Types as BM25T
 import qualified Search.Fuzzy as Fuzzy
 import qualified Search.Normalize as Normalize
-import SubstanceRegistry (nonEmptyCAS)
+import SubstanceRegistry (CASNumber, casKey)
 import SynonymDB (getSynonyms, lookupSynonymGroup, normalizeName)
 import SynonymDB.Types (SynonymDB)
 import Types
@@ -492,10 +492,11 @@ synonym of its own, so the words alone find nothing for @N2O@.
 -}
 data FlowQuery = FlowQuery
     { fqText :: !Text
+    , fqHoldsEveryWord :: [Text] -> Bool
+    -- ^ 'Normalize.matchesEveryWord' applied to the query once, not once per flow
     , fqSameSubstance :: !(S.Set Text)
     -- ^ normalized as the registry stores its names
-    , fqCas :: !(Maybe Text)
-    -- ^ canonical, as 'nonEmptyCAS' writes it
+    , fqCas :: !(Maybe CASNumber)
     }
 
 {- | The query a text asks, read against a database's registry and the
@@ -506,8 +507,9 @@ flowQuery :: Maybe SynonymDB -> ChemSynonyms -> Text -> FlowQuery
 flowQuery registry chemicals text =
     FlowQuery
         { fqText = text
+        , fqHoldsEveryWord = Normalize.matchesEveryWord text
         , fqSameSubstance = maybe S.empty sameSubstance registry
-        , fqCas = nonEmptyCAS =<< (casOfName chemicals text <|> statedCas)
+        , fqCas = casKey =<< (casOfName chemicals text <|> statedCas)
         }
   where
     sameSubstance :: SynonymDB -> S.Set Text
@@ -539,34 +541,40 @@ flowFieldsOf :: FlowKind -> FlowFields
 flowFieldsOf flow = FlowFields (flowSearchFields flow) (flowKindCAS flow)
 
 {- | A flow answers a query when every word of the query is in its names
-('flowMatchesQuery'); or when one of its names belongs to the registry's class
-of the whole query, as a name, never word by word (@Methane, fossil@ and
-@Methane, biogenic@ stay apart); or when its CAS is the query's.
+(case-blind, any order, punctuation optional: 'Normalize.matchesEveryWord');
+or when one of its names belongs to the registry's class of the whole query,
+as a name, never word by word (@Methane, fossil@ and @Methane, biogenic@ stay
+apart); or when its CAS is the query's.
 -}
 flowMatches :: FlowQuery -> FlowFields -> Bool
-flowMatches query fields =
-    Normalize.matchesEveryWord (fqText query) (flowFieldNames fields) || isTheSubstance query fields
+flowMatches query fields = fqHoldsEveryWord query (flowFieldNames fields) || isTheSubstance query fields
 
 -- | Whether the registry or the CAS says the flow is the substance the query names.
 isTheSubstance :: FlowQuery -> FlowFields -> Bool
 isTheSubstance FlowQuery{fqSameSubstance = same, fqCas = cas} FlowFields{flowFieldNames = names, flowFieldCas = ownCas} =
-    any ((`S.member` same) . normalizeName) names
-        || (isJust cas && cas == (nonEmptyCAS =<< ownCas))
+    (not (S.null same) && any ((`S.member` same) . normalizeName) names)
+        || (isJust cas && cas == (casKey =<< ownCas))
 
-{- | How closely a flow answers the query, smallest first. A flow that is the
-substance named comes first: on a real database @N2O@ is also in the names of
-a dozen @LiMn2O4@ battery products, and @CO2@ in those of direct air capture
-plants, which would otherwise push every nitrous oxide or carbon dioxide flow
-down the page. The names follow, ranked by 'flowNameRelevance'.
+{- | Where a search lists a flow, smallest first: the flow named exactly as
+typed; then the flows that are the substance named, which on a real database
+would otherwise sink below a dozen @LiMn2O4@ battery products holding @N2O@ in
+their name, or the direct air capture plants holding @CO2@; then the names, by
+'flowNameRelevance'.
 -}
 flowRelevance :: FlowQuery -> FlowFields -> Int
 flowRelevance query fields
-    | isTheSubstance query fields = 0
-    | otherwise = 1 + flowNameRelevance (fqText query) (nameOf (flowFieldNames fields))
+    | folded (fqText query) == folded name = 0
+    | isTheSubstance query fields = 1
+    | otherwise = 2 + flowNameRelevance (fqText query) name
   where
-    nameOf fs = case fs of
-        [] -> ""
-        name : _ -> name
+    name = nameOf (flowFieldNames fields)
+    folded = T.toCaseFold . T.strip
+
+-- | A flow's own name, the first of its searchable fields.
+nameOf :: [Text] -> Text
+nameOf fs = case fs of
+    [] -> ""
+    name : _ -> name
 
 -- | Every flow the three maps hold, each tagged with the kind it came from.
 allFlows :: TechFlowDB -> BioFlowDB -> WasteFlowDB -> [FlowKind]
@@ -583,16 +591,6 @@ flowSearchFields :: FlowKind -> [Text]
 flowSearchFields flow =
     flowKindName flow : concatMap S.toList (M.elems (flowKindSynonyms flow))
 
-{- | A flow matches when every word of the query appears in one of its
-searchable fields, case-blind and in any order ('Normalize.matchesEveryWord'
-holds the rule, so a filter elsewhere answers the same query the same way).
-
-The width that word-by-word matching brings is paid for by
-'flowNameRelevance', which puts the flow the user actually typed at the top.
--}
-flowMatchesQuery :: Text -> FlowKind -> Bool
-flowMatchesQuery query = Normalize.matchesEveryWord query . flowSearchFields
-
 {- | What a name filter keeps of the candidates it was given, each described
 by its searchable fields, its own name first ('flowSearchFields' already
 orders them that way).
@@ -600,20 +598,23 @@ orders them that way).
 A filter is not a search, and differs on two points. A query naming no word
 at all (blank, or punctuation only) filters nothing, where a search for
 nothing finds nothing: an argument that names nothing must not empty the
-answer. And of everything the query matched, only the closest tier is kept
-('flowRelevance'): a search relegates a lookalike to a later page, a
-filter has no later page, so keeping every tier would mix
+answer. And of everything the query matched, only the closest tier of names
+is kept ('flowNameRelevance'): a search relegates a lookalike to a later page,
+a filter has no later page, so keeping every tier would mix
 @Carbon dioxide, fossil@ and @Carbon dioxide, non-fossil@ into one answer and
 leave the caller to notice. Asking for the flow as it is written therefore
 returns exactly it, and dropping its punctuation returns the tier that
-carries all its words.
+carries all its words. A flow the registry or the CAS alone reaches holds
+none of the words, so it is kept only when no name answers: @N2O@ keeps the
+nitrous oxide of an inventory, @water@ still keeps every water flow, not the
+few the registry calls plain water.
 -}
 filterByName :: FlowQuery -> (a -> FlowFields) -> [a] -> [a]
 filterByName query fields xs
     | null (Normalize.queryWords (fqText query)) = xs
     | otherwise = [x | (x, tier) <- ranked, tier == closest]
   where
-    ranked = [(x, flowRelevance query (fields x)) | x <- xs, flowMatches query (fields x)]
+    ranked = [(x, flowNameRelevance (fqText query) (nameOf (flowFieldNames (fields x)))) | x <- xs, flowMatches query (fields x)]
     closest = case map snd ranked of
         [] -> 0 -- nothing matched, so the comprehension above is empty too
         tier : tiers -> foldr min tier tiers

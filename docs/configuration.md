@@ -14,7 +14,7 @@ A TOML config file enables multi-database setups, method collections, and refere
 # first [section] header: below one they parse as members of that section,
 # which startup reports by name.
 # geographies = "data/geographies.csv"         # code,display_name,parents
-# chem-synonyms = "data/chem_synonyms.csv"     # PubChem snapshot for the suggester
+# chem-synonyms = "data/chem_synonyms.csv"     # formulas and names → CAS; replaces the built-in list
 # substance-edges = "data/substance_edges.csv" # typed flow-correspondence edges
 
 [server]

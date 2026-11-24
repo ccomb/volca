@@ -30,7 +30,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database (FlowQuery, Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, bm25DocsMatchingName, filterByName, findActivitiesByFields, findFlowsBySynonym, flowFieldsOf, flowQuery, flowQueryIn, flowRelevance, locationAnswers, locationIs)
+import Database (FlowQuery, Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, bm25DocsMatchingName, filterByName, findActivitiesByFields, findFlowsBySynonym, flowFieldsOf, flowQueryIn, flowRelevance, locationAnswers, locationIs)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.Author (lineSelector)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, cutoffsReached, gapIndexOf)
@@ -38,7 +38,7 @@ import Database.MatrixBuild (findProducer, linkedProducer)
 import Impact (PartScore (..))
 import Matrix (Demand (..), DepDemands, Inventory, Solve, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, carriedBy, depDemandsToVector, inSupplierUnit, linkConsumer, perturbABatch, processScaling, rankOneCarry, toList)
 import qualified Matrix.Export as MatrixExport
-import Method.ChemSynonyms (ChemSynonyms, emptyChemSynonyms)
+import Method.ChemSynonyms (ChemSynonyms, shippedChemSynonyms)
 import Method.Mapping (LongTermMode (..))
 import qualified Method.Mapping as Mapping
 import Method.Types (Subcompartment (..))
@@ -2007,9 +2007,11 @@ producingRows db flowUUID =
 
 {- | How many activities make this flow.
 
-'Nothing' where the question does not apply, never 0 as a stand-in: a zero
-here is the true statement that no row produces the flow, and 'Nothing' the
-different one that this kind of flow has no producing side at all.
+'Nothing' where it is not counted, never 0 as a stand-in: a zero here is the
+true statement that no row produces the flow. A waste has no producing side;
+an emission has one, its emitters, but counting them would read every
+exchange of every flow a search finds, before the page is cut, so
+'getActivitiesUsingFlow' counts them for one flow when asked.
 -}
 producerCount :: Database -> FlowKind -> Maybe Int
 producerCount db flow = case flow of
@@ -4197,10 +4199,8 @@ exportMatrixDebugData database processIdText opts = do
     case resolveScorable database processIdText >>= withRef of
         Left err -> return $ Left err
         Right (processId, targetActivity, ref) -> do
-            -- shortcut: the command line loads no engine configuration, so its
-            -- filter reads the registry and a typed CAS but no chemical names;
-            -- pass them in once this command runs with the configuration.
-            let flowFilter = flowQuery (dbSynonymDB database) emptyChemSynonyms <$> debugFlowFilter opts
+            -- The command line reads no configuration: the built-in chemical names.
+            let flowFilter = flowQueryIn shippedChemSynonyms database <$> debugFlowFilter opts
             matrixDataE <- MatrixExport.extractMatrixDebugInfo database processId flowFilter
             case matrixDataE of
                 Left err -> return $ Left $ MatrixError err

@@ -112,7 +112,7 @@ data FlowSearchResult = FlowSearchResult
     , fsrCompartment :: Maybe Text -- Sub-compartment (e.g. "agricultural")
     , fsrUnitName :: Text
     , fsrSynonyms :: M.Map Text [Text] -- Synonyms by language (converted from Set to List for JSON)
-    , fsrProducerCount :: Maybe Int -- How many activities make this flow; Nothing on a flow no activity can produce (biosphere, waste), never 0 as a stand-in for "not asked"
+    , fsrProducerCount :: Maybe Int -- How many activities make this product; Nothing where not counted (an emission, whose emitters the flow's activities list; a waste), never 0 as a stand-in
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped FlowSearchResult)
