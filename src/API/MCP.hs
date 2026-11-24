@@ -40,7 +40,7 @@ import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
-import Database (Geographies, filterByName, flowSearchFields)
+import Database (FlowFields (..), Geographies, filterByName, flowFieldsOf, flowQueryIn)
 import Database.Cutoffs (Cutoffs (..))
 import Database.Edit (MissingRequest (..), databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, refusalMessage, supplyMissing)
 import Database.Journal (statedFrom)
@@ -59,7 +59,7 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, enc
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec, GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec, GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, parseProducerFilter, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when)
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
@@ -67,6 +67,7 @@ import Data.List (find)
 import qualified Data.List as L
 import qualified Data.Set as Set
 import Matrix (applyBiosphereMatrix)
+import Method.ChemSynonyms (ChemSynonyms)
 import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import qualified Method.Explain as Explain
 import Method.Journal (Exact (..))
@@ -81,7 +82,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, getUnitNameForBioFlow, granted, lookupExchangeFlow, matchWord, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, flowKindId, flowKindName, getUnitNameForBioFlow, granted, kindOfFlow, lookupExchangeFlow, lookupFlow, matchWord, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
 import Usage (Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -810,9 +811,10 @@ dispatchTool Caller{callerReader = reader, callerAuthor = by} dbManager presets 
     R.DeriveDatabase -> callDeriveDatabase dbManager mHosting rid args
     R.ListPresets -> callListPresets presets rid
     R.SearchActivities -> withDb dbManager rid args $ callSearchActivities (DM.managerGeographies dbManager) presets rid args
-    R.SearchFlows -> withDb dbManager rid args $ callSearchFlows rid args
-    R.CountSearchMatches -> withDb dbManager rid args $ callCountSearchMatches (DM.managerGeographies dbManager) rid args
-    R.GetActivity -> withDb dbManager rid args $ callGetActivity licence rid args
+    R.SearchFlows -> withDb dbManager rid args $ callSearchFlows (DM.dmChemSynonyms dbManager) rid args
+    R.GetFlowActivities -> withDb dbManager rid args $ callGetFlowActivities rid args
+    R.CountSearchMatches -> withDb dbManager rid args $ callCountSearchMatches (DM.managerGeographies dbManager) (DM.dmChemSynonyms dbManager) rid args
+    R.GetActivity -> withDb dbManager rid args $ callGetActivity licence (DM.dmChemSynonyms dbManager) rid args
     R.GetSupplyChain -> callGetSupplyChain dbManager presets rid args
     R.Aggregate -> withDb dbManager rid args $ callAggregate dbManager presets rid args
     R.GetInventory -> callGetInventory dbManager rid args
@@ -1229,12 +1231,12 @@ callListClassifications rid args (db, _) =
 A missing query is an error rather than three zeros: zeros would read as "this
 database has nothing", which is a different answer from "you asked nothing".
 -}
-callCountSearchMatches :: Geographies -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callCountSearchMatches geographies rid args (db, _) =
+callCountSearchMatches :: Geographies -> ChemSynonyms -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callCountSearchMatches geographies chemicals rid args (db, _) =
     case mfilter (not . null . Normalize.queryWords) (textArg "query" args) of
         Nothing -> return $ toolError rid "query is required: there is nothing to count without one"
         Just query ->
-            let counts = Service.searchCounts geographies db Service.countAsListed query
+            let counts = Service.searchCounts geographies chemicals db Service.countAsListed query
              in return $
                     toolSuccessJson rid $
                         object
@@ -1243,8 +1245,8 @@ callCountSearchMatches geographies rid args (db, _) =
                             , "flows" .= Service.scFlows counts
                             ]
 
-callSearchFlows :: RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callSearchFlows rid args (db, _) =
+callSearchFlows :: ChemSynonyms -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callSearchFlows chemicals rid args (db, _) =
     case readKind of
         Left err -> return $ toolError rid err
         Right kinds -> case textArg "query" args of
@@ -1261,7 +1263,7 @@ callSearchFlows rid args (db, _) =
                             , Service.ffSort = Nothing
                             , Service.ffOrder = Service.Forward
                             }
-                result <- Service.searchFlows db ff
+                result <- Service.searchFlows chemicals db ff
                 case result of
                     Left err -> return $ toolError rid (T.pack $ show err)
                     Right val -> return $ toolSuccessJson rid val
@@ -1279,8 +1281,27 @@ callSearchFlows rid args (db, _) =
     badKind :: Text -> Text
     badKind got = "kind must be one of: " <> exchangeKindChoices <> " (got " <> got <> ")"
 
-callGetActivity :: Licence -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
-callGetActivity licence rid args (db, _) = runTool rid $ do
+{- | The processes on one side of a flow, counted, the first @limit@ listed: an
+emission emitted by hundreds of processes would otherwise answer a page an
+assistant cannot read to the end.
+-}
+callGetFlowActivities :: RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callGetFlowActivities rid args (db, _) = runTool rid $ do
+    flowIdText <- except (requireText "flow_id" args)
+    side <- except $ maybe (Left "role must be one of: producer | consumer | any") Right (parseProducerFilter (textArg "role" args))
+    flow <- except $ maybe (Left ("No flow with id " <> flowIdText <> " in this database")) Right (lookupFlow db =<< UUID.fromText (T.strip flowIdText))
+    let processes = Service.getActivitiesUsingFlow db side (flowKindId flow)
+    pure $
+        toolSuccessJson rid $
+            object
+                [ "flow" .= flowKindName flow
+                , "kind" .= kindOfFlow flow
+                , "total" .= length processes
+                , "processes" .= take (fromMaybe 50 (intArg "limit" args)) processes
+                ]
+
+callGetActivity :: Licence -> ChemSynonyms -> RequestId -> KeyMap Value -> (Database, SharedSolver) -> IO Value
+callGetActivity licence chemicals rid args (db, _) = runTool rid $ do
     dbName <- except (requireText "database" args)
     pid <- except (requireText "process_id" args)
     _ <- except validatedExchangeType
@@ -1336,10 +1357,10 @@ callGetActivity licence rid args (db, _) = runTool rid $ do
     -- flow.
     matchingFlowName = case flowFilter of
         Nothing -> id
-        Just q -> filterByName q searchableFieldsOf
+        Just q -> filterByName (flowQueryIn chemicals db q) searchableFieldsOf
     -- Unresolved flow: the rendered placeholder is all there is to match.
     searchableFieldsOf ewu =
-        maybe [ewuFlowName ewu] flowSearchFields (lookupExchangeFlow db (ewuExchange ewu))
+        maybe (FlowFields [ewuFlowName ewu] Nothing) flowFieldsOf (lookupExchangeFlow db (ewuExchange ewu))
     matchIsInput ewu = case isInputFilter of
         Nothing -> True
         Just want -> exchangeIsInput (ewuExchange ewu) == want
@@ -1541,7 +1562,7 @@ callGetInventory dbManager rid args =
             liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ throwE
             cutoffs <- liftIO (Impact.solutionCutoffs dbManager ReadInventory sol)
             let inv = Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)
-                kept = Service.keepInventoryFlows nameFilter (Just limit) inv
+                kept = Service.keepInventoryFlows (flowQueryIn (DM.dmChemSynonyms dbManager) db <$> nameFilter) (Just limit) inv
                 topN = ieFlows kept
                 slim f =
                     object

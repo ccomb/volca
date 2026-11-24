@@ -30,7 +30,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database (Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, bm25DocsMatchingName, filterByName, findActivitiesByFields, findFlowsBySynonym, flowNameRelevance, flowSearchFields, locationAnswers, locationIs)
+import Database (FlowQuery, Geographies, IdentifierReach (..), activitiesIdentifiedBy, applyStructuredFilters, bm25DocsMatchingName, filterByName, findActivitiesByFields, findFlowsBySynonym, flowFieldsOf, flowQueryIn, flowRelevance, locationAnswers, locationIs)
 import Database.Allocation (asAllocated, describeRefusal, propertyShares)
 import Database.Author (lineSelector)
 import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, cutoffsReached, gapIndexOf)
@@ -38,6 +38,7 @@ import Database.MatrixBuild (findProducer, linkedProducer)
 import Impact (PartScore (..))
 import Matrix (Demand (..), DepDemands, Inventory, Solve, SupplierDemands, accumulateDepDemandsWith, activityNormalizationFactor, applyBiosphereMatrix, buildDemandVector, carriedBy, depDemandsToVector, inSupplierUnit, linkConsumer, perturbABatch, processScaling, rankOneCarry, toList)
 import qualified Matrix.Export as MatrixExport
+import Method.ChemSynonyms (ChemSynonyms, shippedChemSynonyms)
 import Method.Mapping (LongTermMode (..))
 import qualified Method.Mapping as Mapping
 import Method.Types (Subcompartment (..))
@@ -391,8 +392,8 @@ getActivityInfo db queryText = do
 {- | The flows of an inventory whose name answers @query@, read the way
 search_flows reads it, synonyms included, with only its closest match kept.
 -}
-inventoryFlowsNamed :: Text -> [InventoryFlowDetail] -> [InventoryFlowDetail]
-inventoryFlowsNamed query = filterByName query (flowSearchFields . BioKind . ifdFlow)
+inventoryFlowsNamed :: FlowQuery -> [InventoryFlowDetail] -> [InventoryFlowDetail]
+inventoryFlowsNamed query = filterByName query (flowFieldsOf . BioKind . ifdFlow)
 
 {- | The inventory with only the flows whose name answers @query@ and, with
 @limit@, only that many of them, largest in absolute quantity first. The
@@ -400,7 +401,7 @@ totals and statistics still cover the whole inventory; 'imMatchedFlows' counts
 the flows the name kept, so a caller can tell 50 shown of 50 matched from 50
 of 300.
 -}
-keepInventoryFlows :: Maybe Text -> Maybe Int -> InventoryExport -> InventoryExport
+keepInventoryFlows :: Maybe FlowQuery -> Maybe Int -> InventoryExport -> InventoryExport
 keepInventoryFlows query limit inv =
     inv
         { ieMetadata = (ieMetadata inv){imMatchedFlows = length named}
@@ -946,7 +947,7 @@ the remaining displayed fields, so equal-looking rows end up adjacent and
 ordered.
 
 With no column asked for, the flows whose name answers the query best come
-first ('flowNameRelevance'), because matching word by word returns far more
+first ('flowRelevance'), because matching word by word returns far more
 than the exact name and a client often reads only the first page. Asking for
 a column is asking for that column alone, so the ranking steps aside: a
 table sorted by name must stay alphabetical.
@@ -954,21 +955,22 @@ table sorted by name must stay alphabetical.
 Shared by the REST and MCP/CLI search paths, which differ only in how they
 paginate.
 -}
-flowSearchResults :: UnitDB -> (FlowKind -> Maybe Int) -> FlowFilter -> [FlowKind] -> [FlowSearchResult]
-flowSearchResults units producersOfFlow FlowFilter{ffQuery = query, ffKind = kindParam, ffSort = sortParam, ffOrder = orderParam} =
-    L.sortBy (inOrder orderParam (\a b -> compare (sortKey a) (sortKey b))) . map toResult . filter askedFor
+flowSearchResults :: UnitDB -> (FlowKind -> Maybe Int) -> FlowQuery -> FlowFilter -> [FlowKind] -> [FlowSearchResult]
+flowSearchResults units producersOfFlow query FlowFilter{ffKind = kindParam, ffSort = sortParam, ffOrder = orderParam} =
+    map snd . L.sortBy (inOrder orderParam (\a b -> compare (sortKey a) (sortKey b))) . map ranked . filter askedFor
   where
+    ranked flow = (flowRelevance query (flowFieldsOf flow), toResult flow)
     askedFor flow = kindFilterKeeps kindParam (kindOfFlow flow)
     -- Parsers turn an absent sub-compartment into 'Nothing', never @""@, so
     -- the empty string sorts where 'Nothing' would: ahead of every named one.
     sub = fromMaybe "" . fsrCompartment
     -- A column asked for orders on that column alone, so its key carries a
     -- constant rank; only the default arm ranks.
-    sortKey r = case sortParam of
+    sortKey (rank, r) = case sortParam of
         Just "category" -> (0, fsrCategory r, sub r, fsrName r, fsrUnitName r)
         Just "unit" -> (0, fsrUnitName r, fsrName r, fsrCategory r, sub r)
         Just "name" -> (0, fsrName r, fsrCategory r, sub r, fsrUnitName r)
-        _ -> (flowNameRelevance query (fsrName r), fsrName r, fsrCategory r, sub r, fsrUnitName r)
+        _ -> (rank, fsrName r, fsrCategory r, sub r, fsrUnitName r)
     -- Three-arm projections from Types are total over FlowKind.
     toResult flow =
         FlowSearchResult
@@ -985,12 +987,13 @@ flowSearchResults units producersOfFlow FlowFilter{ffQuery = query, ffKind = kin
 {- | Search flows (returns same format as API). The query is required by the
 type; callers with no query return 'emptyFlowSearchResults' directly.
 -}
-searchFlows :: Database -> FlowFilter -> IO (Either ServiceError Value)
-searchFlows db ff@FlowFilter{ffQuery = query, ffLimit = limitParam, ffOffset = offsetParam} = do
+searchFlows :: ChemSynonyms -> Database -> FlowFilter -> IO (Either ServiceError Value)
+searchFlows chemicals db ff@FlowFilter{ffQuery = query, ffLimit = limitParam, ffOffset = offsetParam} = do
     startTime <- getCurrentTime
     let limit = maybe 50 (min 1000) limitParam
         offset = maybe 0 (max 0) offsetParam
-        allResults = flowSearchResults (dbUnits db) (producerCount db) ff (findFlowsBySynonym db query)
+        flowQ = flowQueryIn chemicals db query
+        allResults = flowSearchResults (dbUnits db) (producerCount db) flowQ ff (findFlowsBySynonym db flowQ)
         total = length allResults
         taken = take (limit + 1) (drop offset allResults)
         hasMore = length taken > limit
@@ -1282,8 +1285,8 @@ countAsListed :: CountAs
 countAsListed = CountAs{caSort = Nothing, caExact = False}
 
 -- | The counts one query finds. The query is required: an empty box has nothing to count.
-searchCounts :: Geographies -> Database -> CountAs -> Text -> SearchCounts
-searchCounts geographies db listedAs query =
+searchCounts :: Geographies -> ChemSynonyms -> Database -> CountAs -> Text -> SearchCounts
+searchCounts geographies chemicals db listedAs query =
     SearchCounts
         { scProcesses = length (activityMatches geographies db (nameOnly query))
         , scProducts = count KindTechnosphere
@@ -1291,7 +1294,7 @@ searchCounts geographies db listedAs query =
         }
   where
     matchedFlows :: [FlowKind]
-    matchedFlows = findFlowsBySynonym db query
+    matchedFlows = findFlowsBySynonym db (flowQueryIn chemicals db query)
 
     count :: ExchangeKind -> Int
     count kind = length (filter ((== kind) . kindOfFlow) matchedFlows)
@@ -1959,10 +1962,16 @@ route's default is unchanged. It is wider than the two sides put together: an
 avoided product is an exchange on the flow that neither makes it for sale nor
 consumes it, so it appears under 'EitherSide' alone. Adding the two sides is
 therefore not the same as asking for both.
+
+An emission has no reference product to make it: its making side is the
+processes that release it, as its using side is those that take it in, which
+for a resource is an extraction.
 -}
 getActivitiesUsingFlow :: Database -> ProducerFilter -> UUID -> [ActivitySummary]
 getActivitiesUsingFlow db side flowUUID = case side of
-    ProducersOnly -> [mkActivitySummary db pid act | (pid, act) <- producingRows db flowUUID]
+    ProducersOnly
+        | M.member flowUUID (dbBioFlows db) -> touching (any releases . exchanges)
+        | otherwise -> [mkActivitySummary db pid act | (pid, act) <- producingRows db flowUUID]
     ConsumersOnly -> touching (any consumes . exchanges)
     EitherSide -> touching (const True)
   where
@@ -1971,6 +1980,9 @@ getActivitiesUsingFlow db side flowUUID = case side of
 
     consumes :: Exchange -> Bool
     consumes ex = exchangeFlowId ex == flowUUID && exchangeIsInput ex
+
+    releases :: Exchange -> Bool
+    releases ex = exchangeFlowId ex == flowUUID && not (exchangeIsInput ex)
 
 {- | The rows that make a flow, as the matrix sees them.
 
@@ -1995,9 +2007,11 @@ producingRows db flowUUID =
 
 {- | How many activities make this flow.
 
-'Nothing' where the question does not apply, never 0 as a stand-in: a zero
-here is the true statement that no row produces the flow, and 'Nothing' the
-different one that this kind of flow has no producing side at all.
+'Nothing' where it is not counted, never 0 as a stand-in: a zero here is the
+true statement that no row produces the flow. A waste has no producing side;
+an emission has one, its emitters, but counting them would read every
+exchange of every flow a search finds, before the page is cut, so
+'getActivitiesUsingFlow' counts them for one flow when asked.
 -}
 producerCount :: Database -> FlowKind -> Maybe Int
 producerCount db flow = case flow of
@@ -4185,7 +4199,9 @@ exportMatrixDebugData database processIdText opts = do
     case resolveScorable database processIdText >>= withRef of
         Left err -> return $ Left err
         Right (processId, targetActivity, ref) -> do
-            matrixDataE <- MatrixExport.extractMatrixDebugInfo database processId (debugFlowFilter opts)
+            -- The command line reads no configuration: the built-in chemical names.
+            let flowFilter = flowQueryIn shippedChemSynonyms database <$> debugFlowFilter opts
+            matrixDataE <- MatrixExport.extractMatrixDebugInfo database processId flowFilter
             case matrixDataE of
                 Left err -> return $ Left $ MatrixError err
                 Right matrixData -> do

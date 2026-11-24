@@ -699,12 +699,6 @@ flowXML fk unitRef =
            , "</flowDataSet>"
            ]
 
--- | CAS accessor across flow kinds (parser reads it for biosphere flows).
-flowKindCAS :: FlowKind -> Maybe Text
-flowKindCAS (TechKind f) = tfCAS f
-flowKindCAS (BioKind f) = bfCAS f
-flowKindCAS (WasteKind f) = wfCAS f
-
 -- | @typeOfDataSet@ string mirroring 'ILCD.Parser.classifyFlowType'.
 flowTypeText :: FlowKind -> Text
 flowTypeText (TechKind _) = "Product flow"

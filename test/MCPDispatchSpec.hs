@@ -348,6 +348,14 @@ spec = describe "MCP database load/unload tools" $ do
             resp <- call "get_flow_factors"
             resultText resp `shouldSatisfy` maybe False (not . T.isPrefixOf "Unknown tool:")
 
+    describe "flow-activities tool" $ do
+        it "is advertised with the database and the flow (role and limit are optional)" $
+            fmap requiredOf (toolByName "get_flow_activities") `shouldBe` Just ["database", "flow_id"]
+
+        it "is routed by callTool (no 'Unknown tool' gap)" $ do
+            resp <- call "get_flow_activities"
+            resultText resp `shouldSatisfy` maybe False (not . T.isPrefixOf "Unknown tool:")
+
     describe "characterization-coverage tool" $ do
         it "is advertised with a required 'database' parameter (collection is optional)" $
             fmap requiredOf (toolByName "get_characterization_coverage") `shouldBe` Just ["database"]

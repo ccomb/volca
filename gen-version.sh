@@ -57,6 +57,9 @@ methodCatalogToml = "$(b64 data/method-catalog.toml)"
 
 groupSetsJson :: String
 groupSetsJson = "$(b64 data/group-sets.json)"
+
+chemSynonymsCsv :: String
+chemSynonymsCsv = "$(b64 data/chem_synonyms.csv)"
 EOF
 
 echo "Generated src/Builtin/Literals.hs (data version $DATA_VERSION)"

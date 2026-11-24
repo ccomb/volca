@@ -240,7 +240,7 @@ import Database.Cutoffs (GapIndex, gapIndexMoved, gapIndexOf)
 import qualified Database.Loader as Loader
 import Database.MatrixBuild (technosphereChange)
 import qualified Database.Quality as Quality
-import Method.ChemSynonyms (ChemSynonyms, emptyChemSynonyms, loadChemSynonyms)
+import Method.ChemSynonyms (ChemSynonyms, emptyChemSynonyms, loadChemSynonyms, shippedChemSynonyms)
 import qualified Method.Coverage as Coverage
 import qualified Method.Explain as Explain
 import Method.Mapping (
@@ -1675,14 +1675,28 @@ loadGeographies (Just path) =
                 "Could not load geographies from " <> T.unpack err <> " (running with no hierarchy)"
             pure M.empty
 
+{- | The configured snapshot, or the names and formulas the binary carries
+when none is configured: a flow search reads them, so @N2O@ finds a flow named
+@Dinitrogen monoxide@ on an engine started with no configuration. A path that
+names no file says so and falls back on the same list, rather than leaving a
+search that finds less than an engine with no configuration at all.
+-}
 loadChemSynonymsOrEmpty :: Maybe FilePath -> IO ChemSynonyms
-loadChemSynonymsOrEmpty Nothing = pure emptyChemSynonyms
-loadChemSynonymsOrEmpty (Just path) =
-    loadChemSynonyms path >>= \case
-        Right cs -> pure cs
-        Left err -> do
-            putStrLn $ "warning: could not load chem synonyms from " <> path <> ": " <> err
-            pure emptyChemSynonyms
+loadChemSynonymsOrEmpty Nothing = pure shippedChemSynonyms
+loadChemSynonymsOrEmpty (Just path) = do
+    exists <- doesFileExist path
+    if not exists
+        then do
+            putStrLn $ "warning: no chem synonyms file at " <> path <> ", using the built-in list"
+            pure shippedChemSynonyms
+        else loadConfigured
+  where
+    loadConfigured =
+        loadChemSynonyms path >>= \case
+            Right cs -> pure cs
+            Left err -> do
+                putStrLn $ "warning: could not load chem synonyms from " <> path <> ": " <> err
+                pure emptyChemSynonyms
 
 loadSubstanceEdges :: Maybe FilePath -> IO [SubstanceEdge]
 loadSubstanceEdges Nothing = pure []

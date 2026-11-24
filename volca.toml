@@ -16,7 +16,7 @@
 # hierarchy, and this key replaces it with a file. The other two widen how
 # flows are recognised across databases and methods; both optional.
 # geographies = "data/geographies.csv"
-# chem-synonyms = "data/chem_synonyms.csv"      # PubChem snapshot, shipped here
+# chem-synonyms = "data/chem_synonyms.csv"      # formulas and names → CAS; replaces the built-in list
 # Typed correspondences between substances. No file ships for this one: the
 # format is your own to write, eight columns, see src/SubstanceRegistry.hs.
 # substance-edges = "data/substance_edges.csv"
