@@ -4203,9 +4203,11 @@ class Client:
         Args:
             flow_id: The flow to ask about.
             db_name: Database to ask; the current one by default.
-            role: ``"producer"`` for the activities that make the flow,
-                ``"consumer"`` for those that use it, ``"any"`` or omitted for
-                both. Needs engine wire revision 16; an older engine would
+            role: ``"producer"`` for the activities that make the flow (for
+                an emission, those that emit it), ``"consumer"`` for those
+                that use it (for a resource, those that take it), ``"any"`` or
+                omitted for both. An engine older than wire revision 121
+                answers no producer for an emission. Needs engine wire revision 16; an older engine would
                 ignore the parameter and answer with both sides, so the
                 request is refused rather than sent.
 

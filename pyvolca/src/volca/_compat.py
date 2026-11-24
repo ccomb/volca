@@ -39,8 +39,11 @@ to it. The per-capability gates of ``Client._require_wire`` that name a lower
 revision only matter to a client that opted out of that check with
 ``VOLCA_SKIP_COMPAT_CHECK``; they stay for that case."""
 
-KNOWN_WIRE = 120
-"""The newest wire revision this pyvolca understands (revision 120 added the
+KNOWN_WIRE = 121
+"""The newest wire revision this pyvolca understands (revision 121 let a flow
+search find by formula, registry synonym and CAS, which ``search_flows`` reads
+unchanged, and answered the processes that emit an emission as its producers,
+which ``get_flow_activities(role="producer")`` reads; revision 120 added the
 groups made ready for a classification system and the groups a process could
 start, which ``group_sets`` and ``group_candidates`` read; revision 119 split a
 score between groups of processes, which ``group_contributions`` and

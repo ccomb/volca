@@ -30,6 +30,7 @@ module Method.ChemSynonyms (
     loadChemSynonyms,
     parseChemSynonymsCSV,
     expandedTokens,
+    casOfName,
 ) where
 
 import qualified Data.ByteString as BS
@@ -115,6 +116,10 @@ expandedTokens cs name =
             Nothing -> S.empty
             Just cas -> M.findWithDefault S.empty cas (csCASToTokens cs)
      in S.union ownTokens synonymTokens
+
+-- | The CAS a whole name or formula stands for, as written in the snapshot: @N2O@ gives 10024-97-2.
+casOfName :: ChemSynonyms -> Text -> Maybe Text
+casOfName cs name = M.lookup (T.toLower (T.strip name)) (csNameToCAS cs)
 
 -- | Tiny CSV splitter: respects double-quoted fields containing the delimiter.
 splitCSV :: Char -> Text -> [Text]

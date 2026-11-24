@@ -15,8 +15,10 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.UUID as UUID
-import Database (allFlows, filterByName, flowMatchesQuery, flowSearchFields)
+import Database (FlowFields (..), allFlows, filterByName, flowFieldsOf, flowMatches, flowMatchesQuery, flowQuery, plainFlowQuery)
+import Method.ChemSynonyms (ChemSynonyms, emptyChemSynonyms, parseChemSynonymsCSV)
 import Service (FlowFilter (..), SortOrder (..), flowSearchResults, sortOrderOf)
+import SynonymDB (buildFromPairs)
 import Test.Hspec
 import Types (
     BiosphereFlow (..),
@@ -36,6 +38,7 @@ spec :: Spec
 spec = do
     kindFilterSpec
     matchSpec
+    recognitionSpec
     filterSpec
     orderSpec
 
@@ -51,7 +54,7 @@ filterSpec = describe "Database.filterByName" $ do
                 , "Carbon dioxide, non-fossil, resource correction"
                 , "Methane, fossil"
                 ]
-        kept query flows = map flowKindName (filterByName query flowSearchFields flows)
+        kept query flows = map flowKindName (filterByName (plainFlowQuery query) flowFieldsOf flows)
 
     it "keeps exactly the flow whose name carries the query as written" $
         -- The query splits into words like any other, but the name written
@@ -81,6 +84,56 @@ filterSpec = describe "Database.filterByName" $ do
         -- nothing: emptying the answer would read as an empty inventory.
         map (`kept` carbonFlows) ["", " ", ", "]
             `shouldBe` replicate 3 (map flowKindName carbonFlows)
+
+{- | A database names nitrous oxide @Dinitrogen monoxide@, with no synonym of
+its own and its CAS padded with a zero: the words of @N2O@, of @nitrous oxide@
+or of its CAS are nowhere in it.
+-}
+recognitionSpec :: Spec
+recognitionSpec = describe "Database.flowMatches" $ do
+    let registry = buildFromPairs [("Dinitrogen monoxide", "nitrous oxide"), ("Methane, fossil", "Methane, from fossil")]
+        found chemicals query = flowMatches (flowQuery (Just registry) chemicals query) . flowFieldsOf
+        n2o = BioKind (biosphere 9 "Dinitrogen monoxide" []){bfCAS = Just "010024-97-2"}
+        withCas cas name = BioKind (biosphere 8 name []){bfCAS = Just cas}
+
+    it "finds by formula, by a registry name, and by CAS however padded" $
+        map (\query -> found chemicals query n2o) ["N2O", "n2o", "nitrous oxide", "10024-97-2", "010024-97-2"]
+            `shouldBe` replicate 5 True
+
+    it "finds by a registry name a flow that states no CAS" $
+        found emptyChemSynonyms "nitrous oxide" (namedFlow "Dinitrogen monoxide" []) `shouldBe` True
+
+    it "reads only the whole query against formulas and the registry" $
+        map (\query -> found chemicals query n2o) ["N2O emission", "nitrous oxide, air"] `shouldBe` [False, False]
+
+    it "keeps a registry class whole: one methane does not bring another" $
+        -- Read word by word, "Methane, fossil" would reach every name holding
+        -- "methane"; read as a class it reaches only its own names.
+        found emptyChemSynonyms "Methane, fossil" (namedFlow "Methane, biogenic" []) `shouldBe` False
+
+    it "finds by a formula every flow of that molecule, whatever its origin" $
+        map (found chemicals "CO2") [withCas "124-38-9" "Carbon dioxide, fossil", withCas "124-38-9" "Carbon dioxide, biogenic"]
+            `shouldBe` [True, True]
+
+    it "lets no placeholder CAS meet another" $
+        found emptyChemSynonyms "0000-00-0" (withCas "000000-00-0" "Unknown substance") `shouldBe` False
+
+    it "reads an unresolved exchange by its name alone" $
+        flowMatches (flowQuery (Just registry) chemicals "nitrous oxide") (FlowFields ["Dinitrogen monoxide"] Nothing) `shouldBe` True
+
+    it "keeps the flows that are the substance over names that only hold its formula" $
+        map flowKindName (filterByName (flowQuery (Just registry) chemicals "N2O") flowFieldsOf [namedFlow "Disposal, LiMn2O4 battery" [], n2o])
+            `shouldBe` ["Dinitrogen monoxide"]
+
+    it "lists the flows that are the substance first, then the names holding the query" $
+        map fsrName (flowSearchResults M.empty (const Nothing) (flowQuery (Just registry) chemicals "N2O") sortByName{ffQuery = "N2O"} [namedFlow "Disposal, LiMn2O4 battery" [], n2o])
+            `shouldBe` ["Dinitrogen monoxide", "Disposal, LiMn2O4 battery"]
+
+-- | Two substances of the shipped list, as its file writes them.
+chemicals :: ChemSynonyms
+chemicals =
+    either (error . ("chemical names: " <>)) id $
+        parseChemSynonymsCSV "cas;canonical_name;synonyms...\n10024-97-2;Nitrous oxide;N2O\n124-38-9;Carbon dioxide;CO2\n"
 
 matchSpec :: Spec
 matchSpec = describe "Database.flowMatchesQuery" $ do
@@ -228,7 +281,7 @@ compartmentOf r = (fsrCategory r, fsrCompartment r)
 
 -- | No unit database: every flow reports the same unit, so unit never breaks a tie.
 search :: FlowFilter -> [FlowKind] -> [FlowSearchResult]
-search = flowSearchResults M.empty (const Nothing)
+search ff = flowSearchResults M.empty (const Nothing) (plainFlowQuery (ffQuery ff)) ff
 
 sortByName :: FlowFilter
 sortByName =

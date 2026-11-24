@@ -66,6 +66,9 @@ spec = describe "Builtin" $ do
     it "carries the geographies byte for byte" $
         BL.readFile "data/geographies.csv" >>= (builtinGeographies `shouldBe`)
 
+    it "carries the chemical names byte for byte" $
+        BL.readFile "data/chem_synonyms.csv" >>= (builtinChemSynonyms `shouldBe`)
+
     it "reports the version data/VERSION states" $ do
         v <- TIO.readFile "data/VERSION"
         builtinDataVersion `shouldBe` DataVersion (T.strip v)

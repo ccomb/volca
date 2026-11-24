@@ -16,6 +16,7 @@ module Types (
 ) where
 
 import API.JsonOptions (Stripped (..))
+import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Control.Monad (mfilter, (<=<), (>=>))
 import Crypto.Hash (SHA256 (..), hashWith)
@@ -1584,6 +1585,12 @@ flowKindUnitName udb (TechKind f) = getUnitNameForTechFlow udb f
 flowKindUnitName udb (BioKind f) = getUnitNameForBioFlow udb f
 flowKindUnitName udb (WasteKind f) = getUnitNameForWasteFlow udb f
 
+-- | The CAS a flow states, whatever its kind: ILCD products and wastes carry one too.
+flowKindCAS :: FlowKind -> Maybe Text
+flowKindCAS (TechKind f) = tfCAS f
+flowKindCAS (BioKind f) = bfCAS f
+flowKindCAS (WasteKind f) = wfCAS f
+
 -- | Biosphere compartment, if any. Tech/waste flows carry no compartment.
 flowKindCompartment :: FlowKind -> Maybe Compartment
 flowKindCompartment (TechKind _) = Nothing
@@ -2106,6 +2113,13 @@ lookupExchangeFlow db BiosphereExchange{bioFlowId = fid} =
     BioKind <$> M.lookup fid (dbBioFlows db)
 lookupExchangeFlow db WasteExchange{waFlowId = fid} =
     WasteKind <$> M.lookup fid (dbWasteFlows db)
+
+-- | The flow a UUID names, on whichever side the database holds it.
+lookupFlow :: Database -> UUID -> Maybe FlowKind
+lookupFlow db fid =
+    (TechKind <$> M.lookup fid (dbTechFlows db))
+        <|> (BioKind <$> M.lookup fid (dbBioFlows db))
+        <|> (WasteKind <$> M.lookup fid (dbWasteFlows db))
 
 {- | Search products by name (for future product search feature)
 Returns all ProcessIds that produce products matching the given name

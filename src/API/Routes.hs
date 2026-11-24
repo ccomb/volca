@@ -469,12 +469,7 @@ so callers can dispatch on tech vs bio.
 withValidatedFlow :: Database -> Text -> (FlowKind -> AppM a) -> AppM a
 withValidatedFlow db uuid action = do
     validUuid <- either throwServiceError pure (Service.validateUUID uuid)
-    let lookups =
-            [ TechKind <$> M.lookup validUuid (dbTechFlows db)
-            , BioKind <$> M.lookup validUuid (dbBioFlows db)
-            , WasteKind <$> M.lookup validUuid (dbWasteFlows db)
-            ]
-    case asum lookups of
+    case lookupFlow db validUuid of
         Just flow -> action flow
         Nothing -> throwError err404{errBody = "Flow not found"}
 
@@ -1674,7 +1669,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 120: the groups made ready for the classification systems a
+(revision 121: a flow search that also finds by a chemical formula, by a
+name the synonym registry gives the same substance, and by CAS; the processes
+that emit an emission as its @producer@ side; the @get_flow_activities@ tool;
+revision 120: the groups made ready for the classification systems a
 database carries, by the @group-sets@ route, and the groups a process could
 start, by a POST to the @group-candidates@ route;
 revision 119: a score split between groups of processes, by a POST to the
@@ -1949,7 +1947,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 120
+currentWireVersion = 121
 
 getVersion :: AppM Value
 getVersion = do
@@ -2161,7 +2159,7 @@ getActivityTree dbName processId = counted Reading dbName (ProcessKey processId)
 back-substitution path so dep-DB inventories merge into the response.
 @keep@ picks the flows the reader asked for.
 -}
-activityInventoryCore :: Text -> Text -> (InventoryExport -> InventoryExport) -> Maybe SubstitutionRequest -> AppM InventoryExport
+activityInventoryCore :: Text -> Text -> (Database -> InventoryExport -> InventoryExport) -> Maybe SubstitutionRequest -> AppM InventoryExport
 activityInventoryCore dbName processIdText keep mSub = do
     DBHandlers.refuseUnlessGranted ReadInventory dbName
     dbManager <- asks aeDbManager
@@ -2171,13 +2169,17 @@ activityInventoryCore dbName processIdText keep mSub = do
         liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ (\msg -> throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 msg)})
         (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
         cutoffs <- liftIO (Impact.solutionCutoffs dbManager ReadInventory sol)
-        pure (keep (Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)))
+        pure (keep db (Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)))
 
--- | The flows of an inventory a request's @flow@ and @limit@ keep, or a refusal of a negative limit.
-inventoryKept :: Maybe Text -> Maybe Int -> AppM (InventoryExport -> InventoryExport)
+{- | The flows of an inventory a request's @flow@ and @limit@ keep, the flow read
+against the database asked, or a refusal of a negative limit.
+-}
+inventoryKept :: Maybe Text -> Maybe Int -> AppM (Database -> InventoryExport -> InventoryExport)
 inventoryKept mFlow mLimit
     | maybe False (< 0) mLimit = badRequest "limit must be zero or more"
-    | otherwise = pure (Service.keepInventoryFlows mFlow mLimit)
+    | otherwise = do
+        chemicals <- asks (DM.dmChemSynonyms . aeDbManager)
+        pure (\db -> Service.keepInventoryFlows (flowQueryIn chemicals db <$> mFlow) mLimit)
 
 getActivityInventory :: Text -> Text -> Maybe Text -> Maybe Int -> AppM InventoryExport
 getActivityInventory dbName processIdText mFlow mLimit = counted Inventorying dbName (ProcessKey processIdText) $ do
@@ -4135,11 +4137,12 @@ The 'ffQuery' is always present (callers short-circuit on the no-query
 case); language filtering is not yet implemented.
 -}
 searchFlowsInternal :: Database -> Service.FlowFilter -> AppM (SearchResults FlowSearchResult)
-searchFlowsInternal db ff@Service.FlowFilter{Service.ffQuery = query, Service.ffLimit = limitParam, Service.ffOffset = offsetParam} =
+searchFlowsInternal db ff@Service.FlowFilter{Service.ffQuery = query, Service.ffLimit = limitParam, Service.ffOffset = offsetParam} = do
+    flowQ <- asks (\env -> flowQueryIn (DM.dmChemSynonyms (aeDbManager env)) db query)
     -- Language filtering not yet implemented, search all synonyms
     liftIO $
         paginateResults
-            (Service.flowSearchResults (dbUnits db) (Service.producerCount db) ff (findFlowsBySynonym db query))
+            (Service.flowSearchResults (dbUnits db) (Service.producerCount db) flowQ ff (findFlowsBySynonym db flowQ))
             limitParam
             offsetParam
 
@@ -4158,7 +4161,7 @@ countSearchMatches dbName mQuery sortParam exactParam = do
     (db, _) <- requireDatabaseByName dbName
     query <- maybe (badRequest "q is required: there is nothing to count without a query") pure (nonBlank mQuery)
     let listedAs = Service.CountAs{Service.caSort = sortParam, Service.caExact = fromMaybe False exactParam}
-        counts = Service.searchCounts (DM.managerGeographies dbManager) db listedAs query
+        counts = Service.searchCounts (DM.managerGeographies dbManager) (DM.dmChemSynonyms dbManager) db listedAs query
     pure
         SearchCountsAPI
             { scaProcesses = Service.scProcesses counts

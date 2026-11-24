@@ -76,6 +76,7 @@ data Resource
     | ListPresets
     | SearchActivities
     | SearchFlows
+    | GetFlowActivities
     | GetActivity
     | Aggregate
     | GetSupplyChain
@@ -188,6 +189,7 @@ resourceMutates r = case r of
     ListPresets -> False
     SearchActivities -> False
     SearchFlows -> False
+    GetFlowActivities -> False
     GetActivity -> False
     Aggregate -> False
     GetSupplyChain -> False
@@ -302,6 +304,7 @@ resourceNeeds r = case r of
     ListPresets -> Nothing
     SearchActivities -> Nothing
     SearchFlows -> Nothing
+    GetFlowActivities -> Nothing
     CountSearchMatches -> Nothing
     ListClassifications -> Nothing
     ListGroupSets -> Nothing
@@ -376,6 +379,7 @@ resourceUsage r = case r of
     ListPresets -> Nothing
     SearchActivities -> Nothing
     SearchFlows -> Nothing
+    GetFlowActivities -> Nothing
     CountSearchMatches -> Nothing
     ListClassifications -> Nothing
     ListGroupSets -> Nothing
@@ -437,6 +441,7 @@ apiPath r = case r of
     ListPresets -> Just (GET, ["classification-presets"])
     SearchActivities -> Just (GET, ["db", "{dbName}", "activities"])
     SearchFlows -> Just (GET, ["db", "{dbName}", "flows"])
+    GetFlowActivities -> Just (GET, ["db", "{dbName}", "flow", "{flowId}", "activities"])
     GetActivity -> Just (GET, ["db", "{dbName}", "activity", "{processId}"])
     Aggregate -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "aggregate"])
     GetSupplyChain -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "supply-chain"])
@@ -517,6 +522,7 @@ mcpName r = case r of
     ListPresets -> "list_presets"
     SearchActivities -> "search_activities"
     SearchFlows -> "search_flows"
+    GetFlowActivities -> "get_flow_activities"
     GetActivity -> "get_activity"
     Aggregate -> "aggregate"
     GetSupplyChain -> "get_supply_chain"
@@ -653,7 +659,19 @@ description r = case r of
         \substances only, what factor and inventory questions \
         \want. For kind=biosphere, 'category' is the medium \
         \(air, water, soil, resource): resource taken vs \
-        \emission released; other kinds have none."
+        \emission released; other kinds have none. \
+        \A whole query also finds by formula (N2O), by a name the \
+        \synonym registry gives the same substance (nitrous oxide), or by CAS \
+        \(10024-97-2); a query of several words finds by its words only. \
+        \Next: get_flow_activities lists the processes on one side of a flow."
+    GetFlowActivities ->
+        "LCA / ACV: the processes on one side of one flow, by its flow_id from \
+        \search_flows. role=producer: for an emission, the processes that emit \
+        \it; for a product, those that supply it. role=consumer: for a \
+        \resource, the processes that take it; for a product or a waste, those \
+        \that use it. role=any (default): every process with an exchange on \
+        \the flow. 'total' counts them all, 'processes' lists the first \
+        \'limit' of them."
     GetActivity ->
         "LCA / ACV: one process in detail: \
         \name, location, exchanges, reference \
@@ -1432,9 +1450,15 @@ params r = case r of
         ]
     SearchFlows ->
         [ pDatabase
-        , Param "query" "string" Required "Flow name to search for"
+        , Param "query" "string" Required "Flow name, formula or CAS to search for"
         , Param "kind" "string" Optional "Keep only these kinds of flow: technosphere | biosphere | waste. Name several separated by commas, as in \"biosphere,waste\". Omit for all three."
         , pLimit "Max results (default 20)"
+        ]
+    GetFlowActivities ->
+        [ pDatabase
+        , Param "flow_id" "string" Required "Database flow UUID, as returned by search_flows"
+        , Param "role" "string" Optional "producer | consumer | any (default)"
+        , pLimit "Max processes listed (default 50)"
         ]
     GetActivity ->
         [ pDatabase

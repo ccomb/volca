@@ -228,7 +228,7 @@ import System.FilePath (addTrailingPathSeparator, splitDirectories, takeDirector
 import System.Mem (performGC)
 import System.Mem.StableName (StableName, makeStableName)
 
-import Builtin (BuiltinMethod, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName, builtinMethods)
+import Builtin (BuiltinMethod, builtinChemSynonyms, builtinContent, builtinGeographies, builtinMethodContent, builtinMethodName, builtinMethods)
 import Config
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -240,7 +240,7 @@ import Database.Cutoffs (GapIndex, gapIndexMoved, gapIndexOf)
 import qualified Database.Loader as Loader
 import Database.MatrixBuild (technosphereChange)
 import qualified Database.Quality as Quality
-import Method.ChemSynonyms (ChemSynonyms, emptyChemSynonyms, loadChemSynonyms)
+import Method.ChemSynonyms (ChemSynonyms, emptyChemSynonyms, loadChemSynonyms, parseChemSynonymsCSV)
 import qualified Method.Coverage as Coverage
 import qualified Method.Explain as Explain
 import Method.Mapping (
@@ -1675,8 +1675,16 @@ loadGeographies (Just path) =
                 "Could not load geographies from " <> T.unpack err <> " (running with no hierarchy)"
             pure M.empty
 
+{- | The configured snapshot, or the names and formulas the binary carries
+when none is configured: a flow search reads them, so @N2O@ finds a flow named
+@Dinitrogen monoxide@ on an engine started with no configuration.
+-}
 loadChemSynonymsOrEmpty :: Maybe FilePath -> IO ChemSynonyms
-loadChemSynonymsOrEmpty Nothing = pure emptyChemSynonyms
+loadChemSynonymsOrEmpty Nothing = case parseChemSynonymsCSV (BL.toStrict builtinChemSynonyms) of
+    Right cs -> pure cs
+    Left err -> do
+        putStrLn $ "warning: could not read the built-in chem synonyms: " <> err
+        pure emptyChemSynonyms
 loadChemSynonymsOrEmpty (Just path) =
     loadChemSynonyms path >>= \case
         Right cs -> pure cs

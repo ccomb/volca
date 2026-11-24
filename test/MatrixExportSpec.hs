@@ -9,7 +9,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.UUID as UUID
 import qualified Data.Vector.Unboxed as U
-import Database (buildDatabaseWithMatrices)
+import Database (buildDatabaseWithMatrices, plainFlowQuery)
 import Matrix.Export (
     MatrixDebugInfo (..),
     escapeCsvField,
@@ -200,7 +200,7 @@ spec = do
         it "flow filter restricts biosphere triples" $ do
             db <- loadSampleDatabase "SAMPLE.min3"
             infoAll <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) Nothing
-            infoFiltered <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) (Just "carbon")
+            infoFiltered <- either (fail . show) pure =<< extractMatrixDebugInfo db (targetRow db) (Just (plainFlowQuery "carbon"))
             -- Filtered should have ≤ triples than unfiltered
             let nAll = length (mdInventoryVector infoAll)
                 nFiltered = length (mdInventoryVector infoFiltered)

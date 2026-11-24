@@ -342,7 +342,7 @@ Dimethoate,"O,O-dimethyl S-methylcarbamoylmethyl phosphorodithioate"
 Dimethyl malonate,"malonic acid dimethyl ester, propanedioic acid dimethyl ester"
 Dimethyl p-phthalat,"Phthalate, dimethyl-"
 Dinate,DSMA
-Dinitrogen monoxide,Stickstoffdioxid
+Dinitrogen monoxide,Distickstoffmonoxid,,,"German name of nitrous oxide; Stickstoffdioxid, the name this row used to give, is nitrogen dioxide"
 Dinitrogen monoxide,nitrous oxide
 "Dioxin, 2,3,7,8 Tetrachlorodibenzo-p-","Dioxins, measured as 2,3,7,8-tetrachlorodibenzo-p-dioxin"
 Dipropylthiocarbamic acid S-ethyl ester,EPTC
@@ -558,6 +558,7 @@ Nitric oxide,Nitrogen monoxide
 Nitric oxide,"Nitrogen monoxide, NA"
 Nitrogen,"Nitrogen, atmospheric"
 Nitrogen dioxide,Nitrogen(IV) oxide
+Nitrogen dioxide,Stickstoffdioxid,,,German name of nitrogen dioxide
 Nitrogen fluoride,nitrogen trifluoride
 Nitrogen fluoride,trifluoramine
 Norflurazon,"Pyridazinone, 4-chloro-5-(methylamino)-2-(alpha,alpha,alpha-trifluoro-m-tolyl)-"

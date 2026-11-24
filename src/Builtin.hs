@@ -12,6 +12,7 @@ module Builtin (
     builtinName,
     builtinContent,
     builtinGeographies,
+    builtinChemSynonyms,
     BuiltinMethod (..),
     builtinMethods,
     builtinMethodName,
@@ -58,6 +59,10 @@ builtinContent = decode . literal
 
 builtinGeographies :: BL.ByteString
 builtinGeographies = decode L.geographiesCsv
+
+-- | The chemical names and formulas, each with its CAS, read when no @chem-synonyms@ file is configured.
+builtinChemSynonyms :: BL.ByteString
+builtinChemSynonyms = decode L.chemSynonymsCsv
 
 -- | The method collections the binary carries, each a columnar method CSV.
 data BuiltinMethod = BuiltinPlainIndicators

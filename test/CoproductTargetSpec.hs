@@ -114,6 +114,18 @@ spec = do
             map prsProcessId (Service.getActivitiesUsingFlow db ProducersOnly milkId)
                 `shouldBe` [pidText milkId]
 
+        it "lists the processes that emit an emission as its producers, none as consumers" $ do
+            -- An emission has no reference product, so the product index
+            -- answered no producer for it at all.
+            db <- elementaryFixture
+            map prsProcessId (Service.getActivitiesUsingFlow db ProducersOnly n2oId) `shouldBe` [consumerPid]
+            map prsProcessId (Service.getActivitiesUsingFlow db ConsumersOnly n2oId) `shouldBe` []
+
+        it "lists the processes that take a resource as its consumers, none as producers" $ do
+            db <- elementaryFixture
+            map prsProcessId (Service.getActivitiesUsingFlow db ConsumersOnly waterId) `shouldBe` [consumerPid]
+            map prsProcessId (Service.getActivitiesUsingFlow db ProducersOnly waterId) `shouldBe` []
+
         it "counts no producer for a biosphere flow, rather than none at all" $ do
             -- A zero would say "nothing makes it"; Nothing says the question
             -- does not apply to this side of the inventory.
@@ -230,15 +242,54 @@ untreatedWasteFixture =
         supplierRows
         supplierFlows
 
+{- | The consumer emits nitrous oxide and takes water from nature, each as a
+plain line, the kind an activity keeps packed apart from its other exchanges.
+-}
+elementaryFixture :: IO Database
+elementaryFixture =
+    buildFixtureWith
+        (M.fromList [(n2oId, elementaryFlow n2oId "Dinitrogen monoxide"), (waterId, elementaryFlow waterId "Water, river")])
+        (consumerActivity [milkInput, elementaryLine Resource waterId] [elementaryLine Emission n2oId])
+        supplierRows
+        supplierFlows
+
+elementaryLine :: BioDirection -> UUID -> Exchange
+elementaryLine direction flowId =
+    BiosphereExchange
+        { bioFlowId = flowId
+        , bioAmount = 0.1
+        , bioUnitId = kgUnitId
+        , bioDirection = direction
+        , bioLocation = ""
+        , bioComment = Nothing
+        , bioPedigree = Nothing
+        , bioFormula = Nothing
+        }
+
+elementaryFlow :: UUID -> Text -> BiosphereFlow
+elementaryFlow flowId name =
+    BiosphereFlow
+        { bfId = flowId
+        , bfName = name
+        , bfUnitId = kgUnitId
+        , bfSynonyms = M.empty
+        , bfCAS = Nothing
+        , bfSubstanceId = Nothing
+        , bfCompartment = Nothing
+        }
+
 buildFixture :: Activity -> M.Map (UUID, UUID) Activity -> M.Map UUID TechnosphereFlow -> IO Database
-buildFixture consumer rows flows = do
+buildFixture = buildFixtureWith M.empty
+
+buildFixtureWith :: M.Map UUID BiosphereFlow -> Activity -> M.Map (UUID, UUID) Activity -> M.Map UUID TechnosphereFlow -> IO Database
+buildFixtureWith bioFlows consumer rows flows = do
     r <-
         buildDatabaseWithMatrices
             (BuildInputs defaultUnitConfig mempty ReadDeclared [])
             SimpleDatabase
                 { sdbActivities = M.insert (consumerActId, consumerProdId) consumer rows
                 , sdbTechFlows = M.insert consumerProdId (techFlow consumerProdId "cheese") flows
-                , sdbBioFlows = M.empty
+                , sdbBioFlows = bioFlows
                 , sdbWasteFlows = M.singleton scrapId (wasteFlow scrapId "scrap")
                 , sdbUnits = unitTable
                 , sdbDocumentation = noDocumentation
@@ -385,7 +436,7 @@ mkUUID n = UUID.fromWords64 (fromIntegral n) 0
 {- | The supplier's two products are ordered on purpose: 'milkId' is the one a
 map keyed on the activity UUID alone drops.
 -}
-supplierActId, milkId, creamId, consumerActId, consumerProdId, ghostActId, scrapId, kgUnitId, gUnitId :: UUID
+supplierActId, milkId, creamId, consumerActId, consumerProdId, ghostActId, scrapId, kgUnitId, gUnitId, n2oId, waterId :: UUID
 supplierActId = mkUUID 1
 ghostActId = mkUUID 77
 gUnitId = mkUUID 11
@@ -395,6 +446,8 @@ consumerActId = mkUUID 3
 consumerProdId = mkUUID 4
 scrapId = mkUUID 5
 kgUnitId = mkUUID 10
+n2oId = mkUUID 20
+waterId = mkUUID 21
 
 -- | Process id text of a supplier coproduct row.
 pidText :: UUID -> Text

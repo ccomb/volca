@@ -1,1 +1,16 @@
 cas;canonical_name;synonyms...
+# A short hand-picked list: the formula and common English names of the
+# substances a person most often types by formula. A flow search reads a
+# whole query against these names to find the flows carrying that CAS, so
+# "N2O" finds a database's "Dinitrogen monoxide". Two-letter formulas (CO,
+# NO, HF) are left out: their letters sit inside many other names.
+# scripts/build_chem_synonyms.py can replace this file with a PubChem snapshot.
+10024-97-2;Nitrous oxide;N2O;Dinitrogen monoxide;Dinitrogen oxide;Laughing gas
+124-38-9;Carbon dioxide;CO2
+74-82-8;Methane;CH4
+7664-41-7;Ammonia;NH3
+7446-09-5;Sulfur dioxide;SO2;Sulphur dioxide
+10102-44-0;Nitrogen dioxide;NO2
+7783-06-4;Hydrogen sulfide;H2S;Hydrogen sulphide
+7647-01-0;Hydrogen chloride;HCl
+2551-62-4;Sulfur hexafluoride;SF6;Sulphur hexafluoride

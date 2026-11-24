@@ -13,7 +13,7 @@ module Matrix.Export (
     escapeCsvField,
 ) where
 
-import Database (filterByName, flowSearchFields)
+import Database (FlowQuery, filterByName, flowFieldsOf)
 import Matrix (Demand (..), Vector, applySparseMatrix, buildDemandVector, referenceSign, solveOnce, toList, unsolvableText)
 import Progress (ProgressLevel (..), reportProgress)
 import Types
@@ -57,7 +57,7 @@ row it is, which is the row the caller resolved: an activity UUID would have to
 be resolved again here, and would answer with an arbitrary product of an
 activity written as several coproduct rows.
 -}
-extractMatrixDebugInfo :: Database -> ProcessId -> Maybe Text -> IO (Either Text MatrixDebugInfo)
+extractMatrixDebugInfo :: Database -> ProcessId -> Maybe FlowQuery -> IO (Either Text MatrixDebugInfo)
 extractMatrixDebugInfo database targetProcessId flowFilter =
     pure $ do
         demand <- buildDemandVector database targetProcessId
@@ -83,7 +83,7 @@ extractMatrixDebugInfo database targetProcessId flowFilter =
 
             filteredBioTriples = case flowFilter of
                 Nothing -> bioTriples
-                Just filterText ->
+                Just query ->
                     -- The filter read the way a flow search reads a query: the
                     -- words in any order, punctuation of the name left to the name.
                     let candidates =
@@ -92,7 +92,7 @@ extractMatrixDebugInfo database targetProcessId flowFilter =
                             , Just flow <- [M.lookup uuid bioFlows]
                             ]
                         matchingFlowIndices =
-                            map fst (filterByName filterText (flowSearchFields . BioKind . snd) candidates)
+                            map fst (filterByName query (flowFieldsOf . BioKind . snd) candidates)
                         matchingFlowIndicesInt32 = map fromIntegral matchingFlowIndices :: [Int32]
                      in U.filter (\(SparseTriple row _ _) -> row `elem` matchingFlowIndicesInt32) bioTriples
          in MatrixDebugInfo
