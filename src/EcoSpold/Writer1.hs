@@ -13,8 +13,10 @@ __canonical and deterministic__:
     exchange numbers follow the convention EcoSpold1 exports use, which the
     parser reads as a flow's identity: a number names a flow for the whole
     export, not a position in one dataset. A reference product carries its own
-    dataset's number, a linked technosphere input carries its supplier's, and
-    every other exchange carries a number assigned once per distinct flow.
+    dataset's number, a linked technosphere input carries its supplier's (one
+    bought from a database it depends on, a number no dataset of the file
+    has), and every other exchange carries a number assigned once per distinct
+    flow.
     That makes the writer's output __self-stable for every exchange except a
     linked technosphere input__: reference products, co-products, biosphere
     exchanges and /unlinked/ inputs all reproduce the same flow UUIDs on
@@ -35,7 +37,8 @@ __canonical and deterministic__:
     direct 'SimpleDatabase' round-trip. The semantic round-trip – amount,
     role, unit, and the flow name of every exchange but a reference product
     and an input bought inside the file, which say their dataset's name
-    ('datasetNames') – is preserved either way;
+    ('datasetNames'), and an input bought from a database it depends on, which
+    says its supplier's activity name – is preserved either way;
   * exchange numbers come from the flow, not from the position in the dataset;
   * attributes appear in a fixed order, classification maps are sorted by
     key, numbers use a fixed textual form, and there is no insignificant
@@ -98,6 +101,7 @@ module EcoSpold.Writer1 (
 
     -- * What the format makes the export say
     renamedProducts,
+    unlinkableByProduct,
 
     -- * Pure helpers (exported for testing)
     escapeXmlAttr,
@@ -195,23 +199,61 @@ writeSimpleDatabaseChunks opts sdb = do
             (sdbBioFlows sdb)
             (sdbWasteFlows sdb)
             (sdbUnits sdb)
-            (M.fromList [(supplier, elActivity e) | (_, _, ex, e) <- dependencyLines deps sdb, Just supplier <- [suppliedBy ex]])
+            (M.fromList (supplierNames deps sdb))
             (placedAtMakers deps sdb)
   where
     deps = woDependencies opts
 
-{- | Each line a database it depends on supplies, by its row and place among
-the row's exchanges, with that supplier.
--}
-dependencyLines :: Dependencies -> SimpleDatabase -> [(((UUID, UUID), Int), Activity, Exchange, Elsewhere)]
+-- | A line a database it depends on supplies.
+data BoughtLine = BoughtLine
+    { blRow :: !(UUID, UUID)
+    , blPosition :: !Int
+    -- ^ Its place among the row's exchanges.
+    , blActivity :: !Activity
+    , blExchange :: !Exchange
+    , blSupplier :: !Elsewhere
+    }
+
+-- | Each line a database it depends on supplies.
+dependencyLines :: Dependencies -> SimpleDatabase -> [BoughtLine]
 dependencyLines deps sdb =
-    [ ((row, position), act, ex, e)
+    [ BoughtLine row position act ex e
     | (row, act) <- M.toList (sdbActivities sdb)
     , (position, ex) <- zip [0 ..] (exchanges act)
     , InDependency e <- [maker row (position, ex)]
     ]
   where
     maker = makerOf deps sdb
+
+-- | The activity name each supplier in a database it depends on is written under, by supplier row.
+supplierNames :: Dependencies -> SimpleDatabase -> [((UUID, UUID), Text)]
+supplierNames deps sdb = [(supplier, elActivity (blSupplier l)) | l <- dependencyLines deps sdb, Just supplier <- [suppliedBy (blExchange l)]]
+
+{- | The lines bought from a database it depends on whose supplier's activity
+is named apart from its product: they are written under the activity's name,
+which a reader holding that database links them by, and which this engine,
+linking an input by its product, does not find.
+-}
+unlinkableByProduct :: Dependencies -> SimpleDatabase -> [Text]
+unlinkableByProduct deps sdb = case apart of
+    [] -> []
+    (activity, productName) : _ ->
+        [ "EcoSpold 1 writes an input bought from a database it depends on under its supplier's activity name: "
+            <> T.pack (show (length apart))
+            <> " such inputs name a supplier whose product is named otherwise, which a reader linking by product, as VoLCA does, does not find, \""
+            <> activity
+            <> "\" making \""
+            <> productName
+            <> "\" first."
+        ]
+  where
+    apart =
+        [ (elActivity (blSupplier l), tfName flow)
+        | l <- dependencyLines deps sdb
+        , TechnosphereExchange{techFlowId = fid} <- [blExchange l]
+        , Just flow <- [M.lookup fid (sdbTechFlows sdb)]
+        , normalizeText (tfName flow) /= normalizeText (elActivity (blSupplier l))
+        ]
 
 {- | Each input linked to a dataset of the file, placed where that dataset
 makes its product.
@@ -427,7 +469,7 @@ emit silently wrong data:
   * __Suppliers in a database it depends on.__ Such an input is written under
     its supplier's name, place and unit, for a reader holding that database
     beside the file to link it there. It cannot be when the supplier states no
-    place, shares its product and place with another activity of its database,
+    place, shares its activity name and place with another product of its database,
     or makes its product in a unit the line is not in; nor when a dataset of
     the file has its name, since readers link an input inside the file first.
     A waste sent to a treatment of that database has no line naming it.
@@ -436,12 +478,12 @@ Databases free of all of these pass unchanged.
 -}
 checkEcoSpold1Exportable :: Dependencies -> SimpleDatabase -> Either Text ()
 checkEcoSpold1Exportable deps db =
-    case lefts [checkLinks, checkDependencies, checkRefInputs, checkLinkedWasteOutputs, checkFlows, checkUnits, checkAmounts, checkAmountRoundTrip] of
+    case lefts [checkLinks, checkDependencies, checkSupplierNames, checkRefInputs, checkLinkedWasteOutputs, checkFlows, checkUnits, checkAmounts, checkAmountRoundTrip] of
         [] -> Right ()
         violations -> Left (T.intercalate "\n\n" violations)
   where
     checkDependencies =
-        case [(activityName act, why) | (_, act, ex, e) <- dependencyLines deps db, Just why <- [unwritable ex e]] of
+        case [(activityName (blActivity l), why) | l <- dependencyLines deps db, Just why <- [unwritable (blExchange l) (blSupplier l)]] of
             [] -> Right ()
             ((consumer, why) : _) ->
                 Left $
@@ -450,18 +492,28 @@ checkEcoSpold1Exportable deps db =
                         <> "\": "
                         <> why
                         <> ". EcoSpold 2 and openLCA point at the supplier itself."
+    -- One supplier row written under two names would be one dataset for a reader and two for us.
+    checkSupplierNames =
+        case [supplier | (supplier, names) <- M.toList (M.fromListWith S.union [(supplier, S.singleton name) | (supplier, name) <- supplierNames deps db]), S.size names > 1] of
+            [] -> Right ()
+            ((act, _) : _) ->
+                Left $
+                    "EcoSpold1 export cannot name the supplier "
+                        <> UUID.toText act
+                        <> ": the databases it depends on give it more than one activity name."
     ownNames = S.fromList (map normalizeText (M.elems (datasetNames (sdbTechFlows db) (M.toList (sdbActivities db)))))
     unwritable ex e = case ex of
         TechnosphereExchange{techUnitId = unit}
             | T.null (T.strip (elLocation e)) -> Just (supplier <> " states no location")
-            | twin : _ <- elTwins e -> Just (elDatabase e <> " makes it at " <> elLocation e <> " in both \"" <> elActivity e <> "\" and \"" <> twin <> "\"")
+            | other : _ <- elNamesakes e -> Just (elDatabase e <> " also makes \"" <> other <> "\" at " <> elLocation e <> " under the name \"" <> elActivity e <> "\"")
             | S.member (normalizeText (elActivity e)) ownNames -> Just (supplier <> " has the name of a dataset of the file, which a reader links it to instead")
             | T.null (elUnit e) -> Just ("the unit " <> supplier <> " makes it in is not known")
             | unitNameFor (sdbUnits db) unit /= elUnit e -> Just ("it is in " <> unitNameFor (sdbUnits db) unit <> ", which does not convert to the " <> elUnit e <> " " <> supplier <> " makes it in")
             | otherwise -> Nothing
           where
             supplier = "its supplier \"" <> elActivity e <> "\" in " <> elDatabase e
-        _ -> Just ("it sends a waste to \"" <> elActivity e <> "\" in " <> elDatabase e <> ", and the format names a treatment only among the datasets of its own file")
+        WasteExchange{} -> Just ("it sends a waste to \"" <> elActivity e <> "\" in " <> elDatabase e <> ", and the format names a treatment only among the datasets of its own file")
+        BiosphereExchange{} -> Nothing
     checkLinks =
         case danglingLinks of
             [] -> Right ()
@@ -532,7 +584,7 @@ checkEcoSpold1Exportable deps db =
                         <> T.pack (show amt)
                         <> " has no decimal form that re-parses to the same value."
     index = supplierNumberIndex (orderedActivities (sdbTechFlows db) (sdbActivities db))
-    bought = S.fromList [line | (line, _, _, _) <- dependencyLines deps db]
+    bought = S.fromList [(blRow l, blPosition l) | l <- dependencyLines deps db]
     danglingLinks =
         [ (activityName act, link)
         | (row, act) <- M.toList (sdbActivities db)
@@ -743,7 +795,8 @@ given once for the whole export ('flowNumberIndex').
 
 'checkEcoSpold1Exportable' guarantees any resolved link's (activity, product)
 pair is present in the supplier index before export, so that fallback is
-unreachable on the wired-up path; the flow index covers every non-reference
+taken only by an input bought from a database it depends on, on purpose: no
+dataset of the file is its supplier. The flow index covers every non-reference
 exchange by construction.
 -}
 exchangeNumber :: Resolvers -> Int -> Exchange -> Int

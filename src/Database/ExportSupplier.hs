@@ -54,6 +54,12 @@ data Elsewhere = Elsewhere
     -}
     , elUnit :: !Text
     -- ^ The unit the supplier makes its product in, empty where it is not known.
+    , elNamesakes :: ![Text]
+    {- ^ The other products that database makes under the supplier's activity
+    name at the same place, the coproducts of an allocated activity among
+    them: a format that names an activity and a place alone cannot tell the
+    supplier from them.
+    -}
     }
     deriving (Eq, Show)
 
@@ -89,7 +95,7 @@ dependenciesOf indexed db = do
     elsewhere :: ((UUID, UUID, Int), CrossDBLink) -> Either Text ((UUID, UUID, Int), Elsewhere)
     elsewhere (key@(act, prod, _), l) =
         case findSupplierByActivityProduct (maybe [] pure (M.lookup source indexed)) supplier of
-            ((e, _) : _) -> Right (key, Elsewhere source (seActivityName e) (seLocation e) (seRefSign e) (twinsOf e) (seUnit e))
+            ((e, _) : _) -> Right (key, Elsewhere source (seActivityName e) (seLocation e) (seRefSign e) (twinsOf e) (seUnit e) (namesakesOf e))
             [] -> Left (refusal act prod ("its supplier in " <> source <> " is not loaded"))
       where
         source = cdlSourceDatabase l
@@ -100,6 +106,21 @@ dependenciesOf indexed db = do
             , t <- M.findWithDefault [] (normalizeText (seProductName e)) (idbByProductName idb)
             , seLocation t == seLocation e
             , seActivityUUID t /= seActivityUUID e
+            ]
+        namesakesOf e =
+            [ seProductName t
+            | Just byName <- [M.lookup source namesakes]
+            , t <- M.findWithDefault [] (normalizeText (seActivityName e), seLocation e) byName
+            , (seActivityUUID t, seProductName t) /= (seActivityUUID e, seProductName e)
+            ]
+
+    -- Each source's processes by activity name and place, built only for the sources answering an input.
+    namesakes :: M.Map Text (M.Map (Text, Text) [SupplierEntry])
+    namesakes =
+        M.fromList
+            [ (source, M.fromListWith (<>) [((normalizeText (seActivityName t), seLocation t), [t]) | t <- M.elems (idbByActivityProduct idb)])
+            | source <- S.toList (S.fromList (map (cdlSourceDatabase . snd) answered))
+            , Just idb <- [M.lookup source indexed]
             ]
 
     refusal :: UUID -> UUID -> Text -> Text
