@@ -21,6 +21,7 @@ import Data.Text (Text)
 import Expr (Formula)
 import GHC.Generics
 import Types (
+    Medium,
     Release,
     UUID,
  )
@@ -868,15 +869,35 @@ data GroupClassification = GroupClassification
 instance FromJSON GroupClassification where
     parseJSON = parseClosed
 
-{- | The processes a group takes: a name and a product they contain, a place
-that answers for theirs, and classifications (alternatives within a system,
-every system). At least one of them keeps something.
+{- | The substance a group keeps: a name, read as the substance (@substance@,
+when @match@ is left out: by the flow's own name, a name the synonym registry
+gives the same substance, a chemical formula or a CAS) or as contained in the
+flow's name (@contains@), and a compartment. At least one of the name and the
+compartment.
+-}
+data GroupFlowSpec = GroupFlowSpec
+    { gflName :: Maybe Text
+    , gflMatch :: Maybe Text
+    , gflMedium :: Maybe Medium
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupFlowSpec)
+
+instance FromJSON GroupFlowSpec where
+    parseJSON = parseClosed
+
+{- | What a group takes: processes, by a name and a product they contain, a
+place that answers for theirs, and classifications (alternatives within a
+system, every system); and, under the own-emissions reading only, the
+emissions of a substance (@flow@), of those processes or of any. At least one
+of them keeps something.
 -}
 data GroupFilterSpec = GroupFilterSpec
     { gfsName :: Maybe Text
     , gfsProduct :: Maybe Text
     , gfsLocation :: Maybe Text
     , gfsClassifications :: Maybe [GroupClassification]
+    , gfsFlow :: Maybe GroupFlowSpec
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped GroupFilterSpec)
@@ -896,9 +917,11 @@ instance FromJSON GroupSpec where
     parseJSON = parseClosed
 
 {- | A score split between groups: what a group's part is (@first-match@, the
-whole chain below the first process of a group met, the reading when left out,
-or @own@, its processes' own emissions), and the groups, a process going to
-the first it answers.
+whole chain below the first process of a group met, or @own@, its processes'
+own emissions), and the groups, a process going to the first it answers. Left
+out, the reading is @first-match@, unless a group keeps a substance: then
+@own@, the one reading that splits by emission, an emission going to the first
+group that takes both its process and its substance.
 -}
 data GroupsRequest = GroupsRequest
     { grqAttribution :: Maybe Text
@@ -925,7 +948,11 @@ data GroupMembersRequest = GroupMembersRequest
 instance FromJSON GroupMembersRequest where
     parseJSON = parseClosed
 
--- | One group's part of each score, by method id, and how many of its processes carry one.
+{- | One group's part of each score, by method id, and how many of its
+processes carry one. Once a group keeps a substance, a process counts when the
+group takes one of its emissions: a process of a group of processes that emits
+nothing of its own is then not counted, though it weighs nothing anyway.
+-}
 data GroupPart = GroupPart
     { gptName :: Text
     , gptScores :: M.Map Text Double
@@ -981,7 +1008,8 @@ a group names it.
 data GroupCandidatesRequest = GroupCandidatesRequest
     { gcqAttribution :: Maybe Text
     , gcqGroups :: [GroupSpec]
-    , gcqCandidate :: Text
+    , gcqCandidate :: Maybe Text
+    , gcqCandidateFlow :: Maybe Text
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped GroupCandidatesRequest)

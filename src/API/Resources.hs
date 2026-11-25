@@ -95,6 +95,7 @@ data Resource
     | GetContributingActivities
     | GetGroupContributions
     | GetGroupMembers
+    | GetGroupFlows
     | GetGroupCandidates
     | GetScoreContributingFlows
     | GetScoreContributingActivities
@@ -208,6 +209,7 @@ resourceMutates r = case r of
     GetContributingActivities -> False
     GetGroupContributions -> False
     GetGroupMembers -> False
+    GetGroupFlows -> False
     GetGroupCandidates -> False
     GetScoreContributingFlows -> False
     GetScoreContributingActivities -> False
@@ -286,6 +288,7 @@ resourceNeeds r = case r of
     GetContributingActivities -> Just SeeDetailedScores
     GetGroupContributions -> Just SeeDetailedScores
     GetGroupMembers -> Just SeeDetailedScores
+    GetGroupFlows -> Just SeeDetailedScores
     GetGroupCandidates -> Just SeeDetailedScores
     GetScoreContributingFlows -> Just SeeDetailedScores
     GetScoreContributingActivities -> Just SeeDetailedScores
@@ -360,6 +363,7 @@ resourceUsage r = case r of
     GetContributingActivities -> Just Contributing
     GetGroupContributions -> Just Contributing
     GetGroupMembers -> Just Contributing
+    GetGroupFlows -> Just Contributing
     GetGroupCandidates -> Just Contributing
     GetScoreContributingFlows -> Just Contributing
     GetScoreContributingActivities -> Just Contributing
@@ -460,6 +464,7 @@ apiPath r = case r of
     GetContributingActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-activities", "{collection}", "{methodId}"])
     GetGroupContributions -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "groups", "{collection}"])
     GetGroupMembers -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "group-members", "{collection}", "{methodId}"])
+    GetGroupFlows -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "group-flows", "{collection}", "{methodId}"])
     GetGroupCandidates -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "group-candidates", "{collection}", "{methodId}"])
     GetScoreContributingFlows -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-flows", "{collection}", "score", "{scoringSet}", "{score}"])
     GetScoreContributingActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-activities", "{collection}", "score", "{scoringSet}", "{score}"])
@@ -541,6 +546,7 @@ mcpName r = case r of
     GetContributingActivities -> "get_contributing_activities"
     GetGroupContributions -> "get_group_contributions"
     GetGroupMembers -> "get_group_members"
+    GetGroupFlows -> "get_group_flows"
     GetGroupCandidates -> "get_group_candidates"
     GetScoreContributingFlows -> "get_score_contributing_flows"
     GetScoreContributingActivities -> "get_score_contributing_activities"
@@ -865,17 +871,31 @@ description r = case r of
         \of the rest when 'group' is left out, heaviest first, for one impact \
         \category. Same 'attribution' and 'groups' as that call. Under \
         \first-match, each process where the chain enters the group, with all \
-        \it brings. They add up to the group's part. 'basis' as on \
-        \score_activity."
+        \it brings. Under 'own' with a group keeping a substance, each \
+        \process's part of the emissions it gives the group, so a process may \
+        \be in a group and in the rest. They add up to the group's part. \
+        \'basis' as on score_activity."
+            <> webUrlTip
+    GetGroupFlows ->
+        "LCA / ACV: the emissions and resources of one group of \
+        \get_group_contributions, or of the rest when 'group' is left out, \
+        \heaviest first, for one impact category: what 'Transport' or 'N2O of \
+        \the fields' emits. Same 'attribution' and 'groups' as that call; \
+        \'total_score' is the group's part. A database whose licence withholds \
+        \its detail lists no flow, only its line in the rest."
             <> webUrlTip
     GetGroupCandidates ->
-        "LCA / ACV: groups a process could start, narrowest first: its \
-        \product, then each level of its classifications. Each is tried at \
-        \the end of 'groups' and comes back with its part of one impact \
-        \category, how many processes it takes and the products of the \
-        \heaviest; a group taking nothing, or the same processes as a broader \
-        \one, is left out. 'candidate' is a process id as get_group_members \
-        \writes it. Add the group chosen to 'groups' as it comes."
+        "LCA / ACV: groups a process or a flow could start, narrowest first. \
+        \A process: its product, then each level of its classifications. A \
+        \flow: that substance in its compartment, then in any, then by its CAS \
+        \(which takes every form of the molecule, e.g. fossil and biogenic). \
+        \Each is tried at the end of 'groups' and comes back with its part of \
+        \one impact category, how many processes it takes something of and the \
+        \products of the heaviest; a group taking nothing, or the same as a \
+        \broader one, is left out. Name 'candidate' (a process id as \
+        \get_group_members writes it) or 'candidate_flow' (a flow id as \
+        \get_contributing_flows writes it), not both. Add the group chosen to \
+        \'groups' as it comes."
     GetScoreContributingFlows ->
         "LCA / ACV: emissions and resources weighing most in one \
         \score of a scoring set (one number weighing a method \
@@ -1300,7 +1320,7 @@ pScore :: Param
 pScore = Param "score" "string" Required "Name of one score of that scoring set (from list_scoring_sets)"
 
 pAttribution :: Param
-pAttribution = Param "attribution" "string" Optional "first-match (default): a group counts the whole chain below its first process met; own: its processes' own emissions"
+pAttribution = Param "attribution" "string" Optional "first-match: a group counts the whole chain below its first process met; own: its processes' own emissions, the only reading a group keeping a substance ('flow') can have. Left out: first-match, or own when a group keeps a substance"
 
 pGroups :: Param
 pGroups =
@@ -1617,6 +1637,17 @@ params r = case r of
         , pLimit "Max processes to return, sorted by contribution (default 10)"
         , pExcludeLongTerm
         ]
+    GetGroupFlows ->
+        [ pDatabase
+        , pProcessId
+        , Param "method_id" "string" Required "UUID of the impact category"
+        , pCollection
+        , pAttribution
+        , pGroups
+        , Param "group" "string" Optional "Name of the group to list; left out, the rest"
+        , pLimit "Max flows to return, sorted by contribution (default 20)"
+        , pExcludeLongTerm
+        ]
     GetGroupCandidates ->
         [ pDatabase
         , pProcessId
@@ -1624,7 +1655,8 @@ params r = case r of
         , pCollection
         , pAttribution
         , pGroups
-        , Param "candidate" "string" Required "Process to group by, as get_group_members writes its id (db::id for another database)"
+        , Param "candidate" "string" Optional "Process to group by, as get_group_members writes its id (db::id for another database)"
+        , Param "candidate_flow" "string" Optional "Flow to group by, as get_contributing_flows writes its flow_id"
         , pExcludeLongTerm
         ]
     GetScoreContributingFlows ->

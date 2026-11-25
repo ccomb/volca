@@ -563,12 +563,22 @@ their name, or the direct air capture plants holding @CO2@; then the names, by
 -}
 flowRelevance :: FlowQuery -> FlowFields -> Int
 flowRelevance query fields
-    | folded (fqText query) == folded name = 0
+    | isNamedExactly query fields = 0
     | isTheSubstance query fields = 1
-    | otherwise = 2 + flowNameRelevance (fqText query) name
+    | otherwise = 2 + flowNameRelevance (fqText query) (nameOf (flowFieldNames fields))
+
+-- | Whether the flow's own name is the query as typed, case and surrounding space aside.
+isNamedExactly :: FlowQuery -> FlowFields -> Bool
+isNamedExactly query fields = folded (fqText query) == folded (nameOf (flowFieldNames fields))
   where
-    name = nameOf (flowFieldNames fields)
     folded = T.toCaseFold . T.strip
+
+{- | Whether a flow is the substance a query names: by its own name, or as
+'isTheSubstance' says. Never word by word, where @methane@ would take
+@Methane, dichlorodifluoro-@, a refrigerant thousands of times as warming.
+-}
+isNamedSubstance :: FlowQuery -> FlowFields -> Bool
+isNamedSubstance query fields = isNamedExactly query fields || isTheSubstance query fields
 
 -- | A flow's own name, the first of its searchable fields.
 nameOf :: [Text] -> Text
