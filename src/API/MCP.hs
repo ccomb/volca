@@ -1,12 +1,15 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | MCP (Model Context Protocol) server endpoint.
-Implements Streamable HTTP transport (MCP spec 2025-03-26).
-POST /mcp handles initialize, tools/list, tools/call (JSON or SSE response).
-GET  /mcp opens an SSE stream for server-initiated messages (stateless: closes immediately).
+{- | MCP (Model Context Protocol) server endpoint, over Streamable HTTP.
+
+It speaks two eras of the protocol on the same address. A client of the
+2026-07-28 revision opens with @server/discover@ and says its version in every
+request; an older client opens with @initialize@ and is answered as 2025-03-26.
+POST carries every request; anything else is refused with 405.
 -}
-module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId) where
+module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId, Era (..), Rejection (..), classify, sameOrigin, modernVersion) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson
@@ -21,14 +24,15 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import Data.Scientific (toBoundedInteger)
+import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
-import Network.HTTP.Types (hContentType, status200, status202, status405)
-import Network.Wai (Application, requestHeaders, requestMethod, responseLBS, strictRequestBody)
+import Network.HTTP.Types (Status, hContentType, status200, status202, status400, status403, status404, status405)
+import Network.Wai (Application, Response, requestHeaders, requestMethod, responseLBS, strictRequestBody)
 import System.Random (randomIO)
 import qualified Version
 
@@ -60,7 +64,7 @@ import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scor
 import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
 import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec, GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, parseProducerFilter, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
-import Control.Monad (forM, forM_, join, mfilter, when)
+import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
 import Data.List (find)
@@ -74,7 +78,7 @@ import Method.Journal (Exact (..))
 import Method.Mapping (FlowContribution (..), LCIAOutcome (..), LongTermMode (..), MappingStats (..), Resolution (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeLCIAScoreAuto, computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude, strategyToText)
 import qualified Method.Mapping as Mapping
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
-import Network.HTTP.Types.Header (RequestHeaders, hAccept, hAllow, hHost)
+import Network.HTTP.Types.Header (HeaderName, RequestHeaders, hAccept, hAllow, hHost, hOrigin)
 import qualified Search.Normalize as Normalize
 import qualified Service
 import qualified Service.Aggregate as Agg
@@ -132,11 +136,15 @@ rpcResult rid res =
         ]
 
 rpcError :: RequestId -> Int -> Text -> Value
-rpcError rid code msg =
+rpcError rid code msg = rpcErrorWith rid code msg []
+
+-- | A JSON-RPC error that carries data along with its message.
+rpcErrorWith :: RequestId -> Int -> Text -> [Pair] -> Value
+rpcErrorWith rid code msg details =
     object
         [ "jsonrpc" .= ("2.0" :: Text)
         , "id" .= rid
-        , "error" .= object ["code" .= code, "message" .= msg]
+        , "error" .= object (["code" .= code, "message" .= msg] <> ["data" .= object details | not (null details)])
         ]
 
 toolError :: RequestId -> Text -> Value
@@ -222,36 +230,15 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
     let sessionId = T.pack $ show (abs a) ++ "-" ++ show (abs b)
     stateRef <- newIORef McpState{mcpSessionId = sessionId}
     return $ \req respond -> do
-        let method = requestMethod req
-            hdrs = requestHeaders req
-            mBaseUrl = webUrlBase hasFrontend hdrs
-            acceptHdr = fromMaybe "" $ lookup hAccept hdrs
-            wantsSse = "text/event-stream" `BS.isInfixOf` acceptHdr
-        st <- readIORef stateRef
-        case method of
+        let hdrs = requestHeaders req
+        sid <- mcpSessionId <$> readIORef stateRef
+        case requestMethod req of
+            _
+                | not (sameOrigin hdrs) ->
+                    respond (jsonResponse status403 [] (rpcError noRequestId (-32600) "Requests from another site's page are refused."))
             "POST" -> do
                 body <- strictRequestBody req
-                case eitherDecode body of
-                    Left err ->
-                        respond $ jsonResponse (mcpSessionId st) $ rpcError noRequestId (-32700) (T.pack $ "Parse error: " ++ err)
-                    Right rpcReq -> do
-                        let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
-                        resp <- runCall (handleRpc (callerOf hdrs) dbManager presets mHosting mBaseUrl mName st rpcReq)
-                        forM_ mUsage $ \lg ->
-                            noteToolCall dbManager (recordUse lg (usageLookup dbManager) (readerOf hdrs)) rpcReq resp
-                        case resp of
-                            Nothing ->
-                                respond $
-                                    responseLBS
-                                        status202
-                                        [ (hContentType, "application/json")
-                                        , ("Mcp-Session-Id", TE.encodeUtf8 (mcpSessionId st))
-                                        ]
-                                        ""
-                            Just val ->
-                                if wantsSse
-                                    then respond $ sseResponse (mcpSessionId st) val
-                                    else respond $ jsonResponse (mcpSessionId st) val
+                either respond (serve hdrs sid >=> respond) (readCall (framingOf hdrs) sid hdrs body)
             -- Everything else, GET included. A GET opens the stream a server
             -- uses to speak first; VoLCA never does, and answering it with a
             -- stream that closes at once reads to a client as a dropped
@@ -265,49 +252,235 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
                     $ encode
                     $ rpcError noRequestId (-32700) "Method not allowed"
   where
-    jsonResponse sid v =
-        responseLBS
-            status200
-            [ (hContentType, "application/json")
-            , ("X-Content-Type-Options", "nosniff")
-            , ("Mcp-Session-Id", TE.encodeUtf8 sid)
-            ]
-            (encode v)
-    -- SSE format: each JSON-RPC message is one SSE event
-    sseResponse sid v =
-        responseLBS
-            status200
-            [ (hContentType, "text/event-stream; charset=utf-8")
-            , ("Cache-Control", "no-cache")
-            , ("Connection", "keep-alive")
-            , ("Mcp-Session-Id", TE.encodeUtf8 sid)
-            ]
-            ("event: message\ndata: " <> encode v <> "\n\n")
+    serve :: RequestHeaders -> Text -> Call -> IO Response
+    serve hdrs sid (Call era method rpcReq) = do
+        let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
+        resp <- runCall (handleRpc (callerOf hdrs) dbManager presets mHosting (webUrlBase hasFrontend hdrs) mName method rpcReq)
+        forM_ mUsage $ \lg ->
+            noteToolCall dbManager (recordUse lg (usageLookup dbManager) (readerOf hdrs)) rpcReq resp
+        pure $ case era of
+            Legacy -> legacyResponse (framingOf hdrs) sid resp
+            Modern -> maybe (responseLBS status202 [] "") (modernResponse status200 . modernResult mName) resp
+
+-- | A POST read and checked: the era it belongs to, the method it asks, and the request.
+data Call = Call Era McpMethod RpcRequest
+
+{- | Read a POST body and check it at the door, or give the answer that
+refuses it: a body that is not JSON, a modern request whose version or
+headers do not hold, a method its era does not know.
+-}
+readCall :: Framing -> Text -> RequestHeaders -> BSL.ByteString -> Either Response Call
+readCall framing sid hdrs body = do
+    rpcReq <- first notJson (eitherDecode body)
+    era <- first (modernResponse status400 . rejectionReply (answerId rpcReq)) (classify hdrs rpcReq)
+    method <- maybe (Left (unknown era rpcReq)) Right (methodOf era (rpcMethod rpcReq))
+    pure (Call era method rpcReq)
+  where
+    notJson :: String -> Response
+    notJson err = legacyResponse PlainJson sid (Just (rpcError noRequestId (-32700) (T.pack ("Parse error: " ++ err))))
+    unknown :: Era -> RpcRequest -> Response
+    unknown era rpcReq = case era of
+        Legacy -> legacyResponse framing sid (Just notFound)
+        Modern -> modernResponse status404 notFound
+      where
+        notFound :: Value
+        notFound = rpcError (answerId rpcReq) (-32601) ("Method not found: " <> rpcMethod rpcReq)
+
+-- | How an answer of the old era is sent: as the client's @Accept@ asks.
+data Framing = EventStream | PlainJson
+
+framingOf :: RequestHeaders -> Framing
+framingOf hdrs
+    | "text/event-stream" `BS.isInfixOf` fromMaybe "" (lookup hAccept hdrs) = EventStream
+    | otherwise = PlainJson
+
+jsonResponse :: Status -> [(HeaderName, BS.ByteString)] -> Value -> Response
+jsonResponse status extra v =
+    responseLBS
+        status
+        ([(hContentType, "application/json"), ("X-Content-Type-Options", "nosniff")] <> extra)
+        (encode v)
+
+-- | A 2026-07-28 answer: always JSON, never tied to a session.
+modernResponse :: Status -> Value -> Response
+modernResponse status = jsonResponse status []
+
+{- | An answer in the 2025-03-26 era, as it always was: under the session id,
+as an event stream when the client asked for one, and 202 with no body for a
+notification.
+-}
+legacyResponse :: Framing -> Text -> Maybe Value -> Response
+legacyResponse framing sid = \case
+    Nothing -> responseLBS status202 [(hContentType, "application/json"), session] ""
+    Just v -> case framing of
+        EventStream ->
+            responseLBS
+                status200
+                [ (hContentType, "text/event-stream; charset=utf-8")
+                , ("Cache-Control", "no-cache")
+                , ("Connection", "keep-alive")
+                , session
+                ]
+                ("event: message\ndata: " <> encode v <> "\n\n")
+        PlainJson -> jsonResponse status200 [session] v
+  where
+    session :: (HeaderName, BS.ByteString)
+    session = ("Mcp-Session-Id", TE.encodeUtf8 sid)
+
+-- ---------------------------------------------------------------------------
+-- Protocol eras
+-- ---------------------------------------------------------------------------
+
+-- | The protocol revision of the modern era, the only one of that era served.
+modernVersion :: Text
+modernVersion = "2026-07-28"
+
+{- | The era a request belongs to. The endpoint takes it from 'classify'
+alone, so a modern request that reaches a tool has had its version and
+headers checked.
+-}
+data Era = Legacy | Modern
+    deriving (Eq, Show)
+
+-- | Why a request of the modern era is refused before anything reads it.
+data Rejection
+    = -- | The revision it asks for, which this server does not speak.
+      UnsupportedVersion Text
+    | -- | The header that is missing or says something else than the body.
+      HeaderMismatch Text
+    | -- | What the request's @_meta@ lacks.
+      MalformedMeta Text
+    deriving (Eq, Show)
+
+{- | Tell the era of a request, checking a modern one at the door.
+
+A request is of the old era when it names no version in @_meta@ and its
+@MCP-Protocol-Version@ header, if any, names an older revision: an old client
+may put other keys in @_meta@, and may send no header at all. Anything else is
+a modern request, whose @_meta@, version and headers must agree.
+-}
+classify :: RequestHeaders -> RpcRequest -> Either Rejection Era
+classify hdrs req
+    | isNothing metaVersion && maybe True (`elem` legacyVersions) headerVersion = Right Legacy
+    | otherwise = Modern <$ checked
+  where
+    header :: HeaderName -> Maybe Text
+    header n = TE.decodeUtf8Lenient <$> lookup n hdrs
+    headerVersion :: Maybe Text
+    headerVersion = header "MCP-Protocol-Version"
+    params :: KeyMap Value
+    params = case rpcParams req of
+        Just (Object o) -> o
+        _ -> mempty
+    meta :: KeyMap Value
+    meta = case KM.lookup "_meta" params of
+        Just (Object o) -> o
+        _ -> mempty
+    metaVersion :: Maybe Text
+    metaVersion = case KM.lookup "io.modelcontextprotocol/protocolVersion" meta of
+        Just (String v) -> Just v
+        _ -> Nothing
+    agrees :: Text -> Text -> Either Rejection ()
+    agrees name expected
+        | header (fromString (T.unpack name)) == Just expected = Right ()
+        | otherwise = Left (HeaderMismatch name)
+    checked :: Either Rejection ()
+    checked = do
+        version <- maybe (Left (MalformedMeta "params._meta names no io.modelcontextprotocol/protocolVersion.")) Right metaVersion
+        case KM.lookup "io.modelcontextprotocol/clientCapabilities" meta of
+            Just (Object _) -> Right ()
+            _ -> Left (MalformedMeta "params._meta carries no io.modelcontextprotocol/clientCapabilities.")
+        when (version /= modernVersion) (Left (UnsupportedVersion version))
+        agrees "MCP-Protocol-Version" version
+        agrees "Mcp-Method" (rpcMethod req)
+        -- shortcut: Mcp-Name is compared as sent, never Base64-decoded; every tool name is plain ASCII, which no client encodes.
+        when (rpcMethod req == "tools/call") $ case KM.lookup "name" params of
+            Just (String name) -> agrees "Mcp-Name" name
+            _ -> Right ()
+
+-- | The revisions answered in the old era, all of them as 2025-03-26.
+legacyVersions :: [Text]
+legacyVersions = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"]
+
+-- | The error that refuses a request of the modern era, sent with a 400.
+rejectionReply :: RequestId -> Rejection -> Value
+rejectionReply rid = \case
+    UnsupportedVersion asked ->
+        rpcErrorWith rid (-32022) "Unsupported protocol version" ["supported" .= [modernVersion], "requested" .= asked]
+    HeaderMismatch name ->
+        rpcError rid (-32020) ("The header " <> name <> " is missing or does not match the request body.")
+    MalformedMeta what -> rpcError rid (-32602) what
+
+{- | Whether a request may come from where it says. A page of another site
+can make a browser post to a server on the reader's own machine; its @Origin@
+then names that site, not the address the request was sent to. A request with
+no @Origin@ comes from no page: an assistant, a script.
+-}
+sameOrigin :: RequestHeaders -> Bool
+sameOrigin hdrs = case lookup hOrigin hdrs of
+    Nothing -> True
+    Just origin -> Just (authority origin) == (T.toLower . TE.decodeUtf8Lenient <$> lookup hHost hdrs)
+  where
+    -- "null", sent by a sandboxed page, has no scheme and so matches no host.
+    authority :: BS.ByteString -> Text
+    authority o = case T.breakOn "://" (T.toLower (TE.decodeUtf8Lenient o)) of
+        (_, rest) | not (T.null rest) -> T.drop 3 rest
+        _ -> ""
+
+{- | Every result of the modern era says it is complete and which server gave
+it. An error carries no result and is left as it is.
+-}
+modernResult :: Maybe ServerName -> Value -> Value
+modernResult mName (Object o) = Object (maybe o (\r -> KM.insert "result" (stamp r) o) (KM.lookup "result" o))
+  where
+    stamp :: Value -> Value
+    stamp (Object r) = Object (r <> KM.fromList [("resultType", String "complete"), ("_meta", object ["io.modelcontextprotocol/serverInfo" .= serverInfo mName])])
+    stamp r = r
+modernResult _ v = v
+
+{- | How long a client may keep the tool list and the discovery answer, and
+for whom: both change only when the server restarts, and are the same for
+every caller.
+-}
+cachingHints :: Era -> [Pair]
+cachingHints = \case
+    Legacy -> []
+    Modern -> ["ttlMs" .= (3600000 :: Int), "cacheScope" .= ("public" :: Text)]
 
 -- ---------------------------------------------------------------------------
 -- RPC dispatch
 -- ---------------------------------------------------------------------------
 
-handleRpc :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpState -> RpcRequest -> IO (Maybe Value)
-handleRpc caller dbManager presets mHosting mBaseUrl mName _st req = case rpcMethod req of
-    "initialize" -> Just <$> handleInitialize mName req
-    "notifications/initialized" -> return Nothing -- notification, no response
-    "tools/list" -> return $ Just $ handleToolsList (hostingReadOnly mHosting) req
-    "tools/call" -> Just <$> handleToolsCall caller dbManager presets mHosting mBaseUrl req
-    "ping" -> return $ Just $ rpcResult (answerId req) (object [])
-    other ->
-        return $
-            Just $
-                rpcError
-                    (answerId req)
-                    (-32601)
-                    ("Method not found: " <> other)
+{- | The methods served. Only 'methodOf' names one, from the era of the
+request: a modern request never reaches @initialize@, an old one never
+@server/discover@, and the tool list knows which era it answers.
+-}
+data McpMethod = Initialize | Initialized | Ping | Discover | ListTools Era | CallTool
+
+methodOf :: Era -> Text -> Maybe McpMethod
+methodOf era name = lookup name (common <> eraOnly)
+  where
+    common :: [(Text, McpMethod)]
+    common = [("tools/list", ListTools era), ("tools/call", CallTool)]
+    eraOnly :: [(Text, McpMethod)]
+    eraOnly = case era of
+        Legacy -> [("initialize", Initialize), ("notifications/initialized", Initialized), ("ping", Ping)]
+        Modern -> [("server/discover", Discover)]
+
+handleRpc :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpMethod -> RpcRequest -> IO (Maybe Value)
+handleRpc caller dbManager presets mHosting mBaseUrl mName call req = case call of
+    Initialize -> Just <$> handleInitialize mName req
+    Initialized -> return Nothing -- notification, no response
+    Ping -> return $ Just $ rpcResult (answerId req) (object [])
+    Discover -> return $ Just $ handleDiscover mName req
+    ListTools era -> return $ Just $ handleToolsList era (hostingReadOnly mHosting) req
+    CallTool -> Just <$> handleToolsCall caller dbManager presets mHosting mBaseUrl req
 
 -- ---------------------------------------------------------------------------
--- initialize
+-- initialize and server/discover
 -- ---------------------------------------------------------------------------
 
-{- | Answer @initialize@.
+{- | Answer @initialize@, the opening of a client of the old era.
 
 A client may hold several of these servers at once, each a different instance
 with its own loaded databases. Naming the instance is what lets an assistant
@@ -322,17 +495,30 @@ handleInitialize mName req =
             object
                 [ "protocolVersion" .= ("2025-03-26" :: Text)
                 , "capabilities" .= object ["tools" .= object []]
-                , "serverInfo"
-                    .= object
-                        [ "name" .= maybe "volca" unServerName mName
-                        , "version" .= T.pack Version.version
-                        ]
-                , "instructions"
-                    .= T.unlines
-                        ( foldMap (\n -> ["This server is the VoLCA instance named " <> unServerName n <> ". Say which instance you queried when several are connected."]) mName
-                            <> instructionLines
-                        )
+                , "serverInfo" .= serverInfo mName
+                , "instructions" .= instructions mName
                 ]
+
+-- | Answer @server/discover@, the opening of a client of the modern era.
+handleDiscover :: Maybe ServerName -> RpcRequest -> Value
+handleDiscover mName req =
+    rpcResult (answerId req) $
+        object $
+            [ "supportedVersions" .= [modernVersion]
+            , "capabilities" .= object ["tools" .= object []]
+            , "instructions" .= instructions mName
+            ]
+                <> cachingHints Modern
+
+serverInfo :: Maybe ServerName -> Value
+serverInfo mName = object ["name" .= maybe "volca" unServerName mName, "version" .= T.pack Version.version]
+
+instructions :: Maybe ServerName -> Text
+instructions mName =
+    T.unlines
+        ( foldMap (\n -> ["This server is the VoLCA instance named " <> unServerName n <> ". Say which instance you queried when several are connected."]) mName
+            <> instructionLines
+        )
 
 instructionLines :: [Text]
 instructionLines =
@@ -350,11 +536,11 @@ instructionLines =
 -- tools/list
 -- ---------------------------------------------------------------------------
 
-handleToolsList :: ReadOnly -> RpcRequest -> Value
-handleToolsList readOnly req =
+handleToolsList :: Era -> ReadOnly -> RpcRequest -> Value
+handleToolsList era readOnly req =
     rpcResult (answerId req) $
-        object
-            ["tools" .= toolDefinitions readOnly]
+        object $
+            ("tools" .= toolDefinitions readOnly) : cachingHints era
 
 {- | MCP tool list, derived from 'API.Resources'. A read-only instance hides
 the mutating tools instead of advertising calls that can only fail; the
