@@ -197,7 +197,10 @@ makes its product.
 
 A reader holding the whole file links the input by its @number@. One holding a
 dataset alone, beside the database it was taken from, links it by name and
-location, and an input that states no location takes any maker of that name:
+location, the name being its maker's dataset name ('datasetNames'), which that
+database gives a product only where activity and product share a name, as one
+read from this format does. An input that states no location takes any maker
+of that name:
 the Italian tap water comes back as the Dutch one. Each country's tap water is
 its own product in a file read from this format, so this holds whether the file
 makes the product once or several times. An input that states a place other
