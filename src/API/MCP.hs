@@ -64,7 +64,7 @@ import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scor
 import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
 import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec, GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, parseProducerFilter, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
-import Control.Monad (forM, forM_, join, mfilter, when)
+import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
 import Data.List (find)
@@ -231,33 +231,14 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
     stateRef <- newIORef McpState{mcpSessionId = sessionId}
     return $ \req respond -> do
         let hdrs = requestHeaders req
-            mBaseUrl = webUrlBase hasFrontend hdrs
-            wantsSse = "text/event-stream" `BS.isInfixOf` fromMaybe "" (lookup hAccept hdrs)
-        st <- readIORef stateRef
-        let legacyReply = legacyResponse wantsSse (mcpSessionId st)
+        sid <- mcpSessionId <$> readIORef stateRef
         case requestMethod req of
             _
                 | not (sameOrigin hdrs) ->
                     respond (jsonResponse status403 [] (rpcError noRequestId (-32600) "Requests from another site's page are refused."))
             "POST" -> do
                 body <- strictRequestBody req
-                case eitherDecode body of
-                    Left err ->
-                        respond $ legacyResponse False (mcpSessionId st) $ Just $ rpcError noRequestId (-32700) (T.pack $ "Parse error: " ++ err)
-                    Right rpcReq -> case classify hdrs rpcReq of
-                        Left rejection -> respond (uncurry modernResponse (rejectionReply (answerId rpcReq) rejection))
-                        Right era -> case methodOf era (rpcMethod rpcReq) of
-                            Nothing -> respond $ case era of
-                                Legacy -> legacyReply (Just (methodNotFound rpcReq))
-                                Modern -> modernResponse status404 (methodNotFound rpcReq)
-                            Just call -> do
-                                let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
-                                resp <- runCall (handleRpc (callerOf hdrs) dbManager presets mHosting mBaseUrl mName era call rpcReq)
-                                forM_ mUsage $ \lg ->
-                                    noteToolCall dbManager (recordUse lg (usageLookup dbManager) (readerOf hdrs)) rpcReq resp
-                                respond $ case era of
-                                    Legacy -> legacyReply resp
-                                    Modern -> maybe (responseLBS status202 [] "") (modernResponse status200 . modernResult mName) resp
+                either respond (serve hdrs sid >=> respond) (readCall (framingOf hdrs) sid hdrs body)
             -- Everything else, GET included. A GET opens the stream a server
             -- uses to speak first; VoLCA never does, and answering it with a
             -- stream that closes at once reads to a client as a dropped
@@ -271,7 +252,47 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
                     $ encode
                     $ rpcError noRequestId (-32700) "Method not allowed"
   where
-    methodNotFound rpcReq = rpcError (answerId rpcReq) (-32601) ("Method not found: " <> rpcMethod rpcReq)
+    serve :: RequestHeaders -> Text -> Call -> IO Response
+    serve hdrs sid (Call era method rpcReq) = do
+        let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
+        resp <- runCall (handleRpc (callerOf hdrs) dbManager presets mHosting (webUrlBase hasFrontend hdrs) mName method rpcReq)
+        forM_ mUsage $ \lg ->
+            noteToolCall dbManager (recordUse lg (usageLookup dbManager) (readerOf hdrs)) rpcReq resp
+        pure $ case era of
+            Legacy -> legacyResponse (framingOf hdrs) sid resp
+            Modern -> maybe (responseLBS status202 [] "") (modernResponse status200 . modernResult mName) resp
+
+-- | A POST read and checked: the era it belongs to, the method it asks, and the request.
+data Call = Call Era McpMethod RpcRequest
+
+{- | Read a POST body and check it at the door, or give the answer that
+refuses it: a body that is not JSON, a modern request whose version or
+headers do not hold, a method its era does not know.
+-}
+readCall :: Framing -> Text -> RequestHeaders -> BSL.ByteString -> Either Response Call
+readCall framing sid hdrs body = do
+    rpcReq <- first notJson (eitherDecode body)
+    era <- first (modernResponse status400 . rejectionReply (answerId rpcReq)) (classify hdrs rpcReq)
+    method <- maybe (Left (unknown era rpcReq)) Right (methodOf era (rpcMethod rpcReq))
+    pure (Call era method rpcReq)
+  where
+    notJson :: String -> Response
+    notJson err = legacyResponse PlainJson sid (Just (rpcError noRequestId (-32700) (T.pack ("Parse error: " ++ err))))
+    unknown :: Era -> RpcRequest -> Response
+    unknown era rpcReq = case era of
+        Legacy -> legacyResponse framing sid (Just notFound)
+        Modern -> modernResponse status404 notFound
+      where
+        notFound :: Value
+        notFound = rpcError (answerId rpcReq) (-32601) ("Method not found: " <> rpcMethod rpcReq)
+
+-- | How an answer of the old era is sent: as the client's @Accept@ asks.
+data Framing = EventStream | PlainJson
+
+framingOf :: RequestHeaders -> Framing
+framingOf hdrs
+    | "text/event-stream" `BS.isInfixOf` fromMaybe "" (lookup hAccept hdrs) = EventStream
+    | otherwise = PlainJson
 
 jsonResponse :: Status -> [(HeaderName, BS.ByteString)] -> Value -> Response
 jsonResponse status extra v =
@@ -288,11 +309,11 @@ modernResponse status = jsonResponse status []
 as an event stream when the client asked for one, and 202 with no body for a
 notification.
 -}
-legacyResponse :: Bool -> Text -> Maybe Value -> Response
-legacyResponse wantsSse sid = \case
+legacyResponse :: Framing -> Text -> Maybe Value -> Response
+legacyResponse framing sid = \case
     Nothing -> responseLBS status202 [(hContentType, "application/json"), session] ""
-    Just v
-        | wantsSse ->
+    Just v -> case framing of
+        EventStream ->
             responseLBS
                 status200
                 [ (hContentType, "text/event-stream; charset=utf-8")
@@ -301,8 +322,9 @@ legacyResponse wantsSse sid = \case
                 , session
                 ]
                 ("event: message\ndata: " <> encode v <> "\n\n")
-        | otherwise -> jsonResponse status200 [session] v
+        PlainJson -> jsonResponse status200 [session] v
   where
+    session :: (HeaderName, BS.ByteString)
     session = ("Mcp-Session-Id", TE.encodeUtf8 sid)
 
 -- ---------------------------------------------------------------------------
@@ -313,8 +335,9 @@ legacyResponse wantsSse sid = \case
 modernVersion :: Text
 modernVersion = "2026-07-28"
 
-{- | The era a request belongs to. Only 'classify' makes one, so a request of
-the modern era that reaches a tool has had its version and headers checked.
+{- | The era a request belongs to. The endpoint takes it from 'classify'
+alone, so a modern request that reaches a tool has had its version and
+headers checked.
 -}
 data Era = Legacy | Modern
     deriving (Eq, Show)
@@ -343,19 +366,25 @@ classify hdrs req
   where
     header :: HeaderName -> Maybe Text
     header n = TE.decodeUtf8Lenient <$> lookup n hdrs
+    headerVersion :: Maybe Text
     headerVersion = header "MCP-Protocol-Version"
+    params :: KeyMap Value
     params = case rpcParams req of
         Just (Object o) -> o
         _ -> mempty
+    meta :: KeyMap Value
     meta = case KM.lookup "_meta" params of
         Just (Object o) -> o
         _ -> mempty
+    metaVersion :: Maybe Text
     metaVersion = case KM.lookup "io.modelcontextprotocol/protocolVersion" meta of
         Just (String v) -> Just v
         _ -> Nothing
+    agrees :: Text -> Text -> Either Rejection ()
     agrees name expected
         | header (fromString (T.unpack name)) == Just expected = Right ()
         | otherwise = Left (HeaderMismatch name)
+    checked :: Either Rejection ()
     checked = do
         version <- maybe (Left (MalformedMeta "params._meta names no io.modelcontextprotocol/protocolVersion.")) Right metaVersion
         case KM.lookup "io.modelcontextprotocol/clientCapabilities" meta of
@@ -373,14 +402,14 @@ classify hdrs req
 legacyVersions :: [Text]
 legacyVersions = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"]
 
--- | The status and body that refuse a request of the modern era.
-rejectionReply :: RequestId -> Rejection -> (Status, Value)
+-- | The error that refuses a request of the modern era, sent with a 400.
+rejectionReply :: RequestId -> Rejection -> Value
 rejectionReply rid = \case
     UnsupportedVersion asked ->
-        (status400, rpcErrorWith rid (-32022) "Unsupported protocol version" ["supported" .= [modernVersion], "requested" .= asked])
+        rpcErrorWith rid (-32022) "Unsupported protocol version" ["supported" .= [modernVersion], "requested" .= asked]
     HeaderMismatch name ->
-        (status400, rpcError rid (-32020) ("The header " <> name <> " is missing or does not match the request body."))
-    MalformedMeta what -> (status400, rpcError rid (-32602) what)
+        rpcError rid (-32020) ("The header " <> name <> " is missing or does not match the request body.")
+    MalformedMeta what -> rpcError rid (-32602) what
 
 {- | Whether a request may come from where it says. A page of another site
 can make a browser post to a server on the reader's own machine; its @Origin@
@@ -393,6 +422,7 @@ sameOrigin hdrs = case lookup hOrigin hdrs of
     Just origin -> Just (authority origin) == (T.toLower . TE.decodeUtf8Lenient <$> lookup hHost hdrs)
   where
     -- "null", sent by a sandboxed page, has no scheme and so matches no host.
+    authority :: BS.ByteString -> Text
     authority o = case T.breakOn "://" (T.toLower (TE.decodeUtf8Lenient o)) of
         (_, rest) | not (T.null rest) -> T.drop 3 rest
         _ -> ""
@@ -403,6 +433,7 @@ it. An error carries no result and is left as it is.
 modernResult :: Maybe ServerName -> Value -> Value
 modernResult mName (Object o) = Object (maybe o (\r -> KM.insert "result" (stamp r) o) (KM.lookup "result" o))
   where
+    stamp :: Value -> Value
     stamp (Object r) = Object (r <> KM.fromList [("resultType", String "complete"), ("_meta", object ["io.modelcontextprotocol/serverInfo" .= serverInfo mName])])
     stamp r = r
 modernResult _ v = v
@@ -420,24 +451,29 @@ cachingHints = \case
 -- RPC dispatch
 -- ---------------------------------------------------------------------------
 
--- | The methods served. Which of them an era knows is 'methodOf'.
-data McpMethod = Initialize | Initialized | Ping | Discover | ListTools | CallTool
+{- | The methods served. Only 'methodOf' names one, from the era of the
+request: a modern request never reaches @initialize@, an old one never
+@server/discover@, and the tool list knows which era it answers.
+-}
+data McpMethod = Initialize | Initialized | Ping | Discover | ListTools Era | CallTool
 
 methodOf :: Era -> Text -> Maybe McpMethod
-methodOf era name = lookup name (common <> eraOnly era)
+methodOf era name = lookup name (common <> eraOnly)
   where
-    common = [("tools/list", ListTools), ("tools/call", CallTool)]
-    eraOnly = \case
+    common :: [(Text, McpMethod)]
+    common = [("tools/list", ListTools era), ("tools/call", CallTool)]
+    eraOnly :: [(Text, McpMethod)]
+    eraOnly = case era of
         Legacy -> [("initialize", Initialize), ("notifications/initialized", Initialized), ("ping", Ping)]
         Modern -> [("server/discover", Discover)]
 
-handleRpc :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> Era -> McpMethod -> RpcRequest -> IO (Maybe Value)
-handleRpc caller dbManager presets mHosting mBaseUrl mName era call req = case call of
+handleRpc :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpMethod -> RpcRequest -> IO (Maybe Value)
+handleRpc caller dbManager presets mHosting mBaseUrl mName call req = case call of
     Initialize -> Just <$> handleInitialize mName req
     Initialized -> return Nothing -- notification, no response
     Ping -> return $ Just $ rpcResult (answerId req) (object [])
     Discover -> return $ Just $ handleDiscover mName req
-    ListTools -> return $ Just $ handleToolsList era (hostingReadOnly mHosting) req
+    ListTools era -> return $ Just $ handleToolsList era (hostingReadOnly mHosting) req
     CallTool -> Just <$> handleToolsCall caller dbManager presets mHosting mBaseUrl req
 
 -- ---------------------------------------------------------------------------

@@ -5,8 +5,8 @@
 
 A client of the 2026-07-28 revision opens with @server/discover@, names its
 version in every request's @_meta@ and repeats it, with the method and the
-tool, in headers; the server checks them at the door. An older client, like
-the in-app assistant, sends none of that and is answered as it always was.
+tool, in headers; the server checks them at the door. An older client sends
+none of that and is answered as it always was.
 -}
 module MCPEraSpec (spec) where
 
