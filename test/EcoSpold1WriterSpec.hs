@@ -24,7 +24,7 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.Time.Calendar (fromGregorian)
+import Data.Time.Calendar (Day, fromGregorian)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
@@ -330,6 +330,10 @@ tapWaterDb nlWaterU =
 tapWaterU :: UUID
 tapWaterU = read "55555555-0000-4000-8000-000000000001"
 
+-- | The day every export of this spec is made on, so its output does not move with the clock.
+exportDay :: Day
+exportDay = fromGregorian 2026 11 25
+
 {- | The supplier's stored activity UUID, the first component of its
 'sdbActivities' key, and the value a solver-resolved input carries in
 'techActivityLinkId'. Deliberately a literal in a different namespace from
@@ -354,7 +358,7 @@ shows up here as the supplier's dataset number.
 -}
 roundTripSupplierLinks :: SimpleDatabase -> Either String [Int]
 roundTripSupplierLinks sdb =
-    case writeSimpleDatabase canonicalWriterOptions sdb of
+    case writeSimpleDatabase (canonicalWriterOptions exportDay) sdb of
         Left e -> Left (T.unpack e)
         Right txt ->
             case parseAllWithXeno (TE.encodeUtf8 txt) of
@@ -460,7 +464,7 @@ allExchanges = concatMap exchanges . M.elems . sdbActivities
 
 roundTrip :: SimpleDatabase -> Either String SimpleDatabase
 roundTrip sdb =
-    case writeSimpleDatabase canonicalWriterOptions sdb of
+    case writeSimpleDatabase (canonicalWriterOptions exportDay) sdb of
         Left e -> Left (T.unpack e)
         Right txt ->
             case parseAllWithXeno (TE.encodeUtf8 txt) of
@@ -524,21 +528,21 @@ spec = do
     describe "writeSimpleDatabaseChunks" $ do
         it "concatenates to the file writeSimpleDatabase answers" $ do
             sdb <- fixtureDb
-            (T.concat <$> writeSimpleDatabaseChunks canonicalWriterOptions sdb)
-                `shouldBe` writeSimpleDatabase canonicalWriterOptions sdb
+            (T.concat <$> writeSimpleDatabaseChunks (canonicalWriterOptions exportDay) sdb)
+                `shouldBe` writeSimpleDatabase (canonicalWriterOptions exportDay) sdb
 
         it "is one chunk per dataset between the envelope's two halves" $
-            (length <$> writeSimpleDatabaseChunks canonicalWriterOptions (linkedDb supplierLink))
+            (length <$> writeSimpleDatabaseChunks (canonicalWriterOptions exportDay) (linkedDb supplierLink))
                 `shouldBe` Right 4
 
         it "refuses before there is a chunk, so nothing sends half a file" $
-            writeSimpleDatabaseChunks canonicalWriterOptions (linkedDb danglingLink)
+            writeSimpleDatabaseChunks (canonicalWriterOptions exportDay) (linkedDb danglingLink)
                 `shouldSatisfy` isLeft
 
     describe "writeSimpleDatabase" $ do
         it "emits a well-formed EcoSpold1 document the parser accepts" $ do
             sdb <- fixtureDb
-            xml <- writeOk canonicalWriterOptions sdb
+            xml <- writeOk (canonicalWriterOptions exportDay) sdb
             T.isInfixOf "<ecoSpold" xml `shouldBe` True
             case parseAllWithXeno (TE.encodeUtf8 xml) of
                 Left err -> expectationFailure ("re-parse failed: " ++ err)
@@ -546,14 +550,63 @@ spec = do
 
         it "omits volatile attributes under canonicalWriterOptions" $ do
             sdb <- fixtureDb
-            xml <- writeOk canonicalWriterOptions sdb
+            xml <- writeOk (canonicalWriterOptions exportDay) sdb
             T.isInfixOf "generator=" xml `shouldBe` False
-            T.isInfixOf "timestamp=" xml `shouldBe` False
+            T.isInfixOf "<dataset number=\"1\">" xml `shouldBe` True
 
         it "includes a pinned generator under defaultWriterOptions" $ do
             sdb <- fixtureDb
-            xml <- writeOk defaultWriterOptions sdb
+            xml <- writeOk (defaultWriterOptions exportDay) sdb
             T.isInfixOf "generator=\"VoLCA\"" xml `shouldBe` True
+
+    -- Brightway's reader dereferences each of these on every dataset and
+    -- stops on the first one missing.
+    describe "the metadata a reader of the format needs" $ do
+        it "writes every element Brightway reads" $ do
+            xml <- writeOk (canonicalWriterOptions exportDay) (linkedDb supplierLink)
+            forM_ ["<technology ", "<timePeriod", "<startDate>", "<endDate>", "<dataSetInformation ", "<modellingAndValidation/>", "<dataEntryBy person=\"1\"/>", "<person number=\"1\" "] $ \element ->
+                (element, length (T.breakOnAll element xml)) `shouldBe` (element, 2)
+
+        it "dates a dataset stating no date by the export, and says so" $ do
+            xml <- writeOk (canonicalWriterOptions exportDay) (linkedDb supplierLink)
+            T.isInfixOf "<dataSetInformation timestamp=\"2026-11-25T00:00:00\"/>" xml `shouldBe` True
+            T.isInfixOf "<startDate>2026-01-01</startDate>" xml `shouldBe` True
+            T.isInfixOf "<endDate>2026-12-31</endDate>" xml `shouldBe` True
+            T.isInfixOf "Not stated by the source: the year of the export." xml `shouldBe` True
+
+        it "dates a dataset by the day it states" $ do
+            let dated = linkedDb supplierLink
+                revised = noDates{datesLastRevised = Just (fromGregorian 2011 6 30)}
+                db = dated{sdbActivities = M.map (\a -> a{activityDates = revised}) (sdbActivities dated)}
+            xml <- writeOk (canonicalWriterOptions exportDay) db
+            T.isInfixOf "<dataSetInformation timestamp=\"2011-06-30T00:00:00\"/>" xml `shouldBe` True
+            T.isInfixOf "<startDate>2011-01-01</startDate>" xml `shouldBe` True
+            T.isInfixOf "the year of the export" xml `shouldBe` False
+            T.isInfixOf "<timePeriod text=\"The year the dataset is dated.\">" xml `shouldBe` True
+
+        it "carries the technology the dataset describes" $ do
+            let db = linkedDb supplierLink
+                described = db{sdbActivities = M.map (\a -> a{activityDocumentation = [DocSection "Technology" "ring spinning"]}) (sdbActivities db)}
+            xml <- writeOk (canonicalWriterOptions exportDay) described
+            T.isInfixOf "<technology text=\"ring spinning\"/>" xml `shouldBe` True
+
+    -- EcoSpold 1 has one name per dataset, which a reader linking by name
+    -- matches an input on: the product's name, when it differs, is lost.
+    describe "one name per dataset" $ do
+        it "names a product, and the inputs buying it, after the activity making it" $ do
+            xml <- writeOk (canonicalWriterOptions exportDay) (tapWaterDb (read "55555555-0000-4000-8000-000000000002"))
+            T.isInfixOf "name=\"tap water\"" xml `shouldBe` False
+            length (T.breakOnAll "name=\"aaa tap water\"" xml) `shouldBe` 5
+
+        it "says how many products it renamed" $
+            renamedProducts (tapWaterDb (read "55555555-0000-4000-8000-000000000002"))
+                `shouldBe` ["EcoSpold 1 gives a dataset one name: 2 products are written under the name of the activity making them, \"tap water\" as \"aaa tap water\" first."]
+
+        it "keeps a coproduct's name, which tells apart the datasets of one activity" $ do
+            xml <- writeOk (canonicalWriterOptions exportDay) coproductDb
+            forM_ ["name=\"aaa product a\"", "name=\"aaa product b\""] $ \name ->
+                (name, T.isInfixOf name xml) `shouldBe` (name, True)
+            renamedProducts coproductDb `shouldBe` []
 
     -- The format keeps the day a dataset was created; the other two have no
     -- place in it and are not passed off as that one.
@@ -569,22 +622,25 @@ spec = do
     describe "round-trip (a) idempotence modulo volatile metadata" $
         it "write . parse . write == write (canonical)" $ do
             sdb <- fixtureDb
-            f0 <- writeOk canonicalWriterOptions sdb
+            f0 <- writeOk (canonicalWriterOptions exportDay) sdb
             case parseAllWithXeno (TE.encodeUtf8 f0) of
                 Left err -> expectationFailure ("re-parse failed: " ++ err)
                 Right results -> case sequence results of
                     Left err -> expectationFailure ("dataset failed: " ++ err)
                     Right datasets -> do
                         let sdb' = assembleSimpleDb datasets
-                        f1 <- writeOk canonicalWriterOptions sdb'
+                        f1 <- writeOk (canonicalWriterOptions exportDay) sdb'
                         f1 `shouldBe` f0
 
     describe "round-trip (b) semantic equality (order-insensitive)" $
-        it "parse(write(D)) reproduces the observable structure of D" $ do
+        it "parse(write(D)) reproduces the observable structure of D, its product named after its activity" $ do
+            -- The fixture's product, "electricity, high voltage", is made by
+            -- "electricity production": the one name EcoSpold 1 keeps.
             sdb <- fixtureDb
+            let named v = v{avExchanges = sort [if evRole e == "ref" then e{evName = avName v} else e | e <- avExchanges v]}
             case roundTrip sdb of
                 Left err -> expectationFailure ("round-trip failed: " ++ err)
-                Right sdb' -> dbViews sdb' `shouldBe` dbViews sdb
+                Right sdb' -> dbViews sdb' `shouldBe` map named (dbViews sdb)
 
     describe "round-trip (c) score-equivalence" $
         it "yields the same direct biosphere inventory within tolerance" $ do
@@ -633,8 +689,8 @@ spec = do
             it ("places an input where its linked maker is, the other maker's water being " <> shape) $ do
                 -- A reader holding the consumer alone links it by name and
                 -- location: with no location it took either tap water.
-                out <- writeOk canonicalWriterOptions (tapWaterDb nlWaterU)
-                let bought l = "name=\"tap water\"" `T.isInfixOf` l && "meanValue=\"0.07\"" `T.isInfixOf` l
+                out <- writeOk (canonicalWriterOptions exportDay) (tapWaterDb nlWaterU)
+                let bought l = "name=\"aaa tap water\"" `T.isInfixOf` l && "meanValue=\"0.07\"" `T.isInfixOf` l
                 filter ("location=\"IT\"" `T.isInfixOf`) (filter bought (T.lines out)) `shouldSatisfy` ((== 1) . length)
                 let inputs db = [techLocation e | e@TechnosphereExchange{techRole = Input} <- allExchanges db]
                 (inputs <$> roundTrip (tapWaterDb nlWaterU)) `shouldBe` Right [LocationCode "IT"]
@@ -663,7 +719,7 @@ spec = do
 
     describe "empty database" $ do
         it "writes a well-formed, dataset-free document the parser accepts" $ do
-            xml <- writeOk canonicalWriterOptions emptyDb
+            xml <- writeOk (canonicalWriterOptions exportDay) emptyDb
             case parseAllWithXeno (TE.encodeUtf8 xml) of
                 Left err -> expectationFailure ("re-parse failed: " ++ err)
                 Right results -> length results `shouldBe` 0

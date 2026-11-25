@@ -33,6 +33,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Time.Calendar (Day)
 
 import qualified BrightwayExcel.Writer as BE
 import Database.ExportFormulas (valuesOnly)
@@ -95,9 +96,12 @@ could not be worked out: the formats pointing at a supplier export all the
 same, under the names the source gave. Only Brightway writes the database's
 name, which its rows use to tell the file's own products from bought ones. Before any writer, each input a dependency supplies is
 written under that supplier's product and identity ('namedAfterLinks').
+
+The day given is the export's: EcoSpold 1 dates a dataset that states no date
+of its own with it.
 -}
-serializeDatabase :: UnitConfig -> DatabaseFormat -> M.Map Text [ScenarioValue] -> Either Text Dependencies -> Text -> Database -> Either Text (BL.ByteString, [Text])
-serializeDatabase units fmt saved dependencies name db = fmap (fmap (linkWarnings <>)) $ case fmt of
+serializeDatabase :: UnitConfig -> Day -> DatabaseFormat -> M.Map Text [ScenarioValue] -> Either Text Dependencies -> Text -> Database -> Either Text (BL.ByteString, [Text])
+serializeDatabase units today fmt saved dependencies name db = fmap (fmap (linkWarnings <>)) $ case fmt of
     -- Each writer runs its own check*Exportable and returns 'Left' on a database
     -- the format cannot represent faithfully, so the guard is unskippable.
     SimaProCSV -> dependencies >>= \deps -> first BL.fromStrict <$> SP.serializeSimaProCSVWithWarnings SP.defaultWriterConfig{SP.wcDependencies = deps} sdb
@@ -106,7 +110,7 @@ serializeDatabase units fmt saved dependencies name db = fmap (fmap (linkWarning
     EcoSpold1 ->
         dependencies >>= \(Dependencies found) -> case M.elems found of
             supplier : _ -> Left ("EcoSpold 1 names a supplier only among the processes of its own file, and cannot for an input supplied by " <> elDatabase supplier <> ". EcoSpold 2 and openLCA point at suppliers instead, and can.")
-            [] -> valuesOnlyWith [] (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks ES1.canonicalWriterOptions sdb)
+            [] -> valuesOnlyWith (ES1.renamedProducts sdb) (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks (ES1.canonicalWriterOptions today) sdb)
     EcoSpold2 -> first zipText <$> ES2.writeEcoSpold2WithWarnings ES2.noVolatileMeta sdb
     ILCDProcess -> dependencies >>= \deps -> valuesOnlyWith (ILCD.splitWarnings sdb) (ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = deps, ILCD.woUnits = units} sdb)
     BrightwayExcel -> dependencies >>= \deps -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig{BE.wcDatabaseName = name, BE.wcDependencies = deps, BE.wcUnits = units} sdb
