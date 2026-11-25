@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -8,6 +9,13 @@ supply chain: transport, electricity, fertilisers. Each process goes to the
 first group of the list whose filter it answers, the root to none, and what
 no group takes is the rest. The parts add up to the score, the rest computed
 as the others are and never as the total less the groups.
+
+Under the own-emissions reading a group may also, or instead, keep
+substances: all the nitrous oxide, or the nitrous oxide of the fields. It then
+takes emissions, a process and a flow, rather than whole processes: each
+emission goes to the first group that accepts both its process and its flow,
+and a field gives its nitrous oxide to one group and its carbon dioxide to
+the rest.
 
 Two readings of what a group's part is:
 
@@ -31,13 +39,25 @@ module Groups (
     readAttribution,
     attributionWord,
     Criteria (..),
-    GroupFilter,
-    groupFilter,
+    ProcessFilter,
+    processFilter,
     criteriaOf,
+    SubstanceMatch (..),
+    readSubstanceMatch,
+    substanceMatchWord,
+    EmissionCriteria (..),
+    EmissionFilter,
+    emissionFilter,
+    emissionCriteriaOf,
+    GroupFilter (..),
+    groupFilter,
+    processCriteriaOf,
+    emissionCriteriaOfGroup,
     Group (..),
     Groups,
     groups,
     groupList,
+    onlyProcesses,
     maxGroups,
     GroupIndex (..),
     groupNamed,
@@ -47,18 +67,31 @@ module Groups (
     -- * Which process goes where
     Assignment,
     Assigned (..),
+    processAnswers,
     firstGroup,
     assignment,
     unassigned,
     groupOfProcess,
     processesOfGroup,
 
+    -- * Which emission goes where
+    EmissionBasis (..),
+    Reach,
+    reachOf,
+    Masked,
+    masked,
+    emissionTest,
+
     -- * The parts
+    Split (..),
     Scalings,
     Parts (..),
     takenCount,
     summedByName,
     ownEmissionParts,
+    emissionPart,
+    emissionParts,
+    emissionsTaken,
     Solving (..),
     cutDatabase,
     databaseCycle,
@@ -69,7 +102,8 @@ module Groups (
     assembled,
 ) where
 
-import Control.Monad (forM, join)
+import Control.Monad (forM, guard, join)
+import Data.Bits (bit, countTrailingZeros, (.&.), (.|.))
 import Data.Char (isDigit)
 import Data.Containers.ListUtils (nubOrd)
 import Data.Either (partitionEithers)
@@ -84,8 +118,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
-import Database (Geographies, locationAnswers, referenceProductNames)
+import Data.Word (Word32)
+import Database (Geographies, flowFieldsOf, flowQueryIn, isNamedSubstance, locationAnswers, referenceProductNames)
 import Matrix (Demand (..), Vector, applyBiosphereMatrix, linkConsumer)
+import Method.ChemSynonyms (ChemSynonyms)
 import Method.Mapping (applyLongTermMode)
 import qualified Search.Normalize as Normalize
 import Service (matchClassifications)
@@ -126,22 +162,24 @@ data Criteria = Criteria
     }
     deriving (Eq, Show)
 
-{- | Criteria that keep something: built only by 'groupFilter', which refuses
+{- | Criteria that keep something: built only by 'processFilter', which refuses
 those that would take every process, or every process but some.
 -}
-newtype GroupFilter = GroupFilter Criteria
+newtype ProcessFilter = ProcessFilter Criteria
     deriving (Eq, Show)
 
-criteriaOf :: GroupFilter -> Criteria
-criteriaOf (GroupFilter c) = c
+criteriaOf :: ProcessFilter -> Criteria
+criteriaOf (ProcessFilter c) = c
 
 -- | The filter of these criteria, blanks dropped, or why there is none.
-groupFilter :: Criteria -> Either Text GroupFilter
-groupFilter c
+processFilter :: Criteria -> Either Text ProcessFilter
+processFilter c
     | any (T.null . T.strip . clfValue) (cfKept classes ++ cfLeftOut classes) = Left "A classification of a group has no value."
+    | isNothing name && isNothing productText && isNothing place && null (cfKept classes) && not (null (cfLeftOut classes)) =
+        Left "A group's classifications only leave processes out: name what its processes are too, a name, a product, a place or a classification to keep."
     | isNothing name && isNothing productText && isNothing place && null (cfKept classes) =
-        Left "A group needs a name, a product, a place or a classification to keep: without one it would take every process."
-    | otherwise = Right (GroupFilter c{crName = name, crProduct = productText, crLocation = place})
+        Left "A group needs a name, a product, a place, a classification or a substance to keep: without one it would take every process."
+    | otherwise = Right (ProcessFilter c{crName = name, crProduct = productText, crLocation = place})
   where
     classes :: ClassificationFilters
     classes = crClassifications c
@@ -151,26 +189,117 @@ groupFilter c
     productText = unblank (crProduct c)
     place = unblank (crLocation c)
 
-    unblank :: Maybe Text -> Maybe Text
-    unblank = (>>= \t -> let s = T.strip t in if T.null s then Nothing else Just s)
+unblank :: Maybe Text -> Maybe Text
+unblank = (>>= \t -> let s = T.strip t in if T.null s then Nothing else Just s)
 
--- | A group: what its part is called, and the processes it takes.
-data Group = Group
-    { groupName :: Text
-    , groupFilterOf :: GroupFilter
+-- | How a group reads the name of a substance.
+data SubstanceMatch
+    = -- | The flow is the substance named: by its own name, a name the registry gives the same substance, a formula or a CAS ('isNamedSubstance')
+      IsTheSubstance
+    | -- | The flow's own name contains the text, for a family such as HFC
+      NameContains
+    deriving (Eq, Show)
+
+-- | The word a request names a reading of a substance with: @substance@ or @contains@.
+readSubstanceMatch :: Text -> Either Text SubstanceMatch
+readSubstanceMatch = \case
+    "substance" -> Right IsTheSubstance
+    "contains" -> Right NameContains
+    other -> Left ("Unknown way to read a substance '" <> other <> "': use substance or contains.")
+
+substanceMatchWord :: SubstanceMatch -> Text
+substanceMatchWord = \case
+    IsTheSubstance -> "substance"
+    NameContains -> "contains"
+
+{- | What a group asks of an emission: the substance, read one of two ways,
+and the compartment it goes to or is taken from.
+-}
+data EmissionCriteria = EmissionCriteria
+    { ecSubstance :: Maybe (SubstanceMatch, Text)
+    , ecMedium :: Maybe Medium
     }
     deriving (Eq, Show)
 
-{- | The groups of a request, in the order a process is offered to them: at
-least one, at most 'maxGroups', no two of a name.
+{- | Criteria on emissions that keep something: built only by 'emissionFilter',
+which refuses those that would take every emission.
 -}
-newtype Groups = Groups (NonEmpty Group)
+newtype EmissionFilter = EmissionFilter EmissionCriteria
     deriving (Eq, Show)
 
+emissionCriteriaOf :: EmissionFilter -> EmissionCriteria
+emissionCriteriaOf (EmissionFilter c) = c
+
+-- | The filter of these criteria, a blank name dropped, or why there is none.
+emissionFilter :: EmissionCriteria -> Either Text EmissionFilter
+emissionFilter c = case (substance, ecMedium c) of
+    (Nothing, Nothing) -> Left "A group's substance needs a name or a compartment: without one it would take every emission."
+    _ -> Right (EmissionFilter c{ecSubstance = substance})
+  where
+    substance :: Maybe (SubstanceMatch, Text)
+    substance = ecSubstance c >>= \(match, name) -> (match,) <$> unblank (Just name)
+
+-- | What a group keeps: processes, emissions, or the emissions of some processes. Never nothing, never everything.
+data GroupFilter
+    = Processes ProcessFilter
+    | Emissions EmissionFilter
+    | ProcessesAndEmissions ProcessFilter EmissionFilter
+    deriving (Eq, Show)
+
+{- | The filter of criteria on processes and, if asked, on emissions. Criteria
+on processes that name nothing at all beside criteria on emissions leave the
+processes free.
+-}
+groupFilter :: Criteria -> Maybe EmissionCriteria -> Either Text GroupFilter
+groupFilter c = \case
+    Nothing -> Processes <$> processFilter c
+    Just e
+        | namesNothing -> Emissions <$> emissionFilter e
+        | otherwise -> ProcessesAndEmissions <$> processFilter c <*> emissionFilter e
+  where
+    namesNothing :: Bool
+    namesNothing =
+        all (isNothing . unblank) [crName c, crProduct c, crLocation c]
+            && null (cfKept (crClassifications c))
+            && null (cfLeftOut (crClassifications c))
+
+processCriteriaOf :: GroupFilter -> Maybe Criteria
+processCriteriaOf = \case
+    Processes p -> Just (criteriaOf p)
+    Emissions _ -> Nothing
+    ProcessesAndEmissions p _ -> Just (criteriaOf p)
+
+emissionCriteriaOfGroup :: GroupFilter -> Maybe EmissionCriteria
+emissionCriteriaOfGroup = \case
+    Processes _ -> Nothing
+    Emissions e -> Just (emissionCriteriaOf e)
+    ProcessesAndEmissions _ e -> Just (emissionCriteriaOf e)
+
+-- | A group: what its part is called, and what it takes.
+data Group f = Group
+    { groupName :: Text
+    , groupFilterOf :: f
+    }
+    deriving (Eq, Show, Functor, Foldable, Traversable)
+
+{- | The groups of a request, in the order a process or an emission is offered
+to them: at least one, at most 'maxGroups', no two of a name.
+-}
+newtype Groups f = Groups (NonEmpty (Group f))
+    deriving (Eq, Show, Functor, Foldable, Traversable)
+
+-- | Twenty groups: each has a bit in the 'Word32' masks of 'Masked'.
 maxGroups :: Int
 maxGroups = 20
 
-groups :: [Group] -> Either Text Groups
+-- | The groups as groups of processes, when none of them keeps a substance.
+onlyProcesses :: Groups GroupFilter -> Maybe (Groups ProcessFilter)
+onlyProcesses = traverse $ \case
+    Processes p -> Just p
+    Emissions _ -> Nothing
+    ProcessesAndEmissions _ _ -> Nothing
+
+groups :: [Group f] -> Either Text (Groups f)
 groups listed = case listed of
     [] -> Left "Name at least one group."
     g : gs
@@ -182,7 +311,7 @@ groups listed = case listed of
     duplicates :: [Text]
     duplicates = M.keys (M.filter (> (1 :: Int)) (M.fromListWith (+) [(groupName g, 1) | g <- listed]))
 
-groupList :: Groups -> [Group]
+groupList :: Groups f -> [Group f]
 groupList (Groups gs) = NE.toList gs
 
 -- | A group by its position in the list.
@@ -190,7 +319,7 @@ newtype GroupIndex = GroupIndex Int
     deriving (Eq, Ord, Show)
 
 -- | The position of the group of that name, or why there is none.
-groupNamed :: Groups -> Text -> Either Text GroupIndex
+groupNamed :: Groups f -> Text -> Either Text GroupIndex
 groupNamed gs name =
     maybe
         (Left ("No group is named '" <> name <> "': the groups are " <> T.intercalate ", " (map groupName (groupList gs)) <> "."))
@@ -246,16 +375,17 @@ data ValueShape = Coded | Plain | Path
     deriving (Eq, Ord)
 
 -- | The first group whose filter an activity answers.
-firstGroup :: Geographies -> Database -> Groups -> Activity -> Maybe GroupIndex
-firstGroup geographies db gs activity = GroupIndex <$> findIndex (answers . criteriaOf . groupFilterOf) (groupList gs)
-  where
-    answers :: Criteria -> Bool
-    answers c =
-        maybe True (`Normalize.caseInsensitiveInfixOf` activityName activity) (crName c)
-            && maybe True (\pat -> any (Normalize.caseInsensitiveInfixOf pat) (referenceProductNames db activity)) (crProduct c)
-            && maybe True (\pat -> locationAnswers geographies pat (activityLocation activity)) (crLocation c)
-            && matchClassifications activity (cfKept (crClassifications c))
-            && not (any (`classificationMatches` activityClassification activity) (cfLeftOut (crClassifications c)))
+firstGroup :: Geographies -> Database -> Groups ProcessFilter -> Activity -> Maybe GroupIndex
+firstGroup geographies db gs activity = GroupIndex <$> findIndex (\g -> processAnswers geographies db (groupFilterOf g) activity) (groupList gs)
+
+-- | Whether an activity answers a filter on processes.
+processAnswers :: Geographies -> Database -> ProcessFilter -> Activity -> Bool
+processAnswers geographies db (ProcessFilter c) activity =
+    maybe True (`Normalize.caseInsensitiveInfixOf` activityName activity) (crName c)
+        && maybe True (\pat -> any (Normalize.caseInsensitiveInfixOf pat) (referenceProductNames db activity)) (crProduct c)
+        && maybe True (\pat -> locationAnswers geographies pat (activityLocation activity)) (crLocation c)
+        && matchClassifications activity (cfKept (crClassifications c))
+        && not (any (`classificationMatches` activityClassification activity) (cfLeftOut (crClassifications c)))
 
 -- | The group of each column of a database's matrix, if it has one.
 type Assignment = V.Vector (Maybe GroupIndex)
@@ -326,9 +456,184 @@ plus (db, a) (_, b) = (db, U.zipWith (+) a b)
 them, by database name.
 -}
 data Assigned = Assigned
-    { assignedGroups :: Groups
+    { assignedGroups :: Groups ProcessFilter
     , assignedColumns :: M.Map Text Assignment
     }
+
+{- | How a split goes: under the whole-chain reading, by process; under the
+own-emissions reading, by process when no group keeps a substance, by
+emission when one does. The whole chain is never split by emission.
+-}
+data Split
+    = WholeChain Assigned
+    | OwnByProcess Assigned
+    | OwnByEmission Masked
+
+{- | What a split by emission reads each group's reach from: the places, the
+chemical names, the flows (merged across databases), the root, the databases
+whose licence withholds their detail, and the databases reached.
+-}
+data EmissionBasis = EmissionBasis
+    { ebGeographies :: Geographies
+    , ebChemicals :: ChemSynonyms
+    , ebFlows :: BioFlowDB
+    , ebRoot :: (Text, ProcessId)
+    , ebWithheld :: [Text]
+    , ebReached :: Scalings
+    }
+
+{- | Where one group reaches in one database: the columns whose process its
+criteria on processes accept, and the rows whose flow its criteria on
+substances accept. A criterion the group does not have accepts all.
+-}
+data Reach = Reach
+    { reachColumns :: !(U.Vector Bool)
+    , reachRows :: !(U.Vector Bool)
+    }
+
+{- | Where a group reaches in each database reached. A group of processes
+never takes the root, which would give it the whole score; a group that keeps
+substances whatever their process takes the root's own emissions, without
+which the nitrous oxide of a field scored alone would stay out of a group of
+all the nitrous oxide. A database whose licence withholds its detail is in
+no group. A row the flows do not describe is in no group that keeps
+substances.
+-}
+reachOf :: EmissionBasis -> GroupFilter -> M.Map Text Reach
+reachOf EmissionBasis{ebGeographies = geographies, ebChemicals = chemicals, ebFlows = flows, ebRoot = (rootName, rootProcess), ebWithheld = withheld, ebReached = reached} gf =
+    M.mapWithKey reachIn reached
+  where
+    reachIn :: Text -> (Database, Vector) -> Reach
+    reachIn name (db, _) = Reach{reachColumns = columns, reachRows = rows}
+      where
+        processes :: V.Vector ProcessId
+        processes = processesByColumn db
+
+        rootColumn :: Maybe Int
+        rootColumn
+            | name == rootName = fromIntegral <$> dbActivityIndex db V.!? fromIntegral rootProcess
+            | otherwise = Nothing
+
+        acceptedBy :: ProcessFilter -> Int -> Bool
+        acceptedBy p c = Just c /= rootColumn && processAnswers geographies db p (dbActivities db V.! fromIntegral (processes V.! c))
+
+        columns :: U.Vector Bool
+        columns
+            | name `elem` withheld = U.replicate (V.length processes) False
+            | otherwise = U.generate (V.length processes) $ \c -> case gf of
+                Processes p -> acceptedBy p c
+                ProcessesAndEmissions p _ -> acceptedBy p c
+                Emissions _ -> True
+
+        rowCount :: Int
+        rowCount = fromIntegral (dbBiosphereCount db)
+
+        rows :: U.Vector Bool
+        rows = case emissionOf gf of
+            Nothing -> U.replicate rowCount True
+            Just e ->
+                let takes = emissionTest chemicals db e
+                 in U.generate rowCount (\i -> maybe False takes (flip M.lookup flows =<< dbBiosphereOrder db V.!? i))
+
+    emissionOf :: GroupFilter -> Maybe EmissionFilter
+    emissionOf = \case
+        Processes _ -> Nothing
+        Emissions e -> Just e
+        ProcessesAndEmissions _ e -> Just e
+
+{- | Whether an emission filter takes a flow of one database: the substance
+read against that database's registry and the chemical names, once for every
+flow it is asked of; the compartment by its medium, which a flow without one
+never answers.
+-}
+emissionTest :: ChemSynonyms -> Database -> EmissionFilter -> BiosphereFlow -> Bool
+emissionTest chemicals db (EmissionFilter EmissionCriteria{ecSubstance = substance, ecMedium = medium}) = \flow -> inMedium flow && named flow
+  where
+    inMedium :: BiosphereFlow -> Bool
+    inMedium flow = maybe True (\m -> fmap compartmentName (bfCompartment flow) == Just m) medium
+
+    named :: BiosphereFlow -> Bool
+    named = case substance of
+        Nothing -> const True
+        Just (IsTheSubstance, text) -> let query = flowQueryIn chemicals db text in isNamedSubstance query . flowFieldsOf . BioKind
+        Just (NameContains, text) -> Normalize.caseInsensitiveInfixOf text . bfName
+
+{- | Each group's reach combined, by database: a bit per group on each column
+and each row, the first group the lowest bit. An emission goes to the lowest
+group whose bit both its column and its row carry.
+-}
+data Masked = Masked
+    { maskedCount :: !Int
+    , maskedColumns :: !(M.Map Text (U.Vector Word32))
+    , maskedRows :: !(M.Map Text (U.Vector Word32))
+    }
+
+-- | The masks of groups' reaches, in the order of the groups.
+masked :: [M.Map Text Reach] -> Masked
+masked reaches = Masked{maskedCount = length reaches, maskedColumns = bits reachColumns, maskedRows = bits reachRows}
+  where
+    bits :: (Reach -> U.Vector Bool) -> M.Map Text (U.Vector Word32)
+    bits field = M.unionsWith (U.zipWith (.|.)) [M.map (U.map (\b -> if b then bit g else 0) . field) r | (g, r) <- zip [0 ..] reaches]
+
+-- | The group an entry goes to, at a row and a column of a database, if any.
+destination :: U.Vector Word32 -> U.Vector Word32 -> SparseTriple -> Maybe GroupIndex
+destination columns rows (SparseTriple i j _) = case (columns U.! fromIntegral j) .&. (rows U.! fromIntegral i) of
+    0 -> Nothing
+    common -> Just (GroupIndex (countTrailingZeros common))
+
+-- | The masks of one database, none where the split has none for it: all its emissions then go to the rest.
+masksOf :: Masked -> Text -> Database -> (U.Vector Word32, U.Vector Word32)
+masksOf Masked{maskedColumns = columns, maskedRows = rows} name db =
+    ( M.findWithDefault (U.replicate (fromIntegral (dbActivityCount db)) 0) name columns
+    , M.findWithDefault (U.replicate (fromIntegral (dbBiosphereCount db)) 0) name rows
+    )
+
+{- | One part of a split by emission, a group's or the rest: each database
+with only the entries of its biosphere matrix that go there, and the scaling
+of the processes that keep one. A part that keeps every entry of a database
+keeps the database itself, whose regionalized weights are then those already
+summed; a database a part keeps nothing of is left out of it. Rows, columns
+and flows are never numbered again.
+-}
+emissionPart :: Masked -> Maybe GroupIndex -> Scalings -> Scalings
+emissionPart m wanted = M.mapMaybeWithKey keep
+  where
+    keep :: Text -> (Database, Vector) -> Maybe (Database, Vector)
+    keep name (db, v) = do
+        let (columns, rows) = masksOf m name db
+            entries = dbBiosphereTriples db
+            kept = U.filter ((== wanted) . destination columns rows) entries
+            keeps = U.update (U.replicate (U.length v) False) (U.map (\(SparseTriple _ j _) -> (fromIntegral j, True)) kept)
+        guard (not (U.null kept))
+        pure
+            ( if U.length kept == U.length entries then db else db{dbBiosphere = byColumn kept}
+            , U.zipWith (\x k -> if k then x else 0) v keeps
+            )
+
+-- | The rest and each group's part of a split by emission.
+emissionParts :: Masked -> Scalings -> Parts
+emissionParts m scalings =
+    Parts
+        { partsRest = emissionPart m Nothing scalings
+        , partsGroups = taken
+        , partsTaken = taken
+        }
+  where
+    taken :: [Scalings]
+    taken = [emissionPart m (Just (GroupIndex g)) scalings | g <- [0 .. maskedCount m - 1]]
+
+{- | The emissions a group takes, by database: where its entries sit in each
+database's biosphere matrix, of processes the solution reaches. Two groups
+taking the same take the same part.
+-}
+emissionsTaken :: Masked -> GroupIndex -> Scalings -> [(Text, U.Vector Int)]
+emissionsTaken m g scalings =
+    [ (name, at)
+    | (name, (db, v)) <- M.toList scalings
+    , let (columns, rows) = masksOf m name db
+          at = U.findIndices (\e@(SparseTriple _ j _) -> v U.! fromIntegral j /= 0 && destination columns rows e == Just g) (dbBiosphereTriples db)
+    , not (U.null at)
+    ]
 
 -- | The scalings of each database split by the group of each process.
 splitBy :: Assigned -> Scalings -> Parts
@@ -343,10 +648,10 @@ splitBy Assigned{assignedGroups = gs, assignedColumns = assignments} scalings =
     taken = [keeping (== Just (GroupIndex g)) | g <- [0 .. length (groupList gs) - 1]]
 
     keeping :: (Maybe GroupIndex -> Bool) -> Scalings
-    keeping keep = M.mapWithKey (\name (db, v) -> (db, masked keep (M.findWithDefault (unassigned db) name assignments) v)) scalings
+    keeping keep = M.mapWithKey (\name (db, v) -> (db, kept keep (M.findWithDefault (unassigned db) name assignments) v)) scalings
 
-    masked :: (Maybe GroupIndex -> Bool) -> Assignment -> Vector -> Vector
-    masked keep asg = U.imap (\c x -> if keep (asg V.! c) then x else 0)
+    kept :: (Maybe GroupIndex -> Bool) -> Assignment -> Vector -> Vector
+    kept keep asg = U.imap (\c x -> if keep (asg V.! c) then x else 0)
 
 -- | Each group's own emissions: the solution's scalings split by group.
 ownEmissionParts :: Assigned -> CrossDBSolution -> Parts
@@ -505,7 +810,7 @@ processesByColumn :: Database -> V.Vector ProcessId
 processesByColumn db = V.update (V.replicate (V.length (dbActivityIndex db)) 0) (V.imap (\pid column -> (fromIntegral column, fromIntegral pid)) (dbActivityIndex db))
 
 {- | A part as a solution scored the way the score is: every database of the
-score listed in its order, each at the part's scaling (zero where the part
+score listed in its order, each with the part's data and at its scaling (zero where the part
 reaches none of it, and a second listing of a database at zero), any other
 database the part reaches after them, then the inventory built again and the
 long-term policy applied. Listing every database of the score keeps the
@@ -531,4 +836,4 @@ assembled flowDB sol part =
         here :: Reached
         here
             | reachedName r `S.member` seen = SharedSolver.atZero r
-            | otherwise = maybe (SharedSolver.atZero r) (\(_, v) -> r{reachedScaling = v}) (M.lookup (reachedName r) part)
+            | otherwise = maybe (SharedSolver.atZero r) (\(db, v) -> r{reachedDatabase = db, reachedScaling = v}) (M.lookup (reachedName r) part)

@@ -28,8 +28,9 @@ module DependencyLicenceSpec (
     spec,
 ) where
 
-import Control.Concurrent.STM (atomically, modifyTVar')
-import Control.Monad (void)
+import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
+import Control.Exception (evaluate)
+import Control.Monad (forM_, void, (<=<))
 import Data.Aeson (Object, Value (..))
 import Data.Aeson.Key (Key)
 import qualified Data.Aeson.Key as Key
@@ -43,6 +44,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as U
 import Servant (ServerError, errHTTPCode, runHandler)
 import Test.Hspec
 
@@ -55,8 +57,10 @@ import qualified Database.Manager as DM
 import FlowContributionSpec (payloadOf)
 import Groups (maxGroups)
 import Impact (LicencedSolution (..), WithheldPart (..), partitionByLicence, scoreSolution)
+import Method.Mapping (MethodTables (..), RegionalActivityWeights (..))
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..))
 import qualified SharedSolver as SS
+import System.Mem.StableName (makeStableName)
 import Types
 import Usage (anonymous)
 
@@ -222,6 +226,34 @@ numbersAt list field o =
     , Just (Number n) <- [KM.lookup field row]
     ]
 
+-- | The databases and contributions of the withheld lines of a group tool's answer.
+withheldLines :: Object -> [(Value, Value)]
+withheldLines o =
+    [ (database, contribution)
+    | Just (Array rows) <- [KM.lookup "withheldDatabases" o]
+    , Object row <- toList rows
+    , Just database <- [KM.lookup "database" row]
+    , Just contribution <- [KM.lookup "contribution" row]
+    ]
+
+-- | The root emitting 1 kg of carbon dioxide and 0.5 kg of methane; the dependency emits 2 kg of methane, one flow with it.
+twoFlowRoot :: Database
+twoFlowRoot =
+    root
+        { dbBiosphere = byColumn (U.fromList [SparseTriple 0 0 1, SparseTriple 1 0 0.5])
+        , dbBiosphereOrder = V.fromList [bfId testFlow, bfId methane]
+        , dbBiosphereCount = 2
+        , dbBioFlows = M.fromList [(bfId testFlow, testFlow), (bfId methane, methane)]
+        }
+
+-- | The climate method with factors read where each process stands: 4 for carbon dioxide, 10 for methane, in France.
+regionalClimate :: Method
+regionalClimate =
+    climate
+        { methodId = mkUUID 7002
+        , methodFactors = [(factor testFlow 4){mcfConsumerLocation = Just "FR"}, (factor methane 10){mcfConsumerLocation = Just "FR"}]
+        }
+
 runIn :: DM.DatabaseManager -> AppM a -> IO (Either Int a)
 runIn manager handler = either (Left . errHTTPCode) Right <$> runInError manager handler
 
@@ -351,6 +383,78 @@ spec = do
                     members reading Nothing `shouldReturn` (Just (Number 1), [1])
                 )
                 ["first-match", "own"]
+
+    describe "MCP, a group keeping a substance, under a method read where each process stands" $ do
+        it "lists the group's processes and flows first, caches the factors summed over the database as loaded, and adds up" $ do
+            manager <- managerOn twoFlowRoot dependency LicenceUnstated
+            atomically $ modifyTVar' (DM.dmLoadedMethods manager) (M.insert collection (MethodCollection [regionalClimate] [] []))
+            let co2 = Array (V.singleton (Object (KM.fromList [("name", String "CO2"), ("filter", Object (KM.singleton "flow" (Object (KM.singleton "name" (String "Carbon dioxide")))))])))
+                regional = ("method_id", String (UUID.toText (methodId regionalClimate)))
+                flows group = do
+                    o <- payload =<< callOn manager "get_group_flows" ([regional, ("groups", co2)] ++ [("group", String g) | Just g <- [group]])
+                    pure (KM.lookup "totalScore" o, numbersAt "topFlows" "contribution" o)
+            -- On a cold cache, the group's part is the first thing scored: its database holds only the root's carbon dioxide.
+            members <- payload =<< callOn manager "get_group_members" [regional, ("groups", co2), ("group", String "CO2")]
+            (KM.lookup "total_score" members, numbersAt "processes" "contribution" members) `shouldBe` (Just (Number 4), [4])
+            flows (Just "CO2") `shouldReturn` (Just (Number 4), [4])
+            Just loaded <- DM.getDatabase manager "root"
+            cached <- M.lookup ("root", DM.CollectionName collection, methodId regionalClimate) <$> readTVarIO (DM.dmMethodTablesCache manager)
+            summedOver <- traverse (makeStableName <=< evaluate . rawSummedOver) (mtRegionalActivityWeights =<< cached)
+            asLoaded <- makeStableName =<< evaluate (dbBiosphereTriples (DM.ldDatabase loaded))
+            (summedOver == Just asLoaded) `shouldBe` True
+            flows Nothing `shouldReturn` (Just (Number 25), [25])
+            o <- payload =<< callOn manager "get_impacts" [regional]
+            KM.lookup "score" o `shouldBe` Just (Number 29)
+
+        -- A group's flows can be one process's own exchanges through the factors: a licence keeping the amounts withholds them too.
+        forM_ [("its detail", detailKept), ("the amounts of its exchanges", inventoryKept)] $ \(kept, licence) ->
+            it ("lists in the rest only a line for a database whose licence keeps " <> kept <> ", and none in a group") $ do
+                manager <- managerOn twoFlowRoot dependency licence
+                let co2 = Array (V.singleton (Object (KM.fromList [("name", String "CO2"), ("filter", Object (KM.singleton "flow" (Object (KM.singleton "name" (String "Carbon dioxide")))))])))
+                    flows group = do
+                        o <- payload =<< callOn manager "get_group_flows" (("groups", co2) : [("group", String g) | Just g <- [group]])
+                        pure (KM.lookup "totalScore" o, length (numbersAt "topFlows" "contribution" o), withheldLines o)
+                flows (Just "CO2") `shouldReturn` (Just (Number 1), 1, [])
+                flows Nothing `shouldReturn` (Just (Number 25), 1, [(String "dep", Number 20)])
+
+        it "refuses the flows of a group of a root whose licence keeps the amounts of its exchanges" $ do
+            manager <- managerOn twoFlowRoot dependency LicenceUnstated
+            DM.addDatabase manager (configFor "root" inventoryKept)
+            let co2 = Array (V.singleton (Object (KM.fromList [("name", String "CO2"), ("filter", Object (KM.singleton "flow" (Object (KM.singleton "name" (String "Carbon dioxide")))))])))
+            reply <- callOn manager "get_group_flows" [("groups", co2), ("group", String "CO2")]
+            errorText reply `shouldSatisfy` maybe False ("root" `T.isInfixOf`)
+
+        it "adds up, the withheld database's line included" $ do
+            manager <- managerOn twoFlowRoot dependency detailKept
+            let co2 = Array (V.singleton (Object (KM.fromList [("name", String "CO2"), ("filter", Object (KM.singleton "flow" (Object (KM.singleton "name" (String "Carbon dioxide")))))])))
+                score = \case
+                    Object scores -> KM.lookup (Key.fromText (UUID.toText (methodId climate))) scores
+                    _ -> Nothing
+            o <- payload =<< callOn manager "get_group_contributions" [("groups", co2)]
+            ( KM.lookup "attribution" o
+                , score =<< KM.lookup "total" o
+                , [score =<< KM.lookup "scores" g | Just (Array gs) <- [KM.lookup "groups" o], Object g <- toList gs]
+                , score =<< KM.lookup "rest" o
+                , [score =<< KM.lookup "scores" w | Just (Array ws) <- [KM.lookup "withheldDatabases" o], Object w <- toList ws]
+                )
+                `shouldBe` (Just (String "own"), Just (Number 26), [Just (Number 1)], Just (Number 5), [Just (Number 20)])
+
+        it "refuses a flow to group by under the whole-chain reading" $ do
+            manager <- managerOn twoFlowRoot dependency LicenceUnstated
+            reply <- callOn manager "get_group_candidates" [("groups", Array V.empty), ("attribution", String "first-match"), ("candidate_flow", String (UUID.toText (bfId testFlow)))]
+            errorText reply `shouldSatisfy` maybe False ("only the own-emissions reading splits" `T.isInfixOf`)
+            offered <- payload =<< callOn manager "get_group_candidates" [("groups", Array V.empty), ("candidate_flow", String (UUID.toText (bfId testFlow)))]
+            numbersAt "candidates" "score" offered `shouldBe` [1]
+
+        it "gives no link to the groups page, which reads only what a group takes of processes" $ do
+            manager <- managerOn twoFlowRoot dependency LicenceUnstated
+            let co2 = Array (V.singleton (Object (KM.fromList [("name", String "CO2"), ("filter", Object (KM.singleton "flow" (Object (KM.singleton "name" (String "Carbon dioxide")))))])))
+                france = Array (V.singleton (Object (KM.fromList [("name", String "France"), ("filter", Object (KM.singleton "location" (String "FR")))])))
+                linked tool groups' = do
+                    o <- payload =<< callTool anonymous manager [] Nothing (Just "https://volca.example") noRequestId tool (KM.fromList [("database", String "root"), ("process_id", String rootPid), ("method_id", String (UUID.toText (methodId climate))), ("collection", String collection), ("groups", groups')])
+                    pure (KM.member "web_url" o)
+            mapM_ (\tool -> linked tool co2 `shouldReturn` False) ["get_group_members", "get_group_flows", "get_group_contributions"]
+            mapM_ (\tool -> linked tool france `shouldReturn` True) ["get_group_members", "get_group_flows", "get_group_contributions"]
 
     describe "MCP, the groups a process could start" $ do
         let candidates manager extra = callOn manager "get_group_candidates" (("candidate", String ("dep::" <> processIdToText dependency 0)) : extra)

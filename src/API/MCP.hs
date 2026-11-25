@@ -61,9 +61,9 @@ import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPagePath, groupsQuery, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
+import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec, GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, parseProducerFilter, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, parseProducerFilter, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
@@ -653,10 +653,23 @@ paramsToSchema ps =
                                     , "product" .= stringField "Contained in the reference product, case aside"
                                     , "location" .= stringField "That place or one within it"
                                     , "classifications" .= object ["type" .= ("array" :: Text), "items" .= groupClassificationSchema]
+                                    , "flow" .= groupFlowSchema
                                     ]
                             ]
                     ]
             , "required" .= (["name", "filter"] :: [Text])
+            ]
+
+    groupFlowSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "description" .= ("Under attribution 'own' only: the emissions of a substance this group keeps, of the processes the other keys take, or of every process when they are left out. At least a name or a medium" :: Text)
+            , "properties"
+                .= object
+                    [ "name" .= stringField "A substance: its flow name, a synonym, a formula (N2O) or a CAS (10024-97-2)"
+                    , "match" .= stringField "substance (default): the flow is that substance, never a name only containing it (methane does not take dichlorodifluoro-methane); contains: the flow name contains it, case aside"
+                    , "medium" .= stringField "air | water | soil | resource: emissions to that medium, or resources taken"
+                    ]
             ]
 
     groupClassificationSchema =
@@ -1018,6 +1031,7 @@ dispatchTool Caller{callerReader = reader, callerAuthor = by} dbManager presets 
     R.GetContributingActivities -> callGetContributingActivities dbManager mBaseUrl rid args
     R.GetGroupContributions -> callGetGroupContributions dbManager mBaseUrl rid args
     R.GetGroupMembers -> callGetGroupMembers dbManager mBaseUrl rid args
+    R.GetGroupFlows -> callGetGroupFlows dbManager mBaseUrl rid args
     R.GetGroupCandidates -> callGetGroupCandidates dbManager rid args
     R.GetScoreContributingFlows -> callGetScoreContributingFlows dbManager mBaseUrl rid args
     R.GetScoreContributingActivities -> callGetScoreContributingActivities dbManager mBaseUrl rid args
@@ -3015,7 +3029,7 @@ callGetGroupContributions dbManager mBaseUrl rid args =
                     , grCollection = DM.CollectionName collName
                     }
         result <- liftIO (groupContributionsOf dbManager root (mcMethods mc) request)
-        let link = (<> (groupsPagePath dbName pidText (DM.CollectionName collName) <> groupsQuery request)) <$> groupsPageBase mBaseUrl args
+        let link = (<> (groupsPagePath dbName pidText (DM.CollectionName collName) <> groupsQuery request)) <$> groupsPageBase mBaseUrl args specs
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . addWebUrlMaybe link . toJSON) result
 
 callGetGroupMembers :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
@@ -3026,15 +3040,31 @@ callGetGroupMembers dbManager mBaseUrl rid args =
         let lim = fromMaybe 10 (intArg "limit" args)
         result <- liftIO (groupMembersOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
         GroupMembers{gmSolution = sol, gmParts = parts} <- either (throwE . groupFailureText) pure result
-        let path = groupsPagePath (lrDbName req) (raText (lrResolved req)) (lrCollection req) <> "/" <> encodeSegment (lrMethodIdText req) <> groupsQuery (GroupsRequest attribution specs)
-        toolSuccessJson rid . object . (<> webUrlField (groupsPageBase mBaseUrl args) path) <$> processesFields dbManager mBaseUrl req lim sol parts
+        toolSuccessJson rid . object . (<> webUrlField (groupsPageBase mBaseUrl args specs) (groupPagePath req attribution specs)) <$> processesFields dbManager mBaseUrl req lim sol parts
+
+callGetGroupFlows :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
+callGetGroupFlows dbManager mBaseUrl rid args =
+    runTool rid $ do
+        req <- loadLcaRequest dbManager args
+        (attribution, specs) <- except (groupsArgs args)
+        let request = GroupMembersRequest attribution specs (textArg "group" args) (Just (fromMaybe 20 (intArg "limit" args)))
+            link = (<> groupPagePath req attribution specs) <$> groupsPageBase mBaseUrl args specs
+        result <- liftIO (groupFlowsOf dbManager (lcaGroupRoot req args) (lrMethod req) request)
+        either (throwE . groupFailureText) (pure . toolSuccessJson rid . addWebUrlMaybe link . toJSON) result
+
+-- | The groups page of one impact category, with the groups asked.
+groupPagePath :: LcaRequest -> Maybe Text -> [GroupSpec] -> Text
+groupPagePath req attribution specs = groupsPagePath (lrDbName req) (raText (lrResolved req)) (lrCollection req) <> "/" <> encodeSegment (lrMethodIdText req) <> groupsQuery (GroupsRequest attribution specs)
 
 {- | Where a link to the groups page starts. None when long-term emissions are
-left out: the page counts them, so it would show other totals.
+left out: the page counts them, so it would show other totals. None either
+when a group keeps a substance: the page reads only what a group takes of
+processes, so it would show another group under the same name.
 -}
-groupsPageBase :: Maybe Text -> KeyMap Value -> Maybe Text
-groupsPageBase mBaseUrl args
+groupsPageBase :: Maybe Text -> KeyMap Value -> [GroupSpec] -> Maybe Text
+groupsPageBase mBaseUrl args specs
     | fromMaybe False (boolArg "exclude_long_term" args) = Nothing
+    | any (isJust . gfsFlow . gspFilter) specs = Nothing
     | otherwise = mBaseUrl
 
 callGetGroupCandidates :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
@@ -3042,8 +3072,7 @@ callGetGroupCandidates dbManager rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
         (attribution, specs) <- except (groupsArgs args)
-        candidate <- except (requireText "candidate" args)
-        result <- liftIO (groupCandidatesOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupCandidatesRequest attribution specs candidate))
+        result <- liftIO (groupCandidatesOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupCandidatesRequest attribution specs (textArg "candidate" args) (textArg "candidate_flow" args)))
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . toJSON) result
 
 -- | The root a group tool names: the request's process, under the long-term policy its arguments ask.

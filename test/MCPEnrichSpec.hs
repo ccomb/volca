@@ -96,8 +96,9 @@ twoGroups =
             , gfsProduct = Just "film"
             , gfsLocation = Nothing
             , gfsClassifications = Just [GroupClassification "ISIC rev.4" "2220:plastics/rubber" "starts-with", GroupClassification "CPC" "36" "not-exact"]
+            , gfsFlow = Nothing
             }
-    , GroupSpec "Transport" (GroupFilterSpec (Just "transport") Nothing (Just "FR") Nothing)
+    , GroupSpec "Transport" (GroupFilterSpec (Just "transport") Nothing (Just "FR") Nothing Nothing)
     ]
 
 spec :: Spec

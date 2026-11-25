@@ -11,10 +11,17 @@ C 1000. Solved, A = 2.5 / 0.95 and B = 3 + A / 10.
 The linked pair: in database R the root buys 1 T (transport, emits 3), and
 T buys 2 D0 from database D. In D, D0 (emits 5) buys 1 D1 (emits 7), and D1
 buys 1 D2 (emits 11). The score is 3 + 2·(5 + 7 + 11) = 49.
+
+The fields: the root buys 1 field and 1 transport, each emitting several
+flows ('fieldFlows'), each amount a power of two times ten so a sum names the
+emissions it holds.
 -}
 module GroupsSpec (spec) where
 
 import Control.Monad (forM)
+import Data.Aeson (eitherDecode)
+import qualified Data.ByteString.Lazy as BL
+import Data.Int (Int32)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -23,12 +30,15 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Test.Hspec
 
-import CrossDBRegionalLCIAFixture (kgUnitConfig, linkAt, mkDB)
+import API.Routes (attributionOf, candidateOf, flowCandidates, readGroups)
+import API.Types (GroupFilterSpec, GroupSpec (..))
+import CrossDBRegionalLCIAFixture (kgUnit, kgUnitConfig, linkAt, mkDB, mkUUID)
 import DependencyLicenceSpec (referenceOf)
 import Groups
 import Matrix (Demand (..), Vector, buildDemandVector)
+import Method.ChemSynonyms (ChemSynonyms, parseChemSynonymsCSV)
 import SharedSolver (CrossDBSolution (..), DepSolverLookup, Reached (..), SharedSolver, chainWeights, computeInventoryMatrixWithDepsCached, goWithDeps, weightAt)
-import TestHelpers (mkSolverFromDb, unitDef)
+import TestHelpers (mkSolverFromDb, shippedGeographies, unitDef)
 import Types hiding (Attribution)
 import UnitConversion (defaultDimensionOrder, mkUnitConfig)
 
@@ -69,11 +79,87 @@ assignedAt name taken = M.singleton name (V.generate (fromIntegral (dbActivityCo
         "D" -> linkedDep
         _ -> linkedRoot
 
-twoGroups :: Groups
+twoGroups :: Groups ProcessFilter
 twoGroups = either (error . T.unpack) id (groups [Group "transport" (named "transport"), Group "fertiliser" (named "fertiliser")])
 
-named :: Text -> GroupFilter
-named n = either (error . T.unpack) id (groupFilter (Criteria (Just n) Nothing Nothing (ClassificationFilters [] [])))
+named :: Text -> ProcessFilter
+named n = either (error . T.unpack) id (processFilter (nameCriteria (Just n)))
+
+nameCriteria :: Maybe Text -> Criteria
+nameCriteria n = Criteria n Nothing Nothing (ClassificationFilters [] [])
+
+{- | The flows of the fields, by row: N2O to air, to water and with no
+compartment, two methanes of one CAS, a refrigerant whose name holds
+@methane@, fossil CO2; row 7 has no metadata.
+-}
+fieldFlows :: [BiosphereFlow]
+fieldFlows =
+    [ flowAt 0 "Dinitrogen monoxide" (Just "10024-97-2") (Just Air)
+    , flowAt 1 "Dinitrogen monoxide" (Just "10024-97-2") (Just Water)
+    , flowAt 2 "Methane, fossil" (Just "74-82-8") (Just Air)
+    , flowAt 3 "Methane, biogenic" (Just "74-82-8") (Just Air)
+    , flowAt 4 "Methane, dichlorodifluoro-, CFC-12" (Just "75-71-8") (Just Air)
+    , flowAt 5 "Carbon dioxide, fossil" (Just "124-38-9") (Just Air)
+    , flowAt 6 "Dinitrogen monoxide" (Just "10024-97-2") Nothing
+    ]
+  where
+    flowAt :: Integer -> Text -> Maybe Text -> Maybe Medium -> BiosphereFlow
+    flowAt k name cas medium =
+        BiosphereFlow
+            { bfId = mkUUID (100 + k)
+            , bfName = name
+            , bfUnitId = unitId kgUnit
+            , bfSynonyms = M.empty
+            , bfCAS = cas
+            , bfSubstanceId = Nothing
+            , bfCompartment = (`Compartment` Nothing) <$> medium
+            }
+
+-- | Root 0, field 1, transport 2; each triple is (row, column, amount).
+fields :: Database
+fields =
+    base
+        { dbBiosphere = byColumn (U.fromList [SparseTriple r c v | (r, c, v) <- emissions])
+        , dbBiosphereOrder = V.fromList [mkUUID (100 + k) | k <- [0 .. 7]]
+        , dbBiosphereCount = 8
+        , dbBioFlows = M.fromList [(bfId f, f) | f <- fieldFlows]
+        }
+  where
+    base :: Database
+    base = (producing 1400 [(0, 0), (1, 0), (2, 0)] [SparseTriple 1 0 1, SparseTriple 2 0 1]){dbActivities = V.imap (\i act -> act{activityName = ["root", "field", "transport"] !! i}) (dbActivities (producing 1400 [(0, 0), (1, 0), (2, 0)] []))}
+
+    emissions :: [(Int32, Int32, Double)]
+    emissions =
+        [(0, 0, 1), (5, 0, 2)]
+            ++ [(r, 1, v) | (r, v) <- [(0, 10), (1, 20), (2, 40), (3, 80), (6, 160), (7, 320)]]
+            ++ [(0, 2, 1000), (4, 2, 2000), (5, 2, 4000)]
+
+-- | Three substances of the shipped list, as its file writes them.
+fieldChemicals :: ChemSynonyms
+fieldChemicals =
+    either (error . ("chemical names: " <>)) id $
+        parseChemSynonymsCSV "cas;canonical_name;synonyms...\n10024-97-2;Nitrous oxide;N2O\n74-82-8;Methane;CH4\n124-38-9;Carbon dioxide;CO2\n"
+
+-- | The fields' parts under groups, each a filter, split by emission.
+fieldParts :: CrossDBSolution -> [GroupFilter] -> Parts
+fieldParts sol filters = emissionParts (masked (map (reachOf basis) filters)) scalings
+  where
+    scalings :: Scalings
+    scalings = summedByName (csScalings sol)
+
+    basis :: EmissionBasis
+    basis = EmissionBasis shippedGeographies fieldChemicals (dbBioFlows fields) ("fields", 0) [] scalings
+
+-- | A group keeping the processes named (any when 'Nothing') and the emissions given.
+keeping :: Maybe Text -> Maybe EmissionCriteria -> GroupFilter
+keeping name emission = either (error . T.unpack) id (groupFilter (nameCriteria name) emission)
+
+substance :: Text -> Maybe Medium -> EmissionCriteria
+substance text = EmissionCriteria (Just (IsTheSubstance, text))
+
+-- | A group as the wire writes it, from its JSON filter.
+wired :: Text -> BL.ByteString -> GroupSpec
+wired name filterJson = GroupSpec name (either error id (eitherDecode filterJson))
 
 -- | The solution of a root, its database solved with its dependencies.
 solved :: DepSolverLookup -> Database -> Text -> SharedSolver -> ProcessId -> IO CrossDBSolution
@@ -201,14 +287,90 @@ spec = do
             V.toList asg `shouldBe` [Nothing, Just (GroupIndex 0), Just (GroupIndex 0), Just (GroupIndex 0)]
 
         it "refuses a group that would take every process" $ do
-            groupFilter (Criteria (Just "  ") Nothing Nothing (ClassificationFilters [] [ClassificationFilter "CPC" "64" MatchPrefix])) `shouldSatisfy` isLeft
+            isLeft (processFilter (Criteria (Just "  ") Nothing Nothing (ClassificationFilters [] [ClassificationFilter "CPC" "64" MatchPrefix]))) `shouldBe` True
 
         it "refuses two groups of one name, and no group" $ do
-            groups [Group "a" (named "x"), Group "a" (named "y")] `shouldSatisfy` isLeft
-            groups [] `shouldSatisfy` isLeft
+            isLeft (groups [Group "a" (named "x"), Group "a" (named "y")]) `shouldBe` True
+            isLeft (groups []) `shouldBe` True
 
         it "names the groups when asked for one that is not there" $ do
             groupNamed twoGroups "energy" `shouldBe` Left "No group is named 'energy': the groups are transport, fertiliser."
+
+    describe "groups that keep substances, split by emission" $ do
+        let solvedFields = do
+                solver <- mkSolverFromDb fields "fields"
+                solved noDeps fields "fields" solver 0
+            total = 1 + 2 + 630 + 7000
+        it "gives a group the substance of its processes, then the next group the rest of it, and adds up" $ do
+            sol <- solvedFields
+            let parts = fieldParts sol [keeping (Just "field") (Just (substance "N2O" Nothing)), keeping Nothing (Just (substance "N2O" Nothing)), keeping (Just "transport") Nothing]
+            -- Rest: the root's CO2, the field's methanes and its row without metadata.
+            amounts sol parts `closeTo` [2 + 40 + 80 + 320, 10 + 20 + 160, 1 + 1000, 2000 + 4000]
+            sum (amounts sol parts) `closeTo'` total
+            map takenCount (partsTaken parts) `shouldBe` [1, 2, 1]
+
+        it "reads a substance as the substance, never as a name holding it, unless asked" $ do
+            sol <- solvedFields
+            amounts sol (fieldParts sol [keeping Nothing (Just (substance "methane" Nothing))]) `closeTo` [total - 120, 40 + 80]
+            amounts sol (fieldParts sol [keeping Nothing (Just (EmissionCriteria (Just (NameContains, "methane")) Nothing))]) `closeTo` [total - 2120, 40 + 80 + 2000]
+
+        it "takes no flow named otherwise when the flows carry no CAS" $ do
+            let withoutCas = fields{dbBioFlows = M.map (\f -> f{bfCAS = Nothing}) (dbBioFlows fields)}
+            solver <- mkSolverFromDb withoutCas "fields"
+            sol <- solved noDeps withoutCas "fields" solver 0
+            let partsOf filters = emissionParts (masked (map (reachOf (EmissionBasis shippedGeographies fieldChemicals (dbBioFlows withoutCas) ("fields", 0) [] scalings)) filters)) scalings
+                scalings = summedByName (csScalings sol)
+            -- No registry here: methane names neither flow, and a flow's own name takes that flow alone.
+            amounts sol (partsOf [keeping Nothing (Just (substance "methane" Nothing))]) `closeTo` [total, 0]
+            amounts sol (partsOf [keeping Nothing (Just (substance "Methane, fossil" Nothing))]) `closeTo` [total - 40, 40]
+
+        it "finds a substance by its CAS, and by its medium alone" $ do
+            sol <- solvedFields
+            -- In the air only: not the field's N2O to water, nor the one without a compartment.
+            amounts sol (fieldParts sol [keeping Nothing (Just (substance "10024-97-2" (Just Air)))]) `closeTo` [total - 1011, 1 + 10 + 1000]
+            amounts sol (fieldParts sol [keeping Nothing (Just (EmissionCriteria Nothing (Just Water)))]) `closeTo` [total - 20, 20]
+
+        it "never gives the root to a group of processes, but to a group of a substance alone" $ do
+            sol <- solvedFields
+            amounts sol (fieldParts sol [keeping (Just "t") (Just (substance "N2O" Nothing))]) `closeTo` [total - 1000, 1000]
+            amounts sol (fieldParts sol [keeping (Just "t") Nothing]) `closeTo` [total - 7000, 7000]
+            amounts sol (fieldParts sol [keeping Nothing (Just (substance "N2O" Nothing))]) `closeTo` [total - 1191, 1191]
+
+        it "gives a group of processes a row without metadata, never a group of a substance" $ do
+            sol <- solvedFields
+            amounts sol (fieldParts sol [keeping Nothing (Just (substance "N2O" Nothing)), keeping (Just "field") Nothing]) `closeTo` [2 + 2000 + 4000, 1 + 190 + 1000, 120 + 320]
+            -- Every flow named holds an o: all is taken but the row without metadata.
+            amounts sol (fieldParts sol [keeping Nothing (Just (EmissionCriteria (Just (NameContains, "o")) Nothing))]) `closeTo` [320, total - 320]
+
+        it "leaves out of a part a database it keeps nothing of, and keeps all of one it keeps every emission of" $ do
+            sol <- solvedFields
+            let parts = fieldParts sol [keeping Nothing (Just (substance "Xenon" Nothing))]
+            map (null . M.lookup "fields") (partsGroups parts) `shouldBe` [True]
+            fmap (dbBiosphereTriples . fst) (M.lookup "fields" (partsRest parts)) `shouldBe` Just (dbBiosphereTriples fields)
+
+        it "refuses a substance that would take every emission, or read in an unknown way" $ do
+            isLeft (emissionFilter (EmissionCriteria Nothing Nothing)) `shouldBe` True
+            isLeft (emissionFilter (EmissionCriteria (Just (IsTheSubstance, "  ")) Nothing)) `shouldBe` True
+            isLeft (readSubstanceMatch "exact") `shouldBe` True
+
+    describe "reading groups that keep substances" $ do
+        let n2o = wired "N2O" "{\"flow\": {\"name\": \"N2O\"}}"
+            transport = wired "Transport" "{\"name\": \"transport\"}"
+            reading = either (const Nothing) (Just . attributionWord . attributionOf)
+        it "reads them as their own emissions when the reading is left out, and refuses the whole chain" $ do
+            reading (readGroups Nothing [transport, n2o]) `shouldBe` Just "own"
+            reading (readGroups Nothing [transport]) `shouldBe` Just "first-match"
+            isLeft (readGroups (Just "first-match") [transport, n2o]) `shouldBe` True
+        it "refuses a way to read a name without the name, an unknown way, and an unknown medium" $ do
+            isLeft (readGroups Nothing [wired "x" "{\"flow\": {\"match\": \"contains\"}}"]) `shouldBe` True
+            isLeft (readGroups Nothing [wired "x" "{\"flow\": {\"name\": \"CO2\", \"match\": \"exact\"}}"]) `shouldBe` True
+            isLeft (eitherDecode "{\"flow\": {\"medium\": \"aire\"}}" :: Either String GroupFilterSpec) `shouldBe` True
+        it "takes a process or a flow to group by, exactly one" $ do
+            either (const False) (const True) (candidateOf (Just "p") Nothing) `shouldBe` True
+            isLeft (candidateOf (Just "p") (Just "f")) `shouldBe` True
+            isLeft (candidateOf Nothing Nothing) `shouldBe` True
+        it "offers a flow by its name in its compartment, then in any, then by its CAS" $
+            map fst (flowCandidates (head fieldFlows)) `shouldBe` ["Dinitrogen monoxide (air)", "Dinitrogen monoxide", "Dinitrogen monoxide (CAS 10024-97-2, air)", "Dinitrogen monoxide (CAS 10024-97-2)"]
 
     describe "the starts-with classification mode" $ do
         it "takes a code and the codes under it, not a code that only contains it" $ do

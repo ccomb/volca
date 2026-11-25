@@ -14,7 +14,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChainConsumers, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), GroupCandidate (..), GroupCandidates (..), GroupCandidatesRequest (..), GroupClassification (..), GroupContributions (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupPart (..), GroupSet (..), GroupSpec (..), GroupsRequest (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), RootDb (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldScores (..), WithheldShare, apiFlowOfKind, formulaLanguage, parseProducerFilter, parseSubRef)
+import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChainConsumers, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), GroupCandidate (..), GroupCandidates (..), GroupCandidatesRequest (..), GroupClassification (..), GroupContributions (..), GroupFilterSpec (..), GroupFlowSpec (..), GroupMembersRequest (..), GroupPart (..), GroupSet (..), GroupSpec (..), GroupsRequest (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), RootDb (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldScores (..), WithheldShare (..), apiFlowOfKind, formulaLanguage, parseProducerFilter, parseSubRef)
 import App.Env (AppEnv (..), AppM, counted, countedEach, httpOrigin, runApp)
 import qualified Builtin
 import Config (DatabaseConfig (..))
@@ -25,7 +25,7 @@ import Control.Concurrent.QSem (signalQSem, waitQSem)
 import Control.Concurrent.STM (readTVarIO)
 import Control.DeepSeq (force)
 import Control.Exception (evaluate)
-import Control.Monad (forM, forM_, mfilter, unless, when, zipWithM)
+import Control.Monad (forM, forM_, mfilter, unless, void, when, zipWithM)
 import Control.Monad.Catch (bracket_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
@@ -146,6 +146,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "sensitivity" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> ReqBody '[JSON] SensitivityRequest :> Post '[JSON] SensitivityResponse
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "groups" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] GroupsRequest :> Post '[JSON] GroupContributions
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "group-members" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] GroupMembersRequest :> Post '[JSON] ContributingActivitiesResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "group-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] GroupMembersRequest :> Post '[JSON] ContributingFlowsResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "group-candidates" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] GroupCandidatesRequest :> Post '[JSON] GroupCandidates
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "reduced-model" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] ReducedModelRequest :> Post '[JSON] ReducedModel
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> QueryParam "flow" Text :> QueryParam "limit" Int :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] InventoryExport
@@ -1669,7 +1670,12 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 121: a flow search that also finds by a chemical formula, by a
+(revision 122: groups that keep substances under the own-emissions
+reading, by a @flow@ criterion on a group's filter (a name read as the
+substance or as contained, and a compartment); the flows of one group by a
+POST to the @group-flows@ route; the groups a flow could start, by
+@candidate_flow@ on the @group-candidates@ route;
+revision 121: a flow search that also finds by a chemical formula, by a
 name the synonym registry gives the same substance, and by CAS; the processes
 that emit an emission as its @producer@ side; the @get_flow_activities@ tool;
 revision 120: the groups made ready for the classification systems a
@@ -1947,7 +1953,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 121
+currentWireVersion = 122
 
 getVersion :: AppM Value
 getVersion = do
@@ -3142,23 +3148,69 @@ data GroupFailure
       GroupsWithheld !Text
 
 -- | The reading and the groups a request names.
-data GroupsAsked = GroupsAsked
-    { gaAttribution :: !Groups.Attribution
-    , gaGroups :: !Groups.Groups
-    }
+data GroupsAsked
+    = -- | Each group's own emissions: a group may keep substances
+      OwnEmissionsOf !(Groups.Groups Groups.GroupFilter)
+    | -- | Each group's whole chain below the first process of a group met: a group keeps processes only
+      WholeChainOf !(Groups.Groups Groups.ProcessFilter)
+
+attributionOf :: GroupsAsked -> Groups.Attribution
+attributionOf = \case
+    OwnEmissionsOf _ -> Groups.OwnEmissions
+    WholeChainOf _ -> Groups.WholeChainBelowFirstMatch
+
+groupNamesIn :: GroupsAsked -> [Text]
+groupNamesIn = \case
+    OwnEmissionsOf gs -> map Groups.groupName (Groups.groupList gs)
+    WholeChainOf gs -> map Groups.groupName (Groups.groupList gs)
+
+groupNamedIn :: GroupsAsked -> Text -> Either Text Groups.GroupIndex
+groupNamedIn = \case
+    OwnEmissionsOf gs -> Groups.groupNamed gs
+    WholeChainOf gs -> Groups.groupNamed gs
 
 -- | The reading and groups a request names, or why they are refused.
 readGroups :: Maybe Text -> [GroupSpec] -> Either Text GroupsAsked
-readGroups word specs = GroupsAsked <$> maybe (Right Groups.WholeChainBelowFirstMatch) Groups.readAttribution word <*> (Groups.groups =<< traverse readGroup specs)
-  where
-    readGroup :: GroupSpec -> Either Text Groups.Group
-    readGroup GroupSpec{gspName = name, gspFilter = f} =
-        first (\why -> "Group '" <> name <> "': " <> why) $ do
-            classes <- traverse moded (fromMaybe [] (gfsClassifications f))
-            Groups.Group name <$> Groups.groupFilter (Groups.Criteria (gfsName f) (gfsProduct f) (gfsLocation f) (splitByMode classes))
+readGroups word specs = do
+    attribution <- traverse Groups.readAttribution word
+    askedAs attribution =<< Groups.groups =<< traverse readGroup specs
 
+{- | Groups under the reading named. Left out, it is the whole chain, unless
+a group keeps substances: only its own emissions can be split by substance,
+so that is the one reading left. The group-contributions answer says it was
+taken, and the tools' description of the reading says it for the others.
+Named, the whole chain refuses a group that keeps substances.
+-}
+askedAs :: Maybe Groups.Attribution -> Groups.Groups Groups.GroupFilter -> Either Text GroupsAsked
+askedAs attribution gs = case attribution of
+    Just Groups.OwnEmissions -> Right (OwnEmissionsOf gs)
+    Just Groups.WholeChainBelowFirstMatch -> maybe (Left keepsSubstances) (Right . WholeChainOf) (Groups.onlyProcesses gs)
+    Nothing -> Right (maybe (OwnEmissionsOf gs) WholeChainOf (Groups.onlyProcesses gs))
+  where
+    keepsSubstances :: Text
+    keepsSubstances =
+        "Group '"
+            <> T.intercalate "', '" [Groups.groupName g | g <- Groups.groupList gs, isJust (Groups.emissionCriteriaOfGroup (Groups.groupFilterOf g))]
+            <> "' keeps substances, which only the own-emissions reading splits: in the whole chain below a process, which group a substance emitted further up goes to has no one answer. Ask attribution own, or leave it out."
+
+-- | One group as a request writes it, or why it is refused.
+readGroup :: GroupSpec -> Either Text (Groups.Group Groups.GroupFilter)
+readGroup GroupSpec{gspName = name, gspFilter = f} =
+    first (\why -> "Group '" <> name <> "': " <> why) $ do
+        classes <- traverse moded (fromMaybe [] (gfsClassifications f))
+        emission <- traverse readFlowCriteria (gfsFlow f)
+        Groups.Group name <$> Groups.groupFilter (Groups.Criteria (gfsName f) (gfsProduct f) (gfsLocation f) (splitByMode classes)) emission
+  where
     moded :: GroupClassification -> Either Text ModedFilter
     moded GroupClassification{gclSystem = system, gclValue = value, gclMode = mode} = ModedFilter system value <$> readClassificationMode mode
+
+-- | The substance a group keeps, as a request writes it: a way to read its name says nothing without the name.
+readFlowCriteria :: GroupFlowSpec -> Either Text Groups.EmissionCriteria
+readFlowCriteria GroupFlowSpec{gflName = name, gflMatch = match, gflMedium = medium} = case (T.strip <$> name, match) of
+    (named, Just _) | maybe True T.null named -> Left "Its substance says how to read a name ('match') but names none."
+    (named, _) -> do
+        reading <- maybe (Right Groups.IsTheSubstance) Groups.readSubstanceMatch match
+        pure (Groups.EmissionCriteria ((reading,) <$> named) medium)
 
 {- | A root as a split between groups reads it: its database, solver and
 process, what its scores are for, the long-term policy of its solution and
@@ -3187,22 +3239,46 @@ groupRootOf dbName db solver pid activity collectionName mExcludeLT =
         , grCollection = collectionName
         }
 
--- | A root's solution, where each of its processes goes, and its parts.
+-- | A root's solution, how it splits, and its parts.
 data GroupSplit = GroupSplit
     { gsSolution :: !SharedSolver.CrossDBSolution
-    , gsAssigned :: !Groups.Assigned
+    , gsSplit :: !Groups.Split
     , gsParts :: !Groups.Parts
     }
 
 {- | The root's solution under its long-term policy, where each of its
-processes goes, and its parts in the reading asked. A process of a database
-whose licence withholds its detail goes to no group.
+processes or emissions goes, and its parts in the reading asked. A process of
+a database whose licence withholds its detail goes to no group.
 -}
 splitIntoGroups :: DatabaseManager -> GroupRoot -> GroupsAsked -> ExceptT GroupFailure IO GroupSplit
-splitIntoGroups dbManager root GroupsAsked{gaAttribution = attribution, gaGroups = gs} = do
+splitIntoGroups dbManager root wanted = do
     reached@RootReached{rrSolution = sol} <- rootReached dbManager root
-    let assignments = assignedIn dbManager root reached gs
-    GroupSplit sol assignments <$> partsUnder dbManager root sol attribution assignments
+    basis <- liftIO (emissionBasis dbManager root reached)
+    let split = splitAs (assignedIn dbManager root reached) (Groups.masked . map (Groups.reachOf basis . Groups.groupFilterOf) . Groups.groupList) wanted
+    GroupSplit sol split <$> partsUnder dbManager root sol split
+
+{- | How the groups asked split a solution, by the assignment of processes and
+the masks of emissions given: the whole chain by process; the own emissions
+by process when no group keeps a substance, by emission when one does.
+-}
+splitAs :: (Groups.Groups Groups.ProcessFilter -> Groups.Assigned) -> (Groups.Groups Groups.GroupFilter -> Groups.Masked) -> GroupsAsked -> Groups.Split
+splitAs assign mask = \case
+    WholeChainOf gs -> Groups.WholeChain (assign gs)
+    OwnEmissionsOf gs -> maybe (Groups.OwnByEmission (mask gs)) (Groups.OwnByProcess . assign) (Groups.onlyProcesses gs)
+
+-- | What a split by emission reads a group's reach from, for this root.
+emissionBasis :: DatabaseManager -> GroupRoot -> RootReached -> IO Groups.EmissionBasis
+emissionBasis dbManager GroupRoot{grName = dbName, grProcess = pid} RootReached{rrSolution = sol, rrWithheld = withheld} = do
+    (mFlows, _) <- DM.getMergedFlowMetadata dbManager
+    pure
+        Groups.EmissionBasis
+            { Groups.ebGeographies = DM.managerGeographies dbManager
+            , Groups.ebChemicals = dmChemSynonyms dbManager
+            , Groups.ebFlows = mFlows
+            , Groups.ebRoot = (dbName, pid)
+            , Groups.ebWithheld = withheld
+            , Groups.ebReached = Groups.summedByName (SharedSolver.csScalings sol)
+            }
 
 -- | The root's solution under its long-term policy, and the databases it reaches whose licence withholds their detail.
 data RootReached = RootReached
@@ -3217,7 +3293,7 @@ rootReached dbManager GroupRoot{grName = dbName, grDatabase = db, grSolver = sol
     RootReached sol <$> liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
 
 -- | Where each process the root reaches goes: the first group it answers; the root, and a withheld database's processes, to none.
-assignedIn :: DatabaseManager -> GroupRoot -> RootReached -> Groups.Groups -> Groups.Assigned
+assignedIn :: DatabaseManager -> GroupRoot -> RootReached -> Groups.Groups Groups.ProcessFilter -> Groups.Assigned
 assignedIn dbManager GroupRoot{grName = dbName, grProcess = pid} RootReached{rrSolution = sol, rrWithheld = withheld} gs =
     Groups.Assigned gs (M.mapWithKey assigned (Groups.summedByName (SharedSolver.csScalings sol)))
   where
@@ -3226,11 +3302,12 @@ assignedIn dbManager GroupRoot{grName = dbName, grProcess = pid} RootReached{rrS
         | name `elem` withheld = Groups.unassigned d
         | otherwise = Groups.assignment (Groups.firstGroup (DM.managerGeographies dbManager) d gs) (if name == dbName then Just pid else Nothing) d
 
--- | The parts of the root's solution under an assignment, in the reading asked.
-partsUnder :: DatabaseManager -> GroupRoot -> SharedSolver.CrossDBSolution -> Groups.Attribution -> Groups.Assigned -> ExceptT GroupFailure IO Groups.Parts
-partsUnder dbManager GroupRoot{grDatabase = db, grProcess = pid} sol attribution assignments = case attribution of
-    Groups.OwnEmissions -> pure (Groups.ownEmissionParts assignments sol)
-    Groups.WholeChainBelowFirstMatch -> do
+-- | The parts of the root's solution as it splits.
+partsUnder :: DatabaseManager -> GroupRoot -> SharedSolver.CrossDBSolution -> Groups.Split -> ExceptT GroupFailure IO Groups.Parts
+partsUnder dbManager GroupRoot{grDatabase = db, grProcess = pid} sol = \case
+    Groups.OwnByProcess assignments -> pure (Groups.ownEmissionParts assignments sol)
+    Groups.OwnByEmission m -> pure (Groups.emissionParts m (Groups.summedByName (SharedSolver.csScalings sol)))
+    Groups.WholeChain assignments -> do
         unitCfg <- liftIO (getMergedUnitConfig dbManager)
         demand <- withExceptT GroupsRefused (except (Matrix.buildDemandVector db pid))
         withExceptT GroupsRefused (ExceptT (Groups.firstMatchParts (Groups.Solving unitCfg (DM.mkDepSolverLookup dbManager) holding) sol demand assignments))
@@ -3253,10 +3330,10 @@ groupContributionsOf dbManager root methods GroupsRequest{grqAttribution = word,
     groupScores <- traverse (scored . Groups.assembled mFlows sol) (Groups.partsGroups parts)
     pure
         GroupContributions
-            { gctAttribution = Groups.attributionWord (gaAttribution wanted)
+            { gctAttribution = Groups.attributionWord (attributionOf wanted)
             , gctMethods = [ReducedMethod (methodId m) (methodName m) (methodUnit m) | m <- methods]
             , gctTotal = total
-            , gctGroups = zipWith3 (\g scores taken -> GroupPart (Groups.groupName g) scores (Groups.takenCount taken)) (Groups.groupList (gaGroups wanted)) groupScores (Groups.partsTaken parts)
+            , gctGroups = zipWith3 (\name scores taken -> GroupPart name scores (Groups.takenCount taken)) (groupNamesIn wanted) groupScores (Groups.partsTaken parts)
             , gctRest = restScores
             , gctWithheldDatabases = withheld
             , gctFunctionalUnit = grFunctionalUnit root
@@ -3270,15 +3347,17 @@ groupContributionsOf dbManager root methods GroupsRequest{grqAttribution = word,
 
 {- | The processes of a group, or of the rest, each with its part of one
 method's score, and the root's solution they were read from. For their own
-emissions, each process's own part. For the whole chain, each process of the
-group that receives something with all it brings, and for the rest each
-process's own part. They add up to the part.
+emissions, each process's own part: split by emission, the part of the
+emissions it gives the group, so one process may be in a group and in the
+rest. For the whole chain, each process of the group that receives something
+with all it brings, and for the rest each process's own part. They add up to
+the part.
 -}
 groupMembersOf :: DatabaseManager -> GroupRoot -> Method -> GroupMembersRequest -> IO (Either GroupFailure GroupMembers)
 groupMembersOf dbManager root method request = runExceptT $ do
     wanted <- withExceptT GroupsMisread (except (readGroups (gmqAttribution request) (gmqGroups request)))
-    target <- withExceptT GroupsMisread (except (traverse (Groups.groupNamed (gaGroups wanted)) (gmqGroup request)))
-    GroupSplit{gsSolution = sol, gsAssigned = assigned, gsParts = parts} <- splitIntoGroups dbManager root wanted
+    target <- withExceptT GroupsMisread (except (traverse (groupNamedIn wanted) (gmqGroup request)))
+    GroupSplit{gsSolution = sol, gsSplit = split, gsParts = parts} <- splitIntoGroups dbManager root wanted
     let collectionName = grCollection root
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) collectionName (grDatabase root) method)
@@ -3287,16 +3366,62 @@ groupMembersOf dbManager root method request = runExceptT $ do
         -- Each process of the group wanted, or of the rest: its own part. A
         -- withheld database's processes go to no group, so only the rest
         -- names those databases.
-        inTarget = Impact.splitProcessParts (if isNothing target then withheld else []) . M.filterWithKey (\key _ -> Groups.groupOfProcess assigned (Groups.summedByName (SharedSolver.csScalings sol)) key == target)
-    members <- case (gaAttribution wanted, target) of
-        (Groups.OwnEmissions, _) -> inTarget <$> ownParts sol
-        (Groups.WholeChainBelowFirstMatch, Nothing) -> inTarget <$> ownParts (Groups.assembled mFlows sol (Groups.partsRest parts))
-        (Groups.WholeChainBelowFirstMatch, Just (Groups.GroupIndex g)) -> do
+        withheldIn = Impact.splitProcessParts (if isNothing target then withheld else [])
+        inTarget assigned = withheldIn . M.filterWithKey (\key _ -> Groups.groupOfProcess assigned (Groups.summedByName (SharedSolver.csScalings sol)) key == target)
+    members <- case (split, target) of
+        (Groups.OwnByProcess assigned, _) -> inTarget assigned <$> ownParts sol
+        (Groups.OwnByEmission _, _) -> withheldIn <$> (ownParts . Groups.assembled mFlows sol =<< partOf parts target)
+        (Groups.WholeChain assigned, Nothing) -> inTarget assigned <$> ownParts (Groups.assembled mFlows sol (Groups.partsRest parts))
+        (Groups.WholeChain _, Just (Groups.GroupIndex g)) -> do
             taken <- maybe (throwE (GroupsRefused "The group asked has no part in this split.")) pure (Groups.partsTaken parts !? g)
             weights <- wholeChainWeights dbManager root mFlows ownParts sol
             entries <- withExceptT GroupsRefused (except (Groups.entryParts weights taken))
             pure Impact.ProcessParts{Impact.ppShown = M.fromListWith (+) entries, Impact.ppWithheld = []}
     pure (GroupMembers sol members)
+
+-- | The part of a group, or the rest's.
+partOf :: Groups.Parts -> Maybe Groups.GroupIndex -> ExceptT GroupFailure IO Groups.Scalings
+partOf parts = \case
+    Nothing -> pure (Groups.partsRest parts)
+    Just (Groups.GroupIndex g) -> maybe (throwE (GroupsRefused "The group asked has no part in this split.")) pure (Groups.partsGroups parts !? g)
+
+{- | The flows of a group's part, or of the rest's, each with its part of one
+method's score, as 'getContributingFlows' lists those of a whole score: the
+flows of a database whose licence withholds its detail are never listed, only
+that database's line, and a database the part holds nothing of has none. A
+group can hold one process's own emissions, so its flows are that process's
+exchange amounts read through the factors: as for the lines of a process, a
+database keeping those amounts is withheld too, and the root's refused. The
+cut-off inputs and the basis are the root's, read before any part is.
+-}
+groupFlowsOf :: DatabaseManager -> GroupRoot -> Method -> GroupMembersRequest -> IO (Either GroupFailure ContributingFlowsResult)
+groupFlowsOf dbManager root method request = runExceptT $ do
+    wanted <- withExceptT GroupsMisread (except (readGroups (gmqAttribution request) (gmqGroups request)))
+    target <- withExceptT GroupsMisread (except (traverse (groupNamedIn wanted) (gmqGroup request)))
+    licence <- liftIO (DM.databaseLicence dbManager (grName root))
+    mapM_ (throwE . GroupsWithheld) (DBHandlers.licenceRefusal ReadInventory (grName root) =<< licence)
+    GroupSplit{gsSolution = sol, gsParts = parts} <- splitIntoGroups dbManager root wanted
+    let collectionName = grCollection root
+    cutoffs <- liftIO (Impact.licencedCutoffs dbManager =<< Impact.licencedSolution dbManager SeeDetailedScores sol)
+    keeping <- liftIO ((<>) <$> DM.refusingDatabases dbManager SeeDetailedScores <*> DM.refusingDatabases dbManager ReadInventory)
+    basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
+    (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
+    tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) collectionName (grDatabase root) method)
+    part <- Groups.assembled mFlows sol <$> partOf parts target
+    score <- withExceptT GroupScoringFailed (ExceptT (Impact.scoreSolution dbManager collectionName method tables part))
+    top <- withExceptT GroupScoringFailed (ExceptT (licencedTopFlows dbManager collectionName method tables (Impact.partitionByLicence mFlows keeping part) score (fromMaybe 20 (gmqLimit request))))
+    pure
+        ContributingFlowsResult
+            { cfrMethod = methodName method
+            , cfrUnit = methodUnit method
+            , cfrTotalScore = score
+            , cfrTopFlows = tfRows top
+            , cfrWithheldDatabases = filter ((/= 0) . wsContribution) (tfWithheld top)
+            , cfrCutoffInputs = cutoffShown cutoffs
+            , cfrWithheldCutoffs = cutoffWithheld cutoffs
+            , cfrBasis = basis
+            , cfrFunctionalUnit = grFunctionalUnit root
+            }
 
 {- | The score of one unit of each process the root reaches, with all it
 brings upstream, from each process's own score per unit. It does not depend
@@ -3316,69 +3441,101 @@ wholeChainWeights dbManager root mFlows ownParts sol = do
     withExceptT GroupsRefused (ExceptT (SharedSolver.chainWeights unitCfg (DM.mkDepSolverLookup dbManager) perUnit (grName root)))
 
 {- | The groups a process could start, as 'Groups.candidateCriteria' offers
-them, each added at the end of the groups asked: its part of one method's
-score, how many processes it takes something of, and the products of the
-heaviest. Which processes each would take is read before anything is solved:
-one that takes none goes, and of two that take the same processes the
-broader stays; only the first 'candidatesShown' of the rest are solved. The
-candidate is read in its own database, whose licence must grant its detail.
+them, or a flow, as 'flowCandidates' does, each added at the end of the
+groups asked: its part of one method's score, how many processes it takes
+something of, and the products of the heaviest. What each would take is read
+before anything is solved: one that takes nothing goes, and of two that take
+the same the broader stays; only the first 'candidatesShown' of the rest are
+solved. A process is read in its own database, whose licence must grant its
+detail. A flow starts groups that keep substances, which only the
+own-emissions reading splits: it is the reading taken when none is named.
 -}
 groupCandidatesOf :: DatabaseManager -> GroupRoot -> Method -> GroupCandidatesRequest -> IO (Either GroupFailure GroupCandidates)
-groupCandidatesOf dbManager root method GroupCandidatesRequest{gcqAttribution = word, gcqGroups = specs, gcqCandidate = candidate} = runExceptT $ do
-    -- No group yet is where a page starts: the candidate is then the first.
-    (attribution, listed) <- withExceptT GroupsMisread . except $ case specs of
-        [] -> (,[]) <$> maybe (Right Groups.WholeChainBelowFirstMatch) Groups.readAttribution word
-        _ -> (\GroupsAsked{gaAttribution = a, gaGroups = gs} -> (a, Groups.groupList gs)) <$> readGroups word specs
+groupCandidatesOf dbManager root method GroupCandidatesRequest{gcqAttribution = word, gcqGroups = specs, gcqCandidate = candidate, gcqCandidateFlow = candidateFlow} = runExceptT $ do
+    (attribution, listed) <- withExceptT GroupsMisread . except $ do
+        a <- traverse Groups.readAttribution word
+        gs <- traverse readGroup specs
+        -- No group yet is where a page starts: the candidate is then the first.
+        unless (null gs) (void (askedAs a =<< Groups.groups gs))
+        pure (a, gs)
     let newestAt = length listed
         newest = Groups.GroupIndex newestAt
-        trial reached (name, criteria) = do
-            group <- Groups.Group (freshName listed name) <$> Groups.groupFilter criteria
-            tried <- Groups.groups (listed ++ [group])
-            pure (group, assignedIn dbManager root reached tried)
     when (newestAt >= Groups.maxGroups) $
         throwE (GroupsRefused ("The list already holds " <> T.pack (show Groups.maxGroups) <> " groups, the most it can: remove one to add another."))
-    offered <- candidateCriteriaOf
+    offered <- offeredBy =<< withExceptT GroupsMisread (except (candidateOf candidate candidateFlow))
     reached@RootReached{rrSolution = sol} <- rootReached dbManager root
-    trials <- withExceptT GroupsRefused (except (traverse (trial reached) offered))
+    basis <- liftIO (emissionBasis dbManager root reached)
     let scalings = Groups.summedByName (SharedSolver.csScalings sol)
-        taking = [(t, Groups.processesOfGroup assigned scalings newest) | t@(_, assigned) <- trials]
+        -- The listed groups' reaches are read once, whatever group is tried after them.
+        listedReaches = map (Groups.reachOf basis . Groups.groupFilterOf) listed
+        maskOf gs = Groups.masked (listedReaches ++ map (Groups.reachOf basis . Groups.groupFilterOf) (drop newestAt (Groups.groupList gs)))
+        trial (name, groupFilterTried) = do
+            group <- Groups.Group (freshName listed name) <$> groupFilterTried
+            tried <- askedAs attribution =<< Groups.groups (listed ++ [group])
+            pure (group, splitAs (assignedIn dbManager root reached) maskOf tried)
+    trials <- withExceptT GroupsRefused (except (traverse trial offered))
+    let taking = [(t, takenBy split) | t@(_, split) <- trials]
+        takenBy = \case
+            Groups.WholeChain assigned -> map Left (Groups.processesOfGroup assigned scalings newest)
+            Groups.OwnByProcess assigned -> map Left (Groups.processesOfGroup assigned scalings newest)
+            Groups.OwnByEmission m -> map Right (Groups.emissionsTaken m newest scalings)
         kept = take candidatesShown (Groups.distinctTakers taking)
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) (grCollection root) (grDatabase root) method)
     let ownParts s = withExceptT GroupScoringFailed (ExceptT (Impact.processContributionsOf dbManager (grCollection root) method tables s))
+        wholeChain = \case
+            Groups.WholeChain _ -> True
+            Groups.OwnByProcess _ -> False
+            Groups.OwnByEmission _ -> False
     own <- ownParts sol
-    weights <- case attribution of
-        Groups.WholeChainBelowFirstMatch
-            | null kept -> pure Nothing
-            | otherwise -> Just <$> wholeChainWeights dbManager root mFlows ownParts sol
-        Groups.OwnEmissions -> pure Nothing
-    candidates <- forM kept $ \(group, assigned) -> do
-        parts <- partsUnder dbManager root sol attribution assigned
-        taken <- maybe (throwE (GroupsRefused "The group tried has no part in this split.")) pure (Groups.partsTaken parts !? newestAt)
-        entries <- case weights of
-            Just w -> withExceptT GroupsRefused (except (Groups.entryParts w taken))
-            Nothing -> pure [(key, part) | (key, part) <- M.toList own, Groups.groupOfProcess assigned scalings key == Just newest]
+    weights <-
+        if any (wholeChain . snd) kept
+            then Just <$> wholeChainWeights dbManager root mFlows ownParts sol
+            else pure Nothing
+    candidates <- forM kept $ \(group, split) -> do
+        (taken, entries) <- case split of
+            Groups.OwnByEmission m -> do
+                let taken = Groups.emissionPart m (Just newest) scalings
+                (taken,) . M.toList <$> ownParts (Groups.assembled mFlows sol taken)
+            Groups.OwnByProcess assigned -> do
+                taken <- takenIn sol split
+                pure (taken, [(key, part) | (key, part) <- M.toList own, Groups.groupOfProcess assigned scalings key == Just newest])
+            Groups.WholeChain _ -> do
+                taken <- takenIn sol split
+                w <- maybe (throwE (GroupsRefused "The whole chain was not weighed.")) pure weights
+                (taken,) <$> withExceptT GroupsRefused (except (Groups.entryParts w taken))
         pure
             GroupCandidate
-                { gcdGroup = GroupSpec (Groups.groupName group) (filterSpec (Groups.criteriaOf (Groups.groupFilterOf group)))
+                { gcdGroup = GroupSpec (Groups.groupName group) (filterSpec (Groups.groupFilterOf group))
                 , gcdActivitiesCounted = Groups.takenCount taken
                 , gcdScore = sum (map snd entries)
                 , gcdExamples = take 3 (nubOrd (mapMaybe (productOf scalings . fst) (sortOn (negate . abs . snd) entries)))
                 }
     pure GroupCandidates{gcsMethod = methodName method, gcsUnit = methodUnit method, gcsTotal = sum (M.elems own), gcsCandidates = candidates}
   where
-    -- What the candidate offers, read in its own database once that database grants its detail.
-    candidateCriteriaOf :: ExceptT GroupFailure IO [(Text, Groups.Criteria)]
-    candidateCriteriaOf = do
-        let (dbName, pidText) = parseSubRef (RootDb (grName root)) candidate
-        loaded <- maybe (throwE (GroupsRefused ("The database " <> dbName <> " of the process to group by is not loaded."))) pure =<< liftIO (DM.getDatabase dbManager dbName)
-        licence <- liftIO (DM.databaseLicence dbManager dbName)
-        mapM_ (throwE . GroupsWithheld) (DBHandlers.licenceRefusal SeeDetailedScores dbName =<< licence)
-        (_, act) <- withExceptT (GroupsMisread . Service.serviceMessage) (except (Service.resolveScorable (ldDatabase loaded) pidText))
-        pure (Groups.candidateCriteria (referenceProductNames (ldDatabase loaded) act) (activityClassification act))
+    -- What the newest group takes under a split by process, solved as the reading asks.
+    takenIn :: SharedSolver.CrossDBSolution -> Groups.Split -> ExceptT GroupFailure IO Groups.Scalings
+    takenIn sol split = do
+        parts <- partsUnder dbManager root sol split
+        maybe (throwE (GroupsRefused "The group tried has no part in this split.")) pure (lastMay (Groups.partsTaken parts))
+
+    -- The groups a candidate offers, each with the name it would take.
+    offeredBy :: Candidate -> ExceptT GroupFailure IO [(Text, Either Text Groups.GroupFilter)]
+    offeredBy = \case
+        CandidateProcess pidText -> do
+            let (dbName, local) = parseSubRef (RootDb (grName root)) pidText
+            loaded <- maybe (throwE (GroupsRefused ("The database " <> dbName <> " of the process to group by is not loaded."))) pure =<< liftIO (DM.getDatabase dbManager dbName)
+            licence <- liftIO (DM.databaseLicence dbManager dbName)
+            mapM_ (throwE . GroupsWithheld) (DBHandlers.licenceRefusal SeeDetailedScores dbName =<< licence)
+            (_, act) <- withExceptT (GroupsMisread . Service.serviceMessage) (except (Service.resolveScorable (ldDatabase loaded) local))
+            pure [(name, Groups.Processes <$> Groups.processFilter criteria) | (name, criteria) <- Groups.candidateCriteria (referenceProductNames (ldDatabase loaded) act) (activityClassification act)]
+        CandidateFlow flowIdText -> do
+            (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
+            flow <- withExceptT GroupsMisread (except (flowNamed mFlows flowIdText))
+            pure [(name, Groups.Emissions <$> Groups.emissionFilter criteria) | (name, criteria) <- flowCandidates flow]
 
     -- The name offered, numbered when a group of the list already has it, so the group adds without a refusal.
-    freshName :: [Groups.Group] -> Text -> Text
+    freshName :: [Groups.Group Groups.GroupFilter] -> Text -> Text
     freshName listed name = fromMaybe name (find (`notElem` map Groups.groupName listed) (name : [name <> " " <> T.pack (show k) | k <- [2 :: Int ..]]))
 
     productOf :: Groups.Scalings -> (Text, ProcessId) -> Maybe Text
@@ -3387,24 +3544,83 @@ groupCandidatesOf dbManager root method GroupCandidatesRequest{gcqAttribution = 
         activity <- dbActivities d V.!? fromIntegral pid
         listToMaybe (referenceProductNames d activity)
 
+    lastMay :: [a] -> Maybe a
+    lastMay = fmap NE.last . NE.nonEmpty
+
+-- | What a group is offered from: a process, or a flow.
+data Candidate = CandidateProcess !Text | CandidateFlow !Text
+
+-- | The candidate a request names: a process or a flow, exactly one.
+candidateOf :: Maybe Text -> Maybe Text -> Either Text Candidate
+candidateOf process flow = case (process, flow) of
+    (Just p, Nothing) -> Right (CandidateProcess p)
+    (Nothing, Just f) -> Right (CandidateFlow f)
+    (Just _, Just _) -> Left "Name a process to group by ('candidate') or a flow ('candidate_flow'), not both."
+    (Nothing, Nothing) -> Left "Name a process to group by ('candidate') or a flow ('candidate_flow')."
+
+-- | A flow of the loaded databases by its id, or why there is none.
+flowNamed :: BioFlowDB -> Text -> Either Text BiosphereFlow
+flowNamed flows idText = do
+    fid <- maybe (Left ("'" <> idText <> "' is not a flow id.")) Right (UUID.fromText (T.strip idText))
+    maybe (Left ("No emission or resource of the databases loaded has the id " <> idText <> ".")) Right (M.lookup fid flows)
+
+{- | The groups a flow could start, the narrowest first, each read as the
+substance: this flow in its compartment, then in any; then, when it has a
+CAS, the substance of that CAS in its compartment, then in any. A CAS is the
+molecule's: that of @Carbon dioxide, fossil@ also takes the biogenic one and
+the carbon dioxide taken from the air, so it comes after the flow's own name.
+-}
+flowCandidates :: BiosphereFlow -> [(Text, Groups.EmissionCriteria)]
+flowCandidates flow =
+    concat
+        [ [(name <> " (" <> mediumText m <> ")", substance name (Just m)) | Just m <- [medium]]
+        , [(name, substance name Nothing)]
+        , [(name <> " (CAS " <> cas <> ", " <> mediumText m <> ")", substance cas (Just m)) | Just cas <- [casOf], Just m <- [medium]]
+        , [(name <> " (CAS " <> cas <> ")", substance cas Nothing) | Just cas <- [casOf]]
+        ]
+  where
+    name :: Text
+    name = bfName flow
+
+    medium :: Maybe Medium
+    medium = compartmentName <$> bfCompartment flow
+
+    casOf :: Maybe Text
+    casOf = flowKindCAS (BioKind flow)
+
+    substance :: Text -> Maybe Medium -> Groups.EmissionCriteria
+    substance text = Groups.EmissionCriteria (Just (Groups.IsTheSubstance, text))
+
 -- | How many groups a process is offered at most, so the solves a request makes stay few.
 candidatesShown :: Int
 candidatesShown = 6
 
 -- | The filter as the wire writes it, each classification with the mode it is read in.
-filterSpec :: Groups.Criteria -> GroupFilterSpec
-filterSpec Groups.Criteria{Groups.crName = name, Groups.crProduct = productText, Groups.crLocation = place, Groups.crClassifications = ClassificationFilters{cfKept = kept, cfLeftOut = leftOut}} =
+filterSpec :: Groups.GroupFilter -> GroupFilterSpec
+filterSpec gf =
     GroupFilterSpec
-        { gfsName = name
-        , gfsProduct = productText
-        , gfsLocation = place
-        , gfsClassifications = case map (written "") kept ++ map (written "not-") leftOut of
+        { gfsName = Groups.crName =<< processes
+        , gfsProduct = Groups.crProduct =<< processes
+        , gfsLocation = Groups.crLocation =<< processes
+        , gfsClassifications = case maybe [] (\c -> map (written "") (cfKept (Groups.crClassifications c)) ++ map (written "not-") (cfLeftOut (Groups.crClassifications c))) processes of
             [] -> Nothing
             classes -> Just classes
+        , gfsFlow = flowSpec <$> Groups.emissionCriteriaOfGroup gf
         }
   where
+    processes :: Maybe Groups.Criteria
+    processes = Groups.processCriteriaOf gf
+
     written :: Text -> ClassificationFilter -> GroupClassification
     written negation ClassificationFilter{clfSystem = system, clfValue = value, clfMatch = match} = GroupClassification system value (negation <> matchWord match)
+
+    flowSpec :: Groups.EmissionCriteria -> GroupFlowSpec
+    flowSpec Groups.EmissionCriteria{Groups.ecSubstance = substance, Groups.ecMedium = medium} =
+        GroupFlowSpec
+            { gflName = snd <$> substance
+            , gflMatch = Groups.substanceMatchWord . fst <$> substance
+            , gflMedium = medium
+            }
 
 -- | The processes of a group with their parts, and the root's solution they were read from.
 data GroupMembers = GroupMembers
@@ -3442,6 +3658,14 @@ postGroupMembers dbName processIdText collectionName methodIdText mExcludeLT req
         basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
         let heading = Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs, hdBasis = basis, hdFunctionalUnit = grFunctionalUnit root}
         liftIO (activitiesResult dbManager dbName heading (fromMaybe 10 (gmqLimit request)) members)
+
+postGroupFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Bool -> GroupMembersRequest -> AppM ContributingFlowsResult
+postGroupFlows dbName processIdText collectionName methodIdText mExcludeLT request = counted Contributing dbName (ProcessKey processIdText) $ do
+    DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
+    withActivityAndMethod dbName collectionName processIdText methodIdText $ \db solver pid activity method -> do
+        dbManager <- asks aeDbManager
+        let root = groupRootOf dbName db solver pid activity collectionName mExcludeLT
+        liftIO (groupFlowsOf dbManager root method request) >>= either groupFailure pure
 
 postGroupCandidates :: Text -> Text -> DM.CollectionName -> Text -> Maybe Bool -> GroupCandidatesRequest -> AppM GroupCandidates
 postGroupCandidates dbName processIdText collectionName methodIdText mExcludeLT request = counted Contributing dbName (ProcessKey processIdText) $ do
@@ -3937,6 +4161,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> postActivitySensitivity
             :<|> postGroupContributions
             :<|> postGroupMembers
+            :<|> postGroupFlows
             :<|> postGroupCandidates
             :<|> postReducedModel
             :<|> postActivityInventory
