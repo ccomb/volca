@@ -861,7 +861,10 @@ description r = case r of
         \a filter; a process goes to the first group it answers, the root to \
         \none. attribution 'first-match' (default reading): a group counts the \
         \whole chain below its first process met; 'own': its processes' own \
-        \emissions only. Every impact category at once, scores keyed by \
+        \emissions only. A group keeping a substance ('flow' in its filter) is \
+        \read 'own' only: each emission goes to the first group taking its \
+        \process and its substance, the root's to groups naming a substance \
+        \alone. Every impact category at once, scores keyed by \
         \method id: groups, 'rest' and 'withheldDatabases' add up to 'total'. \
         \'activitiesCounted': processes of the group carrying a part. Exact, \
         \valid for cyclic chains. Then get_group_members to see a group."
@@ -881,8 +884,10 @@ description r = case r of
         \get_group_contributions, or of the rest when 'group' is left out, \
         \heaviest first, for one impact category: what 'Transport' or 'N2O of \
         \the fields' emits. Same 'attribution' and 'groups' as that call; \
-        \'total_score' is the group's part. A database whose licence withholds \
-        \its detail lists no flow, only its line in the rest."
+        \'totalScore' is the group's part, and a flow's 'flowId' can start \
+        \groups as get_group_candidates' candidate_flow. A database whose \
+        \licence withholds its detail or its exchange amounts lists no flow, \
+        \only a line under 'withheldDatabases'."
             <> webUrlTip
     GetGroupCandidates ->
         "LCA / ACV: groups a process or a flow could start, narrowest first. \
@@ -1331,10 +1336,13 @@ pGroups =
         ( "Groups in order, at most "
             <> T.pack (show maxGroups)
             <> ", names unique: {name, filter: {name?, product?, location?, \
-               \classifications?: [{system, value, mode}]}}. name and product: contained, case aside; location: \
-               \that place or one within it; mode: contains, exact, starts-with (49 takes 4923), or a not- form, \
-               \which leaves out what it matches. A filter keeps something: name, product, location or a \
-               \keeping classification."
+               \classifications?: [{system, value, mode}], flow?: {name?, match?, medium?}}}. name and product: \
+               \contained, case aside; location: that place or one within it; mode: contains, exact, starts-with \
+               \(49 takes 4923), or a not- form, which leaves out what it matches. flow keeps emissions or \
+               \resources of the group's processes, or of all if the filter names no process: name is the \
+               \substance (its name, formula or CAS; match 'contains' reads it as text in the flow's name), \
+               \medium one compartment (air, water, soil, natural resource…). A filter keeps something: name, \
+               \product, location, a keeping classification or a flow."
         )
 
 pLimit :: Text -> Param

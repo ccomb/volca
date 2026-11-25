@@ -30,7 +30,7 @@ module DependencyLicenceSpec (
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (evaluate)
-import Control.Monad (void, (<=<))
+import Control.Monad (forM_, void, (<=<))
 import Data.Aeson (Object, Value (..))
 import Data.Aeson.Key (Key)
 import qualified Data.Aeson.Key as Key
@@ -406,14 +406,23 @@ spec = do
             o <- payload =<< callOn manager "get_impacts" [regional]
             KM.lookup "score" o `shouldBe` Just (Number 29)
 
-        it "lists in the rest only a line for a database whose licence withholds its detail, and none in a group" $ do
-            manager <- managerOn twoFlowRoot dependency detailKept
+        -- A group's flows can be one process's own exchanges through the factors: a licence keeping the amounts withholds them too.
+        forM_ [("its detail", detailKept), ("the amounts of its exchanges", inventoryKept)] $ \(kept, licence) ->
+            it ("lists in the rest only a line for a database whose licence keeps " <> kept <> ", and none in a group") $ do
+                manager <- managerOn twoFlowRoot dependency licence
+                let co2 = Array (V.singleton (Object (KM.fromList [("name", String "CO2"), ("filter", Object (KM.singleton "flow" (Object (KM.singleton "name" (String "Carbon dioxide")))))])))
+                    flows group = do
+                        o <- payload =<< callOn manager "get_group_flows" (("groups", co2) : [("group", String g) | Just g <- [group]])
+                        pure (KM.lookup "totalScore" o, length (numbersAt "topFlows" "contribution" o), withheldLines o)
+                flows (Just "CO2") `shouldReturn` (Just (Number 1), 1, [])
+                flows Nothing `shouldReturn` (Just (Number 25), 1, [(String "dep", Number 20)])
+
+        it "refuses the flows of a group of a root whose licence keeps the amounts of its exchanges" $ do
+            manager <- managerOn twoFlowRoot dependency LicenceUnstated
+            DM.addDatabase manager (configFor "root" inventoryKept)
             let co2 = Array (V.singleton (Object (KM.fromList [("name", String "CO2"), ("filter", Object (KM.singleton "flow" (Object (KM.singleton "name" (String "Carbon dioxide")))))])))
-                flows group = do
-                    o <- payload =<< callOn manager "get_group_flows" (("groups", co2) : [("group", String g) | Just g <- [group]])
-                    pure (KM.lookup "totalScore" o, length (numbersAt "topFlows" "contribution" o), withheldLines o)
-            flows (Just "CO2") `shouldReturn` (Just (Number 1), 1, [])
-            flows Nothing `shouldReturn` (Just (Number 25), 1, [(String "dep", Number 20)])
+            reply <- callOn manager "get_group_flows" [("groups", co2), ("group", String "CO2")]
+            errorText reply `shouldSatisfy` maybe False ("root" `T.isInfixOf`)
 
         it "adds up, the withheld database's line included" $ do
             manager <- managerOn twoFlowRoot dependency detailKept

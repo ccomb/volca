@@ -175,6 +175,8 @@ criteriaOf (ProcessFilter c) = c
 processFilter :: Criteria -> Either Text ProcessFilter
 processFilter c
     | any (T.null . T.strip . clfValue) (cfKept classes ++ cfLeftOut classes) = Left "A classification of a group has no value."
+    | isNothing name && isNothing productText && isNothing place && null (cfKept classes) && not (null (cfLeftOut classes)) =
+        Left "A group's classifications only leave processes out: name what its processes are too, a name, a product, a place or a classification to keep."
     | isNothing name && isNothing productText && isNothing place && null (cfKept classes) =
         Left "A group needs a name, a product, a place, a classification or a substance to keep: without one it would take every process."
     | otherwise = Right (ProcessFilter c{crName = name, crProduct = productText, crLocation = place})
@@ -527,10 +529,10 @@ reachOf EmissionBasis{ebGeographies = geographies, ebChemicals = chemicals, ebFl
         rowCount = fromIntegral (dbBiosphereCount db)
 
         rows :: U.Vector Bool
-        rows = case emissionCriteriaOfGroup gf of
+        rows = case emissionOf gf of
             Nothing -> U.replicate rowCount True
-            Just _ ->
-                let takes = maybe (const False) (emissionTest chemicals db) (emissionOf gf)
+            Just e ->
+                let takes = emissionTest chemicals db e
                  in U.generate rowCount (\i -> maybe False takes (flip M.lookup flows =<< dbBiosphereOrder db V.!? i))
 
     emissionOf :: GroupFilter -> Maybe EmissionFilter

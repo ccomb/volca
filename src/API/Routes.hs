@@ -3177,8 +3177,9 @@ readGroups word specs = do
 
 {- | Groups under the reading named. Left out, it is the whole chain, unless
 a group keeps substances: only its own emissions can be split by substance,
-so that is the one reading left, and the answer says it was taken. Named, the
-whole chain refuses a group that keeps substances.
+so that is the one reading left. The group-contributions answer says it was
+taken, and the tools' description of the reading says it for the others.
+Named, the whole chain refuses a group that keeps substances.
 -}
 askedAs :: Maybe Groups.Attribution -> Groups.Groups Groups.GroupFilter -> Either Text GroupsAsked
 askedAs attribution gs = case attribution of
@@ -3387,23 +3388,28 @@ partOf parts = \case
 {- | The flows of a group's part, or of the rest's, each with its part of one
 method's score, as 'getContributingFlows' lists those of a whole score: the
 flows of a database whose licence withholds its detail are never listed, only
-that database's line, and a database the part holds nothing of has none. The
+that database's line, and a database the part holds nothing of has none. A
+group can hold one process's own emissions, so its flows are that process's
+exchange amounts read through the factors: as for the lines of a process, a
+database keeping those amounts is withheld too, and the root's refused. The
 cut-off inputs and the basis are the root's, read before any part is.
 -}
 groupFlowsOf :: DatabaseManager -> GroupRoot -> Method -> GroupMembersRequest -> IO (Either GroupFailure ContributingFlowsResult)
 groupFlowsOf dbManager root method request = runExceptT $ do
     wanted <- withExceptT GroupsMisread (except (readGroups (gmqAttribution request) (gmqGroups request)))
     target <- withExceptT GroupsMisread (except (traverse (groupNamedIn wanted) (gmqGroup request)))
+    licence <- liftIO (DM.databaseLicence dbManager (grName root))
+    mapM_ (throwE . GroupsWithheld) (DBHandlers.licenceRefusal ReadInventory (grName root) =<< licence)
     GroupSplit{gsSolution = sol, gsParts = parts} <- splitIntoGroups dbManager root wanted
     let collectionName = grCollection root
     cutoffs <- liftIO (Impact.licencedCutoffs dbManager =<< Impact.licencedSolution dbManager SeeDetailedScores sol)
+    keeping <- liftIO ((<>) <$> DM.refusingDatabases dbManager SeeDetailedScores <*> DM.refusingDatabases dbManager ReadInventory)
     basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) collectionName (grDatabase root) method)
     part <- Groups.assembled mFlows sol <$> partOf parts target
     score <- withExceptT GroupScoringFailed (ExceptT (Impact.scoreSolution dbManager collectionName method tables part))
-    ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores part)
-    top <- withExceptT GroupScoringFailed (ExceptT (licencedTopFlows dbManager collectionName method tables ls score (fromMaybe 20 (gmqLimit request))))
+    top <- withExceptT GroupScoringFailed (ExceptT (licencedTopFlows dbManager collectionName method tables (Impact.partitionByLicence mFlows keeping part) score (fromMaybe 20 (gmqLimit request))))
     pure
         ContributingFlowsResult
             { cfrMethod = methodName method
