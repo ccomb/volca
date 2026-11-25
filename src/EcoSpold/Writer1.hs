@@ -115,7 +115,8 @@ import qualified Data.Text as T
 import Data.Time.Calendar (Day, fromGregorian, toGregorian)
 import Data.Time.Format.ISO8601 (iso8601Show)
 import qualified Data.UUID as UUID
-import Database.ExportSupplier (Maker (..), madeAt, makerOf, noDependencies)
+import Database.CrossLinking (normalizeText)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), madeAt, makerOf, noDependencies)
 import EcoSpold.Common (showFFloatTrim)
 import Types
 
@@ -137,18 +138,22 @@ data WriterOptions = WriterOptions
     with it, since a reader such as Brightway's needs a timestamp and a period
     of validity on every dataset.
     -}
+    , woDependencies :: Dependencies
+    {- ^ The suppliers its inputs buy from the databases it depends on, each
+    such input written under its supplier's name, place and unit.
+    -}
     }
     deriving (Eq, Show)
 
 -- | Self-describing default: pins generator to "VoLCA".
 defaultWriterOptions :: Day -> WriterOptions
-defaultWriterOptions = WriterOptions (Just "VoLCA")
+defaultWriterOptions day = WriterOptions (Just "VoLCA") day noDependencies
 
 {- | Omits the volatile generator: given the same day, the output is stable,
 for round-trip / golden tests.
 -}
 canonicalWriterOptions :: Day -> WriterOptions
-canonicalWriterOptions = WriterOptions Nothing
+canonicalWriterOptions day = WriterOptions Nothing day noDependencies
 
 -- ----------------------------------------------------------------------------
 -- Top-level writers
@@ -182,7 +187,7 @@ dataset rather than the file.
 -}
 writeSimpleDatabaseChunks :: WriterOptions -> SimpleDatabase -> Either Text [Text]
 writeSimpleDatabaseChunks opts sdb = do
-    checkEcoSpold1Exportable sdb
+    checkEcoSpold1Exportable deps sdb
     pure $
         activityChunks
             opts
@@ -190,7 +195,23 @@ writeSimpleDatabaseChunks opts sdb = do
             (sdbBioFlows sdb)
             (sdbWasteFlows sdb)
             (sdbUnits sdb)
-            (placedAtMakers sdb)
+            (M.fromList [(supplier, elActivity e) | (_, _, ex, e) <- dependencyLines deps sdb, Just supplier <- [suppliedBy ex]])
+            (placedAtMakers deps sdb)
+  where
+    deps = woDependencies opts
+
+{- | Each line a database it depends on supplies, by its row and place among
+the row's exchanges, with that supplier.
+-}
+dependencyLines :: Dependencies -> SimpleDatabase -> [(((UUID, UUID), Int), Activity, Exchange, Elsewhere)]
+dependencyLines deps sdb =
+    [ ((row, position), act, ex, e)
+    | (row, act) <- M.toList (sdbActivities sdb)
+    , (position, ex) <- zip [0 ..] (exchanges act)
+    , InDependency e <- [maker row (position, ex)]
+    ]
+  where
+    maker = makerOf deps sdb
 
 {- | Each input linked to a dataset of the file, placed where that dataset
 makes its product.
@@ -205,16 +226,18 @@ the Italian tap water comes back as the Dutch one. Each country's tap water is
 its own product in a file read from this format, so this holds whether the file
 makes the product once or several times. An input that states a place other
 than its maker's is placed at its maker's, since that is the link the database
-scores.
+scores. An input bought from a database it depends on is placed where its
+supplier is, for a reader holding that database beside the file.
 -}
-placedAtMakers :: SimpleDatabase -> ActivityMap
-placedAtMakers sdb = M.mapWithKey place (sdbActivities sdb)
+placedAtMakers :: Dependencies -> SimpleDatabase -> ActivityMap
+placedAtMakers deps sdb = M.mapWithKey place (sdbActivities sdb)
   where
-    maker = makerOf noDependencies sdb
+    maker = makerOf deps sdb
     place key act = act{activityLines = packExchanges (zipWith (placed key) [0 ..] (exchanges act))}
     placed key i ex@TechnosphereExchange{} = case maker key (i, ex) of
         SoleMaker m -> ex{techLocation = readExchangeLocation (madeAt m)}
         OneOfMakers m -> ex{techLocation = readExchangeLocation (madeAt m)}
+        InDependency e -> ex{techLocation = readExchangeLocation (elLocation e)}
         _ -> ex
     placed _ _ ex = ex
 
@@ -230,9 +253,10 @@ activityChunks ::
     BioFlowDB ->
     WasteFlowDB ->
     UnitDB ->
+    M.Map (UUID, UUID) Text ->
     ActivityMap ->
     [Text]
-activityChunks opts techs bios wastes units activities =
+activityChunks opts techs bios wastes units elsewhere activities =
     T.unlines
         [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
@@ -242,7 +266,7 @@ activityChunks opts techs bios wastes units activities =
   where
     dataset :: Int -> ((UUID, UUID), Activity) -> Text
     dataset num row = T.unlines (datasetLines opts res num row)
-    res = Resolvers techs bios wastes units (supplierNumberIndex ordered) (flowNumberIndex ordered) (datasetNames techs ordered)
+    res = Resolvers techs bios wastes units (supplierNumberIndex ordered) (flowNumberIndex ordered) (datasetNames techs ordered <> elsewhere)
     -- Stable, content-derived order so dataset numbers (and thus flow UUIDs)
     -- are reproducible regardless of the source Map's ordering.
     ordered = orderedActivities techs activities
@@ -400,14 +424,44 @@ emit silently wrong data:
     correctly-rounded reader). Every finite amount round-trips, so this guards
     the formatter↔reader contract against future drift.
 
+  * __Suppliers in a database it depends on.__ Such an input is written under
+    its supplier's name, place and unit, for a reader holding that database
+    beside the file to link it there. It cannot be when the supplier states no
+    place, shares its product and place with another activity of its database,
+    or makes its product in a unit the line is not in; nor when a dataset of
+    the file has its name, since readers link an input inside the file first.
+    A waste sent to a treatment of that database has no line naming it.
+
 Databases free of all of these pass unchanged.
 -}
-checkEcoSpold1Exportable :: SimpleDatabase -> Either Text ()
-checkEcoSpold1Exportable db =
-    case lefts [checkLinks, checkRefInputs, checkLinkedWasteOutputs, checkFlows, checkUnits, checkAmounts, checkAmountRoundTrip] of
+checkEcoSpold1Exportable :: Dependencies -> SimpleDatabase -> Either Text ()
+checkEcoSpold1Exportable deps db =
+    case lefts [checkLinks, checkDependencies, checkRefInputs, checkLinkedWasteOutputs, checkFlows, checkUnits, checkAmounts, checkAmountRoundTrip] of
         [] -> Right ()
         violations -> Left (T.intercalate "\n\n" violations)
   where
+    checkDependencies =
+        case [(activityName act, why) | (_, act, ex, e) <- dependencyLines deps db, Just why <- [unwritable ex e]] of
+            [] -> Right ()
+            ((consumer, why) : _) ->
+                Left $
+                    "EcoSpold1 export cannot name the supplier of an input in \""
+                        <> consumer
+                        <> "\": "
+                        <> why
+                        <> ". EcoSpold 2 and openLCA point at the supplier itself."
+    ownNames = S.fromList (map normalizeText (M.elems (datasetNames (sdbTechFlows db) (M.toList (sdbActivities db)))))
+    unwritable ex e = case ex of
+        TechnosphereExchange{techUnitId = unit}
+            | T.null (T.strip (elLocation e)) -> Just (supplier <> " states no location")
+            | twin : _ <- elTwins e -> Just (elDatabase e <> " makes it at " <> elLocation e <> " in both \"" <> elActivity e <> "\" and \"" <> twin <> "\"")
+            | S.member (normalizeText (elActivity e)) ownNames -> Just (supplier <> " has the name of a dataset of the file, which a reader links it to instead")
+            | T.null (elUnit e) -> Just ("the unit " <> supplier <> " makes it in is not known")
+            | unitNameFor (sdbUnits db) unit /= elUnit e -> Just ("it is in " <> unitNameFor (sdbUnits db) unit <> ", which does not convert to the " <> elUnit e <> " " <> supplier <> " makes it in")
+            | otherwise -> Nothing
+          where
+            supplier = "its supplier \"" <> elActivity e <> "\" in " <> elDatabase e
+        _ -> Just ("it sends a waste to \"" <> elActivity e <> "\" in " <> elDatabase e <> ", and the format names a treatment only among the datasets of its own file")
     checkLinks =
         case danglingLinks of
             [] -> Right ()
@@ -478,12 +532,14 @@ checkEcoSpold1Exportable db =
                         <> T.pack (show amt)
                         <> " has no decimal form that re-parses to the same value."
     index = supplierNumberIndex (orderedActivities (sdbTechFlows db) (sdbActivities db))
+    bought = S.fromList [line | (line, _, _, _) <- dependencyLines deps db]
     danglingLinks =
         [ (activityName act, link)
-        | act <- M.elems (sdbActivities db)
-        , ex <- exchanges act
+        | (row, act) <- M.toList (sdbActivities db)
+        , (position, ex) <- zip [0 :: Int ..] (exchanges act)
         , Just (link, fid) <- [suppliedBy ex]
         , not (M.member (link, fid) index)
+        , S.notMember (row, position) bought
         ]
     linkedWasteOutputs =
         [ activityName act
@@ -541,6 +597,7 @@ data Resolvers = Resolvers
     , rSupplierNumbers :: !(M.Map (UUID, UUID) Int)
     , rFlowNumbers :: !(M.Map UUID Int)
     , rDatasetNames :: !(M.Map (UUID, UUID) Text)
+    -- ^ The name each supplier row is written under: a dataset of the file, or the activity of a dependency.
     }
 
 -- ----------------------------------------------------------------------------
@@ -719,7 +776,9 @@ into the flow UUID, so they must be reproduced verbatim for a stable round-trip.
 
 A reference product, and an input carrying the number of a dataset of the
 file, say that dataset's name ('datasetNames'), the one name the format has for
-it; every other exchange says its flow's.
+it; an input bought from a database it depends on says its supplier's
+activity, the name that database gives the dataset; every other exchange says
+its flow's.
 -}
 exchangeAttrs :: Resolvers -> Int -> (UUID, UUID) -> Exchange -> Text
 exchangeAttrs res datasetNum key ex =

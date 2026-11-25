@@ -169,10 +169,36 @@ spec = describe "Database.Export dispatcher" $ do
                 case serializeDatabase energyUnits exportDay fmt M.empty deps "exported" linked of
                     Left err -> expectationFailure (show fmt <> ": " <> T.unpack err)
                     Right _ -> pure ()
-            serializeDatabase energyUnits exportDay EcoSpold1 M.empty deps "exported" linked `shouldSatisfy` isLeft
             let simapro = fmap (BLC.unpack . fst) (serializeDatabase energyUnits exportDay SimaProCSV M.empty deps "exported" linked)
             fromRight "" simapro `shouldSatisfy` isInfixOf "Electricity, medium voltage, at grid {RER}| Electricity, medium voltage, at grid |"
             fromRight "" simapro `shouldSatisfy` (not . isInfixOf "market group for electricity")
+
+        -- A reader holding the supplier's database beside the file links each
+        -- such line there by name, unit and place, and only if no dataset of
+        -- the file carries its number.
+        it "writes for EcoSpold 1 each line under its supplier's name, place and unit, numbered as no dataset of the file" $ do
+            linked <- linkedSpinning
+            case serializeDatabase energyUnits exportDay EcoSpold1 M.empty (Right (suppliers [(1, gridInKwh), (2, gridInKwh)])) "exported" linked of
+                Left err -> expectationFailure (T.unpack err)
+                Right (bytes, _) -> do
+                    let bought = filter (isInfixOf "name=\"Electricity, medium voltage, at grid\"") (lines (BLC.unpack bytes))
+                    length bought `shouldBe` 2
+                    bought `shouldSatisfy` all (\l -> all (`isInfixOf` l) ["location=\"RER\"", "unit=\"kWh\""] && not ("number=\"1\"" `isInfixOf` l))
+                    bought `shouldSatisfy` any (isInfixOf "meanValue=\"9.26\"")
+
+        forM_
+            [ ("states no location", gridInKwh{elLocation = ""}, "states no location")
+            , ("shares its product and place with another activity", gridInKwh{elTwins = ["Electricity, medium voltage, production mix"]}, "in both")
+            , ("has the name of a dataset of the file", gridInKwh{elActivity = "Spinning"}, "has the name of a dataset of the file")
+            , ("makes it in a unit not known", grid, "is not known")
+            , ("makes it in a unit the line does not convert to", gridInKwh{elUnit = "kg"}, "does not convert to the kg")
+            ]
+            $ \(why, supplier, said) ->
+                it ("refuses for EcoSpold 1 a line whose supplier " <> why) $ do
+                    linked <- linkedSpinning
+                    case serializeDatabase energyUnits exportDay EcoSpold1 M.empty (Right (suppliers [(1, supplier), (2, supplier)])) "exported" linked of
+                        Left err -> T.unpack err `shouldSatisfy` isInfixOf said
+                        Right _ -> expectationFailure "exported"
 
         it "puts a line in kWh of a flow in MJ in MJ for ILCD, whose exchanges have only their flow's unit" $
             fmap marketLines (ILCD.inFlowUnits energyUnits spinning) `shouldBe` Right [(33.336, mjU), (3.6, mjU)]
@@ -310,6 +336,10 @@ marketLines db = [(exchangeAmount ex, exchangeUnitId ex) | act <- M.elems (sdbAc
 
 grid :: Elsewhere
 grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = PositiveReference, elTwins = [], elUnit = ""}
+
+-- | The grid as a loaded database states it: making its product in kWh.
+gridInKwh :: Elsewhere
+gridInKwh = grid{elUnit = "kWh"}
 
 -- | The suppliers of the spinning lines at these positions.
 suppliers :: [(Int, Elsewhere)] -> Dependencies
