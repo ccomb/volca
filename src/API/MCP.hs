@@ -916,26 +916,37 @@ callTool _ _ _ mHosting _ rid name _
 callTool _ _ presets _ _ rid _ args
     | Left err <- presetFilters presets args = return $ toolError rid err
 callTool caller dbManager presets mHosting mBaseUrl rid name args = do
-    let asked = databasesOfCall (callerAsking caller) name args
+    let asking = callerAsking caller
+        asked = L.nub (databasesOfCall asking name args)
     terms <- DM.termsToAccept dbManager asked
     accepted <- (callerAcceptedTerms caller <>) <$> DM.acceptedTerms dbManager (callerReader caller)
     licences <- requestedLicences dbManager args
-    let missing = missingTerms accepted terms
-        -- The tool to run, or why it is refused whatever the terms.
-        tool = case R.fromMcpName name of
-            Nothing -> Left ("Unknown tool: " <> name)
-            Just resource -> maybe (Right resource) Left (licenceRefusalFor name licences)
-    case (callerAsking caller, tool) of
-        -- A form is shown only for a call that would then run: the person
-        -- does not accept terms to be refused the tool anyway.
-        (InForm _, Left refusal) -> pure (toolError rid refusal)
-        _ -> case termsStep (callerAsking caller) missing of
-            Proceed -> do
-                DM.acceptTerms dbManager (callerReader caller) missing
-                either (pure . toolError rid) (\resource -> dispatchTool caller dbManager presets mHosting mBaseUrl rid resource args (licenceOfDatabase licences)) tool
-            AskInChat ts -> pure (toolError rid (termsRefusalText (NE.toList ts)))
-            AskInForm ts -> pure (inputRequired rid asked ts)
-            Declined how ts -> pure (toolError rid (declinedText how asked ts))
+    let run resource = dispatchTool caller dbManager presets mHosting mBaseUrl rid resource args (licenceOfDatabase licences)
+    case (toolToRun name licences, termsStep asking (missingTerms accepted terms)) of
+        (Left refusal, _) | refusesBeforeAsking asking -> pure (toolError rid refusal)
+        (_, AskInChat ts) -> pure (toolError rid (termsRefusalText (NE.toList ts)))
+        (_, AskInForm ts) -> pure (inputRequired rid asked ts)
+        (_, Declined how ts) -> pure (toolError rid (declinedText how asked (callerAcceptedTerms caller) ts))
+        (Left refusal, NothingMissing) -> pure (toolError rid refusal)
+        (Left refusal, AcceptedAll _) -> pure (toolError rid refusal)
+        (Right resource, NothingMissing) -> run resource
+        (Right resource, AcceptedAll ts) -> DM.acceptTerms dbManager (callerReader caller) (NE.toList ts) >> run resource
+
+-- | The tool a call names, or why it is refused whatever the terms: an unknown name, or a licence that withholds its answer.
+toolToRun :: Text -> [NamedLicence] -> Either Text R.Resource
+toolToRun name licences = case R.fromMcpName name of
+    Nothing -> Left ("Unknown tool: " <> name)
+    Just resource -> maybe (Right resource) Left (licenceRefusalFor name licences)
+
+{- | Whether a refusal that holds whatever the terms comes before asking them.
+A form is shown only for a call that would then run: the person does not
+accept terms to be refused the tool anyway. In the conversation the terms
+come first, as they always did.
+-}
+refusesBeforeAsking :: Asking -> Bool
+refusesBeforeAsking = \case
+    InChat -> False
+    InForm _ -> True
 
 {- | The databases a call reads: those it names, and those its substitutions
 reach into. Loading or unloading one reads none of its data. Accepting its
@@ -965,10 +976,13 @@ unanswered asks every form again, so no part of a call's terms is recorded
 alone.
 -}
 data TermsOutcome
-    = Proceed
+    = NothingMissing
+    | -- | Every form ticked: these terms are to be recorded, then the call runs.
+      AcceptedAll (NE.NonEmpty Terms)
     | AskInChat (NE.NonEmpty Terms)
     | AskInForm (NE.NonEmpty Terms)
-    | Declined Refusal (NE.NonEmpty Terms)
+    | -- | The terms the person refused that way.
+      Declined Refusal (NE.NonEmpty Terms)
     deriving (Eq, Show)
 
 {- | How the person did not accept: by saying no, or by closing the form with
@@ -983,16 +997,18 @@ data FormAnswer = Ticked | Answered Refusal
 
 termsStep :: Asking -> [Terms] -> TermsOutcome
 termsStep asking missing = case (NE.nonEmpty missing, asking) of
-    (Nothing, _) -> Proceed
+    (Nothing, _) -> NothingMissing
     (Just ts, InChat) -> AskInChat ts
     (Just ts, InForm answers)
-        | Answered SaidNo `elem` answered -> Declined SaidNo ts
-        | Answered ClosedTheForm `elem` answered -> Declined ClosedTheForm ts
-        | length answered < length ts -> AskInForm ts
-        | otherwise -> Proceed
+        | Just no <- answeredAs (Answered SaidNo) -> Declined SaidNo no
+        | Just closed <- answeredAs (Answered ClosedTheForm) -> Declined ClosedTheForm closed
+        | Just _ <- NE.nonEmpty [t | (t, Nothing) <- answered] -> AskInForm ts
+        | otherwise -> AcceptedAll ts
       where
-        answered :: [FormAnswer]
-        answered = mapMaybe (\t -> formAnswer <$> KM.lookup (termsFormKey t) answers) (NE.toList ts)
+        answered :: [(Terms, Maybe FormAnswer)]
+        answered = [(t, formAnswer <$> KM.lookup (termsFormKey t) answers) | t <- NE.toList ts]
+        answeredAs :: FormAnswer -> Maybe (NE.NonEmpty Terms)
+        answeredAs a = NE.nonEmpty [t | (t, Just b) <- answered, a == b]
   where
     -- Accepted only with the box ticked; declining or leaving the box empty is a no.
     formAnswer :: Value -> FormAnswer
@@ -1063,24 +1079,27 @@ form has no assistant beside it to explain why another database's terms show.
 -}
 readsThrough :: [Text] -> Terms -> Text
 readsThrough asked t
-    | termsDatabase t `elem` asked || null asked = "The publisher of " <> termsDatabase t <> " asks its users to accept its terms of use before reading it."
+    | termsDatabase t `elem` asked = "The publisher of " <> termsDatabase t <> " asks its users to accept its terms of use before reading it."
     | otherwise = "Reading " <> T.intercalate ", " asked <> " reads " <> termsDatabase t <> ", whose publisher asks its users to accept its terms of use first."
 
 -- | What an assistant is told when the person did not accept: nothing to get around.
-declinedText :: Refusal -> [Text] -> NE.NonEmpty Terms -> Text
-declinedText how asked ts = case how of
+declinedText :: Refusal -> [Text] -> Set.Set Text -> NE.NonEmpty Terms -> Text
+declinedText how asked inCookie ts = case how of
     SaidNo ->
         "The user did not accept the terms of use of " <> owners <> ", so " <> reads <> " is not read. Never accept them on their behalf; if they change their mind, call the tool again and they will be asked."
     ClosedTheForm ->
         T.unlines
             [ "The form showing the terms of use of " <> owners <> " was closed with no answer, so " <> reads <> " is not read. Never accept them on their behalf."
-            , "If the user cannot see forms in this client, as in a run with no screen, they accept the terms by having the client send the cookie volca_terms=" <> T.intercalate "." (map termsFingerprint (NE.toList ts)) <> " with its requests, once they have read them."
+            , "If the user cannot see forms in this client, as in a run with no screen, they accept the terms by having the client send the cookie volca_terms=" <> T.intercalate "." cookie <> " with its requests, once they have read them: the fingerprints of every text accepted, separated by dots."
             ]
   where
     owners :: Text
     owners = T.intercalate ", " (map termsDatabase (NE.toList ts))
     reads :: Text
-    reads = T.intercalate ", " (if null asked then map termsDatabase (NE.toList ts) else asked)
+    reads = T.intercalate ", " asked
+    -- What the cookie already holds and the fingerprints it lacks, so setting it keeps what it opened.
+    cookie :: [Text]
+    cookie = Set.toList (inCookie <> Set.fromList (map termsFingerprint (NE.toList ts)))
 
 -- | Record that the reader accepted the terms of a database and of those it depends on.
 callAcceptTerms :: Maybe Text -> DatabaseManager -> RequestId -> KeyMap Value -> IO Value

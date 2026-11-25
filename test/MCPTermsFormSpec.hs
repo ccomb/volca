@@ -23,11 +23,12 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Network.HTTP.Types (RequestHeaders)
 import Network.Wai (defaultRequest, requestHeaders, requestMethod, setRequestBodyChunks)
 import Network.Wai.Internal (Response (..), ResponseReceived (..))
 import Test.Hspec
 
-import API.MCP (Era (..), RequestId (..), RpcRequest (..), TermsOutcome (..), askingOf, mcpApp, modernVersion, termsStep, toolAnswered)
+import API.MCP (Era (..), Refusal (..), RequestId (..), RpcRequest (..), TermsOutcome (..), askingOf, mcpApp, modernVersion, termsStep, toolAnswered)
 import qualified Database.Manager as DM
 import DependencyLicenceSpec (dependency, managerOn, root)
 import Types (Acceptance (..), Attribution (..), Licence (..), OwnLicence (..), Permission (..), Terms (..), UsageCount (..), processIdToText, termsAsked)
@@ -54,7 +55,11 @@ showsForms = ModernClient (object ["elicitation" .= object []])
 
 -- | One tools/call, with the answers to forms if any; the result, or Null.
 call :: DM.DatabaseManager -> Client -> [(Key, Value)] -> Text -> [(Key, Value)] -> IO Value
-call manager client answers tool args = do
+call = callWith []
+
+-- | One tools/call with more headers.
+callWith :: RequestHeaders -> DM.DatabaseManager -> Client -> [(Key, Value)] -> Text -> [(Key, Value)] -> IO Value
+callWith extra manager client answers tool args = do
     app <- mcpApp manager [] False Nothing Nothing id Nothing
     let (meta, headers) = case client of
             OldClient -> ([], [])
@@ -69,7 +74,7 @@ call manager client answers tool args = do
             [] -> ([], mempty)
             (c : rest) -> (rest, c)
     ref <- newIORef Null
-    _ <- app (setRequestBodyChunks next defaultRequest{requestMethod = "POST", requestHeaders = headers}) $ \case
+    _ <- app (setRequestBodyChunks next defaultRequest{requestMethod = "POST", requestHeaders = extra <> headers}) $ \case
         ResponseBuilder _ _ b -> writeIORef ref (fromMaybe Null (decode (BB.toLazyByteString b) >>= at ["result"])) >> pure ResponseReceived
         _ -> pure ResponseReceived
     readIORef ref
@@ -152,10 +157,11 @@ spec = do
 
         it "is refused when the form is closed with no answer, naming the cookie a client with no screen accepts by" $ do
             manager <- managerOn root dependency licence
-            r <- call manager showsForms [(formKey licence, answer "cancel" Nothing)] "search_activities" searchRoot
+            r <- callWith [("Cookie", "volca_terms=f0")] manager showsForms [(formKey licence, answer "cancel" Nothing)] "search_activities" searchRoot
             at ["isError"] r `shouldBe` Just (Bool True)
             textOf r `shouldSatisfy` T.isInfixOf "closed with no answer"
-            textOf r `shouldSatisfy` T.isInfixOf ("volca_terms=" <> fingerprint)
+            -- The cookie keeps the text it already opened.
+            textOf r `shouldSatisfy` T.isInfixOf ("volca_terms=" <> T.intercalate "." (S.toList (S.fromList ["f0", fingerprint])))
             textOf r `shouldNotSatisfy` T.isInfixOf "accept_terms"
             accepted manager `shouldReturn` S.empty
 
@@ -208,8 +214,11 @@ spec = do
             termsStep (InForm (KM.fromList [(fromText ("terms-" <> fingerprint), yes)])) [one, other] `shouldBe` AskInForm (one NE.:| [other])
 
         it "goes on when every text is accepted, and when none is missing" $ do
-            termsStep (InForm (KM.fromList [(fromText ("terms-" <> fingerprint), yes), ("terms-f2", yes)])) [one, other] `shouldBe` Proceed
-            termsStep InChat [] `shouldBe` Proceed
+            termsStep (InForm (KM.fromList [(fromText ("terms-" <> fingerprint), yes), ("terms-f2", yes)])) [one, other] `shouldBe` AcceptedAll (one NE.:| [other])
+            termsStep InChat [] `shouldBe` NothingMissing
+
+        it "names only the terms the person refused" $
+            termsStep (InForm (KM.fromList [(fromText ("terms-" <> fingerprint), yes), ("terms-f2", answer "decline" Nothing)])) [one, other] `shouldBe` Declined SaidNo (other NE.:| [])
 
     describe "toolAnswered" $
         it "does not count a question to the person as an answer" $ do
