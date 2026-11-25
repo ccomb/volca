@@ -32,15 +32,18 @@ __canonical and deterministic__:
     bare re-parse drops it and the next write falls back to the positional
     index. Byte-stability of a linked input therefore relies on the full
     loader re-resolving the link (by supplier name/location) rather than on a
-    direct 'SimpleDatabase' round-trip. The semantic round-trip – flow name,
-    amount, role, unit – is preserved either way;
+    direct 'SimpleDatabase' round-trip. The semantic round-trip – amount,
+    role, unit, and the flow name of every exchange but a reference product
+    and an input bought inside the file, which say their dataset's name
+    ('datasetNames') – is preserved either way;
   * exchange numbers come from the flow, not from the position in the dataset;
   * attributes appear in a fixed order, classification maps are sorted by
     key, numbers use a fixed textual form, and there is no insignificant
     whitespace beyond a single newline between top-level lines;
-  * the @timestamp@ is the activity's own creation date, and the only
-    volatile field, @generator@, is pinned or omitted via 'WriterOptions', so
-    a write→parse→write round-trip is byte-stable.
+  * the @timestamp@ is the activity's own creation date, the volatile
+    @generator@ is pinned or omitted via 'WriterOptions', and so is the export
+    day an undated dataset is dated by, so a write→parse→write round-trip with
+    the same options is byte-stable.
 
 The mapping mirrors 'EcoSpold.Parser1.buildExchange' exactly:
 
@@ -102,7 +105,6 @@ module EcoSpold.Writer1 (
 ) where
 
 import Amount (readAmount)
-import Control.Applicative ((<|>))
 import Data.Either (lefts)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
@@ -142,8 +144,8 @@ data WriterOptions = WriterOptions
 defaultWriterOptions :: Day -> WriterOptions
 defaultWriterOptions = WriterOptions (Just "VoLCA")
 
-{- | Fully canonical: omits the volatile attribute. Use this for stable
-round-trip / golden tests.
+{- | Omits the volatile generator: given the same day, the output is stable,
+for round-trip / golden tests.
 -}
 canonicalWriterOptions :: Day -> WriterOptions
 canonicalWriterOptions = WriterOptions Nothing
@@ -236,11 +238,11 @@ activityChunks opts techs bios wastes units activities =
         ++ [T.unlines ["</ecoSpold>"]]
   where
     dataset :: Int -> ((UUID, UUID), Activity) -> Text
-    dataset num (key, act) = T.unlines (datasetLines opts res num key act)
+    dataset num row = T.unlines (datasetLines opts res num row)
     res = Resolvers techs bios wastes units (supplierNumberIndex ordered) (flowNumberIndex ordered) (datasetNames techs ordered)
     -- Stable, content-derived order so dataset numbers (and thus flow UUIDs)
     -- are reproducible regardless of the source Map's ordering.
-    ordered = orderedActivities activities
+    ordered = orderedActivities techs activities
 
 {- | The one name each dataset is written under, by its row key.
 
@@ -251,7 +253,7 @@ the activity's name, which tells the activities of a file apart where their
 products need not: one file can make one yarn by three spinning processes,
 each its own activity. Activities sharing a name at one place are the datasets of one
 allocated activity, one per coproduct, and they keep their products' names,
-which do tell them apart.
+which tell them apart within that activity ('renamedProducts' says so).
 -}
 datasetNames :: TechFlowDB -> [((UUID, UUID), Activity)] -> M.Map (UUID, UUID) Text
 datasetNames techs ordered = M.fromList [(key, named key act) | (key, act) <- ordered]
@@ -262,25 +264,38 @@ datasetNames techs ordered = M.fromList [(key, named key act) | (key, act) <- or
         | S.member (place act) shared = maybe (activityName act) tfName (M.lookup productId techs)
         | otherwise = activityName act
 
-{- | What writing one name per dataset costs: the products written under the
-name of the activity making them, said once, with the first of them.
+{- | What writing one name per dataset costs, each said once with the first
+case: the products written under the name of the activity making them, and
+the datasets of activities making several products at one place, written
+under their product's name, the activity's name left out of the file.
 -}
 renamedProducts :: SimpleDatabase -> [Text]
-renamedProducts sdb = case renamed of
-    [] -> []
-    [(productName, name)] -> ["EcoSpold 1 gives a dataset one name: the product \"" <> productName <> "\" is written under the name of the activity making it, \"" <> name <> "\"."]
-    (productName, name) : _ ->
-        [ "EcoSpold 1 gives a dataset one name: "
-            <> T.pack (show (length renamed))
-            <> " products are written under the name of the activity making them, \""
-            <> productName
-            <> "\" as \""
-            <> name
-            <> "\" first."
-        ]
+renamedProducts sdb = products renamed ++ datasets unnamed
   where
-    ordered = orderedActivities (sdbActivities sdb)
+    products = \case
+        [] -> []
+        [(productName, name)] -> ["EcoSpold 1 gives a dataset one name: the product \"" <> productName <> "\" is written under the name of the activity making it, \"" <> name <> "\"."]
+        all'@((productName, name) : _) ->
+            [ "EcoSpold 1 gives a dataset one name: "
+                <> T.pack (show (length all'))
+                <> " products are written under the name of the activity making them, \""
+                <> productName
+                <> "\" as \""
+                <> name
+                <> "\" first."
+            ]
+    datasets = \case
+        [] -> []
+        all'@(activity : _) ->
+            [ "EcoSpold 1 gives a dataset one name: "
+                <> T.pack (show (length all'))
+                <> " datasets are written under their product's name, their activity making several products at one place, so the activity's name is not in the file, \""
+                <> activity
+                <> "\" first."
+            ]
+    ordered = orderedActivities (sdbTechFlows sdb) (sdbActivities sdb)
     names = datasetNames (sdbTechFlows sdb) ordered
+    unnamed = [activityName act | (key, act) <- ordered, M.lookup key names /= Just (activityName act)]
     renamed =
         [ (tfName flow, name)
         | (key@(_, productId), _) <- ordered
@@ -289,17 +304,19 @@ renamedProducts sdb = case renamed of
         , tfName flow /= name
         ]
 
-{- | Canonical export order: sorted by @(activityName, location)@ so dataset
-numbers (and thus flow UUIDs) are reproducible regardless of the source Map's
-ordering. Each activity is paired with the stored activity UUID – the first
+{- | Canonical export order: sorted by the name each dataset is written under
+('datasetNames') and its location, so dataset numbers (and thus flow UUIDs)
+are reproducible regardless of the source Map's ordering, and come out the
+same once the file is read back under those names. Each activity is paired with the stored activity UUID – the first
 component of its 'sdbActivities' key – that a technosphere input's
 'techActivityLinkId' points at. Shared by the writer and
 'checkEcoSpold1Exportable'.
 -}
-orderedActivities :: ActivityMap -> [((UUID, UUID), Activity)]
-orderedActivities =
-    sortOn (\(_, a) -> (activityName a, activityLocation a))
-        . M.toList
+orderedActivities :: TechFlowDB -> ActivityMap -> [((UUID, UUID), Activity)]
+orderedActivities techs activities = sortOn (\(key, a) -> (M.findWithDefault (activityName a) key names, activityLocation a)) rows
+  where
+    rows = M.toList activities
+    names = datasetNames techs rows
 
 {- | Map each exported row to the dataset number it is assigned in canonical
 order. A technosphere input names its supplier by the pair 'techActivityLinkId'
@@ -457,7 +474,7 @@ checkEcoSpold1Exportable db =
                         <> "\": exchange amount "
                         <> T.pack (show amt)
                         <> " has no decimal form that re-parses to the same value."
-    index = supplierNumberIndex (orderedActivities (sdbActivities db))
+    index = supplierNumberIndex (orderedActivities (sdbTechFlows db) (sdbActivities db))
     danglingLinks =
         [ (activityName act, link)
         | act <- M.elems (sdbActivities db)
@@ -536,8 +553,8 @@ dataset, and stops on the first one missing. Each says what the dataset stated,
 and no more: the technology it described, its date, and otherwise the day of
 the export, said as such.
 -}
-datasetLines :: WriterOptions -> Resolvers -> Int -> (UUID, UUID) -> Activity -> [Text]
-datasetLines opts res num key act =
+datasetLines :: WriterOptions -> Resolvers -> Int -> ((UUID, UUID), Activity) -> [Text]
+datasetLines opts res num (key, act) =
     [ indent 1 <> "<dataset" <> datasetAttrs opts num (activityDates act) <> ">"
     , indent 2 <> "<metaInformation>"
     , indent 3 <> "<processInformation>"
@@ -567,25 +584,28 @@ datasetLines opts res num key act =
 documented :: Text -> Activity -> Text
 documented label act = T.intercalate "\n" [docText s | s <- activityDocumentation act, docLabel s == label]
 
--- | The day a dataset is dated by: one it states, or the export's.
+{- | The day a dataset is dated by: its creation, the one date the format
+reads back, or the export's.
+-}
 data Dated
-    = Stated !Day
+    = Created !Day
     | ExportedOn !Day
 
 datedDay :: Dated -> Day
 datedDay = \case
-    Stated day -> day
+    Created day -> day
     ExportedOn day -> day
 
--- | The day the dataset states, its creation before its revision before an unnamed one, else the day of the export.
+{- | The day the dataset was created, else the day of the export. A revision
+or an unnamed date is not taken: the format reads back only the creation, and
+the next export would date the dataset otherwise.
+-}
 datedBy :: WriterOptions -> DatasetDates -> Dated
-datedBy opts dates =
-    maybe (ExportedOn (woExportDay opts)) Stated $
-        datesCreated dates <|> datesLastRevised dates <|> datesStated dates
+datedBy opts = maybe (ExportedOn (woExportDay opts)) Created . datesCreated
 
 {- | The period a dataset is valid for, as the whole year of its date, and a
-text saying where that year comes from: the engine keeps no period of its own,
-and one a source stated is not this one.
+text saying where that year comes from. A period a source stated is kept only
+as the text of its documentation, which the format has no dates for.
 -}
 periodLines :: Dated -> [Text]
 periodLines dated =
@@ -597,8 +617,8 @@ periodLines dated =
   where
     (year, _, _) = toGregorian (datedDay dated)
     note = case dated of
-        Stated _ -> "The year the dataset is dated."
-        ExportedOn _ -> "Not stated by the source: the year of the export."
+        Created _ -> "The year the dataset was created."
+        ExportedOn _ -> "The source states no creation date: the year of the export."
 
 {- | @\<dataset\>@ attributes: @number@ always, the volatile @generator@ when
 the options provide it, and @timestamp@ when the dataset states its creation,
@@ -674,13 +694,16 @@ exchangeNumber res datasetNum ex
   where
     flowNum = M.findWithDefault datasetNum (exchangeFlowId ex) (rFlowNumbers res)
 
-{- | The supplier row whose dataset number an exchange carries: a technosphere
-input's, and a waste input's, written as a technosphere input so that it names
-its treatment the same way. An output names none, on either axis.
+{- | The supplier row whose dataset number and name an exchange carries: a
+technosphere input's, an avoided product's, which the format writes as an
+input and reads back as one, and a waste input's, written as a technosphere
+input so that it names its treatment the same way. An output names none, on
+either axis.
 -}
 suppliedBy :: Exchange -> Maybe (UUID, UUID)
 suppliedBy = \case
-    TechnosphereExchange{techRole = Input, techActivityLinkId = Just link, techFlowId = fid} -> Just (link, fid)
+    TechnosphereExchange{techRole = role, techActivityLinkId = Just link, techFlowId = fid}
+        | role == Input || role == AvoidedProduct -> Just (link, fid)
     TechnosphereExchange{} -> Nothing
     BiosphereExchange{} -> Nothing
     WasteExchange{waIsInput = True, waActivityLinkId = Just link, waFlowId = fid} -> Just (link, fid)

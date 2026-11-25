@@ -20,7 +20,7 @@ import qualified Data.ByteString.Char8 as BC
 import Data.Either (isLeft, isRight)
 import Data.List (sort)
 import qualified Data.Map.Strict as M
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -251,6 +251,26 @@ linkedDb link =
     supplier = mkAct "aaa supplier" supU []
     -- The consumer's input consumes the supplier's product and links to it.
     consumer = mkAct "bbb consumer" conU [TechnosphereExchange supU 2.0 kgUnit Input (Just link) ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing]
+
+-- | 'linkedDb' with every activity dated so.
+datedLinkedDb :: DatasetDates -> SimpleDatabase
+datedLinkedDb dates = db{sdbActivities = M.map (\a -> a{activityDates = dates}) (sdbActivities db)}
+  where
+    db = linkedDb supplierLink
+
+{- | 'linkedDb' with the consumer avoiding the supplier's product instead of
+buying it, and that product named apart from the activity making it.
+-}
+avoidedDb :: SimpleDatabase
+avoidedDb =
+    db
+        { sdbActivities = M.map (\a -> a{activityLines = packExchanges (map avoid (exchanges a))}) (sdbActivities db)
+        , sdbTechFlows = M.adjust (\f -> f{tfName = "aaa product"}) supplierLink (sdbTechFlows db)
+        }
+  where
+    db = linkedDb supplierLink
+    avoid ex@TechnosphereExchange{techRole = Input} = ex{techRole = AvoidedProduct}
+    avoid ex = ex
 
 {- | A supplier written as two coproduct rows sharing one activity UUID, and a
 consumer whose input names the first of them. Canonical order gives the two
@@ -572,17 +592,31 @@ spec = do
             T.isInfixOf "<dataSetInformation timestamp=\"2026-11-25T00:00:00\"/>" xml `shouldBe` True
             T.isInfixOf "<startDate>2026-01-01</startDate>" xml `shouldBe` True
             T.isInfixOf "<endDate>2026-12-31</endDate>" xml `shouldBe` True
-            T.isInfixOf "Not stated by the source: the year of the export." xml `shouldBe` True
+            T.isInfixOf "The source states no creation date: the year of the export." xml `shouldBe` True
 
-        it "dates a dataset by the day it states" $ do
-            let dated = linkedDb supplierLink
-                revised = noDates{datesLastRevised = Just (fromGregorian 2011 6 30)}
-                db = dated{sdbActivities = M.map (\a -> a{activityDates = revised}) (sdbActivities dated)}
-            xml <- writeOk (canonicalWriterOptions exportDay) db
+        it "dates a dataset by the day it was created" $ do
+            xml <- writeOk (canonicalWriterOptions exportDay) (datedLinkedDb noDates{datesCreated = Just (fromGregorian 2011 6 30)})
             T.isInfixOf "<dataSetInformation timestamp=\"2011-06-30T00:00:00\"/>" xml `shouldBe` True
             T.isInfixOf "<startDate>2011-01-01</startDate>" xml `shouldBe` True
             T.isInfixOf "the year of the export" xml `shouldBe` False
-            T.isInfixOf "<timePeriod text=\"The year the dataset is dated.\">" xml `shouldBe` True
+            T.isInfixOf "<timePeriod text=\"The year the dataset was created.\">" xml `shouldBe` True
+
+        -- The format reads back the creation alone: a dataset dated by another
+        -- day would be dated by the export once read back and written again.
+        forM_
+            [ ("created", noDates{datesCreated = Just (fromGregorian 2007 3 1)})
+            , ("revised", noDates{datesLastRevised = Just (fromGregorian 2015 6 30)})
+            , ("stating an unnamed date", noDates{datesStated = Just (fromGregorian 2011 6 30)})
+            , ("undated", noDates)
+            ]
+            $ \(shape, dates) ->
+                it ("writes a dataset " <> shape <> " the same once read back") $ do
+                    sdb <- fixtureDb
+                    let dated = sdb{sdbActivities = M.map (\a -> a{activityDates = dates}) (sdbActivities sdb)}
+                    f0 <- writeOk (canonicalWriterOptions exportDay) dated
+                    case roundTrip dated of
+                        Left err -> expectationFailure ("round-trip failed: " ++ err)
+                        Right sdb' -> writeOk (canonicalWriterOptions exportDay) sdb' >>= (`shouldBe` f0)
 
         it "carries the technology the dataset describes" $ do
             let db = linkedDb supplierLink
@@ -602,11 +636,27 @@ spec = do
             renamedProducts (tapWaterDb (read "55555555-0000-4000-8000-000000000002"))
                 `shouldBe` ["EcoSpold 1 gives a dataset one name: 2 products are written under the name of the activity making them, \"tap water\" as \"aaa tap water\" first."]
 
-        it "keeps a coproduct's name, which tells apart the datasets of one activity" $ do
+        it "keeps a coproduct's name, which tells apart the datasets of one activity, and says the activity's is lost" $ do
             xml <- writeOk (canonicalWriterOptions exportDay) coproductDb
             forM_ ["name=\"aaa product a\"", "name=\"aaa product b\""] $ \name ->
                 (name, T.isInfixOf name xml) `shouldBe` (name, True)
-            renamedProducts coproductDb `shouldBe` []
+            renamedProducts coproductDb
+                `shouldBe` ["EcoSpold 1 gives a dataset one name: 2 datasets are written under their product's name, their activity making several products at one place, so the activity's name is not in the file, \"aaa supplier\" first."]
+
+        it "numbers coproduct datasets the same once read back under their products' names" $ do
+            -- The row keyed first makes the product named last.
+            let swapped = coproductDb{sdbActivities = M.filter ((== "aaa supplier") . activityName) (sdbActivities coproductDb), sdbTechFlows = M.map swap (sdbTechFlows coproductDb)}
+                swap f = f{tfName = fromMaybe (tfName f) (lookup (tfName f) [("aaa product a", "aaa product b"), ("aaa product b", "aaa product a")])}
+            f0 <- writeOk (canonicalWriterOptions exportDay) swapped
+            case roundTrip swapped of
+                Left err -> expectationFailure ("round-trip failed: " ++ err)
+                Right sdb' -> writeOk (canonicalWriterOptions exportDay) sdb' >>= (`shouldBe` f0)
+
+        it "names an avoided product bought inside the file after its maker's dataset, under that dataset's number" $ do
+            xml <- writeOk (canonicalWriterOptions exportDay) avoidedDb
+            T.isInfixOf "name=\"aaa product\"" xml `shouldBe` False
+            length (T.breakOnAll "number=\"1\" name=\"aaa supplier\"" xml) `shouldBe` 2
+            roundTripSupplierLinks avoidedDb `shouldBe` Right [1]
 
     -- The format keeps the day a dataset was created; the other two have no
     -- place in it and are not passed off as that one.
