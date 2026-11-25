@@ -13,8 +13,10 @@ __canonical and deterministic__:
     exchange numbers follow the convention EcoSpold1 exports use, which the
     parser reads as a flow's identity: a number names a flow for the whole
     export, not a position in one dataset. A reference product carries its own
-    dataset's number, a linked technosphere input carries its supplier's, and
-    every other exchange carries a number assigned once per distinct flow.
+    dataset's number, a linked technosphere input carries its supplier's (one
+    bought from a database it depends on, a number no dataset of the file
+    has), and every other exchange carries a number assigned once per distinct
+    flow.
     That makes the writer's output __self-stable for every exchange except a
     linked technosphere input__: reference products, co-products, biosphere
     exchanges and /unlinked/ inputs all reproduce the same flow UUIDs on
@@ -32,15 +34,19 @@ __canonical and deterministic__:
     bare re-parse drops it and the next write falls back to the positional
     index. Byte-stability of a linked input therefore relies on the full
     loader re-resolving the link (by supplier name/location) rather than on a
-    direct 'SimpleDatabase' round-trip. The semantic round-trip – flow name,
-    amount, role, unit – is preserved either way;
+    direct 'SimpleDatabase' round-trip. The semantic round-trip – amount,
+    role, unit, and the flow name of every exchange but a reference product
+    and an input bought inside the file, which say their dataset's name
+    ('datasetNames'), and an input bought from a database it depends on, which
+    says its supplier's activity name – is preserved either way;
   * exchange numbers come from the flow, not from the position in the dataset;
   * attributes appear in a fixed order, classification maps are sorted by
     key, numbers use a fixed textual form, and there is no insignificant
     whitespace beyond a single newline between top-level lines;
-  * the @timestamp@ is the activity's own creation date, and the only
-    volatile field, @generator@, is pinned or omitted via 'WriterOptions', so
-    a write→parse→write round-trip is byte-stable.
+  * the @timestamp@ is the activity's own creation date, the volatile
+    @generator@ is pinned or omitted via 'WriterOptions', and so is the export
+    day an undated dataset is dated by, so a write→parse→write round-trip with
+    the same options is byte-stable.
 
 The mapping mirrors 'EcoSpold.Parser1.buildExchange' exactly:
 
@@ -93,6 +99,10 @@ module EcoSpold.Writer1 (
     -- * Export boundary check
     checkEcoSpold1Exportable,
 
+    -- * What the format makes the export say
+    renamedProducts,
+    unlinkableByProduct,
+
     -- * Pure helpers (exported for testing)
     escapeXmlAttr,
     formatAmount,
@@ -106,8 +116,11 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time.Calendar (Day, fromGregorian, toGregorian)
+import Data.Time.Format.ISO8601 (iso8601Show)
 import qualified Data.UUID as UUID
-import Database.ExportSupplier (Maker (..), madeAt, makerOf, noDependencies)
+import Database.CrossLinking (normalizeText)
+import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), madeAt, makerOf, noDependencies)
 import EcoSpold.Common (showFFloatTrim)
 import Types
 
@@ -117,25 +130,34 @@ import Types
 
 {- | Knobs controlling the volatile, non-semantic parts of the output.
 Keeping these out of band lets a round-trip be byte-stable: write with
-'canonicalWriterOptions' (no @generator@) and the second write reproduces the
-first exactly. The @timestamp@ is not one of them: it is the dataset's creation
-date, and comes from the activity.
+'canonicalWriterOptions' (no @generator@) on one day and the second write
+reproduces the first exactly. The @timestamp@ is not one of them: it is the
+dataset's creation date, and comes from the activity.
 -}
-newtype WriterOptions = WriterOptions
+data WriterOptions = WriterOptions
     { woGenerator :: Maybe Text
     -- ^ Value of the @\<dataset generator=...\>@ attribute, or 'Nothing' to omit.
+    , woExportDay :: Day
+    {- ^ The day of the export. A dataset stating no date of its own is written
+    with it, since a reader such as Brightway's needs a timestamp and a period
+    of validity on every dataset.
+    -}
+    , woDependencies :: Dependencies
+    {- ^ The suppliers its inputs buy from the databases it depends on, each
+    such input written under its supplier's name, place and unit.
+    -}
     }
     deriving (Eq, Show)
 
 -- | Self-describing default: pins generator to "VoLCA".
-defaultWriterOptions :: WriterOptions
-defaultWriterOptions = WriterOptions (Just "VoLCA")
+defaultWriterOptions :: Day -> WriterOptions
+defaultWriterOptions day = WriterOptions (Just "VoLCA") day noDependencies
 
-{- | Fully canonical: omits the volatile attribute. Use this for stable
-round-trip / golden tests.
+{- | Omits the volatile generator: given the same day, the output is stable,
+for round-trip / golden tests.
 -}
-canonicalWriterOptions :: WriterOptions
-canonicalWriterOptions = WriterOptions Nothing
+canonicalWriterOptions :: Day -> WriterOptions
+canonicalWriterOptions day = WriterOptions Nothing day noDependencies
 
 -- ----------------------------------------------------------------------------
 -- Top-level writers
@@ -169,7 +191,7 @@ dataset rather than the file.
 -}
 writeSimpleDatabaseChunks :: WriterOptions -> SimpleDatabase -> Either Text [Text]
 writeSimpleDatabaseChunks opts sdb = do
-    checkEcoSpold1Exportable sdb
+    checkEcoSpold1Exportable deps sdb
     pure $
         activityChunks
             opts
@@ -177,28 +199,87 @@ writeSimpleDatabaseChunks opts sdb = do
             (sdbBioFlows sdb)
             (sdbWasteFlows sdb)
             (sdbUnits sdb)
-            (placedAtMakers sdb)
+            (M.fromList (supplierNames deps sdb))
+            (placedAtMakers deps sdb)
+  where
+    deps = woDependencies opts
+
+-- | A line a database it depends on supplies.
+data BoughtLine = BoughtLine
+    { blRow :: !(UUID, UUID)
+    , blPosition :: !Int
+    -- ^ Its place among the row's exchanges.
+    , blActivity :: !Activity
+    , blExchange :: !Exchange
+    , blSupplier :: !Elsewhere
+    }
+
+-- | Each line a database it depends on supplies.
+dependencyLines :: Dependencies -> SimpleDatabase -> [BoughtLine]
+dependencyLines deps sdb =
+    [ BoughtLine row position act ex e
+    | (row, act) <- M.toList (sdbActivities sdb)
+    , (position, ex) <- zip [0 ..] (exchanges act)
+    , InDependency e <- [maker row (position, ex)]
+    ]
+  where
+    maker = makerOf deps sdb
+
+-- | The activity name each supplier in a database it depends on is written under, by supplier row.
+supplierNames :: Dependencies -> SimpleDatabase -> [((UUID, UUID), Text)]
+supplierNames deps sdb = [(supplier, elActivity (blSupplier l)) | l <- dependencyLines deps sdb, Just supplier <- [suppliedBy (blExchange l)]]
+
+{- | The lines bought from a database it depends on whose supplier's activity
+is named apart from its product: they are written under the activity's name,
+which a reader holding that database links them by, and which this engine,
+linking an input by its product, does not find.
+-}
+unlinkableByProduct :: Dependencies -> SimpleDatabase -> [Text]
+unlinkableByProduct deps sdb = case apart of
+    [] -> []
+    (activity, productName) : _ ->
+        [ "EcoSpold 1 writes an input bought from a database it depends on under its supplier's activity name: "
+            <> T.pack (show (length apart))
+            <> " such inputs name a supplier whose product is named otherwise, which a reader linking by product, as VoLCA does, does not find, \""
+            <> activity
+            <> "\" making \""
+            <> productName
+            <> "\" first."
+        ]
+  where
+    apart =
+        [ (elActivity (blSupplier l), tfName flow)
+        | l <- dependencyLines deps sdb
+        , TechnosphereExchange{techFlowId = fid} <- [blExchange l]
+        , Just flow <- [M.lookup fid (sdbTechFlows sdb)]
+        , normalizeText (tfName flow) /= normalizeText (elActivity (blSupplier l))
+        ]
 
 {- | Each input linked to a dataset of the file, placed where that dataset
 makes its product.
 
 A reader holding the whole file links the input by its @number@. One holding a
 dataset alone, beside the database it was taken from, links it by name and
-location, and an input that states no location takes any maker of that name:
+location, the name being its maker's dataset name ('datasetNames'), which that
+database gives a product only where activity and product share a name, as one
+read from this format does. An input that states no location takes any maker
+of that name:
 the Italian tap water comes back as the Dutch one. Each country's tap water is
 its own product in a file read from this format, so this holds whether the file
 makes the product once or several times. An input that states a place other
 than its maker's is placed at its maker's, since that is the link the database
-scores.
+scores. An input bought from a database it depends on is placed where its
+supplier is, for a reader holding that database beside the file.
 -}
-placedAtMakers :: SimpleDatabase -> ActivityMap
-placedAtMakers sdb = M.mapWithKey place (sdbActivities sdb)
+placedAtMakers :: Dependencies -> SimpleDatabase -> ActivityMap
+placedAtMakers deps sdb = M.mapWithKey place (sdbActivities sdb)
   where
-    maker = makerOf noDependencies sdb
+    maker = makerOf deps sdb
     place key act = act{activityLines = packExchanges (zipWith (placed key) [0 ..] (exchanges act))}
     placed key i ex@TechnosphereExchange{} = case maker key (i, ex) of
         SoleMaker m -> ex{techLocation = readExchangeLocation (madeAt m)}
         OneOfMakers m -> ex{techLocation = readExchangeLocation (madeAt m)}
+        InDependency e -> ex{techLocation = readExchangeLocation (elLocation e)}
         _ -> ex
     placed _ _ ex = ex
 
@@ -214,34 +295,97 @@ activityChunks ::
     BioFlowDB ->
     WasteFlowDB ->
     UnitDB ->
+    M.Map (UUID, UUID) Text ->
     ActivityMap ->
     [Text]
-activityChunks opts techs bios wastes units activities =
+activityChunks opts techs bios wastes units elsewhere activities =
     T.unlines
         [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
         ]
-        : zipWith dataset [1 ..] (map snd ordered)
+        : zipWith dataset [1 ..] ordered
         ++ [T.unlines ["</ecoSpold>"]]
   where
-    dataset :: Int -> Activity -> Text
-    dataset num act = T.unlines (datasetLines opts res num act)
-    res = Resolvers techs bios wastes units (supplierNumberIndex ordered) (flowNumberIndex ordered)
+    dataset :: Int -> ((UUID, UUID), Activity) -> Text
+    dataset num row = T.unlines (datasetLines opts res num row)
+    res = Resolvers techs bios wastes units (supplierNumberIndex ordered) (flowNumberIndex ordered) (datasetNames techs ordered <> elsewhere)
     -- Stable, content-derived order so dataset numbers (and thus flow UUIDs)
     -- are reproducible regardless of the source Map's ordering.
-    ordered = orderedActivities activities
+    ordered = orderedActivities techs activities
 
-{- | Canonical export order: sorted by @(activityName, location)@ so dataset
-numbers (and thus flow UUIDs) are reproducible regardless of the source Map's
-ordering. Each activity is paired with the stored activity UUID – the first
+{- | The one name each dataset is written under, by its row key.
+
+EcoSpold 1 gives a dataset a single name: its @referenceFunction@, its
+reference exchange and every input buying from it say the same words, and a
+reader linking by name, as Brightway's does, matches an input on them. It is
+the activity's name, which tells the activities of a file apart where their
+products need not: one file can make one yarn by three spinning processes,
+each its own activity. Activities sharing a name at one place are the datasets of one
+allocated activity, one per coproduct, and they keep their products' names,
+which tell them apart within that activity ('renamedProducts' says so).
+-}
+datasetNames :: TechFlowDB -> [((UUID, UUID), Activity)] -> M.Map (UUID, UUID) Text
+datasetNames techs ordered = M.fromList [(key, named key act) | (key, act) <- ordered]
+  where
+    place act = (activityName act, activityLocation act)
+    shared = M.keysSet (M.filter (> (1 :: Int)) (M.fromListWith (+) [(place act, 1) | (_, act) <- ordered]))
+    named (_, productId) act
+        | S.member (place act) shared = maybe (activityName act) tfName (M.lookup productId techs)
+        | otherwise = activityName act
+
+{- | What writing one name per dataset costs, each said once with the first
+case: the products written under the name of the activity making them, and
+the datasets of activities making several products at one place, written
+under their product's name, the activity's name left out of the file.
+-}
+renamedProducts :: SimpleDatabase -> [Text]
+renamedProducts sdb = products renamed ++ datasets unnamed
+  where
+    products = \case
+        [] -> []
+        [(productName, name)] -> ["EcoSpold 1 gives a dataset one name: the product \"" <> productName <> "\" is written under the name of the activity making it, \"" <> name <> "\"."]
+        all'@((productName, name) : _) ->
+            [ "EcoSpold 1 gives a dataset one name: "
+                <> T.pack (show (length all'))
+                <> " products are written under the name of the activity making them, \""
+                <> productName
+                <> "\" as \""
+                <> name
+                <> "\" first."
+            ]
+    datasets = \case
+        [] -> []
+        all'@(activity : _) ->
+            [ "EcoSpold 1 gives a dataset one name: "
+                <> T.pack (show (length all'))
+                <> " datasets are written under their product's name, their activity making several products at one place, so the activity's name is not in the file, \""
+                <> activity
+                <> "\" first."
+            ]
+    ordered = orderedActivities (sdbTechFlows sdb) (sdbActivities sdb)
+    names = datasetNames (sdbTechFlows sdb) ordered
+    unnamed = [activityName act | (key, act) <- ordered, M.lookup key names /= Just (activityName act)]
+    renamed =
+        [ (tfName flow, name)
+        | (key@(_, productId), _) <- ordered
+        , Just name <- [M.lookup key names]
+        , Just flow <- [M.lookup productId (sdbTechFlows sdb)]
+        , tfName flow /= name
+        ]
+
+{- | Canonical export order: sorted by the name each dataset is written under
+('datasetNames') and its location, so dataset numbers (and thus flow UUIDs)
+are reproducible regardless of the source Map's ordering, and come out the
+same once the file is read back under those names. Each activity is paired with the stored activity UUID – the first
 component of its 'sdbActivities' key – that a technosphere input's
 'techActivityLinkId' points at. Shared by the writer and
 'checkEcoSpold1Exportable'.
 -}
-orderedActivities :: ActivityMap -> [((UUID, UUID), Activity)]
-orderedActivities =
-    sortOn (\(_, a) -> (activityName a, activityLocation a))
-        . M.toList
+orderedActivities :: TechFlowDB -> ActivityMap -> [((UUID, UUID), Activity)]
+orderedActivities techs activities = sortOn (\(key, a) -> (M.findWithDefault (activityName a) key names, activityLocation a)) rows
+  where
+    rows = M.toList activities
+    names = datasetNames techs rows
 
 {- | Map each exported row to the dataset number it is assigned in canonical
 order. A technosphere input names its supplier by the pair 'techActivityLinkId'
@@ -322,14 +466,54 @@ emit silently wrong data:
     correctly-rounded reader). Every finite amount round-trips, so this guards
     the formatter↔reader contract against future drift.
 
+  * __Suppliers in a database it depends on.__ Such an input is written under
+    its supplier's name, place and unit, for a reader holding that database
+    beside the file to link it there. It cannot be when the supplier states no
+    place, shares its activity name and place with another product of its database,
+    or makes its product in a unit the line is not in; nor when a dataset of
+    the file has its name, since readers link an input inside the file first.
+    A waste sent to a treatment of that database has no line naming it.
+
 Databases free of all of these pass unchanged.
 -}
-checkEcoSpold1Exportable :: SimpleDatabase -> Either Text ()
-checkEcoSpold1Exportable db =
-    case lefts [checkLinks, checkRefInputs, checkLinkedWasteOutputs, checkFlows, checkUnits, checkAmounts, checkAmountRoundTrip] of
+checkEcoSpold1Exportable :: Dependencies -> SimpleDatabase -> Either Text ()
+checkEcoSpold1Exportable deps db =
+    case lefts [checkLinks, checkDependencies, checkSupplierNames, checkRefInputs, checkLinkedWasteOutputs, checkFlows, checkUnits, checkAmounts, checkAmountRoundTrip] of
         [] -> Right ()
         violations -> Left (T.intercalate "\n\n" violations)
   where
+    checkDependencies =
+        case [(activityName (blActivity l), why) | l <- dependencyLines deps db, Just why <- [unwritable (blExchange l) (blSupplier l)]] of
+            [] -> Right ()
+            ((consumer, why) : _) ->
+                Left $
+                    "EcoSpold1 export cannot name the supplier of an input in \""
+                        <> consumer
+                        <> "\": "
+                        <> why
+                        <> ". EcoSpold 2 and openLCA point at the supplier itself."
+    -- One supplier row written under two names would be one dataset for a reader and two for us.
+    checkSupplierNames =
+        case [supplier | (supplier, names) <- M.toList (M.fromListWith S.union [(supplier, S.singleton name) | (supplier, name) <- supplierNames deps db]), S.size names > 1] of
+            [] -> Right ()
+            ((act, _) : _) ->
+                Left $
+                    "EcoSpold1 export cannot name the supplier "
+                        <> UUID.toText act
+                        <> ": the databases it depends on give it more than one activity name."
+    ownNames = S.fromList (map normalizeText (M.elems (datasetNames (sdbTechFlows db) (M.toList (sdbActivities db)))))
+    unwritable ex e = case ex of
+        TechnosphereExchange{techUnitId = unit}
+            | T.null (T.strip (elLocation e)) -> Just (supplier <> " states no location")
+            | other : _ <- elNamesakes e -> Just (elDatabase e <> " also makes \"" <> other <> "\" at " <> elLocation e <> " under the name \"" <> elActivity e <> "\"")
+            | S.member (normalizeText (elActivity e)) ownNames -> Just (supplier <> " has the name of a dataset of the file, which a reader links it to instead")
+            | T.null (elUnit e) -> Just ("the unit " <> supplier <> " makes it in is not known")
+            | unitNameFor (sdbUnits db) unit /= elUnit e -> Just ("it is in " <> unitNameFor (sdbUnits db) unit <> ", which does not convert to the " <> elUnit e <> " " <> supplier <> " makes it in")
+            | otherwise -> Nothing
+          where
+            supplier = "its supplier \"" <> elActivity e <> "\" in " <> elDatabase e
+        WasteExchange{} -> Just ("it sends a waste to \"" <> elActivity e <> "\" in " <> elDatabase e <> ", and the format names a treatment only among the datasets of its own file")
+        BiosphereExchange{} -> Nothing
     checkLinks =
         case danglingLinks of
             [] -> Right ()
@@ -399,24 +583,16 @@ checkEcoSpold1Exportable db =
                         <> "\": exchange amount "
                         <> T.pack (show amt)
                         <> " has no decimal form that re-parses to the same value."
-    index = supplierNumberIndex (orderedActivities (sdbActivities db))
+    index = supplierNumberIndex (orderedActivities (sdbTechFlows db) (sdbActivities db))
+    bought = S.fromList [(blRow l, blPosition l) | l <- dependencyLines deps db]
     danglingLinks =
         [ (activityName act, link)
-        | act <- M.elems (sdbActivities db)
-        , ex <- exchanges act
-        , (link, fid) <- namedSupplier ex
+        | (row, act) <- M.toList (sdbActivities db)
+        , (position, ex) <- zip [0 :: Int ..] (exchanges act)
+        , Just (link, fid) <- [suppliedBy ex]
         , not (M.member (link, fid) index)
+        , S.notMember (row, position) bought
         ]
-    -- The rows whose number names a supplier: a technosphere input, and a
-    -- waste input, which the writer emits as one. An output names none, on
-    -- either axis.
-    namedSupplier :: Exchange -> [(UUID, UUID)]
-    namedSupplier ex = case ex of
-        TechnosphereExchange{techRole = Input, techActivityLinkId = Just link, techFlowId = fid} -> [(link, fid)]
-        TechnosphereExchange{} -> []
-        BiosphereExchange{} -> []
-        WasteExchange{waIsInput = True, waActivityLinkId = Just link, waFlowId = fid} -> [(link, fid)]
-        WasteExchange{} -> []
     linkedWasteOutputs =
         [ activityName act
         | act <- M.elems (sdbActivities db)
@@ -472,28 +648,89 @@ data Resolvers = Resolvers
     , rUnits :: !UnitDB
     , rSupplierNumbers :: !(M.Map (UUID, UUID) Int)
     , rFlowNumbers :: !(M.Map UUID Int)
+    , rDatasetNames :: !(M.Map (UUID, UUID) Text)
+    -- ^ The name each supplier row is written under: a dataset of the file, or the activity of a dependency.
     }
 
 -- ----------------------------------------------------------------------------
 -- Per-dataset rendering
 -- ----------------------------------------------------------------------------
 
--- | Render one @\<dataset\>@ block (already indented), as a list of lines.
-datasetLines :: WriterOptions -> Resolvers -> Int -> Activity -> [Text]
-datasetLines opts res num act =
+{- | Render one @\<dataset\>@ block (already indented), as a list of lines.
+
+Past the reference function and the place, the metadata is what a reader of
+the format cannot do without: Brightway's dereferences the technology, the
+period, the dataset information and the person who entered the data on every
+dataset, and stops on the first one missing. Each says what the dataset stated,
+and no more: the technology it described, its date, and otherwise the day of
+the export, said as such.
+-}
+datasetLines :: WriterOptions -> Resolvers -> Int -> ((UUID, UUID), Activity) -> [Text]
+datasetLines opts res num (key, act) =
     [ indent 1 <> "<dataset" <> datasetAttrs opts num (activityDates act) <> ">"
     , indent 2 <> "<metaInformation>"
     , indent 3 <> "<processInformation>"
-    , indent 4 <> "<referenceFunction" <> refFunctionAttrs act <> "/>"
+    , indent 4 <> "<referenceFunction" <> refFunctionAttrs (M.findWithDefault (activityName act) key (rDatasetNames res)) act <> "/>"
     , indent 4 <> "<geography location=" <> attr (activityLocation act) <> "/>"
-    , indent 3 <> "</processInformation>"
-    , indent 2 <> "</metaInformation>"
-    , indent 2 <> "<flowData>"
+    , indent 4 <> "<technology text=" <> attr (documented "Technology" act) <> "/>"
     ]
-        ++ concatMap (exchangeLines res num) (exchanges act)
+        ++ periodLines dated
+        ++ [ indent 4 <> "<dataSetInformation timestamp=" <> attr (isoDateTime (datedDay dated)) <> "/>"
+           , indent 3 <> "</processInformation>"
+           , indent 3 <> "<modellingAndValidation/>"
+           , indent 3 <> "<administrativeInformation>"
+           , indent 4 <> "<dataEntryBy person=\"1\"/>"
+           , indent 4 <> "<person number=\"1\" name=\"VoLCA\"/>"
+           , indent 3 <> "</administrativeInformation>"
+           , indent 2 <> "</metaInformation>"
+           , indent 2 <> "<flowData>"
+           ]
+        ++ concatMap (exchangeLines res num key) (exchanges act)
         ++ [ indent 2 <> "</flowData>"
            , indent 1 <> "</dataset>"
            ]
+  where
+    dated = datedBy opts (activityDates act)
+
+-- | The text of the documentation section a dataset states under this label, or nothing.
+documented :: Text -> Activity -> Text
+documented label act = T.intercalate "\n" [docText s | s <- activityDocumentation act, docLabel s == label]
+
+{- | The day a dataset is dated by: its creation, the one date the format
+reads back, or the export's.
+-}
+data Dated
+    = Created !Day
+    | ExportedOn !Day
+
+datedDay :: Dated -> Day
+datedDay = \case
+    Created day -> day
+    ExportedOn day -> day
+
+{- | The day the dataset was created, else the day of the export. A revision
+or an unnamed date is not taken: the format reads back only the creation, and
+the next export would date the dataset otherwise.
+-}
+datedBy :: WriterOptions -> DatasetDates -> Dated
+datedBy opts = maybe (ExportedOn (woExportDay opts)) Created . datesCreated
+
+{- | The period a dataset is valid for, as the whole year of its date, and a
+text saying where that year comes from. A period a source stated is kept only
+as the text of its documentation, which the format has no dates for.
+-}
+periodLines :: Dated -> [Text]
+periodLines dated =
+    [ indent 4 <> "<timePeriod text=" <> attr note <> ">"
+    , indent 5 <> "<startDate>" <> T.pack (iso8601Show (fromGregorian year 1 1)) <> "</startDate>"
+    , indent 5 <> "<endDate>" <> T.pack (iso8601Show (fromGregorian year 12 31)) <> "</endDate>"
+    , indent 4 <> "</timePeriod>"
+    ]
+  where
+    (year, _, _) = toGregorian (datedDay dated)
+    note = case dated of
+        Created _ -> "The year the dataset was created."
+        ExportedOn _ -> "The source states no creation date: the year of the export."
 
 {- | @\<dataset\>@ attributes: @number@ always, the volatile @generator@ when
 the options provide it, and @timestamp@ when the dataset states its creation,
@@ -515,10 +752,10 @@ Note: @generalComment@ is a single ES1 attribute, so paragraph cardinality
 does not round-trip – the joined text survives, but 'Parser1' reads it back
 as a one-element 'activityDescription' regardless of how many paragraphs went in.
 -}
-refFunctionAttrs :: Activity -> Text
-refFunctionAttrs act =
+refFunctionAttrs :: Text -> Activity -> Text
+refFunctionAttrs name act =
     " name="
-        <> attr (activityName act)
+        <> attr name
         <> optAttr "category" (classif "Category")
         <> optAttr "subCategory" (classif "SubCategory")
         <> " unit="
@@ -537,9 +774,9 @@ The group element (@inputGroup@ / @outputGroup@) is what the parser keys on
 to classify the exchange, so it is derived from the exchange variant +
 role/direction, never guessed.
 -}
-exchangeLines :: Resolvers -> Int -> Exchange -> [Text]
-exchangeLines res datasetNum ex =
-    [ indent 3 <> "<exchange" <> exchangeAttrs res datasetNum ex <> ">"
+exchangeLines :: Resolvers -> Int -> (UUID, UUID) -> Exchange -> [Text]
+exchangeLines res datasetNum key ex =
+    [ indent 3 <> "<exchange" <> exchangeAttrs res datasetNum key ex <> ">"
     , indent 4 <> groupElement ex
     , indent 3 <> "</exchange>"
     ]
@@ -558,32 +795,46 @@ given once for the whole export ('flowNumberIndex').
 
 'checkEcoSpold1Exportable' guarantees any resolved link's (activity, product)
 pair is present in the supplier index before export, so that fallback is
-unreachable on the wired-up path; the flow index covers every non-reference
+taken only by an input bought from a database it depends on, on purpose: no
+dataset of the file is its supplier. The flow index covers every non-reference
 exchange by construction.
 -}
 exchangeNumber :: Resolvers -> Int -> Exchange -> Int
 exchangeNumber res datasetNum ex
     | exchangeIsReference ex = datasetNum
-    | otherwise = case ex of
-        TechnosphereExchange{techRole = Input, techActivityLinkId = Just link, techFlowId = fid} ->
-            M.findWithDefault flowNum (link, fid) (rSupplierNumbers res)
-        TechnosphereExchange{} -> flowNum
-        BiosphereExchange{} -> flowNum
-        -- A waste input is written as a technosphere input, so it names its
-        -- treatment the same way. An output carries no link to name.
-        WasteExchange{waIsInput = True, waActivityLinkId = Just link, waFlowId = fid} ->
-            M.findWithDefault flowNum (link, fid) (rSupplierNumbers res)
-        WasteExchange{} -> flowNum
+    | Just supplier <- suppliedBy ex = M.findWithDefault flowNum supplier (rSupplierNumbers res)
+    | otherwise = flowNum
   where
     flowNum = M.findWithDefault datasetNum (exchangeFlowId ex) (rFlowNumbers res)
+
+{- | The supplier row whose dataset number and name an exchange carries: a
+technosphere input's, an avoided product's, which the format writes as an
+input and reads back as one, and a waste input's, written as a technosphere
+input so that it names its treatment the same way. An output names none, on
+either axis.
+-}
+suppliedBy :: Exchange -> Maybe (UUID, UUID)
+suppliedBy = \case
+    TechnosphereExchange{techRole = role, techActivityLinkId = Just link, techFlowId = fid}
+        | role == Input || role == AvoidedProduct -> Just (link, fid)
+    TechnosphereExchange{} -> Nothing
+    BiosphereExchange{} -> Nothing
+    WasteExchange{waIsInput = True, waActivityLinkId = Just link, waFlowId = fid} -> Just (link, fid)
+    WasteExchange{} -> Nothing
 
 {- | Common exchange attributes in fixed order: number, name, category,
 subCategory, location, unit, meanValue, then optional CAS / generalComment.
 Number, name, category, subCategory and unit are the inputs the parser hashes
 into the flow UUID, so they must be reproduced verbatim for a stable round-trip.
+
+A reference product, and an input carrying the number of a dataset of the
+file, say that dataset's name ('datasetNames'), the one name the format has for
+it; an input bought from a database it depends on says its supplier's
+activity, the name that database gives the dataset; every other exchange says
+its flow's.
 -}
-exchangeAttrs :: Resolvers -> Int -> Exchange -> Text
-exchangeAttrs res datasetNum ex =
+exchangeAttrs :: Resolvers -> Int -> (UUID, UUID) -> Exchange -> Text
+exchangeAttrs res datasetNum key ex =
     " number="
         <> attr (T.pack (show (exchangeNumber res datasetNum ex)))
         <> " name="
@@ -598,7 +849,9 @@ exchangeAttrs res datasetNum ex =
         <> maybe "" (\c -> " CASNumber=" <> attr c) cas
         <> maybe "" (\c -> " generalComment=" <> attr c) (exchangeComment ex)
   where
-    FlowFields name category subCategory cas = flowFields res ex
+    FlowFields flowName category subCategory cas = flowFields res ex
+    dataset = if exchangeIsReference ex then Just key else suppliedBy ex
+    name = fromMaybe flowName (dataset >>= (`M.lookup` rDatasetNames res))
 
 -- | The amount as the file states it: a substitution is a negative input.
 writtenAmount :: Exchange -> Double

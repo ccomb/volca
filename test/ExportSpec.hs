@@ -20,6 +20,7 @@ import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Time.Calendar (Day, fromGregorian)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
@@ -37,20 +38,20 @@ spec = describe "Database.Export dispatcher" $ do
     it "serializes a simple database to every writable format" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
         forM_ [SimaProCSV, EcoSpold1, EcoSpold2, ILCDProcess, BrightwayExcel, OpenLcaPackage] $ \fmt ->
-            case serializeDatabase defaultUnitConfig fmt M.empty (Right noDependencies) "exported" db of
+            case serializeDatabase defaultUnitConfig exportDay fmt M.empty (Right noDependencies) "exported" db of
                 Left err -> expectationFailure (show fmt <> ": " <> T.unpack err)
                 Right (bytes, _warnings) -> BL.null bytes `shouldBe` False
 
     -- Suppliers that could not be worked out stop only the formats naming them.
     it "exports the formats pointing at a supplier when the suppliers could not be named" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
-        let unnamed fmt = serializeDatabase defaultUnitConfig fmt M.empty (Left "its supplier is not loaded") "exported" db
+        let unnamed fmt = serializeDatabase defaultUnitConfig exportDay fmt M.empty (Left "its supplier is not loaded") "exported" db
         forM_ [EcoSpold2, OpenLcaPackage] $ \fmt -> unnamed fmt `shouldSatisfy` isRight
         forM_ [SimaProCSV, EcoSpold1, ILCDProcess, BrightwayExcel] $ \fmt -> unnamed fmt `shouldSatisfy` isLeft
 
     it "names a Brightway workbook after the database it exports" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
-        case serializeDatabase defaultUnitConfig BrightwayExcel M.empty (Right noDependencies) "Kitchen inventory" db of
+        case serializeDatabase defaultUnitConfig exportDay BrightwayExcel M.empty (Right noDependencies) "Kitchen inventory" db of
             Left err -> expectationFailure (T.unpack err)
             Right (bytes, _) -> do
                 let sheets = BL.concat [fromEntry e | e <- zEntries (toArchive bytes)]
@@ -59,8 +60,8 @@ spec = describe "Database.Export dispatcher" $ do
 
     it "fails loudly for formats with no writer (never a silent empty file)" $ do
         db <- buildFixture (Compartment Air (Just "unspecified"))
-        serializeDatabase defaultUnitConfig OpenLcaImpactCategory M.empty (Right noDependencies) "exported" db `shouldSatisfy` isLeft
-        serializeDatabase defaultUnitConfig UnknownFormat M.empty (Right noDependencies) "exported" db `shouldSatisfy` isLeft
+        serializeDatabase defaultUnitConfig exportDay OpenLcaImpactCategory M.empty (Right noDependencies) "exported" db `shouldSatisfy` isLeft
+        serializeDatabase defaultUnitConfig exportDay UnknownFormat M.empty (Right noDependencies) "exported" db `shouldSatisfy` isLeft
 
     it "writes an exclusion row only to the format that reads the marker back" $ do
         -- VoLCA's own columnar CSV parses "!…" as an exception and must keep it,
@@ -101,7 +102,7 @@ spec = describe "Database.Export dispatcher" $ do
         -- SimaPro writer's own guard rejects it; the dispatcher must surface that
         -- Left rather than emit a corrupt file.
         db <- buildFixture (Compartment NaturalResource Nothing)
-        serializeDatabase defaultUnitConfig SimaProCSV M.empty (Right noDependencies) "exported" db `shouldSatisfy` isLeft
+        serializeDatabase defaultUnitConfig exportDay SimaProCSV M.empty (Right noDependencies) "exported" db `shouldSatisfy` isLeft
 
     describe "an input linked to another database" $ do
         it "is written under the supplier's product and pointed at it, in the unit it was written in" $ do
@@ -157,7 +158,7 @@ spec = describe "Database.Export dispatcher" $ do
 
         it "is written as its source named it, and said, when its suppliers could not be worked out" $ do
             linked <- linkedSpinning
-            case serializeDatabase energyUnits EcoSpold2 M.empty (Left "its supplier is not loaded") "exported" linked of
+            case serializeDatabase energyUnits exportDay EcoSpold2 M.empty (Left "its supplier is not loaded") "exported" linked of
                 Left err -> expectationFailure (T.unpack err)
                 Right (_, said) -> said `shouldSatisfy` any (T.isInfixOf "as their source named them")
 
@@ -165,13 +166,56 @@ spec = describe "Database.Export dispatcher" $ do
             linked <- linkedSpinning
             let deps = Right (suppliers [(1, grid), (2, grid)])
             forM_ [SimaProCSV, EcoSpold2, BrightwayExcel, OpenLcaPackage, ILCDProcess] $ \fmt ->
-                case serializeDatabase energyUnits fmt M.empty deps "exported" linked of
+                case serializeDatabase energyUnits exportDay fmt M.empty deps "exported" linked of
                     Left err -> expectationFailure (show fmt <> ": " <> T.unpack err)
                     Right _ -> pure ()
-            serializeDatabase energyUnits EcoSpold1 M.empty deps "exported" linked `shouldSatisfy` isLeft
-            let simapro = fmap (BLC.unpack . fst) (serializeDatabase energyUnits SimaProCSV M.empty deps "exported" linked)
+            let simapro = fmap (BLC.unpack . fst) (serializeDatabase energyUnits exportDay SimaProCSV M.empty deps "exported" linked)
             fromRight "" simapro `shouldSatisfy` isInfixOf "Electricity, medium voltage, at grid {RER}| Electricity, medium voltage, at grid |"
             fromRight "" simapro `shouldSatisfy` (not . isInfixOf "market group for electricity")
+
+        -- A reader holding the supplier's database beside the file links each
+        -- such line there by name, unit and place, and only if no dataset of
+        -- the file carries its number.
+        it "writes for EcoSpold 1 each line under its supplier's name, place and unit, numbered as no dataset of the file" $ do
+            linked <- linkedSpinning
+            case serializeDatabase energyUnits exportDay EcoSpold1 M.empty (Right (suppliers [(1, gridInKwh), (2, gridInKwh)])) "exported" linked of
+                Left err -> expectationFailure (T.unpack err)
+                Right (bytes, _) -> do
+                    let bought = filter (isInfixOf "name=\"Electricity, medium voltage, at grid\"") (lines (BLC.unpack bytes))
+                    length bought `shouldBe` 2
+                    bought `shouldSatisfy` all (\l -> all (`isInfixOf` l) ["location=\"RER\"", "unit=\"kWh\""] && not ("number=\"1\"" `isInfixOf` l))
+                    bought `shouldSatisfy` any (isInfixOf "meanValue=\"9.26\"")
+
+        -- A reader linking by name tells the supplier from another activity
+        -- making its product at its place by the activity's name.
+        it "writes for EcoSpold 1 a line whose supplier's product another activity makes at the same place" $ do
+            linked <- linkedSpinning
+            let twinned = gridInKwh{elTwins = ["Electricity, medium voltage, production mix"]}
+            serializeDatabase energyUnits exportDay EcoSpold1 M.empty (Right (suppliers [(1, twinned), (2, twinned)])) "exported" linked `shouldSatisfy` isRight
+
+        it "warns for EcoSpold 1 that a supplier named apart from its product is not found by product" $ do
+            linked <- linkedSpinning
+            let market = gridInKwh{elActivity = "market for electricity, medium voltage"}
+            case serializeDatabase energyUnits exportDay EcoSpold1 M.empty (Right (suppliers [(1, market), (2, market)])) "exported" linked of
+                Left err -> expectationFailure (T.unpack err)
+                Right (_, warnings) -> warnings `shouldSatisfy` any (T.isInfixOf "2 such inputs name a supplier whose product is named otherwise, which a reader linking by product, as VoLCA does, does not find, \"market for electricity, medium voltage\" making \"Electricity, medium voltage, at grid\" first.")
+            case serializeDatabase energyUnits exportDay EcoSpold1 M.empty (Right (suppliers [(1, gridInKwh), (2, gridInKwh)])) "exported" linked of
+                Left err -> expectationFailure (T.unpack err)
+                Right (_, warnings) -> warnings `shouldSatisfy` (not . any (T.isInfixOf "named otherwise"))
+
+        forM_
+            [ ("states no location", gridInKwh{elLocation = ""}, "states no location")
+            , ("makes another product under the same name and place", gridInKwh{elNamesakes = ["Heat, at grid"]}, "also makes \"Heat, at grid\"")
+            , ("has the name of a dataset of the file", gridInKwh{elActivity = "Spinning"}, "has the name of a dataset of the file")
+            , ("makes it in a unit not known", grid, "is not known")
+            , ("makes it in a unit the line does not convert to", gridInKwh{elUnit = "kg"}, "does not convert to the kg")
+            ]
+            $ \(why, supplier, said) ->
+                it ("refuses for EcoSpold 1 a line whose supplier " <> why) $ do
+                    linked <- linkedSpinning
+                    case serializeDatabase energyUnits exportDay EcoSpold1 M.empty (Right (suppliers [(1, supplier), (2, supplier)])) "exported" linked of
+                        Left err -> T.unpack err `shouldSatisfy` isInfixOf said
+                        Right _ -> expectationFailure "exported"
 
         it "puts a line in kWh of a flow in MJ in MJ for ILCD, whose exchanges have only their flow's unit" $
             fmap marketLines (ILCD.inFlowUnits energyUnits spinning) `shouldBe` Right [(33.336, mjU), (3.6, mjU)]
@@ -308,7 +352,11 @@ marketLines :: SimpleDatabase -> [(Double, UUID.UUID)]
 marketLines db = [(exchangeAmount ex, exchangeUnitId ex) | act <- M.elems (sdbActivities db), ex <- exchanges act, exchangeFlowId ex == marketFlow]
 
 grid :: Elsewhere
-grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = PositiveReference, elTwins = [], elUnit = ""}
+grid = Elsewhere{elDatabase = "grid", elActivity = "Electricity, medium voltage, at grid", elLocation = "RER", elReferenceSign = PositiveReference, elTwins = [], elUnit = "", elNamesakes = []}
+
+-- | The grid as a loaded database states it: making its product in kWh.
+gridInKwh :: Elsewhere
+gridInKwh = grid{elUnit = "kWh"}
 
 -- | The suppliers of the spinning lines at these positions.
 suppliers :: [(Int, Elsewhere)] -> Dependencies
@@ -350,3 +398,7 @@ lineAt position = fromMaybe (error "no such line") . lookupLine position
 
 built :: SimpleDatabase -> IO Database
 built sdb = DB.buildDatabaseWithMatrices (BuildInputs energyUnits mempty ReadDeclared []) sdb >>= either (fail . T.unpack) pure
+
+-- | The day every export of this spec is made on, so its output does not move with the clock.
+exportDay :: Day
+exportDay = fromGregorian 2026 11 25

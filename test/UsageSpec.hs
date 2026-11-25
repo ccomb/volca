@@ -26,7 +26,7 @@ import Network.Wai.Internal (ResponseReceived (..))
 import Servant (errHTTPCode, runHandler)
 import Test.Hspec
 
-import API.MCP (mcpApp)
+import API.MCP (Era (..), mcpApp, modernVersion)
 import qualified API.Resources as R
 import API.Routes (getActivityComparison, getActivityInventory)
 import App.Env (AppEnv (..), AppM, runApp)
@@ -89,23 +89,33 @@ runLogged manager lg reader handler = either (Left . errHTTPCode) Right <$> runH
             , aeAuthor = Nothing
             }
 
--- | One tools/call on @\/mcp@, with the headers given.
+-- | One tools/call on @\/mcp@ from a client of the old era, with the headers given.
 callMcp :: DM.DatabaseManager -> UsageLog -> Maybe Text -> Text -> [(Text, Text)] -> IO ()
-callMcp manager lg reader tool args = do
+callMcp = callMcpIn Legacy
+
+-- | One tools/call on @\/mcp@ from a client of the given era.
+callMcpIn :: Era -> DM.DatabaseManager -> UsageLog -> Maybe Text -> Text -> [(Text, Text)] -> IO ()
+callMcpIn era manager lg reader tool args = do
     app <- mcpApp manager [] False Nothing Nothing id (Just lg)
-    let body =
+    let meta = case era of
+            Legacy -> []
+            Modern -> ["_meta" .= object ["io.modelcontextprotocol/protocolVersion" .= modernVersion, "io.modelcontextprotocol/clientCapabilities" .= object []]]
+        eraHeaders = case era of
+            Legacy -> []
+            Modern -> [("MCP-Protocol-Version", TE.encodeUtf8 modernVersion), ("Mcp-Method", "tools/call"), ("Mcp-Name", TE.encodeUtf8 tool)]
+        body =
             encode $
                 object
                     [ "jsonrpc" .= ("2.0" :: Text)
                     , "id" .= (1 :: Int)
                     , "method" .= ("tools/call" :: Text)
-                    , "params" .= object ["name" .= tool, "arguments" .= M.fromList args]
+                    , "params" .= object (["name" .= tool, "arguments" .= M.fromList args] <> meta)
                     ]
     chunks <- newIORef (BL.toChunks body)
     let next = atomicModifyIORef' chunks $ \case
             [] -> ([], mempty)
             (c : rest) -> (rest, c)
-        req = defaultRequest{requestMethod = "POST", requestHeaders = [(readerHeader, TE.encodeUtf8 r) | Just r <- [reader]]}
+        req = defaultRequest{requestMethod = "POST", requestHeaders = [(readerHeader, TE.encodeUtf8 r) | Just r <- [reader]] <> eraHeaders}
     _ <- app (setRequestBodyChunks next req) (const (pure ResponseReceived))
     pure ()
 
@@ -193,6 +203,14 @@ spec = do
             callMcp manager lg (Just "account-7") "get_inventory" [("database", "root"), ("process_id", rootPid)]
             map (\l -> (ulKind l, ulProcess l, ulHeldAs l, ulReader l)) . upLines <$> readUsage lg 0
                 `shouldReturn` [(Inventorying, ProcessKey rootPid, Just rootNaming, Just "account-7")]
+
+        it "counts a call from a client of the 2026-07-28 era as one of the old era" $ do
+            manager <- managerDeclaring (Just ecoinvent)
+            lg <- newUsageLog
+            DM.acceptTerms manager (Just "account-7") (termsAsked [("dep", counting)])
+            callMcpIn Modern manager lg (Just "account-7") "get_inventory" [("database", "root"), ("process_id", rootPid)]
+            map (\l -> (ulKind l, ulProcess l, ulReader l)) . upLines <$> readUsage lg 0
+                `shouldReturn` [(Inventorying, ProcessKey rootPid, Just "account-7")]
 
         it "leaves nothing for a tool that reads no process" $ do
             manager <- managerDeclaring (Just ecoinvent)
