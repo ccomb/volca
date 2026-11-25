@@ -78,8 +78,11 @@ licence = "CC-BY-4.0"          # the licence it is published under, by SPDX iden
 # accept = true                #   readers accept its text before reading it, or
                                #   anything built on it: refused until they send
                                #   the text's fingerprint in the volca_terms
-                               #   cookie, or call the MCP tool accept_terms.
-                               #   New text, asked again. Off by default
+                               #   cookie, tick the box of the form their
+                               #   assistant shows when its client shows
+                               #   forms, or have it call the MCP tool
+                               #   accept_terms. New text, asked again. Off by
+                               #   default
 # usage = "anonymous"          #   counts each computation on its release in the
                                #   usage log, for its publisher: "anonymous"
                                #   counts only, "organizations" adds each

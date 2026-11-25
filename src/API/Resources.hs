@@ -617,10 +617,12 @@ description r = case r of
         \first."
     AcceptTerms ->
         "LCA / ACV: record that the user accepts the terms of use a database's \
-        \publisher requires before reading; until then tools reading it are \
-        \refused with the terms. Call only after showing the user the full terms \
-        \and getting their explicit agreement: never on your own initiative, never \
-        \to get past the refusal for them."
+        \publisher requires before reading. A client that shows forms asks the \
+        \user itself, in a form with the terms, when a tool first reads the \
+        \database. Otherwise tools reading it are refused with the terms: call \
+        \this only after showing the user the full terms and getting their \
+        \explicit agreement, never on your own initiative, never to get past the \
+        \refusal for them."
     DeriveDatabase ->
         "LCA / ACV: make a parent or child of a database under a new name. Parent \
         \(parent=true): source files reread, each multi-product block kept whole, \
