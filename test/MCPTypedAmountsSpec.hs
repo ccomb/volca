@@ -317,6 +317,21 @@ spec = do
                 at ["inputRequests"] (result r) `shouldBe` Nothing
                 textOf r `shouldSatisfy` T.isInfixOf "still required by"
 
+        it "refuses before any form a source it cannot read" $
+            withCheese $ \env -> do
+                r <- call env showsForms "create_activities" (("source", String "Smith 2020") : createYogurt [])
+                isError r `shouldBe` True
+                at ["inputRequests"] (result r) `shouldBe` Nothing
+
+        it "refuses a list under a name it does not read, rather than create the process without it" $
+            withCheese $ \env -> do
+                before <- details env
+                let misnamed = object ["name" .= ("yogurt" :: Text), "location" .= ("FR" :: Text), "product_name" .= ("yogurt" :: Text), "product_amount" .= (1 :: Int), "product_unit" .= ("kg" :: Text), "add_inputs" .= toArray [object ["provider" .= supplierPid, "amount" .= (1 :: Int)]]]
+                r <- call env InChat "create_activities" [("activities", toArray [misnamed])]
+                isError r `shouldBe` True
+                textOf r `shouldSatisfy` T.isInfixOf "unknown field add_inputs"
+                details env `shouldReturn` before
+
         it "refuses a product amount that is not a number, naming it" $
             withCheese $ \env -> do
                 let worded = object ["name" .= ("yogurt" :: Text), "location" .= ("FR" :: Text), "product_name" .= ("yogurt" :: Text), "product_amount" .= ("one" :: Text), "product_unit" .= ("kg" :: Text)]

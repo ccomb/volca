@@ -65,7 +65,7 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, enc
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteRequest (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
@@ -1327,32 +1327,39 @@ missingOf dbManager shape args places = runExceptT $ do
             process <- requireText "process_id" ones
             request <- exchangeEditRequestOf ones
             edits <- first (T.intercalate "\n") (toExchangeEdits request)
-            pure ([(Nothing, (`processNamed` process), addedLines request)], fmap fst <$> judgeActivities dbManager dbName ((process, edits) NE.:| []))
+            pure ([CallElement Nothing (`processNamed` process) (addedLines request)], fmap fst <$> judgeActivities dbManager dbName ((process, edits) NE.:| []))
         ManyEdits -> do
             request <- activitiesRequestOf ones
             edits <- first (T.intercalate "\n") (toActivityEdits request)
-            pure (zipWith (\n e -> (Just n, (`processNamed` aeProcessId e), addedLines (aeEdit e))) [0 ..] (aqEdits request), fmap fst <$> judgeActivities dbManager dbName edits)
+            pure (zipWith (\n e -> CallElement (Just n) (`processNamed` aeProcessId e) (addedLines (aeEdit e))) [0 ..] (aqEdits request), fmap fst <$> judgeActivities dbManager dbName edits)
         NewProcesses -> do
-            inputs <- activityInputsOf ones
-            authored <- first (T.intercalate "\n") (toAuthoredActivities inputs)
-            pure (zipWith (\n ai -> (Just n, const (aiName ai <> " (" <> aiLocation ai <> ")"), statedLines ai)) [0 ..] inputs, fmap jwContext <$> judgeWrite dbManager dbName CreateActivities authored)
+            request <- activityWriteRequestOf ones
+            authored <- first (T.intercalate "\n") (toAuthoredActivities (awrActivities request))
+            pure (zipWith (\n ai -> CallElement (Just n) (const (aiName ai <> " (" <> aiLocation ai <> ")")) (statedLines ai)) [0 ..] (awrActivities request), fmap jwContext <$> judgeWrite dbManager dbName CreateActivities authored)
     named :: AuthorContext -> [CallElement] -> Place -> Missing
     named ctx elements place@(Place n list i) =
         Missing
             { missingPlace = place
-            , missingProcess = maybe "" (\(title, _) -> title ctx) found
-            , missingLine = maybe "" (either (const "") (nameAdded ctx)) (lookup (list, i) . snd =<< found)
+            , missingProcess = maybe "" (`ceTitle` ctx) found
+            , missingLine = maybe "" (either (const "") (nameAdded ctx)) (lookup (list, i) . ceLines =<< found)
             }
       where
-        found = listToMaybe [(title, added) | (k, title, added) <- elements, k == n]
+        found = listToMaybe [element | element <- elements, ceIndex element == n]
     processNamed :: AuthorContext -> Text -> Text
     processNamed ctx process = fromMaybe process $ do
         pid <- resolveProcess (acDb ctx) process
         act <- dbActivities (acDb ctx) V.!? fromIntegral pid
         pure (activityName act <> " (" <> activityLocation act <> ")")
 
--- | An element of a call that holds added lines: its place, the title of its process, and its lines.
-type CallElement = (Maybe Int, AuthorContext -> Text, [((AddedList, Int), Either [Text] AuthoredExchange)])
+-- | An element of a call that holds added lines.
+data CallElement = CallElement
+    { ceIndex :: Maybe Int
+    -- ^ Its place in the call's array, when the call has one.
+    , ceTitle :: AuthorContext -> Text
+    -- ^ The title of its process, as the person reads it.
+    , ceLines :: [((AddedList, Int), Either [Text] AuthoredExchange)]
+    -- ^ Its added lines, each by its place.
+    }
 
 -- | The form asking the person for the amounts, under one key for the whole call.
 amountsFormKey :: Key
@@ -2843,21 +2850,27 @@ refused, are exactly what a person is.
 callCreateActivities :: DatabaseManager -> Origin -> (Place -> AmountFrom) -> RequestId -> KeyMap Value -> IO Value
 callCreateActivities dbManager origin amountFrom rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
-    inputs <- except (activityInputsOf args)
-    authored <- except (first (T.intercalate "\n") (toAuthoredActivitiesTyped (\n list i -> amountFrom (Place (Just n) list i)) inputs))
-    stated <- except (statedFrom <$> optionalText "note" args <*> optionalSource args)
-    report <- ExceptT (first refusalMessage <$> writeActivities dbManager dbName origin stated CreateActivities authored)
+    request <- except (activityWriteRequestOf args)
+    authored <- except (first (T.intercalate "\n") (toAuthoredActivitiesTyped (\n list i -> amountFrom (Place (Just n) list i)) (awrActivities request)))
+    report <- ExceptT (first refusalMessage <$> writeActivities dbManager dbName origin (statedFrom (awrNote request) (awrSource request)) CreateActivities authored)
     return $ toolSuccessJson rid (toJSON (ActivityWriteResponse (wrWritten report) (not (wrPersisted report)) (wrWarnings report)))
 
--- | The elements of @activities@, each read into the activity the HTTP endpoint reads.
-activityInputsOf :: KeyMap Value -> Either Text [ActivityInput]
-activityInputsOf args = parseArrayArg "activities" (Just "Missing required parameter: activities") args >>= traverse activityInputOf
+-- | The call read into the request the HTTP endpoint reads: the activities, the note and the source.
+activityWriteRequestOf :: KeyMap Value -> Either Text ActivityWriteRequest
+activityWriteRequestOf args =
+    ActivityWriteRequest
+        <$> (parseArrayArg "activities" (Just "Missing required parameter: activities") args >>= traverse activityInputOf)
+        <*> optionalText "note" args
+        <*> optionalSource args
 
 -- | One element of @activities@; the note and the source are the whole change's.
 activityInputOf :: KeyMap Value -> Either Text ActivityInput
 activityInputOf element
     | KM.member "note" element = Left "a note is given once, beside \"activities\", for the whole change"
     | KM.member "source" element = Left "a source is given once, beside \"activities\", for the whole change"
+    -- Every list defaults to empty, so a list under another name would leave the process without its lines.
+    | unknown@(_ : _) <- filter (`notElem` activityFields) (map toText (KM.keys element)) =
+        Left ("unknown field " <> T.intercalate ", " unknown <> " in a process to create: its lines go in inputs, biosphere and waste_outputs")
     | otherwise =
         ActivityInput
             <$> requireText "name" element
@@ -2869,6 +2882,9 @@ activityInputOf element
             <*> parseArrayArg "inputs" Nothing element
             <*> parseArrayArg "biosphere" Nothing element
             <*> parseArrayArg "waste_outputs" Nothing element
+  where
+    activityFields :: [Text]
+    activityFields = ["name", "location", "description", "product_name", "product_amount", "product_unit", "inputs", "biosphere", "waste_outputs"]
 
 {- | The tool that changes a process's data. It assembles the same request the
 HTTP endpoint reads and goes through the same domain call, so what an assistant
