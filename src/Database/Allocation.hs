@@ -102,8 +102,9 @@ data Allocating = Allocating
 {- | A share for one exchange of one product's process: causal allocation,
 where a source divides each input and emission between the products on its
 own terms. An exchange no pair names follows the product's own share, or goes
-whole to a product the source divides line by line ('ShareByLine'). Keyed by the positions of the product and of the exchange in the
-activity as its reader built it, because those are what every reader has;
+whole to a product the source divides line by line ('ShareByLine'). Keyed
+by the positions of the product and of the exchange in the activity as its
+reader built it, because those are what every reader has;
 the pairs describe the block, not any one process cut from it, so nothing is
 stored on the exchanges. Percentages, like 'DeclaredShare'.
 -}
@@ -198,14 +199,16 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
     would count the block once per product. -}
     declaredShares :: Maybe [Double]
     declaredShares
-        | length products > 1, any (byLine . snd) products, M.null pairs = Nothing
+        | length products > 1, any (exchangeDividedByLine . snd) products, M.null pairs = Nothing
         | otherwise = traverse (shareOf . snd) products
       where
-        byLine ex = exchangeProductShare ex == Just ShareByLine
+        shareOf :: Exchange -> Maybe Double
         shareOf ex = case exchangeProductShare ex of
             Just (ShareDeclared declared) -> Just (dsPercent declared)
             Just ShareByLine -> Just wholeUnlessPaired
             Nothing -> Nothing
+
+        wholeUnlessPaired :: Double
         wholeUnlessPaired = 100
 
     process :: SharesFrom -> (Int, Exchange) -> Double -> Activity
@@ -354,9 +357,9 @@ propertyKeyRefusals Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitD
     -- A product its source divides line by line states no share a price can be
     -- deduced from: that, not a missing price, is why the block has none.
     dividedByLine :: AllocationProperty -> NonEmpty Exchange -> PropertyRefusal -> PropertyRefusal
-    dividedByLine prop block refusal = case (prop, refusal) of
-        (Price, NotStated) | any ((== Just ShareByLine) . exchangeProductShare) block -> DividedByLine
-        _ -> refusal
+    dividedByLine prop block refusal
+        | prop == Price, refusal == NotStated, any exchangeDividedByLine block = DividedByLine
+        | otherwise = refusal
 
 -- | 'allocate' over a parsed list, in order.
 allocateAll :: Allocating -> [Activity] -> [Activity]
@@ -369,7 +372,7 @@ asAllocated :: Activity -> Either AllocationRefusal AllocatedActivity
 asAllocated act
     | any isCoproduct products
     , null withoutShare
-    , any ((== Just ShareByLine) . exchangeProductShare) products =
+    , any exchangeDividedByLine products =
         Left (ProductsDividedByLine (length products))
     | any isCoproduct products =
         Left (UnallocatedOutputs (length products) (length withoutShare))

@@ -20,7 +20,7 @@ import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Control.Monad (mfilter, (<=<), (>=>))
 import Crypto.Hash (SHA256 (..), hashWith)
-import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, withText, (.!=), (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), object, withObject, withText, (.!=), (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
 import Data.Int (Int32)
 import qualified Data.IntSet as IS
@@ -54,7 +54,7 @@ import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
 import Data.List (find, nub, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
-import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), declareSchemaRef, enum_, oneOf, properties, required, type_)
+import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), declareSchemaRef, deprecated, enum_, oneOf, properties, required, type_)
 import Data.Ord (Down (..))
 import qualified Expr
 import Search.BM25.Types (BM25Index)
@@ -298,15 +298,21 @@ data ProductShare
 {- | On the wire, a declared share as it always was,
 @{"percent":80,"formula":null,"by":null}@, and a division by line as
 @{"byLine":true}@.
+
+A division by line also carries the 100 % an engine of wire revision 122 or
+older wrote in its place, so a client reading @percent@ on every share keeps
+working until the next minor release, which drops it. A client that knows
+@byLine@ reads it first and ignores the rest.
 -}
 instance ToJSON ProductShare where
     toJSON share = case share of
         ShareDeclared declared -> toJSON declared
-        ShareByLine -> object ["byLine" .= True]
+        ShareByLine -> object ["byLine" .= True, "percent" .= (100 :: Double), "formula" .= Null, "by" .= Null]
 
 instance FromJSON ProductShare where
     parseJSON value = byLine value <|> (ShareDeclared <$> parseJSON value)
       where
+        byLine :: Value -> Parser ProductShare
         byLine = withObject "ProductShare" $ \o -> do
             marked <- o .: "byLine"
             if marked then pure ShareByLine else fail "byLine is false"
@@ -317,7 +323,13 @@ instance ToSchema ProductShare where
         let byLine =
                 mempty
                     & type_ ?~ OpenApiObject
-                    & properties .~ InsOrdHashMap.fromList [("byLine", Inline (mempty & type_ ?~ OpenApiBoolean & enum_ ?~ [toJSON True]))]
+                    & properties
+                        .~ InsOrdHashMap.fromList
+                            [ ("byLine", Inline (mempty & type_ ?~ OpenApiBoolean & enum_ ?~ [toJSON True]))
+                            , ("percent", Inline (mempty & type_ ?~ OpenApiNumber & deprecated ?~ True))
+                            , ("formula", Inline (mempty & type_ ?~ OpenApiNull & deprecated ?~ True))
+                            , ("by", Inline (mempty & type_ ?~ OpenApiNull & deprecated ?~ True))
+                            ]
                     & required .~ ["byLine"]
         pure (NamedSchema (Just "ProductShare") (mempty & oneOf ?~ [declared, Inline byLine]))
 
@@ -824,6 +836,10 @@ exchangeProductShare ex = case ex of
     TechnosphereExchange{techShare = share} -> share
     BiosphereExchange{} -> Nothing
     WasteExchange{} -> Nothing
+
+-- | Whether the source divides its block line by line for this product.
+exchangeDividedByLine :: Exchange -> Bool
+exchangeDividedByLine ex = exchangeProductShare ex == Just ShareByLine
 
 -- | Whether the source says how to divide its block for this product, by a share or line by line.
 exchangeShareStated :: Exchange -> Bool

@@ -37,8 +37,9 @@ spec = describe "the wire shape of an exchange" $ do
         keyOf "supplierClaim" (toJSON techEx)
             `shouldBe` Just (object ["tag" .= ("ClaimByProduct" :: T.Text)])
 
-    it "marks a product divided line by line, which has no percentage" $
-        keyOf "share" (toJSON techEx{techShare = Just ShareByLine}) `shouldBe` Just (object ["byLine" .= True])
+    it "marks a product divided line by line, beside the 100 % an older client reads until the next minor" $
+        keyOf "share" (toJSON techEx{techShare = Just ShareByLine})
+            `shouldBe` Just (object ["byLine" .= True, "percent" .= (100 :: Double), "formula" .= Null, "by" .= Null])
 
     it "keeps the shape of a declared share" $
         keyOf "share" (toJSON techEx{techShare = Just (ShareDeclared (DeclaredShare 80 Nothing Nothing))})

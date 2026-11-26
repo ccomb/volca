@@ -332,6 +332,7 @@ checkSimaProExportable db =
         , Left refusal <- [asAllocated act]
         , keptWholeRefusal refusal
         ]
+    keptWholeRefusal :: AllocationRefusal -> Bool
     keptWholeRefusal refusal = case refusal of
         UnallocatedOutputs{} -> True
         ProductsDividedByLine{} -> True

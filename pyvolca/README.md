@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.15.0** speaks wire formats **113 to 122** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.15.0** speaks wire formats **113 to 123** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -2387,7 +2387,9 @@ its own; compose a label from ``activity_name`` + ``product_name``.
 activity's exchanges in a multi-output (allocated) process, e.g. a
 cheese activity that also yields whey, cream and permeate gives each
 product its own share, summing to ~100. It is ``None`` for single-output
-processes. ``allocation_formula`` carries the raw symbolic formula when
+processes, and for a product of a block its source divided line by line,
+each input and emission by its own fraction, which leaves no share for the
+product as a whole. ``allocation_formula`` carries the raw symbolic formula when
 the source expressed the share as an expression rather than a number,
 else ``None``.
 
@@ -2531,7 +2533,9 @@ kinds: callers needing only one variant should use
 True iff the activity splits its burden across several co-products.
 
 Reads the structured ``allocation_percent`` the engine sets on each
-`all_products` entry (authoritative), not the description text.
+`all_products` entry (authoritative), not the description text,
+and ``block_products`` for a block its source divides line by line,
+whose products carry no percentage.
 
 ##### `outputs`
 

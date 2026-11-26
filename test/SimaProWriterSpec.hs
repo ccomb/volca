@@ -637,6 +637,15 @@ spec = describe "SimaPro.Writer round-trip" $ do
                     msg `shouldSatisfy` T.isInfixOf "guard maker"
                     msg `shouldSatisfy` T.isInfixOf "without a declared share"
                 Right () -> expectationFailure "an unallocated activity was accepted"
+        it "refuses a block its source divides line by line, kept whole: each row would claim the whole" $
+            let whole = guardDb Nothing Nothing [refProd, refProd2{techRole = Coproduct}]
+                byLine ex = if exchangeIsProductOutput ex then ex{techShare = Just ShareByLine} else ex
+                divided = whole{sdbActivities = M.map (\act -> act{activityLines = packExchanges (map byLine (exchanges act))}) (sdbActivities whole)}
+             in case checkSimaProExportable divided of
+                    Left msg -> do
+                        msg `shouldSatisfy` T.isInfixOf "guard maker"
+                        msg `shouldSatisfy` T.isInfixOf "which their source divides line by line"
+                    Right () -> expectationFailure "a block divided line by line was accepted whole"
         it "accepts a pedigree-less exchange with an ordinary comment" $
             checkSimaProExportable (commentDb Nothing (Just "ordinary free text"))
                 `shouldBe` Right ()

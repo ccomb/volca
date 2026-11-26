@@ -2318,10 +2318,13 @@ class ActivityDetail:
         """True iff the activity splits its burden across several co-products.
 
         Reads the structured ``allocation_percent`` the engine sets on each
-        :attr:`all_products` entry (authoritative), not the description text.
+        :attr:`all_products` entry (authoritative), not the description text,
+        and ``block_products`` for a block its source divides line by line,
+        whose products carry no percentage.
         """
         return sum(
-            1 for p in self.all_products if p.allocation_percent is not None
+            1 for p in self.all_products
+            if p.allocation_percent is not None or (p.block_products or 0) > 1
         ) > 1
 
 
