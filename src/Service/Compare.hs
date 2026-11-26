@@ -607,7 +607,7 @@ inEditOrder = L.sortOn rank
     rank = \case
         SetText _ -> 0
         SetParameter _ _ -> 0
-        SetAmount _ _ -> 1
+        SetAmount{} -> 1
         SetFormula _ _ -> 1
         SetProperty{} -> 1
         SetSupplier _ _ -> 2
@@ -639,7 +639,7 @@ exchangeLanding p groups query change = case lineLook groups change of
     Lacks absence -> either notApplicable Lands $ case absence of
         AddLine after -> pure . (`AddExchange` FromCall) <$> addedLine (inDatabase p) change after
         RemoveLine line -> pure . RemoveExchange <$> selectorOf (inActivity p) line
-        SetLine line after -> sameUnit line after *> (pure . (`SetAmount` qtyAmount after) <$> selectorOf (inActivity p) line)
+        SetLine line after -> sameUnit line after *> (pure . (\selector -> SetAmount selector (qtyAmount after) FromCall) <$> selectorOf (inActivity p) line)
         MoveLine line after -> do
             sel <- selectorOf (inActivity p) line
             provider <- producerNamed (inDatabase p) (lgFlowId line) after

@@ -498,7 +498,7 @@ editedInserts ctx target editLines = do
         SetParameter _ _ -> True
         RemoveParameter _ -> True
         RemoveExchange _ -> False
-        SetAmount _ _ -> False
+        SetAmount{} -> False
         AddExchange _ _ -> False
         SetFormula _ _ -> False
         SetSupplier _ _ -> False
@@ -624,8 +624,8 @@ editJSON (EditLine edit matched before) = object (("matched" .= matched) : prior
     fields = \case
         RemoveExchange selector ->
             ["edit" .= ("remove" :: Text), "select" .= selectorJSON selector]
-        SetAmount selector amount ->
-            ["edit" .= ("set" :: Text), "select" .= selectorJSON selector, "amount" .= amount]
+        SetAmount selector amount from ->
+            ["edit" .= ("set" :: Text), "select" .= selectorJSON selector, "amount" .= amount] <> ["typed" .= True | from == TypedByPerson]
         AddExchange authored from ->
             ["edit" .= ("add" :: Text), "exchange" .= exchangeJSON authored] <> ["typed" .= True | from == TypedByPerson]
         SetText (ActivityName name) ->
@@ -645,7 +645,7 @@ editJSON (EditLine edit matched before) = object (("matched" .= matched) : prior
         SetSupplier selector provider ->
             ["edit" .= ("supplier" :: Text), "select" .= selectorJSON selector, "provider" .= provider]
 
--- | The mark of an added line's amount, as a journal keeps it: absent on every line a person did not type.
+-- | The mark of an amount added or set, as a journal keeps it: absent on every line a person did not type.
 typedFrom :: Maybe Bool -> AmountFrom
 typedFrom = \case
     Just True -> TypedByPerson
@@ -660,7 +660,7 @@ parseEdit = withObject "exchange edit" $ \o -> do
     edit <-
         o .: "edit" >>= \case
             ("remove" :: Text) -> RemoveExchange <$> (o .: "select" >>= parseSelector)
-            "set" -> SetAmount <$> (o .: "select" >>= parseSelector) <*> o .: "amount"
+            "set" -> SetAmount <$> (o .: "select" >>= parseSelector) <*> o .: "amount" <*> (typedFrom <$> o .:? "typed")
             "add" -> AddExchange <$> (o .: "exchange" >>= parseExchange) <*> (typedFrom <$> o .:? "typed")
             "name" -> SetText . ActivityName <$> o .: "value"
             "location" -> SetText . ActivityLocation <$> o .: "value"

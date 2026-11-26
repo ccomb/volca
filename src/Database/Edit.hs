@@ -949,7 +949,7 @@ reportOf :: MutationOutcome -> JudgedEdit -> EditReport
 reportOf done (JudgedEdit _ edits _ edited) =
     EditReport
         { erRemoved = [n | (RemoveExchange _, n) <- zip edits matched]
-        , erAmountsSet = [n | (SetAmount _ _, n) <- zip edits matched]
+        , erAmountsSet = [n | (SetAmount{}, n) <- zip edits matched]
         , erAdded = length [() | AddExchange _ _ <- edits]
         , erTextsSet = [textField text | SetText text <- edits]
         , erFormulasSet = [n | (SetFormula _ _, n) <- zip edits matched]

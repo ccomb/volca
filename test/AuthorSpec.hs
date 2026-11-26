@@ -29,6 +29,7 @@ import Database.Author (
     AuthoredActivity (..),
     AuthoredExchange (..),
     AuthoredLine (..),
+    ChosenLines (..),
     EditedActivity (..),
     ExchangeEdit (..),
     ExchangeSelector (..),
@@ -39,6 +40,7 @@ import Database.Author (
     authoredProductUUID,
     editingContext,
     lineSelector,
+    nameChosen,
     validateAuthored,
  )
 import Database.Rebuild (deleteActivities, insertActivities, replaceActivities)
@@ -616,7 +618,7 @@ spec = do
                 edited <-
                     editOrFail
                         [ RemoveExchange (SelectBiosphere co2Id)
-                        , SetAmount (SelectInput supplierPid) 3
+                        , SetAmount (SelectInput supplierPid) 3 FromCall
                         , AddExchange (wasteOut treatPid 0.1 Nothing) FromCall
                         ]
                 activityFacts (eaActivity edited) `shouldBe` activityFacts importedActivity
@@ -664,13 +666,18 @@ spec = do
                         Right edited -> pure edited
 
                 it "is named by its flow and its location, apart from a linked line of that flow" $ do
-                    edited <- editUnlinked [SetAmount (SelectUnlinkedInput supplierProdId (Just (LocationCode "FR"))) 5]
+                    edited <- editUnlinked [SetAmount (SelectUnlinkedInput supplierProdId (Just (LocationCode "FR"))) 5 FromCall]
                     eaMatched edited `shouldBe` [1]
                     map techAmount (inputsOf (eaActivity edited)) `shouldBe` [8, 5, 3]
 
                 it "is named at every location when the selector states none" $ do
-                    edited <- editUnlinked [SetAmount (SelectUnlinkedInput supplierProdId Nothing) 4]
+                    edited <- editUnlinked [SetAmount (SelectUnlinkedInput supplierProdId Nothing) 4 FromCall]
                     map techAmount (inputsOf (eaActivity edited)) `shouldBe` [8, 4, 4]
+
+                it "is named for the person by its flow, with what each line chosen holds now" $ do
+                    let chosen = nameChosen (contextOf fixtureDb) unlinked (SelectUnlinkedInput supplierProdId Nothing)
+                    fmap clAmounts chosen `shouldBe` Just [2, 3]
+                    fmap (T.isPrefixOf "milk" . clLabel) chosen `shouldBe` Just True
 
                 it "is a waste output named by its flow, apart from the linked one" $ do
                     edited <- editUnlinked [RemoveExchange (SelectUnlinkedWaste usedOilId (Just LocationNone))]
@@ -683,13 +690,13 @@ spec = do
                     map fst reached `shouldBe` [2, 3, 4, 5, 7, 8, 9]
                     mapM_
                         ( \(i, s) -> do
-                            edited <- editUnlinked [SetAmount s 42]
+                            edited <- editUnlinked [SetAmount s 42 FromCall]
                             exchangeAmount (exchanges (eaActivity edited) !! i) `shouldBe` 42
                         )
                         reached
 
             it "sets an amount and leaves the rest of the line alone" $ do
-                edited <- editOrFail [SetAmount (SelectInput supplierPid) 3]
+                edited <- editOrFail [SetAmount (SelectInput supplierPid) 3 FromCall]
                 map (\ex -> (techAmount ex, techComment ex, techPedigree ex)) (inputsOf (eaActivity edited))
                     `shouldBe` [(3, Just "milk in", Just milkPedigree)]
 
@@ -775,13 +782,13 @@ spec = do
                 -- works would not be the edit that was asked for.
                 editRefused
                     "matches no exchange"
-                    [RemoveExchange (SelectBiosphere co2Id), SetAmount (SelectBiosphere co2Id) 1]
+                    [RemoveExchange (SelectBiosphere co2Id), SetAmount (SelectBiosphere co2Id) 1 FromCall]
 
             it "reports every defect of an edit list at once" $
                 case applyExchangeEdits
                     (contextOf fixtureDb)
                     [ RemoveExchange (SelectBiosphere (mkUUID 998))
-                    , SetAmount (SelectInput supplierPid) (0 / 0)
+                    , SetAmount (SelectInput supplierPid) (0 / 0) FromCall
                     , AddExchange (techInput "nope" 1 Nothing) FromCall
                     ]
                     importedActivity of

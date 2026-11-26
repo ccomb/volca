@@ -556,11 +556,22 @@ placedLines inputs bio waste =
 data AddedList = AddInputs | AddBiosphere | AddWasteOutputs
     deriving (Eq, Ord, Show, Enum, Bounded)
 
-{- | 'toExchangeEdits', told who gave the amount of each added line, by its
-list and its position there. Only the assistant tool says anything but the
-call: it alone can have asked the person.
+{- | A list of an edit whose lines carry an amount the person may type: a list
+of added lines, or the amounts set on lines that exist. A new activity has only
+the first kind, which is why 'toAuthoredActivitiesTyped' takes an 'AddedList'.
 -}
-toExchangeEditsTyped :: (AddedList -> Int -> AmountFrom) -> ExchangeEditRequest -> Either [Text] [ExchangeEdit]
+data AmountList = Added AddedList | SetAmounts
+    deriving (Eq, Ord, Show)
+
+-- | The lines whose amount an edit sets, each by its position in @setAmounts@, with the lines it chooses.
+setAmountLines :: ExchangeEditRequest -> [(Int, Either [Text] ExchangeSelector)]
+setAmountLines req = zip [0 ..] (map (toSelector . saSelect) (eerSetAmounts req))
+
+{- | 'toExchangeEdits', told who gave each amount added or set, by its list and
+its position there. Only the assistant tool says anything but the call: it
+alone can have asked the person.
+-}
+toExchangeEditsTyped :: (AmountList -> Int -> AmountFrom) -> ExchangeEditRequest -> Either [Text] [ExchangeEdit]
 toExchangeEditsTyped amountFrom req = case partitionEithers stated of
     ([], edits) -> Right edits
     (errs, _) -> Left (concat errs)
@@ -568,13 +579,13 @@ toExchangeEditsTyped amountFrom req = case partitionEithers stated of
     stated =
         map (fmap RemoveExchange . toSelector) (eerRemove req)
             <> map toSetParameter (eerSetParameters req)
-            <> map toSetAmount (eerSetAmounts req)
+            <> zipWith toSetAmount [0 ..] (eerSetAmounts req)
             <> map toSetFormula (eerSetFormulas req)
             <> map (\sp -> toSetProperty Price (sprProduct sp) (sprPrice sp)) (eerSetPrices req)
             <> map (\sd -> toSetProperty DryMass (sdmProduct sd) (sdmDryMass sd)) (eerSetDryMasses req)
             <> map (\sw -> toSetProperty WetMass (swmProduct sw) (swmWetMass sw)) (eerSetWetMasses req)
             <> map toSetSupplier (eerSetSuppliers req)
-            <> [(`AddExchange` amountFrom list i) <$> line | ((list, i), line) <- addedLines req]
+            <> [(`AddExchange` amountFrom (Added list) i) <$> line | ((list, i), line) <- addedLines req]
             <> map (Right . SetText) texts
             <> map (Right . RemoveParameter) (eerRemoveParameters req)
     texts =
@@ -583,7 +594,7 @@ toExchangeEditsTyped amountFrom req = case partitionEithers stated of
             , ActivityLocation <$> maybeToList (eerSetLocation req)
             , ActivityDescription <$> maybeToList (eerSetDescription req)
             ]
-    toSetAmount sa = flip SetAmount (saAmount sa) <$> toSelector (saSelect sa)
+    toSetAmount i sa = (\selector -> SetAmount selector (saAmount sa) (amountFrom SetAmounts i)) <$> toSelector (saSelect sa)
     toSetFormula sf = flip SetFormula (sfFormula sf) <$> toSelector (sfSelect sf)
     toSetSupplier ss = flip SetSupplier (ssProvider ss) <$> toSelector (ssSelect ss)
     toSetProperty prop named value = case UUID.fromText named of
@@ -596,8 +607,8 @@ one, every complaint naming the process it is about.
 toActivityEdits :: ActivitiesEditRequest -> Either [Text] (NonEmpty (Text, [ExchangeEdit]))
 toActivityEdits = toActivityEditsTyped (\_ _ _ -> FromCall)
 
--- | 'toActivityEdits', told who gave each added line's amount, by the position of its edit in the request first.
-toActivityEditsTyped :: (Int -> AddedList -> Int -> AmountFrom) -> ActivitiesEditRequest -> Either [Text] (NonEmpty (Text, [ExchangeEdit]))
+-- | 'toActivityEdits', told who gave each amount added or set, by the position of its edit in the request first.
+toActivityEditsTyped :: (Int -> AmountList -> Int -> AmountFrom) -> ActivitiesEditRequest -> Either [Text] (NonEmpty (Text, [ExchangeEdit]))
 toActivityEditsTyped amountFrom req = case partitionEithers (zipWith translate [0 ..] (aqEdits req)) of
     ([], edits) -> maybe (Left ["The request names no process: \"edits\" is empty."]) Right (NE.nonEmpty edits)
     (errs, _) -> Left (concat errs)

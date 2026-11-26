@@ -149,6 +149,12 @@ spec = do
             decodeStrict written `shouldBe` Just typedLine
             T.count "\"typed\":true" (TE.decodeUtf8 written) `shouldBe` 1
 
+        it "marks an amount set that the person typed, and only that one" $ do
+            let set = event (edited supplierPid [(SetAmount (SelectBiosphere co2Id) 3 TypedByPerson, 1), (SetAmount (SelectInput supplierPid) 4 FromCall, 1)])
+                written = BL.toStrict (Aeson.encode set)
+            decodeStrict written `shouldBe` Just set
+            T.count "\"typed\":true" (TE.decodeUtf8 written) `shouldBe` 1
+
         it "marks a created line whose amount the person typed, and only that line" $ do
             let created = event (Created [cheese{aaExchanges = [AuthoredLine usedOilOut TypedByPerson, AuthoredLine usedOilOut FromCall]}] ["a_b"])
                 written = BL.toStrict (Aeson.encode created)
@@ -237,7 +243,7 @@ spec = do
                 `shouldSatisfy` failsWith "now mints"
 
         it "edits an inventory in place, leaving the activity's identity alone" $
-            case replayJournal ctx [event (edited supplierPid [(SetAmount (SelectBiosphere co2Id) 3, 1)])] of
+            case replayJournal ctx [event (edited supplierPid [(SetAmount (SelectBiosphere co2Id) 3 FromCall, 1)])] of
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> do
                     processKeys db `shouldBe` processKeys fixture
@@ -326,7 +332,7 @@ spec = do
             withWheat <- buildFixtureWith [wheatIn "FR" 2, wheatIn "DE" 5]
             let wheatCtx = ctx{acDb = withWheat}
                 wheatAmounts db = [techAmount ex | act <- V.toList (dbActivities db), ex@TechnosphereExchange{techRole = Input} <- exchanges act]
-            case replayJournal wheatCtx [event (edited supplierPid [(SetAmount (SelectUnlinkedInput depProdId (Just (LocationCode "FR"))) 3, 1)])] of
+            case replayJournal wheatCtx [event (edited supplierPid [(SetAmount (SelectUnlinkedInput depProdId (Just (LocationCode "FR"))) 3 FromCall, 1)])] of
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> wheatAmounts db `shouldBe` [3, 5]
 
@@ -345,8 +351,8 @@ spec = do
         let creamCtx = ctx{acDb = withCream}
             created = Created [cheese, butter] [mintedKey withCream cheese, mintedKey withCream butter]
             -- The supplier's rename reaches its sibling, the cream row.
-            supplierEdit = edited supplierPid [(SetText (ActivityName "milk production, corrected"), 1), (SetAmount (SelectBiosphere co2Id) 3, 1)]
-            dairyEdit activity amount = edited (mintedKey withCream activity) [(SetAmount (SelectBiosphere co2Id) amount, 1)]
+            supplierEdit = edited supplierPid [(SetText (ActivityName "milk production, corrected"), 1), (SetAmount (SelectBiosphere co2Id) 3 FromCall, 1)]
+            dairyEdit activity amount = edited (mintedKey withCream activity) [(SetAmount (SelectBiosphere co2Id) amount FromCall, 1)]
             oneByOne = foldM (\db op -> applyOp creamCtx{acDb = db} op) withCream
             encoded = fmap encode
 
@@ -358,7 +364,7 @@ spec = do
         it "lets an edit of an activity already in the run see the run's result" $ do
             -- The second edit of the cheese matches the line the first one adds.
             let moreCo2 = AuthoredBio{abFlow = FlowById co2Id, abDirection = Emission, abAmount = 0.1, abUnit = Nothing, abComment = Nothing}
-                ops = created :| [edited (mintedKey withCream cheese) [(AddExchange moreCo2 FromCall, 1)], supplierEdit, edited (mintedKey withCream cheese) [(SetAmount (SelectBiosphere co2Id) 0.4, 2)]]
+                ops = created :| [edited (mintedKey withCream cheese) [(AddExchange moreCo2 FromCall, 1)], supplierEdit, edited (mintedKey withCream cheese) [(SetAmount (SelectBiosphere co2Id) 0.4 FromCall, 2)]]
             void (oneByOne (NE.toList ops)) `shouldSatisfy` isRight
             encoded (applyOps creamCtx ops) `shouldBe` encoded (oneByOne (NE.toList ops))
 
@@ -506,7 +512,7 @@ editedInventory =
         supplierPid
         [ (RemoveExchange (SelectBiosphere co2Id), 2)
         , (RemoveExchange (SelectWaste supplierPid), 1)
-        , (SetAmount (SelectInput supplierPid) 4, 1)
+        , (SetAmount (SelectInput supplierPid) 4 FromCall, 1)
         , (AddExchange usedOilOut FromCall, 1)
         ]
 
@@ -515,8 +521,8 @@ unlinkedEdits :: JournalOp
 unlinkedEdits =
     edited
         supplierPid
-        [ (SetAmount (SelectUnlinkedInput depProdId (Just (LocationCode "FR"))) 3, 1)
-        , (SetAmount (SelectUnlinkedInput depProdId (Just LocationNone)) 3, 1)
+        [ (SetAmount (SelectUnlinkedInput depProdId (Just (LocationCode "FR"))) 3 FromCall, 1)
+        , (SetAmount (SelectUnlinkedInput depProdId (Just LocationNone)) 3 FromCall, 1)
         , (RemoveExchange (SelectUnlinkedWaste depProdId Nothing), 2)
         ]
 
@@ -563,7 +569,7 @@ rememberedEdit :: JournalOp
 rememberedEdit =
     Edited
         supplierPid
-        [ EditLine (SetAmount (SelectBiosphere co2Id) 3) 2 (Prior [1.5, 2])
+        [ EditLine (SetAmount (SelectBiosphere co2Id) 3 FromCall) 2 (Prior [1.5, 2])
         , EditLine (AddExchange usedOilOut FromCall) 1 (Prior [])
         ]
 
