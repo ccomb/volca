@@ -1244,7 +1244,9 @@ class Activity(FromJson):
     activity's exchanges in a multi-output (allocated) process, e.g. a
     cheese activity that also yields whey, cream and permeate gives each
     product its own share, summing to ~100. It is ``None`` for single-output
-    processes. ``allocation_formula`` carries the raw symbolic formula when
+    processes, and for a product of a block its source divided line by line,
+    each input and emission by its own fraction, which leaves no share for the
+    product as a whole. ``allocation_formula`` carries the raw symbolic formula when
     the source expressed the share as an expression rather than a number,
     else ``None``.
 
@@ -2316,10 +2318,13 @@ class ActivityDetail:
         """True iff the activity splits its burden across several co-products.
 
         Reads the structured ``allocation_percent`` the engine sets on each
-        :attr:`all_products` entry (authoritative), not the description text.
+        :attr:`all_products` entry (authoritative), not the description text,
+        and ``block_products`` for a block its source divides line by line,
+        whose products carry no percentage.
         """
         return sum(
-            1 for p in self.all_products if p.allocation_percent is not None
+            1 for p in self.all_products
+            if p.allocation_percent is not None or (p.block_products or 0) > 1
         ) > 1
 
 

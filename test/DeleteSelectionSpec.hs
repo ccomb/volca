@@ -89,6 +89,7 @@ import Types (
     Licence (..),
     LocationSource (..),
     ProcessId,
+    ProductShare (..),
     Reading (..),
     ReferenceConvention (..),
     SimpleDatabase (..),
@@ -1241,7 +1242,7 @@ inputById supplier = (inputFrom supplier supplier){techSupplierClaim = ClaimById
 
 -- | A product output of a block, with the share the source declares for it.
 productRow :: UUID -> UUID -> TechRole -> Double -> Exchange
-productRow act flow role share = (refOut act flow){techRole = role, techShare = Just (DeclaredShare share Nothing Nothing)}
+productRow act flow role share = (refOut act flow){techRole = role, techShare = Just (ShareDeclared (DeclaredShare share Nothing Nothing))}
 
 emits :: UUID -> Double -> Exchange
 emits flow amount =

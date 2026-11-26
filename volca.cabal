@@ -149,6 +149,7 @@ library
                      , CLI.Render
                      , CLI.Repl
                      , EcoSpold.Common
+                     , EcoSpold.Allocation1
                      , EcoSpold.Parser2
                      , EcoSpold.Writer2
                      , EcoSpold.Parser1
@@ -377,6 +378,7 @@ test-suite lca-tests
                      , ProgressSpec
                      , RegistryLintSpec
                      , AllocationSpec
+                     , EcoSpold1AllocationSpec
                      , EcoSpold1Spec
                      , EcoSpold1WriterSpec
                      , EcoSpold2Spec

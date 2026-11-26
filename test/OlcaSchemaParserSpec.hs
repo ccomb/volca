@@ -95,6 +95,10 @@ spec = beforeAll loaded $ describe "an openLCA package read into a database" $ d
         heat `carriesOnly` [(co2F, 0.4525), (oreF, 0.025)]
         power `carriesOnly` [(co2F, 0.11), (oreF, 0.1)]
 
+    it "marks the products of a causal division as divided line by line, those of a physical one by their share" $ \(b, _) -> do
+        (exchangeOf b cogenG heatF heatF >>= exchangeProductShare) `shouldBe` Just ShareByLine
+        (exchangeOf b cogenF heatF heatF >>= exchangeDeclaredShare) `shouldSatisfy` maybe False ((> 0) . dsPercent)
+
     it "applies a causal factor naming no product to none, and says so" $ \(b, _) ->
         [what | StrayFactor what <- builtNotices b] `shouldBe` ["cogeneration, causal"]
 

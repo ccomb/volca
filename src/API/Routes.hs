@@ -1670,7 +1670,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 122: groups that keep substances under the own-emissions
+(revision 123: an exchange's @share@ is @{"byLine":true}@ for a product
+its source divides line by line, which has no percentage, beside the
+@{"percent", "formula", "by"}@ object of a declared share;
+revision 122: groups that keep substances under the own-emissions
 reading, by a @flow@ criterion on a group's filter (a name read as the
 substance or as contained, and a compartment); the flows of one group by a
 POST to the @group-flows@ route; the groups a flow could start, by
@@ -1953,7 +1956,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 122
+currentWireVersion = 123
 
 getVersion :: AppM Value
 getVersion = do

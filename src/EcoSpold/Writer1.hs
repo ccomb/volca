@@ -51,7 +51,7 @@ __canonical and deterministic__:
 The mapping mirrors 'EcoSpold.Parser1.buildExchange' exactly:
 
   * 'ReferenceProduct' / 'ReferenceInput' → @\<outputGroup\>0\</outputGroup\>@
-  * 'Coproduct'                          → @\<outputGroup\>1\</outputGroup\>@
+  * 'Coproduct'                          → @\<outputGroup\>2\</outputGroup\>@
   * 'AvoidedProduct'                     → @\<inputGroup\>5\</inputGroup\>@,
     amount negated (a substitution re-parses to a negative input, the same
     matrix entry)
@@ -867,7 +867,7 @@ groupElement ex = case ex of
     TechnosphereExchange{techRole = role} -> case role of
         ReferenceProduct -> wrapOut "0"
         ReferenceInput -> wrapOut "0"
-        Coproduct -> wrapOut "1"
+        Coproduct -> wrapOut "2"
         AvoidedProduct -> wrapIn "5"
         Input -> wrapIn "5"
     BiosphereExchange{bioDirection = dir} -> case dir of

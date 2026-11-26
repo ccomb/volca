@@ -557,7 +557,7 @@ productRow :: UUID -> Double -> TechRole -> Maybe Double -> M.Map Text Text -> E
 productRow fid amount role share cls =
     (tech fid amount role)
         { techUnitId = if fid == wheyId then mjId else kgId
-        , techShare = (\p -> DeclaredShare p (if fid == wheyId then Just "Qw*DMw/total*100" else Nothing) Nothing) <$> share
+        , techShare = (\p -> ShareDeclared (DeclaredShare p (if fid == wheyId then Just "Qw*DMw/total*100" else Nothing) Nothing)) <$> share
         , techClassification = cls
         }
 

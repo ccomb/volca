@@ -529,7 +529,7 @@ formulaNotices p = concatMap notice
 
 -- | The shares a process's products carry, and the pairs causal allocation adds.
 data Split = Split
-    { spShares :: !(M.Map Int Double)
+    { spShares :: !(M.Map Int ProductShare)
     , spPairs :: !(M.Map SharedExchange Double)
     , spNotices :: ![Notice]
     }
@@ -553,12 +553,15 @@ split env p lines' products
         Nothing -> whole
   where
     whole :: Split
-    whole = Split (M.fromList [(lnAt ln, 100) | ln <- products]) M.empty [WithoutFactor (P.prName p)]
+    whole = Split (M.fromList [(lnAt ln, declared 100) | ln <- products]) M.empty [WithoutFactor (P.prName p)]
+
+    declared :: Double -> ProductShare
+    declared pct = ShareDeclared DeclaredShare{dsPercent = pct, dsFormula = Nothing, dsBy = Nothing}
 
     perProduct :: P.AllocationMethod -> Split
     perProduct method =
         Split
-            { spShares = M.fromList [(lnAt ln, maybe 100 (* 100) (factorFor method ln)) | ln <- products]
+            { spShares = M.fromList [(lnAt ln, declared (maybe 100 (* 100) (factorFor method ln))) | ln <- products]
             , spPairs = M.empty
             , spNotices = [WithoutFactor (P.prName p <> " · " <> P.flName (lnFlow ln)) | ln <- products, Nothing <- [factorFor method ln]] <> factorNotices method
             }
@@ -576,7 +579,7 @@ split env p lines' products
     causal :: Split
     causal = case partitionEithers ([pair f | f <- P.prFactors p, P.afMethod f == P.Causal]) of
         (strays, []) -> whole{spNotices = WithoutFactor (P.prName p) : strays <> factorNotices P.Causal}
-        (strays, pairs) -> Split (M.fromList [(lnAt ln, 100) | ln <- products]) (M.fromList pairs) (strays <> factorNotices P.Causal)
+        (strays, pairs) -> Split (M.fromList [(lnAt ln, ShareByLine) | ln <- products]) (M.fromList pairs) (strays <> factorNotices P.Causal)
 
     pair :: P.AllocationFactor -> Either Notice (SharedExchange, Double)
     pair f = maybe (Left (StrayFactor (P.prName p))) Right $ do
@@ -759,7 +762,7 @@ formulaCheck lines'
         Refused _ -> True
 
 -- | The engine exchange a line becomes, and what linking it noticed.
-engineExchange :: Context -> P.Process -> M.Map Int Double -> Line -> (Exchange, [Notice])
+engineExchange :: Context -> P.Process -> M.Map Int ProductShare -> Line -> (Exchange, [Notice])
 engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
     -- openLCA offers "avoided" on product and waste lines; an elementary one is read as the input it is stored as.
     (P.ElementaryFlow, side) -> (biosphere side, [])
@@ -820,7 +823,7 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
             (P.Avoided, Resource) -> 1
             (P.Avoided, Emission) -> -1
 
-    technosphere :: TechRole -> Double -> Supplier -> Maybe DeclaredShare -> Exchange
+    technosphere :: TechRole -> Double -> Supplier -> Maybe ProductShare -> Exchange
     technosphere role sign link share =
         TechnosphereExchange
             { techFlowId = P.flId flow
@@ -844,7 +847,7 @@ engineExchange cx p shares ln = case (P.flType flow, P.rxSide raw) of
             (if P.rxReference raw then ReferenceProduct else Coproduct)
             sign
             (Supplier Nothing ClaimByProduct [])
-            ((\pct -> DeclaredShare{dsPercent = pct, dsFormula = Nothing, dsBy = Nothing}) <$> M.lookup (lnAt ln) shares)
+            (M.lookup (lnAt ln) shares)
 
     linked :: TechRole -> (Exchange, [Notice])
     linked role =

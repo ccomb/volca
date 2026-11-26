@@ -637,6 +637,15 @@ spec = describe "SimaPro.Writer round-trip" $ do
                     msg `shouldSatisfy` T.isInfixOf "guard maker"
                     msg `shouldSatisfy` T.isInfixOf "without a declared share"
                 Right () -> expectationFailure "an unallocated activity was accepted"
+        it "refuses a block its source divides line by line, kept whole: each row would claim the whole" $
+            let whole = guardDb Nothing Nothing [refProd, refProd2{techRole = Coproduct}]
+                byLine ex = if exchangeIsProductOutput ex then ex{techShare = Just ShareByLine} else ex
+                divided = whole{sdbActivities = M.map (\act -> act{activityLines = packExchanges (map byLine (exchanges act))}) (sdbActivities whole)}
+             in case checkSimaProExportable divided of
+                    Left msg -> do
+                        msg `shouldSatisfy` T.isInfixOf "guard maker"
+                        msg `shouldSatisfy` T.isInfixOf "which their source divides line by line"
+                    Right () -> expectationFailure "a block divided line by line was accepted whole"
         it "accepts a pedigree-less exchange with an ordinary comment" $
             checkSimaProExportable (commentDb Nothing (Just "ordinary free text"))
                 `shouldBe` Right ()
@@ -996,7 +1005,7 @@ allocationDb =
             LocationDeclared
             "kg"
             ( packExchanges
-                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 50 Nothing Nothing)) M.empty noProperties Nothing
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (ShareDeclared (DeclaredShare 50 Nothing Nothing))) M.empty noProperties Nothing
                 , TechnosphereExchange matU 10.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
                 ]
             )
@@ -1044,7 +1053,7 @@ zeroAllocationDb =
             LocationDeclared
             "kg"
             ( packExchanges
-                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 0 Nothing Nothing)) M.empty noProperties Nothing
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (ShareDeclared (DeclaredShare 0 Nothing Nothing))) M.empty noProperties Nothing
                 , TechnosphereExchange matU 0.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
                 ]
             )
@@ -1202,7 +1211,7 @@ guardDb alloc ntype exs =
         Activity "guard maker" [] [] M.empty M.empty "GLO" LocationDeclared "kg" (packExchanges (map withShare exs)) M.empty ntype Nothing Nothing noDates
     -- The share a source declares lives on the reference exchange.
     withShare ex = case ex of
-        TechnosphereExchange{techRole = ReferenceProduct} -> ex{techShare = (\p -> DeclaredShare p Nothing Nothing) <$> alloc}
+        TechnosphereExchange{techRole = ReferenceProduct} -> ex{techShare = (\p -> ShareDeclared (DeclaredShare p Nothing Nothing)) <$> alloc}
         TechnosphereExchange{} -> ex
         BiosphereExchange{} -> ex
         WasteExchange{} -> ex

@@ -832,7 +832,7 @@ energyDb role =
         }
   where
     key a = (generateActivityUUID a, getReferenceProductUUID a)
-    shared ex = ex{techShare = Just DeclaredShare{dsPercent = 50, dsFormula = Nothing, dsBy = Nothing}}
+    shared ex = ex{techShare = Just (ShareDeclared DeclaredShare{dsPercent = 50, dsFormula = Nothing, dsBy = Nothing})}
     heat = flowInUnit "heat" "kg"
     ash = flowInUnit "ash" "kg"
     plant =
