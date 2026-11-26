@@ -1503,14 +1503,18 @@ Return server build metadata: version, git hash/tag, build target.
 Uses a direct HTTP call: ``/api/v1/version`` has no operationId
 since it predates the Resources ADT.
 
-##### `Client.group_candidates(process_id: str, method_id: str, groups: list[Group], candidate: str, *, attribution: AttributionLike | None = None, collection: str | None = None, exclude_long_term: bool | None = None) -> GroupCandidates`
+##### `Client.group_candidates(process_id: str, method_id: str, groups: list[Group], candidate: str | None = None, *, candidate_flow: str | None = None, attribution: AttributionLike | None = None, collection: str | None = None, exclude_long_term: bool | None = None) -> GroupCandidates`
 
-The groups ``candidate`` could start, the narrowest first: its
-product, then each level of its classifications. Each comes with its
-part of the score once added at the end of ``groups``, ready to append.
+The groups a process or a flow could start, the narrowest first.
+Each comes with its part of the score once added at the end of
+``groups``, ready to append.
 
 ``candidate`` is a process id as a row of `group_members` gives
-it (``db::pid`` for a process of another database). The engine refuses
+it (``db::pid`` for a process of another database): its product, then
+each level of its classifications. ``candidate_flow`` is a flow id as
+a row of `group_flows` or `get_contributing_flows` gives
+it: the substance by its name in its compartment, by its name
+anywhere, then by its CAS. Exactly one of the two. The engine refuses
 a list already holding the most groups it takes.
 
 ##### `Client.group_contributions(process_id: str, groups: list[Group], *, attribution: AttributionLike | None = None, collection: str | None = None, exclude_long_term: bool | None = None) -> GroupContributions`
@@ -1519,8 +1523,19 @@ Each score of a collection split between ``groups``, plus the rest.
 
 For each method the groups, the rest and the databases whose licence
 withholds their detail add up to the total. ``attribution`` says what
-a group's part is (``"first-match"``, the default, or ``"own"``, see
-`Attribution`).
+a group's part is (``"first-match"``, the default unless a group keeps
+a substance, or ``"own"``, see `Attribution`).
+
+##### `Client.group_flows(process_id: str, method_id: str, groups: list[Group], *, group: str | None = None, attribution: AttributionLike | None = None, collection: str | None = None, limit: int | None = None, exclude_long_term: bool | None = None) -> ContributingFlows`
+
+The emissions and resources of one group, by its name, or of the
+rest when ``group`` is left out, the heaviest first, under ``groups``
+and ``attribution`` as `group_contributions` reads them.
+``total_score`` is that group's part. A database whose licence keeps
+its detail or the amounts of its exchanges lists no flow, only a line
+in ``withheld_databases``, and a root whose licence keeps those amounts
+is refused. A row's ``flow_id`` can start groups through
+`group_candidates`' ``candidate_flow``.
 
 ##### `Client.group_members(process_id: str, method_id: str, groups: list[Group], *, group: str | None = None, attribution: AttributionLike | None = None, collection: str | None = None, limit: int | None = None, exclude_long_term: bool | None = None) -> ContributingActivities`
 
@@ -2241,7 +2256,19 @@ What a group's part of a score is.
 
 ``FIRST_MATCH``: the whole chain below the first process of a group met
 on the way up from the root, what it buys included. ``OWN``: its
-processes' own emissions only.
+processes' own emissions only. Left out, the reading is ``FIRST_MATCH``,
+unless a group keeps a substance (`FlowCriteria`): only own
+emissions split by substance, so the reading is then ``OWN``, and the
+engine refuses ``FIRST_MATCH`` named with such a group.
+
+### `SubstanceMatch`
+
+How a `FlowCriteria` reads its substance.
+
+``SUBSTANCE``: the substance itself, by the flow's own name (case aside),
+a name the synonym registry gives the same substance, a chemical formula
+or a CAS: ``"methane"`` takes fossil and biogenic methane, never a CFC.
+``CONTAINS``: text the flow's name contains.
 
 ### `Server`
 
@@ -4178,6 +4205,23 @@ baseline and every perturbed score are for.
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 
+### `FlowCriteria`
+
+The emissions or resources a `Group` keeps: a ``substance``, read
+as ``match`` says, and a ``medium`` (``"air"``, ``"water"``, ``"soil"``,
+``"natural resource"``…), at least one of the two.
+
+The medium tells emissions from resources: ``FlowCriteria("CO2")`` also
+takes the carbon dioxide taken from the air, ``FlowCriteria("CO2",
+medium="air")`` only what goes to it. The engine refuses a medium it does
+not know, naming the ones it does.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `substance` | `str \| None` | None |
+| `match` | `SubstanceMatch` | <SubstanceMatch.SUBSTANCE: 'substance'> |
+| `medium` | `str \| None` | None |
+
 ### `Group`
 
 One group of a split between groups: ``name`` is the line its part gets.
@@ -4188,6 +4232,13 @@ its place, ``classifications`` are alternatives within one system and all
 required across systems, and ``left_out`` leaves out what it matches. The
 engine refuses a group that keeps nothing: ``left_out`` alone is not enough.
 
+``flow`` keeps only the emissions of a substance: of the group's processes,
+or of every process when the group names none (``Group("N2O",
+flow=FlowCriteria("N2O"))``). An emission then goes to the first group
+taking both its process and its substance, and the root's emissions only
+to groups naming a substance alone. Such groups read own emissions only
+(see `Attribution`).
+
 | Field | Type | Default |
 |-------|------|---------|
 | `name` | `str` | _required_ |
@@ -4196,12 +4247,14 @@ engine refuses a group that keeps nothing: ``left_out`` alone is not enough.
 | `location` | `str \| None` | None |
 | `classifications` | `tuple[ClassificationFilter, ...]` | () |
 | `left_out` | `tuple[ClassificationFilter, ...]` | () |
+| `flow` | `FlowCriteria \| None` | None |
 
 ### `GroupCandidate`
 
-One group a process could start: the ``group``, ready to add at the end
-of the list, how many processes of the chain it takes something of, its
-part of the score once added, and the products of its heaviest processes.
+One group a process or a flow could start: the ``group``, ready to add
+at the end of the list, how many processes of the chain it takes something
+of, its part of the score once added, and the products of its heaviest
+processes.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -4212,9 +4265,10 @@ part of the score once added, and the products of its heaviest processes.
 
 ### `GroupCandidates`
 
-The groups a process could start, from `Client.group_candidates`,
-the narrowest first; of two that would take the same processes, the
-broader alone. ``total`` is the method's score of the root.
+The groups a process or a flow could start, from
+`Client.group_candidates`, the narrowest first; of two that would
+take the same, the broader alone. ``total`` is the method's score of the
+root.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -4243,7 +4297,8 @@ For each method, by its id, the ``groups``, the ``rest`` and the
 ### `GroupPart`
 
 One group's part of each score, by method id, and how many of its
-processes carry one.
+processes carry one. Once a group of the split keeps a substance, a
+process counts only when it gives the group at least one emission.
 
 | Field | Type | Default |
 |-------|------|---------|

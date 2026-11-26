@@ -1,6 +1,6 @@
 """Offline tests for a score split between groups of processes.
 
-The four group routes go through the OpenAPI dispatcher (``_call``), so they
+The group routes go through the OpenAPI dispatcher (``_call``), so they
 rely on the fixture_spec entries for them. The tests assert the dispatched
 URL and body, the typed parsing, a group read back from the engine sent
 unchanged, and the wire gate.
@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from volca import VoLCAError
-from volca.types import Attribution, ClassificationFilter, Group, GroupCandidates, GroupContributions, MatchMode
+from volca.types import Attribution, ClassificationFilter, ContributingFlows, FlowCriteria, Group, GroupCandidates, GroupContributions, MatchMode, SubstanceMatch
 
 _METHOD_ID = "00000000-0000-0000-0000-000000000001"
 _FUNCTIONAL_UNIT = {"amount": 1, "unit": "kg", "product": "wheat"}
@@ -98,6 +98,97 @@ def test_group_candidates_and_sets_hand_back_groups_ready_to_send(mocked_client,
     [ready] = client.group_sets()
     assert session.get.call_args[0][0] == "http://test.local/api/v1/db/testdb/group-sets"
     assert ready.groups == [candidates.candidates[0].group]
+
+
+# A group keeping a substance as the engine hands it back in a candidate: every absent field written null.
+_N2O_ECHO = {
+    "name": "N2O",
+    "filter": {"name": None, "product": None, "location": None, "classifications": None, "flow": {"name": "N2O", "match": "substance", "medium": None}},
+}
+
+
+def test_a_group_keeping_a_substance_reads_back_from_the_engine():
+    group = Group.from_json(_N2O_ECHO)
+    assert group == Group("N2O", flow=FlowCriteria("N2O"))
+    assert group.to_wire() == {"name": "N2O", "filter": {"flow": {"name": "N2O", "match": "substance"}}}
+    fields = {"name": "N2O of the fields", "filter": {"name": "at farm", "flow": {"name": "nitrous", "match": "contains", "medium": "air"}}}
+    assert Group.from_json(fields).flow == FlowCriteria("nitrous", SubstanceMatch.CONTAINS, "air")
+    assert Group.from_json(fields).to_wire() == fields
+    assert Group("Water", flow=FlowCriteria(medium="water")).to_wire() == {"name": "Water", "filter": {"flow": {"medium": "water"}}}
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        ({}, "needs a substance or a medium"),
+        ({"substance": "  "}, "cannot be blank"),
+        ({"medium": ""}, "cannot be blank"),
+        ({"medium": "air", "match": "contains"}, "give the substance"),
+        ({"substance": "N2O", "match": "equals"}, "match must be one of"),
+    ],
+)
+def test_a_flow_criterion_the_engine_would_refuse_is_refused_before_sending(args, message):
+    with pytest.raises(ValueError, match=message):
+        FlowCriteria(**args)
+
+
+def test_group_flows_names_the_group_and_reads_every_line(mocked_client, make_response):
+    client, session = _client(mocked_client, 122)
+    session.post.return_value = make_response(
+        {
+            "method": "Climate change",
+            "unit": "kg CO2 eq",
+            "totalScore": 0.4,
+            "functionalUnit": _FUNCTIONAL_UNIT,
+            "topFlows": [{"flowName": "Dinitrogen monoxide", "contribution": 0.3, "sharePct": 75.0, "flowId": "f-n2o", "category": "air"}],
+            "withheldDatabases": [{"database": "dep", "contribution": 0.1, "sharePct": 25.0, "reason": "withheld"}],
+            "cutoffInputs": [],
+            "withheldCutoffs": [],
+            "basis": None,
+        }
+    )
+    n2o = Group.from_json(_N2O_ECHO)
+    flows = client.group_flows("proc_a", _METHOD_ID, [n2o], group="N2O", limit=5, collection="methods")
+    assert session.post.call_args[0][0] == f"http://test.local/api/v1/db/testdb/activity/proc_a/group-flows/methods/{_METHOD_ID}"
+    assert session.post.call_args[1]["json"] == {"groups": [n2o.to_wire()], "group": "N2O", "limit": 5}
+    assert isinstance(flows, ContributingFlows)
+    assert flows.total_score == pytest.approx(flows.top_flows[0].contribution + flows.withheld_databases[0].contribution)
+
+
+def test_group_candidates_from_a_flow(mocked_client, make_response):
+    client, session = _client(mocked_client, 122)
+    session.post.return_value = make_response(
+        {"method": "Climate change", "unit": "kg CO2 eq", "total": 1.0, "candidates": [{"group": _N2O_ECHO, "activitiesCounted": 2, "score": 0.3, "examples": []}]}
+    )
+    offered = client.group_candidates("proc_a", _METHOD_ID, [], candidate_flow="f-n2o", collection="methods")
+    assert session.post.call_args[1]["json"] == {"groups": [], "candidateFlow": "f-n2o"}
+    assert offered.candidates[0].group == Group("N2O", flow=FlowCriteria("N2O"))
+
+
+def test_group_candidates_takes_a_process_or_a_flow_exactly(mocked_client):
+    client, session = _client(mocked_client, 122)
+    with pytest.raises(ValueError, match="exactly one"):
+        client.group_candidates("proc_a", _METHOD_ID, [], collection="methods")
+    with pytest.raises(ValueError, match="exactly one"):
+        client.group_candidates("proc_a", _METHOD_ID, [], "dep::lorry", candidate_flow="f-n2o", collection="methods")
+    session.post.assert_not_called()
+
+
+def test_an_engine_before_the_groups_of_substances_is_never_asked_of_them(mocked_client, make_response):
+    client, session = _client(mocked_client, 121)
+    n2o = Group("N2O", flow=FlowCriteria("N2O"))
+    with pytest.raises(VoLCAError, match="with a group keeping a substance needs engine wire revision >= 122"):
+        client.group_contributions("proc_a", [n2o], collection="methods")
+    with pytest.raises(VoLCAError, match="wire revision >= 122"):
+        client.group_flows("proc_a", _METHOD_ID, [], collection="methods")
+    with pytest.raises(VoLCAError, match="wire revision >= 122"):
+        client.group_candidates("proc_a", _METHOD_ID, [], candidate_flow="f-n2o", collection="methods")
+    session.post.assert_not_called()
+    session.post.return_value = make_response(
+        {"method": "Climate change", "unit": "kg CO2 eq", "totalScore": 1.0, "functionalUnit": _FUNCTIONAL_UNIT, "activities": []}
+    )
+    client.group_members("proc_a", _METHOD_ID, [Group.from_json(_TRANSPORT)], collection="methods")
+    session.post.assert_called_once()
 
 
 def test_an_engine_before_the_groups_is_never_asked(mocked_client):

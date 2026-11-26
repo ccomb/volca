@@ -974,7 +974,10 @@ class Attribution(_StrEnum):
 
     ``FIRST_MATCH``: the whole chain below the first process of a group met
     on the way up from the root, what it buys included. ``OWN``: its
-    processes' own emissions only.
+    processes' own emissions only. Left out, the reading is ``FIRST_MATCH``,
+    unless a group keeps a substance (:class:`FlowCriteria`): only own
+    emissions split by substance, so the reading is then ``OWN``, and the
+    engine refuses ``FIRST_MATCH`` named with such a group.
     """
 
     FIRST_MATCH = "first-match"
@@ -982,6 +985,70 @@ class Attribution(_StrEnum):
 
 
 AttributionLike = Union[Attribution, Literal["first-match", "own"]]
+
+
+class SubstanceMatch(_StrEnum):
+    """How a :class:`FlowCriteria` reads its substance.
+
+    ``SUBSTANCE``: the substance itself, by the flow's own name (case aside),
+    a name the synonym registry gives the same substance, a chemical formula
+    or a CAS: ``"methane"`` takes fossil and biogenic methane, never a CFC.
+    ``CONTAINS``: text the flow's name contains.
+    """
+
+    SUBSTANCE = "substance"
+    CONTAINS = "contains"
+
+
+SubstanceMatchLike = Union[SubstanceMatch, Literal["substance", "contains"]]
+
+
+@dataclass(init=False, frozen=True)
+class FlowCriteria:
+    """The emissions or resources a :class:`Group` keeps: a ``substance``, read
+    as ``match`` says, and a ``medium`` (``"air"``, ``"water"``, ``"soil"``,
+    ``"natural resource"``…), at least one of the two.
+
+    The medium tells emissions from resources: ``FlowCriteria("CO2")`` also
+    takes the carbon dioxide taken from the air, ``FlowCriteria("CO2",
+    medium="air")`` only what goes to it. The engine refuses a medium it does
+    not know, naming the ones it does.
+    """
+
+    substance: str | None = None
+    match: SubstanceMatch = SubstanceMatch.SUBSTANCE
+    medium: str | None = None
+
+    def __init__(
+        self,
+        substance: str | None = None,
+        match: SubstanceMatchLike = SubstanceMatch.SUBSTANCE,
+        medium: str | None = None,
+    ):
+        try:
+            resolved = SubstanceMatch(match)
+        except ValueError:
+            valid = ", ".join(repr(m.value) for m in SubstanceMatch)
+            raise ValueError(f"match must be one of {valid} (or a SubstanceMatch member); got {match!r}") from None
+        if substance is not None and not substance.strip():
+            raise ValueError("A substance to keep cannot be blank.")
+        if medium is not None and not medium.strip():
+            raise ValueError("A medium to keep cannot be blank.")
+        if substance is None and medium is None:
+            raise ValueError("A group keeping flows needs a substance or a medium: without one it would take every emission.")
+        if substance is None and resolved is SubstanceMatch.CONTAINS:
+            raise ValueError("match='contains' reads a substance's name: give the substance.")
+        object.__setattr__(self, "substance", substance)
+        object.__setattr__(self, "match", resolved)
+        object.__setattr__(self, "medium", medium)
+
+    def to_wire(self) -> dict:
+        written = {"name": self.substance, "match": self.match.value if self.substance is not None else None, "medium": self.medium}
+        return {k: v for k, v in written.items() if v is not None}
+
+    @classmethod
+    def from_json(cls, d: dict) -> "FlowCriteria":
+        return cls(substance=d.get("name"), match=d.get("match") or SubstanceMatch.SUBSTANCE, medium=d.get("medium"))
 
 
 @dataclass(frozen=True)
@@ -993,6 +1060,13 @@ class Group:
     its place, ``classifications`` are alternatives within one system and all
     required across systems, and ``left_out`` leaves out what it matches. The
     engine refuses a group that keeps nothing: ``left_out`` alone is not enough.
+
+    ``flow`` keeps only the emissions of a substance: of the group's processes,
+    or of every process when the group names none (``Group("N2O",
+    flow=FlowCriteria("N2O"))``). An emission then goes to the first group
+    taking both its process and its substance, and the root's emissions only
+    to groups naming a substance alone. Such groups read own emissions only
+    (see :class:`Attribution`).
     """
 
     name: str
@@ -1001,12 +1075,19 @@ class Group:
     location: str | None = None
     classifications: tuple[ClassificationFilter, ...] = ()
     left_out: tuple[ClassificationFilter, ...] = ()
+    flow: FlowCriteria | None = None
 
     def to_wire(self) -> dict:
         classes = [{"system": c.system, "value": c.value, "mode": c.mode.value} for c in self.classifications] + [
             {"system": c.system, "value": c.value, "mode": "not-" + c.mode.value} for c in self.left_out
         ]
-        written = {"name": self.activity_name, "product": self.product, "location": self.location, "classifications": classes or None}
+        written = {
+            "name": self.activity_name,
+            "product": self.product,
+            "location": self.location,
+            "classifications": classes or None,
+            "flow": self.flow.to_wire() if self.flow is not None else None,
+        }
         return {"name": self.name, "filter": {k: v for k, v in written.items() if v is not None}}
 
     @classmethod
@@ -1026,6 +1107,7 @@ class Group:
             location=f.get("location"),
             classifications=tuple(written(c, m) for c, m in read if not m.startswith("not-")),
             left_out=tuple(written(c, m) for c, m in read if m.startswith("not-")),
+            flow=FlowCriteria.from_json(f["flow"]) if f.get("flow") else None,
         )
 
 
@@ -1041,7 +1123,8 @@ class ScoredMethod(FromJson):
 @dataclass
 class GroupPart(FromJson):
     """One group's part of each score, by method id, and how many of its
-    processes carry one."""
+    processes carry one. Once a group of the split keeps a substance, a
+    process counts only when it gives the group at least one emission."""
 
     name: str
     scores: dict[str, float]
@@ -1103,9 +1186,10 @@ class GroupSet:
 
 @dataclass
 class GroupCandidate:
-    """One group a process could start: the ``group``, ready to add at the end
-    of the list, how many processes of the chain it takes something of, its
-    part of the score once added, and the products of its heaviest processes."""
+    """One group a process or a flow could start: the ``group``, ready to add
+    at the end of the list, how many processes of the chain it takes something
+    of, its part of the score once added, and the products of its heaviest
+    processes."""
 
     group: Group
     activities_counted: int
@@ -1119,9 +1203,10 @@ class GroupCandidate:
 
 @dataclass
 class GroupCandidates:
-    """The groups a process could start, from :meth:`Client.group_candidates`,
-    the narrowest first; of two that would take the same processes, the
-    broader alone. ``total`` is the method's score of the root."""
+    """The groups a process or a flow could start, from
+    :meth:`Client.group_candidates`, the narrowest first; of two that would
+    take the same, the broader alone. ``total`` is the method's score of the
+    root."""
 
     method: str
     unit: str

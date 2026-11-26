@@ -450,6 +450,16 @@ def _groups_body(groups: list[Group], attribution: AttributionLike | None) -> di
     return body
 
 
+def _part_body(groups: list[Group], attribution: AttributionLike | None, group: str | None, limit: int | None) -> dict:
+    """The body asking for one group's part, or the rest's when ``group`` is left out."""
+    body = _groups_body(groups, attribution)
+    if group is not None:
+        body["group"] = group
+    if limit is not None:
+        body["limit"] = limit
+    return body
+
+
 # ---------------------------------------------------------------------------
 # Public client
 # ---------------------------------------------------------------------------
@@ -3807,8 +3817,17 @@ class Client:
     #
     # A score split between named groups of processes, a process going to the
     # first group it answers, and a "rest" line, so the parts add up to the
-    # total. Groups made ready per classification system come from
-    # group_sets(); group_candidates() proposes groups from one process.
+    # total. A group can also keep the emissions of a substance (FlowCriteria).
+    # Groups made ready per classification system come from group_sets();
+    # group_candidates() proposes groups from one process or one flow.
+
+    def _require_groups_wire(self, groups: list[Group], minimum: int, feature: str) -> None:
+        """Refuse ``feature`` on an engine older than ``minimum``, or than the
+        revision that reads a group keeping a substance when one does."""
+        if any(g.flow is not None for g in groups):
+            self._require_wire(max(minimum, 122), f"{feature} with a group keeping a substance", engine_hint="0.19.1")
+        else:
+            self._require_wire(minimum, feature, engine_hint="0.19.1")
 
     def group_contributions(
         self,
@@ -3823,10 +3842,10 @@ class Client:
 
         For each method the groups, the rest and the databases whose licence
         withholds their detail add up to the total. ``attribution`` says what
-        a group's part is (``"first-match"``, the default, or ``"own"``, see
-        :class:`Attribution`).
+        a group's part is (``"first-match"``, the default unless a group keeps
+        a substance, or ``"own"``, see :class:`Attribution`).
         """
-        self._require_wire(119, "group_contributions", engine_hint="0.19.1")
+        self._require_groups_wire(groups, 119, "group_contributions")
         return GroupContributions.from_json(
             self._call(
                 "get_group_contributions",
@@ -3854,13 +3873,8 @@ class Client:
         ``attribution`` as :meth:`group_contributions` reads them. ``method_id``
         takes a method name as well as a UUID.
         """
-        self._require_wire(119, "group_members", engine_hint="0.19.1")
+        self._require_groups_wire(groups, 119, "group_members")
         collection, method_id = self._resolve_method(method_id, collection)
-        body = _groups_body(groups, attribution)
-        if group is not None:
-            body["group"] = group
-        if limit is not None:
-            body["limit"] = limit
         return ContributingActivities.from_json(
             self._call(
                 "get_group_members",
@@ -3868,7 +3882,41 @@ class Client:
                 collection=collection,
                 method_id=method_id,
                 exclude_long_term=exclude_long_term,
-                body=body,
+                body=_part_body(groups, attribution, group, limit),
+            )
+        )
+
+    def group_flows(
+        self,
+        process_id: str,
+        method_id: str,
+        groups: list[Group],
+        *,
+        group: str | None = None,
+        attribution: AttributionLike | None = None,
+        collection: str | None = None,
+        limit: int | None = None,
+        exclude_long_term: bool | None = None,
+    ) -> ContributingFlows:
+        """The emissions and resources of one group, by its name, or of the
+        rest when ``group`` is left out, the heaviest first, under ``groups``
+        and ``attribution`` as :meth:`group_contributions` reads them.
+        ``total_score`` is that group's part. A database whose licence keeps
+        its detail or the amounts of its exchanges lists no flow, only a line
+        in ``withheld_databases``, and a root whose licence keeps those amounts
+        is refused. A row's ``flow_id`` can start groups through
+        :meth:`group_candidates`' ``candidate_flow``.
+        """
+        self._require_wire(122, "group_flows", engine_hint="0.19.1")
+        collection, method_id = self._resolve_method(method_id, collection)
+        return ContributingFlows.from_json(
+            self._call(
+                "get_group_flows",
+                process_id=process_id,
+                collection=collection,
+                method_id=method_id,
+                exclude_long_term=exclude_long_term,
+                body=_part_body(groups, attribution, group, limit),
             )
         )
 
@@ -3877,24 +3925,36 @@ class Client:
         process_id: str,
         method_id: str,
         groups: list[Group],
-        candidate: str,
+        candidate: str | None = None,
         *,
+        candidate_flow: str | None = None,
         attribution: AttributionLike | None = None,
         collection: str | None = None,
         exclude_long_term: bool | None = None,
     ) -> GroupCandidates:
-        """The groups ``candidate`` could start, the narrowest first: its
-        product, then each level of its classifications. Each comes with its
-        part of the score once added at the end of ``groups``, ready to append.
+        """The groups a process or a flow could start, the narrowest first.
+        Each comes with its part of the score once added at the end of
+        ``groups``, ready to append.
 
         ``candidate`` is a process id as a row of :meth:`group_members` gives
-        it (``db::pid`` for a process of another database). The engine refuses
+        it (``db::pid`` for a process of another database): its product, then
+        each level of its classifications. ``candidate_flow`` is a flow id as
+        a row of :meth:`group_flows` or :meth:`get_contributing_flows` gives
+        it: the substance by its name in its compartment, by its name
+        anywhere, then by its CAS. Exactly one of the two. The engine refuses
         a list already holding the most groups it takes.
         """
-        self._require_wire(120, "group_candidates", engine_hint="0.19.1")
+        if (candidate is None) == (candidate_flow is None):
+            raise ValueError("group_candidates takes a candidate process or a candidate_flow, exactly one.")
+        if candidate_flow is not None:
+            self._require_wire(122, "group_candidates(candidate_flow=...)", engine_hint="0.19.1")
+        self._require_groups_wire(groups, 120, "group_candidates")
         collection, method_id = self._resolve_method(method_id, collection)
         body = _groups_body(groups, attribution)
-        body["candidate"] = candidate
+        if candidate is not None:
+            body["candidate"] = candidate
+        if candidate_flow is not None:
+            body["candidateFlow"] = candidate_flow
         return GroupCandidates.from_json(
             self._call(
                 "get_group_candidates",

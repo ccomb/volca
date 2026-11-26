@@ -41,8 +41,9 @@ revision only matter to a client that opted out of that check with
 
 KNOWN_WIRE = 122
 """The newest wire revision this pyvolca understands (revision 122 let a group
-keep the emissions of a substance and added the flows of a group, which no
-pyvolca call reads yet; revision 121 let a flow
+keep the emissions of a substance and added the flows of a group, which
+``Group.flow``, ``group_flows`` and ``group_candidates(candidate_flow=...)``
+read; revision 121 let a flow
 search find by formula, registry synonym and CAS, which ``search_flows`` reads
 unchanged, and answered the processes that emit an emission as its producers,
 which ``get_flow_activities(role="producer")`` reads; revision 120 added the

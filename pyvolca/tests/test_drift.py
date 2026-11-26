@@ -49,6 +49,7 @@ WRAPPER_OPERATIONS = [
     "get_score_contributing_activities",
     "get_group_contributions",
     "get_group_members",
+    "get_group_flows",
     "get_group_candidates",
     "list_group_sets",
     "compute_sensitivity",
