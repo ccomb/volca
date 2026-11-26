@@ -446,15 +446,16 @@ spec = do
             offered <- payload =<< callOn manager "get_group_candidates" [("groups", Array V.empty), ("candidate_flow", String (UUID.toText (bfId testFlow)))]
             numbersAt "candidates" "score" offered `shouldBe` [1]
 
-        it "gives no link to the groups page, which reads only what a group takes of processes" $ do
+        it "links a split by substance to the groups page, in own emissions" $ do
             manager <- managerOn twoFlowRoot dependency LicenceUnstated
             let co2 = Array (V.singleton (Object (KM.fromList [("name", String "CO2"), ("filter", Object (KM.singleton "flow" (Object (KM.singleton "name" (String "Carbon dioxide")))))])))
                 france = Array (V.singleton (Object (KM.fromList [("name", String "France"), ("filter", Object (KM.singleton "location" (String "FR")))])))
                 linked tool groups' = do
                     o <- payload =<< callTool anonymous manager [] Nothing (Just "https://volca.example") noRequestId tool (KM.fromList [("database", String "root"), ("process_id", String rootPid), ("method_id", String (UUID.toText (methodId climate))), ("collection", String collection), ("groups", groups')])
-                    pure (KM.member "web_url" o)
-            mapM_ (\tool -> linked tool co2 `shouldReturn` False) ["get_group_members", "get_group_flows", "get_group_contributions"]
-            mapM_ (\tool -> linked tool france `shouldReturn` True) ["get_group_members", "get_group_flows", "get_group_contributions"]
+                    pure (KM.lookup "web_url" o)
+                linksTo groups' wanted tool = linked tool groups' >>= (`shouldSatisfy` maybe False (\case String url -> all (`T.isInfixOf` url) wanted; _ -> False))
+            mapM_ (linksTo co2 ["reading=own", "g1=CO2", "g1-flow-name=Carbon%20dioxide"]) ["get_group_members", "get_group_flows", "get_group_contributions"]
+            mapM_ (linksTo france ["g1=France", "g1-location=FR"]) ["get_group_members", "get_group_flows", "get_group_contributions"]
 
     describe "MCP, the groups a process could start" $ do
         let candidates manager extra = callOn manager "get_group_candidates" (("candidate", String ("dep::" <> processIdToText dependency 0)) : extra)

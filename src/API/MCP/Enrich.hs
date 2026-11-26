@@ -48,20 +48,22 @@ module API.MCP.Enrich (
     overArray,
 ) where
 
+import Control.Monad (mfilter)
 import Data.Aeson (Value (..), object, (.=))
 import Data.Aeson.Key (fromText)
 import qualified Data.Aeson.Key as Key
 import Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Pair)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Network.URI (escapeURIString, isUnreserved)
 import Numeric (showGFloat)
+import Types (mediumText)
 
-import API.Types (CutoffInput (..), GroupClassification (..), GroupFilterSpec (..), GroupSpec (..), GroupsRequest (..), WithheldCutoffs (..))
+import API.Types (CutoffInput (..), GroupClassification (..), GroupFilterSpec (..), GroupFlowSpec (..), GroupSpec (..), GroupsRequest (..), WithheldCutoffs (..))
 import Database.Cutoffs (Cutoffs (..))
 import Database.Manager (CollectionName (..))
 
@@ -121,33 +123,42 @@ groupsPagePath = activityPagePath "groups"
 
 {- | The query of the groups page with this split: the reading, then one
 numbered rank per group, @g1=<name>@ then @g1-name@, @g1-product@,
-@g1-location@ and one @g1-classification@, @-value@, @-mode@ triple per
-classification, in the order the group lists them. An empty list is
+@g1-location@, one @g1-classification@, @-value@, @-mode@ triple per
+classification, in the order the group lists them, and the substance it keeps:
+@g1-flow-name@, @g1-flow-match@ only for @contains@ (the page reads the
+substance itself when it is left out), @g1-flow-medium@. An empty list is
 @groups=none@, since the page opens a ready-made set when the address names
-no group.
+no group. A group keeping a substance is read in own emissions whatever the
+request named, so the address says @reading=own@ then too.
 -}
 groupsQuery :: GroupsRequest -> Text
 groupsQuery GroupsRequest{grqAttribution = attribution, grqGroups = specs} =
     "?" <> T.intercalate "&" [key <> "=" <> encodeSegment value | (key, value) <- reading <> ranks]
   where
     reading :: [(Text, Text)]
-    reading = [("reading", "own") | attribution == Just "own"]
+    reading = [("reading", "own") | attribution == Just "own" || any (isJust . gfsFlow . gspFilter) specs]
     ranks :: [(Text, Text)]
     ranks = case specs of
         [] -> [("groups", "none")]
         _ -> concat (zipWith rankPairs [1 :: Int ..] specs)
     rankPairs :: Int -> GroupSpec -> [(Text, Text)]
     rankPairs rank GroupSpec{gspName = name, gspFilter = f} =
-        let key suffix = "g" <> T.pack (show rank) <> suffix
-            field suffix = foldMap (\value -> [(key suffix, value)])
-         in (key "", name)
-                : field "-name" (gfsName f)
-                    <> field "-product" (gfsProduct f)
-                    <> field "-location" (gfsLocation f)
-                    <> concat
-                        [ [(key "-classification", system), (key "-classification-value", value), (key "-classification-mode", mode)]
-                        | GroupClassification{gclSystem = system, gclValue = value, gclMode = mode} <- fromMaybe [] (gfsClassifications f)
-                        ]
+        (key "", name)
+            : field "-name" (gfsName f)
+                <> field "-product" (gfsProduct f)
+                <> field "-location" (gfsLocation f)
+                <> concat
+                    [ [(key "-classification", system), (key "-classification-value", value), (key "-classification-mode", mode)]
+                    | GroupClassification{gclSystem = system, gclValue = value, gclMode = mode} <- fromMaybe [] (gfsClassifications f)
+                    ]
+                <> foldMap flowPairs (gfsFlow f)
+      where
+        key suffix = "g" <> T.pack (show rank) <> suffix
+        field suffix = foldMap (\value -> [(key suffix, value)])
+        flowPairs GroupFlowSpec{gflName = substance, gflMatch = match, gflMedium = medium} =
+            field "-flow-name" substance
+                <> field "-flow-match" (mfilter (== "contains") match)
+                <> field "-flow-medium" (mediumText <$> medium)
 
 {- | Activity-level impacts page URL (the LCIA batch view in the web UI).
 
