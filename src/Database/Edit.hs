@@ -50,6 +50,8 @@ module Database.Edit (
     EditReport (..),
     editExchanges,
     editActivities,
+    judgeActivities,
+    JudgedEdit,
     MissingRequest (..),
     supplyMissing,
     supplyEdits,
@@ -773,7 +775,34 @@ editActivities ::
     Stated ->
     NonEmpty (Text, [ExchangeEdit]) ->
     IO (Either WriteRefusal (NonEmpty EditReport, MutationOutcome))
-editActivities manager dbName origin stated requests
+editActivities manager dbName origin stated requests =
+    judgeActivities manager dbName requests >>= either (pure . Left) (commit . snd)
+  where
+    commit :: NonEmpty JudgedEdit -> IO (Either WriteRefusal (NonEmpty EditReport, MutationOutcome))
+    commit edits = do
+        outcome <- mutateUploadedDatabase manager dbName origin (fmap (Change stated . journalled) edits)
+        pure $ case outcome of
+            Left err -> Left (WriteFailed err)
+            Right done -> Right (fmap (reportOf done) edits, done)
+    -- The identity is recorded canonically even when the caller addressed the
+    -- activity by its bare UUID, so the journal keeps naming the same process
+    -- if that activity ever gains a second product.
+    journalled :: JudgedEdit -> JournalOp
+    journalled (JudgedEdit key edits priors edited) =
+        Edited (processRefText key) (zipWith3 (\edit n prior -> EditLine edit n (Prior prior)) edits (eaMatched edited) priors)
+
+{- | Judge an edit of several activities exactly as 'editActivities' does, and
+write nothing: what it would refuse, or the context it was judged in with
+each activity's edit judged. An assistant tool judges an edit this way before
+asking a person for its missing amounts, so nobody types a number for an edit
+refused anyway.
+-}
+judgeActivities ::
+    DatabaseManager ->
+    Text ->
+    NonEmpty (Text, [ExchangeEdit]) ->
+    IO (Either WriteRefusal (AuthorContext, NonEmpty JudgedEdit))
+judgeActivities manager dbName requests
     | Just empties <- NE.nonEmpty [target | (target, []) <- NE.toList requests] =
         -- Committing re-serializes the database and rebuilds its solver; an
         -- empty edit would pay all of that to change nothing.
@@ -785,7 +814,7 @@ editActivities manager dbName origin stated requests
                 | not (dcIsUploaded (ldConfig loaded)) -> pure (Left (NotWritable dbName))
                 | otherwise -> do
                     ctx <- authorContext manager (ldDatabase loaded)
-                    either (pure . Left) commit (addressEdits ctx requests >>= traverse (judged ctx))
+                    pure ((,) ctx <$> (addressEdits ctx requests >>= traverse (judged ctx)))
   where
     -- A batch names the activity each complaint is about; one edit alone
     -- reads as it always has.
@@ -801,18 +830,6 @@ editActivities manager dbName origin stated requests
                 (Left . Malformed . map (situate target))
                 (Right . JudgedEdit key edits (amountsBeforeEach ctx activity edits))
                 (applyExchangeEdits ctx edits activity)
-    commit :: NonEmpty JudgedEdit -> IO (Either WriteRefusal (NonEmpty EditReport, MutationOutcome))
-    commit edits = do
-        outcome <- mutateUploadedDatabase manager dbName origin (fmap (Change stated . journalled) edits)
-        pure $ case outcome of
-            Left err -> Left (WriteFailed err)
-            Right done -> Right (fmap (reportOf done) edits, done)
-    -- The identity is recorded canonically even when the caller addressed the
-    -- activity by its bare UUID, so the journal keeps naming the same process
-    -- if that activity ever gains a second product.
-    journalled :: JudgedEdit -> JournalOp
-    journalled (JudgedEdit key edits priors edited) =
-        Edited (processRefText key) (zipWith3 (\edit n prior -> EditLine edit n (Prior prior)) edits (eaMatched edited) priors)
 
 {- | Give a missing product a supplier: every input of the database that asks
 for this product, naming this supplier activity or none, and that nothing
@@ -910,7 +927,7 @@ reportOf done (JudgedEdit _ edits _ edited) =
     EditReport
         { erRemoved = [n | (RemoveExchange _, n) <- zip edits matched]
         , erAmountsSet = [n | (SetAmount _ _, n) <- zip edits matched]
-        , erAdded = length [() | AddExchange _ <- edits]
+        , erAdded = length [() | AddExchange _ _ <- edits]
         , erTextsSet = [textField text | SetText text <- edits]
         , erFormulasSet = [n | (SetFormula _ _, n) <- zip edits matched]
         , erPricesSet = [n | (SetProperty Price _ _, n) <- zip edits matched]

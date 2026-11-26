@@ -26,6 +26,7 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import Database.Author (
     ActivityText (..),
+    AmountFrom (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
     ExchangeEdit (..),
@@ -523,7 +524,28 @@ anything is the domain's to judge, and its complaints accumulate the same way,
 so a request is fixed in one round trip whichever layer refused it.
 -}
 toExchangeEdits :: ExchangeEditRequest -> Either [Text] [ExchangeEdit]
-toExchangeEdits req = case partitionEithers stated of
+toExchangeEdits = toExchangeEditsTyped (\_ _ -> FromCall)
+
+-- | The lines an edit adds, each by its list and its position there, in the order they apply.
+addedLines :: ExchangeEditRequest -> [((AddedList, Int), Either [Text] AuthoredExchange)]
+addedLines req =
+    placed AddInputs (Right . toTechInput) (eerAddInputs req)
+        <> placed AddBiosphere toBio (eerAddBiosphere req)
+        <> placed AddWasteOutputs (Right . toWasteOutput) (eerAddWasteOutputs req)
+  where
+    placed :: AddedList -> (line -> Either [Text] AuthoredExchange) -> [line] -> [((AddedList, Int), Either [Text] AuthoredExchange)]
+    placed list translate = zipWith (\i line -> ((list, i), translate line)) [0 ..]
+
+-- | A list of lines an edit adds, each line of which may leave its amount to the person.
+data AddedList = AddInputs | AddBiosphere | AddWasteOutputs
+    deriving (Eq, Ord, Show, Enum, Bounded)
+
+{- | 'toExchangeEdits', told who gave the amount of each added line, by its
+list and its position there. Only the assistant tool says anything but the
+call: it alone can have asked the person.
+-}
+toExchangeEditsTyped :: (AddedList -> Int -> AmountFrom) -> ExchangeEditRequest -> Either [Text] [ExchangeEdit]
+toExchangeEditsTyped amountFrom req = case partitionEithers stated of
     ([], edits) -> Right edits
     (errs, _) -> Left (concat errs)
   where
@@ -536,9 +558,7 @@ toExchangeEdits req = case partitionEithers stated of
             <> map (\sd -> toSetProperty DryMass (sdmProduct sd) (sdmDryMass sd)) (eerSetDryMasses req)
             <> map (\sw -> toSetProperty WetMass (swmProduct sw) (swmWetMass sw)) (eerSetWetMasses req)
             <> map toSetSupplier (eerSetSuppliers req)
-            <> map (Right . AddExchange . toTechInput) (eerAddInputs req)
-            <> map (fmap AddExchange . toBio) (eerAddBiosphere req)
-            <> map (Right . AddExchange . toWasteOutput) (eerAddWasteOutputs req)
+            <> [(`AddExchange` amountFrom list i) <$> line | ((list, i), line) <- addedLines req]
             <> map (Right . SetText) texts
             <> map (Right . RemoveParameter) (eerRemoveParameters req)
     texts =
@@ -558,11 +578,15 @@ toExchangeEdits req = case partitionEithers stated of
 one, every complaint naming the process it is about.
 -}
 toActivityEdits :: ActivitiesEditRequest -> Either [Text] (NonEmpty (Text, [ExchangeEdit]))
-toActivityEdits req = case partitionEithers (map translate (aqEdits req)) of
+toActivityEdits = toActivityEditsTyped (\_ _ _ -> FromCall)
+
+-- | 'toActivityEdits', told who gave each added line's amount, by the position of its edit in the request first.
+toActivityEditsTyped :: (Int -> AddedList -> Int -> AmountFrom) -> ActivitiesEditRequest -> Either [Text] (NonEmpty (Text, [ExchangeEdit]))
+toActivityEditsTyped amountFrom req = case partitionEithers (zipWith translate [0 ..] (aqEdits req)) of
     ([], edits) -> maybe (Left ["The request names no process: \"edits\" is empty."]) Right (NE.nonEmpty edits)
     (errs, _) -> Left (concat errs)
   where
-    translate edit = bimap (map ((aeProcessId edit <> ": ") <>)) (aeProcessId edit,) (toExchangeEdits (aeEdit edit))
+    translate n edit = bimap (map ((aeProcessId edit <> ": ") <>)) (aeProcessId edit,) (toExchangeEditsTyped (amountFrom n) (aeEdit edit))
 
 {- | A parameter states a value or a formula, never both: a calculated
 parameter's value is what its formula gives, and an uncertainty spreads a
