@@ -134,6 +134,24 @@ spec = do
             a <- post [] (request "skills/list" [])
             (a >>= at ["error", "code"]) `shouldBe` Just (Number (-32601))
 
+        it "are named by the instructions of server/discover, before the workflow line" $ do
+            a <- ask "server/discover" []
+            skills <- builtins
+            let text = [t | Just (String t) <- [a >>= at ["result", "instructions"]]]
+                before = [fst (T.breakOn "Workflow:" t) | t <- text]
+            length before `shouldBe` 1
+            [n | n <- map skillName skills, not (any (n `T.isInfixOf`) before)] `shouldBe` []
+
+        it "are not named by the instructions of an old-era client" $ do
+            a <- post [] (request "initialize" [])
+            let text = [t | Just (String t) <- [a >>= at ["result", "instructions"]]]
+            length text `shouldBe` 1
+            filter (\t -> "skills" `T.isInfixOf` t) text `shouldBe` []
+
+        it "each tell that a packaging or an ingredient is not the product asked" $ do
+            skills <- builtins
+            [skillName s | s <- skills, not ("A packaging, an ingredient or a by-product of the product is not the product" `T.isInfixOf` skillFile s)] `shouldBe` []
+
     describe "a skill's file" $ do
         it "writes its header as quoted strings, whatever the description holds" $
             fmap skillFile (skillFrom SkillSource{sourceName = "a-b", sourceDescription = "Says: \"#1\" \\ done", sourceText = "Body.\n"})
