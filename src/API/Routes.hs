@@ -72,6 +72,7 @@ import GHC.Generics
 import qualified GHC.Stats
 import qualified Groups
 import qualified Impact
+import Impact.Ranking (Ranked (..), RowCut (..), rankRows, rowCut)
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
 import Matrix (Inventory)
@@ -159,8 +160,8 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "compare" :> QueryParam "other_process_id" Text :> QueryParam "other_database" Text :> Get '[JSON] ActivityComparison
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "changes-present" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesPresence
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "apply-changes" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesApplied
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "cover_percent" Double :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "cover_percent" Double :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> "score" :> Capture "scoringSet" Text :> Capture "score" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> "score" :> Capture "scoringSet" Text :> Capture "score" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
                 :<|> "db" :> Capture "dbName" Text :> "flow" :> Capture "flowId" Text :> Get '[JSON] FlowDetail
@@ -427,9 +428,9 @@ mkCrossDBContrib ::
     UnitDB ->
     -- | total score (for share %)
     Double ->
-    ((Text, ProcessId), Double) ->
+    Ranked ((Text, ProcessId), Double) ->
     IO ActivityContribution
-mkCrossDBContrib dbManager rootDbName _flowDB unitDB score ((depDbName, pid), c) = do
+mkCrossDBContrib dbManager rootDbName _flowDB unitDB score Ranked{rkRow = ((depDbName, pid), c), rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} = do
     mLd <- DM.getDatabase dbManager depDbName
     pure $ case mLd of
         Just ld ->
@@ -448,6 +449,8 @@ mkCrossDBContrib dbManager rootDbName _flowDB unitDB score ((depDbName, pid), c)
                     , acLocation = maybe "" activityLocation mAct
                     , acContribution = c
                     , acSharePct = if score /= 0 then c / score * 100 else 0
+                    , acAbsoluteSharePct = absolute
+                    , acCumulativeSharePct = cumulative
                     }
         Nothing ->
             ActivityContribution
@@ -457,6 +460,8 @@ mkCrossDBContrib dbManager rootDbName _flowDB unitDB score ((depDbName, pid), c)
                 , acLocation = ""
                 , acContribution = c
                 , acSharePct = if score /= 0 then c / score * 100 else 0
+                , acAbsoluteSharePct = absolute
+                , acCumulativeSharePct = cumulative
                 }
 
 -- | Helper function to validate ProcessId and lookup activity
@@ -819,7 +824,7 @@ computeCategoryResult dbManager dbName collection db ls functionalUnit topFlows 
     case scoreE of
         Left err -> pure (Left err)
         Right score -> do
-            contribsE <- licencedTopFlows dbManager collection method tables ls score topFlows
+            contribsE <- licencedTopFlows dbManager collection method tables ls score (FirstRows topFlows)
             -- A miss carries an amount of the inventory: read from the part the
             -- licences let be detailed, and kept whole by a dependency keeping its amounts.
             inventoryWithheld <- Impact.withheldDatabases dbManager ReadInventory whole
@@ -872,16 +877,16 @@ licencedTopFlows ::
     MethodTables ->
     Impact.LicencedSolution ->
     Double ->
-    Int ->
+    RowCut ->
     IO (Either Text TopFlows)
-licencedTopFlows dbManager collection method tables ls score topFlows
-    | topFlows <= 0 = pure (Right (TopFlows [] []))
+licencedTopFlows dbManager collection method tables ls score cut
+    | FirstRows n <- cut, n <= 0 = pure (Right (TopFlows [] []))
     | otherwise = fmap toTop <$> Impact.licencedContributionsOf dbManager collection method tables ls
   where
     toTop :: Impact.LicencedContributions -> TopFlows
     toTop lc =
         TopFlows
-            { tfRows = topContributorRows (Explain.flowMatchKind tables) score topFlows (Impact.lcRows lc)
+            { tfRows = topContributorRows (Explain.flowMatchKind tables) score (Impact.lcWithheld lc) cut (Impact.lcRows lc)
             , tfWithheld = Service.withheldShares score (Impact.lcWithheld lc)
             }
 
@@ -891,27 +896,30 @@ warnUnknownInventoryFlows label mFlows =
     Impact.warnUnknownFlowIds label . Impact.unknownInventoryFlows mFlows
 
 {- | The rows one method publishes under a score: the biggest contributions
-first, cut to the number asked for.
+first, cut where asked. The withheld parts are the lines of the databases whose
+licence keeps their flows unlisted.
 
 The factor a row carries is the one the score applied to that flow. A
 regionalized method applies one per location, so the row carries the effective
 factor its contribution divided by its quantity – see
 'Method.Mapping.regionalizedContributionsCrossDB'.
 -}
-topContributorRows :: (UUID -> Maybe Text) -> Double -> Int -> [FlowContribution] -> [FlowContributionEntry]
-topContributorRows matchKind score topFlows rawContribs =
+topContributorRows :: (UUID -> Maybe Text) -> Double -> [Impact.PartScore] -> RowCut -> [FlowContribution] -> [FlowContributionEntry]
+topContributorRows matchKind score withheld cut rawContribs =
     [ FlowContributionEntry
         { fcoFlowName = bfName f
         , fcoContribution = c
         , fcoSharePct = if score /= 0 then c / score * 100 else 0
+        , fcoAbsoluteSharePct = absolute
+        , fcoCumulativeSharePct = cumulative
         , fcoFlowId = UUID.toText (bfId f)
         , fcoCategory = bfCompartmentName f
         , fcoCompartment = bfCompartmentSub f
         , fcoCfValue = cfVal
         , fcoMatchKind = matchKind (bfId f)
         }
-    | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <-
-        take topFlows (sortOn (negate . abs . fcContribution) rawContribs)
+    | Ranked{rkRow = FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c}, rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} <-
+        rankRows fcContribution (map Impact.psScore withheld) cut rawContribs
     ]
 
 {- | Batch fast path: scores via 'batchedScoresFor', then build LCIAResult
@@ -950,7 +958,7 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
                 Left err -> pure (Left (err <> " (pid=" <> T.pack (show actPid) <> ")"))
                 Right score -> do
                     tables <- DM.mapMethodToTablesCached dbManager dbName collectionName db method
-                    rowsE <- licencedTopFlows dbManager collectionName method tables ls score topFlows
+                    rowsE <- licencedTopFlows dbManager collectionName method tables ls score (FirstRows topFlows)
                     pure (fmap (mkResultForScore ctx method score) rowsE)
         mkResultForScore ctx method score TopFlows{tfRows = topContributors, tfWithheld = withheld} =
             enrichWithNW index $
@@ -1721,7 +1729,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 124: a calculation that sums a chain reaching inputs only a
+(revision 125: @cover_percent@ on the contributing-flows and
+contributing-activities routes, the rows cut once they cover more than that
+percentage of the sum of absolute contributions, and every row of a list of
+contributions with its @absoluteSharePct@ and @cumulativeSharePct@ of that sum;
+revision 124: a calculation that sums a chain reaching inputs only a
 database not loaded would supply refused with a 422 whose body starts with
 @chainRefusedPrefix@, and such processes of a batch in @refused@; the
 cut-offs a served answer lists are those its publisher or curator left;
@@ -2011,7 +2023,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 124
+currentWireVersion = 125
 
 getVersion :: AppM Value
 getVersion = do
@@ -3085,13 +3097,13 @@ getMethodCollectionComparison collection otherParam forcedPairs categoryParam li
     failed (CollectionMissing name loaded) = throwError err404{errBody = collectionNotLoadedBody name loaded}
     failed (PairsRefused r) = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 (CompareMethods.refusalMessage r))}
 
-getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
-getContributingFlows dbName processIdText collectionName methodIdText limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
+getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Double -> Maybe Bool -> AppM ContributingFlowsResult
+getContributingFlows dbName processIdText collectionName methodIdText limitParam coverParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
+    cut <- either badRequest pure (rowCut 20 limitParam coverParam)
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId activity method -> do
         dbManager <- asks aeDbManager
         let functionalUnit = Service.functionalUnitIn db activity
-            lim = fromMaybe 20 limitParam
             ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
         (mFlows, _) <- liftIO $ DM.getMergedFlowMetadata dbManager
         sol <-
@@ -3103,7 +3115,7 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
         liftIO $ warnUnknownInventoryFlows ("contributing-flows " <> methodName method) mFlows (SharedSolver.csInventory sol)
         score <- liftIO (Impact.scoreSolution dbManager collectionName method tables checkedSol) >>= either scoringError pure
         ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores checkedSol)
-        top <- liftIO (licencedTopFlows dbManager collectionName method tables ls score lim) >>= either scoringError pure
+        top <- liftIO (licencedTopFlows dbManager collectionName method tables ls score cut) >>= either scoringError pure
         basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
         return
             ContributingFlowsResult
@@ -3118,13 +3130,13 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
                 , cfrFunctionalUnit = functionalUnit
                 }
 
-getContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingActivitiesResult
-getContributingActivities dbName processIdText collectionName methodIdText limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
+getContributingActivities :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Double -> Maybe Bool -> AppM ContributingActivitiesResult
+getContributingActivities dbName processIdText collectionName methodIdText limitParam coverParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
+    cut <- either badRequest pure (rowCut 10 limitParam coverParam)
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId activity method -> do
         dbManager <- asks aeDbManager
         let functionalUnit = Service.functionalUnitIn db activity
-            lim = fromMaybe 10 limitParam
             ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
         sol <-
             solutionWithDeps dbName db sharedSolver actProcessId
@@ -3137,7 +3149,7 @@ getContributingActivities dbName processIdText collectionName methodIdText limit
                 >>= either scoringError pure
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
         basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
-        liftIO $ activitiesResult dbManager dbName Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs, hdBasis = basis, hdFunctionalUnit = functionalUnit} lim (Impact.splitProcessParts withheld contributions)
+        liftIO $ activitiesResult dbManager dbName Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs, hdBasis = basis, hdFunctionalUnit = functionalUnit} cut (Impact.splitProcessParts withheld contributions)
 
 -- | What a list of contributions answers for, as the answer names it.
 data Heading = Heading
@@ -3161,10 +3173,10 @@ activitiesResult ::
     -- | root DB name
     Text ->
     Heading ->
-    Int ->
+    RowCut ->
     Impact.ProcessParts ->
     IO ContributingActivitiesResult
-activitiesResult dbManager dbName heading lim Impact.ProcessParts{Impact.ppShown = contributions, Impact.ppWithheld = withheld} = do
+activitiesResult dbManager dbName heading cut Impact.ProcessParts{Impact.ppShown = contributions, Impact.ppWithheld = withheld} = do
     (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
     rows <- mapM (mkCrossDBContrib dbManager dbName mFlows mUnits score) top
     pure
@@ -3183,8 +3195,8 @@ activitiesResult dbManager dbName heading lim Impact.ProcessParts{Impact.ppShown
     score :: Double
     score = sum (M.elems contributions) + sum (map Impact.psScore withheld)
 
-    top :: [((Text, ProcessId), Double)]
-    top = take lim (sortOn (\(_, c) -> negate (abs c)) (M.toList contributions))
+    top :: [Ranked ((Text, ProcessId), Double)]
+    top = rankRows snd (map Impact.psScore withheld) cut (M.toList contributions)
 
 -- | Why a split between groups has no answer.
 data GroupFailure
@@ -3468,7 +3480,7 @@ groupFlowsOf dbManager root method request = runExceptT $ do
     tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) collectionName (grDatabase root) method)
     part <- partIn mFlows sol <$> partOf parts target
     score <- withExceptT GroupScoringFailed (ExceptT (Impact.scoreSolution dbManager collectionName method tables part))
-    top <- withExceptT GroupScoringFailed (ExceptT (licencedTopFlows dbManager collectionName method tables (Impact.partitionByLicence mFlows keeping part) score (fromMaybe 20 (gmqLimit request))))
+    top <- withExceptT GroupScoringFailed (ExceptT (licencedTopFlows dbManager collectionName method tables (Impact.partitionByLicence mFlows keeping part) score (FirstRows (fromMaybe 20 (gmqLimit request)))))
     pure
         ContributingFlowsResult
             { cfrMethod = methodName method
@@ -3715,7 +3727,7 @@ postGroupMembers dbName processIdText collectionName methodIdText mExcludeLT req
         GroupMembers{gmSolution = sol, gmParts = members} <- liftIO (groupMembersOf dbManager root method request) >>= either groupFailure pure
         basis <- liftIO (activityBasis dbManager collectionName (checkedSolution sol) Nothing)
         let heading = Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = checkedCutoffs sol, hdBasis = basis, hdFunctionalUnit = grFunctionalUnit root}
-        liftIO (activitiesResult dbManager dbName heading (fromMaybe 10 (gmqLimit request)) members)
+        liftIO (activitiesResult dbManager dbName heading (FirstRows (fromMaybe 10 (gmqLimit request))) members)
 
 postGroupFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Bool -> GroupMembersRequest -> AppM ContributingFlowsResult
 postGroupFlows dbName processIdText collectionName methodIdText mExcludeLT request = counted Contributing dbName (ProcessKey processIdText) $ do
@@ -3814,7 +3826,7 @@ getScoreContributingActivities dbName processIdText collectionName setName score
                 withheld <- Impact.withheldDatabases dbManager SeeDetailedScores (checkedSolution sol)
                 fmap (Impact.splitProcessParts withheld) <$> Score.activityParts src score sol
             )
-    liftIO $ activitiesResult dbManager dbName heading (fromMaybe 10 limitParam) parts
+    liftIO $ activitiesResult dbManager dbName heading (FirstRows (fromMaybe 10 limitParam)) parts
 
 getScoreContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Text -> Maybe Int -> Maybe Bool -> AppM ContributingFlowsResult
 getScoreContributingFlows dbName processIdText collectionName setName scoreName limitParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
@@ -3834,7 +3846,7 @@ getScoreContributingFlows dbName processIdText collectionName setName scoreName 
             { cfrMethod = hdName heading
             , cfrUnit = hdUnit heading
             , cfrTotalScore = total
-            , cfrTopFlows = topContributorRows (const Nothing) total (fromMaybe 20 limitParam) rows
+            , cfrTopFlows = topContributorRows (const Nothing) total withheld (FirstRows (fromMaybe 20 limitParam)) rows
             , cfrWithheldDatabases = Service.withheldShares total withheld
             , cfrCutoffInputs = cutoffShown (hdCutoffs heading)
             , cfrWithheldCutoffs = cutoffWithheld (hdCutoffs heading)

@@ -861,11 +861,13 @@ description r = case r of
         \category: 'which emissions drive my climate change score?'. Flow \
         \'match_kind': how its factor was found (rungs on explain_cf), null if \
         \none reaches it. 'basis' as on score_activity."
+            <> coverTip
             <> webUrlTip
     GetContributingActivities ->
         "LCA / ACV: upstream processes weighing most in one impact category: \
         \'which suppliers drive my climate change score?'. Exact matrix \
         \computation, valid for cyclic chains. 'basis' as on score_activity."
+            <> coverTip
             <> webUrlTip
     GetGroupContributions ->
         "LCA / ACV: how much transport, electricity, fertilisers… weigh in a \
@@ -1374,6 +1376,25 @@ pGroups =
 pLimit :: Text -> Param
 pLimit = Param "limit" "integer" Optional
 
+-- | Where a list of contributions stops, by the share of the absolute sum its rows cover.
+pCoverPercent :: Param
+pCoverPercent =
+    Param
+        "cover_percent"
+        "number"
+        Optional
+        "Return the rows, largest first, until they cover more than this percentage (0 to 100) of the sum of absolute contributions, the row crossing it included. 80 lists the most relevant ones under the PEF rule."
+
+{- | What every row of a list of contributions carries beside its signed part:
+the shares of the absolute sum the PEF rule reads.
+-}
+coverTip :: Text
+coverTip =
+    " Each row: 'contribution_percent' signed; 'absolute_percent' and \
+    \'cumulative_percent' on the sum of absolute contributions, the \
+    \withheld databases' lines included (a line summing burdens and credits \
+    \weighs less than they do)."
+
 {- | Optional what-if substitutions. When non-empty, upgrades the underlying
 request to the substitution-aware POST pipeline. Each entry is an object
 with 'from', 'to', 'consumer' fields (bare 'actUUID_productUUID' or
@@ -1640,7 +1661,8 @@ params r = case r of
         , pProcessId
         , Param "method_id" "string" Required "UUID of the impact category"
         , pCollection
-        , pLimit "Max flows to return, sorted by contribution (default 20)"
+        , pLimit "Max flows to return, largest contribution first in absolute value (default 20; the cap of cover_percent, 100 when omitted)"
+        , pCoverPercent
         , pExcludeLongTerm
         , Param "include_diagnostics" "boolean" Optional "True: uncharacterized flows above 0.1% of total |amount|, each with up to 3 similar candidate CFs (PubChem-expanded Jaccard + CAS)."
         ]
@@ -1649,7 +1671,8 @@ params r = case r of
         , pProcessId
         , Param "method_id" "string" Required "UUID of the impact category"
         , pCollection
-        , pLimit "Max processes to return, sorted by contribution (default 10)"
+        , pLimit "Max processes to return, largest contribution first in absolute value (default 10; the cap of cover_percent, 100 when omitted)"
+        , pCoverPercent
         , pExcludeLongTerm
         ]
     GetGroupContributions ->

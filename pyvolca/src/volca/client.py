@@ -3729,16 +3729,20 @@ class Client:
         *,
         collection: str | None = None,
         limit: int | None = None,
+        cover_percent: float | None = None,
     ) -> ContributingFlows:
         """Which elementary flows drive a given impact category.
 
-        Returns a :class:`ContributingFlows`. Caveat: the engine does not
-        report the total flow count, so pyvolca cannot derive ``has_more``
-        from the response. Pass a generous ``limit`` if you need exhaustive
-        coverage and inspect ``share_pct`` totals. ``method_id`` takes a method
-        name as well as a UUID, and ``collection`` is read off the resolved
-        method unless you pin it.
+        Returns a :class:`ContributingFlows`, largest contribution first in
+        absolute value. ``cover_percent`` (0 to 100) returns the flows until
+        their ``cumulative_share_pct`` passes it, ``limit`` capping them (100
+        when omitted): 80 lists the most relevant flows under the PEF rule.
+        ``method_id`` takes a method name as well as a UUID, and
+        ``collection`` is read off the resolved method unless you pin it.
         """
+        if cover_percent is not None:
+            # An older engine ignores the parameter and answers the first rows.
+            self._require_wire(125, "get_contributing_flows(cover_percent=...)", engine_hint="0.19.1")
         collection, method_id = self._resolve_method(method_id, collection)
         return ContributingFlows.from_json(
             self._call(
@@ -3747,6 +3751,7 @@ class Client:
                 collection=collection,
                 method_id=method_id,
                 limit=limit,
+                cover_percent=cover_percent,
             )
         )
 
@@ -3757,15 +3762,19 @@ class Client:
         *,
         collection: str | None = None,
         limit: int | None = None,
+        cover_percent: float | None = None,
     ) -> ContributingActivities:
         """Which upstream activities drive a given impact category.
 
-        Same engine-side limitation as :meth:`get_contributing_flows`: no
-        total exposed, so ``has_more`` cannot be derived. Inspect
-        ``share_pct`` totals to gauge coverage. ``method_id`` takes a method
-        name as well as a UUID, and ``collection`` is read off the resolved
-        method unless you pin it.
+        The rows and ``cover_percent`` read as on
+        :meth:`get_contributing_flows`: 80 lists the most relevant processes
+        under the PEF rule. ``method_id`` takes a method name as well as a
+        UUID, and ``collection`` is read off the resolved method unless you
+        pin it.
         """
+        if cover_percent is not None:
+            # An older engine ignores the parameter and answers the first rows.
+            self._require_wire(125, "get_contributing_activities(cover_percent=...)", engine_hint="0.19.1")
         collection, method_id = self._resolve_method(method_id, collection)
         return ContributingActivities.from_json(self._call(
             "get_contributing_activities",
@@ -3773,6 +3782,7 @@ class Client:
             collection=collection,
             method_id=method_id,
             limit=limit,
+            cover_percent=cover_percent,
         ))
 
     def get_score_contributing_flows(
