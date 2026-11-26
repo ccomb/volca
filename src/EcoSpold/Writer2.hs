@@ -442,22 +442,10 @@ formula is a bare number is written with its name alone, as the reader reads
 such a line back.
 -}
 lineFormula :: ProcessExport -> Int -> Exchange -> LineFormula
-lineFormula pe i ex = LineFormula{lfName = name, lfRelation = if isJust name && stated then Nothing else IM.lookup i (peLines pe)}
+lineFormula pe i ex = LineFormula{lfName = name, lfRelation = if isJust name && formulaIsNumber ex then Nothing else IM.lookup i (peLines pe)}
   where
     name :: Maybe Text
     name = IM.lookup i (peLineNames pe)
-
-    stated :: Bool
-    stated = case Expr.readFormula Expr.Volca . efText <$> exchangeFormula ex of
-        Just (Right formula) -> case formula of
-            Expr.Literal _ -> True
-            Expr.Name _ -> False
-            Expr.Unary{} -> False
-            Expr.Binary{} -> False
-            Expr.Variadic{} -> False
-            Expr.If{} -> False
-        Just (Left _) -> False
-        Nothing -> False
 
 -- | The @variableName@, @mathematicalRelation@ and @isCalculatedAmount@ attributes of a line.
 formulaAttrs :: LineFormula -> Text

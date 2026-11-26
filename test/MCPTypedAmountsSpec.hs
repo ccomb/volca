@@ -1,26 +1,28 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | An added line whose amount the assistant does not know: the person types
-it in a form when the client shows forms, and the history says so.
+{- | A line whose amount the assistant does not know, added, created or set:
+the person types it in a form when the client shows forms, and the history
+says so.
 -}
 module MCPTypedAmountsSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Control.Monad (void)
-import Data.Aeson (Key, Value (..), object, (.=))
+import Data.Aeson (Key, Value (..), decodeStrict, object, (.=))
 import qualified Data.Aeson.KeyMap as KM
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Servant (runHandler)
 import Test.Hspec
 
 import API.DatabaseHandlers (databaseHistoryHandler)
-import API.MCP (AmountsOutcome (..), CallShape (..), Missing (..), Place (..), Refusal (..), amountsStep, callTool, fillAmounts, missingAmounts, noRequestId)
-import API.Types (AddedList (..), DatabaseHistoryEntry (..))
+import API.MCP (AmountsOutcome (..), CallShape (..), LineRole (..), Missing (..), Place (..), Refusal (..), amountsStep, callTool, fillAmounts, missingAmounts, noRequestId)
+import API.Types (AddedList (..), AmountList (..), DatabaseHistoryEntry (..))
 import ActivityWriteHandlerSpec (buildFixture, cheese, create, keyOf, supplierPid, uploadedConfig, withDb, withWritableDb)
 import App.Env (AppEnv (..), runApp)
 import Config (DatabaseConfig (..))
@@ -63,6 +65,14 @@ withDependent :: AppEnv -> IO ()
 withDependent env =
     atomically $ modifyTVar' (dmLoadedDbs (aeDbManager env)) $ \dbs ->
         maybe dbs (\ld -> M.insert "child" ld{ldDatabase = (ldDatabase ld){dbDependsOn = ["authored"]}} dbs) (M.lookup "authored" dbs)
+
+-- | Setting the amount of the cheese's milk, with or without the new amount.
+setMilk :: [(Key, Value)] -> [(Key, Value)]
+setMilk amount = [("process_id", String (keyOf cheese)), ("set_amounts", toArray [object (("select" .= milkLine) : amount)])]
+
+-- | The cheese's input of milk, as a selector names it.
+milkLine :: Value
+milkLine = object ["kind" .= ("input" :: Text), "provider" .= supplierPid]
 
 toArray :: [Value] -> Value
 toArray = Array . foldMap pure
@@ -122,7 +132,7 @@ spec = do
         it "takes a null amount as one left out" $
             withCheese $ \env -> do
                 r <- call env InChat "edit_exchanges" (addMilk ["amount" .= Null])
-                textOf r `shouldSatisfy` T.isInfixOf "These lines have no amount"
+                textOf r `shouldSatisfy` T.isInfixOf "The call gives no amount for these lines"
 
         it "asks a client that shows forms for the amount, one number field per line" $
             withCheese $ \env -> do
@@ -339,25 +349,102 @@ spec = do
                 isError r `shouldBe` True
                 textOf r `shouldSatisfy` T.isInfixOf "product_amount"
 
+    describe "a line whose new amount the call leaves out" $ do
+        it "is refused to a client that shows no form, naming the line and what it holds now, with nothing written" $
+            withCheese $ \env -> do
+                before <- details env
+                r <- call env InChat "edit_exchanges" (setMilk [])
+                isError r `shouldBe` True
+                textOf r `shouldSatisfy` T.isInfixOf "milk production (FR), kg, in cheese, at dairy (FR), now 8.0"
+                details env `shouldReturn` before
+
+        it "asks a client that shows forms, then sets the typed amount, marked" $
+            withCheese $ \env -> do
+                r <- call env showsForms "edit_exchanges" (setMilk [])
+                let form = at ["inputRequests", "amounts", "params"] (result r)
+                (form >>= at ["requestedSchema", "properties", "set_amounts-0", "title"]) `shouldBe` Just (String "milk production (FR), kg")
+                (form >>= at ["requestedSchema", "properties", "set_amounts-0", "description"]) `shouldBe` Just (String "In cheese, at dairy (FR), now 8.0")
+                case form >>= at ["message"] of
+                    Just (String m) -> m `shouldSatisfy` T.isInfixOf "The assistant is changing cheese, at dairy (FR)"
+                    other -> expectationFailure ("no message: " <> show other)
+                done <- call env (typed "accept" [("set_amounts-0", Number 1.05)]) "edit_exchanges" (setMilk [])
+                isError done `shouldBe` False
+                textOf done `shouldSatisfy` T.isInfixOf "milk production (FR), kg, in cheese, at dairy (FR): 1.05"
+                lines' <- details env
+                filter (T.isInfixOf "typed by the user") lines' `shouldBe` ["Input from \"milk production\" (FR): amount from 8.0 set to 1.05 (typed by the user)"]
+
+        it "is asked in the same form as an added line of the same call" $
+            withCheese $ \env -> do
+                let both = setMilk [] <> [("add_inputs", toArray [object ["provider" .= supplierPid]])]
+                r <- call env showsForms "edit_exchanges" both
+                let props = at ["inputRequests", "amounts", "params", "requestedSchema", "properties"] (result r)
+                fmap KM.keys (props >>= asObject) `shouldBe` Just ["add_inputs-0", "set_amounts-0"]
+                (props >>= at ["add_inputs-0", "description"]) `shouldBe` Just (String "Added to cheese, at dairy (FR)")
+
+        it "names every line a selector chooses, with what each holds now, and sets them all" $
+            withCheese $ \env -> do
+                more <- call env InChat "edit_exchanges" (addMilk ["amount" .= (2 :: Int)])
+                isError more `shouldBe` False
+                r <- call env showsForms "edit_exchanges" (setMilk [])
+                at ["inputRequests", "amounts", "params", "requestedSchema", "properties", "set_amounts-0", "description"] (result r)
+                    `shouldBe` Just (String "In cheese, at dairy (FR), 2 lines, now 8.0 and 2.0")
+                done <- call env (typed "accept" [("set_amounts-0", Number 3)]) "edit_exchanges" (setMilk [])
+                isError done `shouldBe` False
+                lines' <- details env
+                filter (T.isInfixOf "typed by the user") lines' `shouldBe` ["Input from \"milk production\" (FR): amount from 8.0, 2.0 set to 3.0 (typed by the user)"]
+
+        it "names the process of each edit of edit_activities" $
+            withCheese $ \env -> do
+                made <- call env InChat "create_activities" (createYogurt ["amount" .= (2 :: Int)])
+                yogurt <- case at ["written"] =<< decodeStrict (TE.encodeUtf8 (textOf made)) of
+                    Just (Array pids) | [String pid] <- foldr (:) [] pids -> pure pid
+                    other -> fail ("no process written: " <> show other)
+                let edits = [("edits", toArray [object [("process_id", String yogurt), ("set_description", toArray [String "Set first."])], object (setMilk [])])]
+                r <- call env showsForms "edit_activities" edits
+                at ["inputRequests", "amounts", "params", "requestedSchema", "properties", "1-set_amounts-0", "description"] (result r)
+                    `shouldBe` Just (String "In cheese, at dairy (FR), now 8.0")
+
+        it "refuses before any form a selector that chooses no line" $
+            withCheese $ \env -> do
+                let nowhere = [("process_id", String (keyOf cheese)), ("set_amounts", toArray [object ["select" .= object ["kind" .= ("input" :: Text), "provider" .= keyOf cheese]]])]
+                r <- call env showsForms "edit_exchanges" nowhere
+                isError r `shouldBe` True
+                at ["inputRequests"] (result r) `shouldBe` Nothing
+
+        it "marks nothing typed when the call gives the amount" $
+            withCheese $ \env -> do
+                r <- call env InChat "edit_exchanges" (setMilk ["amount" .= (3 :: Int)])
+                isError r `shouldBe` False
+                lines' <- details env
+                filter (T.isInfixOf "typed by the user") lines' `shouldBe` []
+
     describe "the amounts left out of a call" $ do
         let args = KM.fromList [("add_inputs", toArray [object ["provider" .= ("a" :: Text)], object ["provider" .= ("b" :: Text), "amount" .= (1 :: Int)]]), ("add_biosphere", toArray [object ["amount" .= Null]])]
         it "are the lines with no amount or a null one" $
-            missingAmounts OneEdit args `shouldBe` [Place Nothing AddInputs 0, Place Nothing AddBiosphere 0]
+            missingAmounts OneEdit args `shouldBe` [Place Nothing (Added AddInputs) 0, Place Nothing (Added AddBiosphere) 0]
 
         it "are filled where they were left out, and nowhere else" $ do
-            let filled = fillAmounts OneEdit (M.fromList [(Place Nothing AddInputs 0, 5)]) args
-            missingAmounts OneEdit filled `shouldBe` [Place Nothing AddBiosphere 0]
+            let filled = fillAmounts OneEdit (M.fromList [(Place Nothing (Added AddInputs) 0, 5)]) args
+            missingAmounts OneEdit filled `shouldBe` [Place Nothing (Added AddBiosphere) 0]
+
+        it "are read and filled among the amounts an edit sets" $ do
+            let setting = KM.fromList [("set_amounts", toArray [object ["select" .= milkLine], object ["select" .= milkLine, "amount" .= (1 :: Int)]])]
+            missingAmounts OneEdit setting `shouldBe` [Place Nothing SetAmounts 0]
+            missingAmounts OneEdit (fillAmounts OneEdit (M.fromList [(Place Nothing SetAmounts 0, 2)]) setting) `shouldBe` []
+
+        it "are never looked for among amounts set in a new process" $
+            missingAmounts NewProcesses (KM.fromList [("activities", toArray [object ["set_amounts" .= toArray [object ["select" .= milkLine]]]])]) `shouldBe` []
 
         it "are read and filled in the lists a new process states" $ do
             let created = KM.fromList [("activities", toArray [newProcess "yogurt" [], newProcess "kefir" ["amount" .= (1 :: Int)]])]
-            missingAmounts NewProcesses created `shouldBe` [Place (Just 0) AddInputs 0]
-            missingAmounts NewProcesses (fillAmounts NewProcesses (M.fromList [(Place (Just 0) AddInputs 0, 3)]) created) `shouldBe` []
+            missingAmounts NewProcesses created `shouldBe` [Place (Just 0) (Added AddInputs) 0]
+            missingAmounts NewProcesses (fillAmounts NewProcesses (M.fromList [(Place (Just 0) (Added AddInputs) 0, 3)]) created) `shouldBe` []
 
     describe "amountsStep" $ do
-        let one = Missing{missingPlace = Place Nothing AddInputs 0, missingProcess = "cheese (FR)", missingLine = "milk (FR), kg"}
+        let one = Missing{missingPlace = Place Nothing (Added AddInputs) 0, missingProcess = "cheese (FR)", missingLine = "milk (FR), kg", missingRole = AddedTo}
         it "asks in the conversation a client that shows no form" $
             amountsStep InChat (one :| []) `shouldBe` AmountsInChat (one :| [])
         it "takes the typed numbers" $
-            amountsStep (typed "accept" [("add_inputs-0", Number 2)]) (one :| []) `shouldBe` Typed (M.fromList [(Place Nothing AddInputs 0, 2)])
+            amountsStep (typed "accept" [("add_inputs-0", Number 2)]) (one :| []) `shouldBe` Typed (M.fromList [(Place Nothing (Added AddInputs) 0, 2)])
         it "stops when the person declines" $
             amountsStep (typed "decline" []) (one :| []) `shouldBe` AmountsRefused SaidNo

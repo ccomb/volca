@@ -149,7 +149,7 @@ describeOp namer = \case
 
 describeEdit :: Namer -> EditLine -> Text
 describeEdit namer (EditLine edit _ before) = case edit of
-    SetAmount selector amount -> selected selector <> ": amount " <> fromPrior before <> "set to " <> number amount
+    SetAmount selector amount from -> selected selector <> ": amount " <> fromPrior before <> "set to " <> number amount <> typedBy from
     RemoveExchange selector -> selected selector <> ": removed" <> wasPrior before
     SetFormula selector (Just formula) -> selected selector <> ": formula set to " <> formula
     SetFormula selector Nothing -> selected selector <> ": formula removed"

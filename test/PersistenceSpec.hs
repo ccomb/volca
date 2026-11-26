@@ -41,7 +41,7 @@ import Test.Hspec
 
 import Config (DatabaseConfig (..), defaultConfig)
 import Database (buildDatabaseWithMatrices)
-import Database.Author (ExchangeEdit (..), ExchangeSelector (..))
+import Database.Author (AmountFrom (..), ExchangeEdit (..), ExchangeSelector (..))
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
@@ -362,7 +362,7 @@ spec = describe "persisting an edit" $ do
                 keys <- processKeysOf manager "bafu-like"
                 co2 <- co2Of manager
                 before <- emissionsBy manager "bafu-like"
-                let missing = SetAmount (SelectBiosphere (mkUUID 999)) 5
+                let missing = SetAmount (SelectBiosphere (mkUUID 999)) 5 FromCall
                     requests = case setCo2 co2 keys of
                         first' :| (second' : rest) -> first' :| ((fst second', [missing]) : rest)
                         whole -> whole
@@ -376,7 +376,7 @@ spec = describe "persisting an edit" $ do
                 keys <- processKeysOf manager "bafu-like"
                 co2 <- co2Of manager
                 let twice = head' keys
-                outcome <- editActivities manager "bafu-like" noOrigin nothingStated ((twice, [SetAmount (SelectBiosphere co2) 1]) :| [(twice, [SetAmount (SelectBiosphere co2) 2])])
+                outcome <- editActivities manager "bafu-like" noOrigin nothingStated ((twice, [SetAmount (SelectBiosphere co2) 1 FromCall]) :| [(twice, [SetAmount (SelectBiosphere co2) 2 FromCall])])
                 void (first refusalMessage outcome) `shouldSatisfy` failsWith "more than once"
                 readJournal home `shouldReturn` Right []
 
@@ -707,7 +707,7 @@ co2Of manager = do
 
 -- | Set the emission of each process to its rank: 1, 2, 3.
 setCo2 :: UUID -> [Text] -> NonEmpty (Text, [ExchangeEdit])
-setCo2 co2 keys = case zipWith (\key amount -> (key, [SetAmount (SelectBiosphere co2) amount])) keys [1 ..] of
+setCo2 co2 keys = case zipWith (\key amount -> (key, [SetAmount (SelectBiosphere co2) amount FromCall])) keys [1 ..] of
     request : rest -> request :| rest
     [] -> ("the fixture has no processes", []) :| []
 

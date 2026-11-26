@@ -42,7 +42,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Database (buildDatabaseWithMatrices)
 import Database.Allocation (Allocating (..), allocate)
-import Database.Author (AuthorContext (..), EditedActivity (..), ExchangeEdit (..), ExchangeSelector (..), RestatedLine (..), applyExchangeEdits)
+import Database.Author (AmountFrom (..), AuthorContext (..), EditedActivity (..), ExchangeEdit (..), ExchangeSelector (..), RestatedLine (..), applyExchangeEdits)
 import Database.CrossLinking (LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold, emptyAliasMap)
 import Database.Cutoffs (gapIndexOf)
 import Database.Journal (EditLine (..), JournalOp (..), ParameterLine (..), Prior (..), applyOp)
@@ -107,7 +107,7 @@ spec = describe "a database at other values of its parameters" $ do
         act <- maybe (fail "no bread") pure (getActivity bakery bread)
         let selectorAt i = ewuSelector (pfaExchanges (convertActivityForAPI bakery bread act) !! i)
         french <- maybe (fail "no selector on the French electricity") (either (fail . show) pure . toSelector) (selectorAt 2)
-        case applyExchangeEdits AuthorContext{acDb = bakery, acDeps = [grid], acUnitConfig = bakeryUnits} [SetAmount french 7] act of
+        case applyExchangeEdits AuthorContext{acDb = bakery, acDeps = [grid], acUnitConfig = bakeryUnits} [SetAmount french 7 FromCall] act of
             Left errs -> expectationFailure (show errs)
             Right edited -> (eaMatched edited, map exchangeAmount (take 2 (drop 2 (exchanges (eaActivity edited))))) `shouldBe` ([1], [7, exchangeAmount (exchanges act !! 3)])
 
@@ -390,7 +390,7 @@ spec = describe "a database at other values of its parameters" $ do
             (efName =<< exchangeFormula (exchanges after !! 1)) `shouldBe` Just "flour_kg"
 
         it "moves the formulas reading a named line set to another amount" $
-            amountsAfter [SetAmount flourLine 3] `shouldReturn` [1, 3, 1.5]
+            amountsAfter [SetAmount flourLine 3 FromCall] `shouldReturn` [1, 3, 1.5]
 
         it "keeps the amount of a line whose formula is dropped" $
             amountsAfter [SetFormula flourLine Nothing] `shouldReturn` [1, 1.25, 0.625]

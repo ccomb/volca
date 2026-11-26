@@ -37,7 +37,7 @@ history =
     describeJournal
         (namerFor Nothing)
         [ Entry "2026-10-01" Nothing Nothing (Change nothingStated (Created [bread] ["a_b"]))
-        , Entry "2026-10-02" (Just (Author "acc-1" "ana")) Nothing (Change (Stated (noteFrom "Measured on site") Nothing) (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3) 1 (Prior [1.2]), EditLine (RemoveExchange (SelectInput "c_d")) 1 PriorUnknown, EditLine (SetProperty Price flowId (Just (StatedAmount "EUR2005" 0.42))) 1 (Prior []), EditLine (SetProperty Price flowId Nothing) 1 (Prior [])]))
+        , Entry "2026-10-02" (Just (Author "acc-1" "ana")) Nothing (Change (Stated (noteFrom "Measured on site") Nothing) (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3 FromCall) 1 (Prior [1.2]), EditLine (RemoveExchange (SelectInput "c_d")) 1 PriorUnknown, EditLine (SetProperty Price flowId (Just (StatedAmount "EUR2005" 0.42))) 1 (Prior []), EditLine (SetProperty Price flowId Nothing) 1 (Prior [])]))
         , Entry "2026-10-03" Nothing Nothing (Change nothingStated (ParametersEdited [ParameterLine "distance" (Just (value 90)) (Prior (Just (value 120))), ParameterLine "new" (Just (value 1)) (Prior Nothing)]))
         , Entry "2026-10-04" Nothing Nothing (Change nothingStated (Deleted ["a_b"]))
         ]
@@ -68,6 +68,10 @@ spec = describe "Database.History" $ do
                        , ("Changed 2 database parameters", ["distance changed from 120.0 km to 90.0 km", "new added: 1.0 km"])
                        , ("Deleted 1 process", ["\"a_b\""])
                        ]
+
+    it "marks an amount set that the person typed" $
+        map hlDetails (describeJournal (namerFor Nothing) [Entry "t" Nothing Nothing (Change nothingStated (Edited "a_b" [EditLine (SetAmount (SelectBiosphere flowId) 3 TypedByPerson) 1 (Prior [1.2])]))])
+            `shouldBe` [["Flow " <> UUID.toText flowId <> ": amount from 1.2 set to 3.0 (typed by the user)"]]
 
     it "lists the lines of a created process whose amount the person typed, and only those" $ do
         let flour = AuthoredLine (AuthoredTechInput "c_d" 0.42 Nothing Nothing) TypedByPerson

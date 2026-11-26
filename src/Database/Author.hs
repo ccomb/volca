@@ -68,6 +68,8 @@ module Database.Author (
     retextsAuthoredIdentity,
     describeSelector,
     nameAdded,
+    ChosenLines (..),
+    nameChosen,
     isUsableAmount,
     lineSelector,
     inputSelector,
@@ -85,7 +87,7 @@ import Data.Either (partitionEithers)
 import Data.Indexing (repeated)
 import Data.List (nub)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isNothing, listToMaybe, mapMaybe, maybeToList)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -130,6 +132,7 @@ import Types (
     exchangeProperties,
     exchanges,
     findProcessIdByActivityUUID,
+    formulaIsNumber,
     getUnitForExchange,
     getUnitNameForExchange,
     isPlaceholderUnit,
@@ -451,20 +454,90 @@ nameAdded ctx = \case
     AuthoredTechInput{atiProvider = provider, atiUnit = unit} -> supplied provider unit
     AuthoredWasteOutput{awProvider = provider, awUnit = unit} -> supplied provider unit
     AuthoredBio{abFlow = FlowById flowId, abUnit = unit} -> case findBioFlow ctx flowId of
-        Just (flow, units, _) -> labelled (bfName flow <> maybe "" (\c -> " (" <> renderCompartment c <> ")") (bfCompartment flow)) (fromMaybe (unitNameOf units (bfUnitId flow)) unit)
+        Just (flow, units, _) -> labelled (bioFlowName flow) (fromMaybe (unitNameOf units (bfUnitId flow)) unit)
         Nothing -> UUID.toText flowId
     AuthoredBio{abFlow = FlowByName name compartment unit} -> labelled (name <> " (" <> renderCompartment compartment <> ")") unit
   where
-    dbs :: [Database]
-    dbs = acDb ctx : acDeps ctx
     supplied :: Text -> Maybe Text -> Text
-    supplied provider unit = case listToMaybe [(db, act) | db <- dbs, Just pid <- [resolveProcess db provider], Just act <- [dbActivities db V.!? fromIntegral pid]] of
-        Just (_, act) -> labelled (activityName act <> " (" <> activityLocation act <> ")") (fromMaybe (either (const "") defaultUnit (resolveSupplier ctx provider)) unit)
+    supplied provider unit = case supplierNamed ctx provider of
+        Just named -> labelled named (fromMaybe (either (const "") defaultUnit (resolveSupplier ctx provider)) unit)
         Nothing -> provider
-    labelled :: Text -> Text -> Text
-    labelled what unit
-        | T.null unit = what
-        | otherwise = what <> ", " <> unit
+
+-- | The lines a selector chooses in a process, as a person reads them before typing their new amount.
+data ChosenLines = ChosenLines
+    { clLabel :: Text
+    -- ^ the supplier's process or the flow, then the unit or units the lines are stated in
+    , clAmounts :: [Double]
+    -- ^ what each line holds now
+    , clFromFormula :: Bool
+    -- ^ a formula computes one of them, and a typed amount replaces it
+    }
+    deriving (Eq, Show)
+
+{- | The lines of a process a selector chooses, named from the lines
+themselves, or nothing when it chooses none, which judging the edit refuses.
+One amount set restates every line chosen, so the label lists each unit.
+-}
+nameChosen :: AuthorContext -> Activity -> ExchangeSelector -> Maybe ChosenLines
+nameChosen ctx act sel = do
+    isSelected <- either (const Nothing) Just (selectorPredicate sel)
+    case filter isSelected (exchanges act) of
+        [] -> Nothing
+        chosen ->
+            Just
+                ChosenLines
+                    { clLabel = labelled what (T.intercalate ", " (nub (map unitOf chosen)))
+                    , clAmounts = map exchangeAmount chosen
+                    , clFromFormula = any (\ex -> isJust (exchangeFormula ex) && not (formulaIsNumber ex)) chosen
+                    }
+  where
+    what :: Text
+    what = case sel of
+        SelectInput provider -> fromMaybe provider (supplierNamed ctx provider)
+        SelectWaste provider -> fromMaybe provider (supplierNamed ctx provider)
+        SelectBiosphere flowId -> flowNamed flowId
+        SelectUnlinkedInput flowId location -> flowNamed flowId <> maybe "" locatedAt location
+        SelectUnlinkedWaste flowId location -> flowNamed flowId <> maybe "" locatedAt location
+    flowNamed :: UUID -> Text
+    flowNamed flowId =
+        fromMaybe (UUID.toText flowId) $
+            listToMaybe $
+                concat
+                    [ maybeToList (bioFlowName <$> M.lookup flowId (dbBioFlows db))
+                        <> maybeToList (tfName <$> M.lookup flowId (dbTechFlows db))
+                        <> maybeToList (wfName <$> M.lookup flowId (dbWasteFlows db))
+                    | db <- contextDbs ctx
+                    ]
+    -- Two lines of one flow differ only by where they are bought or sent.
+    locatedAt :: ExchangeLocation -> Text
+    locatedAt = \case
+        LocationNone -> " (no location)"
+        stated -> " (" <> locationCode stated <> ")"
+    unitOf :: Exchange -> Text
+    unitOf ex = fromMaybe "" (listToMaybe [unitName u | db <- contextDbs ctx, Just u <- [getUnitForExchange (dbUnits db) ex]])
+
+-- | The edited database first, then its dependencies: where a name or a unit is looked for.
+contextDbs :: AuthorContext -> [Database]
+contextDbs ctx = acDb ctx : acDeps ctx
+
+-- | A supplier's process as a person reads it, its name and its location, if any database of the context holds it.
+supplierNamed :: AuthorContext -> Text -> Maybe Text
+supplierNamed ctx provider =
+    listToMaybe
+        [ activityName act <> " (" <> activityLocation act <> ")"
+        | db <- contextDbs ctx
+        , Just pid <- [resolveProcess db provider]
+        , Just act <- [dbActivities db V.!? fromIntegral pid]
+        ]
+
+bioFlowName :: BiosphereFlow -> Text
+bioFlowName flow = bfName flow <> maybe "" (\c -> " (" <> renderCompartment c <> ")") (bfCompartment flow)
+
+-- | What a line is, then the unit its amount is stated in, when there is one.
+labelled :: Text -> Text -> Text
+labelled what unit
+    | T.null unit = what
+    | otherwise = what <> ", " <> unit
 
 {- | An amount that can carry information: finite, and not zero. A zero
 exchange is not a measurement of nothing, it is a line that should not have
@@ -509,8 +582,9 @@ data ExchangeSelector
       SelectUnlinkedWaste UUID (Maybe ExchangeLocation)
     deriving (Eq, Show)
 
-{- | Who gave the amount of an added line: the call that made the change, or
-the person, typed in a form their client showed. The engine marks the second
+{- | Who gave the amount of an added line, or the new amount of a line that
+exists: the call that made the change, or the person, typed in a form their
+client showed. The engine marks the second
 itself, from the client's answer to its form: no field of a request carries it.
 Like the acceptance of terms, it trusts the client to answer only what the
 person typed.
@@ -525,7 +599,7 @@ quietly reordered into something that works.
 -}
 data ExchangeEdit
     = RemoveExchange ExchangeSelector
-    | SetAmount ExchangeSelector Double
+    | SetAmount ExchangeSelector Double AmountFrom
     | AddExchange AuthoredExchange AmountFrom
     | SetText ActivityText
     | -- | A line's formula in VoLCA's language, or none; a named line keeps its name either way.
@@ -667,7 +741,7 @@ amountsBeforeEach ctx act edits = zipWith (amountsBefore . accActivity) (scanl (
 
 amountsBefore :: Activity -> ExchangeEdit -> [Double]
 amountsBefore activity = \case
-    SetAmount selector _ -> named selector
+    SetAmount selector _ _ -> named selector
     RemoveExchange selector -> named selector
     SetFormula selector _ -> named selector
     SetSupplier selector _ -> named selector
@@ -720,7 +794,7 @@ applyOneEdit ctx act edit = case edit of
     RemoveExchange sel -> case selectFrom sel current of
         Left err -> Left [err]
         Right (matched, isSelected) -> Right (changed (filter (not . isSelected) current) matched)
-    SetAmount sel amount -> onSelected (amountCheck amount) (selectFrom sel current) (withAmount amount)
+    SetAmount sel amount _ -> onSelected (amountCheck amount) (selectFrom sel current) (withAmount amount)
     SetFormula sel formula -> onSelected (foldMap formulaProblems formula) (selectFrom sel current) (reformulated formula)
     SetProperty prop flow value -> onSelected (foldMap (propertyCheck (acUnitConfig ctx) prop) value) (selectProduct flow current) (withProperty prop value)
     -- An added line resolves exactly as a written one does: same provider
@@ -865,7 +939,7 @@ besideDeduced edits final =
     pricing = \case
         SetProperty prop _ _ -> prop == Price
         RemoveExchange _ -> False
-        SetAmount _ _ -> False
+        SetAmount{} -> False
         AddExchange _ _ -> False
         SetText _ -> False
         SetFormula _ _ -> False
