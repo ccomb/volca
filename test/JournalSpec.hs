@@ -24,6 +24,7 @@ import qualified Data.Set as S
 import Data.Store (encode)
 import Data.Text (Text, isInfixOf)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import System.IO.Temp (withSystemTempDirectory)
@@ -32,6 +33,7 @@ import Test.Hspec
 import Database (buildDatabaseWithMatrices)
 import Database.Author (
     ActivityText (..),
+    AmountFrom (..),
     AuthorContext (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
@@ -139,6 +141,12 @@ spec = do
             -- One event per operation, and one exchange per kind, so a field
             -- lost in the codec cannot hide behind the others.
             mapM_ (\written -> decodeStrict (BL.toStrict (Aeson.encode written)) `shouldBe` Just written) richEvents
+
+        it "marks an added line whose amount the person typed, and only that line" $ do
+            let typedLine = event (edited supplierPid [(AddExchange usedOilOut TypedByPerson, 1), (AddExchange usedOilOut FromCall, 1)])
+                written = BL.toStrict (Aeson.encode typedLine)
+            decodeStrict written `shouldBe` Just typedLine
+            T.count "\"typed\":true" (TE.decodeUtf8 written) `shouldBe` 1
 
     describe "Database.Journal (file)" $ do
         it "reads a database that has never been edited as an empty journal" $
@@ -283,7 +291,7 @@ spec = do
                 `shouldSatisfy` failsWith "a wet mass is a mass, and l is not one"
 
         it "brings along the flow an added line introduces" $
-            case replayJournal ctx [event (edited supplierPid [(AddExchange methane, 1)])] of
+            case replayJournal ctx [event (edited supplierPid [(AddExchange methane FromCall, 1)])] of
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> map bfName (M.elems (dbBioFlows db)) `shouldSatisfy` elem "Methane"
 
@@ -294,7 +302,7 @@ spec = do
             depDb <- buildDepFixture
             let depCtx = ctx{acDeps = [depDb]}
                 added = AuthoredTechInput depPid 2.0 (Just "kg") Nothing
-            case replayJournal depCtx [event (edited supplierPid [(AddExchange added, 1)])] of
+            case replayJournal depCtx [event (edited supplierPid [(AddExchange added FromCall, 1)])] of
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> M.member depProdId (dbTechFlows db) `shouldBe` True
 
@@ -343,7 +351,7 @@ spec = do
         it "lets an edit of an activity already in the run see the run's result" $ do
             -- The second edit of the cheese matches the line the first one adds.
             let moreCo2 = AuthoredBio{abFlow = FlowById co2Id, abDirection = Emission, abAmount = 0.1, abUnit = Nothing, abComment = Nothing}
-                ops = created :| [edited (mintedKey withCream cheese) [(AddExchange moreCo2, 1)], supplierEdit, edited (mintedKey withCream cheese) [(SetAmount (SelectBiosphere co2Id) 0.4, 2)]]
+                ops = created :| [edited (mintedKey withCream cheese) [(AddExchange moreCo2 FromCall, 1)], supplierEdit, edited (mintedKey withCream cheese) [(SetAmount (SelectBiosphere co2Id) 0.4, 2)]]
             void (oneByOne (NE.toList ops)) `shouldSatisfy` isRight
             encoded (applyOps creamCtx ops) `shouldBe` encoded (oneByOne (NE.toList ops))
 
@@ -490,7 +498,7 @@ editedInventory =
         [ (RemoveExchange (SelectBiosphere co2Id), 2)
         , (RemoveExchange (SelectWaste supplierPid), 1)
         , (SetAmount (SelectInput supplierPid) 4, 1)
-        , (AddExchange usedOilOut, 1)
+        , (AddExchange usedOilOut FromCall, 1)
         ]
 
 -- | Lines naming no provider, by flow, with a location, with none stated, and at any location.
@@ -547,7 +555,7 @@ rememberedEdit =
     Edited
         supplierPid
         [ EditLine (SetAmount (SelectBiosphere co2Id) 3) 2 (Prior [1.5, 2])
-        , EditLine (AddExchange usedOilOut) 1 (Prior [])
+        , EditLine (AddExchange usedOilOut FromCall) 1 (Prior [])
         ]
 
 -- | Parameters keeping what they were: one that did not exist, one replaced.

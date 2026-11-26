@@ -12,7 +12,7 @@ every complaint at once, writing over a row that exists is a 409, addressing
 one that does not is a 404, and a database the engine only reads is refused
 outright. The validation itself is "AuthorSpec"'s subject, not this file's.
 -}
-module ActivityWriteHandlerSpec (spec) where
+module ActivityWriteHandlerSpec (spec, withWritableDb, withDb, buildFixture, uploadedConfig, create, cheese, keyOf, supplierPid, activitiesOf) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Monad (forM_, void)

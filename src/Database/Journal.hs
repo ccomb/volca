@@ -109,6 +109,7 @@ import Data.JournalFile (Entry (..), JournalVocabulary (..), Origin, Source, app
 
 import Database.Author (
     ActivityText (..),
+    AmountFrom (..),
     AuthorContext (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
@@ -497,7 +498,7 @@ editedInserts ctx target editLines = do
         RemoveParameter _ -> True
         RemoveExchange _ -> False
         SetAmount _ _ -> False
-        AddExchange _ -> False
+        AddExchange _ _ -> False
         SetFormula _ _ -> False
         SetSupplier _ _ -> False
         SetProperty{} -> False
@@ -624,8 +625,8 @@ editJSON (EditLine edit matched before) = object (("matched" .= matched) : prior
             ["edit" .= ("remove" :: Text), "select" .= selectorJSON selector]
         SetAmount selector amount ->
             ["edit" .= ("set" :: Text), "select" .= selectorJSON selector, "amount" .= amount]
-        AddExchange authored ->
-            ["edit" .= ("add" :: Text), "exchange" .= exchangeJSON authored]
+        AddExchange authored from ->
+            ["edit" .= ("add" :: Text), "exchange" .= exchangeJSON authored] <> ["typed" .= True | from == TypedByPerson]
         SetText (ActivityName name) ->
             ["edit" .= ("name" :: Text), "value" .= name]
         SetText (ActivityLocation location) ->
@@ -643,6 +644,12 @@ editJSON (EditLine edit matched before) = object (("matched" .= matched) : prior
         SetSupplier selector provider ->
             ["edit" .= ("supplier" :: Text), "select" .= selectorJSON selector, "provider" .= provider]
 
+-- | The mark of an added line's amount, as a journal keeps it: absent on every line a person did not type.
+typedFrom :: Maybe Bool -> AmountFrom
+typedFrom = \case
+    Just True -> TypedByPerson
+    _ -> FromCall
+
 parseEdit :: Value -> Parser EditLine
 parseEdit = withObject "exchange edit" $ \o -> do
     matched <- o .: "matched"
@@ -653,7 +660,7 @@ parseEdit = withObject "exchange edit" $ \o -> do
         o .: "edit" >>= \case
             ("remove" :: Text) -> RemoveExchange <$> (o .: "select" >>= parseSelector)
             "set" -> SetAmount <$> (o .: "select" >>= parseSelector) <*> o .: "amount"
-            "add" -> AddExchange <$> (o .: "exchange" >>= parseExchange)
+            "add" -> AddExchange <$> (o .: "exchange" >>= parseExchange) <*> (typedFrom <$> o .:? "typed")
             "name" -> SetText . ActivityName <$> o .: "value"
             "location" -> SetText . ActivityLocation <$> o .: "value"
             "description" -> SetText . ActivityDescription <$> o .: "value"

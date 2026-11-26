@@ -392,6 +392,7 @@ test-suite lca-tests
                      , MCPRequestIdSpec
                      , MCPEraSpec
                      , MCPTermsFormSpec
+                     , MCPTypedAmountsSpec
                      , BatchImpactsSpec
                      , AcrossCapabilitiesSpec
                      , FlowContributionSpec

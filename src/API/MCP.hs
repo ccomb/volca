@@ -9,7 +9,7 @@ It speaks two eras of the protocol on the same address. A client of the
 request; an older client opens with @initialize@ and is answered as 2025-03-26.
 POST carries every request; anything else is refused with 405.
 -}
-module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId, Era (..), Rejection (..), classify, sameOrigin, modernVersion, askingOf, TermsOutcome (..), Refusal (..), termsStep, toolAnswered) where
+module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId, Era (..), Rejection (..), classify, sameOrigin, modernVersion, askingOf, TermsOutcome (..), Refusal (..), termsStep, toolAnswered, EditShape (..), Place (..), Missing (..), AmountsOutcome (..), missingAmounts, fillAmounts, amountsStep, placeKey) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson
@@ -23,7 +23,7 @@ import Data.IORef
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
-import Data.Scientific (toBoundedInteger)
+import Data.Scientific (toBoundedInteger, toRealFloat)
 import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -44,9 +44,11 @@ import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
+import Data.Either (partitionEithers)
 import Database (FlowFields (..), Geographies, filterByName, flowFieldsOf, flowQueryIn)
+import Database.Author (AmountFrom (..), AuthorContext (..), ExchangeEdit, isUsableAmount, nameAdded, resolveProcess)
 import Database.Cutoffs (Cutoffs (..))
-import Database.Edit (MissingRequest (..), databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, refusalMessage, supplyMissing)
+import Database.Edit (MissingRequest (..), databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, judgeActivities, refusalMessage, supplyMissing)
 import Database.Journal (statedFrom)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
@@ -63,7 +65,7 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, enc
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, formulaLanguage, parseProducerFilter, toActivityEdits, toCategoryEdit, toExchangeEdits, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), AddedList (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, toActivityEdits, toActivityEditsTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
@@ -814,11 +816,11 @@ paramsToSchema ps =
             , "properties"
                 .= object
                     [ "provider" .= stringField providerDesc
-                    , "amount" .= numberField "Amount exchanged"
+                    , "amount" .= nullableNumberField "Amount exchanged. Left out (or null) when you do not know it: the user is asked for it."
                     , "unit" .= stringField "Unit the amount is stated in. Defaults to the reference unit of the 'provider' process."
                     , "comment" .= stringField "Free-text note on this line"
                     ]
-            , "required" .= (["provider", "amount"] :: [Text])
+            , "required" .= (["provider"] :: [Text])
             ]
 
     bioLineSchema =
@@ -827,7 +829,7 @@ paramsToSchema ps =
             , "properties"
                 .= object
                     [ "direction" .= stringField "resource (taken from the environment) | emission (released into it)"
-                    , "amount" .= numberField "Amount exchanged, in the flow's own unit"
+                    , "amount" .= nullableNumberField "Amount exchanged, in the flow's own unit. Left out (or null) when you do not know it: the user is asked for it."
                     , "flow" .= stringField "Id of a flow the database already has (from get_activity or search_flows)"
                     , "name" .= stringField "Name of the flow instead, with its compartment and unit: the flow the database declares under them, or a new one when nothing does"
                     , "compartment" .= stringField "air | water | soil | natural resource"
@@ -835,10 +837,11 @@ paramsToSchema ps =
                     , "unit" .= stringField "Unit. Part of a named flow's identity, so it cannot be omitted there."
                     , "comment" .= stringField "Free-text note on this line"
                     ]
-            , "required" .= (["direction", "amount"] :: [Text])
+            , "required" .= (["direction"] :: [Text])
             ]
 
     stringField desc = object ["type" .= ("string" :: Text), "description" .= (desc :: Text)]
+    nullableNumberField desc = object ["type" .= (["number", "null"] :: [Text]), "description" .= (desc :: Text)]
     numberField desc = object ["type" .= ("number" :: Text), "description" .= (desc :: Text)]
 
 -- ---------------------------------------------------------------------------
@@ -1022,15 +1025,18 @@ termsStep asking missing = case (NE.nonEmpty missing, asking) of
         answered = [(t, formAnswer <$> KM.lookup (termsFormKey t) answers) | t <- NE.toList ts]
         answeredAs :: FormAnswer -> Maybe (NE.NonEmpty Terms)
         answeredAs a = NE.nonEmpty [t | (t, Just b) <- answered, a == b]
-  where
-    -- The form has no field: the accept button is the person's agreement.
-    formAnswer :: Value -> FormAnswer
-    formAnswer = \case
-        Object r -> case KM.lookup "action" r of
-            Just (String "accept") -> Accepted
-            Just (String "cancel") -> Answered ClosedTheForm
-            _ -> Answered SaidNo
+
+{- | What the person did with one form: the client's accept button, or not.
+Declining, or any answer the engine cannot read, is a no; closing the form
+with no answer is also what a client that cannot show forms sends.
+-}
+formAnswer :: Value -> FormAnswer
+formAnswer = \case
+    Object r -> case KM.lookup "action" r of
+        Just (String "accept") -> Accepted
+        Just (String "cancel") -> Answered ClosedTheForm
         _ -> Answered SaidNo
+    _ -> Answered SaidNo
 
 -- | The key of the form for one text: its fingerprint, so an answer holds for the very text shown.
 termsFormKey :: Terms -> Key
@@ -1065,28 +1071,36 @@ accept button. A box to tick as well would turn a click on accept with the
 box left empty into a refusal.
 -}
 inputRequired :: RequestId -> [Text] -> NE.NonEmpty Terms -> Value
-inputRequired rid asked ts =
+inputRequired rid asked ts = askInForms rid [termsFormKey t .= form t | t <- NE.toList ts]
+  where
+    form :: Terms -> Value
+    form t = formRequest (T.unlines ([readsThrough asked t, "", termsText t] ++ maybe [] (pure . disclosureSentence) (termsUsage t))) []
+
+-- | The answer that has the client ask the person, one form under each key.
+askInForms :: RequestId -> [(Key, Value)] -> Value
+askInForms rid forms =
     rpcResult rid $
         object
             [ "resultType" .= ("input_required" :: Text)
-            , "inputRequests" .= object [termsFormKey t .= form t | t <- NE.toList ts]
+            , "inputRequests" .= object forms
             ]
-  where
-    form :: Terms -> Value
-    form t =
-        object
-            [ "method" .= ("elicitation/create" :: Text)
-            , "params"
-                .= object
-                    [ "mode" .= ("form" :: Text)
-                    , "message" .= T.unlines ([readsThrough asked t, "", termsText t] ++ maybe [] (pure . disclosureSentence) (termsUsage t))
-                    , "requestedSchema"
-                        .= object
-                            [ "type" .= ("object" :: Text)
-                            , "properties" .= object []
-                            ]
-                    ]
-            ]
+
+-- | One form: what it says, and its fields, each by name with its schema, all required.
+formRequest :: Text -> [(Key, Value)] -> Value
+formRequest message fields =
+    object
+        [ "method" .= ("elicitation/create" :: Text)
+        , "params"
+            .= object
+                [ "mode" .= ("form" :: Text)
+                , "message" .= message
+                , "requestedSchema"
+                    .= object
+                        ( ["type" .= ("object" :: Text), "properties" .= object [k .= v | (k, v) <- fields]]
+                            <> ["required" .= map fst fields | not (null fields)]
+                        )
+                ]
+        ]
 
 {- | Whose terms these are, said from the database the person asked for: a
 form has no assistant beside it to explain why another database's terms show.
@@ -1114,6 +1128,206 @@ declinedText how asked inCookie ts = case how of
     -- What the cookie already holds and the fingerprints it lacks, so setting it keeps what it opened.
     cookie :: [Text]
     cookie = Set.toList (inCookie <> Set.fromList (map termsFingerprint (NE.toList ts)))
+
+-- | Where the edits of a call sit in its arguments: the arguments themselves (edit_exchanges), or each element of @edits@ (edit_activities).
+data EditShape = OneEdit | ManyEdits
+
+-- | Where an added line sits in a call: the element of @edits@ if any, its list, its position there.
+data Place = Place (Maybe Int) AddedList Int
+    deriving (Eq, Ord, Show)
+
+-- | An added line the call left without an amount, as the person reads it.
+data Missing = Missing
+    { missingPlace :: Place
+    , missingProcess :: Text
+    -- ^ the process the line is added to
+    , missingLine :: Text
+    -- ^ the supplier's process or the flow, and the unit its amount is stated in
+    }
+    deriving (Eq, Show)
+
+-- | What a call does about the amounts it left out.
+data AmountsOutcome
+    = -- | Every amount typed, usable: they fill the call, which then runs.
+      Typed (M.Map Place Double)
+    | AmountsInChat (NE.NonEmpty Missing)
+    | -- | The form, again with why when the person's answer could not be used.
+      AmountsInForm [Text] (NE.NonEmpty Missing)
+    | AmountsRefused Refusal
+    deriving (Eq, Show)
+
+{- | Fill the amounts a call left out from the person, before it runs, and
+mark those lines as typed by them. A call that left none out runs as it is.
+
+The edit is judged first with 1 in every gap, so nobody types a number for an
+edit refused anyway: an unknown process or supplier, a database that cannot
+be written. Only a refusal of the amount itself is left for the answer.
+-}
+withAmounts :: Asking -> DatabaseManager -> RequestId -> EditShape -> KeyMap Value -> ((Place -> AmountFrom) -> KeyMap Value -> IO Value) -> IO Value
+withAmounts asking dbManager rid shape args run = case NE.nonEmpty (missingAmounts shape args) of
+    Nothing -> run (const FromCall) args
+    Just places ->
+        missingOf dbManager shape args places >>= \case
+            Left refusal -> pure (toolError rid refusal)
+            Right missing -> case amountsStep asking missing of
+                Typed amounts -> run (\place -> if M.member place amounts then TypedByPerson else FromCall) (fillAmounts amounts args)
+                AmountsInChat ms -> pure (toolError rid (amountsInChatText ms))
+                AmountsInForm why ms -> pure (askInForms rid [amountsFormKey .= amountsForm args why ms])
+                AmountsRefused how -> pure (toolError rid (amountsRefusedText how))
+
+-- | The edits of a call, each by its place among the elements of @edits@ when there are several.
+editsAt :: EditShape -> KeyMap Value -> [(Maybe Int, KeyMap Value)]
+editsAt shape args = case shape of
+    OneEdit -> [(Nothing, args)]
+    ManyEdits -> [(Just n, element) | (n, Object element) <- zip [0 ..] (arrayAt "edits" args)]
+
+-- | The added lines of a call with no amount: no @amount@ key, or null, which is how a model says it does not know.
+missingAmounts :: EditShape -> KeyMap Value -> [Place]
+missingAmounts shape args =
+    [ Place n list i
+    | (n, edit) <- editsAt shape args
+    , list <- [minBound .. maxBound]
+    , (i, Object line) <- zip [0 ..] (arrayAt (addedListKey list) edit)
+    , maybe True (== Null) (KM.lookup "amount" line)
+    ]
+
+-- | The call with these amounts written where it left them out.
+fillAmounts :: M.Map Place Double -> KeyMap Value -> KeyMap Value
+fillAmounts amounts args = M.foldrWithKey fill args amounts
+  where
+    fill :: Place -> Double -> KeyMap Value -> KeyMap Value
+    fill (Place n list i) amount = atEdit n (adjustAt (atIndex i (KM.insert "amount" (toJSON amount))) (addedListKey list))
+    atEdit :: Maybe Int -> (KeyMap Value -> KeyMap Value) -> KeyMap Value -> KeyMap Value
+    atEdit n f = case n of
+        Just k -> adjustAt (atIndex k f) "edits"
+        Nothing -> f
+    atIndex :: Int -> (KeyMap Value -> KeyMap Value) -> Value -> Value
+    atIndex k f = \case
+        Array xs -> Array (V.imap (\j x -> if j == k then onObject f x else x) xs)
+        other -> other
+    adjustAt :: (Value -> Value) -> Key -> KeyMap Value -> KeyMap Value
+    adjustAt f k o = maybe o (\v -> KM.insert k (f v) o) (KM.lookup k o)
+    onObject :: (KeyMap Value -> KeyMap Value) -> Value -> Value
+    onObject f = \case
+        Object o -> Object (f o)
+        other -> other
+
+-- | The elements of an array argument, none when it is missing or not an array.
+arrayAt :: Key -> KeyMap Value -> [Value]
+arrayAt key o = case KM.lookup key o of
+    Just (Array xs) -> V.toList xs
+    _ -> []
+
+addedListKey :: AddedList -> Key
+addedListKey = \case
+    AddInputs -> "add_inputs"
+    AddBiosphere -> "add_biosphere"
+    AddWasteOutputs -> "add_waste_outputs"
+
+{- | The lines a call left without an amount, named for the person, or why the
+edit is refused whatever the amounts: judged with 1 in every gap.
+-}
+missingOf :: DatabaseManager -> EditShape -> KeyMap Value -> NE.NonEmpty Place -> IO (Either Text (NE.NonEmpty Missing))
+missingOf dbManager shape args places = runExceptT $ do
+    dbName <- except (requireText "database" args)
+    (requests, judged) <- except theCall
+    (ctx, _) <- ExceptT (first refusalMessage <$> judgeActivities dbManager dbName judged)
+    pure (fmap (named ctx requests) places)
+  where
+    ones :: KeyMap Value
+    ones = fillAmounts (M.fromList [(p, 1) | p <- NE.toList places]) args
+    -- Read and translated as the tool does, so what it would refuse is refused before the form, in the same words.
+    theCall :: Either Text ([(Maybe Int, Text, ExchangeEditRequest)], NE.NonEmpty (Text, [ExchangeEdit]))
+    theCall = case shape of
+        OneEdit -> do
+            process <- requireText "process_id" ones
+            request <- exchangeEditRequestOf ones
+            edits <- first (T.intercalate "\n") (toExchangeEdits request)
+            pure ([(Nothing, process, request)], (process, edits) NE.:| [])
+        ManyEdits -> do
+            request <- activitiesRequestOf ones
+            edits <- first (T.intercalate "\n") (toActivityEdits request)
+            pure (zipWith (\n e -> (Just n, aeProcessId e, aeEdit e)) [0 ..] (aqEdits request), edits)
+    named :: AuthorContext -> [(Maybe Int, Text, ExchangeEditRequest)] -> Place -> Missing
+    named ctx requests place@(Place n list i) =
+        Missing
+            { missingPlace = place
+            , missingProcess = maybe "" (processNamed ctx) process
+            , missingLine = maybe "" (either (const "") (nameAdded ctx)) (lookup (list, i) . addedLines =<< request)
+            }
+      where
+        found = listToMaybe [(pid, r) | (k, pid, r) <- requests, k == n]
+        process = fst <$> found
+        request = snd <$> found
+    processNamed :: AuthorContext -> Text -> Text
+    processNamed ctx process = fromMaybe process $ do
+        pid <- resolveProcess (acDb ctx) process
+        act <- dbActivities (acDb ctx) V.!? fromIntegral pid
+        pure (activityName act <> " (" <> activityLocation act <> ")")
+
+-- | The form asking the person for the amounts, under one key for the whole call.
+amountsFormKey :: Key
+amountsFormKey = "amounts"
+
+-- | The field of one line, named by its place so the answer lands on the line it asked about.
+placeKey :: Place -> Key
+placeKey (Place n list i) = fromText (maybe "" (\k -> T.pack (show k) <> "-") n <> toText (addedListKey list) <> "-" <> T.pack (show i))
+
+{- | What the person answered: an amount for every line, each usable, or why
+the form comes back. Asking again without saying why would loop.
+-}
+amountsStep :: Asking -> NE.NonEmpty Missing -> AmountsOutcome
+amountsStep asking missing = case asking of
+    InChat -> AmountsInChat missing
+    InForm answers -> case KM.lookup amountsFormKey answers of
+        Nothing -> AmountsInForm [] missing
+        Just answer -> case formAnswer answer of
+            Answered how -> AmountsRefused how
+            Accepted -> case partitionEithers (map (typedIn (contentOf answer)) (NE.toList missing)) of
+                ([], typed) -> Typed (M.fromList typed)
+                (why, _) -> AmountsInForm why missing
+  where
+    contentOf :: Value -> KeyMap Value
+    contentOf = \case
+        Object r | Just (Object c) <- KM.lookup "content" r -> c
+        _ -> mempty
+    typedIn :: KeyMap Value -> Missing -> Either Text (Place, Double)
+    typedIn content m = case KM.lookup (placeKey (missingPlace m)) content of
+        Just (Number n)
+            | isUsableAmount (toRealFloat n) -> Right (missingPlace m, toRealFloat n)
+            | otherwise -> Left (missingLine m <> ": the amount must be a number other than zero.")
+        Just _ -> Left (missingLine m <> ": the amount must be a number.")
+        Nothing -> Left (missingLine m <> ": no amount was typed.")
+
+-- | The form: what the assistant is doing, then one number to type per line.
+amountsForm :: KeyMap Value -> [Text] -> NE.NonEmpty Missing -> Value
+amountsForm args why ms =
+    formRequest
+        (T.unlines (["The assistant is adding lines to " <> T.intercalate ", " (L.nub (map missingProcess (NE.toList ms))) <> ". Type the amount of each line it left out, in the unit shown."] <> noted <> why))
+        [(placeKey (missingPlace m), field m) | m <- NE.toList ms]
+  where
+    noted :: [Text]
+    noted = ["Why: " <> note | Just (String note) <- [KM.lookup "note" args]]
+    field :: Missing -> Value
+    field m = object ["type" .= ("number" :: Text), "title" .= missingLine m, "description" .= ("Added to " <> missingProcess m)]
+
+amountsInChatText :: NE.NonEmpty Missing -> Text
+amountsInChatText ms =
+    T.unlines
+        ( "These lines have no amount:"
+            : ["- " <> missingLine m <> ", added to " <> missingProcess m | m <- NE.toList ms]
+                <> ["Ask the user for each amount, then call again with them. Never make them up."]
+        )
+
+-- | What an assistant is told when the person gave no amounts: nothing to make up.
+amountsRefusedText :: Refusal -> Text
+amountsRefusedText = \case
+    SaidNo -> "The user did not give the amounts, so nothing was changed. Never make them up."
+    ClosedTheForm ->
+        T.unlines
+            [ "The form asking the amounts was closed with no answer, so nothing was changed. Never make them up."
+            , "If this client cannot show forms, as in a run with no screen, give each amount in the call, and say where it comes from with source."
+            ]
 
 -- | Record that the reader accepted the terms of a database and of those it depends on.
 callAcceptTerms :: Maybe Text -> DatabaseManager -> RequestId -> KeyMap Value -> IO Value
@@ -1164,7 +1378,7 @@ licenceOfDatabase :: [NamedLicence] -> Licence
 licenceOfDatabase = maybe LicenceUnstated nlLicence . find ((== "database") . nlArgument)
 
 dispatchTool :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> RequestId -> R.Resource -> KeyMap Value -> Licence -> IO Value
-dispatchTool Caller{callerReader = reader, callerAuthor = by} dbManager presets mHosting mBaseUrl rid resource args licence = case resource of
+dispatchTool Caller{callerReader = reader, callerAuthor = by, callerAsking = asking} dbManager presets mHosting mBaseUrl rid resource args licence = case resource of
     R.ListDatabases -> callListDatabases dbManager rid
     R.AcceptTerms -> callAcceptTerms reader dbManager rid args
     R.LoadDatabase -> callLoadDatabase dbManager mHosting rid args
@@ -1214,8 +1428,8 @@ dispatchTool Caller{callerReader = reader, callerAuthor = by} dbManager presets 
     R.GetQualityReport -> callGetQualityReport dbManager rid args
     R.GetComputedQualityReport -> callGetComputedQualityReport dbManager mHosting rid args
     R.GetCoverageReport -> callGetCoverageReport dbManager rid args
-    R.EditExchanges -> callEditExchanges dbManager origin rid args
-    R.EditActivities -> callEditActivities dbManager origin rid args
+    R.EditExchanges -> withAmounts asking dbManager rid OneEdit args (\amountFrom filled -> callEditExchanges dbManager origin amountFrom rid filled)
+    R.EditActivities -> withAmounts asking dbManager rid ManyEdits args (\amountFrom filled -> callEditActivities dbManager origin amountFrom rid filled)
     R.SupplyMissing -> callSupplyMissing dbManager origin rid args
     R.DatabaseHistory -> callDatabaseHistory dbManager rid args
     R.DatabaseParameters -> withDb dbManager rid args $ \(db, _) -> pure (toolSuccessJson rid (toJSON (Service.parametersForAPI (dbParameters db))))
@@ -2524,12 +2738,12 @@ Every list defaults to empty: an assistant that only removes a line should not
 have to state four empty arrays to say so. An edit that ends up naming nothing
 is refused by the domain, so the leniency costs no silence.
 -}
-callEditExchanges :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
-callEditExchanges dbManager origin rid args = runTool rid $ do
+callEditExchanges :: DatabaseManager -> Origin -> (Place -> AmountFrom) -> RequestId -> KeyMap Value -> IO Value
+callEditExchanges dbManager origin amountFrom rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     processId <- except (requireText "process_id" args)
     request <- except (exchangeEditRequestOf args)
-    edits <- except (first (T.intercalate "\n") (toExchangeEdits request))
+    edits <- except (first (T.intercalate "\n") (toExchangeEditsTyped (\list i -> amountFrom (Place Nothing list i)) request))
     report <- ExceptT (first refusalMessage <$> editExchanges dbManager dbName origin (statedFrom (eerNote request) (eerSource request)) processId edits)
     return $ toolSuccessJson rid (toJSON (editReportToAPI report))
 
@@ -2537,20 +2751,26 @@ callEditExchanges dbManager origin rid args = runTool rid $ do
 @process_id@ and the arguments 'callEditExchanges' reads, and the note is
 given once. It reads into the request the HTTP endpoint reads.
 -}
-callEditActivities :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
-callEditActivities dbManager origin rid args = runTool rid $ do
+callEditActivities :: DatabaseManager -> Origin -> (Place -> AmountFrom) -> RequestId -> KeyMap Value -> IO Value
+callEditActivities dbManager origin amountFrom rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
-    elements <- except (parseArrayArg "edits" (Just "Missing required parameter: edits") args)
-    request <- except (ActivitiesEditRequest <$> traverse activityEdit elements <*> optionalText "note" args <*> optionalSource args)
-    edits <- except (first (T.intercalate "\n") (toActivityEdits request))
+    request <- except (activitiesRequestOf args)
+    edits <- except (first (T.intercalate "\n") (toActivityEditsTyped (\n list i -> amountFrom (Place (Just n) list i)) request))
     report <- ExceptT (first refusalMessage <$> editActivities dbManager dbName origin (statedFrom (aqNote request) (aqSource request)) edits)
     return $ toolSuccessJson rid (toJSON (activitiesReportToAPI report))
-  where
-    activityEdit :: KeyMap Value -> Either Text ActivityEditAPI
-    activityEdit element
-        | KM.member "note" element = Left "a note is given once, beside \"edits\", for the whole change"
-        | KM.member "source" element = Left "a source is given once, beside \"edits\", for the whole change"
-        | otherwise = ActivityEditAPI <$> requireText "process_id" element <*> exchangeEditRequestOf element
+
+-- | The arguments of edit_activities, read into the request the HTTP endpoint reads.
+activitiesRequestOf :: KeyMap Value -> Either Text ActivitiesEditRequest
+activitiesRequestOf args = do
+    elements <- parseArrayArg "edits" (Just "Missing required parameter: edits") args
+    ActivitiesEditRequest <$> traverse activityEdit elements <*> optionalText "note" args <*> optionalSource args
+
+-- | One element of @edits@: a process and its edit, the note and the source being the whole change's.
+activityEdit :: KeyMap Value -> Either Text ActivityEditAPI
+activityEdit element
+    | KM.member "note" element = Left "a note is given once, beside \"edits\", for the whole change"
+    | KM.member "source" element = Left "a source is given once, beside \"edits\", for the whole change"
+    | otherwise = ActivityEditAPI <$> requireText "process_id" element <*> exchangeEditRequestOf element
 
 -- | A missing product given a supplier wherever the database asks for it.
 callSupplyMissing :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
@@ -2563,7 +2783,8 @@ callSupplyMissing dbManager origin rid args = runTool rid $ do
 
 {- | The arguments of one activity's edit, read into the request the HTTP
 endpoint reads, so what an assistant may change, and what it is refused, are
-exactly what a person is.
+what a person is. One difference: an added line's amount may be missing, to
+be typed by the person ('withAmounts' fills it before this reads it).
 
 Every list defaults to empty: an assistant that only removes a line should not
 have to state four empty arrays to say so. An edit that ends up naming nothing

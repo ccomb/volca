@@ -1800,9 +1800,9 @@ params r = case r of
         , pProcessId
         , Param "remove" "array" Optional "Lines to drop, each by the selector get_activity gives: {kind, provider|flow, location?}; kind \"input\" or \"waste\" with the supplier's process_id (or flow id and location for a line naming no supplier), or \"biosphere\" with the flow id."
         , Param "set_amounts" "array" Optional "Lines to restate: {select: {kind, provider|flow, location?}, amount}."
-        , Param "add_inputs" "array" Optional "Consumed products to add: {provider, amount, unit?, comment?}, provider being the supplier process; the flow follows from it."
-        , Param "add_biosphere" "array" Optional "Emission and resource lines to add: {direction, amount} plus flow (an existing flow id) or name + compartment + unit, reaching the flow the database declares under them, new only when none does."
-        , Param "add_waste_outputs" "array" Optional "Waste outputs to add: {provider, amount, unit?, comment?}, provider being the treatment process."
+        , Param "add_inputs" "array" Optional "Consumed products to add: {provider, amount, unit?, comment?}, provider being the supplier process; the flow follows from it. amount left out (or null) when you do not know it: the user is asked for it."
+        , Param "add_biosphere" "array" Optional "Emission and resource lines to add: {direction, amount} plus flow (an existing flow id) or name + compartment + unit, reaching the flow the database declares under them, new only when none does. amount left out (or null) when you do not know it: the user is asked for it."
+        , Param "add_waste_outputs" "array" Optional "Waste outputs to add: {provider, amount, unit?, comment?}, provider being the treatment process. amount left out (or null) when you do not know it: the user is asked for it."
         , Param "set_name" "string" Optional "The new activity_name."
         , Param "set_location" "string" Optional "The process's new location code (e.g. FR)."
         , Param "set_description" "array" Optional "The process's new description, one string per paragraph; [] clears it."

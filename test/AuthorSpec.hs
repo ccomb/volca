@@ -24,6 +24,7 @@ import Test.Hspec
 import API.Types (ActivityForAPI (..), ExchangeWithUnit (..))
 import Database (buildDatabaseWithMatrices)
 import Database.Author (
+    AmountFrom (..),
     AuthorContext (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
@@ -614,7 +615,7 @@ spec = do
                     editOrFail
                         [ RemoveExchange (SelectBiosphere co2Id)
                         , SetAmount (SelectInput supplierPid) 3
-                        , AddExchange (wasteOut treatPid 0.1 Nothing)
+                        , AddExchange (wasteOut treatPid 0.1 Nothing) FromCall
                         ]
                 activityFacts (eaActivity edited) `shouldBe` activityFacts importedActivity
 
@@ -691,7 +692,7 @@ spec = do
                     `shouldBe` [(3, Just "milk in", Just milkPedigree)]
 
             it "adds a line the way authoring resolves one" $ do
-                edited <- editOrFail [AddExchange (bioOf (FlowByName "Nitrous oxide" air "kg") 0.5 Nothing)]
+                edited <- editOrFail [AddExchange (bioOf (FlowByName "Nitrous oxide" air "kg") 0.5 Nothing) FromCall]
                 eaMatched edited `shouldBe` [1]
                 map bfName (eaNewBioFlows edited) `shouldBe` ["Nitrous oxide"]
                 eaWarnings edited `shouldSatisfy` any (isInfixOf "no characterization factor matches it")
@@ -703,7 +704,7 @@ spec = do
                 depDb <- buildFixture
                 let writing = (emptyOf fixtureDb){dbTechFlows = M.empty}
                     ctx = (contextOf writing){acDeps = [depDb]}
-                case applyExchangeEdits ctx [AddExchange (techInput supplierPid 2 Nothing)] importedActivity of
+                case applyExchangeEdits ctx [AddExchange (techInput supplierPid 2 Nothing) FromCall] importedActivity of
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right edited -> map tfName (eaNewTechFlows edited) `shouldBe` ["milk"]
 
@@ -711,7 +712,7 @@ spec = do
                 depDb <- buildFixture
                 let writing = (emptyOf fixtureDb){dbTechFlows = M.empty, dbWasteFlows = M.empty}
                     ctx = (contextOf writing){acDeps = [depDb]}
-                case applyExchangeEdits ctx (map AddExchange mixedNewFlows) importedActivity of
+                case applyExchangeEdits ctx (map (`AddExchange` FromCall) mixedNewFlows) importedActivity of
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right edited -> do
                         map bfName (eaNewBioFlows edited) `shouldBe` ["Nitrous oxide", "Methane"]
@@ -779,7 +780,7 @@ spec = do
                     (contextOf fixtureDb)
                     [ RemoveExchange (SelectBiosphere (mkUUID 998))
                     , SetAmount (SelectInput supplierPid) (0 / 0)
-                    , AddExchange (techInput "nope" 1 Nothing)
+                    , AddExchange (techInput "nope" 1 Nothing) FromCall
                     ]
                     importedActivity of
                     Right _ -> expectationFailure "expected the edits to be refused"

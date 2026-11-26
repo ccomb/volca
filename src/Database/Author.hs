@@ -58,6 +58,7 @@ module Database.Author (
     -- * Editing an inventory in place
     ExchangeSelector (..),
     ExchangeEdit (..),
+    AmountFrom (..),
     ActivityText (..),
     EditedActivity (..),
     RestatedLine (..),
@@ -65,6 +66,8 @@ module Database.Author (
     amountsBeforeEach,
     retextsAuthoredIdentity,
     describeSelector,
+    nameAdded,
+    isUsableAmount,
     lineSelector,
     inputSelector,
     selectorPredicate,
@@ -430,6 +433,31 @@ describeExchange ex = case ex of
     AuthoredBio{abFlow = FlowById flowId} -> "emission or resource flow " <> UUID.toText flowId
     AuthoredBio{abFlow = FlowByName name _ _} -> "emission or resource flow \"" <> name <> "\""
 
+{- | An added line as a person reads it, for a form with no assistant beside
+it: the supplier's process or the flow, then the unit its amount is stated in.
+What cannot be found keeps the words of the request, since judging the edit
+is what refuses it.
+-}
+nameAdded :: AuthorContext -> AuthoredExchange -> Text
+nameAdded ctx = \case
+    AuthoredTechInput{atiProvider = provider, atiUnit = unit} -> supplied provider unit
+    AuthoredWasteOutput{awProvider = provider, awUnit = unit} -> supplied provider unit
+    AuthoredBio{abFlow = FlowById flowId, abUnit = unit} -> case findBioFlow ctx flowId of
+        Just (flow, units, _) -> labelled (bfName flow <> maybe "" (\c -> " (" <> renderCompartment c <> ")") (bfCompartment flow)) (fromMaybe (unitNameOf units (bfUnitId flow)) unit)
+        Nothing -> UUID.toText flowId
+    AuthoredBio{abFlow = FlowByName name compartment unit} -> labelled (name <> " (" <> renderCompartment compartment <> ")") unit
+  where
+    dbs :: [Database]
+    dbs = acDb ctx : acDeps ctx
+    supplied :: Text -> Maybe Text -> Text
+    supplied provider unit = case listToMaybe [(db, act) | db <- dbs, Just pid <- [resolveProcess db provider], Just act <- [dbActivities db V.!? fromIntegral pid]] of
+        Just (_, act) -> labelled (activityName act <> " (" <> activityLocation act <> ")") (fromMaybe (either (const "") defaultUnit (resolveSupplier ctx provider)) unit)
+        Nothing -> provider
+    labelled :: Text -> Text -> Text
+    labelled what unit
+        | T.null unit = what
+        | otherwise = what <> ", " <> unit
+
 {- | An amount that can carry information: finite, and not zero. A zero
 exchange is not a measurement of nothing, it is a line that should not have
 been written – and it would divide into a zero normalization factor.
@@ -473,6 +501,15 @@ data ExchangeSelector
       SelectUnlinkedWaste UUID (Maybe ExchangeLocation)
     deriving (Eq, Show)
 
+{- | Who gave the amount of an added line: the call that made the change, or
+the person, typed in a form their client showed. The engine marks the second
+itself, from the client's answer to its form: no field of a request carries it.
+Like the acceptance of terms, it trusts the client to answer only what the
+person typed.
+-}
+data AmountFrom = FromCall | TypedByPerson
+    deriving (Eq, Show)
+
 {- | One change to an activity: a line of its inventory, one of its texts, or
 one of its parameters. Edits apply in the order given, so removing a line and
 then setting its amount is refused – by then it matches nothing – rather than
@@ -481,7 +518,7 @@ quietly reordered into something that works.
 data ExchangeEdit
     = RemoveExchange ExchangeSelector
     | SetAmount ExchangeSelector Double
-    | AddExchange AuthoredExchange
+    | AddExchange AuthoredExchange AmountFrom
     | SetText ActivityText
     | -- | A line's formula in VoLCA's language, or none; a named line keeps its name either way.
       SetFormula ExchangeSelector (Maybe Text)
@@ -627,7 +664,7 @@ amountsBefore activity = \case
     SetFormula selector _ -> named selector
     SetSupplier selector _ -> named selector
     SetProperty{} -> []
-    AddExchange _ -> []
+    AddExchange _ _ -> []
     SetText _ -> []
     SetParameter _ _ -> []
     RemoveParameter _ -> []
@@ -680,7 +717,7 @@ applyOneEdit ctx act edit = case edit of
     SetProperty prop flow value -> onSelected (foldMap (propertyCheck (acUnitConfig ctx) prop) value) (selectProduct flow current) (withProperty prop value)
     -- An added line resolves exactly as a written one does: same provider
     -- lookup, same unit rules, same new-flow warning.
-    AddExchange authored -> case resolveOne ctx authored of
+    AddExchange authored _ -> case resolveOne ctx authored of
         Left errs -> Left (map ((describeExchange authored <> ": ") <>) errs)
         Right resolved ->
             Right
@@ -821,7 +858,7 @@ besideDeduced edits final =
         SetProperty prop _ _ -> prop == Price
         RemoveExchange _ -> False
         SetAmount _ _ -> False
-        AddExchange _ -> False
+        AddExchange _ _ -> False
         SetText _ -> False
         SetFormula _ _ -> False
         SetParameter _ _ -> False
@@ -1123,12 +1160,14 @@ resolveLinked ctx provider amount mUnit adopt build =
                 , reAdoption = adoption
                 , reWarnings = []
                 }
-    defaultUnit :: Supplier -> Text
-    defaultUnit sup =
-        case (supProducedUnit sup, supAnyRefUnit sup) of
-            ("", "") -> ""
-            ("", other) -> other
-            (produced, _) -> produced
+
+-- | The unit a line from this supplier is stated in when it names none: what the supplier produces, or else its reference either way.
+defaultUnit :: Supplier -> Text
+defaultUnit sup =
+    case (supProducedUnit sup, supAnyRefUnit sup) of
+        ("", "") -> ""
+        ("", other) -> other
+        (produced, _) -> produced
 
 {- | Judge the unit an amount is stated in against what the matrix will do
 with it. A provider with a produced reference output gets the conversion
