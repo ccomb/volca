@@ -265,10 +265,8 @@ for it, or when the person types `/<server>:<name>`. The engine serves its
 skills over MCP, to clients of the 2026-07-28 revision that read the skills
 extension; other clients see none, and the tools work as before.
 
-Two skills are built in: `carbon-footprint` (the climate change score of a
-product, with its fossil, biogenic and land use parts) and `pef-hotspots`
-(the most relevant impact categories, processes, and emissions and resources
-of a product under the PEF 80 % rule). Each `[[skills]]` entry adds a skill,
+The engine has built-in skills: `skills/list` names them, and their texts
+are in `src/Skill/Builtin.hs`. Each `[[skills]]` entry adds a skill,
 or replaces the built-in one of the same name. The engine writes the file's
 header from `name` and `description`, so the description must be printable
 on one line and cannot hold `---`; a name or description that breaks these

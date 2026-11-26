@@ -93,7 +93,7 @@ import qualified Data.Text.IO as TIO
 import Database.Upload (DatabaseFormat (..))
 import GHC.Generics (Generic)
 import Progress (ProgressLevel (..), reportProgress)
-import Skill (Skill, skillFrom, skillName)
+import Skill (Skill, SkillSource (..), skillFrom, skillName)
 import Skill.Builtin (servedSkills)
 import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
@@ -695,10 +695,10 @@ instance DecodeTOML Config where
 -- | A @[[skills]]@ entry, refused here when the skill could not be served as written.
 skillDecoder :: Decoder Skill
 skillDecoder = do
-    name <- getField "name"
-    description <- getField "description"
-    text <- getField "text"
-    either (fail . T.unpack) pure (skillFrom name description text)
+    sourceName <- getField "name"
+    sourceDescription <- getField "description"
+    sourceText <- getField "text"
+    either (fail . T.unpack) pure (skillFrom SkillSource{..})
 
 instance DecodeTOML ServerConfig where
     tomlDecoder = do

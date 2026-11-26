@@ -30,7 +30,7 @@ import Test.Hspec
 import API.MCP (mcpApp, modernVersion)
 import Config (Config (..), defaultConfig, loadConfigOrDefault, validateConfig)
 import Database.Manager (CachePolicy (..), initDatabaseManager)
-import Skill (Skill, skillFile, skillFrom, skillName)
+import Skill (Skill, SkillSource (..), skillFile, skillFrom, skillName)
 import Skill.Builtin (builtinSkills, servedSkills)
 
 -- | The skills an engine with no configuration serves.
@@ -60,7 +60,10 @@ ask :: Text -> [(Key, Value)] -> IO (Maybe Value)
 ask method params = post headers (request method (("_meta", meta) : params))
   where
     meta = object ["io.modelcontextprotocol/protocolVersion" .= modernVersion, "io.modelcontextprotocol/clientCapabilities" .= object []]
-    headers = [("MCP-Protocol-Version", TE.encodeUtf8 modernVersion), ("Mcp-Method", TE.encodeUtf8 method)]
+    headers = modernHeaders method <> [("Mcp-Name", TE.encodeUtf8 u) | method == "resources/read", Just (String u) <- [lookup "uri" params]]
+
+modernHeaders :: Text -> RequestHeaders
+modernHeaders method = [("MCP-Protocol-Version", TE.encodeUtf8 modernVersion), ("Mcp-Method", TE.encodeUtf8 method)]
 
 request :: Text -> [(Key, Value)] -> Value
 request method params = object ["jsonrpc" .= ("2.0" :: Text), "id" .= (1 :: Int), "method" .= method, "params" .= object params]
@@ -95,6 +98,14 @@ spec = do
             (a >>= at ["result", "cacheScope"]) `shouldBe` Just (String "public")
             (a >>= at ["result", "resultType"]) `shouldBe` Just (String "complete")
 
+        it "refuses a resources/read whose Mcp-Name header names another file, or none" $ do
+            let meta = object ["io.modelcontextprotocol/protocolVersion" .= modernVersion, "io.modelcontextprotocol/clientCapabilities" .= object []]
+                body = request "resources/read" ["_meta" .= meta, "uri" .= uri]
+            other <- post (("Mcp-Name", "skill://volca/pef-hotspots/SKILL.md") : modernHeaders "resources/read") body
+            none <- post (modernHeaders "resources/read") body
+            (other >>= at ["error", "code"]) `shouldBe` Just (Number (-32020))
+            (none >>= at ["error", "code"]) `shouldBe` Just (Number (-32020))
+
         it "serves a file whose digest and size are those skills/get announces" $ do
             entry <- ask "skills/get" ["uri" .= uri]
             file <- ask "resources/read" ["uri" .= uri]
@@ -125,19 +136,20 @@ spec = do
 
     describe "a skill's file" $ do
         it "writes its header as quoted strings, whatever the description holds" $
-            fmap skillFile (skillFrom "a-b" "Says: \"#1\" \\ done" "Body.\n")
+            fmap skillFile (skillFrom SkillSource{sourceName = "a-b", sourceDescription = "Says: \"#1\" \\ done", sourceText = "Body.\n"})
                 `shouldBe` Right "---\nname: \"a-b\"\ndescription: \"Says: \\\"#1\\\" \\\\ done\"\n---\n\nBody.\n"
 
         it "is refused when a client would read its header differently, or drop it" $ do
-            let refused name description = isLeft (skillFrom name description "Body.\n")
+            let refused name description = isLeft (skillFrom SkillSource{sourceName = name, sourceDescription = description, sourceText = "Body.\n"})
             map (`refused` "ok") ["-a", "a-", "a--b", "A", "", T.replicate 65 "a"] `shouldBe` replicate 6 True
             map (refused "a") ["", " ", T.replicate 1025 "a", "a\x85\&b", "a\x7f", "a\x2028\&b", "a\tb", "a --- b"] `shouldBe` replicate 8 True
             refused "a" "Fine: any \"quote\" & #sign." `shouldBe` False
-            isLeft (skillFrom "a" "ok" "  \n") `shouldBe` True
+            either (T.isInfixOf "U+200D at character 2") (const False) (skillFrom SkillSource{sourceName = "a", sourceDescription = "a\x200D\&b", sourceText = "Body.\n"}) `shouldBe` True
+            isLeft (skillFrom SkillSource{sourceName = "a", sourceDescription = "ok", sourceText = "  \n"}) `shouldBe` True
 
     describe "the skills of a configuration" $ do
         it "replace a built-in skill of the same name, and keep the others" $ do
-            own <- either (fail . T.unpack) pure (skillFrom "carbon-footprint" "Our own footprint." "Ours.\n")
+            own <- either (fail . T.unpack) pure (skillFrom SkillSource{sourceName = "carbon-footprint", sourceDescription = "Our own footprint.", sourceText = "Ours.\n"})
             fmap (map skillName) (servedSkills [own]) `shouldBe` Right ["carbon-footprint", "pef-hotspots"]
             fmap (map skillFile . take 1) (servedSkills [own]) `shouldBe` Right [skillFile own]
 
@@ -150,7 +162,7 @@ spec = do
             (TOML.decode "[[skills]]\nname = \"Bad Name\"\ndescription = \"x\"\ntext = \"y\"\n" :: Either TOML.TOMLError Config) `shouldSatisfy` isLeft
 
         it "refuse two skills of the same name" $ do
-            own <- either (fail . T.unpack) pure (skillFrom "local" "Local." "Ours.\n")
+            own <- either (fail . T.unpack) pure (skillFrom SkillSource{sourceName = "local", sourceDescription = "Local.", sourceText = "Ours.\n"})
             validateConfig defaultConfig{cfgSkills = [own, own]} `shouldSatisfy` isLeft
 
         it "are served with the built-in ones when no configuration is given" $ do

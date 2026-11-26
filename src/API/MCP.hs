@@ -397,10 +397,16 @@ classify hdrs req
         when (version /= modernVersion) (Left (UnsupportedVersion version))
         agrees "MCP-Protocol-Version" version
         agrees "Mcp-Method" (rpcMethod req)
-        -- shortcut: Mcp-Name is compared as sent, never Base64-decoded; every tool name is plain ASCII, which no client encodes.
-        when (rpcMethod req == "tools/call") $ case KM.lookup "name" params of
+        -- shortcut: Mcp-Name is compared as sent, never Base64-decoded; tool names and skill addresses are plain ASCII, which no client encodes.
+        case namingField (rpcMethod req) >>= (`KM.lookup` params) of
             Just (String name) -> agrees "Mcp-Name" name
             _ -> Right ()
+    -- The field of the body that the Mcp-Name header repeats, for the methods that have one.
+    namingField :: Text -> Maybe Key
+    namingField = \case
+        "tools/call" -> Just "name"
+        "resources/read" -> Just "uri"
+        _ -> Nothing
 
 -- | The revisions answered in the old era, all of them as 2025-03-26.
 legacyVersions :: [Text]
