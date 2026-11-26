@@ -9,7 +9,7 @@ It speaks two eras of the protocol on the same address. A client of the
 request; an older client opens with @initialize@ and is answered as 2025-03-26.
 POST carries every request; anything else is refused with 405.
 -}
-module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId, Era (..), Rejection (..), classify, sameOrigin, modernVersion, askingOf, TermsOutcome (..), Refusal (..), termsStep, toolAnswered, EditShape (..), Place (..), Missing (..), AmountsOutcome (..), missingAmounts, fillAmounts, amountsStep, placeKey) where
+module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId, Era (..), Rejection (..), classify, sameOrigin, modernVersion, askingOf, TermsOutcome (..), Refusal (..), termsStep, toolAnswered, CallShape (..), Place (..), Missing (..), AmountsOutcome (..), missingAmounts, fillAmounts, amountsStep, placeKey) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson
@@ -46,9 +46,9 @@ import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
 import Data.Either (partitionEithers)
 import Database (FlowFields (..), Geographies, filterByName, flowFieldsOf, flowQueryIn)
-import Database.Author (AmountFrom (..), AuthorContext (..), ExchangeEdit, isUsableAmount, nameAdded, resolveProcess)
+import Database.Author (AmountFrom (..), AuthorContext (..), AuthoredExchange, isUsableAmount, nameAdded, resolveProcess)
 import Database.Cutoffs (Cutoffs (..))
-import Database.Edit (MissingRequest (..), databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, judgeActivities, refusalMessage, supplyMissing)
+import Database.Edit (JudgedWrite (..), MissingRequest (..), WriteRefusal, WriteReport (..), WriteVerb (..), databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, judgeActivities, judgeWrite, refusalMessage, supplyMissing, writeActivities)
 import Database.Journal (statedFrom)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
@@ -65,7 +65,7 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, enc
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), AddedList (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, toActivityEdits, toActivityEditsTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
@@ -616,6 +616,7 @@ paramsToSchema ps =
         "add_inputs" -> providerLineSchema "Supplier of what is consumed"
         "add_waste_outputs" -> providerLineSchema "Treatment the waste is handed to"
         "add_biosphere" -> bioLineSchema
+        "activities" -> newProcessSchema
         _ -> object ["type" .= ("string" :: Text)]
 
     substitutionItemSchema =
@@ -839,6 +840,26 @@ paramsToSchema ps =
                     ]
             , "required" .= (["direction"] :: [Text])
             ]
+
+    -- Its arrays carry their own items: 'objectItems' only sees the names of the first level.
+    newProcessSchema =
+        object
+            [ "type" .= ("object" :: Text)
+            , "properties"
+                .= object
+                    [ "name" .= stringField "Name of the process, e.g. \"bread production, at bakery\""
+                    , "location" .= stringField "Location code, e.g. FR"
+                    , "description" .= object ["type" .= ("array" :: Text), "items" .= object ["type" .= ("string" :: Text)], "description" .= ("One string per paragraph" :: Text)]
+                    , "product_name" .= stringField "Name of the reference product"
+                    , "product_amount" .= numberField "Amount of the reference product the lines are stated for, usually 1"
+                    , "product_unit" .= stringField "Unit of the reference product, e.g. kg"
+                    , "inputs" .= arrayOf (providerLineSchema "Supplier of what is consumed: its process_id, here or in a dependency")
+                    , "biosphere" .= arrayOf bioLineSchema
+                    , "waste_outputs" .= arrayOf (providerLineSchema "Treatment the waste is handed to: its process_id")
+                    ]
+            , "required" .= (["name", "location", "product_name", "product_amount", "product_unit"] :: [Text])
+            ]
+    arrayOf items = object ["type" .= ("array" :: Text), "items" .= items]
 
     stringField desc = object ["type" .= ("string" :: Text), "description" .= (desc :: Text)]
     nullableNumberField desc = object ["type" .= (["number", "null"] :: [Text]), "description" .= (desc :: Text)]
@@ -1129,10 +1150,13 @@ declinedText how asked inCookie ts = case how of
     cookie :: [Text]
     cookie = Set.toList (inCookie <> Set.fromList (map termsFingerprint (NE.toList ts)))
 
--- | Where the edits of a call sit in its arguments: the arguments themselves (edit_exchanges), or each element of @edits@ (edit_activities).
-data EditShape = OneEdit | ManyEdits
+{- | Where the added lines of a call sit in its arguments: in the arguments
+themselves (edit_exchanges), in each element of @edits@ (edit_activities), or
+in each element of @activities@ (create_activities).
+-}
+data CallShape = OneEdit | ManyEdits | NewProcesses
 
--- | Where an added line sits in a call: the element of @edits@ if any, its list, its position there.
+-- | Where an added line sits in a call: the element of @edits@ or @activities@ if any, its list, its position there.
 data Place = Place (Maybe Int) AddedList Int
     deriving (Eq, Ord, Show)
 
@@ -1140,7 +1164,7 @@ data Place = Place (Maybe Int) AddedList Int
 data Missing = Missing
     { missingPlace :: Place
     , missingProcess :: Text
-    -- ^ the process the line is added to
+    -- ^ the process the line is added to, or the new process it is part of
     , missingLine :: Text
     -- ^ the supplier's process or the flow, and the unit its amount is stated in
     }
@@ -1163,24 +1187,24 @@ The edit is judged first with 1 in every gap, so nobody types a number for an
 edit refused anyway: an unknown process or supplier, a database that cannot
 be written. Only a refusal of the amount itself is left for the answer.
 -}
-withAmounts :: Asking -> DatabaseManager -> RequestId -> EditShape -> KeyMap Value -> ((Place -> AmountFrom) -> KeyMap Value -> IO Value) -> IO Value
+withAmounts :: Asking -> DatabaseManager -> RequestId -> CallShape -> KeyMap Value -> ((Place -> AmountFrom) -> KeyMap Value -> IO Value) -> IO Value
 withAmounts asking dbManager rid shape args run = case NE.nonEmpty (missingAmounts shape args) of
     Nothing -> run (const FromCall) args
     Just places ->
         missingOf dbManager shape args places >>= \case
             Left refusal -> pure (toolError rid refusal)
             Right missing -> case amountsStep asking missing of
-                Typed amounts -> sayTyped missing amounts <$> run (\place -> if M.member place amounts then TypedByPerson else FromCall) (fillAmounts amounts args)
-                AmountsInChat ms -> pure (toolError rid (amountsInChatText ms))
-                AmountsInForm why ms -> pure (askInForms rid [amountsFormKey .= amountsForm args why ms])
-                AmountsRefused how -> pure (toolError rid (amountsRefusedText how))
+                Typed amounts -> sayTyped shape missing amounts <$> run (\place -> if M.member place amounts then TypedByPerson else FromCall) (fillAmounts shape amounts args)
+                AmountsInChat ms -> pure (toolError rid (amountsInChatText shape ms))
+                AmountsInForm why ms -> pure (askInForms rid [amountsFormKey .= amountsForm shape args why ms])
+                AmountsRefused how -> pure (toolError rid (amountsRefusedText shape how))
 
 {- | The answer of an edit that ran, with the amounts the person typed beside
 it: the assistant never saw the form, and would otherwise take a figure it did
 not send for one made up. A refused edit is left as it is.
 -}
-sayTyped :: NE.NonEmpty Missing -> M.Map Place Double -> Value -> Value
-sayTyped missing amounts = \case
+sayTyped :: CallShape -> NE.NonEmpty Missing -> M.Map Place Double -> Value -> Value
+sayTyped shape missing amounts = \case
     Object response
         | Just (Object r) <- KM.lookup "result" response
         , KM.lookup "isError" r == Just (Bool False)
@@ -1189,42 +1213,75 @@ sayTyped missing amounts = \case
     other -> other
   where
     note :: Value
-    note = object ["type" .= ("text" :: Text), "text" .= typedText missing amounts]
+    note = object ["type" .= ("text" :: Text), "text" .= typedText shape missing amounts]
 
 -- | Which amounts the person typed, each with its line.
-typedText :: NE.NonEmpty Missing -> M.Map Place Double -> Text
-typedText missing amounts =
+typedText :: CallShape -> NE.NonEmpty Missing -> M.Map Place Double -> Text
+typedText shape missing amounts =
     T.unlines
         ( "The user typed these amounts in the form; they are the user's figures, not guesses:"
-            : ["- " <> missingLine m <> ", added to " <> missingProcess m <> ": " <> T.pack (show amount) | m <- NE.toList missing, Just amount <- [M.lookup (missingPlace m) amounts]]
+            : ["- " <> missingLine m <> ", " <> lineGoesTo shape (missingProcess m) <> ": " <> T.pack (show amount) | m <- NE.toList missing, Just amount <- [M.lookup (missingPlace m) amounts]]
         )
 
--- | The edits of a call, each by its place among the elements of @edits@ when there are several.
-editsAt :: EditShape -> KeyMap Value -> [(Maybe Int, KeyMap Value)]
-editsAt shape args = case shape of
-    OneEdit -> [(Nothing, args)]
-    ManyEdits -> [(Just n, element) | (n, Object element) <- zip [0 ..] (arrayAt "edits" args)]
+-- | Where a line goes, as the person reads it: into a process the call changes, or one it creates.
+lineGoesTo :: CallShape -> Text -> Text
+lineGoesTo shape process = case shape of
+    OneEdit -> "added to " <> process
+    ManyEdits -> "added to " <> process
+    NewProcesses -> "in the new process " <> process
+
+-- | What came of a call the person gave no amounts for.
+nothingDone :: CallShape -> Text
+nothingDone = \case
+    OneEdit -> "nothing was changed"
+    ManyEdits -> "nothing was changed"
+    NewProcesses -> "nothing was created"
+
+-- | The array whose elements hold the added lines, when they are not in the arguments themselves.
+elementsKey :: CallShape -> Maybe Key
+elementsKey = \case
+    OneEdit -> Nothing
+    ManyEdits -> Just "edits"
+    NewProcesses -> Just "activities"
+
+-- | The argument holding a list of added lines: an edit adds them, a new process states them.
+argListKey :: CallShape -> AddedList -> Key
+argListKey shape list = case (shape, list) of
+    (NewProcesses, AddInputs) -> "inputs"
+    (NewProcesses, AddBiosphere) -> "biosphere"
+    (NewProcesses, AddWasteOutputs) -> "waste_outputs"
+    (OneEdit, _) -> fieldListKey list
+    (ManyEdits, _) -> fieldListKey list
+
+-- | The elements of a call that hold added lines, each by its place in the array when there is one.
+editsAt :: CallShape -> KeyMap Value -> [(Maybe Int, KeyMap Value)]
+editsAt shape args = case elementsKey shape of
+    Nothing -> [(Nothing, args)]
+    Just key -> [(Just n, element) | (n, Object element) <- zip [0 ..] (arrayAt key args)]
 
 -- | The added lines of a call with no amount: no @amount@ key, or null, which is how a model says it does not know.
-missingAmounts :: EditShape -> KeyMap Value -> [Place]
+missingAmounts :: CallShape -> KeyMap Value -> [Place]
 missingAmounts shape args =
     [ Place n list i
     | (n, edit) <- editsAt shape args
     , list <- [minBound .. maxBound]
-    , (i, Object line) <- zip [0 ..] (arrayAt (addedListKey list) edit)
+    , (i, Object line) <- zip [0 ..] (arrayAt (argListKey shape list) edit)
     , maybe True (== Null) (KM.lookup "amount" line)
     ]
 
 -- | The call with these amounts written where it left them out.
-fillAmounts :: M.Map Place Double -> KeyMap Value -> KeyMap Value
-fillAmounts amounts args = M.foldrWithKey fill args amounts
+fillAmounts :: CallShape -> M.Map Place Double -> KeyMap Value -> KeyMap Value
+fillAmounts shape amounts args = M.foldrWithKey fill args amounts
   where
     fill :: Place -> Double -> KeyMap Value -> KeyMap Value
-    fill (Place n list i) amount = atEdit n (adjustAt (atIndex i (KM.insert "amount" (toJSON amount))) (addedListKey list))
+    fill (Place n list i) amount = atEdit n (adjustAt (atIndex i (KM.insert "amount" (toJSON amount))) (argListKey shape list))
     atEdit :: Maybe Int -> (KeyMap Value -> KeyMap Value) -> KeyMap Value -> KeyMap Value
-    atEdit n f = case n of
-        Just k -> adjustAt (atIndex k f) "edits"
-        Nothing -> f
+    atEdit n f = case (n, elementsKey shape) of
+        (Nothing, Nothing) -> f
+        (Just k, Just key) -> adjustAt (atIndex k f) key
+        -- A place of another shape names no line of this call.
+        (Just _, Nothing) -> id
+        (Nothing, Just _) -> id
     atIndex :: Int -> (KeyMap Value -> KeyMap Value) -> Value -> Value
     atIndex k f = \case
         Array xs -> Array (V.imap (\j x -> if j == k then onObject f x else x) xs)
@@ -1242,8 +1299,9 @@ arrayAt key o = case KM.lookup key o of
     Just (Array xs) -> V.toList xs
     _ -> []
 
-addedListKey :: AddedList -> Key
-addedListKey = \case
+-- | A list's name in the fields of the form, the same whatever the call: the person reads the field's title, never its key.
+fieldListKey :: AddedList -> Key
+fieldListKey = \case
     AddInputs -> "add_inputs"
     AddBiosphere -> "add_biosphere"
     AddWasteOutputs -> "add_waste_outputs"
@@ -1251,43 +1309,50 @@ addedListKey = \case
 {- | The lines a call left without an amount, named for the person, or why the
 edit is refused whatever the amounts: judged with 1 in every gap.
 -}
-missingOf :: DatabaseManager -> EditShape -> KeyMap Value -> NE.NonEmpty Place -> IO (Either Text (NE.NonEmpty Missing))
+missingOf :: DatabaseManager -> CallShape -> KeyMap Value -> NE.NonEmpty Place -> IO (Either Text (NE.NonEmpty Missing))
 missingOf dbManager shape args places = runExceptT $ do
     dbName <- except (requireText "database" args)
-    (requests, judged) <- except theCall
-    (ctx, _) <- ExceptT (first refusalMessage <$> judgeActivities dbManager dbName judged)
-    pure (fmap (named ctx requests) places)
+    (elements, judge) <- except (theCall dbName)
+    ctx <- ExceptT (first refusalMessage <$> judge)
+    pure (fmap (named ctx elements) places)
   where
     ones :: KeyMap Value
-    ones = fillAmounts (M.fromList [(p, 1) | p <- NE.toList places]) args
-    -- Read and translated as the tool does, so what it would refuse is refused before the form, in the same words.
-    theCall :: Either Text ([(Maybe Int, Text, ExchangeEditRequest)], NE.NonEmpty (Text, [ExchangeEdit]))
-    theCall = case shape of
+    ones = fillAmounts shape (M.fromList [(p, 1) | p <- NE.toList places]) args
+    {- Read and translated as the tool does, so what it would refuse is refused
+    before the form, in the same words: each element with the title of its
+    process and its added lines, and the judgement of the whole call. -}
+    theCall :: Text -> Either Text ([CallElement], IO (Either WriteRefusal AuthorContext))
+    theCall dbName = case shape of
         OneEdit -> do
             process <- requireText "process_id" ones
             request <- exchangeEditRequestOf ones
             edits <- first (T.intercalate "\n") (toExchangeEdits request)
-            pure ([(Nothing, process, request)], (process, edits) NE.:| [])
+            pure ([(Nothing, (`processNamed` process), addedLines request)], fmap fst <$> judgeActivities dbManager dbName ((process, edits) NE.:| []))
         ManyEdits -> do
             request <- activitiesRequestOf ones
             edits <- first (T.intercalate "\n") (toActivityEdits request)
-            pure (zipWith (\n e -> (Just n, aeProcessId e, aeEdit e)) [0 ..] (aqEdits request), edits)
-    named :: AuthorContext -> [(Maybe Int, Text, ExchangeEditRequest)] -> Place -> Missing
-    named ctx requests place@(Place n list i) =
+            pure (zipWith (\n e -> (Just n, (`processNamed` aeProcessId e), addedLines (aeEdit e))) [0 ..] (aqEdits request), fmap fst <$> judgeActivities dbManager dbName edits)
+        NewProcesses -> do
+            inputs <- activityInputsOf ones
+            authored <- first (T.intercalate "\n") (toAuthoredActivities inputs)
+            pure (zipWith (\n ai -> (Just n, const (aiName ai <> " (" <> aiLocation ai <> ")"), statedLines ai)) [0 ..] inputs, fmap jwContext <$> judgeWrite dbManager dbName CreateActivities authored)
+    named :: AuthorContext -> [CallElement] -> Place -> Missing
+    named ctx elements place@(Place n list i) =
         Missing
             { missingPlace = place
-            , missingProcess = maybe "" (processNamed ctx) process
-            , missingLine = maybe "" (either (const "") (nameAdded ctx)) (lookup (list, i) . addedLines =<< request)
+            , missingProcess = maybe "" (\(title, _) -> title ctx) found
+            , missingLine = maybe "" (either (const "") (nameAdded ctx)) (lookup (list, i) . snd =<< found)
             }
       where
-        found = listToMaybe [(pid, r) | (k, pid, r) <- requests, k == n]
-        process = fst <$> found
-        request = snd <$> found
+        found = listToMaybe [(title, added) | (k, title, added) <- elements, k == n]
     processNamed :: AuthorContext -> Text -> Text
     processNamed ctx process = fromMaybe process $ do
         pid <- resolveProcess (acDb ctx) process
         act <- dbActivities (acDb ctx) V.!? fromIntegral pid
         pure (activityName act <> " (" <> activityLocation act <> ")")
+
+-- | An element of a call that holds added lines: its place, the title of its process, and its lines.
+type CallElement = (Maybe Int, AuthorContext -> Text, [((AddedList, Int), Either [Text] AuthoredExchange)])
 
 -- | The form asking the person for the amounts, under one key for the whole call.
 amountsFormKey :: Key
@@ -1295,7 +1360,7 @@ amountsFormKey = "amounts"
 
 -- | The field of one line, named by its place so the answer lands on the line it asked about.
 placeKey :: Place -> Key
-placeKey (Place n list i) = fromText (maybe "" (\k -> T.pack (show k) <> "-") n <> toText (addedListKey list) <> "-" <> T.pack (show i))
+placeKey (Place n list i) = fromText (maybe "" (\k -> T.pack (show k) <> "-") n <> toText (fieldListKey list) <> "-" <> T.pack (show i))
 
 {- | What the person answered: an amount for every line, each usable, or why
 the form comes back. Asking again without saying why would loop.
@@ -1324,32 +1389,39 @@ amountsStep asking missing = case asking of
         Nothing -> Left (missingLine m <> ": no amount was typed.")
 
 -- | The form: what the assistant is doing, then one number to type per line.
-amountsForm :: KeyMap Value -> [Text] -> NE.NonEmpty Missing -> Value
-amountsForm args why ms =
+amountsForm :: CallShape -> KeyMap Value -> [Text] -> NE.NonEmpty Missing -> Value
+amountsForm shape args why ms =
     formRequest
-        (T.unlines (["The assistant is adding lines to " <> T.intercalate ", " (L.nub (map missingProcess (NE.toList ms))) <> ". Type the amount of each line it left out, in the unit shown."] <> noted <> why))
+        (T.unlines ([doing <> " " <> T.intercalate ", " (L.nub (map missingProcess (NE.toList ms))) <> ". Type the amount of each line it left out, in the unit shown."] <> noted <> why))
         [(placeKey (missingPlace m), field m) | m <- NE.toList ms]
   where
+    doing :: Text
+    doing = case shape of
+        OneEdit -> "The assistant is adding lines to"
+        ManyEdits -> "The assistant is adding lines to"
+        NewProcesses -> "The assistant is creating"
     noted :: [Text]
     noted = ["Why: " <> note | Just (String note) <- [KM.lookup "note" args]]
     field :: Missing -> Value
-    field m = object ["type" .= ("number" :: Text), "title" .= missingLine m, "description" .= ("Added to " <> missingProcess m)]
+    field m = object ["type" .= ("number" :: Text), "title" .= missingLine m, "description" .= capitalised (lineGoesTo shape (missingProcess m))]
+    capitalised :: Text -> Text
+    capitalised t = T.toUpper (T.take 1 t) <> T.drop 1 t
 
-amountsInChatText :: NE.NonEmpty Missing -> Text
-amountsInChatText ms =
+amountsInChatText :: CallShape -> NE.NonEmpty Missing -> Text
+amountsInChatText shape ms =
     T.unlines
         ( "These lines have no amount:"
-            : ["- " <> missingLine m <> ", added to " <> missingProcess m | m <- NE.toList ms]
+            : ["- " <> missingLine m <> ", " <> lineGoesTo shape (missingProcess m) | m <- NE.toList ms]
                 <> ["Ask the user for each amount, then call again with them. Never make them up."]
         )
 
 -- | What an assistant is told when the person gave no amounts: nothing to make up.
-amountsRefusedText :: Refusal -> Text
-amountsRefusedText = \case
-    SaidNo -> "The user did not give the amounts, so nothing was changed. Never make them up."
+amountsRefusedText :: CallShape -> Refusal -> Text
+amountsRefusedText shape = \case
+    SaidNo -> "The user did not give the amounts, so " <> nothingDone shape <> ". Never make them up."
     ClosedTheForm ->
         T.unlines
-            [ "The form asking the amounts was closed with no answer, so nothing was changed. Never make them up."
+            [ "The form asking the amounts was closed with no answer, so " <> nothingDone shape <> ". Never make them up."
             , "If this client cannot show forms, as in a run with no screen, give each amount in the call, and say where it comes from with source."
             ]
 
@@ -1452,6 +1524,7 @@ dispatchTool Caller{callerReader = reader, callerAuthor = by, callerAsking = ask
     R.GetQualityReport -> callGetQualityReport dbManager rid args
     R.GetComputedQualityReport -> callGetComputedQualityReport dbManager mHosting rid args
     R.GetCoverageReport -> callGetCoverageReport dbManager rid args
+    R.CreateActivities -> withAmounts asking dbManager rid NewProcesses args (\amountFrom filled -> callCreateActivities dbManager origin amountFrom rid filled)
     R.EditExchanges -> withAmounts asking dbManager rid OneEdit args (\amountFrom filled -> callEditExchanges dbManager origin amountFrom rid filled)
     R.EditActivities -> withAmounts asking dbManager rid ManyEdits args (\amountFrom filled -> callEditActivities dbManager origin amountFrom rid filled)
     R.SupplyMissing -> callSupplyMissing dbManager origin rid args
@@ -1554,6 +1627,14 @@ doubleArg :: Text -> KeyMap Value -> Maybe Double
 doubleArg key args = case KM.lookup (fromText key) args of
     Just (Number n) -> Just (realToFrac n)
     _ -> Nothing
+
+-- | A number argument the call must give, refused by name when it is missing or not a number.
+requireNumber :: Text -> KeyMap Value -> Either Text Double
+requireNumber key args = case KM.lookup (fromText key) args of
+    Just (Number n) -> Right (toRealFloat n)
+    Nothing -> Left ("Missing required parameter: " <> key)
+    Just Null -> Left ("Missing required parameter: " <> key)
+    Just _ -> Left ("Invalid parameter " <> key <> ": expected a number")
 
 boolArg :: Text -> KeyMap Value -> Maybe Bool
 boolArg key args = case KM.lookup (fromText key) args of
@@ -2754,7 +2835,42 @@ callGetGapReport dbManager rid args = runTool rid $ do
     report <- ExceptT (DM.databaseGapReport dbManager dbName)
     return $ toolSuccessJson rid (toJSON (gapReportToAPI (intArg "limit" args) report))
 
-{- | The tool that writes a database's data. It assembles the same request the
+{- | The tool that creates processes. It reads the same activities the HTTP
+endpoint reads, spelt as the other tools spell their arguments, and goes
+through the same domain call, so what an assistant may create, and what it is
+refused, are exactly what a person is.
+-}
+callCreateActivities :: DatabaseManager -> Origin -> (Place -> AmountFrom) -> RequestId -> KeyMap Value -> IO Value
+callCreateActivities dbManager origin amountFrom rid args = runTool rid $ do
+    dbName <- except (requireText "database" args)
+    inputs <- except (activityInputsOf args)
+    authored <- except (first (T.intercalate "\n") (toAuthoredActivitiesTyped (\n list i -> amountFrom (Place (Just n) list i)) inputs))
+    stated <- except (statedFrom <$> optionalText "note" args <*> optionalSource args)
+    report <- ExceptT (first refusalMessage <$> writeActivities dbManager dbName origin stated CreateActivities authored)
+    return $ toolSuccessJson rid (toJSON (ActivityWriteResponse (wrWritten report) (not (wrPersisted report)) (wrWarnings report)))
+
+-- | The elements of @activities@, each read into the activity the HTTP endpoint reads.
+activityInputsOf :: KeyMap Value -> Either Text [ActivityInput]
+activityInputsOf args = parseArrayArg "activities" (Just "Missing required parameter: activities") args >>= traverse activityInputOf
+
+-- | One element of @activities@; the note and the source are the whole change's.
+activityInputOf :: KeyMap Value -> Either Text ActivityInput
+activityInputOf element
+    | KM.member "note" element = Left "a note is given once, beside \"activities\", for the whole change"
+    | KM.member "source" element = Left "a source is given once, beside \"activities\", for the whole change"
+    | otherwise =
+        ActivityInput
+            <$> requireText "name" element
+            <*> requireText "location" element
+            <*> parseArrayArg "description" Nothing element
+            <*> requireText "product_name" element
+            <*> requireNumber "product_amount" element
+            <*> requireText "product_unit" element
+            <*> parseArrayArg "inputs" Nothing element
+            <*> parseArrayArg "biosphere" Nothing element
+            <*> parseArrayArg "waste_outputs" Nothing element
+
+{- | The tool that changes a process's data. It assembles the same request the
 HTTP endpoint reads and goes through the same domain call, so what an assistant
 may change, and what it is refused, are exactly what a person is.
 

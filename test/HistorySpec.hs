@@ -8,7 +8,7 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import Data.JournalFile (Author (..), Channel (..), Entry (..), sourceFrom)
-import Database.Author (AuthoredActivity (..), ExchangeEdit (..), ExchangeSelector (..))
+import Database.Author (AmountFrom (..), AuthoredActivity (..), AuthoredExchange (..), AuthoredLine (..), ExchangeEdit (..), ExchangeSelector (..))
 import Database.History
 import Database.Journal (Change (..), EditLine (..), JournalEvent, JournalOp (..), ParameterLine (..), Prior (..), Stated (..), noteFrom, nothingStated)
 import TestHelpers (modelDividingBy)
@@ -68,6 +68,12 @@ spec = describe "Database.History" $ do
                        , ("Changed 2 database parameters", ["distance changed from 120.0 km to 90.0 km", "new added: 1.0 km"])
                        , ("Deleted 1 process", ["\"a_b\""])
                        ]
+
+    it "lists the lines of a created process whose amount the person typed, and only those" $ do
+        let flour = AuthoredLine (AuthoredTechInput "c_d" 0.42 Nothing Nothing) TypedByPerson
+            water = AuthoredLine (AuthoredTechInput "e_f" 0.6 Nothing Nothing) FromCall
+        map hlDetails (describeJournal (namerFor Nothing) [Entry "t" Nothing Nothing (Change nothingStated (Created [bread{aaExchanges = [flour, water]}] ["a_b"]))])
+            `shouldBe` [["\"bread\" (FR), a_b", "\"bread\" (FR): input from \"c_d\", 0.42 (typed by the user)"]]
 
     it "reports each change with who made it when known, and its reason or that it was given none" $ do
         let report = changesReport Provenance{pvDatabase = "my bakery", pvOriginal = "bakery", pvRelease = Just (Release "Bakery data" "2025" Nothing), pvReallocated = Just (ByModel (modelDividingBy DryMass))} (Carried Nothing (Journal "my bakery" history))

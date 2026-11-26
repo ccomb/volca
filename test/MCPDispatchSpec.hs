@@ -157,12 +157,31 @@ positiveNumber v = case v of
 -- | For every array parameter a tool declares, the @type@ its items promise.
 itemTypesOf :: Text -> [(Text, Text)]
 itemTypesOf name =
-    sort
-        [ (toText key, itemType)
+    concat
+        [ arrayItemTypes props
         | Just (Object o) <- [toolByName name]
         , Just (Object schema) <- [KM.lookup "inputSchema" o]
         , Just (Object props) <- [KM.lookup "properties" schema]
-        , (key, Object prop) <- KM.toList props
+        ]
+
+-- | The same, for the arrays inside each element of one array parameter.
+nestedItemTypesOf :: Text -> Key -> [(Text, Text)]
+nestedItemTypesOf name param =
+    concat
+        [ arrayItemTypes props
+        | Just (Object o) <- [toolByName name]
+        , Just (Object schema) <- [KM.lookup "inputSchema" o]
+        , Just (Object top) <- [KM.lookup "properties" schema]
+        , Just (Object prop) <- [KM.lookup param top]
+        , Just (Object items) <- [KM.lookup "items" prop]
+        , Just (Object props) <- [KM.lookup "properties" items]
+        ]
+
+arrayItemTypes :: KM.KeyMap Value -> [(Text, Text)]
+arrayItemTypes props =
+    sort
+        [ (toText key, itemType)
+        | (key, Object prop) <- KM.toList props
         , KM.lookup "type" prop == Just (String "array")
         , Just (Object items) <- [KM.lookup "items" prop]
         , Just (String itemType) <- [KM.lookup "type" items]
@@ -326,6 +345,12 @@ spec = describe "MCP database load/unload tools" $ do
                            , ("set_suppliers", "object")
                            , ("set_wet_masses", "object")
                            ]
+
+    describe "create_activities tool" $
+        it "describes each list of a new process, nested ones included, as holding what it holds" $ do
+            itemTypesOf "create_activities" `shouldBe` [("activities", "object")]
+            nestedItemTypesOf "create_activities" "activities"
+                `shouldBe` [("biosphere", "object"), ("description", "string"), ("inputs", "object"), ("waste_outputs", "object")]
 
     describe "quality-report tool" $ do
         it "is advertised with a required 'database' parameter" $

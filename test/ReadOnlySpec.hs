@@ -248,7 +248,7 @@ spec = do
 
     describe "Resource registry" $
         it "counts exactly the operations that change shared state as mutations" $
-            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, EditExchanges, EditActivities, SupplyMissing, EditDatabaseParameters, SaveScenario, DropScenario, CopyMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
+            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, CreateActivities, EditExchanges, EditActivities, SupplyMissing, EditDatabaseParameters, SaveScenario, DropScenario, CopyMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
 
     describe "REST handlers under read_only" $ do
         it "refuse every mutating endpoint with 403" $

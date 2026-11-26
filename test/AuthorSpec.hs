@@ -28,6 +28,7 @@ import Database.Author (
     AuthorContext (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
+    AuthoredLine (..),
     EditedActivity (..),
     ExchangeEdit (..),
     ExchangeSelector (..),
@@ -118,39 +119,39 @@ spec = do
                 -- a dropped input silently undercounts the activity's inventory.
                 failsWith
                     "unknown supplier"
-                    (baseActivity{aaExchanges = [techInput "no-such-process" 1 Nothing]})
+                    (baseActivity{aaExchanges = fromCall [techInput "no-such-process" 1 Nothing]})
 
             it "refuses an input whose unit cannot reach the supplier's" $
                 failsWith
                     "cannot convert \"m\" into the supplier's \"kg\""
-                    (baseActivity{aaExchanges = [techInput supplierPid 1 (Just "m")]})
+                    (baseActivity{aaExchanges = fromCall [techInput supplierPid 1 (Just "m")]})
 
             it "refuses a waste output restated in a unit its treatment does not use" $
                 -- The matrix never converts into a reference input, so a
                 -- mismatched unit would land as a wrong raw number.
                 failsWith
                     "amounts to a supplier with no produced output are not converted"
-                    (baseActivity{aaExchanges = [wasteOut treatPid 1 (Just "m")]})
+                    (baseActivity{aaExchanges = fromCall [wasteOut treatPid 1 (Just "m")]})
 
             it "refuses a non-finite exchange amount" $
                 failsWith
                     "finite non-zero"
-                    (baseActivity{aaExchanges = [techInput supplierPid (1 / 0) Nothing]})
+                    (baseActivity{aaExchanges = fromCall [techInput supplierPid (1 / 0) Nothing]})
 
             it "refuses a biosphere flow identifier nothing declares" $
                 failsWith
                     "no emission or resource flow"
-                    (baseActivity{aaExchanges = [bioOf (FlowById (mkUUID 999)) 1 Nothing]})
+                    (baseActivity{aaExchanges = fromCall [bioOf (FlowById (mkUUID 999)) 1 Nothing]})
 
             it "refuses a biosphere amount restated in another unit" $
                 -- The biosphere matrix carries amounts through unconverted, so a
                 -- unit the flow does not use would land as a wrong number.
                 failsWith
                     "emission and resource amounts are not converted"
-                    (baseActivity{aaExchanges = [bioOf (FlowById co2Id) 1 (Just "m")]})
+                    (baseActivity{aaExchanges = fromCall [bioOf (FlowById co2Id) 1 (Just "m")]})
 
             it "reports a bad product unit and a bad exchange together" $
-                case validateAuthored (contextOf fixtureDb) [baseActivity{aaProductUnit = "furlong", aaExchanges = [techInput "nope" 1 Nothing]}] of
+                case validateAuthored (contextOf fixtureDb) [baseActivity{aaProductUnit = "furlong", aaExchanges = fromCall [techInput "nope" 1 Nothing]}] of
                     Right _ -> expectationFailure "expected both defects to be refused"
                     Left errs -> do
                         length errs `shouldBe` 2
@@ -161,7 +162,7 @@ spec = do
                 let bad =
                         baseActivity
                             { aaName = "two-problems"
-                            , aaExchanges = [techInput "nope" 1 Nothing, bioOf (FlowById (mkUUID 998)) 1 Nothing]
+                            , aaExchanges = fromCall [techInput "nope" 1 Nothing, bioOf (FlowById (mkUUID 998)) 1 Nothing]
                             }
                 case validateAuthored (contextOf fixtureDb) [bad, baseActivity{aaProductUnit = "furlong"}] of
                     Right _ -> expectationFailure "expected the batch to be refused"
@@ -203,7 +204,7 @@ spec = do
             it "takes a unit the database records under another spelling of it" $
                 withSpellings $ \cfg -> do
                     let ctx = (contextOf fixtureDb){acUnitConfig = cfg}
-                    case validateAuthored ctx [baseActivity{aaProductUnit = "kilogram", aaExchanges = [bioOf (FlowById co2Id) 1 (Just "kilogram")]}] of
+                    case validateAuthored ctx [baseActivity{aaProductUnit = "kilogram", aaExchanges = fromCall [bioOf (FlowById co2Id) 1 (Just "kilogram")]}] of
                         Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                         Right ([r], _) -> do
                             activityUnit (riActivity r) `shouldBe` "kg"
@@ -222,7 +223,7 @@ spec = do
             it "links a local supplier by UUIDs, never by process id" $ do
                 -- Process ids renumber on every rebuild; an embedded one would
                 -- silently point at whichever row inherits the number.
-                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = [techInput supplierPid 2 Nothing]}
+                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = fromCall [techInput supplierPid 2 Nothing]}
                 case [ex | ex <- exchanges (riActivity r), isTechnosphereExchange ex, exchangeAmount ex == 2] of
                     [TechnosphereExchange{techActivityLinkId = Just link}] -> link `shouldBe` supplierActId
                     other -> expectationFailure ("expected one resolved input, got " <> show (length other))
@@ -230,7 +231,7 @@ spec = do
             it "defaults a waste output to the treatment's reference unit" $ do
                 -- A treatment has no produced unit to borrow; the omitted unit
                 -- falls back to its reference input's.
-                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = [wasteOut treatPid 1 Nothing]}
+                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = fromCall [wasteOut treatPid 1 Nothing]}
                 case [ex | ex@WasteExchange{} <- exchanges (riActivity r)] of
                     [WasteExchange{waActivityLinkId = Just link, waUnitId = unit}] -> do
                         link `shouldBe` treatActId
@@ -242,7 +243,7 @@ spec = do
                 -- carries the activity UUID and waits for the relink.
                 depDb <- buildFixture
                 let ctx = (contextOf fixtureDb){acDeps = [depDb]}
-                    authored = baseActivity{aaName = "from-dep", aaExchanges = [techInput supplierPid 3 Nothing]}
+                    authored = baseActivity{aaName = "from-dep", aaExchanges = fromCall [techInput supplierPid 3 Nothing]}
                 case validateAuthored ctx{acDb = emptyOf fixtureDb} [authored] of
                     Left errs -> expectationFailure ("expected resolution, got " <> show errs)
                     Right ([r], _) ->
@@ -258,7 +259,7 @@ spec = do
                 depDb <- buildFixture
                 let writing = (emptyOf fixtureDb){dbTechFlows = M.empty}
                     ctx = (contextOf writing){acDeps = [depDb]}
-                    authored = baseActivity{aaExchanges = [techInput supplierPid 3 Nothing]}
+                    authored = baseActivity{aaExchanges = fromCall [techInput supplierPid 3 Nothing]}
                 case validateAuthored ctx [authored] of
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right ([r], _) -> do
@@ -273,7 +274,7 @@ spec = do
                 depDb <- buildFixture
                 let writing = (emptyOf fixtureDb){dbTechFlows = M.empty, dbWasteFlows = M.empty}
                     ctx = (contextOf writing){acDeps = [depDb]}
-                case validateAuthored ctx [baseActivity{aaExchanges = [wasteOut treatPid 2 Nothing]}] of
+                case validateAuthored ctx [baseActivity{aaExchanges = fromCall [wasteOut treatPid 2 Nothing]}] of
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right ([r], _) -> do
                         [(wfName f, wfUnitId f) | f <- riNewWasteFlows r] `shouldBe` [("used oil", kgUnitId)]
@@ -286,7 +287,7 @@ spec = do
             it "files the flow of a waste output to its own treatment as a waste flow" $ do
                 -- The treatment's flow is a product of the edited database, so
                 -- it may be absent from its waste flows all the same.
-                case validateAuthored (contextOf fixtureDb{dbWasteFlows = M.empty}) [baseActivity{aaExchanges = [wasteOut treatPid 2 Nothing]}] of
+                case validateAuthored (contextOf fixtureDb{dbWasteFlows = M.empty}) [baseActivity{aaExchanges = fromCall [wasteOut treatPid 2 Nothing]}] of
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right ([r], _) -> map wfName (riNewWasteFlows r) `shouldBe` ["used oil"]
                     Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
@@ -295,7 +296,7 @@ spec = do
                 depDb <- buildFixture
                 let writing = (emptyOf fixtureDb){dbTechFlows = M.empty, dbWasteFlows = M.empty}
                     ctx = (contextOf writing){acDeps = [depDb]}
-                case validateAuthored ctx [baseActivity{aaExchanges = mixedNewFlows}] of
+                case validateAuthored ctx [baseActivity{aaExchanges = fromCall mixedNewFlows}] of
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right ([r], _) -> do
                         map bfName (riNewBioFlows r) `shouldBe` ["Nitrous oxide", "Methane"]
@@ -316,7 +317,7 @@ spec = do
                             }
                     writing = (emptyOf fixtureDb){dbTechFlows = M.empty}
                     ctx = (contextOf writing){acDeps = [depDb]}
-                case validateAuthored ctx [baseActivity{aaExchanges = [techInput supplierPid 3 Nothing]}] of
+                case validateAuthored ctx [baseActivity{aaExchanges = fromCall [techInput supplierPid 3 Nothing]}] of
                     Left errs ->
                         errs `shouldSatisfy` any (isInfixOf "is not converted, so restate it")
                     Right _ -> expectationFailure "expected a refusal on the unit the amount is stated in"
@@ -328,7 +329,7 @@ spec = do
                 depDb <- buildFixture
                 let writing = (emptyOf fixtureDb){dbTechFlows = M.empty}
                     ctx = (contextOf writing){acDeps = [depDb]}
-                case validateAuthored ctx [baseActivity{aaExchanges = [techInput supplierPid 3 (Just "kg")]}] of
+                case validateAuthored ctx [baseActivity{aaExchanges = fromCall [techInput supplierPid 3 (Just "kg")]}] of
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right ([_], _) -> pure ()
                     Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
@@ -351,7 +352,7 @@ spec = do
                             , dbUnits = M.delete metreUnitId (dbUnits fixtureDb)
                             }
                     ctx = (contextOf writing){acDeps = [depDb]}
-                case validateAuthored ctx [baseActivity{aaExchanges = [techInput supplierPid 3 Nothing]}] of
+                case validateAuthored ctx [baseActivity{aaExchanges = fromCall [techInput supplierPid 3 Nothing]}] of
                     Left errs ->
                         errs `shouldSatisfy` any (isInfixOf "a unit this database does not have")
                     Right _ -> expectationFailure "expected a refusal on the copied flow's unit"
@@ -378,7 +379,7 @@ spec = do
                     ctx = editingContext defaultUnitConfig writing [depDb]
                 M.member metreUnitId (dbUnits (acDb ctx)) `shouldBe` True
                 M.keys (dbUnits (acDb ctx)) `shouldBe` M.keys (dbUnits fixtureDb)
-                case validateAuthored ctx [baseActivity{aaExchanges = [techInput supplierPid 3 (Just "m")]}] of
+                case validateAuthored ctx [baseActivity{aaExchanges = fromCall [techInput supplierPid 3 (Just "m")]}] of
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right ([r], _) ->
                         [tfUnitId f | f <- riNewTechFlows r] `shouldSatisfy` elem metreUnitId
@@ -404,7 +405,7 @@ spec = do
                 (M.member metreUnitId units, M.member UUID.nil units) `shouldBe` (True, False)
 
             it "warns about a biosphere flow new to the database without refusing it" $ do
-                let authored = baseActivity{aaExchanges = [bioOf (FlowByName "Nitrous oxide" air "kg") 0.5 Nothing]}
+                let authored = baseActivity{aaExchanges = fromCall [bioOf (FlowByName "Nitrous oxide" air "kg") 0.5 Nothing]}
                 case validateAuthored (contextOf fixtureDb) [authored] of
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right ([r], warnings) -> do
@@ -419,7 +420,7 @@ spec = do
                 bare <- buildBareFixture
                 dep <- buildFixture
                 let ctx = AuthorContext{acDb = bare, acDeps = [dep], acUnitConfig = defaultUnitConfig}
-                case validateAuthored ctx [baseActivity{aaExchanges = [bioOf (FlowById co2Id) 1 Nothing]}] of
+                case validateAuthored ctx [baseActivity{aaExchanges = fromCall [bioOf (FlowById co2Id) 1 Nothing]}] of
                     Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
                     Right ([r], _) -> do
                         map bfName (riNewBioFlows r) `shouldBe` ["Carbon dioxide"]
@@ -429,32 +430,32 @@ spec = do
             it "reuses a biosphere flow the database already declares" $ do
                 -- Same three coordinates the flow was minted on: re-declaring it is
                 -- not a second flow.
-                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = [bioOf (FlowById co2Id) 1 Nothing]}
+                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = fromCall [bioOf (FlowById co2Id) 1 Nothing]}
                 map bfName (riNewBioFlows r) `shouldBe` []
 
             it "reads a flow named in words as the one the database already declares" $ do
                 -- The name an inventory shows is what an author writes back;
                 -- minting a twin of a curated flow would carry no
                 -- characterization factor and score as zero beside it.
-                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = [bioOf (FlowByName "carbon dioxide" air "kg") 2 Nothing]}
+                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = fromCall [bioOf (FlowByName "carbon dioxide" air "kg") 2 Nothing]}
                 map bfName (riNewBioFlows r) `shouldBe` []
                 bioFlowIds r `shouldBe` [co2Id]
 
             it "keeps a name in another compartment apart" $ do
                 let urban = Compartment{compartmentName = Air, compartmentSub = Just "urban air"}
-                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = [bioOf (FlowByName "Carbon dioxide" urban "kg") 2 Nothing]}
+                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = fromCall [bioOf (FlowByName "Carbon dioxide" urban "kg") 2 Nothing]}
                 map bfName (riNewBioFlows r) `shouldBe` ["Carbon dioxide"]
                 bioFlowIds r `shouldSatisfy` (/= [co2Id])
 
             it "refuses a named flow restated in another unit" $
                 failsWith
                     "emission and resource amounts are not converted"
-                    (baseActivity{aaExchanges = [bioOf (FlowByName "Carbon dioxide" air "m") 1 Nothing]})
+                    (baseActivity{aaExchanges = fromCall [bioOf (FlowByName "Carbon dioxide" air "m") 1 Nothing]})
 
             it "tells two flows of one name apart by the unit the exchange states" $ do
                 -- An energy carrier recorded in kg and in MJ is the real case:
                 -- the author has already written which one they mean.
-                r <- resolveOrFail (withTwinFlow fixtureDb) baseActivity{aaExchanges = [bioOf (FlowByName "Carbon dioxide" air "kg") 2 Nothing]}
+                r <- resolveOrFail (withTwinFlow fixtureDb) baseActivity{aaExchanges = fromCall [bioOf (FlowByName "Carbon dioxide" air "kg") 2 Nothing]}
                 bioFlowIds r `shouldBe` [co2Id]
 
             it "refuses a name two flows answer to in the unit stated, naming their identifiers" $
@@ -463,22 +464,23 @@ spec = do
                 refusalOf
                     (withSameUnitFlow fixtureDb)
                     (UUID.toText sameUnitFlowId)
-                    (baseActivity{aaExchanges = [bioOf (FlowByName "Carbon dioxide" air "kg") 1 Nothing]})
+                    (baseActivity{aaExchanges = fromCall [bioOf (FlowByName "Carbon dioxide" air "kg") 1 Nothing]})
 
             it "names the units on offer when the stated one is none of them" $
                 refusalOf
                     (withTwinFlow fixtureDb)
                     "restate it in one of them"
-                    (baseActivity{aaExchanges = [bioOf (FlowByName "Carbon dioxide" air "item") 1 Nothing]})
+                    (baseActivity{aaExchanges = fromCall [bioOf (FlowByName "Carbon dioxide" air "item") 1 Nothing]})
 
         describe "insertActivities" $ do
             it "adds the activity, its product flow and its new biosphere flow together" $ do
                 let authored =
                         baseActivity
                             { aaExchanges =
-                                [ techInput supplierPid 2 Nothing
-                                , bioOf (FlowByName "Nitrous oxide" air "kg") 0.5 Nothing
-                                ]
+                                fromCall
+                                    [ techInput supplierPid 2 Nothing
+                                    , bioOf (FlowByName "Nitrous oxide" air "kg") 0.5 Nothing
+                                    ]
                             }
                 r <- resolveOrFail fixtureDb authored
                 case insertActivities defaultUnitConfig [r] fixtureDb of
@@ -493,7 +495,7 @@ spec = do
                 -- A waste output with no target is what a final waste flow looks
                 -- like. An authored one always has a treatment, so reading its
                 -- link as no target would report every one of them as final.
-                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = [wasteOut treatPid 0.5 Nothing]}
+                r <- resolveOrFail fixtureDb baseActivity{aaExchanges = fromCall [wasteOut treatPid 0.5 Nothing]}
                 case insertedWasteOutput fixtureDb r of
                     Left err -> expectationFailure (T.unpack err)
                     Right (ewu, treatment) -> do
@@ -508,7 +510,7 @@ spec = do
                 -- reported at whichever product the UUID index happens to hold,
                 -- naming a row the score never charged.
                 db <- buildTwoProductTreatment
-                r <- resolveOrFail db baseActivity{aaExchanges = [wasteOut treatPid 0.5 Nothing]}
+                r <- resolveOrFail db baseActivity{aaExchanges = fromCall [wasteOut treatPid 0.5 Nothing]}
                 case insertedWasteOutput db r of
                     Left err -> expectationFailure (T.unpack err)
                     Right (ewu, treatment) -> ewuTargetProcessId ewu `shouldBe` Just treatment
@@ -532,7 +534,7 @@ spec = do
                 -- supplier's row, so links carry UUIDs and never a row number.
                 highDb <- buildFixtureAt highActId highProdId
                 let pidText = UUID.toText highActId <> "_" <> UUID.toText highProdId
-                r <- resolveOrFail highDb baseActivity{aaExchanges = [techInput pidText 2 Nothing]}
+                r <- resolveOrFail highDb baseActivity{aaExchanges = fromCall [techInput pidText 2 Nothing]}
                 riKey r < ProcessRef highActId highProdId `shouldBe` True
                 case insertActivities defaultUnitConfig [r] highDb of
                     Left err -> expectationFailure ("insertActivities: " <> show err)
@@ -567,11 +569,11 @@ spec = do
                     Right _ -> expectationFailure "expected the replace to be refused"
 
             it "rewrites the activity in place, keeping its identity" $ do
-                first <- resolveOrFail fixtureDb baseActivity{aaExchanges = [techInput supplierPid 2 Nothing]}
+                first <- resolveOrFail fixtureDb baseActivity{aaExchanges = fromCall [techInput supplierPid 2 Nothing]}
                 case insertActivities defaultUnitConfig [first] fixtureDb of
                     Left err -> expectationFailure ("insertActivities: " <> show err)
                     Right db' -> do
-                        second <- resolveOrFail db' baseActivity{aaExchanges = [techInput supplierPid 7 Nothing]}
+                        second <- resolveOrFail db' baseActivity{aaExchanges = fromCall [techInput supplierPid 7 Nothing]}
                         riKey second `shouldBe` riKey first
                         case replaceActivities defaultUnitConfig [second] db' of
                             Left err -> expectationFailure ("replaceActivities: " <> show err)
@@ -847,8 +849,12 @@ baseActivity =
         , aaProductName = "cheese"
         , aaProductAmount = 1.0
         , aaProductUnit = "kg"
-        , aaExchanges = []
+        , aaExchanges = fromCall []
         }
+
+-- | Lines whose amounts the call gave.
+fromCall :: [AuthoredExchange] -> [AuthoredLine]
+fromCall = map (`AuthoredLine` FromCall)
 
 techInput :: Text -> Double -> Maybe Text -> AuthoredExchange
 techInput provider amount unit =
