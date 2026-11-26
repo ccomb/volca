@@ -37,6 +37,7 @@ module Usage (
     authorHandleHeader,
     authorOf,
     Caller (..),
+    Asking (..),
     callerOf,
     anonymous,
     readUsage,
@@ -52,7 +53,8 @@ module Usage (
 
 import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO, stateTVar)
 import Control.Monad (forM_, mfilter, when)
-import Data.Aeson (FromJSON (..), ToJSON (..), withText)
+import Data.Aeson (FromJSON (..), ToJSON (..), Value, withText)
+import Data.Aeson.KeyMap (KeyMap)
 import qualified Data.Foldable as F
 import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.OpenApi (ToParamSchema, ToSchema (..))
@@ -245,14 +247,24 @@ data Caller = Caller
     , callerAuthor :: Maybe Author
     , callerAcceptedTerms :: S.Set Text
     -- ^ The terms the @volca_terms@ cookie names as accepted. The client sets it and no server vouches for it, as for an HTTP request: it opens a database's terms, never proves who accepted them.
+    , callerAsking :: Asking
     }
 
+{- | Whether the person behind a call can be asked through their client, and
+what they answered so far. Only a client that says it shows forms is asked in
+one; any other is asked through the assistant, in the conversation.
+-}
+data Asking
+    = InChat
+    | -- | The answers the client sent back, by the key of the form each answers; none on a first call.
+      InForm (KeyMap Value)
+
 callerOf :: RequestHeaders -> Caller
-callerOf headers = Caller (readerOf headers) (authorOf headers) (acceptedFromCookie (lookup hCookie headers))
+callerOf headers = Caller (readerOf headers) (authorOf headers) (acceptedFromCookie (lookup hCookie headers)) InChat
 
 -- | A request no server in front of the engine named, as on the desktop.
 anonymous :: Caller
-anonymous = Caller Nothing Nothing S.empty
+anonymous = Caller Nothing Nothing S.empty InChat
 
 -- | What the engine knows of the database and the process a computation ran on.
 data Lookup = Lookup

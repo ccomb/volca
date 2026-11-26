@@ -117,6 +117,7 @@ import API.Types (
  )
 import Database.Author (
     ActivityText (..),
+    AmountFrom (..),
     AuthorContext,
     AuthoredExchange (..),
     EditedActivity (..),
@@ -612,7 +613,7 @@ inEditOrder = L.sortOn rank
         SetSupplier _ _ -> 2
         RemoveExchange _ -> 2
         RemoveParameter _ -> 2
-        AddExchange _ -> 3
+        AddExchange _ _ -> 3
 
 summaryLanding :: SummaryChange -> ChangePresence -> Landing
 summaryLanding change = \case
@@ -636,7 +637,7 @@ exchangeLanding p groups query change = case lineLook groups change of
     LookDifferent -> Stays OutcomeDifferent
     LookGone -> Stays OutcomeLineGone
     Lacks absence -> either notApplicable Lands $ case absence of
-        AddLine after -> pure . AddExchange <$> addedLine (inDatabase p) change after
+        AddLine after -> pure . (`AddExchange` FromCall) <$> addedLine (inDatabase p) change after
         RemoveLine line -> pure . RemoveExchange <$> selectorOf (inActivity p) line
         SetLine line after -> sameUnit line after *> (pure . (`SetAmount` qtyAmount after) <$> selectorOf (inActivity p) line)
         MoveLine line after -> do
@@ -647,7 +648,7 @@ exchangeLanding p groups query change = case lineLook groups change of
                 _ -> do
                     quantity <- amountAfter line
                     added <- linkedLine (ecRole change) provider quantity
-                    pure [RemoveExchange sel, AddExchange added]
+                    pure [RemoveExchange sel, AddExchange added FromCall]
   where
     -- An input keeps its line when its supplier changes, so an amount changed
     -- too lands on its own. A waste output is written again: it takes the new
