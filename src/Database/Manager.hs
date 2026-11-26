@@ -193,7 +193,7 @@ import Control.Concurrent.STM
 import Control.Exception (IOException, SomeException, try)
 import qualified Control.Exception
 import Control.Lens ((&), (?~))
-import Control.Monad (filterM, forM, forM_, unless, void, when, (<=<))
+import Control.Monad (filterM, forM, forM_, mfilter, unless, void, when, (<=<))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE, withExceptT)
 import Data.Aeson (FromJSON (..), ToJSON (..), (.:), (.:?), (.=))
@@ -2888,9 +2888,10 @@ loadDatabaseSingle manager dbName = do
             | otherwise -> do
                 -- Cannot finalize: clear staged entry, reload from config
                 -- (loadDatabase pre-loaded deps, so fresh load should resolve links)
+                -- on the dependencies the setup page left it with.
                 atomically $ modifyTVar' (dmStagedDbs manager) (M.delete dbName)
-                loadDatabaseSingleFromConfig manager dbName
-        Nothing -> loadDatabaseSingleFromConfig manager dbName
+                loadDatabaseSingleFromConfig manager dbName (Just (sdSelectedDeps staged))
+        Nothing -> loadDatabaseSingleFromConfig manager dbName Nothing
 
 {- | How a database that has just been loaded got here. These are what the
 work after the load turns on, and the combination a cache-hit flag and a
@@ -2934,10 +2935,12 @@ needsSelfRelink origin = case origin of
     Replayed -> True
     FromParent -> True
 
--- | Load a database from config (not staged)
+{- | Load a database from config (not staged), standing on the dependencies a
+setup page chose for it when it was staged.
+-}
 loadDatabaseSingleFromConfig ::
-    DatabaseManager -> Text -> IO (Either Text LoadedDatabase)
-loadDatabaseSingleFromConfig manager dbName = do
+    DatabaseManager -> Text -> Maybe [Text] -> IO (Either Text LoadedDatabase)
+loadDatabaseSingleFromConfig manager dbName stagedPin = do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
     -- Already loaded is a success, not work to do.
     maybe (runExceptT loadFromConfig) (pure . Right) (M.lookup dbName loadedDbs)
@@ -2952,8 +2955,13 @@ loadDatabaseSingleFromConfig manager dbName = do
         liftIO $ warnReopenedBridges synonymDB
         (parsed, origin) <- parseOrReplay dbConfig synonymDB
         mapping <- liftIO $ storedSupplierMapping manager dbConfig
-        let loaded = parsed{ldSupplierMapping = mapping}
-        liftIO $ publish dbConfig synonymDB loaded origin
+        let readDb = ldDatabase parsed
+            -- What the setup page left the database standing on, when it
+            -- differs from what was read: the cache keeps the pin of its
+            -- last write, so a dependency removed since would come back.
+            edited = mfilter (not . sameSet (dbDependsOn readDb)) stagedPin
+            loaded = parsed{ldDatabase = maybe readDb (\deps -> readDb{dbDependsOn = deps}) edited, ldSupplierMapping = mapping}
+        liftIO $ publish dbConfig synonymDB loaded origin (dbDependsOn readDb <$ edited)
         pure loaded
 
     {- A cache saved before the last edit was journalled would come back
@@ -3003,8 +3011,10 @@ loadDatabaseSingleFromConfig manager dbName = do
             Right (Right (loaded, FromCache)) -> pure (Right (withRecordedDeps dbConfig loaded, CacheHit))
             Right (Right (loaded, FromSource)) -> replayEdits manager dbConfig (withRecordedDeps dbConfig loaded)
 
-    publish :: DatabaseConfig -> SynonymDB -> LoadedDatabase -> LoadOrigin -> IO ()
-    publish dbConfig synonymDB loaded origin = do
+    {- The pin on disk is given when the staged one replaced it: the relink
+    then rewrites the cache, even when no link changes. -}
+    publish :: DatabaseConfig -> SynonymDB -> LoadedDatabase -> LoadOrigin -> Maybe [Text] -> IO ()
+    publish dbConfig synonymDB loaded origin pinOnDisk = do
         atomically $
             publishLoaded manager dbName loaded (buildIndexedDatabaseFromDB dbName synonymDB (ldDatabase loaded))
         clearMethodMappingCacheForDb manager dbName
@@ -3015,9 +3025,10 @@ loadDatabaseSingleFromConfig manager dbName = do
             dbName
             (SynonymOrigin ("Auto-extracted from " <> dcDisplayName dbConfig))
             (extractFromEcoSpold2 (dbBioFlows (ldDatabase loaded)))
-        -- A fresh parse linked without the mapping, so one held means relinking.
-        when (needsSelfRelink origin || isJust (ldSupplierMapping loaded)) $
-            relinkDatabase manager dbName >>= either (warnSelfRelinkFailed dbName) (const (pure ()))
+        -- A fresh parse linked without the mapping, so one held means relinking;
+        -- so does a pin edited on the setup page.
+        when (needsSelfRelink origin || isJust (ldSupplierMapping loaded) || isJust pinOnDisk) $
+            relinkDatabaseWith manager dbName pinOnDisk >>= either (warnSelfRelinkFailed dbName) (const (pure ()))
         relinkDependents manager dbName
         -- A mapping links to a database no input reaches by name: only what
         -- is recorded finds it again when the files are read afresh.

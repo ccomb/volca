@@ -62,6 +62,7 @@ import Database.Manager (
     CachePolicy (..),
     DatabaseManager (..),
     DatabaseSetupInfo (..),
+    DependencyEdit (..),
     LoadedDatabase (..),
     MissingSupplier (..),
     RelativeDataPath (..),
@@ -72,6 +73,7 @@ import Database.Manager (
     loadDatabase,
     relinkDatabaseWithMapping,
     removeDatabase,
+    removeDependencyFromStaged,
     setDataPath,
     unloadDatabase,
  )
@@ -261,6 +263,21 @@ spec = describe "persisting an edit" $ do
                 mustLoad restarted "bakery"
                 dependsRecorded dataRoot "bakery" `shouldReturn` Just ["mill"]
                 suppliersOf restarted "bakery" `shouldReturn` Set.singleton "mill"
+
+        it "loads alone once its dependency is removed and unloaded, at this load and the next" $
+            -- The list's Load, not the setup page's: the setup page will not
+            -- load a database with inputs left unresolved. Every input
+            -- resolved, as a cache that still had one open is read again.
+            withBakeryAndMill $ \_ manager -> do
+                relinkDatabaseWithMapping manager "bakery" "mill" allMilled >>= (`shouldSatisfy` isRight)
+                suppliersOf manager "bakery" `shouldReturn` Set.singleton "mill"
+                (void <$> removeDependencyFromStaged manager (DependencyEdit "bakery" "mill")) `shouldReturn` Right ()
+                unloadDatabase manager "mill" `shouldReturn` Right ()
+                mustLoad manager "bakery"
+                suppliersOf manager "bakery" `shouldReturn` Set.empty
+                M.member "mill" <$> readTVarIO (dmLoadedDbs manager) `shouldReturn` False
+                void (reloadOf manager "bakery")
+                M.member "mill" <$> readTVarIO (dmLoadedDbs manager) `shouldReturn` False
 
         it "goes along with a copy, which links as its source does when it is loaded again" $
             withBakeryAndMill $ \dataRoot manager -> do
@@ -605,6 +622,10 @@ bakery =
 -- | The bakery's barley is the mill's milled barley: only the mapping says so.
 barleyIsMilled :: SupplierMapping
 barleyIsMilled = either (error . show) id (readSupplierMapping defaultUnitConfig "source_name,target_name\nbarley,\"milled barley, output\"\n")
+
+-- | Both the bakery's grains are the mill's.
+allMilled :: SupplierMapping
+allMilled = either (error . show) id (readSupplierMapping defaultUnitConfig "source_name,target_name\nbarley,\"milled barley, output\"\noats,\"rolled oats, output\"\n")
 
 -- | The databases a loaded database's links between databases reach.
 suppliersOf :: DatabaseManager -> Text -> IO (Set.Set Text)
