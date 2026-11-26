@@ -53,10 +53,11 @@ import API.Routes (batchedScoresFor, getActivityInventory, getActivitySupplyChai
 import API.Types (SupplyChainEntry (..), SupplyChainResponse (..), WithheldProcesses (..))
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..), defaultConfig)
+import Database.Cutoffs (CheckedSolution, reshaped)
 import qualified Database.Manager as DM
 import FlowContributionSpec (payloadOf)
 import Groups (maxGroups)
-import Impact (LicencedSolution (..), WithheldPart (..), partitionByLicence, scoreSolution)
+import Impact (LicencedSolution (..), WithheldPart (..), checkSolution, partitionByLicence, scoreSolution)
 import Method.Mapping (MethodTables (..), RegionalActivityWeights (..))
 import Method.Types (FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..))
 import qualified SharedSolver as SS
@@ -280,15 +281,17 @@ supplyChain manager =
     runIn manager $
         getActivitySupplyChain "root" rootPid Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing [] [] [] Nothing Nothing Nothing
 
-solution :: DM.DatabaseManager -> IO SS.CrossDBSolution
+solution :: DM.DatabaseManager -> IO CheckedSolution
 solution manager = do
     unitCfg <- DM.getMergedUnitConfig manager
     Just loaded <- DM.getDatabase manager "root"
-    either (fail . T.unpack) pure
-        =<< SS.computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup manager) root "root" (DM.ldSharedSolver loaded) 0
+    raw <-
+        either (fail . T.unpack) pure
+            =<< SS.computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup manager) root "root" (DM.ldSharedSolver loaded) 0
+    either (fail . show) pure =<< checkSolution manager SeeDetailedScores raw
 
 -- | The score of a solution, as the engine scores one.
-scoreOf :: DM.DatabaseManager -> SS.CrossDBSolution -> IO Double
+scoreOf :: DM.DatabaseManager -> CheckedSolution -> IO Double
 scoreOf manager sol = do
     tables <- DM.mapMethodToTablesCached manager "root" (DM.CollectionName collection) root climate
     either (fail . T.unpack) pure =<< scoreSolution manager (DM.CollectionName collection) climate tables sol
@@ -317,7 +320,7 @@ spec = do
             manager <- managerWith LicenceUnstated
             sol <- solution manager
             (mFlows, _) <- DM.getMergedFlowMetadata manager
-            let twice = sol{SS.csScalings = SS.csScalings sol <> NE.fromList (NE.tail (SS.csScalings sol))}
+            let twice = reshaped (\s -> s{SS.csScalings = SS.csScalings s <> NE.fromList (NE.tail (SS.csScalings s))}) sol
                 LicencedSolution{lsWithheld = parts} = partitionByLicence mFlows (S.singleton "dep") twice
             partScores <- mapM (scoreOf manager . wpSolution) parts
             (map wpDatabase parts, partScores) `shouldBe` (["dep"], [40])

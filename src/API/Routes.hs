@@ -14,7 +14,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChainConsumers, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), GroupCandidate (..), GroupCandidates (..), GroupCandidatesRequest (..), GroupClassification (..), GroupContributions (..), GroupFilterSpec (..), GroupFlowSpec (..), GroupMembersRequest (..), GroupPart (..), GroupSet (..), GroupSpec (..), GroupsRequest (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RelinkRequest (..), RelinkResponse (..), RootDb (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldScores (..), WithheldShare (..), apiFlowOfKind, formulaLanguage, parseProducerFilter, parseSubRef)
+import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChainConsumers, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), GroupCandidate (..), GroupCandidates (..), GroupCandidatesRequest (..), GroupClassification (..), GroupContributions (..), GroupFilterSpec (..), GroupFlowSpec (..), GroupMembersRequest (..), GroupPart (..), GroupSet (..), GroupSpec (..), GroupsRequest (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RefusedEntry (..), RelinkRequest (..), RelinkResponse (..), RootDb (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldScores (..), WithheldShare (..), apiFlowOfKind, formulaLanguage, parseProducerFilter, parseSubRef)
 import App.Env (AppEnv (..), AppM, counted, countedEach, httpOrigin, runApp)
 import qualified Builtin
 import Config (DatabaseConfig (..))
@@ -23,7 +23,7 @@ import Control.Concurrent.Async (mapConcurrently)
 import Control.Concurrent.MVar (withMVar)
 import Control.Concurrent.QSem (signalQSem, waitQSem)
 import Control.Concurrent.STM (readTVarIO)
-import Control.DeepSeq (force)
+import Control.DeepSeq (NFData, force)
 import Control.Exception (evaluate)
 import Control.Monad (forM, forM_, mfilter, unless, void, when, zipWithM)
 import Control.Monad.Catch (bracket_)
@@ -58,7 +58,7 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Database
 import qualified Database.ComputedQuality as CQ
-import Database.Cutoffs (Cutoffs (..))
+import Database.Cutoffs (ChainRefusal (..), CheckedSolution, Cutoffs (..), chainRefusalSentence, checkedCutoffs, checkedSolution, reshaped)
 import Database.Edit (authorContext, editExchanges)
 import Database.Journal (statedFrom)
 import Database.Manager (DatabaseManager (..), DatabaseSetupInfo (..), LoadedDatabase (..), getDatabase, getMergedUnitConfig)
@@ -620,6 +620,7 @@ serviceErrorToServerError = \case
     Service.Withheld msg -> err403{errBody = utf8Body msg}
     Service.ParameterRefused msg -> err400{errBody = utf8Body msg}
     Service.NoSuchLine msg -> err400{errBody = utf8Body msg}
+    Service.ChainRefused msg -> err422{errBody = utf8Body msg}
   where
     utf8Body = BSL.fromStrict . T.encodeUtf8
 
@@ -718,10 +719,11 @@ batchedScoresFor ::
     Text ->
     DM.CollectionName ->
     Database ->
-    SharedSolver.CrossDBSolution ->
+    CheckedSolution ->
     [Method] ->
     IO (M.Map UUID (Either Text Double))
-batchedScoresFor dbManager _dbName collection _db sol methods = do
+batchedScoresFor dbManager _dbName collection _db checkedSol methods = do
+    let sol = checkedSolution checkedSol
     perDb <- buildPerDbSetTables dbManager collection (SharedSolver.csScalings sol) methods
     unitCfg <- getMergedUnitConfig dbManager
     (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
@@ -758,6 +760,20 @@ than the failure.
 scoringError :: Text -> AppM a
 scoringError err = throwError err500{errBody = BSL.fromStrict (T.encodeUtf8 err)}
 
+{- | A solution checked for a calculation that sums its chain, read under the
+licences for one permission, or the request refused: a score of a chain that
+reaches inputs only a database not loaded would supply would count them as
+zero. @what@ names the process, as the refusal does.
+-}
+checkedFor :: Text -> Permission -> SharedSolver.CrossDBSolution -> AppM CheckedSolution
+checkedFor what permission sol = do
+    dbManager <- asks aeDbManager
+    liftIO (Impact.checkSolution dbManager permission sol) >>= either (refuseChain what) pure
+
+-- | Refuse a calculation whose chain reaches inputs only a database not loaded would supply.
+refuseChain :: Text -> ChainRefusal -> AppM a
+refuseChain what refusal = throwError err422{errBody = BSL.fromStrict (T.encodeUtf8 (chainRefusalSentence what refusal))}
+
 {- | Pre-warm per-(db, method) cached tables so subsequent 'batchedScoresFor'
 and 'inventoryContributions' calls hit a warm cache.
 -}
@@ -778,19 +794,19 @@ computeCategoryResult ::
     DM.CollectionName ->
     Database ->
     Impact.LicencedSolution ->
-    -- | the cut-offs that solution met, read once for every method scored on it
-    Cutoffs ->
     FunctionalUnit ->
     Int ->
     Maybe (Either Text Double) ->
     Method ->
     IO (Either Text LCIAResult)
-computeCategoryResult dbManager dbName collection db ls cutoffs functionalUnit topFlows precomputedScore method = do
+computeCategoryResult dbManager dbName collection db ls functionalUnit topFlows precomputedScore method = do
     (mFlows, mUnits) <- DM.getMergedFlowMetadata dbManager
     mappings <- DM.mapMethodToFlowsCached dbManager dbName collection db method
     tables <- DM.mapMethodToTablesCached dbManager dbName collection db method
     let sol = Impact.lsWhole ls
-        inventory = SharedSolver.csInventory sol
+        whole = checkedSolution sol
+        cutoffs = checkedCutoffs sol
+        inventory = SharedSolver.csInventory whole
         stats = computeMappingStats mappings
     warnUnknownInventoryFlows ("LCIA " <> methodName method) mFlows inventory
     -- A Left is a scoring integrity error (see 'resolveBatchedScore') – it
@@ -806,9 +822,9 @@ computeCategoryResult dbManager dbName collection db ls cutoffs functionalUnit t
             contribsE <- licencedTopFlows dbManager collection method tables ls score topFlows
             -- A miss carries an amount of the inventory: read from the part the
             -- licences let be detailed, and kept whole by a dependency keeping its amounts.
-            inventoryWithheld <- Impact.withheldDatabases dbManager ReadInventory sol
+            inventoryWithheld <- Impact.withheldDatabases dbManager ReadInventory whole
             let misses
-                    | null inventoryWithheld = Service.missesShown mUnits score (Method.Mapping.probableMisses mFlows tables (SharedSolver.csInventory (Impact.lsShown ls)))
+                    | null inventoryWithheld = Service.missesShown mUnits score (Method.Mapping.probableMisses mFlows tables (SharedSolver.csInventory (checkedSolution (Impact.lsShown ls))))
                     | otherwise = Service.missesWithheld inventoryWithheld
                 result :: TopFlows -> LCIAResult
                 result TopFlows{tfRows = topContributors, tfWithheld = withheld} =
@@ -913,7 +929,7 @@ buildLCIABatchResultCached ::
     ProcessId ->
     Activity ->
     MethodCollection ->
-    SharedSolver.CrossDBSolution ->
+    CheckedSolution ->
     [MethodCtx] ->
     Int ->
     IO (Either Text LCIABatchResult)
@@ -921,11 +937,11 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
     let index = legacyIndex (mcScoringSets collection)
         functionalUnit = Service.functionalUnitIn db activity
         methods = map mctxMethod ctxs
-        inventory = SharedSolver.csInventory sol
+        inventory = SharedSolver.csInventory (checkedSolution sol)
+        cutoffs = checkedCutoffs sol
     scoreMap <- batchedScoresFor dbManager dbName collectionName db sol methods
     -- Split once: the licences divide the solution, not each method's score.
     ls <- Impact.licencedSolution dbManager SeeDetailedScores sol
-    cutoffs <- Impact.licencedCutoffs dbManager ls
     (mFlows, _) <- DM.getMergedFlowMetadata dbManager
     warnUnknownInventoryFlows ("LCIA batch pid=" <> T.pack (show actPid)) mFlows inventory
     let mkResultIO ctx = do
@@ -1010,13 +1026,14 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode scoreLines = 
                 when (invSize > 0 && invSize <= 5) $
                     reportProgress Info $
                         "  Inventory UUIDs: " <> intercalate ", " (map UUID.toString $ M.keys inventory)
-        scoreMap <- liftIO $ batchedScoresFor dbManager dbName collectionName db sol methods
-        ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
-        cutoffs <- liftIO (Impact.licencedCutoffs dbManager ls)
+        checkedSol <- checkedFor (activityName activity) SeeDetailedScores sol
+        let cutoffs = checkedCutoffs checkedSol
+        scoreMap <- liftIO $ batchedScoresFor dbManager dbName collectionName db checkedSol methods
+        ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores checkedSol)
         rawResultsE <-
             liftIO $
                 mapConcurrently
-                    (\m -> computeCategoryResult dbManager dbName collectionName db ls cutoffs functionalUnit 5 (Just (resolveBatchedScore m scoreMap)) m)
+                    (\m -> computeCategoryResult dbManager dbName collectionName db ls functionalUnit 5 (Just (resolveBatchedScore m scoreMap)) m)
                     methods
         rawResults <- either scoringError pure (sequence rawResultsE)
         licence <- DBHandlers.servedLicence dbName
@@ -1057,9 +1074,12 @@ lineScores frame@SupplierFrame{sfDatabase = db, sfMethods = methods} process = d
     unitCfg <- liftIO . getMergedUnitConfig =<< asks aeDbManager
     column <- either unprocessable pure (RM.column unitCfg db process)
     factorsAt <- emissionFactors frame
-    answered <- supplierAnswers frame [] (S.toList (S.fromList (map fst (RM.columnTechnosphere column))))
+    -- A line of zero adds nothing whatever its supplier gives, so its supplier is neither solved nor checked.
+    let (zeroLines, lines') = partition ((== 0) . RM.entryStored . snd) (RM.columnTechnosphere column)
+        nothingAdded = M.fromList [(s, SupplierAnswer 1 (map (const 0) methods) []) | (s, _) <- zeroLines]
+    answered <- supplierAnswers frame [] (S.toList (S.fromList (map fst lines')))
     let perUnit = Matrix.referenceSign db process / Matrix.activityNormalizationFactor db process
-    rows <- either unprocessable pure (lineContributions perUnit column (M.fromList answered) (`factorsAt` process))
+    rows <- either unprocessable pure (lineContributions perUnit column (M.fromList answered `M.union` nothingAdded) (`factorsAt` process))
     pure (foldr (\(n, cs) -> zipWith (:) (map (n,) cs)) (map (const []) methods) rows)
 
 {- | Each line of a column, by its position, with what it adds to each method's
@@ -1115,6 +1135,15 @@ data BatchTarget = BatchTarget
     , btActivity :: !Activity
     }
 
+-- | Why a target of a batch got no score: the solver has no answer for it, or its chain is refused.
+data Unscored = Unsolved UnsolvableEntry | Refused RefusedEntry
+    deriving (Generic)
+
+instance NFData Unscored
+
+-- | One target of a batch: not scored and why, or its entry, whose building can still fail.
+type BatchRow = Either Unscored (Either Text BatchImpactsEntry)
+
 {- | Score the targets of a batch, each one from its solve to its entry before
 the next is started, as many at a time as the machine has cores. Each target
 gives one row: refused when the solver has no answer for it, which refuses no
@@ -1130,17 +1159,32 @@ stopped every few requests for a collection of everything the engine holds.
 One target at a time, a request holds one solution per core whatever it asks
 for, and a solution is gone before the collector has to keep it.
 -}
-scoreTargets :: BatchScope -> [BatchTarget] -> AppM [Either UnsolvableEntry (Either Text BatchImpactsEntry)]
+scoreTargets :: BatchScope -> [BatchTarget] -> AppM [BatchRow]
 scoreTargets scope targets = do
     dbManager <- asks aeDbManager
     unitCfg <- liftIO $ getMergedUnitConfig dbManager
     liftIO $ acrossCapabilities (rowOf dbManager unitCfg) targets
   where
-    rowOf :: DatabaseManager -> UnitConfig -> BatchTarget -> IO (Either UnsolvableEntry (Either Text BatchImpactsEntry))
+    rowOf :: DatabaseManager -> UnitConfig -> BatchTarget -> IO BatchRow
     rowOf dbManager unitCfg target =
         SharedSolver.computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) (bsDb scope) (bsDbName scope) (bsSolver scope) (btProcessId target)
             >>= traverse (Impact.withLongTermPolicy dbManager (bsLongTerm scope))
-            >>= either (fmap Left . evaluate . force . unsolved target) (fmap Right . entryOf dbManager target)
+            >>= either (fmap Left . evaluate . force . Unsolved . unsolved target) (checkedEntry dbManager target)
+
+    -- Checked before anything is scored: a refused target costs no characterization.
+    checkedEntry :: DatabaseManager -> BatchTarget -> SharedSolver.CrossDBSolution -> IO BatchRow
+    checkedEntry dbManager target sol =
+        Impact.checkSolution dbManager SeeDetailedScores sol
+            >>= either (fmap Left . evaluate . force . Refused . refused target) (fmap Right . entryOf dbManager target)
+
+    refused :: BatchTarget -> ChainRefusal -> RefusedEntry
+    refused target refusal =
+        RefusedEntry
+            { reProcessId = btRequestedId target
+            , reParameterSet = bsParameterSet scope
+            , reCount = crCount refusal
+            , reReason = chainRefusalSentence (activityName (btActivity target)) refusal
+            }
 
     unsolved :: BatchTarget -> Text -> UnsolvableEntry
     unsolved target = UnsolvableEntry (btRequestedId target) (bsParameterSet scope)
@@ -1150,7 +1194,7 @@ scoreTargets scope targets = do
     unforced entry holds on to its solution and the bound above buys nothing.
     A refused entry too: unforced, it holds the scope, and with it the
     database of its parameter set. -}
-    entryOf :: DatabaseManager -> BatchTarget -> SharedSolver.CrossDBSolution -> IO (Either Text BatchImpactsEntry)
+    entryOf :: DatabaseManager -> BatchTarget -> CheckedSolution -> IO (Either Text BatchImpactsEntry)
     entryOf dbManager target sol =
         evaluate . force . fmap (named target)
             =<< buildLCIABatchResultCached
@@ -1247,6 +1291,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
                 Service.Withheld _ -> False
                 Service.ParameterRefused _ -> False
                 Service.NoSuchLine _ -> False
+                Service.ChainRefused _ -> False
             ]
     t0 <- liftIO getCurrentTime
     ctxs <- liftIO $ mapConcurrently (prepMethodCtx dbManager dbName collectionName db) (mcMethods collection)
@@ -1263,7 +1308,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
                 , bsParameterSet = Nothing
                 }
         -- One set after another: a set's database lives while its rows are built, and no longer.
-        atSet :: Int -> [ParameterValue] -> AppM [Either UnsolvableEntry (Either Text BatchImpactsEntry)]
+        atSet :: Int -> [ParameterValue] -> AppM [BatchRow]
         atSet i values =
             withValues (inSet i) dbName loaded values $ \db' solver' ->
                 scoreTargets
@@ -1274,7 +1319,9 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
     solved <- withScoringSlot dbManager $ case birParameterSets req of
         [] -> scoreTargets scope valid
         sets -> concat <$> zipWithM atSet [0 ..] sets
-    let (unsolvable, entriesE) = partitionEithers solved
+    let (unscored, entriesE) = partitionEithers solved
+        unsolvable = [u | Unsolved u <- unscored]
+        refusedChains = [r | Refused r <- unscored]
     -- All-or-nothing on purpose: an integrity error is a property of the
     -- (db, method) tables, not of one activity, so every entry would fail
     -- identically. Unresolvable pids stay per-entry (birNotFound/birInvalid),
@@ -1292,7 +1339,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
                 <> ": "
                 <> show (length valid)
                 <> " activities"
-                <> ( if null notFound && null invalid && null unsolvable
+                <> ( if null notFound && null invalid && null unscored
                         then ""
                         else
                             " ("
@@ -1301,7 +1348,9 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
                                 <> show (length invalid)
                                 <> " invalid, "
                                 <> show (length unsolvable)
-                                <> " unsolvable)"
+                                <> " unsolvable, "
+                                <> show (length refusedChains)
+                                <> " refused)"
                    )
                 <> " – "
                 <> showFFloat (Just 2) (realToFrac (diffUTCTime t2 t0) :: Double) ""
@@ -1313,6 +1362,7 @@ batchImpactsH dbName collectionName methodParam topFlowsParam ltMode req = do
             , birInvalid = invalid
             , birUnscorable = unscorable
             , birUnsolvable = unsolvable
+            , birRefused = refusedChains
             , birBasis = basis
             , birReadingNotice = readingNotice (mcScoringSets collection)
             }
@@ -1393,11 +1443,12 @@ computedQualityReportH dbName mCollection mLimit = do
             , Just act <- [M.lookup (bieProcessId e) entriesByPid]
             ]
         -- No score to judge, which breaks the score of everything that buys
-        -- from them: a finding of its own rather than a quiet gap.
+        -- from them: a finding of its own rather than a quiet gap. A refused
+        -- chain has none either, until the database it lacks is loaded.
         unsolvable =
-            [ QualityOffender DangerSev (ueProcessId u) (activityName act) (activityLocation act) (refProductName act) (ueReason u)
-            | u <- birUnsolvable response
-            , Just act <- [M.lookup (ueProcessId u) entriesByPid]
+            [ QualityOffender DangerSev pid (activityName act) (activityLocation act) (refProductName act) reason
+            | (pid, reason) <- [(ueProcessId u, ueReason u) | u <- birUnsolvable response] <> [(reProcessId r, reReason r) | r <- birRefused response]
+            , Just act <- [M.lookup pid entriesByPid]
             ]
     pure (DBHandlers.computedQualityReportToAPI mLimit (CQ.computedQualityReport dbName (DM.unCollectionName collection) scored unsolvable))
 
@@ -1670,7 +1721,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 123: an exchange's @share@ is @{"byLine":true}@ for a product
+(revision 124: a calculation that sums a chain reaching inputs only a
+database not loaded would supply refused with a 422 whose body starts with
+@chainRefusedPrefix@, and such processes of a batch in @refused@; the
+cut-offs a served answer lists are those its publisher or curator left;
+revision 123: an exchange's @share@ is @{"byLine":true}@ for a product
 its source divides line by line, which has no percentage, beside the
 @{"percent", "formula", "by"}@ object of a declared share;
 revision 122: groups that keep substances under the own-emissions
@@ -1956,7 +2011,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 123
+currentWireVersion = 124
 
 getVersion :: AppM Value
 getVersion = do
@@ -2177,8 +2232,8 @@ activityInventoryCore dbName processIdText keep mSub = do
         sol <- crossDBSolutionFor dbName db sharedSolver processId mSub
         liftIO (Impact.inventoryRefusal dbManager sol) >>= mapM_ (\msg -> throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 msg)})
         (mFlows, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-        cutoffs <- liftIO (Impact.solutionCutoffs dbManager ReadInventory sol)
-        pure (keep db (Service.convertToInventoryExport db mFlows mUnits processId activity cutoffs (SharedSolver.csInventory sol)))
+        checkedSol <- checkedFor (activityName activity) ReadInventory sol
+        pure (keep db (Service.convertToInventoryExport db mFlows mUnits processId activity (checkedCutoffs checkedSol) (SharedSolver.csInventory (checkedSolution checkedSol))))
 
 {- | The flows of an inventory a request's @flow@ and @limit@ keep, the flow read
 against the database asked, or a refusal of a negative limit.
@@ -2396,9 +2451,9 @@ activityLCIACore dbName processIdText collectionName methodIdText topFlowsParam 
         (processId, activity) <- resolveOrThrow db processIdText
         let functionalUnit = Service.functionalUnitIn db activity
         sol <- crossDBSolutionFor dbName db sharedSolver processId mSub
-        ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
-        cutoffs <- liftIO (Impact.licencedCutoffs dbManager ls)
-        resultE <- liftIO $ computeCategoryResult dbManager dbName collectionName db ls cutoffs functionalUnit (fromMaybe 5 topFlowsParam) Nothing method
+        checkedSol <- checkedFor (activityName activity) SeeDetailedScores sol
+        ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores checkedSol)
+        resultE <- liftIO $ computeCategoryResult dbManager dbName collectionName db ls functionalUnit (fromMaybe 5 topFlowsParam) Nothing method
         result <- either scoringError pure resultE
         when (isNothing mSub) $ liftIO $ logLCIAResult result method
         licence <- DBHandlers.servedLicence dbName
@@ -2428,45 +2483,33 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
     let functionalUnit = Service.functionalUnitIn db activity
     eRes <- liftIO $ Service.computeSensitivities db sharedSolver processId (srPerturbations senReq)
     (baselineX, perResults) <- either throwServiceError pure eRes
-    unitCfg <- liftIO $ getMergedUnitConfig dbManager
-    let depLookup = DM.mkDepSolverLookup dbManager
-        scaleToSolution x = do
-            eSol <-
-                SharedSolver.goWithDepsFromScalings
-                    unitCfg
-                    depLookup
-                    db
-                    dbName
-                    []
-                    [Right x]
-                    0
-            pure $ case eSol of
-                sol : _ -> sol
-                [] -> Left "cross-DB propagation returned empty result"
+    let scaleToSolution = Impact.solutionOfScaling dbManager db dbName
         buildEntry baselineLcia (p, eitherX) = case eitherX of
             Left err -> pure (PerturbedEntry p (Left err))
             Right x' -> do
                 eSol <- scaleToSolution x'
                 case eSol of
                     Left err -> pure (PerturbedEntry p (Left err))
-                    Right sol -> do
-                        ls <- Impact.licencedSolution dbManager SeeDetailedScores sol
-                        cutoffs <- Impact.licencedCutoffs dbManager ls
-                        eLcia <- computeCategoryResult dbManager dbName collectionName db ls cutoffs functionalUnit 5 Nothing method
-                        pure $ case eLcia of
-                            Left err -> PerturbedEntry p (Left err)
-                            Right lcia -> PerturbedEntry p (Right (lcia, lrScore lcia - lrScore baselineLcia))
+                    Right sol ->
+                        Impact.checkSolution dbManager SeeDetailedScores sol >>= \case
+                            Left refusal -> pure (PerturbedEntry p (Left (chainRefusalSentence (activityName activity) refusal)))
+                            Right checkedSol -> do
+                                ls <- Impact.licencedSolution dbManager SeeDetailedScores checkedSol
+                                eLcia <- computeCategoryResult dbManager dbName collectionName db ls functionalUnit 5 Nothing method
+                                pure $ case eLcia of
+                                    Left err -> PerturbedEntry p (Left err)
+                                    Right lcia -> PerturbedEntry p (Right (lcia, lrScore lcia - lrScore baselineLcia))
     eBaselineSol <- liftIO $ scaleToSolution baselineX
     baselineSol <-
         either
             (\err -> throwError err422{errBody = BSL.fromStrict $ T.encodeUtf8 err})
             pure
             eBaselineSol
-    baselineLs <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores baselineSol)
-    baselineCutoffs <- liftIO (Impact.licencedCutoffs dbManager baselineLs)
+    baselineChecked <- checkedFor (activityName activity) SeeDetailedScores baselineSol
+    baselineLs <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores baselineChecked)
     eBaselineLcia <-
         liftIO $
-            computeCategoryResult dbManager dbName collectionName db baselineLs baselineCutoffs functionalUnit 5 Nothing method
+            computeCategoryResult dbManager dbName collectionName db baselineLs functionalUnit 5 Nothing method
     baselineLcia <- either scoringError pure eBaselineLcia
     perturbed <-
         liftIO $
@@ -2476,8 +2519,8 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
         SensitivityResponse
             { srBaseline = baselineLcia{lrBasis = Just basis}
             , srPerturbed = perturbed
-            , srCutoffInputs = cutoffShown baselineCutoffs
-            , srWithheldCutoffs = cutoffWithheld baselineCutoffs
+            , srCutoffInputs = cutoffShown (checkedCutoffs baselineChecked)
+            , srWithheldCutoffs = cutoffWithheld (checkedCutoffs baselineChecked)
             , srFunctionalUnit = functionalUnit
             }
 
@@ -2503,7 +2546,7 @@ postReducedModel dbName processIdText collectionName mExcludeLT ReducedModelRequ
     let ltMode = longTermModeFromExclude (fromMaybe False mExcludeLT)
     atDefaults <- liftIO . Impact.withLongTermPolicy dbManager ltMode =<< solutionWithDeps dbName db solver root
     let frame = SupplierFrame{sfName = dbName, sfDatabase = db, sfSolver = solver, sfCollection = collectionName, sfMethods = methods, sfLongTerm = ltMode, sfRoot = atDefaults}
-    baseline <- methodScores frame atDefaults
+    baseline <- methodScores frame =<< checkedFor (activityName rootActivity) SeeDetailedScores atDefaults
     factorsAt <- emissionFactors frame
     answered <- supplierAnswers frame (map (movingProcess . fst) moving) suppliers
     let modelFrame = ModelFrame{mfDatabase = db, mfScaling = reachedScaling (NE.head (SharedSolver.csScalings atDefaults)), mfSuppliers = M.fromList [(s, (i, saConversion a)) | (i, (s, a)) <- zip [0 ..] answered], mfFactors = factorsAt}
@@ -2551,7 +2594,7 @@ data SupplierFrame = SupplierFrame
     }
 
 -- | Each method's score of a solution, in the order of the methods.
-methodScores :: SupplierFrame -> SharedSolver.CrossDBSolution -> AppM [Double]
+methodScores :: SupplierFrame -> CheckedSolution -> AppM [Double]
 methodScores SupplierFrame{sfName = dbName, sfDatabase = db, sfCollection = collectionName, sfMethods = methods} sol = do
     dbManager <- asks aeDbManager
     byId <- liftIO (batchedScoresFor dbManager dbName collectionName db sol methods)
@@ -2585,8 +2628,10 @@ supplierAnswers frame@SupplierFrame{sfName = dbName, sfDatabase = db, sfSolver =
         solved :: Database -> Text -> SharedSolver -> Int -> [ProcessId] -> AppM [([Double], U.Vector Double)]
         solved sdb name ssolver depth supplied = fmap concat . forM (Matrix.chunksOf 64 supplied) $ \chunk -> do
             sols <- either unprocessable pure . sequence =<< liftIO (SharedSolver.goWithDeps unitCfg depLookup sdb name ssolver (map (Right . unitDemand sdb) chunk) depth)
-            forM sols $ \sol -> do
-                scores <- methodScores frame =<< liftIO (Impact.withLongTermPolicy dbManager ltMode (shapedLike rootShape sol))
+            -- A supplier the root reaches at zero is not among the root's cut-offs: its own chain is checked.
+            forM (zip chunk sols) $ \(supplier, sol) -> do
+                shaped <- liftIO (Impact.withLongTermPolicy dbManager ltMode (shapedLike rootShape sol))
+                scores <- methodScores frame =<< checkedFor (activityName (dbActivities sdb V.! fromIntegral supplier)) SeeDetailedScores shaped
                 pure (scores, reachedScaling (NE.head (SharedSolver.csScalings sol)))
 
         answersIn :: Text -> [RM.Supplier] -> AppM [(RM.Supplier, SupplierAnswer)]
@@ -3052,11 +3097,12 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
         sol <-
             solutionWithDeps dbName db sharedSolver actProcessId
                 >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
+        checkedSol <- checkedFor (activityName activity) SeeDetailedScores sol
+        let cutoffs = checkedCutoffs checkedSol
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
         liftIO $ warnUnknownInventoryFlows ("contributing-flows " <> methodName method) mFlows (SharedSolver.csInventory sol)
-        score <- liftIO (Impact.scoreSolution dbManager collectionName method tables sol) >>= either scoringError pure
-        ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores sol)
-        cutoffs <- liftIO (Impact.licencedCutoffs dbManager ls)
+        score <- liftIO (Impact.scoreSolution dbManager collectionName method tables checkedSol) >>= either scoringError pure
+        ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores checkedSol)
         top <- liftIO (licencedTopFlows dbManager collectionName method tables ls score lim) >>= either scoringError pure
         basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
         return
@@ -3083,12 +3129,13 @@ getContributingActivities dbName processIdText collectionName methodIdText limit
         sol <-
             solutionWithDeps dbName db sharedSolver actProcessId
                 >>= liftIO . Impact.withLongTermPolicy dbManager ltMode
+        checkedSol <- checkedFor (activityName activity) SeeDetailedScores sol
+        let cutoffs = checkedCutoffs checkedSol
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collectionName db method
         contributions <-
-            liftIO (Impact.processContributionsOf dbManager collectionName method tables sol)
+            liftIO (Impact.processContributionsOf dbManager collectionName method tables checkedSol)
                 >>= either scoringError pure
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
-        cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
         basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
         liftIO $ activitiesResult dbManager dbName Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs, hdBasis = basis, hdFunctionalUnit = functionalUnit} lim (Impact.splitProcessParts withheld contributions)
 
@@ -3143,7 +3190,7 @@ activitiesResult dbManager dbName heading lim Impact.ProcessParts{Impact.ppShown
 data GroupFailure
     = -- | The request does not read: a group without a filter, a reading or a group that is not one
       GroupsMisread !Text
-    | -- | What was asked has no answer: a chain that cannot be cut or weighed
+    | -- | What was asked has no answer: a chain that cannot be cut or weighed, or that reaches inputs only a database not loaded would supply
       GroupsRefused !Text
     | -- | A score could not be computed: the collection's tables disagree
       GroupScoringFailed !Text
@@ -3244,7 +3291,7 @@ groupRootOf dbName db solver pid activity collectionName mExcludeLT =
 
 -- | A root's solution, how it splits, and its parts.
 data GroupSplit = GroupSplit
-    { gsSolution :: !SharedSolver.CrossDBSolution
+    { gsSolution :: !CheckedSolution
     , gsSplit :: !Groups.Split
     , gsParts :: !Groups.Parts
     }
@@ -3258,7 +3305,7 @@ splitIntoGroups dbManager root wanted = do
     reached@RootReached{rrSolution = sol} <- rootReached dbManager root
     basis <- liftIO (emissionBasis dbManager root reached)
     let split = splitAs (assignedIn dbManager root reached) (Groups.masked . map (Groups.reachOf basis . Groups.groupFilterOf) . Groups.groupList) wanted
-    GroupSplit sol split <$> partsUnder dbManager root sol split
+    GroupSplit sol split <$> partsUnder dbManager root (checkedSolution sol) split
 
 {- | How the groups asked split a solution, by the assignment of processes and
 the masks of emissions given: the whole chain by process; the own emissions
@@ -3280,12 +3327,12 @@ emissionBasis dbManager GroupRoot{grName = dbName, grProcess = pid} RootReached{
             , Groups.ebFlows = mFlows
             , Groups.ebRoot = (dbName, pid)
             , Groups.ebWithheld = withheld
-            , Groups.ebReached = Groups.summedByName (SharedSolver.csScalings sol)
+            , Groups.ebReached = Groups.summedByName (SharedSolver.csScalings (checkedSolution sol))
             }
 
 -- | The root's solution under its long-term policy, and the databases it reaches whose licence withholds their detail.
 data RootReached = RootReached
-    { rrSolution :: !SharedSolver.CrossDBSolution
+    { rrSolution :: !CheckedSolution
     , rrWithheld :: ![Text]
     }
 
@@ -3293,12 +3340,21 @@ rootReached :: DatabaseManager -> GroupRoot -> ExceptT GroupFailure IO RootReach
 rootReached dbManager GroupRoot{grName = dbName, grDatabase = db, grSolver = solver, grProcess = pid, grLongTerm = ltMode} = do
     unitCfg <- liftIO (getMergedUnitConfig dbManager)
     sol <- liftIO . Impact.withLongTermPolicy dbManager ltMode =<< withExceptT GroupsRefused (ExceptT (SharedSolver.computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName solver pid))
-    RootReached sol <$> liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
+    let refused = GroupsRefused . chainRefusalSentence (activityName (dbActivities db V.! fromIntegral pid))
+    checkedSol <- withExceptT refused (ExceptT (Impact.checkSolution dbManager SeeDetailedScores sol))
+    RootReached checkedSol <$> liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
+
+{- | A part of a root's checked solution, as 'Groups.assembled' reads it: a part
+reaches no more than the whole, so the root's check holds for it, and so do
+the root's cut-offs.
+-}
+partIn :: BioFlowDB -> CheckedSolution -> Groups.Scalings -> CheckedSolution
+partIn mFlows sol part = reshaped (\whole -> Groups.assembled mFlows whole part) sol
 
 -- | Where each process the root reaches goes: the first group it answers; the root, and a withheld database's processes, to none.
 assignedIn :: DatabaseManager -> GroupRoot -> RootReached -> Groups.Groups Groups.ProcessFilter -> Groups.Assigned
 assignedIn dbManager GroupRoot{grName = dbName, grProcess = pid} RootReached{rrSolution = sol, rrWithheld = withheld} gs =
-    Groups.Assigned gs (M.mapWithKey assigned (Groups.summedByName (SharedSolver.csScalings sol)))
+    Groups.Assigned gs (M.mapWithKey assigned (Groups.summedByName (SharedSolver.csScalings (checkedSolution sol))))
   where
     assigned :: Text -> (Database, Matrix.Vector) -> Groups.Assignment
     assigned name (d, _)
@@ -3327,10 +3383,10 @@ groupContributionsOf dbManager root methods GroupsRequest{grqAttribution = word,
     GroupSplit{gsSolution = sol, gsParts = parts} <- splitIntoGroups dbManager root wanted
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     total <- scored sol
-    rest <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores (Groups.assembled mFlows sol (Groups.partsRest parts)))
+    rest <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores (partIn mFlows sol (Groups.partsRest parts)))
     restScores <- scored (Impact.lsShown rest)
     withheld <- forM (Impact.lsWithheld rest) $ \p -> WithheldScores (Impact.wpDatabase p) <$> scored (Impact.wpSolution p)
-    groupScores <- traverse (scored . Groups.assembled mFlows sol) (Groups.partsGroups parts)
+    groupScores <- traverse (scored . partIn mFlows sol) (Groups.partsGroups parts)
     pure
         GroupContributions
             { gctAttribution = Groups.attributionWord (attributionOf wanted)
@@ -3343,7 +3399,7 @@ groupContributionsOf dbManager root methods GroupsRequest{grqAttribution = word,
             }
   where
     -- Each method's score of a solution, by the method's id.
-    scored :: SharedSolver.CrossDBSolution -> ExceptT GroupFailure IO (M.Map Text Double)
+    scored :: CheckedSolution -> ExceptT GroupFailure IO (M.Map Text Double)
     scored sol = do
         byId <- liftIO (batchedScoresFor dbManager (grName root) (grCollection root) (grDatabase root) sol methods)
         withExceptT GroupScoringFailed (except (M.fromList <$> traverse (\m -> (UUID.toText (methodId m),) <$> resolveBatchedScore m byId) methods))
@@ -3364,17 +3420,17 @@ groupMembersOf dbManager root method request = runExceptT $ do
     let collectionName = grCollection root
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) collectionName (grDatabase root) method)
-    withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
+    withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores (checkedSolution sol))
     let ownParts s = withExceptT GroupScoringFailed (ExceptT (Impact.processContributionsOf dbManager collectionName method tables s))
         -- Each process of the group wanted, or of the rest: its own part. A
         -- withheld database's processes go to no group, so only the rest
         -- names those databases.
         withheldIn = Impact.splitProcessParts (if isNothing target then withheld else [])
-        inTarget assigned = withheldIn . M.filterWithKey (\key _ -> Groups.groupOfProcess assigned (Groups.summedByName (SharedSolver.csScalings sol)) key == target)
+        inTarget assigned = withheldIn . M.filterWithKey (\key _ -> Groups.groupOfProcess assigned (Groups.summedByName (SharedSolver.csScalings (checkedSolution sol))) key == target)
     members <- case (split, target) of
         (Groups.OwnByProcess assigned, _) -> inTarget assigned <$> ownParts sol
-        (Groups.OwnByEmission _, _) -> withheldIn <$> (ownParts . Groups.assembled mFlows sol =<< partOf parts target)
-        (Groups.WholeChain assigned, Nothing) -> inTarget assigned <$> ownParts (Groups.assembled mFlows sol (Groups.partsRest parts))
+        (Groups.OwnByEmission _, _) -> withheldIn <$> (ownParts . partIn mFlows sol =<< partOf parts target)
+        (Groups.WholeChain assigned, Nothing) -> inTarget assigned <$> ownParts (partIn mFlows sol (Groups.partsRest parts))
         (Groups.WholeChain _, Just (Groups.GroupIndex g)) -> do
             taken <- maybe (throwE (GroupsRefused "The group asked has no part in this split.")) pure (Groups.partsTaken parts !? g)
             weights <- wholeChainWeights dbManager root mFlows ownParts sol
@@ -3405,12 +3461,12 @@ groupFlowsOf dbManager root method request = runExceptT $ do
     mapM_ (throwE . GroupsWithheld) (DBHandlers.licenceRefusal ReadInventory (grName root) =<< licence)
     GroupSplit{gsSolution = sol, gsParts = parts} <- splitIntoGroups dbManager root wanted
     let collectionName = grCollection root
-    cutoffs <- liftIO (Impact.licencedCutoffs dbManager =<< Impact.licencedSolution dbManager SeeDetailedScores sol)
+    let cutoffs = checkedCutoffs sol
     keeping <- liftIO ((<>) <$> DM.refusingDatabases dbManager SeeDetailedScores <*> DM.refusingDatabases dbManager ReadInventory)
-    basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
+    basis <- liftIO (activityBasis dbManager collectionName (checkedSolution sol) Nothing)
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) collectionName (grDatabase root) method)
-    part <- Groups.assembled mFlows sol <$> partOf parts target
+    part <- partIn mFlows sol <$> partOf parts target
     score <- withExceptT GroupScoringFailed (ExceptT (Impact.scoreSolution dbManager collectionName method tables part))
     top <- withExceptT GroupScoringFailed (ExceptT (licencedTopFlows dbManager collectionName method tables (Impact.partitionByLicence mFlows keeping part) score (fromMaybe 20 (gmqLimit request))))
     pure
@@ -3434,13 +3490,13 @@ wholeChainWeights ::
     DatabaseManager ->
     GroupRoot ->
     BioFlowDB ->
-    (SharedSolver.CrossDBSolution -> ExceptT GroupFailure IO (M.Map (Text, ProcessId) Double)) ->
-    SharedSolver.CrossDBSolution ->
+    (CheckedSolution -> ExceptT GroupFailure IO (M.Map (Text, ProcessId) Double)) ->
+    CheckedSolution ->
     ExceptT GroupFailure IO (M.Map Text (Database, SharedSolver.Weights))
 wholeChainWeights dbManager root mFlows ownParts sol = do
-    let reached = Groups.summedByName (SharedSolver.csScalings sol)
+    let reached = Groups.summedByName (SharedSolver.csScalings (checkedSolution sol))
     unitCfg <- liftIO (getMergedUnitConfig dbManager)
-    perUnit <- Groups.perUnitByColumn reached <$> ownParts (Groups.assembled mFlows sol (Groups.everyProcessOnce reached))
+    perUnit <- Groups.perUnitByColumn reached <$> ownParts (partIn mFlows sol (Groups.everyProcessOnce reached))
     withExceptT GroupsRefused (ExceptT (SharedSolver.chainWeights unitCfg (DM.mkDepSolverLookup dbManager) perUnit (grName root)))
 
 {- | The groups a process could start, as 'Groups.candidateCriteria' offers
@@ -3468,7 +3524,7 @@ groupCandidatesOf dbManager root method GroupCandidatesRequest{gcqAttribution = 
     offered <- offeredBy =<< withExceptT GroupsMisread (except (candidateOf candidate candidateFlow))
     reached@RootReached{rrSolution = sol} <- rootReached dbManager root
     basis <- liftIO (emissionBasis dbManager root reached)
-    let scalings = Groups.summedByName (SharedSolver.csScalings sol)
+    let scalings = Groups.summedByName (SharedSolver.csScalings (checkedSolution sol))
         -- The listed groups' reaches are read once, whatever group is tried after them.
         listedReaches = map (Groups.reachOf basis . Groups.groupFilterOf) listed
         maskOf gs = Groups.masked (listedReaches ++ map (Groups.reachOf basis . Groups.groupFilterOf) (drop newestAt (Groups.groupList gs)))
@@ -3499,12 +3555,12 @@ groupCandidatesOf dbManager root method GroupCandidatesRequest{gcqAttribution = 
         (taken, entries) <- case split of
             Groups.OwnByEmission m -> do
                 let taken = Groups.emissionPart m (Just newest) scalings
-                (taken,) . M.toList <$> ownParts (Groups.assembled mFlows sol taken)
+                (taken,) . M.toList <$> ownParts (partIn mFlows sol taken)
             Groups.OwnByProcess assigned -> do
-                taken <- takenIn sol split
+                taken <- takenIn (checkedSolution sol) split
                 pure (taken, [(key, part) | (key, part) <- M.toList own, Groups.groupOfProcess assigned scalings key == Just newest])
             Groups.WholeChain _ -> do
-                taken <- takenIn sol split
+                taken <- takenIn (checkedSolution sol) split
                 w <- maybe (throwE (GroupsRefused "The whole chain was not weighed.")) pure weights
                 (taken,) <$> withExceptT GroupsRefused (except (Groups.entryParts w taken))
         pure
@@ -3627,7 +3683,7 @@ filterSpec gf =
 
 -- | The processes of a group with their parts, and the root's solution they were read from.
 data GroupMembers = GroupMembers
-    { gmSolution :: !SharedSolver.CrossDBSolution
+    { gmSolution :: !CheckedSolution
     , gmParts :: !Impact.ProcessParts
     }
 
@@ -3657,9 +3713,8 @@ postGroupMembers dbName processIdText collectionName methodIdText mExcludeLT req
         dbManager <- asks aeDbManager
         let root = groupRootOf dbName db solver pid activity collectionName mExcludeLT
         GroupMembers{gmSolution = sol, gmParts = members} <- liftIO (groupMembersOf dbManager root method request) >>= either groupFailure pure
-        cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
-        basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
-        let heading = Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = cutoffs, hdBasis = basis, hdFunctionalUnit = grFunctionalUnit root}
+        basis <- liftIO (activityBasis dbManager collectionName (checkedSolution sol) Nothing)
+        let heading = Heading{hdName = methodName method, hdUnit = methodUnit method, hdCutoffs = checkedCutoffs sol, hdBasis = basis, hdFunctionalUnit = grFunctionalUnit root}
         liftIO (activitiesResult dbManager dbName heading (fromMaybe 10 (gmqLimit request)) members)
 
 postGroupFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Bool -> GroupMembersRequest -> AppM ContributingFlowsResult
@@ -3713,7 +3768,7 @@ score's name and unit, and the cut-offs of the solution it was read from.
 -}
 withActivityAndScore ::
     ScoreQuery ->
-    (Score.Source -> Score.ResolvedScore -> SharedSolver.CrossDBSolution -> IO (Either Score.ScoreRefusal a)) ->
+    (Score.Source -> Score.ResolvedScore -> CheckedSolution -> IO (Either Score.ScoreRefusal a)) ->
     AppM (Heading, a)
 withActivityAndScore ScoreQuery{sqDbName = dbName, sqCollection = collectionName, sqProcessId = processIdText, sqRef = ref, sqExcludeLongTerm = mExcludeLT} k = do
     dbManager <- asks aeDbManager
@@ -3725,10 +3780,10 @@ withActivityAndScore ScoreQuery{sqDbName = dbName, sqCollection = collectionName
     sol <-
         solutionWithDeps dbName db sharedSolver pid
             >>= liftIO . Impact.withLongTermPolicy dbManager (longTermModeFromExclude (fromMaybe False mExcludeLT))
-    cutoffs <- liftIO (Impact.solutionCutoffs dbManager SeeDetailedScores sol)
+    checkedSol <- checkedFor (activityName activity) SeeDetailedScores sol
     basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
-    liftIO (k Score.Source{srcManager = dbManager, srcDbName = dbName, srcDatabase = db, srcCollection = collectionName} rs sol)
-        >>= either refused (pure . (,) (scoreHeading rs cutoffs basis functionalUnit))
+    liftIO (k Score.Source{srcManager = dbManager, srcDbName = dbName, srcDatabase = db, srcCollection = collectionName} rs checkedSol)
+        >>= either refused (pure . (,) (scoreHeading rs (checkedCutoffs checkedSol) basis functionalUnit))
   where
     refused :: Score.ScoreRefusal -> AppM b
     refused = \case
@@ -3756,7 +3811,7 @@ getScoreContributingActivities dbName processIdText collectionName setName score
                 , sqExcludeLongTerm = mExcludeLT
                 }
             ( \src score sol -> do
-                withheld <- Impact.withheldDatabases dbManager SeeDetailedScores sol
+                withheld <- Impact.withheldDatabases dbManager SeeDetailedScores (checkedSolution sol)
                 fmap (Impact.splitProcessParts withheld) <$> Score.activityParts src score sol
             )
     liftIO $ activitiesResult dbManager dbName heading (fromMaybe 10 limitParam) parts

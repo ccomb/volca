@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.15.0** speaks wire formats **113 to 123** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.15.0** speaks wire formats **113 to 124** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -2349,6 +2349,16 @@ rather than worked out from the target fields.
 
 ## Exceptions
 
+### `ChainRefused`
+
+The engine refused a calculation that sums a process's chain: the chain
+reaches inputs that only a database not loaded would supply, and a score
+would count them as zero (wire revision 124). The message names the main
+ones; the supply chain of the process names them all. Loading the database
+that supplies them lifts the refusal.
+
+**Constructor**: `ChainRefused(message: str, status_code: int | None = None, body: str = '')`
+
 ### `DownloadError`
 
 Raised when the download or verification fails.
@@ -2935,8 +2945,11 @@ resolve, and ``unscorable`` those that resolve but name an activity the
 engine refuses to score (its quality report's ``unallocated`` check says
 why; wire revision 14, empty from an older engine). ``unsolvable`` lists
 those the solver has no answer for, each with why (wire revision 112,
-empty from an older engine, which refused the whole batch instead). A
-non-empty list is a partial result to inspect, not a failure.
+empty from an older engine, which refused the whole batch instead).
+``refused`` lists those whose chain reaches inputs only a database not
+loaded would supply (wire revision 124, empty from an older engine, which
+scored them counting those inputs as zero). A non-empty list is a partial
+result to inspect, not a failure.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -2945,8 +2958,27 @@ non-empty list is a partial result to inspect, not a failure.
 | `invalid` | `list[str]` | _required_ |
 | `unscorable` | `list[str]` | _required_ |
 | `unsolvable` | `list[UnsolvableActivity]` | list() |
+| `refused` | `list[RefusedActivity]` | list() |
 | `basis` | `ScoreBasis \| None` | None |
 | `reading_notice` | `str \| None` | None |
+
+### `RefusedActivity`
+
+A process of a batch whose chain reaches inputs that only a database not
+loaded would supply: a score would count them as zero, so the engine
+refuses it (wire revision 124).
+
+``count`` is how many such inputs the chain reaches, ``reason`` the
+sentence a single score of this process is refused with, naming the main
+ones. ``parameter_set`` is the position of the set it is refused at, when
+the batch gave sets.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `process_id` | `str` | _required_ |
+| `count` | `int` | _required_ |
+| `reason` | `str` | _required_ |
+| `parameter_set` | `int \| None` | None |
 
 ### `UnsolvableActivity`
 

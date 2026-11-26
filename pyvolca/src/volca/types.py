@@ -862,6 +862,28 @@ class UnsolvableActivity:
 
 
 @dataclass
+class RefusedActivity:
+    """A process of a batch whose chain reaches inputs that only a database not
+    loaded would supply: a score would count them as zero, so the engine
+    refuses it (wire revision 124).
+
+    ``count`` is how many such inputs the chain reaches, ``reason`` the
+    sentence a single score of this process is refused with, naming the main
+    ones. ``parameter_set`` is the position of the set it is refused at, when
+    the batch gave sets.
+    """
+
+    process_id: str
+    count: int
+    reason: str
+    parameter_set: int | None = None
+
+    @classmethod
+    def from_json(cls, d: dict) -> "RefusedActivity":
+        return cls(process_id=d["processId"], count=d["count"], reason=d["reason"], parameter_set=d.get("parameterSet"))
+
+
+@dataclass
 class BatchScores:
     """Result of :meth:`Client.score_activities` scoring many processes at once.
 
@@ -871,8 +893,11 @@ class BatchScores:
     engine refuses to score (its quality report's ``unallocated`` check says
     why; wire revision 14, empty from an older engine). ``unsolvable`` lists
     those the solver has no answer for, each with why (wire revision 112,
-    empty from an older engine, which refused the whole batch instead). A
-    non-empty list is a partial result to inspect, not a failure.
+    empty from an older engine, which refused the whole batch instead).
+    ``refused`` lists those whose chain reaches inputs only a database not
+    loaded would supply (wire revision 124, empty from an older engine, which
+    scored them counting those inputs as zero). A non-empty list is a partial
+    result to inspect, not a failure.
     """
 
     results: list[ScoredActivity]
@@ -880,6 +905,7 @@ class BatchScores:
     invalid: list[str]
     unscorable: list[str]
     unsolvable: list[UnsolvableActivity] = field(default_factory=list)
+    refused: list[RefusedActivity] = field(default_factory=list)
     basis: ScoreBasis | None = None
     """What every score of the batch rests on, said once (wire revision 99);
     ``None`` from an older engine."""
@@ -906,6 +932,7 @@ class BatchScores:
             invalid=d["invalid"],
             unscorable=d.get("unscorable", []),
             unsolvable=[UnsolvableActivity.from_json(u) for u in d.get("unsolvable", [])],
+            refused=[RefusedActivity.from_json(r) for r in d.get("refused", [])],
             basis=ScoreBasis.maybe(d.get("basis")),
             reading_notice=d.get("readingNotice"),
         )

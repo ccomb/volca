@@ -1266,7 +1266,7 @@ unrelinkedWarnings :: Database -> [Text]
 unrelinkedWarnings edited =
     [ "the edit cleared the links to "
         <> T.intercalate ", " (dbDependsOn edited)
-        <> "; they return at the next load, and cross-database totals undercount until then"
+        <> "; they return at the next load, and a calculation whose chain reaches them is refused until then"
     | not (null (dbDependsOn edited))
     , null (dbCrossDBLinks edited)
     ]

@@ -369,6 +369,24 @@ data UnsolvableEntry = UnsolvableEntry
 
 instance NFData UnsolvableEntry
 
+{- | An activity of a batch whose chain reaches inputs that only a database not
+loaded would supply: a score would count them as zero, so it is refused.
+-}
+data RefusedEntry = RefusedEntry
+    { reProcessId :: Text
+    -- ^ As the request wrote it
+    , reParameterSet :: Maybe Int
+    -- ^ The position of the parameter set it is refused at, when the request gave sets
+    , reCount :: Int
+    -- ^ How many such inputs the chain reaches
+    , reReason :: Text
+    -- ^ The sentence a single score of this activity is refused with
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped RefusedEntry)
+
+instance NFData RefusedEntry
+
 {- | Batch impacts response: one entry per successfully computed process,
 plus lists of process ids that could not be resolved or solved for.
 -}
@@ -382,6 +400,8 @@ data BatchImpactsResponse = BatchImpactsResponse
     -}
     , birUnsolvable :: [UnsolvableEntry]
     -- ^ Activities that resolve but have no answer, each with why; the others of the batch are scored all the same
+    , birRefused :: [RefusedEntry]
+    -- ^ Activities whose chain reaches inputs no loaded database supplies; the others of the batch are scored all the same
     , birBasis :: ScoreBasis
     -- ^ What every score of the batch rests on; each entry's parameter set is a position in its parameter sets
     , birReadingNotice :: Maybe Text

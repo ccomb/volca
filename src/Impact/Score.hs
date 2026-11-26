@@ -37,6 +37,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
 
+import Database.Cutoffs (CheckedSolution, checkedSolution)
 import Database.Manager (CollectionName, DatabaseManager, mapMethodToTablesCached)
 import qualified Impact
 import Matrix (Inventory)
@@ -127,7 +128,7 @@ data Source = Source
 {- | Every activity's part of the score. The parts are the terms of the score,
 so their sum is it.
 -}
-activityParts :: Source -> ResolvedScore -> SharedSolver.CrossDBSolution -> IO (Either ScoreRefusal (M.Map (Text, ProcessId) Double))
+activityParts :: Source -> ResolvedScore -> CheckedSolution -> IO (Either ScoreRefusal (M.Map (Text, ProcessId) Double))
 activityParts src rs sol = runExceptT $ do
     perIndicator <- forM (rsIndicators rs) $ \method -> do
         tables <- liftIO $ tablesOf src method
@@ -146,7 +147,7 @@ flowParts ::
     Text ->
     Source ->
     ResolvedScore ->
-    SharedSolver.CrossDBSolution ->
+    CheckedSolution ->
     IO (Either ScoreRefusal (Double, [FlowContribution]))
 flowParts surface src rs sol = runExceptT $ do
     perIndicator <- forM (rsIndicators rs) $ \method -> do
@@ -161,7 +162,7 @@ flowParts surface src rs sol = runExceptT $ do
         weighed = weighParts weights [(name, M.fromListWith (+) [(bfId (fcFlow fc), fcContribution fc) | fc <- parts]) | (name, _, parts) <- perIndicator]
     pure
         ( sum (M.intersectionWith (*) weights scores)
-        , M.elems (M.mapWithKey (flowPart (SharedSolver.csInventory sol)) (M.intersectionWith (,) flows weighed))
+        , M.elems (M.mapWithKey (flowPart (SharedSolver.csInventory (checkedSolution sol))) (M.intersectionWith (,) flows weighed))
         )
   where
     -- A flow whose quantity nets to zero (emitted in one place, avoided in
@@ -190,7 +191,7 @@ licencedFlowParts ::
     Text ->
     Source ->
     ResolvedScore ->
-    SharedSolver.CrossDBSolution ->
+    CheckedSolution ->
     IO (Either ScoreRefusal ScoreFlows)
 licencedFlowParts surface src rs sol = runExceptT $ do
     Impact.LicencedSolution{Impact.lsShown = shown, Impact.lsWithheld = withheld} <-
@@ -200,7 +201,7 @@ licencedFlowParts surface src rs sol = runExceptT $ do
     pure ScoreFlows{sfTotal = shownScore + sum (map Impact.psScore parts), sfRows = rows, sfWithheld = parts}
 
 -- | The score alone: each indicator's, weighed.
-scoreOf :: Source -> ResolvedScore -> SharedSolver.CrossDBSolution -> IO (Either ScoreRefusal Double)
+scoreOf :: Source -> ResolvedScore -> CheckedSolution -> IO (Either ScoreRefusal Double)
 scoreOf src rs sol = runExceptT $ do
     scores <- forM (rsIndicators rs) $ \method -> do
         tables <- liftIO $ tablesOf src method
