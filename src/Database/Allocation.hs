@@ -35,6 +35,7 @@ module Database.Allocation (
     allocateWith,
     allocateAll,
     asAllocated,
+    asReference,
     isCoproduct,
     keptWhole,
     producerCandidatesBy,

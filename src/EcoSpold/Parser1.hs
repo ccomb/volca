@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
@@ -31,7 +32,10 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Read as TR
 import qualified Data.UUID.V5 as UUID5
+import Database.Allocation (noExchangeShares)
+import EcoSpold.Allocation1 (Allocation1 (..), Division (..), divide, withFirstProductAsReference)
 import EcoSpold.Common (ParsedDataset (..), bsToIntMaybe, bsToText, docSection, isElement, joinParts, nonEmptyText)
 import Progress (ProgressLevel (..), reportProgress)
 import Types
@@ -105,8 +109,24 @@ data ElementContext
     | InExchange !ExchangeData
     | InInputGroup !ExchangeData -- Keep parent exchange data
     | InOutputGroup !ExchangeData -- Keep parent exchange data
+    | InAllocation !PendingKey
     | Other
     deriving (Eq)
+
+{- | An @\<allocation\>@ being read: what each of its parts said, 'Nothing'
+where a number or the fraction does not read, so that 'closeAllocation' can
+tell a key it cannot apply from one it never saw.
+-}
+data PendingKey = PendingKey
+    { pkCoProduct :: !(Maybe Int)
+    , pkFraction :: !(Maybe Double)
+    , pkLines :: ![Maybe Int]
+    -- ^ In reverse order of reading.
+    }
+    deriving (Eq)
+
+emptyPendingKey :: PendingKey
+emptyPendingKey = PendingKey Nothing Nothing []
 
 {- | The group an EcoSpold 1 input is filed under, which is what the format
 says about the kind of flow it carries: the first three are technosphere
@@ -244,7 +264,12 @@ data ParseState = ParseState
     , psLocation :: !(Maybe Text)
     , psRefUnit :: !(Maybe Text)
     , psDescription :: ![Text]
-    , psExchanges :: ![Exchange]
+    , psExchanges :: ![(Int, Exchange)]
+    -- ^ Each line with the number the file gives it, in reverse order of reading.
+    , psKeys :: ![Maybe Allocation1]
+    -- ^ The dataset's allocation keys, 'Nothing' for one that does not read, in reverse order.
+    , psOddOutputs :: !(M.Map Text (S.Set Text))
+    -- ^ The outputs read as coproducts although the group they carry does not say so, by what it says.
     , psTechFlows :: ![TechnosphereFlow]
     , psBioFlows :: ![BiosphereFlow]
     , psUnits :: ![Unit]
@@ -279,6 +304,8 @@ initialParseState =
         , psRefUnit = Nothing
         , psDescription = []
         , psExchanges = []
+        , psKeys = []
+        , psOddOutputs = M.empty
         , psTechFlows = []
         , psBioFlows = []
         , psUnits = []
@@ -320,6 +347,7 @@ onOpenTag state tagName =
         | isElement tagName "exchange" = InExchange emptyExchangeData
         | isElement tagName "inputGroup" = enterGroup InInputGroup
         | isElement tagName "outputGroup" = enterGroup InOutputGroup
+        | isElement tagName "allocation" = InAllocation emptyPendingKey
         | otherwise = psContext state
 
 -- | Attribute: route by current context to the matching field setter.
@@ -333,6 +361,10 @@ onAttribute state name value = case psContext state of
     InExchange edata -> state{psContext = InExchange (setExchangeAttr name value edata)}
     InInputGroup _ -> datasetNumberAttr
     InOutputGroup _ -> datasetNumberAttr
+    InAllocation key
+        | isElement name "referenceToCoProduct" -> state{psContext = InAllocation key{pkCoProduct = readKeyNumber (bsToText value)}}
+        | isElement name "fraction" -> state{psContext = InAllocation key{pkFraction = readAmount (bsToText value)}}
+        | otherwise -> state
     Other -> docAttr name value datasetNumberAttr
   where
     setDocs f = state{psDocs = f (psDocs state)}
@@ -446,6 +478,8 @@ onCloseTag state tagName
     | isElement tagName "inputGroup" = closeGroup restoreInputGroup (\e t -> e{exInputGroup = readInputGroup t}) state
     | isElement tagName "outputGroup" = closeGroup restoreOutputGroup (\e t -> e{exOutputGroup = readOutputGroup t}) state
     | isElement tagName "exchange" = closeExchange state
+    | isElement tagName "referenceToInputOutput" = closeKeyLine state
+    | isElement tagName "allocation" = closeAllocation state
     | isElement tagName "referenceFunction" = (popElement state){psContext = Other}
     | isElement tagName "geography" = (popElement state){psContext = Other}
     | isElement tagName "source" = closeSource state
@@ -456,6 +490,33 @@ onCloseTag state tagName
     | isElement tagName "endDate" = closeDocText (\d t -> d{ddPeriodEnd = statedAsDate (ddPeriodEnd d) t}) state
     | isElement tagName "dataset" = closeDataset state
     | otherwise = popPath state
+
+{- | A number as an allocation key writes it, whole, around any spacing. A
+number followed by anything else names no line: reading its leading digits
+would apply the key to a line its author did not write.
+-}
+readKeyNumber :: Text -> Maybe Int
+readKeyNumber t = case TR.signed TR.decimal (T.strip t) of
+    Right (n, rest) | T.null rest -> Just n
+    _ -> Nothing
+
+-- | Close a @\<referenceToInputOutput\>@: one more line the open key applies to.
+closeKeyLine :: ParseState -> ParseState
+closeKeyLine state = case psContext state of
+    InAllocation key -> (popElement state){psContext = InAllocation key{pkLines = readKeyNumber txt : pkLines key}}
+    _ -> popElement state
+  where
+    txt = T.concat (reverse (map bsToText (psTextAccum state)))
+
+-- | Close an @\<allocation\>@: file the key with the dataset, or that it does not read.
+closeAllocation :: ParseState -> ParseState
+closeAllocation state = case psContext state of
+    InAllocation key ->
+        (popElement state)
+            { psKeys = (Allocation1 <$> pkCoProduct key <*> pkFraction key <*> sequence (reverse (pkLines key))) : psKeys state
+            , psContext = Other
+            }
+    _ -> popElement state
 
 {- | Close a @\<source\>@: file it under the number the dataset gave it, so
 @referenceToPublishedSource@ can name it whichever order the two were read in.
@@ -526,6 +587,7 @@ restoreInputGroup (InExchange edata) = Just edata
 restoreInputGroup InOutputGroup{} = Nothing
 restoreInputGroup InReferenceFunction = Nothing
 restoreInputGroup InGeography = Nothing
+restoreInputGroup InAllocation{} = Nothing
 restoreInputGroup Other = Nothing
 
 {- | Exchange data to restore when closing an <outputGroup>: the group we opened,
@@ -537,6 +599,7 @@ restoreOutputGroup (InExchange edata) = Just edata
 restoreOutputGroup InInputGroup{} = Nothing
 restoreOutputGroup InReferenceFunction = Nothing
 restoreOutputGroup InGeography = Nothing
+restoreOutputGroup InAllocation{} = Nothing
 restoreOutputGroup Other = Nothing
 
 {- | Close an exchange: build its exchange/flow/unit, accumulate them, and
@@ -556,6 +619,7 @@ closeExchange state = case psContext state of
     InOutputGroup _ -> popPath state
     InReferenceFunction -> popPath state
     InGeography -> popPath state
+    InAllocation _ -> popPath state
     Other -> popPath state
 
 {- | File one closed exchange with the dataset being read.
@@ -571,7 +635,10 @@ times what its result does.
 accumulateExchange :: ExchangeData -> BuiltExchange -> ParseState -> ParseState
 accumulateExchange edata BuiltExchange{beExchange = exchange, beFlow = parsedFlow, beUnit = unit} state =
     (popElement state)
-        { psExchanges = exchange : psExchanges state
+        { psExchanges = (exNumber edata, exchange) : psExchanges state
+        , psOddOutputs = case (exchange, oddOutputGroup (exOutputGroup edata)) of
+            (TechnosphereExchange{techRole = Coproduct}, Just what) -> M.insertWith S.union what (S.singleton (exName edata)) (psOddOutputs state)
+            _ -> psOddOutputs state
         , psTechFlows = techs
         , psBioFlows = bios
         , psUnits = unit : psUnits state
@@ -584,6 +651,30 @@ accumulateExchange edata BuiltExchange{beExchange = exchange, beFlow = parsedFlo
     (techs, bios) = case parsedFlow of
         ParsedTech tf -> (tf : psTechFlows state, psBioFlows state)
         ParsedBio bf -> (psTechFlows state, bf : psBioFlows state)
+
+{- | What the group an output read as a coproduct says, when it is not the
+format's group for one. Such a row is read as it always was: the files that
+carry these groups, those this engine wrote before among them, mean a product
+by it, and what the format meant by groups 1 and 3 it writes as inputs.
+-}
+oddOutputGroup :: Maybe OutputGroup -> Maybe Text
+oddOutputGroup = \case
+    Just OutAllocatedProduct -> Nothing
+    Just OutReferenceProduct -> Nothing
+    Just OutToNature -> Nothing
+    Just OutIncludedProduct -> Just "group 1, an avoided product system, which the format writes as a negative input"
+    Just OutWasteToTreatment -> Just "group 3, waste to treatment, which the format writes as an input"
+    Just OutputGroupUnrecognised -> Just "a group the format does not define"
+    Nothing -> Just "no group"
+
+-- | The outputs read as coproducts against their group, said once per group.
+oddOutputsSeen :: ParseState -> [Text]
+oddOutputsSeen st =
+    [ datasetPrefix st <> "outputs " <> T.intercalate ", " (map named (S.toList names)) <> " carry " <> what <> ", and are read as coproducts"
+    | (what, names) <- M.toList (psOddOutputs st)
+    ]
+  where
+    named t = "\"" <> t <> "\""
 
 {- | Close a dataset: snapshot the completed activity and reset per-dataset
 accumulators for the next one (multi-dataset files).
@@ -607,6 +698,8 @@ resetDataset state =
         , psRefUnit = Nothing
         , psDescription = []
         , psExchanges = []
+        , psKeys = []
+        , psOddOutputs = M.empty
         , psTechFlows = []
         , psBioFlows = []
         , psUnits = []
@@ -893,6 +986,14 @@ buildResult st =
         locationSource = maybe LocationUnspecified declaredLocationSource (psLocation st)
         refUnit = fromMaybe "UNKNOWN_UNIT" (psRefUnit st)
         description = reverse (psDescription st)
+        flowNames = M.fromList ([(tfId f, tfName f) | f <- psTechFlows st] <> [(bfId f, bfName f) | f <- psBioFlows st])
+        nameOf ex = M.findWithDefault "" (exchangeFlowId ex) flowNames
+        readKeys = sequence (psKeys st)
+        division =
+            divide
+                nameOf
+                (uncurry zip (withFirstProductAsReference <$> unzip (reverse (psExchanges st))))
+                (maybe [] reverse readKeys)
         classifications =
             M.fromList $
                 filter
@@ -908,7 +1009,7 @@ buildResult st =
                 , activityLocation = location
                 , activityLocationSource = locationSource
                 , activityUnit = refUnit
-                , activityLines = packExchanges (reverse (psExchanges st))
+                , activityLines = packExchanges (dvLines division)
                 , activityParameters = M.empty
                 , activityNativeType = Nothing
                 , activityNativeId = datasetIdentifier (psDatasetNumber st)
@@ -932,7 +1033,11 @@ buildResult st =
                         ++ unplacedMediaSeen st
                         ++ unreadableAmountsSeen st
                         ++ [datasetPrefix st <> "timestamp: " <> reason | Left reason <- [created]]
+                        ++ oddOutputsSeen st
+                        ++ [datasetPrefix st <> "an allocation key states a number or a fraction that does not read, so its keys are not applied and the block is kept whole" | Nothing <- [readKeys]]
+                        ++ map (datasetPrefix st <>) (dvWarnings division)
                 , pdLiterature = mapMaybe sourceDocument (IM.elems (ddSources (psDocs st)))
+                , pdExchangeShares = dvPairs division
                 }
      in -- A file that yields no exchange and names no product is not a
         -- dataset: a stray or truncated XML the SAX fold walked through without
@@ -965,6 +1070,7 @@ buildResult st =
             BuiltExchange{beExchange = exchange, beFlow = flow, beUnit = unit} = buildExchange (psLocation st) 1 reference
          in parsed
                 { pdActivity = (pdActivity parsed){activityLines = packExchanges [exchange]}
+                , pdExchangeShares = noExchangeShares
                 , pdTechFlows = [tf | ParsedTech tf <- [flow]]
                 , pdUnits = [unit]
                 , pdWarnings =

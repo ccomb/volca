@@ -31,6 +31,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Read as TR
 import Data.UUID (UUID)
+import Database.Allocation (ExchangeShares)
 import Numeric (showFFloat)
 import Types (Activity, BiosphereFlow, DocSection (..), LibraryDocument, TechnosphereFlow, Unit, WasteFlow)
 
@@ -57,6 +58,11 @@ data ParsedDataset = ParsedDataset
     -- ^ What the reader could not make sense of, for the caller to report.
     , pdLiterature :: ![LibraryDocument]
     -- ^ The sources the dataset cites, gathered into the database's literature.
+    , pdExchangeShares :: !ExchangeShares
+    {- ^ The fractions the dataset gives single lines of one product's
+    process, keyed by positions in 'pdActivity' as read: what allocating it
+    applies on top of each product's share, and nothing once it is divided.
+    -}
     }
 
 -- | ByteString to Text conversion with UTF-8 decoding and XML entity decoding

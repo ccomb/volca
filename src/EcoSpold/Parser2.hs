@@ -23,6 +23,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time.Calendar (Day)
 import qualified Data.UUID as UUID
 import qualified Data.UUID.V5 as UUID5
+import Database.Allocation (noExchangeShares)
 import EcoSpold.Common (ParsedDataset (..), bsToIntMaybe, bsToText, deducedPriceProperty, docSection, isElement, joinParts, nonEmptyText)
 import qualified Expr
 import Progress (ProgressLevel (..), reportProgress)
@@ -1356,6 +1357,7 @@ parseWithXeno conversions xmlContent = do
                             , pdActivityId = psActivityId st
                             , pdWarnings = map T.pack (reverse (psWarnings st)) ++ placeholdersUsed st ++ dateWarnings
                             , pdLiterature = []
+                            , pdExchangeShares = noExchangeShares
                             }
 
 -- | Parse EcoSpold file using Xeno SAX parser
