@@ -41,6 +41,7 @@ import Database.Manager (
     DatabaseManager (..),
     DependencyEdit (..),
     LoadedDatabase (..),
+    PinSource (..),
     StagedDatabase (..),
     addDependencyToStaged,
     finalizeDatabase,
@@ -201,6 +202,7 @@ spec = describe "relinkDatabase strict dependency pin" $ do
                         , sdConfig = consumerConfig (tmp </> "consumer-data")
                         , sdMissingProducts = []
                         , sdSelectedDeps = []
+                        , sdPinSource = SeededPin
                         , sdCrossDBLinks = []
                         , sdLinkingStats = dbLinkingStats consumerDb
                         , sdBuiltWith = dbBuiltWith consumerDb

@@ -279,6 +279,18 @@ spec = describe "persisting an edit" $ do
                 void (reloadOf manager "bakery")
                 M.member "mill" <$> readTVarIO (dmLoadedDbs manager) `shouldReturn` False
 
+        it "links to a database loaded after its setup page was opened, where nobody chose its dependencies" $
+            withDataDir $ \dataRoot -> do
+                -- The granary sells, under its very name, what the bakery buys.
+                writeUpload dataRoot "granary" [] [datasetBuying 1 "barley" "kg" []]
+                writeUpload dataRoot "bakery" [] [datasetBuying 1 "bread" "kg" [("barley, output", 2)]]
+                manager <- initDatabaseManager defaultConfig UseCache
+                -- Opening its setup page stages it, linked to nothing.
+                (void <$> getDatabaseSetupInfo manager "bakery") `shouldReturn` Right ()
+                mustLoad manager "granary"
+                mustLoad manager "bakery"
+                suppliersOf manager "bakery" `shouldReturn` Set.singleton "granary"
+
         it "goes along with a copy, which links as its source does when it is loaded again" $
             withBakeryAndMill $ \dataRoot manager -> do
                 relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)

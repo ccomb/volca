@@ -16,6 +16,7 @@ module Database.Manager (
     DatabaseStatus (..),
     DatabaseLoadStatus (..),
     StagedDatabase (..),
+    PinSource (..),
     DatabaseSetupInfo (..),
     SetupError (..),
     setupErrorMessage,
@@ -429,6 +430,8 @@ data StagedDatabase = StagedDatabase
     -- ^ Products whose requests went unanswered, most demanded first
     , sdSelectedDeps :: ![Text]
     -- ^ Selected dependency database names
+    , sdPinSource :: !PinSource
+    -- ^ Whether someone chose them, or staging took them as it found them
     , sdCrossDBLinks :: ![CrossDBLink]
     -- ^ Cross-DB links found so far
     , sdSupplierMapping :: !(Maybe SupplierMapping)
@@ -446,6 +449,19 @@ data StagedDatabase = StagedDatabase
     , sdCachedDB :: !(Maybe Database)
     -- ^ Pre-built DB from cache (skip rebuild)
     }
+
+{- | Who set a staged database's dependencies. Staging takes them as it finds
+them; adding, removing, or relinking to one by a mapping is a choice. A load
+that cannot finalize the staged database keeps a choice, where dependencies
+nobody chose are found again by linking against what is loaded.
+-}
+data PinSource = SeededPin | ChosenPin
+
+-- | The dependencies someone chose for a staged database, if anyone did.
+chosenPin :: StagedDatabase -> Maybe [Text]
+chosenPin staged = case sdPinSource staged of
+    ChosenPin -> Just (sdSelectedDeps staged)
+    SeededPin -> Nothing
 
 -- | Information about a missing supplier product
 data MissingSupplier = MissingSupplier
@@ -2886,11 +2902,11 @@ loadDatabaseSingle manager dbName = do
             | isNothing (notReadyReason (stagedLinkCounts staged)) ->
                 finalizeDatabase manager dbName
             | otherwise -> do
-                -- Cannot finalize: clear staged entry, reload from config
-                -- (loadDatabase pre-loaded deps, so fresh load should resolve links)
-                -- on the dependencies the setup page left it with.
+                -- Cannot finalize: clear the staged entry and load from config,
+                -- where linking against what is loaded may resolve more; on the
+                -- dependencies someone chose on the setup page, if anyone did.
                 atomically $ modifyTVar' (dmStagedDbs manager) (M.delete dbName)
-                loadDatabaseSingleFromConfig manager dbName (Just (sdSelectedDeps staged))
+                loadDatabaseSingleFromConfig manager dbName (chosenPin staged)
         Nothing -> loadDatabaseSingleFromConfig manager dbName Nothing
 
 {- | How a database that has just been loaded got here. These are what the
@@ -2955,14 +2971,18 @@ loadDatabaseSingleFromConfig manager dbName stagedPin = do
         liftIO $ warnReopenedBridges synonymDB
         (parsed, origin) <- parseOrReplay dbConfig synonymDB
         mapping <- liftIO $ storedSupplierMapping manager dbConfig
-        let readDb = ldDatabase parsed
-            -- What the setup page left the database standing on, when it
-            -- differs from what was read: the cache keeps the pin of its
-            -- last write, so a dependency removed since would come back.
-            edited = mfilter (not . sameSet (dbDependsOn readDb)) stagedPin
-            loaded = parsed{ldDatabase = maybe readDb (\deps -> readDb{dbDependsOn = deps}) edited, ldSupplierMapping = mapping}
-        liftIO $ publish dbConfig synonymDB loaded origin (dbDependsOn readDb <$ edited)
+        let (pinned, pinRead) = onChosenPin (ldDatabase parsed)
+            loaded = parsed{ldDatabase = pinned, ldSupplierMapping = mapping}
+        liftIO $ publish synonymDB loaded origin pinRead
         pure loaded
+
+    {- The database on the dependencies someone chose on its setup page, and
+    the ones it was read with when the two differ: the cache keeps the
+    dependencies of its last write, so one removed since would come back. -}
+    onChosenPin :: Database -> (Database, Maybe [Text])
+    onChosenPin db = case mfilter (not . sameSet (dbDependsOn db)) stagedPin of
+        Just deps -> (db{dbDependsOn = deps}, Just (dbDependsOn db))
+        Nothing -> (db, Nothing)
 
     {- A cache saved before the last edit was journalled would come back
     without it, so that case reads the sources again and the journal is
@@ -3013,8 +3033,9 @@ loadDatabaseSingleFromConfig manager dbName stagedPin = do
 
     {- The pin on disk is given when the staged one replaced it: the relink
     then rewrites the cache, even when no link changes. -}
-    publish :: DatabaseConfig -> SynonymDB -> LoadedDatabase -> LoadOrigin -> Maybe [Text] -> IO ()
-    publish dbConfig synonymDB loaded origin pinOnDisk = do
+    publish :: SynonymDB -> LoadedDatabase -> LoadOrigin -> Maybe [Text] -> IO ()
+    publish synonymDB loaded origin pinOnDisk = do
+        let dbConfig = ldConfig loaded
         atomically $
             publishLoaded manager dbName loaded (buildIndexedDatabaseFromDB dbName synonymDB (ldDatabase loaded))
         clearMethodMappingCacheForDb manager dbName
@@ -3695,7 +3716,7 @@ relinkStaged manager dbName chosen = withLogScope dbName $ runExceptT $ do
         atomically $
             modifyTVar'
                 (dmStagedDbs manager)
-                (M.insert dbName (withRelinkedDeps pinnedDeps mapping newStats staged))
+                (M.insert dbName (maybe id (const chosenNow) chosen (withRelinkedDeps pinnedDeps mapping newStats staged)))
     pure (relinkResult staged pinnedDeps newStats)
   where
     -- A mapping relink pins the dependency it retargets, once.
@@ -3894,6 +3915,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                 , sdConfig = dbConfig
                 , sdMissingProducts = []
                 , sdSelectedDeps = dbDependsOn cachedDb
+                , sdPinSource = SeededPin
                 , sdCrossDBLinks = dbCrossDBLinks cachedDb
                 , sdLinkingStats = dbLinkingStats cachedDb
                 , sdBuiltWith = dbBuiltWith cachedDb
@@ -3941,6 +3963,7 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                     , sdConfig = dbConfig
                     , sdMissingProducts = stagedMissingProducts finalDB finalStats
                     , sdSelectedDeps = minimalDeps
+                    , sdPinSource = SeededPin
                     , sdCrossDBLinks = Loader.cdlLinks finalStats
                     , sdLinkingStats = finalStats
                     , sdBuiltWith = inputs
@@ -4659,6 +4682,10 @@ withRelinkedDeps newDeps mapping newStats staged =
         , sdMissingProducts = stagedMissingProducts (sdSimpleDB staged) newStats
         }
 
+-- | Mark the staged dependencies as chosen, by the edit that just set them.
+chosenNow :: StagedDatabase -> StagedDatabase
+chosenNow staged = staged{sdPinSource = ChosenPin}
+
 -- | Build setup info from a staged database
 buildStagedSetupInfo :: StagedDatabase -> Map Text DatabaseConfig -> Map Text IndexedDatabase -> DatabaseSetupInfo
 buildStagedSetupInfo staged configs indexedDbs =
@@ -4859,6 +4886,7 @@ restageLoadedDatabase manager dbName ld = do
                 , sdConfig = ldConfig ld
                 , sdMissingProducts = stagedMissingProducts (toSimpleDatabase db) stats
                 , sdSelectedDeps = dbDependsOn db
+                , sdPinSource = SeededPin
                 , sdCrossDBLinks = dbCrossDBLinks db
                 , sdLinkingStats = stats
                 , sdBuiltWith = dbBuiltWith db
@@ -5016,7 +5044,7 @@ applyStagedDeps manager dbName StagedRelink{..} = do
     atomically $
         modifyTVar'
             (dmStagedDbs manager)
-            (M.insert dbName (withRelinkedDeps srNewDeps mapping newStats srStaged))
+            (M.insert dbName (chosenNow (withRelinkedDeps srNewDeps mapping newStats srStaged)))
     persistUploadDepends manager dbName srNewDeps
     first setupErrorMessage <$> getDatabaseSetupInfo manager dbName
 
