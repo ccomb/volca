@@ -3650,9 +3650,9 @@ Emitted inside ``LCIAResult.top_contributors``.
 | `category` | `str` | _required_ |
 | `cf_value` | `float` | 0.0 |
 | `compartment` | `str \| None` | None |
+| `match_kind` | `str \| None` | None |
 | `absolute_share_pct` | `float` | 0.0 |
 | `cumulative_share_pct` | `float` | 0.0 |
-| `match_kind` | `str \| None` | None |
 
 ### `FlowDetail`
 

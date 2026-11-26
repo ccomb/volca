@@ -339,9 +339,9 @@ class FlowContribution(FromJson):
     category: str  # e.g. "air/urban air"
     cf_value: float = 0.0  # the factor the score applied; effective (contribution / quantity) where factors depend on location
     compartment: str | None = None
+    match_kind: str | None = None  # how the factor was found; None when no factor in the method reaches this flow, and on every row of a single score
     absolute_share_pct: float = 0.0  # |contribution| over the sum of every flow's |contribution|, withheld lines included (wire revision 125)
     cumulative_share_pct: float = 0.0  # the same for this row and every row before it (wire revision 125)
-    match_kind: str | None = None  # how the factor was found; None when no factor in the method reaches this flow, and on every row of a single score
 
 
 @dataclass

@@ -1807,7 +1807,9 @@ optionalNumber key args = case KM.lookup (fromText key) args of
 
 -- | Where a list of contributions stops: @limit@ rows, or the rows covering @cover_percent@, capped by @limit@.
 contributionsCut :: Int -> KeyMap Value -> Either Text RowCut
-contributionsCut defaultRows args = rowCut defaultRows (intArg "limit" args) =<< optionalNumber "cover_percent" args
+contributionsCut defaultRows args = do
+    limit <- optionalWhole "limit" args
+    rowCut defaultRows limit =<< optionalNumber "cover_percent" args
 
 -- | Read an argument that may be either a JSON array of strings or a single string.
 textArrayArg :: Text -> KeyMap Value -> [Text]
@@ -2605,7 +2607,8 @@ callGetImpacts dbManager mBaseUrl licence rid args =
             contribs = irContribs ir
             -- Under a licence that keeps what weighs in its scores, the score
             -- stays and its flows go, as 'Service.withholdContributors' does.
-            topFlows = if granted licence SeeDetailedScores then take topN contribs else []
+            topFlows = if granted licence SeeDetailedScores then rankRows fcContribution (map Impact.psScore (irWithheld ir)) (FirstRows topN) contribs else []
+            methodFields f = ["match_kind" .= Explain.flowMatchKind (irTables ir) (bfId f), "flow_unit" .= getUnitNameForBioFlow mUnits f]
             diagnosed = fromMaybe False (boolArg "include_diagnostics" args)
             Diagnostics{dgFields = diagnosticsFields, dgWithheld = diagnosticsWithheld} = diagnosticsOf dbName licence ir
             sentences =
@@ -2635,20 +2638,7 @@ callGetImpacts dbManager mBaseUrl licence rid args =
                         , "has_negative_contributions" .= hasNeg
                         , "probable_misses" .= missesOf mUnits dbName licence ir
                         , "basis" .= irBasis ir
-                        , "top_flows"
-                            .= [ object
-                                    [ "flow_name" .= bfName f
-                                    , "contribution" .= c
-                                    , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
-                                    , "flow_id" .= UUID.toText (bfId f)
-                                    , "category" .= bfCompartmentName f
-                                    , "compartment" .= bfCompartmentSub f
-                                    , "cf_value" .= cfVal
-                                    , "match_kind" .= Explain.flowMatchKind (irTables ir) (bfId f)
-                                    , "flow_unit" .= getUnitNameForBioFlow mUnits f
-                                    ]
-                               | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- topFlows
-                               ]
+                        , "top_flows" .= map (flowRow score methodFields) topFlows
                         ]
                             ++ webUrlPair
                             ++ withheldPair

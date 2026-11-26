@@ -339,7 +339,7 @@ spec = do
             numbersAt "top_flows" "contribution" o `shouldBe` [1]
             sum (numbersAt "top_flows" "contribution" o ++ numbersAt "withheld_databases" "contribution" o) `shouldBe` 21
 
-        it "counts its line in the absolute total a cut covers, and refuses a cut written as text" $ do
+        it "counts its line in the absolute total a cut covers, and refuses a cut or a cap written as text" $ do
             manager <- managerWith detailKept
             flows <- payload =<< callOn manager "get_contributing_flows" [("cover_percent", Number 80)]
             processes <- payload =<< callOn manager "get_contributing_activities" [("cover_percent", Number 80)]
@@ -347,7 +347,9 @@ spec = do
             -- The root's own flow weighs 1 of 21: the dependency's 20 count in what the rows cover.
             (numbersAt "top_flows" "absolute_percent" flows, numbersAt "top_flows" "cumulative_percent" flows) `shouldBe` ([100 / 21], [100 / 21])
             numbersAt "processes" "cumulative_percent" processes `shouldBe` [100 / 21]
+            limitAsText <- callOn manager "get_contributing_flows" [("cover_percent", Number 80), ("limit", String "5")]
             errorText asText `shouldBe` Just "Parameter 'cover_percent' must be a number"
+            errorText limitAsText `shouldBe` Just "Parameter 'limit' must be a whole number"
 
         it "keeps its flows out of a score's top flows" $ do
             manager <- managerWith detailKept

@@ -886,7 +886,7 @@ licencedTopFlows dbManager collection method tables ls score cut
     toTop :: Impact.LicencedContributions -> TopFlows
     toTop lc =
         TopFlows
-            { tfRows = topContributorRows (Explain.flowMatchKind tables) score (Impact.lcWithheld lc) cut (Impact.lcRows lc)
+            { tfRows = topContributorRows (Explain.flowMatchKind tables) score (rankRows fcContribution (map Impact.psScore (Impact.lcWithheld lc)) cut (Impact.lcRows lc))
             , tfWithheld = Service.withheldShares score (Impact.lcWithheld lc)
             }
 
@@ -895,17 +895,15 @@ warnUnknownInventoryFlows :: Text -> BioFlowDB -> Inventory -> IO ()
 warnUnknownInventoryFlows label mFlows =
     Impact.warnUnknownFlowIds label . Impact.unknownInventoryFlows mFlows
 
-{- | The rows one method publishes under a score: the biggest contributions
-first, cut where asked. The withheld parts are the lines of the databases whose
-licence keeps their flows unlisted.
+{- | The rows one method publishes under a score, ranked and cut by 'rankRows'.
 
 The factor a row carries is the one the score applied to that flow. A
 regionalized method applies one per location, so the row carries the effective
 factor its contribution divided by its quantity – see
 'Method.Mapping.regionalizedContributionsCrossDB'.
 -}
-topContributorRows :: (UUID -> Maybe Text) -> Double -> [Impact.PartScore] -> RowCut -> [FlowContribution] -> [FlowContributionEntry]
-topContributorRows matchKind score withheld cut rawContribs =
+topContributorRows :: (UUID -> Maybe Text) -> Double -> [Ranked FlowContribution] -> [FlowContributionEntry]
+topContributorRows matchKind score ranked =
     [ FlowContributionEntry
         { fcoFlowName = bfName f
         , fcoContribution = c
@@ -918,8 +916,7 @@ topContributorRows matchKind score withheld cut rawContribs =
         , fcoCfValue = cfVal
         , fcoMatchKind = matchKind (bfId f)
         }
-    | Ranked{rkRow = FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c}, rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} <-
-        rankRows fcContribution (map Impact.psScore withheld) cut rawContribs
+    | Ranked{rkRow = FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c}, rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} <- ranked
     ]
 
 {- | Batch fast path: scores via 'batchedScoresFor', then build LCIAResult
@@ -3846,7 +3843,7 @@ getScoreContributingFlows dbName processIdText collectionName setName scoreName 
             { cfrMethod = hdName heading
             , cfrUnit = hdUnit heading
             , cfrTotalScore = total
-            , cfrTopFlows = topContributorRows (const Nothing) total withheld (FirstRows (fromMaybe 20 limitParam)) rows
+            , cfrTopFlows = topContributorRows (const Nothing) total (rankRows fcContribution (map Impact.psScore withheld) (FirstRows (fromMaybe 20 limitParam)) rows)
             , cfrWithheldDatabases = Service.withheldShares total withheld
             , cfrCutoffInputs = cutoffShown (hdCutoffs heading)
             , cfrWithheldCutoffs = cutoffWithheld (hdCutoffs heading)
