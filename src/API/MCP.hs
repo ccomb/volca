@@ -1388,7 +1388,7 @@ missingOf dbManager shape args places = runExceptT $ do
             <> [((SetAmounts, i), \ctx -> chosenLine ctx process selector) | (i, selector) <- setAmountLines request]
     newLines :: ActivityInput -> [((AmountList, Int), AuthorContext -> ShownLine)]
     newLines ai = [((Added list, i), \ctx -> ShownLine (either (const "") (nameAdded ctx) line) InNewProcess) | ((list, i), line) <- statedLines ai]
-    -- Read in the database before the edit: the judged one holds the 1 written in every gap.
+    -- Read in the database before the call, not after its removals: the judged one holds the 1 written in every gap.
     chosenLine :: AuthorContext -> Text -> Either [Text] ExchangeSelector -> ShownLine
     chosenLine ctx process selector = case (activityOf ctx process, selector) of
         (Just act, Right sel) | Just chosen <- nameChosen ctx act sel -> ShownLine (clLabel chosen) (Chosen chosen)

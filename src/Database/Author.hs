@@ -132,6 +132,7 @@ import Types (
     exchangeProperties,
     exchanges,
     findProcessIdByActivityUUID,
+    formulaIsNumber,
     getUnitForExchange,
     getUnitNameForExchange,
     isPlaceholderUnit,
@@ -487,7 +488,7 @@ nameChosen ctx act sel = do
                 ChosenLines
                     { clLabel = labelled what (T.intercalate ", " (nub (map unitOf chosen)))
                     , clAmounts = map exchangeAmount chosen
-                    , clFromFormula = any (isJust . exchangeFormula) chosen
+                    , clFromFormula = any (\ex -> isJust (exchangeFormula ex) && not (formulaIsNumber ex)) chosen
                     }
   where
     what :: Text
@@ -495,8 +496,8 @@ nameChosen ctx act sel = do
         SelectInput provider -> fromMaybe provider (supplierNamed ctx provider)
         SelectWaste provider -> fromMaybe provider (supplierNamed ctx provider)
         SelectBiosphere flowId -> flowNamed flowId
-        SelectUnlinkedInput flowId _ -> flowNamed flowId
-        SelectUnlinkedWaste flowId _ -> flowNamed flowId
+        SelectUnlinkedInput flowId location -> flowNamed flowId <> maybe "" locatedAt location
+        SelectUnlinkedWaste flowId location -> flowNamed flowId <> maybe "" locatedAt location
     flowNamed :: UUID -> Text
     flowNamed flowId =
         fromMaybe (UUID.toText flowId) $
@@ -507,6 +508,11 @@ nameChosen ctx act sel = do
                         <> maybeToList (wfName <$> M.lookup flowId (dbWasteFlows db))
                     | db <- contextDbs ctx
                     ]
+    -- Two lines of one flow differ only by where they are bought or sent.
+    locatedAt :: ExchangeLocation -> Text
+    locatedAt = \case
+        LocationNone -> " (no location)"
+        stated -> " (" <> locationCode stated <> ")"
     unitOf :: Exchange -> Text
     unitOf ex = fromMaybe "" (listToMaybe [unitName u | db <- contextDbs ctx, Just u <- [getUnitForExchange (dbUnits db) ex]])
 

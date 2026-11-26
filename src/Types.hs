@@ -764,6 +764,19 @@ withAmount amount ex = withFormula stated $ case ex of
         ExchangeFormula{efName = Just name} <- exchangeFormula ex
         Just (ExchangeFormula (Just name) (Expr.render (Expr.Literal amount)))
 
+-- | Whether a line's formula is a plain number: a named line stated as such, or set since ('withAmount').
+formulaIsNumber :: Exchange -> Bool
+formulaIsNumber ex = case Expr.readFormula Expr.Volca . efText <$> exchangeFormula ex of
+    Just (Right formula) -> case formula of
+        Expr.Literal _ -> True
+        Expr.Name _ -> False
+        Expr.Unary{} -> False
+        Expr.Binary{} -> False
+        Expr.Variadic{} -> False
+        Expr.If{} -> False
+    Just (Left _) -> False
+    Nothing -> False
+
 -- | The same exchange, its amount multiplied by a factor, and its formula with it.
 scaleExchange :: Double -> Exchange -> Exchange
 scaleExchange factor ex = withFormula (scaled <$> exchangeFormula ex) $ case ex of

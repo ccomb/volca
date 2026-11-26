@@ -679,6 +679,16 @@ spec = do
                     fmap clAmounts chosen `shouldBe` Just [2, 3]
                     fmap (T.isPrefixOf "milk" . clLabel) chosen `shouldBe` Just True
 
+                it "is told apart by its location when the selector states one" $
+                    fmap clLabel (nameChosen (contextOf fixtureDb) unlinked (SelectUnlinkedInput supplierProdId (Just (LocationCode "DE"))))
+                        `shouldSatisfy` maybe False (T.isInfixOf "(DE)")
+
+                it "says a formula computes it only when the formula is more than a number" $ do
+                    let named formula = (unlinkedMilk "FR" 2){techFormula = Just (ExchangeFormula (Just "milk_kg") formula)}
+                        fromFormula formula = clFromFormula <$> nameChosen (contextOf fixtureDb) unlinked{activityLines = packExchanges [named formula]} (SelectUnlinkedInput supplierProdId Nothing)
+                    fromFormula "2" `shouldBe` Just False
+                    fromFormula "2 * yield" `shouldBe` Just True
+
                 it "is a waste output named by its flow, apart from the linked one" $ do
                     edited <- editUnlinked [RemoveExchange (SelectUnlinkedWaste usedOilId (Just LocationNone))]
                     [waAmount ex | ex@WasteExchange{waIsInput = False} <- exchanges (eaActivity edited)] `shouldBe` [0.5]
