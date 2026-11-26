@@ -1170,10 +1170,34 @@ withAmounts asking dbManager rid shape args run = case NE.nonEmpty (missingAmoun
         missingOf dbManager shape args places >>= \case
             Left refusal -> pure (toolError rid refusal)
             Right missing -> case amountsStep asking missing of
-                Typed amounts -> run (\place -> if M.member place amounts then TypedByPerson else FromCall) (fillAmounts amounts args)
+                Typed amounts -> sayTyped missing amounts <$> run (\place -> if M.member place amounts then TypedByPerson else FromCall) (fillAmounts amounts args)
                 AmountsInChat ms -> pure (toolError rid (amountsInChatText ms))
                 AmountsInForm why ms -> pure (askInForms rid [amountsFormKey .= amountsForm args why ms])
                 AmountsRefused how -> pure (toolError rid (amountsRefusedText how))
+
+{- | The answer of an edit that ran, with the amounts the person typed beside
+it: the assistant never saw the form, and would otherwise take a figure it did
+not send for one made up. A refused edit is left as it is.
+-}
+sayTyped :: NE.NonEmpty Missing -> M.Map Place Double -> Value -> Value
+sayTyped missing amounts = \case
+    Object response
+        | Just (Object r) <- KM.lookup "result" response
+        , KM.lookup "isError" r == Just (Bool False)
+        , Just (Array content) <- KM.lookup "content" r ->
+            Object (KM.insert "result" (Object (KM.insert "content" (Array (V.snoc content note)) r)) response)
+    other -> other
+  where
+    note :: Value
+    note = object ["type" .= ("text" :: Text), "text" .= typedText missing amounts]
+
+-- | Which amounts the person typed, each with its line.
+typedText :: NE.NonEmpty Missing -> M.Map Place Double -> Text
+typedText missing amounts =
+    T.unlines
+        ( "The user typed these amounts in the form; they are the user's figures, not guesses:"
+            : ["- " <> missingLine m <> ", added to " <> missingProcess m <> ": " <> T.pack (show amount) | m <- NE.toList missing, Just amount <- [M.lookup (missingPlace m) amounts]]
+        )
 
 -- | The edits of a call, each by its place among the elements of @edits@ when there are several.
 editsAt :: EditShape -> KeyMap Value -> [(Maybe Int, KeyMap Value)]
