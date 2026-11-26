@@ -93,6 +93,8 @@ import qualified Data.Text.IO as TIO
 import Database.Upload (DatabaseFormat (..))
 import GHC.Generics (Generic)
 import Progress (ProgressLevel (..), reportProgress)
+import Skill (Skill, skillFrom, skillName)
+import Skill.Builtin (servedSkills)
 import System.Directory (doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName, (</>))
@@ -156,6 +158,8 @@ data Config = Config
     , cfgChemSynonyms :: !(Maybe FilePath) -- Path to chem_synonyms CSV (PubChem snapshot for the suggester)
     , cfgSubstanceEdges :: !(Maybe FilePath) -- Path to substance_edges CSV (typed flow-correspondence edges)
     , cfgClassificationPresets :: ![ClassificationPreset]
+    , cfgSkills :: ![Skill]
+    -- ^ The file's own skills once decoded; every skill served once loaded, the built-in ones included ('withServedSkills').
     }
     deriving (Show, Eq, Generic)
 
@@ -556,6 +560,7 @@ defaultConfig =
             , cfgChemSynonyms = Nothing
             , cfgSubstanceEdges = Nothing
             , cfgClassificationPresets = []
+            , cfgSkills = []
             }
 
 {- | The built-in table of every kind a configuration says nothing about. A
@@ -684,7 +689,16 @@ instance DecodeTOML Config where
         cfgChemSynonyms <- getFieldOpt "chem-synonyms"
         cfgSubstanceEdges <- getFieldOpt "substance-edges"
         cfgClassificationPresets <- fromMaybe [] <$> getFieldOptWith (getArrayOf tomlDecoder) "classification-presets"
+        cfgSkills <- fromMaybe [] <$> getFieldOptWith (getArrayOf skillDecoder) "skills"
         pure Config{..}
+
+-- | A @[[skills]]@ entry, refused here when the skill could not be served as written.
+skillDecoder :: Decoder Skill
+skillDecoder = do
+    name <- getField "name"
+    description <- getField "description"
+    text <- getField "text"
+    either (fail . T.unpack) pure (skillFrom name description text)
 
 instance DecodeTOML ServerConfig where
     tomlDecoder = do
@@ -1052,6 +1066,7 @@ configKeys =
                 map plain ["name", "label", "description"]
                     <> [("filters", keys (map plain ["system", "value", "mode"]))]
             )
+        , ("skills", keys (map plain ["name", "description", "text"]))
         ]
   where
     keys = Accepts . M.fromList
@@ -1178,7 +1193,11 @@ loadConfigOrDefault :: Maybe FilePath -> IO (Either Text Config)
 loadConfigOrDefault mPath = do
     raw <- maybe (pure (Right defaultConfig)) loadConfigFile mPath
     mDataDir <- lookupEnv "VOLCA_DATA_DIR"
-    pure $ raw >>= validateConfig . resolveConfigPaths mPath . applyDataDir mDataDir . withBuiltins
+    pure $ raw >>= validateConfig . resolveConfigPaths mPath . applyDataDir mDataDir . withBuiltins >>= withServedSkills
+
+-- | The file's own skills, then each built-in one they do not replace.
+withServedSkills :: Config -> Either Text Config
+withServedSkills cfg = (\skills -> cfg{cfgSkills = skills}) <$> servedSkills (cfgSkills cfg)
 
 {- | Redirect a "data/<rest>" path to "$VOLCA_DATA_DIR/<rest>".
 Returns the input unchanged when the env var is unset, or when the path
@@ -1293,6 +1312,11 @@ validateConfig cfg = do
     unless (null presetDupes) $
         Left $
             "Duplicate classification preset names: " <> T.intercalate ", " presetDupes
+
+    let skillDupes = repeated (map skillName (cfgSkills cfg))
+    unless (null skillDupes) $
+        Left $
+            "Duplicate skill names: " <> T.intercalate ", " skillDupes
 
     let methodDupes = repeated (map mcName (cfgMethods cfg))
     unless (null methodDupes) $

@@ -60,7 +60,7 @@ call = callWith []
 -- | One tools/call with more headers.
 callWith :: RequestHeaders -> DM.DatabaseManager -> Client -> [(Key, Value)] -> Text -> [(Key, Value)] -> IO Value
 callWith extra manager client answers tool args = do
-    app <- mcpApp manager [] False Nothing Nothing id Nothing
+    app <- mcpApp manager [] [] False Nothing Nothing id Nothing
     let (meta, headers) = case client of
             OldClient -> ([], [])
             ModernClient caps ->

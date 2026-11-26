@@ -88,6 +88,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
+import Skill (Skill, skillContents, skillEntry, skillResource, skillUri)
 import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, flowKindId, flowKindName, getUnitNameForBioFlow, granted, kindOfFlow, lookupExchangeFlow, lookupFlow, matchWord, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
 import Usage (Asking (..), Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
@@ -226,8 +227,8 @@ type WhileWorking = IO (Maybe Value) -> IO (Maybe Value)
 how a server that shuts itself down when idle tells a working client from a
 merely connected one.
 -}
-mcpApp :: DatabaseManager -> [ClassificationPreset] -> Bool -> Maybe HostingConfig -> Maybe ServerName -> WhileWorking -> Maybe UsageLog -> IO Application
-mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
+mcpApp :: DatabaseManager -> [ClassificationPreset] -> [Skill] -> Bool -> Maybe HostingConfig -> Maybe ServerName -> WhileWorking -> Maybe UsageLog -> IO Application
+mcpApp dbManager presets skills hasFrontend mHosting mName whileWorking mUsage = do
     (a, b) <- (,) <$> (randomIO :: IO Int) <*> (randomIO :: IO Int)
     let sessionId = T.pack $ show (abs a) ++ "-" ++ show (abs b)
     stateRef <- newIORef McpState{mcpSessionId = sessionId}
@@ -258,7 +259,7 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
     serve hdrs sid (Call era method rpcReq) = do
         let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
         let caller = (callerOf hdrs){callerAsking = askingOf era rpcReq}
-        resp <- runCall (handleRpc caller dbManager presets mHosting (webUrlBase hasFrontend hdrs) mName method rpcReq)
+        resp <- runCall (handleRpc caller dbManager presets skills mHosting (webUrlBase hasFrontend hdrs) mName method rpcReq)
         forM_ mUsage $ \lg ->
             noteToolCall dbManager (recordUse lg (usageLookup dbManager) (readerOf hdrs)) rpcReq resp
         pure $ case era of
@@ -457,9 +458,14 @@ cachingHints = \case
 
 {- | The methods served. Only 'methodOf' names one, from the era of the
 request: a modern request never reaches @initialize@, an old one never
-@server/discover@, and the tool list knows which era it answers.
+@server/discover@, and the tool list knows which era it answers. Skills, and
+the files they are read from, belong to the modern era alone, as the skills
+extension does.
 -}
-data McpMethod = Initialize | Initialized | Ping | Discover | ListTools Era | CallTool
+data McpMethod = Initialize | Initialized | Ping | Discover | ListTools Era | CallTool | Skills SkillMethod
+
+-- | The methods of the skills extension.
+data SkillMethod = ListSkills | GetSkill | ListResources | ListResourceTemplates | ReadResource
 
 methodOf :: Era -> Text -> Maybe McpMethod
 methodOf era name = lookup name (common <> eraOnly)
@@ -469,16 +475,24 @@ methodOf era name = lookup name (common <> eraOnly)
     eraOnly :: [(Text, McpMethod)]
     eraOnly = case era of
         Legacy -> [("initialize", Initialize), ("notifications/initialized", Initialized), ("ping", Ping)]
-        Modern -> [("server/discover", Discover)]
+        Modern ->
+            [ ("server/discover", Discover)
+            , ("skills/list", Skills ListSkills)
+            , ("skills/get", Skills GetSkill)
+            , ("resources/list", Skills ListResources)
+            , ("resources/templates/list", Skills ListResourceTemplates)
+            , ("resources/read", Skills ReadResource)
+            ]
 
-handleRpc :: Caller -> DatabaseManager -> [ClassificationPreset] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpMethod -> RpcRequest -> IO (Maybe Value)
-handleRpc caller dbManager presets mHosting mBaseUrl mName call req = case call of
+handleRpc :: Caller -> DatabaseManager -> [ClassificationPreset] -> [Skill] -> Maybe HostingConfig -> Maybe Text -> Maybe ServerName -> McpMethod -> RpcRequest -> IO (Maybe Value)
+handleRpc caller dbManager presets skills mHosting mBaseUrl mName call req = case call of
     Initialize -> Just <$> handleInitialize mName req
     Initialized -> return Nothing -- notification, no response
     Ping -> return $ Just $ rpcResult (answerId req) (object [])
     Discover -> return $ Just $ handleDiscover mName req
     ListTools era -> return $ Just $ handleToolsList era (hostingReadOnly mHosting) req
     CallTool -> Just <$> handleToolsCall caller dbManager presets mHosting mBaseUrl req
+    Skills method -> return $ Just $ handleSkills skills method req
 
 -- ---------------------------------------------------------------------------
 -- initialize and server/discover
@@ -509,10 +523,29 @@ handleDiscover mName req =
     rpcResult (answerId req) $
         object $
             [ "supportedVersions" .= [modernVersion]
-            , "capabilities" .= object ["tools" .= object []]
+            , "capabilities" .= object ["tools" .= object [], "resources" .= object [], "extensions" .= object ["io.modelcontextprotocol/skills" .= object []]]
             , "instructions" .= instructions mName
             ]
                 <> cachingHints Modern
+
+{- | Answer the methods of the skills extension: the skills served, one of
+them, and their files as resources. Each answer may be kept as long as the
+tool list, since the skills change only when the server restarts.
+-}
+handleSkills :: [Skill] -> SkillMethod -> RpcRequest -> Value
+handleSkills skills method req = case method of
+    ListSkills -> answer ["skills" .= map skillEntry skills]
+    GetSkill -> withAsked (\s -> answer ["skill" .= skillEntry s])
+    ListResources -> answer ["resources" .= map skillResource skills]
+    ListResourceTemplates -> answer ["resourceTemplates" .= ([] :: [Value])]
+    ReadResource -> withAsked (\s -> answer ["contents" .= [skillContents s]])
+  where
+    answer :: [Pair] -> Value
+    answer fields = rpcResult (answerId req) (object (fields <> cachingHints Modern))
+    withAsked :: (Skill -> Value) -> Value
+    withAsked found = case rpcParams req of
+        Just (Object o) | Just (String uri) <- KM.lookup "uri" o -> maybe (rpcError (answerId req) (-32602) ("No skill file is served at " <> uri <> ".")) found (find ((== uri) . skillUri) skills)
+        _ -> rpcError (answerId req) (-32602) "The request names no uri."
 
 serverInfo :: Maybe ServerName -> Value
 serverInfo mName = object ["name" .= maybe "volca" unServerName mName, "version" .= T.pack Version.version]
