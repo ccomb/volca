@@ -4218,9 +4218,9 @@ not know, naming the ones it does.
 
 | Field | Type | Default |
 |-------|------|---------|
-| `substance` | `str \| None` | _required_ |
-| `match` | `SubstanceMatch` | _required_ |
-| `medium` | `str \| None` | _required_ |
+| `substance` | `str \| None` | None |
+| `match` | `SubstanceMatch` | <SubstanceMatch.SUBSTANCE: 'substance'> |
+| `medium` | `str \| None` | None |
 
 ### `Group`
 

@@ -1,6 +1,6 @@
 """Offline tests for a score split between groups of processes.
 
-The four group routes go through the OpenAPI dispatcher (``_call``), so they
+The group routes go through the OpenAPI dispatcher (``_call``), so they
 rely on the fixture_spec entries for them. The tests assert the dispatched
 URL and body, the typed parsing, a group read back from the engine sent
 unchanged, and the wire gate.

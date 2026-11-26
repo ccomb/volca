@@ -1015,9 +1015,9 @@ class FlowCriteria:
     not know, naming the ones it does.
     """
 
-    substance: str | None
-    match: SubstanceMatch
-    medium: str | None
+    substance: str | None = None
+    match: SubstanceMatch = SubstanceMatch.SUBSTANCE
+    medium: str | None = None
 
     def __init__(
         self,
