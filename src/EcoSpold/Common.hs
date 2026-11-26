@@ -50,6 +50,10 @@ data ParsedDataset = ParsedDataset
     , pdWasteFlows :: ![WasteFlow]
     , pdUnits :: ![Unit]
     , pdDatasetNumber :: !Int
+    , pdProductNumbers :: ![(Int, UUID)]
+    {- ^ The number each product line carries, with its flow: what an input of
+    another dataset quotes to buy that product, when it is not the dataset's.
+    -}
     , pdActivityId :: !(Maybe UUID)
     {- ^ The identifier the dataset states for its activity, when it states one
     that is a UUID: what names a file whose own name carries none.

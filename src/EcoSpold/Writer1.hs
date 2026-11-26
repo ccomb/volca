@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {- | EcoSpold1 export writer – the canonical re-emitter for "EcoSpold.Parser1".
 
@@ -13,10 +14,11 @@ __canonical and deterministic__:
     exchange numbers follow the convention EcoSpold1 exports use, which the
     parser reads as a flow's identity: a number names a flow for the whole
     export, not a position in one dataset. A reference product carries its own
-    dataset's number, a linked technosphere input carries its supplier's (one
+    dataset's number, a coproduct of a block kept whole a number of its own in
+    that block, a linked technosphere input carries its supplier's (one
     bought from a database it depends on, a number no dataset of the file
-    has), and every other exchange carries a number assigned once per distinct
-    flow.
+    has), and every other exchange carries a number assigned once per
+    distinct flow.
     That makes the writer's output __self-stable for every exchange except a
     linked technosphere input__: reference products, co-products, biosphere
     exchanges and /unlinked/ inputs all reproduce the same flow UUIDs on
@@ -74,6 +76,19 @@ has to be refused rather than written with the link dropped. An output that
 names none is what a final waste flow is, and the parser reads it back as the
 elementary flow of medium 'Waste' that it is.
 
+A block of several products kept whole is one dataset: its reference product
+in group 0 and each coproduct in group 2, each line named after its product,
+the @referenceFunction@ after the activity. When its products are weighed, by
+the prices they state and failing that by the shares they declare, the dataset
+ends with one @\<allocation\>@ per product over every line they share, at its
+share scaled to 100, and one giving each product the whole of its own line;
+stated prices make the key economic (@allocationMethod="1"@). A block nothing
+weighs is written without keys, and an input buying one of its coproducts is
+refused: read back, the block states no share and answers no such input. Keys
+address lines by number, so one flow stated on several lines of a dataset is
+written as one line of their total, and a dataset with keys whose lines still
+share a number is refused.
+
 The SimaPro writer partitions on the link alone, so it sends an /unlinked/
 waste input to its own final-waste section, where this writer sends it to the
 technosphere. The matrix agrees with this one: an unlinked input is a demand
@@ -102,6 +117,11 @@ module EcoSpold.Writer1 (
     -- * What the format makes the export say
     renamedProducts,
     unlinkableByProduct,
+    blockWarnings,
+
+    -- * A dataset as the file writes it (exported for testing)
+    Written1 (..),
+    writtenDatasets,
 
     -- * Pure helpers (exported for testing)
     escapeXmlAttr,
@@ -109,20 +129,27 @@ module EcoSpold.Writer1 (
 ) where
 
 import Amount (readAmount)
+import Data.Containers.ListUtils (nubOrd, nubOrdOn)
 import Data.Either (lefts)
+import Data.Indexing (groupInOrder)
 import Data.List (sortOn)
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Calendar (Day, fromGregorian, toGregorian)
 import Data.Time.Format.ISO8601 (iso8601Show)
 import qualified Data.UUID as UUID
+import Database.Allocation (Weights (..), blockWeights, isCoproduct, producerKeyOf)
 import Database.CrossLinking (normalizeText)
 import Database.ExportSupplier (Dependencies, Elsewhere (..), Maker (..), madeAt, makerOf, noDependencies)
+import EcoSpold.Allocation1 (Allocation1 (..))
 import EcoSpold.Common (showFFloatTrim)
 import Types
+import UnitConversion (UnitConfig, defaultUnitConfig)
 
 -- ----------------------------------------------------------------------------
 -- Options
@@ -146,18 +173,20 @@ data WriterOptions = WriterOptions
     {- ^ The suppliers its inputs buy from the databases it depends on, each
     such input written under its supplier's name, place and unit.
     -}
+    , woUnits :: UnitConfig
+    -- ^ What each unit is worth, to compare the prices weighing the products of a block.
     }
     deriving (Eq, Show)
 
 -- | Self-describing default: pins generator to "VoLCA".
 defaultWriterOptions :: Day -> WriterOptions
-defaultWriterOptions day = WriterOptions (Just "VoLCA") day noDependencies
+defaultWriterOptions day = WriterOptions (Just "VoLCA") day noDependencies defaultUnitConfig
 
 {- | Omits the volatile generator: given the same day, the output is stable,
 for round-trip / golden tests.
 -}
 canonicalWriterOptions :: Day -> WriterOptions
-canonicalWriterOptions day = WriterOptions Nothing day noDependencies
+canonicalWriterOptions day = WriterOptions Nothing day noDependencies defaultUnitConfig
 
 -- ----------------------------------------------------------------------------
 -- Top-level writers
@@ -191,18 +220,40 @@ dataset rather than the file.
 -}
 writeSimpleDatabaseChunks :: WriterOptions -> SimpleDatabase -> Either Text [Text]
 writeSimpleDatabaseChunks opts sdb = do
-    checkEcoSpold1Exportable deps sdb
-    pure $
-        activityChunks
-            opts
-            (sdbTechFlows sdb)
-            (sdbBioFlows sdb)
-            (sdbWasteFlows sdb)
-            (sdbUnits sdb)
-            (M.fromList (supplierNames deps sdb))
-            (placedAtMakers deps sdb)
+    checkEcoSpold1Exportable opts sdb
+    pure (activityChunks opts (prepared opts sdb))
+
+{- | What the writer and its guard both work from: the datasets in the order
+they are numbered in, and the tables resolving their lines.
+-}
+data Prepared = Prepared !Resolvers ![((UUID, UUID), Activity)]
+
+prepared :: WriterOptions -> SimpleDatabase -> Prepared
+prepared opts sdb =
+    Prepared
+        Resolvers
+            { rTech = techs
+            , rBio = sdbBioFlows sdb
+            , rWaste = sdbWasteFlows sdb
+            , rUnits = sdbUnits sdb
+            , rSupplierNumbers = suppliers
+            , rFlowNumbers = flowNumberIndex said (1 + foldr max 0 suppliers) ordered
+            , rDatasetNames = datasetNames techs ordered <> M.fromList (supplierNames deps sdb)
+            , rUnitConfig = woUnits opts
+            }
+        ordered
   where
     deps = woDependencies opts
+    techs = sdbTechFlows sdb
+    activities = placedAtMakers deps sdb
+    -- Stable, content-derived order so dataset numbers (and thus flow UUIDs)
+    -- are reproducible regardless of the source Map's ordering.
+    ordered = orderedActivities techs activities
+    -- What the file says of a flow, the unit of the line included, as the parser hashes it.
+    said :: Exchange -> (FlowFields, Text)
+    said ex = (flowFieldsIn techs (sdbBioFlows sdb) (sdbWasteFlows sdb) ex, maybe "" unitName (M.lookup (exchangeUnitId ex) (sdbUnits sdb)))
+    suppliers :: M.Map (UUID, UUID) Int
+    suppliers = supplierNumberIndex ordered
 
 -- | A line a database it depends on supplies.
 data BoughtLine = BoughtLine
@@ -289,16 +340,8 @@ halves. Internal: it does no export-boundary checking, so it is reached only
 through 'writeSimpleDatabaseChunks', which runs 'checkEcoSpold1Exportable'
 first. Not exported, so no caller can bypass the guard.
 -}
-activityChunks ::
-    WriterOptions ->
-    TechFlowDB ->
-    BioFlowDB ->
-    WasteFlowDB ->
-    UnitDB ->
-    M.Map (UUID, UUID) Text ->
-    ActivityMap ->
-    [Text]
-activityChunks opts techs bios wastes units elsewhere activities =
+activityChunks :: WriterOptions -> Prepared -> [Text]
+activityChunks opts (Prepared res ordered) =
     T.unlines
         [ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         , "<ecoSpold xmlns=\"http://www.EcoInvent.org/EcoSpold01\">"
@@ -308,21 +351,24 @@ activityChunks opts techs bios wastes units elsewhere activities =
   where
     dataset :: Int -> ((UUID, UUID), Activity) -> Text
     dataset num row = T.unlines (datasetLines opts res num row)
-    res = Resolvers techs bios wastes units (supplierNumberIndex ordered) (flowNumberIndex ordered) (datasetNames techs ordered <> elsewhere)
-    -- Stable, content-derived order so dataset numbers (and thus flow UUIDs)
-    -- are reproducible regardless of the source Map's ordering.
-    ordered = orderedActivities techs activities
 
-{- | The one name each dataset is written under, by its row key.
+{- | The name each dataset's reference exchange, and every input buying its
+reference product, is written under, by its row key.
 
-EcoSpold 1 gives a dataset a single name: its @referenceFunction@, its
-reference exchange and every input buying from it say the same words, and a
-reader linking by name, as Brightway's does, matches an input on them. It is
-the activity's name, which tells the activities of a file apart where their
-products need not: one file can make one yarn by three spinning processes,
-each its own activity. Activities sharing a name at one place are the datasets of one
-allocated activity, one per coproduct, and they keep their products' names,
-which tell them apart within that activity ('renamedProducts' says so).
+EcoSpold 1 gives a dataset making one product a single name: its
+@referenceFunction@, its reference exchange and every input buying from it say
+the same words, and a reader linking by name, as Brightway's does, matches an
+input on them. It is the activity's name, which tells the activities of a file
+apart where their products need not: one file can make one yarn by three
+spinning processes, each its own activity. Activities sharing a name at one
+place are the datasets of one allocated activity, one per coproduct, and they
+keep their products' names, which tell them apart within that activity
+('renamedProducts' says so).
+
+A dataset making several products names each product line after its product,
+and its @referenceFunction@ after the activity ('referenceFunctionName'): the
+products are what its buyers name, a reader linking each to the product line of
+that name, and the activity's name is what is left to tell it by.
 -}
 datasetNames :: TechFlowDB -> [((UUID, UUID), Activity)] -> M.Map (UUID, UUID) Text
 datasetNames techs ordered = M.fromList [(key, named key act) | (key, act) <- ordered]
@@ -330,8 +376,18 @@ datasetNames techs ordered = M.fromList [(key, named key act) | (key, act) <- or
     place act = (activityName act, activityLocation act)
     shared = M.keysSet (M.filter (> (1 :: Int)) (M.fromListWith (+) [(place act, 1) | (_, act) <- ordered]))
     named (_, productId) act
-        | S.member (place act) shared = maybe (activityName act) tfName (M.lookup productId techs)
+        | makesCoproducts act || S.member (place act) shared = maybe (activityName act) tfName (M.lookup productId techs)
         | otherwise = activityName act
+
+-- | The @referenceFunction@ name of a dataset: its activity's where it makes several products, else the name its buyers say.
+referenceFunctionName :: Resolvers -> (UUID, UUID) -> Activity -> Text
+referenceFunctionName res key act
+    | makesCoproducts act = activityName act
+    | otherwise = M.findWithDefault (activityName act) key (rDatasetNames res)
+
+-- | Whether a dataset makes a product beside its reference.
+makesCoproducts :: Activity -> Bool
+makesCoproducts act = any isCoproduct (nonPlainExchanges act)
 
 {- | What writing one name per dataset costs, each said once with the first
 case: the products written under the name of the activity making them, and
@@ -364,7 +420,7 @@ renamedProducts sdb = products renamed ++ datasets unnamed
             ]
     ordered = orderedActivities (sdbTechFlows sdb) (sdbActivities sdb)
     names = datasetNames (sdbTechFlows sdb) ordered
-    unnamed = [activityName act | (key, act) <- ordered, M.lookup key names /= Just (activityName act)]
+    unnamed = [activityName act | (key, act) <- ordered, not (makesCoproducts act), M.lookup key names /= Just (activityName act)]
     renamed =
         [ (tfName flow, name)
         | (key@(_, productId), _) <- ordered
@@ -372,6 +428,51 @@ renamedProducts sdb = products renamed ++ datasets unnamed
         , Just flow <- [M.lookup productId (sdbTechFlows sdb)]
         , tfName flow /= name
         ]
+
+{- | What writing the datasets of several products, and merging repeated
+lines, costs the export: each kind once, with the first datasets it concerns.
+-}
+blockWarnings :: WriterOptions -> SimpleDatabase -> [Text]
+blockWarnings opts sdb = mapMaybe counted kinds
+  where
+    written = writtenDatasets opts sdb
+
+    counted :: (Text, [Text]) -> Maybe Text
+    counted (what, named) = case named of
+        [] -> Nothing
+        _ -> Just ("EcoSpold 1: " <> T.pack (show (length named)) <> " " <> what <> foldMap ("\n  " <>) (take 10 named))
+
+    kinds :: [(Text, [Text])]
+    kinds =
+        [ ("datasets of several products are written without allocation keys, which leaves a reader nothing to divide them by:", [nameOf w <> ": " <> why | w <- written, Unkeyed why <- [w1Division w]])
+        , ("datasets of several products are divided by the prices their products state, not by the shares they declare, which the format has no place for:", [nameOf w | w <- written, Keyed FromPrices shares <- [w1Division w], overridden shares (products w)])
+        , ("datasets of several products are divided by the shares their products declare, since their prices cannot weigh them:", [nameOf w <> ": " <> why | w <- written, Keyed (SharesOverPrices why) _ <- [w1Division w]])
+        , ("datasets declare shares adding up to other than 100 %, written scaled to 100 %:", [nameOf w <> " (" <> T.pack (show total) <> " %)" | w <- byShares, let total = sum (map dsPercent (declared w)), abs (total - 100) > 0.01])
+        , ("datasets have a share formula, which the format has no place for, and are written at the share's value:", [nameOf w | w <- byShares, any (isJust . dsFormula) (declared w)])
+        , ("datasets state one flow on several lines, written as one line of their total, the comment of the first kept:", [nameOf w | w <- written, length (w1Lines w) < length (exchanges (w1Activity w))])
+        ]
+
+    byShares :: [Written1]
+    byShares = [w | w <- written, Keyed basis _ <- [w1Division w], fromShares basis]
+
+    fromShares :: KeyBasis -> Bool
+    fromShares = \case
+        FromPrices -> False
+        FromShares -> True
+        SharesOverPrices _ -> True
+
+    nameOf :: Written1 -> Text
+    nameOf = activityName . w1Activity
+
+    declared :: Written1 -> [DeclaredShare]
+    declared w = mapMaybe exchangeDeclaredShare (products w)
+
+    products :: Written1 -> [Exchange]
+    products w = filter exchangeIsProductOutput (exchanges (w1Activity w))
+
+    -- A share a product declares that the key, written in its place, does not give it.
+    overridden :: [Double] -> [Exchange] -> Bool
+    overridden shares ps = or [abs (dsPercent d - share) > 0.01 | (share, p) <- zip shares ps, Just d <- [exchangeDeclaredShare p]]
 
 {- | Canonical export order: sorted by the name each dataset is written under
 ('datasetNames') and its location, so dataset numbers (and thus flow UUIDs)
@@ -400,10 +501,19 @@ dataset per coproduct, each with its own number. Keying on the activity UUID
 alone kept one of them and gave every link to that supplier the number of an
 arbitrary coproduct, which the parser then read back as a link to the wrong
 product.
+
+A coproduct of a block kept whole is a supplier too, under the pair of the
+block's activity and its own flow ('producerKeyOf'). It gets a number of its own
+after the datasets', which its line in the block carries and its buyers quote:
+two blocks making one product are two suppliers of it, as two datasets making
+one reference product are, and a buyer of one must read back linked to that one.
 -}
 supplierNumberIndex :: [((UUID, UUID), Activity)] -> M.Map (UUID, UUID) Int
 supplierNumberIndex ordered =
-    M.fromList [(key, n) | (n, (key, _)) <- zip [1 ..] ordered]
+    M.fromList (zip (map fst ordered <> coproducts) [1 ..])
+  where
+    coproducts :: [(UUID, UUID)]
+    coproducts = [(activity, exchangeFlowId ex) | ((activity, _), act) <- ordered, ex <- exchanges act, isCoproduct ex]
 
 {- | Map each flow that is not a reference product to the number the export
 gives it, once, across every dataset that carries it.
@@ -413,21 +523,32 @@ in, and the parser reads that number as part of the flow's identity. Numbering
 by position instead would re-import one substance as one flow per position it
 happens to occupy, which is exactly the splintering the parser stopped doing.
 
-Numbers start above the dataset numbers, which occupy @1 .. length ordered@ and
-are what a reference product and a linked input carry.
+Numbers start at the first one no supplier carries ('supplierNumberIndex'):
+the suppliers' numbers are what a product line and a linked input carry.
+
+The flows are numbered in the order of what the file says of them, their
+identifier only breaking a tie. The parser makes a flow's identifier from its
+number, so an order by identifier would number the flows of the file read back
+otherwise, and writing it again would not give the same file.
 -}
-flowNumberIndex :: [((UUID, UUID), Activity)] -> M.Map UUID Int
-flowNumberIndex ordered =
-    M.fromList (zip flows [length ordered + 1 ..])
+flowNumberIndex :: forall said. (Ord said) => (Exchange -> said) -> Int -> [((UUID, UUID), Activity)] -> M.Map UUID Int
+flowNumberIndex fieldsOf first ordered =
+    M.fromList (zip (map snd (S.toAscList flows)) [first ..])
   where
+    flows :: S.Set (said, UUID)
     flows =
-        S.toAscList $
-            S.fromList
-                [ exchangeFlowId ex
-                | (_, act) <- ordered
-                , ex <- exchanges act
-                , not (exchangeIsReference ex)
-                ]
+        S.fromList
+            [ (fields, flow)
+            | (flow, fields) <-
+                M.toList $
+                    M.fromListWith
+                        min
+                        [ (exchangeFlowId ex, fieldsOf ex)
+                        | (_, act) <- ordered
+                        , ex <- exchanges act
+                        , not (exchangeIsReference ex)
+                        ]
+            ]
 
 {- | Guard an EcoSpold1 export against data the writer cannot faithfully
 re-encode. Each check reports its first offender and fails loudly rather than
@@ -474,14 +595,70 @@ emit silently wrong data:
     the file has its name, since readers link an input inside the file first.
     A waste sent to a treatment of that database has no line naming it.
 
+  * __Datasets of several products the format cannot tell apart.__ One with
+    no reference or two, or making one product on two lines; one written with
+    keys where two lines carry one number once repeated lines are merged
+    ('Written1'), since an allocation key names a line by its number, a number
+    names a flow, and a product's key leaves out the line carrying its own
+    number; and one whose coproduct a dataset of the file makes under the
+    same activity, since the two would take one number.
+
+  * __Coproducts nothing answers once read back.__ An input buying a coproduct
+    of a block kept whole quotes the number of the coproduct's line; a block
+    written without allocation keys reads back stating no share, kept whole
+    by nothing, and answers no such input.
+
 Databases free of all of these pass unchanged.
 -}
-checkEcoSpold1Exportable :: Dependencies -> SimpleDatabase -> Either Text ()
-checkEcoSpold1Exportable deps db =
-    case lefts [checkLinks, checkDependencies, checkSupplierNames, checkRefInputs, checkLinkedWasteOutputs, checkFlows, checkUnits, checkAmounts, checkAmountRoundTrip] of
+checkEcoSpold1Exportable :: WriterOptions -> SimpleDatabase -> Either Text ()
+checkEcoSpold1Exportable opts db =
+    case lefts [checkLinks, checkDependencies, checkSupplierNames, checkRefInputs, checkLinkedWasteOutputs, checkFlows, checkUnits, checkAmounts, checkAmountRoundTrip, checkProducts, checkNumbers, checkSuppliers] of
         [] -> Right ()
         violations -> Left (T.intercalate "\n\n" violations)
   where
+    deps = woDependencies opts
+    Prepared res ordered = prepared opts db
+    written = zipWith (written1 res) [1 ..] ordered
+    checkProducts =
+        case [(activityName act, why) | (_, act) <- ordered, makesCoproducts act, Just why <- [productsUntold act]] of
+            [] -> Right ()
+            ((producer, why) : _) ->
+                Left $
+                    "EcoSpold1 export cannot write the products of \""
+                        <> producer
+                        <> "\": "
+                        <> why
+                        <> ", which the format cannot tell apart."
+    productsUntold act
+        | references /= 1 = Just (T.pack (show references) <> " of them are its reference")
+        | length (nubOrd (map exchangeFlowId products)) < length products = Just "it makes one product on two lines"
+        | otherwise = Nothing
+      where
+        products = filter exchangeIsProductOutput (nonPlainExchanges act)
+        references = length (filter exchangeIsReference products)
+    checkNumbers =
+        case [(activityName (w1Activity w), n, names) | w <- written, not (null (w1Keys w)), (n, names@(_ :| _ : _)) <- M.toList (numberedNames res w)] of
+            [] -> Right ()
+            ((producer, n, names) : _) ->
+                Left $
+                    "EcoSpold1 export cannot write the allocation keys of \""
+                        <> producer
+                        <> "\": the lines "
+                        <> T.intercalate " and " (map (\name -> "\"" <> name <> "\"") (NE.toList names))
+                        <> " carry one number, "
+                        <> T.pack (show n)
+                        <> ", which the format reads as one flow, so a key cannot tell them apart."
+    checkSuppliers =
+        case [(activityName act, writtenName res key ex) | (key@(activity, _), act) <- ordered, ex <- exchanges act, isCoproduct ex, M.member (activity, exchangeFlowId ex) datasets] of
+            [] -> Right ()
+            ((producer, made) : _) ->
+                Left $
+                    "EcoSpold1 export cannot number the product \""
+                        <> made
+                        <> "\" of \""
+                        <> producer
+                        <> "\": a dataset of the file makes it under the same activity, and one number would name both."
+    datasets = M.fromList ordered
     checkDependencies =
         case [(activityName (blActivity l), why) | l <- dependencyLines deps db, Just why <- [unwritable (blExchange l) (blSupplier l)]] of
             [] -> Right ()
@@ -501,7 +678,8 @@ checkEcoSpold1Exportable deps db =
                     "EcoSpold1 export cannot name the supplier "
                         <> UUID.toText act
                         <> ": the databases it depends on give it more than one activity name."
-    ownNames = S.fromList (map normalizeText (M.elems (datasetNames (sdbTechFlows db) (M.toList (sdbActivities db)))))
+    -- A reader links an input inside the file by the name its buyers say, or by the dataset's own.
+    ownNames = S.fromList (map normalizeText (M.elems (datasetNames (sdbTechFlows db) ordered) <> [activityName act | (_, act) <- ordered, makesCoproducts act]))
     unwritable ex e = case ex of
         TechnosphereExchange{techUnitId = unit}
             | T.null (T.strip (elLocation e)) -> Just (supplier <> " states no location")
@@ -517,13 +695,13 @@ checkEcoSpold1Exportable deps db =
     checkLinks =
         case danglingLinks of
             [] -> Right ()
-            ((consumer, link) : _) ->
+            ((consumer, why) : _) ->
                 Left $
                     "EcoSpold1 export cannot encode the supplier link of an input in \""
                         <> consumer
-                        <> "\": linked activity "
-                        <> UUID.toText link
-                        <> " is not among the exported datasets, so its dataset number is unknown."
+                        <> "\": "
+                        <> why
+                        <> "."
     checkRefInputs =
         case refInputOffenders of
             [] -> Right ()
@@ -583,16 +761,27 @@ checkEcoSpold1Exportable deps db =
                         <> "\": exchange amount "
                         <> T.pack (show amt)
                         <> " has no decimal form that re-parses to the same value."
-    index = supplierNumberIndex (orderedActivities (sdbTechFlows db) (sdbActivities db))
     bought = S.fromList [(blRow l, blPosition l) | l <- dependencyLines deps db]
     danglingLinks =
-        [ (activityName act, link)
+        [ (activityName act, why)
         | (row, act) <- M.toList (sdbActivities db)
         , (position, ex) <- zip [0 :: Int ..] (exchanges act)
-        , Just (link, fid) <- [suppliedBy ex]
-        , not (M.member (link, fid) index)
         , S.notMember (row, position) bought
+        , Just supplier <- [suppliedBy ex]
+        , Just why <- [unanswered supplier]
         ]
+    unanswered :: (UUID, UUID) -> Maybe Text
+    unanswered supplier@(link, flow) = case producerKeyOf (sdbActivities db) supplier of
+        Nothing
+            | (block : _) <- [act | ((a, _), act) <- M.toList (sdbActivities db), a == link, any (\ex -> isCoproduct ex && exchangeFlowId ex == flow) (exchanges act)] ->
+                Just ("it buys a coproduct of \"" <> activityName block <> "\", which does not answer it, its products not all stating a share or another block of the activity making it too")
+            | otherwise -> Just ("linked activity " <> UUID.toText link <> " is not among the exported datasets, so its dataset number is unknown")
+        Just key
+            | key /= supplier
+            , Just block <- M.lookup key (sdbActivities db)
+            , Unkeyed why <- divisionOf (woUnits opts) (sdbUnits db) block ->
+                Just ("it buys a coproduct of \"" <> activityName block <> "\", which the file writes without allocation keys (" <> why <> "): read back, that block states no share and answers no input buying its coproduct")
+            | otherwise -> Nothing
     linkedWasteOutputs =
         [ activityName act
         | act <- M.elems (sdbActivities db)
@@ -650,7 +839,197 @@ data Resolvers = Resolvers
     , rFlowNumbers :: !(M.Map UUID Int)
     , rDatasetNames :: !(M.Map (UUID, UUID) Text)
     -- ^ The name each supplier row is written under: a dataset of the file, or the activity of a dependency.
+    , rUnitConfig :: !UnitConfig
     }
+
+-- ----------------------------------------------------------------------------
+-- A dataset as the file writes it
+-- ----------------------------------------------------------------------------
+
+{- | One dataset as the file writes it: its lines under the number each is
+written with, and the allocation keys dividing them between its products.
+
+The number of a line names its flow across the whole export ('exchangeNumber'),
+and the parser hashes it into the flow's identity. Two lines of one dataset
+carrying one number in one shape (same side, same flow, unit, place and
+supplier) are therefore one flow to any reader, and are written as one line of their total:
+a fresh number would split one substance into two flows on reading back, and
+the format wants a line's number unique within its dataset. The first line's
+comment is the one kept ('blockWarnings' names the datasets).
+-}
+data Written1 = Written1
+    { w1Key :: !(UUID, UUID)
+    , w1Activity :: !Activity
+    , w1Lines :: ![(Int, Exchange)]
+    , w1Division :: !Division1
+    , w1Keys :: ![Allocation1]
+    }
+
+-- | Every dataset of the export as the file writes it, in the order they are numbered in.
+writtenDatasets :: WriterOptions -> SimpleDatabase -> [Written1]
+writtenDatasets opts sdb = zipWith (written1 res) [1 ..] ordered
+  where
+    Prepared res ordered = prepared opts sdb
+
+written1 :: Resolvers -> Int -> ((UUID, UUID), Activity) -> Written1
+written1 res num (key, act) =
+    Written1
+        { w1Key = key
+        , w1Activity = act
+        , w1Lines = numbered
+        , w1Division = division
+        , w1Keys = case division of
+            Keyed _ shares -> keysOf shares numbered
+            SingleProduct -> []
+            Unkeyed _ -> []
+        }
+  where
+    numbered = mergeRepeated [(exchangeNumber res key num ex, ex) | ex <- exchanges act]
+    division = divisionOf (rUnitConfig res) (rUnits res) act
+
+-- | Where a line goes among the lines of its dataset.
+data Shape
+    = -- | A product line, at its position: never merged.
+      ProductAt !Int
+    | -- | Any other line, merged with those it is one flow with.
+      LineOf !LineShape
+    deriving (Eq, Ord)
+
+{- | What makes lines of a dataset one flow bought from one supplier, which a
+reader could not tell apart: lines from two suppliers stay two, under their
+two names, even when they carry one number.
+-}
+data LineShape = LineShape
+    { lsNumber :: !Int
+    , lsGroup :: !Text
+    , lsRole :: !(Maybe TechRole)
+    , lsFlow :: !UUID
+    , lsUnit :: !UUID
+    , lsLocation :: !Text
+    , lsSupplier :: !(Maybe UUID)
+    }
+    deriving (Eq, Ord)
+
+{- | Lines of one number and one shape merged into the first of them, carrying
+their total. A product line is never merged: two of them are refused.
+-}
+mergeRepeated :: [(Int, Exchange)] -> [(Int, Exchange)]
+mergeRepeated numbered = [(n, total shape ex) | (shape, (n, ex)) <- nubOrdOn fst shaped]
+  where
+    shaped :: [(Shape, (Int, Exchange))]
+    shaped = [(shapeOf i line, line) | (i, line) <- zip [0 ..] numbered]
+
+    shapeOf :: Int -> (Int, Exchange) -> Shape
+    shapeOf i (n, ex)
+        | exchangeIsProductOutput ex = ProductAt i
+        | otherwise =
+            LineOf
+                LineShape
+                    { lsNumber = n
+                    , lsGroup = groupElement ex
+                    , lsRole = roleOf ex
+                    , lsFlow = exchangeFlowId ex
+                    , lsUnit = exchangeUnitId ex
+                    , lsLocation = exchangeLocation ex
+                    , lsSupplier = supplierOf ex
+                    }
+
+    together :: M.Map Shape (NonEmpty Double)
+    together = groupInOrder [(shape, exchangeAmount ex) | (shape, (_, ex)) <- shaped]
+
+    total :: Shape -> Exchange -> Exchange
+    total shape ex = case M.lookup shape together of
+        Just amounts@(_ :| _ : _) -> withAmount (sum amounts) ex
+        _ -> ex
+
+    roleOf :: Exchange -> Maybe TechRole
+    roleOf = \case
+        TechnosphereExchange{techRole = role} -> Just role
+        BiosphereExchange{} -> Nothing
+        WasteExchange{} -> Nothing
+
+    supplierOf :: Exchange -> Maybe UUID
+    supplierOf = \case
+        TechnosphereExchange{techActivityLinkId = link} -> link
+        BiosphereExchange{} -> Nothing
+        WasteExchange{} -> Nothing
+
+-- | How the products of one dataset are told apart in the file.
+data Division1
+    = -- | One product, which takes every line.
+      SingleProduct
+    | -- | Several, each taking this percentage of every line they share, the percentages adding up to 100.
+      Keyed !KeyBasis ![Double]
+    | -- | Several, written without keys, and why.
+      Unkeyed !Text
+
+-- | What the percentages of a block's keys come from.
+data KeyBasis
+    = -- | The prices its products are stated to sell for: an economic key.
+      FromPrices
+    | -- | The shares its products declare, or the prices deduced from them, which weigh alike.
+      FromShares
+    | -- | The shares its products declare, and why the prices stated beside them could not weigh it.
+      SharesOverPrices !Text
+
+{- | The keys of a dataset making several products, from what weighs them
+('blockWeights'), scaled to add up to 100: a reader takes the fractions a line
+receives to add up to that. A block with nothing to weigh by, every product at
+0 %, or no line its products share is written without keys.
+-}
+divisionOf :: UnitConfig -> UnitDB -> Activity -> Division1
+divisionOf cfg unitDB act
+    | not (any isCoproduct products) = SingleProduct
+    | all exchangeIsProductOutput (exchanges act) = Unkeyed "its products share no line"
+    | otherwise = case blockWeights cfg unitDB products of
+        PricesWeigh shares
+            | any (\p -> statesPrice p && not (declaresZero p)) products -> scaled FromPrices shares
+            -- The prices deduced from the shares give them back only to the last
+            -- digit, which would then move at every export: the shares weigh.
+            | otherwise -> scaled FromShares (fromMaybe shares (traverse (fmap dsPercent . exchangeDeclaredShare) products))
+        SharesWeigh why shares -> scaled (SharesOverPrices why) shares
+        NothingWeighs why -> Unkeyed why
+  where
+    products :: [Exchange]
+    products = filter exchangeIsProductOutput (exchanges act)
+
+    -- A product held at 0 % is never weighed ('propertyKeyShares'), so its price weighs nothing.
+    declaresZero :: Exchange -> Bool
+    declaresZero ex = (dsPercent <$> exchangeDeclaredShare ex) == Just 0
+
+    -- A price deduced from a share is that share again, and no reason to call the key economic.
+    statesPrice :: Exchange -> Bool
+    statesPrice ex = case epPrice (exchangeProperties ex) of
+        Just (StatedPrice _) -> True
+        Just (DeducedFromShare _) -> False
+        Nothing -> False
+
+    scaled :: KeyBasis -> [Double] -> Division1
+    scaled basis shares
+        | total <= 0 = Unkeyed "every product declares 0 %"
+        -- Shares once scaled add up to 100 only to the last digit, and scaling
+        -- them again would move that digit at every export.
+        | abs (total - 100) <= 1e-9 = Keyed basis shares
+        | otherwise = Keyed basis [100 * share / total | share <- shares]
+      where
+        total :: Double
+        total = sum shares
+
+{- | The keys dividing a block's lines: one per product, at its percentage of
+every line its products share, and one giving each product the whole of its
+own line. A reader of this format leaves the second out, and EcoSpold 1 has
+it valid; a reader such as Brightway's takes a product it finds no key for as
+an error, which a product at 0 % would otherwise be.
+-}
+keysOf :: [Double] -> [(Int, Exchange)] -> [Allocation1]
+keysOf shares numbered = concat [[Allocation1 p share sharedLines, Allocation1 p 100 [p]] | (p, share) <- zip productLines shares]
+  where
+    productLines = [n | (n, ex) <- numbered, exchangeIsProductOutput ex]
+    sharedLines = [n | (n, ex) <- numbered, not (exchangeIsProductOutput ex)]
+
+-- | The names of the lines of a dataset, by the number they are written with.
+numberedNames :: Resolvers -> Written1 -> M.Map Int (NonEmpty Text)
+numberedNames res w = groupInOrder [(n, writtenName res (w1Key w) ex) | (n, ex) <- w1Lines w]
 
 -- ----------------------------------------------------------------------------
 -- Per-dataset rendering
@@ -670,7 +1049,7 @@ datasetLines opts res num (key, act) =
     [ indent 1 <> "<dataset" <> datasetAttrs opts num (activityDates act) <> ">"
     , indent 2 <> "<metaInformation>"
     , indent 3 <> "<processInformation>"
-    , indent 4 <> "<referenceFunction" <> refFunctionAttrs (M.findWithDefault (activityName act) key (rDatasetNames res)) act <> "/>"
+    , indent 4 <> "<referenceFunction" <> refFunctionAttrs (referenceFunctionName res key act) act <> "/>"
     , indent 4 <> "<geography location=" <> attr (activityLocation act) <> "/>"
     , indent 4 <> "<technology text=" <> attr (documented "Technology" act) <> "/>"
     ]
@@ -685,12 +1064,29 @@ datasetLines opts res num (key, act) =
            , indent 2 <> "</metaInformation>"
            , indent 2 <> "<flowData>"
            ]
-        ++ concatMap (exchangeLines res num key) (exchanges act)
+        ++ concatMap (exchangeLines res key) (w1Lines w)
+        ++ concatMap allocationLines (w1Keys w)
         ++ [ indent 2 <> "</flowData>"
            , indent 1 <> "</dataset>"
            ]
   where
     dated = datedBy opts (activityDates act)
+    w = written1 res num (key, act)
+
+    allocationLines :: Allocation1 -> [Text]
+    allocationLines k =
+        (indent 3 <> "<allocation referenceToCoProduct=" <> attr (T.pack (show (alCoProduct k))) <> method <> " fraction=" <> attr (formatAmount (alFraction k)) <> ">")
+            : [indent 4 <> "<referenceToInputOutput>" <> T.pack (show n) <> "</referenceToInputOutput>" | n <- alLines k]
+                <> [indent 3 <> "</allocation>"]
+
+    -- 1 is economic causality, which a price is; the format has no method for a declared share, and leaves it out.
+    method :: Text
+    method = case w1Division w of
+        Keyed FromPrices _ -> " allocationMethod=\"1\""
+        Keyed FromShares _ -> ""
+        Keyed (SharesOverPrices _) _ -> ""
+        SingleProduct -> ""
+        Unkeyed _ -> ""
 
 -- | The text of the documentation section a dataset states under this label, or nothing.
 documented :: Text -> Activity -> Text
@@ -774,9 +1170,9 @@ The group element (@inputGroup@ / @outputGroup@) is what the parser keys on
 to classify the exchange, so it is derived from the exchange variant +
 role/direction, never guessed.
 -}
-exchangeLines :: Resolvers -> Int -> (UUID, UUID) -> Exchange -> [Text]
-exchangeLines res datasetNum key ex =
-    [ indent 3 <> "<exchange" <> exchangeAttrs res datasetNum key ex <> ">"
+exchangeLines :: Resolvers -> (UUID, UUID) -> (Int, Exchange) -> [Text]
+exchangeLines res key (number, ex) =
+    [ indent 3 <> "<exchange" <> exchangeAttrs res number key ex <> ">"
     , indent 4 <> groupElement ex
     , indent 3 <> "</exchange>"
     ]
@@ -789,9 +1185,11 @@ EcoSpold1 export observed here does and what lets a consumer name its supplier.
 A technosphere input the loader resolved carries its supplier's dataset number
 ('EcoSpold.Parser1.closeExchange' reads it back as the supplier link), so the
 two agree on one number for one product; a resolved waste input does the same,
-being written as a technosphere input. Everything else – co-products,
-biosphere, waste outputs, and unlinked inputs – carries the number its flow was
-given once for the whole export ('flowNumberIndex').
+being written as a technosphere input. A coproduct of a block kept whole is a
+supplier of its own ('supplierNumberIndex'): its line carries its number, and
+so does an input buying it. Everything else – biosphere, waste outputs, and
+unlinked inputs – carries the number its flow was given once for the whole
+export ('flowNumberIndex').
 
 'checkEcoSpold1Exportable' guarantees any resolved link's (activity, product)
 pair is present in the supplier index before export, so that fallback is
@@ -799,12 +1197,15 @@ taken only by an input bought from a database it depends on, on purpose: no
 dataset of the file is its supplier. The flow index covers every non-reference
 exchange by construction.
 -}
-exchangeNumber :: Resolvers -> Int -> Exchange -> Int
-exchangeNumber res datasetNum ex
+exchangeNumber :: Resolvers -> (UUID, UUID) -> Int -> Exchange -> Int
+exchangeNumber res (activity, _) datasetNum ex
     | exchangeIsReference ex = datasetNum
-    | Just supplier <- suppliedBy ex = M.findWithDefault flowNum supplier (rSupplierNumbers res)
+    | isCoproduct ex = supplierNumber (activity, exchangeFlowId ex)
+    | Just supplier <- suppliedBy ex = supplierNumber supplier
     | otherwise = flowNum
   where
+    supplierNumber :: (UUID, UUID) -> Int
+    supplierNumber supplier = M.findWithDefault flowNum supplier (rSupplierNumbers res)
     flowNum = M.findWithDefault datasetNum (exchangeFlowId ex) (rFlowNumbers res)
 
 {- | The supplier row whose dataset number and name an exchange carries: a
@@ -834,11 +1235,11 @@ activity, the name that database gives the dataset; every other exchange says
 its flow's.
 -}
 exchangeAttrs :: Resolvers -> Int -> (UUID, UUID) -> Exchange -> Text
-exchangeAttrs res datasetNum key ex =
+exchangeAttrs res number key ex =
     " number="
-        <> attr (T.pack (show (exchangeNumber res datasetNum ex)))
+        <> attr (T.pack (show number))
         <> " name="
-        <> attr name
+        <> attr (writtenName res key ex)
         <> optAttr "category" category
         <> optAttr "subCategory" subCategory
         <> optAttr "location" (exchangeLocation ex)
@@ -849,9 +1250,18 @@ exchangeAttrs res datasetNum key ex =
         <> maybe "" (\c -> " CASNumber=" <> attr c) cas
         <> maybe "" (\c -> " generalComment=" <> attr c) (exchangeComment ex)
   where
-    FlowFields flowName category subCategory cas = flowFields res ex
+    FlowFields _ category subCategory cas = flowFields res ex
+
+{- | The name a line is written under: its dataset's for a reference exchange,
+its supplier's for a bought input ('datasetNames'), its flow's otherwise. An
+input buying a coproduct of a block finds no supplier row of its own, and says
+its flow's, which is that product's name.
+-}
+writtenName :: Resolvers -> (UUID, UUID) -> Exchange -> Text
+writtenName res key ex = fromMaybe flowName (dataset >>= (`M.lookup` rDatasetNames res))
+  where
+    FlowFields flowName _ _ _ = flowFields res ex
     dataset = if exchangeIsReference ex then Just key else suppliedBy ex
-    name = fromMaybe flowName (dataset >>= (`M.lookup` rDatasetNames res))
 
 -- | The amount as the file states it: a substitution is a negative input.
 writtenAmount :: Exchange -> Double
@@ -891,6 +1301,7 @@ groupElement ex = case ex of
 name, category, subCategory, CAS. Positional – always consumed as a whole.
 -}
 data FlowFields = FlowFields !Text !Text !Text !(Maybe Text)
+    deriving (Eq, Ord)
 
 {- | Resolve a flow's serialised fields from the matching table. A biosphere
 flow's compartment becomes category/subCategory; a technosphere flow has no
@@ -900,13 +1311,17 @@ row, which is the compartment the parser reads back). A UUID absent from its
 table yields empty/Nothing – never a crash.
 -}
 flowFields :: Resolvers -> Exchange -> FlowFields
-flowFields res ex = case ex of
+flowFields res = flowFieldsIn (rTech res) (rBio res) (rWaste res)
+
+-- | 'flowFields' against the three flow tables.
+flowFieldsIn :: TechFlowDB -> BioFlowDB -> WasteFlowDB -> Exchange -> FlowFields
+flowFieldsIn techs bios wastes ex = case ex of
     TechnosphereExchange{techFlowId = fid} ->
-        case M.lookup fid (rTech res) of
+        case M.lookup fid techs of
             Just tf -> FlowFields (tfName tf) "" "" (tfCAS tf)
             Nothing -> FlowFields "" "" "" Nothing
     BiosphereExchange{bioFlowId = fid} ->
-        case M.lookup fid (rBio res) of
+        case M.lookup fid bios of
             Just bf ->
                 FlowFields
                     (bfName bf)
@@ -916,7 +1331,7 @@ flowFields res ex = case ex of
             Nothing -> FlowFields "" "" "" Nothing
     WasteExchange{waFlowId = fid, waIsInput = isInput} ->
         let category = if isInput then "" else mediumText Waste
-         in case M.lookup fid (rWaste res) of
+         in case M.lookup fid wastes of
                 Just wf -> FlowFields (wfName wf) category "" (wfCAS wf)
                 Nothing -> FlowFields "" category "" Nothing
 

@@ -74,6 +74,7 @@ minimalDataset act techs =
         , pdWasteFlows = []
         , pdUnits = []
         , pdDatasetNumber = 0
+        , pdProductNumbers = []
         , pdActivityId = Nothing
         , pdWarnings = []
         , pdLiterature = []

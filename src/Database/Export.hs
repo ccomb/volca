@@ -108,7 +108,10 @@ serializeDatabase units today fmt saved dependencies name db = fmap (fmap (linkW
     SimaProCSV -> dependencies >>= \deps -> first BL.fromStrict <$> SP.serializeSimaProCSVWithWarnings SP.defaultWriterConfig{SP.wcDependencies = deps} sdb
     -- One lazy chunk per dataset, never one value holding the file: see
     -- 'ES1.writeSimpleDatabaseChunks' for what a single chunk costs at this size.
-    EcoSpold1 -> dependencies >>= \deps -> valuesOnlyWith (ES1.renamedProducts sdb ++ ES1.unlinkableByProduct deps sdb) (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks (ES1.canonicalWriterOptions today){ES1.woDependencies = deps} sdb)
+    EcoSpold1 ->
+        dependencies >>= \deps ->
+            let opts = (ES1.canonicalWriterOptions today){ES1.woDependencies = deps, ES1.woUnits = units}
+             in valuesOnlyWith (ES1.renamedProducts sdb ++ ES1.unlinkableByProduct deps sdb ++ ES1.blockWarnings opts sdb) (BL.fromChunks . map TE.encodeUtf8 <$> ES1.writeSimpleDatabaseChunks opts sdb)
     EcoSpold2 -> first zipText <$> ES2.writeEcoSpold2WithWarnings ES2.noVolatileMeta sdb
     ILCDProcess -> dependencies >>= \deps -> valuesOnlyWith (ILCD.splitWarnings sdb) (ILCD.writeILCDArchive ILCD.defaultWriteOptions{ILCD.woDependencies = deps, ILCD.woUnits = units} sdb)
     BrightwayExcel -> dependencies >>= \deps -> BE.renderWorkbookWithWarnings BE.defaultWriterConfig{BE.wcDatabaseName = name, BE.wcDependencies = deps, BE.wcUnits = units} sdb

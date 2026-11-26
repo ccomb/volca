@@ -45,6 +45,8 @@ module Database.Allocation (
     describePropertyRefusal,
     propertyKeyRefusals,
     propertyKeyShares,
+    Weights (..),
+    blockWeights,
     PropertyRefusal (..),
     propertyName,
     productProperty,
@@ -354,12 +356,40 @@ propertyKeyRefusals Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitD
         Just block | NE.length block > 1 -> first (dividedByLine prop block) (propertyShares prop unitDB cfg block)
         _ -> Right (pure 100)
 
-    -- A product its source divides line by line states no share a price can be
-    -- deduced from: that, not a missing price, is why the block has none.
-    dividedByLine :: AllocationProperty -> NonEmpty Exchange -> PropertyRefusal -> PropertyRefusal
-    dividedByLine prop block refusal
-        | prop == Price, refusal == NotStated, any exchangeDividedByLine block = DividedByLine
-        | otherwise = refusal
+{- | A product its source divides line by line states no share a price can be
+deduced from: that, not a missing price, is why the block has none.
+-}
+dividedByLine :: AllocationProperty -> NonEmpty Exchange -> PropertyRefusal -> PropertyRefusal
+dividedByLine prop block refusal
+    | prop == Price, refusal == NotStated, any exchangeDividedByLine block = DividedByLine
+    | otherwise = refusal
+
+{- | What weighs the products of a block against each other in a file that
+keeps it whole, one percentage per product in the order given: their prices
+first, as a division by price would weigh them, else the shares they declare.
+Every writer of such a block asks this, so the block reads back weighed alike
+whatever the format.
+-}
+data Weights
+    = -- | The shares the products' prices give.
+      PricesWeigh ![Double]
+    | -- | Why the prices cannot weigh the block, and the shares the products declare.
+      SharesWeigh !Text ![Double]
+    | -- | Why neither can: a product declares no share, and the prices cannot weigh the block.
+      NothingWeighs !Text
+    deriving (Eq, Show)
+
+blockWeights :: UnitConfig -> UnitDB -> [Exchange] -> Weights
+blockWeights cfg unitDB products
+    | Just shares <- propertyKeyShares Price cfg unitDB products = PricesWeigh shares
+    -- A price in euros an expert set beside prices deduced from shares cannot weigh the block until every product has one.
+    | Just shares <- traverse (fmap dsPercent . exchangeDeclaredShare) products = SharesWeigh whyNotPrices shares
+    | otherwise = NothingWeighs whyNotPrices
+  where
+    whyNotPrices :: Text
+    whyNotPrices = case NE.nonEmpty products of
+        Just block | Left refusal <- propertyShares Price unitDB cfg block -> describePropertyRefusal Price (dividedByLine Price block refusal)
+        _ -> "every product declares 0 %"
 
 -- | 'allocate' over a parsed list, in order.
 allocateAll :: Allocating -> [Activity] -> [Activity]

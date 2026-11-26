@@ -1065,6 +1065,7 @@ buildResult st =
                   pdWasteFlows = []
                 , pdUnits = reverse (psUnits st)
                 , pdDatasetNumber = psDatasetNumber st
+                , pdProductNumbers = [(rlNumber rl, exchangeFlowId (rlExchange rl)) | rl <- readLines, exchangeIsProductOutput (rlExchange rl)]
                 , pdActivityId = Nothing
                 , pdWarnings =
                     placeholdersUsed st

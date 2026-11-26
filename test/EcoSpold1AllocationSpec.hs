@@ -1,14 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Reading an EcoSpold 1 dataset of several products: its groups and its allocation keys.
+-- | Reading and writing an EcoSpold 1 dataset of several products: its groups and its allocation keys.
 module EcoSpold1AllocationSpec (spec) where
 
 import Control.Applicative ((<|>))
+import Control.Monad (forM_, join)
 import qualified Data.ByteString.Char8 as BC
+import Data.Either (fromLeft)
+import Data.List (sort)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import Data.Time.Calendar (fromGregorian)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
@@ -21,12 +26,15 @@ import Database.Allocation (
     asAllocated,
     describePropertyRefusal,
     describeRefusal,
+    producerKeyOf,
     propertyKeyRefusals,
  )
 import Database.Loader (LoadOptions (..), defaultLoadOptions, loadDatabaseWithLocationAliases)
 import Database.Quality (QualityCheck (..), QualityReport (..), qualityReport)
+import EcoSpold.Allocation1 (Allocation1 (..), Division (..), divide)
 import EcoSpold.Common (ParsedDataset (..))
 import EcoSpold.Parser1 (parseAllWithXeno, parseWithXeno)
+import EcoSpold.Writer1 (Written1 (..), blockWarnings, canonicalWriterOptions, writeSimpleDatabase, writtenDatasets)
 import Types
 import UnitConversion (defaultUnitConfig)
 
@@ -146,6 +154,60 @@ warns p part = pdWarnings p `shouldSatisfy` any (part `T.isInfixOf`)
 -- | The gate's refusal, if any.
 asAllocated' :: Activity -> Maybe AllocationRefusal
 asAllocated' act = either Just (const Nothing) (asAllocated act)
+
+-- | The block kept whole with Pizza buying its cheese and Ricotta its whey, under these keys.
+withBuyers :: [BC.ByteString] -> BC.ByteString
+withBuyers keys = document [dataset 7 "cheese and whey production" (cheeseAndWhey <> sharedLines) keys, buyer 50 "pizza" "cheese" "0.2", buyer 51 "ricotta" "whey" "3"]
+  where
+    buyer :: Int -> BC.ByteString -> BC.ByteString -> BC.ByteString -> BC.ByteString
+    buyer number name bought amount = dataset number name [line 60 name "kg" "1" (output "0"), line 7 bought "kg" amount (input "5")] []
+
+-- | The product each input of the processes of this name is bought as, from the process making it.
+boughtProducts :: SimpleDatabase -> Text -> [Maybe Text]
+boughtProducts db name =
+    [ tfName <$> (producerKeyOf (sdbActivities db) (link, flow) >> M.lookup flow (sdbTechFlows db))
+    | act <- M.elems (sdbActivities db)
+    , activityName act == name
+    , TechnosphereExchange{techRole = Input, techActivityLinkId = Just link, techFlowId = flow} <- exchanges act
+    ]
+
+-- | The file the writer makes of a database; the test fails on its refusal.
+writtenFile :: SimpleDatabase -> IO BC.ByteString
+writtenFile db = either (fail . T.unpack) (pure . TE.encodeUtf8) (writeSimpleDatabase (canonicalWriterOptions (fromGregorian 2026 1 1)) db)
+
+-- | What the writer answers for a database, refusal included.
+writing :: SimpleDatabase -> Either Text Text
+writing = writeSimpleDatabase (canonicalWriterOptions (fromGregorian 2026 1 1))
+
+-- | The share each product declares, by product name.
+sharesOf :: SimpleDatabase -> [(Text, Maybe Double)]
+sharesOf db = sort [(maybe "" tfName (M.lookup (exchangeFlowId ex) (sdbTechFlows db)), dsPercent <$> exchangeDeclaredShare ex) | ex <- productRows db, exchangeShareStated ex]
+
+-- | The activity each process of this name buys from.
+linkOf :: SimpleDatabase -> Text -> [Maybe UUID]
+linkOf db name = [techActivityLinkId ex | act <- M.elems (sdbActivities db), activityName act == name, ex@TechnosphereExchange{techRole = Input} <- exchanges act]
+
+-- | The activity of the processes of this name.
+activityOf :: SimpleDatabase -> Text -> [Maybe UUID]
+activityOf db name = [Just actUUID | ((actUUID, _), act) <- M.toList (sdbActivities db), activityName act == name]
+
+-- | Every product row of a database restated by a function.
+onProducts :: (Exchange -> Exchange) -> SimpleDatabase -> SimpleDatabase
+onProducts f db = db{sdbActivities = M.map restate (sdbActivities db)}
+  where
+    restate :: Activity -> Activity
+    restate act = act{activityLines = packExchanges [if exchangeIsProductOutput ex then f ex else ex | ex <- exchanges act]}
+
+-- | A product row selling for this many euros per unit.
+pricedAt :: Double -> Exchange -> Exchange
+pricedAt euros ex = case ex of
+    TechnosphereExchange{} -> ex{techProperties = noProperties{epPrice = Just (StatedPrice (StatedAmount "EUR" euros))}}
+    BiosphereExchange{} -> ex
+    WasteExchange{} -> ex
+
+-- | Whether a text occurs in another.
+isIn :: String -> String -> Bool
+isIn part = T.isInfixOf (T.pack part) . T.pack
 
 shouldBeNear :: Maybe Double -> Double -> Expectation
 shouldBeNear actual expected = case actual of
@@ -305,3 +367,159 @@ spec = do
                 linkOf name = [techActivityLinkId ex | act <- M.elems (sdbActivities db), activityName act == name, ex@TechnosphereExchange{techRole = Input} <- exchanges act]
             linkOf "whey drink from 7" `shouldBe` keyOf "cheese and whey production, plant 7"
             linkOf "whey drink from 9" `shouldBe` keyOf "cheese and whey production, plant 9"
+
+    describe "writing a block of several products kept whole" $ do
+        it "writes keys a reader divides it by at its shares, without the file" $ do
+            db <- loadAs ReadWhole (withBuyers [key 10 "80" everyLine, key 11 "20" everyLine])
+            case [w | w <- writtenDatasets (canonicalWriterOptions (fromGregorian 2026 1 1)) db, activityName (w1Activity w) == "cheese and whey production"] of
+                [w] -> do
+                    let division = divide (const "") (w1Lines w) (w1Keys w)
+                    sort [dsPercent <$> exchangeDeclaredShare ex | ex <- dvLines division, exchangeIsProductOutput ex] `shouldBe` [Just 20, Just 80]
+                    -- Each product also has the whole of its own line.
+                    [alFraction k | k <- w1Keys w, alLines k == [alCoProduct k]] `shouldBe` [100, 100]
+                found -> expectationFailure (show (length found) <> " blocks")
+
+        it "reads back kept whole at the same shares, its buyers linked to it, and writes again to the byte" $ do
+            db <- loadAs ReadWhole (withBuyers [key 10 "80" everyLine, key 11 "20" everyLine])
+            xml <- writtenFile db
+            back <- loadAs ReadWhole xml
+            sharesOf back `shouldBe` [("cheese", Just 80), ("whey", Just 20)]
+            linkOf back "pizza" `shouldBe` activityOf back "cheese and whey production"
+            linkOf back "ricotta" `shouldBe` activityOf back "cheese and whey production"
+            writtenFile back `shouldReturn` xml
+
+        it "names the block after its activity and each product line after its product" $ do
+            db <- loadAs ReadWhole (withBuyers [key 10 "80" everyLine, key 11 "20" everyLine])
+            xml <- writtenFile db
+            let says part = BC.unpack xml `shouldSatisfy` (part `isIn`)
+            says "<referenceFunction name=\"cheese and whey production\""
+            BC.unpack xml `shouldSatisfy` (not . ("allocationMethod" `isIn`))
+            says "name=\"cheese\" location=\"CH\" unit=\"kg\" meanValue=\"0.2\""
+            says "name=\"whey\" location=\"CH\" unit=\"kg\" meanValue=\"3.0\""
+
+        it "divides the block read back as the source divides it" $ do
+            let source = withBuyers [key 10 "80" everyLine, key 11 "20" everyLine]
+            xml <- writtenFile =<< loadAs ReadWhole source
+            original <- loadAs ReadDeclared source
+            back <- loadAs ReadDeclared xml
+            mapM_ (\product -> M.toList (inventoryOf back product) `shouldBe` M.toList (inventoryOf original product)) ["cheese", "whey"]
+
+        it "weighs the products by their prices first, as an economic key" $ do
+            db <- onProducts (\ex -> pricedAt (if exchangeIsReference ex then 5 else 0.1) ex) <$> loadAs ReadWhole (withBuyers [key 10 "80" everyLine, key 11 "20" everyLine])
+            xml <- writtenFile db
+            BC.unpack xml `shouldSatisfy` ("allocationMethod=\"1\"" `isIn`)
+            back <- loadAs ReadWhole xml
+            join (lookup "cheese" (sharesOf back)) `shouldBeNear` (100 * 5 / 5.9)
+            blockWarnings (canonicalWriterOptions (fromGregorian 2026 1 1)) db `shouldSatisfy` any (T.isInfixOf "not by the shares they declare")
+
+        it "scales shares adding up to other than 100, and says so" $ do
+            db <- loadAs ReadWhole (withBuyers [key 10 "60" everyLine, key 11 "30" everyLine])
+            back <- loadAs ReadWhole =<< writtenFile db
+            join (lookup "cheese" (sharesOf back)) `shouldBeNear` (100 * 60 / 90)
+            blockWarnings (canonicalWriterOptions (fromGregorian 2026 1 1)) db `shouldSatisfy` any (T.isInfixOf "adding up to other than 100 %")
+
+        it "writes again to the byte keys whose fractions add up to 100 only to the last digit" $ do
+            let withCream = numberedBlock 7 "cheese, whey and cream production" (cheeseAndWhey <> [line 12 "cream" "kg" "1" (output "2")])
+                blocks =
+                    [withBuyers [key 10 cheese everyLine, key 11 whey everyLine] | (cheese, whey) <- [("0.7", "99.3"), ("2.7", "97.3"), ("1", "5")]]
+                        -- Scaled, these add up to 100.00000000000001.
+                        <> [withCream [key 10 "1" everyLine, key 11 "4" everyLine, key 12 "1" everyLine]]
+            forM_ blocks $ \source -> do
+                xml <- writtenFile =<< loadAs ReadWhole source
+                back <- loadAs ReadWhole xml
+                writtenFile back `shouldReturn` xml
+
+        it "keeps a product at 0 % at 0 %, its own line keyed to it" $ do
+            db <- loadAs ReadWhole (withBuyers [key 10 "100" everyLine, key 11 "0" everyLine])
+            back <- loadAs ReadWhole =<< writtenFile db
+            sharesOf back `shouldBe` [("cheese", Just 100), ("whey", Just 0)]
+
+        it "calls no key economic for the price of a product held at 0 %, which weighs nothing" $ do
+            db <- onProducts (\ex -> if exchangeIsReference ex then ex else pricedAt 3 ex) <$> loadAs ReadWhole (withBuyers [key 10 "100" everyLine, key 11 "0" everyLine])
+            xml <- writtenFile db
+            BC.unpack xml `shouldSatisfy` (not . ("allocationMethod" `isIn`))
+
+        it "writes no key when every product declares 0 %, and says so" $ do
+            db <- loadAs ReadWhole (cheeseBlock cheeseAndWhey [key 10 "0" everyLine, key 11 "0" everyLine])
+            xml <- writtenFile db
+            BC.unpack xml `shouldSatisfy` (not . ("<allocation" `isIn`))
+            blockWarnings (canonicalWriterOptions (fromGregorian 2026 1 1)) db `shouldSatisfy` any (T.isInfixOf "every product declares 0 %")
+
+        it "writes no key for a block divided line by line, and refuses an input buying its coproduct" $ do
+            db <- loadAs ReadWhole (withBuyers lineByLine)
+            fromLeft "" (writing db) `shouldSatisfy` T.isInfixOf "writes without allocation keys"
+            let alone = db{sdbActivities = M.filter ((/= "ricotta") . activityName) (sdbActivities db)}
+            either (const False) (not . T.isInfixOf "<allocation") (writing alone) `shouldBe` True
+
+        it "buys each product of a block under the number its line carries, linked again read whole or divided" $ do
+            let both = dataset 52 "mix" [line 61 "mix" "kg" "1" (output "0"), line 7 "cheese" "kg" "1" (input "5"), line 7 "whey" "kg" "1" (input "5")] []
+                source = document [dataset 7 "cheese and whey production" (cheeseAndWhey <> sharedLines) [key 10 "80" everyLine, key 11 "20" everyLine], both]
+            db <- loadAs ReadWhole source
+            let numbersOf name pick = [n | w <- writtenDatasets (canonicalWriterOptions (fromGregorian 2026 1 1)) db, activityName (w1Activity w) == name, (n, ex) <- w1Lines w, pick ex]
+                bought ex = case ex of
+                    TechnosphereExchange{techRole = Input} -> True
+                    _ -> False
+            case (numbersOf "mix" bought, numbersOf "cheese and whey production" exchangeIsProductOutput) of
+                ([cheese, whey], productLines) -> do
+                    cheese `shouldNotBe` whey
+                    productLines `shouldSatisfy` elem whey
+                found -> expectationFailure (show found)
+            xml <- writtenFile db
+            whole <- loadAs ReadWhole xml
+            divided <- loadAs ReadDeclared xml
+            sort (boughtProducts whole "mix") `shouldBe` [Just "cheese", Just "whey"]
+            sort (boughtProducts divided "mix") `shouldBe` [Just "cheese", Just "whey"]
+
+        it "links a buyer of a product two blocks make to its own block again, read whole or divided" $ do
+            let butterAndWhey = [line 12 "butter" "kg" "1" (output "0"), line 11 "whey" "kg" "9" (output "2")]
+                buyer number name supplier = dataset number name [line 60 name "kg" "1" (output "0"), line supplier "whey" "kg" "1" (input "5")] []
+                source =
+                    document
+                        [ dataset 7 "cheese and whey production" (cheeseAndWhey <> sharedLines) [key 10 "80" everyLine, key 11 "20" everyLine]
+                        , dataset 8 "butter and whey production" (butterAndWhey <> sharedLines) [key 12 "70" everyLine, key 11 "30" everyLine]
+                        , buyer 50 "pizza" 7
+                        , buyer 51 "ricotta" 8
+                        ]
+                linksTo db name block = all (`elem` activityOf db block) (linkOf db name) && not (null (linkOf db name))
+            db <- loadAs ReadWhole source
+            (linksTo db "pizza" "cheese and whey production", linksTo db "ricotta" "butter and whey production") `shouldBe` (True, True)
+            xml <- writtenFile db
+            whole <- loadAs ReadWhole xml
+            divided <- loadAs ReadDeclared xml
+            (linksTo whole "pizza" "cheese and whey production", linksTo whole "ricotta" "butter and whey production") `shouldBe` (True, True)
+            (linksTo divided "pizza" "cheese and whey production", linksTo divided "ricotta" "butter and whey production") `shouldBe` (True, True)
+
+        it "refuses a block buying its own product, which a key could not tell from the product's line" $ do
+            let consuming = document [dataset 7 "cheese and whey production" (cheeseAndWhey <> [line 7 "whey" "kg" "1" (input "5")] <> drop 1 sharedLines) [key 10 "80" [7, 21, 30], key 11 "20" [7, 21, 30]]]
+            db <- loadAs ReadWhole consuming
+            fromLeft "" (writing db) `shouldSatisfy` T.isInfixOf "carry one number"
+
+        it "writes a block without keys whose lines share a number, since no key addresses them" $ do
+            let consuming = document [dataset 7 "cheese and whey production" (cheeseAndWhey <> [line 7 "cheese" "kg" "0.1" (input "5")] <> drop 1 sharedLines) [key 10 "0" [7, 21, 30], key 11 "0" [7, 21, 30]]]
+            db <- loadAs ReadWhole consuming
+            either T.unpack (const "") (writing db) `shouldBe` ""
+
+        it "refuses a coproduct a dataset of the file makes under the same activity, which one number would name" $ do
+            db <- loadAs ReadWhole (withBuyers [key 10 "80" everyLine, key 11 "20" everyLine])
+            let acts = sdbActivities db
+                coproducts = [(activity, techFlowId ex) | ((activity, _), act) <- M.toList acts, ex@TechnosphereExchange{techRole = Coproduct} <- exchanges act]
+            case (coproducts, [act | act <- M.elems acts, activityName act == "pizza"]) of
+                ([made], [pizza]) -> fromLeft "" (writing db{sdbActivities = M.insert made pizza acts}) `shouldSatisfy` T.isInfixOf "one number would name both"
+                found -> expectationFailure (show (length (fst found)) <> " coproducts")
+
+        it "refuses a block making one product on two lines" $ do
+            db <- loadAs ReadWhole (cheeseBlock cheeseAndWhey [key 10 "80" everyLine, key 11 "20" everyLine])
+            let cheese = [exchangeFlowId ex | ex <- productRows db, exchangeIsReference ex]
+                twice ex = case (ex, cheese) of
+                    (TechnosphereExchange{}, [flow]) -> ex{techFlowId = flow}
+                    _ -> ex
+            fromLeft "" (writing (onProducts twice db)) `shouldSatisfy` T.isInfixOf "one product on two lines"
+
+    describe "writing repeated lines" $
+        it "writes one flow stated twice in a dataset as one line of their total, and says so" $ do
+            let twice = document [dataset 7 "cheese production" [line 10 "cheese" "kg" "1" (output "0"), line 20 "milk" "kg" "4" (input "5"), line 20 "milk" "kg" "6" (input "5")] []]
+            db <- loadAs ReadWhole twice
+            xml <- writtenFile db
+            length (filter ("name=\"milk\"" `isIn`) (lines (BC.unpack xml))) `shouldBe` 1
+            BC.unpack xml `shouldSatisfy` ("meanValue=\"10.0\"" `isIn`)
+            blockWarnings (canonicalWriterOptions (fromGregorian 2026 1 1)) db `shouldSatisfy` any (T.isInfixOf "one line of their total")
