@@ -167,6 +167,18 @@ def fixture_spec() -> dict[str, Any]:
                     ],
                 },
             },
+            "/api/v1/db/{dbName}/activity/{processId}/group-flows/{collection}/{methodId}": {
+                "post": {
+                    "operationId": "get_group_flows",
+                    "parameters": [
+                        {"name": "dbName", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "processId", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "collection", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "methodId", "in": "path", "required": True, "schema": {"type": "string"}},
+                        {"name": "exclude-long-term", "in": "query", "required": False, "schema": {"type": "boolean"}},
+                    ],
+                },
+            },
             "/api/v1/db/{dbName}/activity/{processId}/group-candidates/{collection}/{methodId}": {
                 "post": {
                     "operationId": "get_group_candidates",
