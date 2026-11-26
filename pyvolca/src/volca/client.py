@@ -3730,6 +3730,7 @@ class Client:
         collection: str | None = None,
         limit: int | None = None,
         cover_percent: float | None = None,
+        by_substance: bool = False,
     ) -> ContributingFlows:
         """Which elementary flows drive a given impact category.
 
@@ -3737,12 +3738,17 @@ class Client:
         absolute value. ``cover_percent`` (0 to 100) returns the flows until
         their ``cumulative_share_pct`` passes it, ``limit`` capping them (100
         when omitted): 80 lists the most relevant flows under the PEF rule.
-        ``method_id`` takes a method name as well as a UUID, and
+        ``by_substance`` gathers the flows of one name and one medium in the
+        rows of ``top_substances``, which the shares and ``cover_percent``
+        then read. ``method_id`` takes a method name as well as a UUID, and
         ``collection`` is read off the resolved method unless you pin it.
         """
         if cover_percent is not None:
             # An older engine ignores the parameter and answers the first rows.
             self._require_wire(125, "get_contributing_flows(cover_percent=...)", engine_hint="0.19.1")
+        if by_substance:
+            # An older engine ignores the parameter and answers one row per flow.
+            self._require_wire(126, "get_contributing_flows(by_substance=True)", engine_hint="0.19.1")
         collection, method_id = self._resolve_method(method_id, collection)
         return ContributingFlows.from_json(
             self._call(
@@ -3752,6 +3758,7 @@ class Client:
                 method_id=method_id,
                 limit=limit,
                 cover_percent=cover_percent,
+                by_substance=by_substance or None,
             )
         )
 

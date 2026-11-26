@@ -48,6 +48,7 @@ import API.Types (
     FlowContributionEntry (..),
     LCIABatchResult (..),
     LCIAResult (..),
+    SubstanceContributionEntry (..),
  )
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (DatabaseConfig (..), defaultConfig)
@@ -235,8 +236,15 @@ mcpRows tool extraArgs = do
 spec :: Spec
 spec = describe "a contributing flow's factor and contribution" $ do
     it "land in their own fields in the REST contributing flows" $ do
-        result <- runOk (getContributingFlows "sample" productD (CollectionName collectionName) methodIdText Nothing Nothing Nothing)
+        result <- runOk (getContributingFlows "sample" productD (CollectionName collectionName) methodIdText Nothing Nothing Nothing Nothing)
         restRows (cfrTopFlows result) `shouldBe` expected
+
+    it "add up to the same score in the REST rows gathered by substance, the flow rows left empty" $ do
+        flows <- runOk (getContributingFlows "sample" productD (CollectionName collectionName) methodIdText Nothing Nothing Nothing Nothing)
+        grouped <- runOk (getContributingFlows "sample" productD (CollectionName collectionName) methodIdText Nothing Nothing (Just True) Nothing)
+        let total = sum (map sceContribution (cfrTopSubstances grouped))
+        (null (cfrTopFlows grouped), null (cfrTopSubstances flows), abs (total - sum (map fcoContribution (cfrTopFlows flows))) < 1e-9)
+            `shouldBe` (True, True, True)
 
     it "land in their own fields in a REST single-category score" $ do
         result <- runOk (getActivityLCIA "sample" productD (CollectionName collectionName) methodIdText Nothing)

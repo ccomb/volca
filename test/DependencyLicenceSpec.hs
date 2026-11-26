@@ -351,6 +351,13 @@ spec = do
             errorText asText `shouldBe` Just "Parameter 'cover_percent' must be a number"
             errorText limitAsText `shouldBe` Just "Parameter 'limit' must be a whole number"
 
+        it "gathers the flows by substance when asked, and refuses the request written as text" $ do
+            manager <- managerWith detailKept
+            grouped <- payload =<< callOn manager "get_contributing_flows" [("by_substance", Bool True)]
+            asText <- callOn manager "get_contributing_flows" [("by_substance", String "true")]
+            (numbersAt "top_flows" "contribution" grouped, numbersAt "top_flows" "cumulative_percent" grouped) `shouldBe` ([1], [100 / 21])
+            errorText asText `shouldBe` Just "Parameter 'by_substance' must be true or false"
+
         it "keeps its flows out of a score's top flows" $ do
             manager <- managerWith detailKept
             o <- payload =<< callOn manager "get_impacts" [("top_flows", Number 5)]

@@ -133,6 +133,20 @@ data FlowContributionEntry = FlowContributionEntry
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped FlowContributionEntry)
 
+-- | The flows of one substance in one medium, gathered in one row
+data SubstanceContributionEntry = SubstanceContributionEntry
+    { sceName :: Text -- As its largest flow spells it
+    , sceContribution :: Double -- Contribution in impact unit, its flows added up
+    , sceSharePct :: Double -- Percentage of total score, negative for a substance that lowers it
+    , sceAbsoluteSharePct :: Double -- Its absolute value as a percentage of the sum of every substance's absolute value, the parts a licence keeps unlisted included
+    , sceCumulativeSharePct :: Double -- The same for this row and every row before it
+    , sceCategory :: Text -- Medium only (e.g. "air"), empty when its flows record none
+    , sceCompartments :: [Text] -- The sub-compartments of its flows, each once
+    , sceFlowIds :: [Text] -- Its flows' UUIDs
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped SubstanceContributionEntry)
+
 -- | LCIA result for a single impact category
 data LCIAResult = LCIAResult
     { lrMethodId :: UUID -- Method UUID
@@ -240,7 +254,8 @@ data ContributingFlowsResult = ContributingFlowsResult
     { cfrMethod :: Text
     , cfrUnit :: Text
     , cfrTotalScore :: Double
-    , cfrTopFlows :: [FlowContributionEntry]
+    , cfrTopFlows :: [FlowContributionEntry] -- Empty when the flows are gathered by substance
+    , cfrTopSubstances :: [SubstanceContributionEntry] -- With by_substance: one row per substance and medium, in place of the top flows
     , cfrWithheldDatabases :: [WithheldShare] -- Dependencies whose licence keeps their detail: their flows are not among the top flows, their part is one line each
     , cfrCutoffInputs :: [CutoffInput] -- The cut-off inputs: the product inputs this calculation counted as zero, no loaded database supplying them
     , cfrWithheldCutoffs :: [WithheldCutoffs] -- The cut-off inputs inside each database whose licence keeps its detail to itself, the one asked included, counted

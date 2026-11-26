@@ -57,7 +57,7 @@ spec = describe "the functional unit of a computed answer" $ do
         single <- runOk (getActivityLCIA "sample" productD collection methodIdText Nothing)
         panel <- runOk (getActivityLCIABatch "sample" productD collection Nothing Nothing)
         batch <- runOk (postImpactsBatch "sample" collection Nothing Nothing (BatchImpactsRequest [productD] []))
-        flows <- runOk (getContributingFlows "sample" productD collection methodIdText Nothing Nothing Nothing)
+        flows <- runOk (getContributingFlows "sample" productD collection methodIdText Nothing Nothing Nothing Nothing)
         activities <- runOk (getContributingActivities "sample" productD collection methodIdText Nothing Nothing Nothing)
         scoreFlows <- runOk (getScoreContributingFlows "sample" productD collection "Single" "total" Nothing Nothing)
         scoreActivities <- runOk (getScoreContributingActivities "sample" productD collection "Single" "total" Nothing Nothing)

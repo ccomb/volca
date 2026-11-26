@@ -58,6 +58,7 @@ import qualified Impact
 import Impact.Ranking (Ranked (..), RowCut (..), rankRows, rowCut)
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
+import Impact.Substances (SubstanceContribution (..), bySubstance, substanceCompartments, substanceFlowIds)
 
 import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (activitiesReportToAPI, copyRefusal, coverageReportToAPI, databaseHistoryToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
@@ -90,7 +91,7 @@ import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Skill (Skill, skillContents, skillEntry, skillResource, skillUri)
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, flowKindId, flowKindName, getUnitNameForBioFlow, granted, kindOfFlow, lookupExchangeFlow, lookupFlow, matchWord, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, flowKindId, flowKindName, getUnitNameForBioFlow, granted, kindOfFlow, lookupExchangeFlow, lookupFlow, matchWord, mediumText, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
 import Usage (Asking (..), Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -1796,6 +1797,14 @@ optionalWhole key args = case KM.lookup (fromText key) args of
     Just Null -> Right Nothing
     Just (Number n) | Just i <- toBoundedInteger n -> Right (Just i)
     Just _ -> Left ("Parameter '" <> key <> "' must be a whole number")
+
+-- | Read an optional boolean, refusing any other value rather than taking it for absent.
+optionalBool :: Text -> KeyMap Value -> Either Text (Maybe Bool)
+optionalBool key args = case KM.lookup (fromText key) args of
+    Nothing -> Right Nothing
+    Just Null -> Right Nothing
+    Just (Bool b) -> Right (Just b)
+    Just _ -> Left ("Parameter '" <> key <> "' must be true or false")
 
 -- | Read an optional number, refusing any other value rather than taking it for absent.
 optionalNumber :: Text -> KeyMap Value -> Either Text (Maybe Double)
@@ -3545,6 +3554,7 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
         cut <- except (contributionsCut 20 args)
+        grouped <- except (optionalBool "by_substance" args)
         ir <- runImpactsRequest dbManager args req
         let method = lrMethod req
             dbName = lrDbName req
@@ -3560,6 +3570,10 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
                     diagnostics ++ ["withheld" .= diagnosticsWithheld | not (null diagnosticsWithheld)]
                 | otherwise = []
             withheldPair = ["withheld_databases" .= Service.withheldShares score (irWithheld ir) | not (null (irWithheld ir))]
+            withheld = map Impact.psScore (irWithheld ir)
+            topRows
+                | fromMaybe False grouped = map (substanceRow score) (rankRows scContribution withheld cut (bySubstance contribs))
+                | otherwise = map (flowRow score (\f -> ["match_kind" .= Explain.flowMatchKind tables (bfId f)])) (rankRows fcContribution withheld cut contribs)
         liftIO $ Impact.warnUnknownFlowIds ("MCP get_contributing_flows " <> methodName method) (irUnknownUuids ir)
         pure $
             toolSuccessJson rid $
@@ -3570,7 +3584,7 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
                     , "total_score" .= score
                     , "has_negative_contributions" .= hasNeg
                     , "basis" .= irBasis ir
-                    , "top_flows" .= map (flowRow score (\f -> ["match_kind" .= Explain.flowMatchKind tables (bfId f)])) (rankRows fcContribution (map Impact.psScore (irWithheld ir)) cut contribs)
+                    , "top_flows" .= topRows
                     ]
                         ++ withheldPair
                         ++ cutoffFields (irCutoffs ir)
@@ -3594,6 +3608,20 @@ flowRow score methodFields Ranked{rkRow = FlowContribution{fcFlow = f, fcFactor 
         , "cf_value" .= cfVal
         ]
             <> methodFields f
+
+-- | One row of a list of flows gathered by substance: the flows of one name and medium, added up.
+substanceRow :: Double -> Ranked SubstanceContribution -> Value
+substanceRow score Ranked{rkRow = s, rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} =
+    object
+        [ "flow_name" .= scName s
+        , "contribution" .= scContribution s
+        , "contribution_percent" .= (if score /= 0 then scContribution s / score * 100 else 0 :: Double)
+        , "absolute_percent" .= absolute
+        , "cumulative_percent" .= cumulative
+        , "category" .= maybe "" mediumText (scMedium s)
+        , "compartments" .= substanceCompartments s
+        , "flow_ids" .= substanceFlowIds s
+        ]
 
 callGetContributingActivities :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetContributingActivities dbManager mBaseUrl rid args =
