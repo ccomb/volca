@@ -663,6 +663,11 @@ History of manual bumps:
 - 87: an EcoSpold2 process carries the classification of its reference
      product (CPC, HS), where it carried the activity's alone. Nothing
      changes type, so a cache written just before would keep it without.
+- 88: an EcoSpold 1 dataset of several products is divided by its
+     allocation keys, its dataset number answers for each coproduct of a
+     block kept whole, and a single file of one such dataset is keyed by its
+     file name. Nothing changes type, so a cache written just before would
+     keep the block undivided.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -670,7 +675,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 87
+     in hi `xor` lo `xor` 88
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -806,7 +811,9 @@ because there a location was expected and is missing.
 -}
 type NameOnlyIndex = M.Map T.Text (NE.NonEmpty NameProducer)
 
-{- | Dataset number → the datasets carrying it, for EcoSpold1 Tier 1 linking.
+{- | Dataset number → the datasets carrying it, for EcoSpold1 Tier 1 linking,
+and, for a block kept whole, the key each of its coproducts is linked by
+('producerKeyOf'), which names the block rather than a dataset of its own.
 
 One number names several datasets rather than one whenever the block it came
 from declares more than one product: allocation rewrites such a block into one
@@ -1240,7 +1247,7 @@ fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlo
             , loDatasetNumber = dsNum
             }
         | not (T.null declaredLoc)
-        , Just supplier <- [M.lookup supplierKey elcActivities]
+        , Just supplier <- [producerKeyOf elcActivities supplierKey >>= (`M.lookup` elcActivities)]
         , activityLocation supplier /= declaredLoc
         , M.member (normalizeText (tfName flow), declaredLoc) elcSupplierIndex
         ]

@@ -34,8 +34,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Read as TR
 import qualified Data.UUID.V5 as UUID5
-import Database.Allocation (noExchangeShares)
-import EcoSpold.Allocation1 (Allocation1 (..), Division (..), divide, withFirstProductAsReference)
+import Database.Allocation (asReference, noExchangeShares)
+import EcoSpold.Allocation1 (Allocation1 (..), Division (..), divide)
 import EcoSpold.Common (ParsedDataset (..), bsToIntMaybe, bsToText, docSection, isElement, joinParts, nonEmptyText)
 import Progress (ProgressLevel (..), reportProgress)
 import Types
@@ -127,6 +127,17 @@ data PendingKey = PendingKey
 
 emptyPendingKey :: PendingKey
 emptyPendingKey = PendingKey Nothing Nothing []
+
+{- | One exchange as the dataset files it: the number allocation keys name it
+by, and whether it is an allocated product (output group 2), which a dataset
+naming no reference picks its reference from. Strict, so that neither holds
+the 'ExchangeData' it was read from.
+-}
+data ReadLine = ReadLine
+    { rlNumber :: !Int
+    , rlAllocated :: !Bool
+    , rlExchange :: !Exchange
+    }
 
 {- | The group an EcoSpold 1 input is filed under, which is what the format
 says about the kind of flow it carries: the first three are technosphere
@@ -264,8 +275,8 @@ data ParseState = ParseState
     , psLocation :: !(Maybe Text)
     , psRefUnit :: !(Maybe Text)
     , psDescription :: ![Text]
-    , psExchanges :: ![(Int, Exchange)]
-    -- ^ Each line with the number the file gives it, in reverse order of reading.
+    , psExchanges :: ![ReadLine]
+    -- ^ In reverse order of reading.
     , psKeys :: ![Maybe Allocation1]
     -- ^ The dataset's allocation keys, 'Nothing' for one that does not read, in reverse order.
     , psOddOutputs :: !(M.Map Text (S.Set Text))
@@ -504,7 +515,12 @@ readKeyNumber t = case TR.signed TR.decimal (T.strip t) of
 closeKeyLine :: ParseState -> ParseState
 closeKeyLine state = case psContext state of
     InAllocation key -> (popElement state){psContext = InAllocation key{pkLines = readKeyNumber txt : pkLines key}}
-    _ -> popElement state
+    InReferenceFunction -> popElement state
+    InGeography -> popElement state
+    InExchange _ -> popElement state
+    InInputGroup _ -> popElement state
+    InOutputGroup _ -> popElement state
+    Other -> popElement state
   where
     txt = T.concat (reverse (map bsToText (psTextAccum state)))
 
@@ -516,7 +532,12 @@ closeAllocation state = case psContext state of
             { psKeys = (Allocation1 <$> pkCoProduct key <*> pkFraction key <*> sequence (reverse (pkLines key))) : psKeys state
             , psContext = Other
             }
-    _ -> popElement state
+    InReferenceFunction -> popElement state
+    InGeography -> popElement state
+    InExchange _ -> popElement state
+    InInputGroup _ -> popElement state
+    InOutputGroup _ -> popElement state
+    Other -> popElement state
 
 {- | Close a @\<source\>@: file it under the number the dataset gave it, so
 @referenceToPublishedSource@ can name it whichever order the two were read in.
@@ -635,7 +656,7 @@ times what its result does.
 accumulateExchange :: ExchangeData -> BuiltExchange -> ParseState -> ParseState
 accumulateExchange edata BuiltExchange{beExchange = exchange, beFlow = parsedFlow, beUnit = unit} state =
     (popElement state)
-        { psExchanges = (exNumber edata, exchange) : psExchanges state
+        { psExchanges = ReadLine (exNumber edata) (exOutputGroup edata == Just OutAllocatedProduct) exchange : psExchanges state
         , psOddOutputs = case (exchange, oddOutputGroup (exOutputGroup edata)) of
             (TechnosphereExchange{techRole = Coproduct}, Just what) -> M.insertWith S.union what (S.singleton (exName edata)) (psOddOutputs state)
             _ -> psOddOutputs state
@@ -666,6 +687,22 @@ oddOutputGroup = \case
     Just OutWasteToTreatment -> Just "group 3, waste to treatment, which the format writes as an input"
     Just OutputGroupUnrecognised -> Just "a group the format does not define"
     Nothing -> Just "no group"
+
+{- | A dataset naming no reference product but filing products in group 2,
+the format's own way of writing a process of several products, takes the first
+of them that makes something as its reference, which it returns: a block kept
+whole is filed under its reference, and one with none would be filed under no
+product. A product at zero is listed, not made, as the engine's own promotion
+reads it.
+-}
+withAllocatedReference :: [ReadLine] -> ([ReadLine], Maybe Exchange)
+withAllocatedReference rls
+    | any (exchangeIsReference . rlExchange) rls = (rls, Nothing)
+    | otherwise = case break candidate rls of
+        (before, rl : after) -> (before <> (rl{rlExchange = asReference (rlExchange rl)} : after), Just (rlExchange rl))
+        (_, []) -> (rls, Nothing)
+  where
+    candidate rl = rlAllocated rl && exchangeAmount (rlExchange rl) /= 0
 
 -- | The outputs read as coproducts against their group, said once per group.
 oddOutputsSeen :: ParseState -> [Text]
@@ -989,10 +1026,11 @@ buildResult st =
         flowNames = M.fromList ([(tfId f, tfName f) | f <- psTechFlows st] <> [(bfId f, bfName f) | f <- psBioFlows st])
         nameOf ex = M.findWithDefault "" (exchangeFlowId ex) flowNames
         readKeys = sequence (psKeys st)
+        (readLines, chosenReference) = withAllocatedReference (reverse (psExchanges st))
         division =
             divide
                 nameOf
-                (uncurry zip (withFirstProductAsReference <$> unzip (reverse (psExchanges st))))
+                [(rlNumber rl, rlExchange rl) | rl <- readLines]
                 (maybe [] reverse readKeys)
         classifications =
             M.fromList $
@@ -1034,6 +1072,9 @@ buildResult st =
                         ++ unreadableAmountsSeen st
                         ++ [datasetPrefix st <> "timestamp: " <> reason | Left reason <- [created]]
                         ++ oddOutputsSeen st
+                        ++ [ datasetPrefix st <> "names no reference product, and takes its first allocated product with an amount, \"" <> nameOf ex <> "\", as its reference"
+                           | Just ex <- [chosenReference]
+                           ]
                         ++ [datasetPrefix st <> "an allocation key states a number or a fraction that does not read, so its keys are not applied and the block is kept whole" | Nothing <- [readKeys]]
                         ++ map (datasetPrefix st <>) (dvWarnings division)
                 , pdLiterature = mapMaybe sourceDocument (IM.elems (ddSources (psDocs st)))

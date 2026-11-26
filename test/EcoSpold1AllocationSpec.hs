@@ -113,6 +113,10 @@ inventoryOf db product =
   where
     nameOf ex = fromMaybe "" ((tfName <$> M.lookup (exchangeFlowId ex) (sdbTechFlows db)) <|> (bfName <$> M.lookup (exchangeFlowId ex) (sdbBioFlows db)))
 
+-- | The roles of the dataset's product rows, in order.
+roles :: ParsedDataset -> [TechRole]
+roles p = [techRole ex | ex@TechnosphereExchange{} <- exchanges (pdActivity p), techRole ex /= Input]
+
 warns :: ParsedDataset -> Text -> Expectation
 warns p part = pdWarnings p `shouldSatisfy` any (part `T.isInfixOf`)
 
@@ -137,9 +141,18 @@ spec = do
             p `warns` "\"cream\" carry a group the format does not define"
             p `warns` "\"butter\" carry no group"
 
-        it "takes the first allocated product as the reference of a dataset naming none" $ do
+        it "takes the first allocated product as the reference of a dataset naming none, and says so" $ do
             p <- parsed (cheeseBlock [line 10 "cheese" "kg" "1" (output "2"), line 11 "whey" "kg" "9" (output "2")] [])
-            [techRole ex | ex@TechnosphereExchange{} <- exchanges (pdActivity p), techRole ex /= Input] `shouldBe` [ReferenceProduct, Coproduct]
+            roles p `shouldBe` [ReferenceProduct, Coproduct]
+            p `warns` "takes its first allocated product with an amount, \"cheese\", as its reference"
+
+        it "takes the reference among the products made, not one listed at zero" $ do
+            p <- parsed (cheeseBlock [line 10 "cheese" "kg" "0" (output "2"), line 11 "whey" "kg" "9" (output "2"), line 12 "cream" "kg" "1" (output "2")] [])
+            roles p `shouldBe` [Coproduct, ReferenceProduct, Coproduct]
+
+        it "takes the reference among the allocated products only" $ do
+            p <- parsed (cheeseBlock [line 12 "sludge" "kg" "1" (output "3"), line 10 "cheese" "kg" "1" (output "2"), line 11 "whey" "kg" "9" (output "2")] [])
+            roles p `shouldBe` [Coproduct, ReferenceProduct, Coproduct]
 
     describe "allocation keys" $ do
         it "divides a block by keys giving each product one fraction of every line" $ do
@@ -168,10 +181,18 @@ spec = do
             M.lookup "electricity" (inventoryOf db "whey") `shouldBeNear` 0
             M.lookup "milk" (inventoryOf db "whey") `shouldBeNear` 2
 
-        it "gives nothing to a product whose keys cover no shared line" $ do
-            db <- loadAs ReadDeclared (cheeseBlock cheeseAndWhey [key 10 "100" everyLine, key 11 "100" [11]])
+        it "gives nothing to a product whose keys cover no shared line, and says so" $ do
+            let xml = cheeseBlock cheeseAndWhey [key 10 "100" everyLine, key 11 "100" [11]]
+            p <- parsed xml
+            p `warns` "give no line it shares to whey, which is declared at 0 %"
+            db <- loadAs ReadDeclared xml
             M.lookup "milk" (inventoryOf db "cheese") `shouldBeNear` 10
             M.lookup "milk" (inventoryOf db "whey") `shouldBeNear` 0
+
+        it "keeps the block whole when its keys give no product a line it shares" $ do
+            p <- parsed (cheeseBlock cheeseAndWhey [key 10 "100" [10], key 11 "100" [11]])
+            p `warns` "give no product a line it shares"
+            [techShare ex | ex@TechnosphereExchange{} <- exchanges (pdActivity p), techRole ex /= Input] `shouldBe` [Nothing, Nothing]
 
         it "says when the fractions of a line do not add up to 100" $ do
             p <- parsed (cheeseBlock cheeseAndWhey [key 10 "80" everyLine, key 11 "19.9" everyLine])
