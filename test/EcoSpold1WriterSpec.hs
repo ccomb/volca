@@ -29,7 +29,6 @@ import qualified Data.UUID as UUID
 import Test.Hspec
 
 import qualified Database as DB
-import Database.ExportSupplier (noDependencies)
 import EcoSpold.Common (ParsedDataset (..))
 import EcoSpold.Parser1 (parseAllWithXeno)
 import EcoSpold.Writer1
@@ -719,12 +718,12 @@ spec = do
             roundTripSupplierLinks (linkedDb supplierLink) `shouldBe` Right [1]
 
         it "passes the export-boundary check when the link targets an exported dataset" $
-            checkEcoSpold1Exportable noDependencies (linkedDb supplierLink) `shouldBe` Right ()
+            checkEcoSpold1Exportable (canonicalWriterOptions exportDay) (linkedDb supplierLink) `shouldBe` Right ()
 
         it "rejects a dangling supplier link rather than emitting a wrong dataset number" $
             -- The link targets a UUID not among the exported datasets, so its
             -- dataset number is unknown; fail loudly instead of mislabelling it.
-            checkEcoSpold1Exportable noDependencies (linkedDb danglingLink) `shouldSatisfy` isLeft
+            checkEcoSpold1Exportable (canonicalWriterOptions exportDay) (linkedDb danglingLink) `shouldSatisfy` isLeft
 
         it "names the coproduct the link asks for, not the activity's last row" $
             -- The supplier is allocated into two datasets sharing one activity
@@ -734,7 +733,7 @@ spec = do
             roundTripSupplierLinks coproductDb `shouldBe` Right [1]
 
         it "passes the export-boundary check for a link naming one coproduct" $
-            checkEcoSpold1Exportable noDependencies coproductDb `shouldBe` Right ()
+            checkEcoSpold1Exportable (canonicalWriterOptions exportDay) coproductDb `shouldBe` Right ()
 
         forM_ [("its own product", read "55555555-0000-4000-8000-000000000002"), ("the same product", tapWaterU)] $ \(shape, nlWaterU) ->
             it ("places an input where its linked maker is, the other maker's water being " <> shape) $ do
@@ -776,7 +775,7 @@ spec = do
                 Right results -> length results `shouldBe` 0
 
         it "is exportable" $
-            checkEcoSpold1Exportable noDependencies emptyDb `shouldBe` Right ()
+            checkEcoSpold1Exportable (canonicalWriterOptions exportDay) emptyDb `shouldBe` Right ()
 
     describe "escaping / unicode" $
         it "round-trips XML metacharacters, newlines, and non-ASCII in names" $ do
@@ -834,7 +833,7 @@ spec = do
                 wasteEx = WasteExchange wasteU 0.3 kgUnit False (Just treatU) (ClaimById treatU) "" Nothing Nothing Nothing
                 wastes = M.singleton wasteU (WasteFlow wasteU "spent solvent" kgUnit M.empty Nothing Nothing)
                 sdb = soloDb "solvent user" prodU [wasteEx] M.empty M.empty wastes
-            checkEcoSpold1Exportable noDependencies sdb `shouldSatisfy` isLeft
+            checkEcoSpold1Exportable (canonicalWriterOptions exportDay) sdb `shouldSatisfy` isLeft
 
         it "rejects a waste input whose treatment is not exported alongside it" $ do
             -- Same rule as a technosphere input: the writer can only emit a
@@ -845,7 +844,7 @@ spec = do
                 wasteEx = WasteExchange wasteU 0.3 kgUnit True (Just treatU) (ClaimById treatU) "" Nothing Nothing Nothing
                 wastes = M.singleton wasteU (WasteFlow wasteU "spent solvent" kgUnit M.empty Nothing Nothing)
                 sdb = soloDb "solvent user" prodU [wasteEx] M.empty M.empty wastes
-            checkEcoSpold1Exportable noDependencies sdb `shouldSatisfy` isLeft
+            checkEcoSpold1Exportable (canonicalWriterOptions exportDay) sdb `shouldSatisfy` isLeft
 
     describe "non-finite amounts" $
         it "rejects an Infinity exchange amount rather than exporting it as 0.0" $ do
@@ -854,7 +853,7 @@ spec = do
                 bioEx = BiosphereExchange bioU (1 / 0) kgUnit Emission "" Nothing Nothing Nothing
                 bios = M.singleton bioU (BiosphereFlow bioU "Carbon dioxide" kgUnit M.empty Nothing Nothing Nothing)
                 sdb = soloDb "leaky process" prodU [bioEx] M.empty bios M.empty
-            checkEcoSpold1Exportable noDependencies sdb `shouldSatisfy` isLeft
+            checkEcoSpold1Exportable (canonicalWriterOptions exportDay) sdb `shouldSatisfy` isLeft
 
     describe "reference input (treatment process)" $
         it "rejects a ReferenceInput rather than flipping it to a reference product" $ do
@@ -865,7 +864,7 @@ spec = do
                 refInEx = TechnosphereExchange refInU 1.0 kgUnit ReferenceInput Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
                 techs = M.singleton refInU (TechnosphereFlow refInU "waste to treat" kgUnit M.empty Nothing Nothing)
                 sdb = soloDb "treatment process" prodU [refInEx] techs M.empty M.empty
-            checkEcoSpold1Exportable noDependencies sdb `shouldSatisfy` isLeft
+            checkEcoSpold1Exportable (canonicalWriterOptions exportDay) sdb `shouldSatisfy` isLeft
 
     describe "numeric round-trip" $
         it "round-trips a small-exponent amount without scientific-notation loss" $ do
@@ -892,7 +891,7 @@ spec = do
                 bioEx = BiosphereExchange bioU 5e-324 kgUnit Emission "" Nothing Nothing Nothing
                 bios = M.singleton bioU (BiosphereFlow bioU "trace" kgUnit M.empty Nothing Nothing Nothing)
                 sdb = soloDb "subnormal emitter" prodU [bioEx] M.empty bios M.empty
-            checkEcoSpold1Exportable noDependencies sdb `shouldSatisfy` isRight
+            checkEcoSpold1Exportable (canonicalWriterOptions exportDay) sdb `shouldSatisfy` isRight
 
     describe "general comment (activity description)" $
         it "re-imports a multi-paragraph description as one joined paragraph" $ do

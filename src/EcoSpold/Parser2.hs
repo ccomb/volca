@@ -1354,6 +1354,7 @@ parseWithXeno conversions xmlContent = do
                             , -- This format addresses a supplier by UUID, so it
                               -- numbers no dataset and links none by number.
                               pdDatasetNumber = 0
+                            , pdProductNumbers = []
                             , pdActivityId = psActivityId st
                             , pdWarnings = map T.pack (reverse (psWarnings st)) ++ placeholdersUsed st ++ dateWarnings
                             , pdLiterature = []

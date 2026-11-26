@@ -264,6 +264,7 @@ ordinary shape there, not a collision to arbitrate, so both sides are kept and
 the reader picks by product name. See 'DatasetNumberIndex'. It is built and
 merged strictly, like the flow tables and for the same reason: its value grows
 by repeated '<>', and the lazy API would leave that chain unforced.
+'hvProductNumbers' is built and merged the same way.
 -}
 data Harvest = Harvest
     { hvActivities :: !ActivityMap
@@ -272,6 +273,10 @@ data Harvest = Harvest
     , hvWasteFlows :: !WasteFlowDB
     , hvUnits :: !UnitDB
     , hvDatasetNumbers :: !DatasetNumberIndex
+    , hvProductNumbers :: !DatasetNumberIndex
+    {- ^ The number of each product line that is not its dataset's, to the
+    process making that product: see 'numberIndex'.
+    -}
     , hvRawFlows :: !Int
     -- ^ flow declarations read, before deduplication
     , hvRawUnits :: !Int
@@ -296,13 +301,14 @@ instance Semigroup Harvest where
             , hvUnits = MS.unionWith (\l r -> if isPlaceholderUnit l then r else l) (hvUnits a) (hvUnits b)
             , hvUnitNames = MS.unionWith S.union (hvUnitNames a) (hvUnitNames b)
             , hvDatasetNumbers = MS.unionWith (<>) (hvDatasetNumbers a) (hvDatasetNumbers b)
+            , hvProductNumbers = MS.unionWith (<>) (hvProductNumbers a) (hvProductNumbers b)
             , hvRawFlows = hvRawFlows a + hvRawFlows b
             , hvRawUnits = hvRawUnits a + hvRawUnits b
             , hvLiterature = S.union (hvLiterature a) (hvLiterature b)
             }
 
 instance Monoid Harvest where
-    mempty = Harvest M.empty MS.empty MS.empty MS.empty M.empty M.empty 0 0 S.empty M.empty
+    mempty = Harvest M.empty MS.empty MS.empty MS.empty M.empty M.empty M.empty 0 0 S.empty M.empty
 
 {- | Harvest a batch of parsed datasets, each already keyed by the (activity,
 product) pair its source names it under.
@@ -321,6 +327,15 @@ harvestOf entries =
                 | (key, parsed) <- entries
                 , pdDatasetNumber parsed /= 0
                 , filed <- key : coproductKeys key (pdActivity parsed)
+                ]
+        , hvProductNumbers =
+            groupInOrder
+                [ (number, filed)
+                | (key, parsed) <- entries
+                , (number, flow) <- pdProductNumbers parsed
+                , number /= pdDatasetNumber parsed
+                , filed <- key : coproductKeys key (pdActivity parsed)
+                , snd filed == flow
                 ]
         , hvRawFlows = length techs + length bios + length wastes
         , hvRawUnits = length units
@@ -826,6 +841,17 @@ reading order does not say which coproduct an input meant. The product name
 does, and that is what Tier 1 already checks.
 -}
 type DatasetNumberIndex = M.Map Int (NE.NonEmpty (UUID.UUID, UUID.UUID))
+
+{- | The numbers an input may quote: a dataset's, and failing that a product
+line's, which names the process making that product.
+
+A file that keeps a block of several products whole numbers each coproduct on
+its own line, and its buyers quote that number. A file that also holds the
+block's allocated datasets often numbers a coproduct line after the dataset
+making it; the dataset's number then wins, and nothing changes for that file.
+-}
+numberIndex :: Harvest -> DatasetNumberIndex
+numberIndex harvest = M.union (hvDatasetNumbers harvest) (hvProductNumbers harvest)
 
 -- | Information about an unlinked technosphere exchange
 data UnlinkedExchange = UnlinkedExchange
@@ -1799,7 +1825,7 @@ loadEcoSpoldFiles opts files = do
             case unitNamesDisagreeing harvested of
                 (conflict : more) -> return (Left (T.intercalate "; " (conflict : more)))
                 []
-                    | isEcoSpold1 -> Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
+                    | isEcoSpold1 -> Right <$> fixEcoSpold1ActivityLinks locationAliases (numberIndex harvested) simpleDb
                     | otherwise -> Right <$> linkSoleProducers simpleDb
   where
     locationAliases :: MS.Map T.Text T.Text
@@ -1962,7 +1988,7 @@ loadSingleEcoSpold1File opts filepath = do
             reportProgress Info $ printf "  Flows: %d tech + %d bio + %d waste (from %d raw)" (M.size (hvTechFlows harvested)) (M.size (hvBioFlows harvested)) (M.size (hvWasteFlows harvested)) (hvRawFlows harvested)
             reportProgress Info $ printf "  Units: %d unique (from %d raw)" (M.size (hvUnits harvested)) (hvRawUnits harvested)
 
-            Right <$> fixEcoSpold1ActivityLinks locationAliases (hvDatasetNumbers harvested) simpleDb
+            Right <$> fixEcoSpold1ActivityLinks locationAliases (numberIndex harvested) simpleDb
   where
     datasetKey :: Maybe UUID.UUID -> ParsedDataset -> (UUID.UUID, UUID.UUID)
     datasetKey fileUUID parsed =

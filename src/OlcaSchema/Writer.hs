@@ -74,7 +74,7 @@ import qualified Data.UUID.V5 as UUID5
 import Numeric (readHex)
 
 import qualified Data.IntMap.Strict as IM
-import Database.Allocation (describePropertyRefusal, isCoproduct, producerKeyOf, propertyKeyShares, propertyShares)
+import Database.Allocation (Weights (..), blockWeights, isCoproduct, producerKeyOf)
 import qualified Database.ExportFormulas as EF
 import qualified Expr
 import ILCD.Writer (exportedFlows, ilcdProcessUUID, sharedActivityUUIDs, splitWarnings)
@@ -280,15 +280,11 @@ processLines cx key act = case partitionEithers lines' of
 
     weighing
         | not (any isCoproduct products) = OneProduct
-        | Just shares <- propertyKeyShares Price (cxUnits cx) unitDB products = ByPrice (factored shares)
-        -- A price in euros an expert set beside prices deduced from shares cannot weigh the block until every product has one.
-        | Just shares <- traverse (fmap dsPercent . exchangeDeclaredShare) products = ByDeclaredShare whyNotPrices (factored shares)
-        | otherwise = Unweighed
-    unitDB = sdbUnits (cxDb cx)
+        | otherwise = case blockWeights (cxUnits cx) (sdbUnits (cxDb cx)) products of
+            PricesWeigh shares -> ByPrice (factored shares)
+            SharesWeigh why shares -> ByDeclaredShare why (factored shares)
+            NothingWeighs _ -> Unweighed
     factored shares = [Factor f (share / 100) | (ex, share) <- zip products shares, Just f <- [flowOf ex]]
-    whyNotPrices = case NE.nonEmpty products of
-        Just block | Left refusal <- propertyShares Price unitDB (cxUnits cx) block -> describePropertyRefusal Price refusal
-        _ -> "every product declares 0 %"
     flowOf ex = M.lookup (exchangeFlowId ex) (cxFlows cx)
 
 lineOf :: Context -> Activity -> Exchange -> Either Refusal Line
