@@ -686,6 +686,10 @@ History of manual bumps:
 - 89: a product its source divides line by line carries 'ShareByLine'
      rather than a share of 100 %, so a block read whole has no price
      deduced for it.
+- 90: an EcoSpold 1 input quoting the number of a product line is linked
+     to the process making that product, where only a dataset's number
+     linked. Nothing changes type, so a cache written just before would
+     keep the input linked by name, or not at all.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -693,7 +697,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 89
+     in hi `xor` lo `xor` 90
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

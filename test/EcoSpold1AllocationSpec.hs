@@ -410,6 +410,7 @@ spec = do
             BC.unpack xml `shouldSatisfy` ("allocationMethod=\"1\"" `isIn`)
             back <- loadAs ReadWhole xml
             join (lookup "cheese" (sharesOf back)) `shouldBeNear` (100 * 5 / 5.9)
+            blockWarnings (canonicalWriterOptions (fromGregorian 2026 1 1)) db `shouldSatisfy` any (T.isInfixOf "not by the shares they declare")
 
         it "scales shares adding up to other than 100, and says so" $ do
             db <- loadAs ReadWhole (withBuyers [key 10 "60" everyLine, key 11 "30" everyLine])
@@ -432,6 +433,11 @@ spec = do
             db <- loadAs ReadWhole (withBuyers [key 10 "100" everyLine, key 11 "0" everyLine])
             back <- loadAs ReadWhole =<< writtenFile db
             sharesOf back `shouldBe` [("cheese", Just 100), ("whey", Just 0)]
+
+        it "calls no key economic for the price of a product held at 0 %, which weighs nothing" $ do
+            db <- onProducts (\ex -> if exchangeIsReference ex then ex else pricedAt 3 ex) <$> loadAs ReadWhole (withBuyers [key 10 "100" everyLine, key 11 "0" everyLine])
+            xml <- writtenFile db
+            BC.unpack xml `shouldSatisfy` (not . ("allocationMethod" `isIn`))
 
         it "writes no key when every product declares 0 %, and says so" $ do
             db <- loadAs ReadWhole (cheeseBlock cheeseAndWhey [key 10 "0" everyLine, key 11 "0" everyLine])
@@ -487,6 +493,19 @@ spec = do
             let consuming = document [dataset 7 "cheese and whey production" (cheeseAndWhey <> [line 7 "whey" "kg" "1" (input "5")] <> drop 1 sharedLines) [key 10 "80" [7, 21, 30], key 11 "20" [7, 21, 30]]]
             db <- loadAs ReadWhole consuming
             fromLeft "" (writing db) `shouldSatisfy` T.isInfixOf "carry one number"
+
+        it "writes a block without keys whose lines share a number, since no key addresses them" $ do
+            let consuming = document [dataset 7 "cheese and whey production" (cheeseAndWhey <> [line 7 "cheese" "kg" "0.1" (input "5")] <> drop 1 sharedLines) [key 10 "0" [7, 21, 30], key 11 "0" [7, 21, 30]]]
+            db <- loadAs ReadWhole consuming
+            either T.unpack (const "") (writing db) `shouldBe` ""
+
+        it "refuses a coproduct a dataset of the file makes under the same activity, which one number would name" $ do
+            db <- loadAs ReadWhole (withBuyers [key 10 "80" everyLine, key 11 "20" everyLine])
+            let acts = sdbActivities db
+                coproducts = [(activity, techFlowId ex) | ((activity, _), act) <- M.toList acts, ex@TechnosphereExchange{techRole = Coproduct} <- exchanges act]
+            case (coproducts, [act | act <- M.elems acts, activityName act == "pizza"]) of
+                ([made], [pizza]) -> fromLeft "" (writing db{sdbActivities = M.insert made pizza acts}) `shouldSatisfy` T.isInfixOf "one number would name both"
+                found -> expectationFailure (show (length (fst found)) <> " coproducts")
 
         it "refuses a block making one product on two lines" $ do
             db <- loadAs ReadWhole (cheeseBlock cheeseAndWhey [key 10 "80" everyLine, key 11 "20" everyLine])

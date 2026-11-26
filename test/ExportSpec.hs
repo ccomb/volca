@@ -188,6 +188,17 @@ spec = describe "Database.Export dispatcher" $ do
                     bought `shouldSatisfy` all (\l -> all (`isInfixOf` l) ["location=\"RER\"", "unit=\"kWh\"", "meanValue=\"10.26\""] && not ("number=\"1\"" `isInfixOf` l))
                     said `shouldSatisfy` any (T.isInfixOf "one line of their total")
 
+        it "writes for EcoSpold 1 the lines of two suppliers of one product as two lines, each under its supplier's name" $ do
+            consumer <- built spinning
+            let linked = consumer{dbCrossDBLinks = [linkAt 1 gridAct 1 "MJ", linkAt 2 otherAct 3.6 "MJ"]}
+                hydro = gridInKwh{elActivity = "Electricity, medium voltage, from hydro"}
+            case serializeDatabase energyUnits exportDay EcoSpold1 M.empty (Right (suppliers [(1, gridInKwh), (2, hydro)])) "exported" linked of
+                Left err -> expectationFailure (T.unpack err)
+                Right (bytes, _) -> do
+                    let bought name = filter (isInfixOf ("name=\"" <> name <> "\"")) (lines (BLC.unpack bytes))
+                    (bought "Electricity, medium voltage, at grid", bought "Electricity, medium voltage, from hydro") `shouldSatisfy` \(grid', hydro') ->
+                        map (isInfixOf "meanValue=\"9.26\"") grid' == [True] && map (isInfixOf "meanValue=\"1.0\"") hydro' == [True]
+
         -- A reader linking by name tells the supplier from another activity
         -- making its product at its place by the activity's name.
         it "writes for EcoSpold 1 a line whose supplier's product another activity makes at the same place" $ do

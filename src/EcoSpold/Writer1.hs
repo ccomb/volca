@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {- | EcoSpold1 export writer – the canonical re-emitter for "EcoSpold.Parser1".
 
@@ -236,9 +237,8 @@ prepared opts sdb =
             , rWaste = sdbWasteFlows sdb
             , rUnits = sdbUnits sdb
             , rSupplierNumbers = suppliers
-            , rFlowNumbers = flowNumberIndex (flowFieldsIn techs (sdbBioFlows sdb) (sdbWasteFlows sdb)) (1 + foldr max 0 suppliers) ordered
+            , rFlowNumbers = flowNumberIndex said (1 + foldr max 0 suppliers) ordered
             , rDatasetNames = datasetNames techs ordered <> M.fromList (supplierNames deps sdb)
-            , rActivities = activities
             , rUnitConfig = woUnits opts
             }
         ordered
@@ -249,6 +249,9 @@ prepared opts sdb =
     -- Stable, content-derived order so dataset numbers (and thus flow UUIDs)
     -- are reproducible regardless of the source Map's ordering.
     ordered = orderedActivities techs activities
+    -- What the file says of a flow, the unit of the line included, as the parser hashes it.
+    said :: Exchange -> (FlowFields, Text)
+    said ex = (flowFieldsIn techs (sdbBioFlows sdb) (sdbWasteFlows sdb) ex, maybe "" unitName (M.lookup (exchangeUnitId ex) (sdbUnits sdb)))
     suppliers :: M.Map (UUID, UUID) Int
     suppliers = supplierNumberIndex ordered
 
@@ -442,6 +445,7 @@ blockWarnings opts sdb = mapMaybe counted kinds
     kinds :: [(Text, [Text])]
     kinds =
         [ ("datasets of several products are written without allocation keys, which leaves a reader nothing to divide them by:", [nameOf w <> ": " <> why | w <- written, Unkeyed why <- [w1Division w]])
+        , ("datasets of several products are divided by the prices their products state, not by the shares they declare, which the format has no place for:", [nameOf w | w <- written, Keyed FromPrices shares <- [w1Division w], overridden shares (products w)])
         , ("datasets of several products are divided by the shares their products declare, since their prices cannot weigh them:", [nameOf w <> ": " <> why | w <- written, Keyed (SharesOverPrices why) _ <- [w1Division w]])
         , ("datasets declare shares adding up to other than 100 %, written scaled to 100 %:", [nameOf w <> " (" <> T.pack (show total) <> " %)" | w <- byShares, let total = sum (map dsPercent (declared w)), abs (total - 100) > 0.01])
         , ("datasets have a share formula, which the format has no place for, and are written at the share's value:", [nameOf w | w <- byShares, any (isJust . dsFormula) (declared w)])
@@ -461,7 +465,14 @@ blockWarnings opts sdb = mapMaybe counted kinds
     nameOf = activityName . w1Activity
 
     declared :: Written1 -> [DeclaredShare]
-    declared w = mapMaybe exchangeDeclaredShare (filter exchangeIsProductOutput (exchanges (w1Activity w)))
+    declared w = mapMaybe exchangeDeclaredShare (products w)
+
+    products :: Written1 -> [Exchange]
+    products w = filter exchangeIsProductOutput (exchanges (w1Activity w))
+
+    -- A share a product declares that the key, written in its place, does not give it.
+    overridden :: [Double] -> [Exchange] -> Bool
+    overridden shares ps = or [abs (dsPercent d - share) > 0.01 | (share, p) <- zip shares ps, Just d <- [exchangeDeclaredShare p]]
 
 {- | Canonical export order: sorted by the name each dataset is written under
 ('datasetNames') and its location, so dataset numbers (and thus flow UUIDs)
@@ -520,11 +531,11 @@ identifier only breaking a tie. The parser makes a flow's identifier from its
 number, so an order by identifier would number the flows of the file read back
 otherwise, and writing it again would not give the same file.
 -}
-flowNumberIndex :: (Exchange -> FlowFields) -> Int -> [((UUID, UUID), Activity)] -> M.Map UUID Int
+flowNumberIndex :: forall said. (Ord said) => (Exchange -> said) -> Int -> [((UUID, UUID), Activity)] -> M.Map UUID Int
 flowNumberIndex fieldsOf first ordered =
     M.fromList (zip (map snd (S.toAscList flows)) [first ..])
   where
-    flows :: S.Set (FlowFields, UUID)
+    flows :: S.Set (said, UUID)
     flows =
         S.fromList
             [ (fields, flow)
@@ -585,27 +596,29 @@ emit silently wrong data:
     A waste sent to a treatment of that database has no line naming it.
 
   * __Datasets of several products the format cannot tell apart.__ One with
-    no reference or two, or making one product on two lines; and one where
-    two lines carry one number once repeated lines are merged ('Written1'),
-    since an allocation key names a line by its number, a number names a flow,
-    and a product's key leaves out the line carrying its own number.
+    no reference or two, or making one product on two lines; one written with
+    keys where two lines carry one number once repeated lines are merged
+    ('Written1'), since an allocation key names a line by its number, a number
+    names a flow, and a product's key leaves out the line carrying its own
+    number; and one whose coproduct a dataset of the file makes under the
+    same activity, since the two would take one number.
 
   * __Coproducts nothing answers once read back.__ An input buying a coproduct
-    of a block kept whole names it by the block's number and the product's
-    name; a block written without allocation keys reads back stating no
-    share, kept whole by nothing, and answers no such input.
+    of a block kept whole quotes the number of the coproduct's line; a block
+    written without allocation keys reads back stating no share, kept whole
+    by nothing, and answers no such input.
 
 Databases free of all of these pass unchanged.
 -}
 checkEcoSpold1Exportable :: WriterOptions -> SimpleDatabase -> Either Text ()
 checkEcoSpold1Exportable opts db =
-    case lefts [checkLinks, checkDependencies, checkSupplierNames, checkRefInputs, checkLinkedWasteOutputs, checkFlows, checkUnits, checkAmounts, checkAmountRoundTrip, checkProducts, checkNumbers] of
+    case lefts [checkLinks, checkDependencies, checkSupplierNames, checkRefInputs, checkLinkedWasteOutputs, checkFlows, checkUnits, checkAmounts, checkAmountRoundTrip, checkProducts, checkNumbers, checkSuppliers] of
         [] -> Right ()
         violations -> Left (T.intercalate "\n\n" violations)
   where
     deps = woDependencies opts
     Prepared res ordered = prepared opts db
-    written = writtenDatasets opts db
+    written = zipWith (written1 res) [1 ..] ordered
     checkProducts =
         case [(activityName act, why) | (_, act) <- ordered, makesCoproducts act, Just why <- [productsUntold act]] of
             [] -> Right ()
@@ -624,7 +637,7 @@ checkEcoSpold1Exportable opts db =
         products = filter exchangeIsProductOutput (nonPlainExchanges act)
         references = length (filter exchangeIsReference products)
     checkNumbers =
-        case [(activityName (w1Activity w), n, names) | w <- written, makesCoproducts (w1Activity w), (n, names@(_ :| _ : _)) <- M.toList (numberedNames res w)] of
+        case [(activityName (w1Activity w), n, names) | w <- written, not (null (w1Keys w)), (n, names@(_ :| _ : _)) <- M.toList (numberedNames res w)] of
             [] -> Right ()
             ((producer, n, names) : _) ->
                 Left $
@@ -635,6 +648,17 @@ checkEcoSpold1Exportable opts db =
                         <> " carry one number, "
                         <> T.pack (show n)
                         <> ", which the format reads as one flow, so a key cannot tell them apart."
+    checkSuppliers =
+        case [(activityName act, writtenName res key ex) | (key@(activity, _), act) <- ordered, ex <- exchanges act, isCoproduct ex, M.member (activity, exchangeFlowId ex) datasets] of
+            [] -> Right ()
+            ((producer, made) : _) ->
+                Left $
+                    "EcoSpold1 export cannot number the product \""
+                        <> made
+                        <> "\" of \""
+                        <> producer
+                        <> "\": a dataset of the file makes it under the same activity, and one number would name both."
+    datasets = M.fromList ordered
     checkDependencies =
         case [(activityName (blActivity l), why) | l <- dependencyLines deps db, Just why <- [unwritable (blExchange l) (blSupplier l)]] of
             [] -> Right ()
@@ -815,8 +839,6 @@ data Resolvers = Resolvers
     , rFlowNumbers :: !(M.Map UUID Int)
     , rDatasetNames :: !(M.Map (UUID, UUID) Text)
     -- ^ The name each supplier row is written under: a dataset of the file, or the activity of a dependency.
-    , rActivities :: !ActivityMap
-    -- ^ The datasets of the file, by row key, to find the block answering an input that buys its coproduct.
     , rUnitConfig :: !UnitConfig
     }
 
@@ -829,8 +851,8 @@ written with, and the allocation keys dividing them between its products.
 
 The number of a line names its flow across the whole export ('exchangeNumber'),
 and the parser hashes it into the flow's identity. Two lines of one dataset
-carrying one number in one shape (same side, same flow, unit and place) are
-therefore one flow to any reader, and are written as one line of their total:
+carrying one number in one shape (same side, same flow, unit, place and
+supplier) are therefore one flow to any reader, and are written as one line of their total:
 a fresh number would split one substance into two flows on reading back, and
 the format wants a line's number unique within its dataset. The first line's
 comment is the one kept ('blockWarnings' names the datasets).
@@ -838,7 +860,6 @@ comment is the one kept ('blockWarnings' names the datasets).
 data Written1 = Written1
     { w1Key :: !(UUID, UUID)
     , w1Activity :: !Activity
-    , w1Number :: !Int
     , w1Lines :: ![(Int, Exchange)]
     , w1Division :: !Division1
     , w1Keys :: ![Allocation1]
@@ -855,7 +876,6 @@ written1 res num (key, act) =
     Written1
         { w1Key = key
         , w1Activity = act
-        , w1Number = num
         , w1Lines = numbered
         , w1Division = division
         , w1Keys = case division of
@@ -867,8 +887,28 @@ written1 res num (key, act) =
     numbered = mergeRepeated [(exchangeNumber res key num ex, ex) | ex <- exchanges act]
     division = divisionOf (rUnitConfig res) (rUnits res) act
 
--- | Where a line goes among the lines of its dataset: a product apart, any other line with those of its number and shape.
-type Shape = Either Int (Int, Text, Bool, UUID, UUID, Text)
+-- | Where a line goes among the lines of its dataset.
+data Shape
+    = -- | A product line, at its position: never merged.
+      ProductAt !Int
+    | -- | Any other line, merged with those it is one flow with.
+      LineOf !LineShape
+    deriving (Eq, Ord)
+
+{- | What makes lines of a dataset one flow bought from one supplier, which a
+reader could not tell apart: lines from two suppliers stay two, under their
+two names, even when they carry one number.
+-}
+data LineShape = LineShape
+    { lsNumber :: !Int
+    , lsGroup :: !Text
+    , lsRole :: !(Maybe TechRole)
+    , lsFlow :: !UUID
+    , lsUnit :: !UUID
+    , lsLocation :: !Text
+    , lsSupplier :: !(Maybe UUID)
+    }
+    deriving (Eq, Ord)
 
 {- | Lines of one number and one shape merged into the first of them, carrying
 their total. A product line is never merged: two of them are refused.
@@ -881,8 +921,18 @@ mergeRepeated numbered = [(n, total shape ex) | (shape, (n, ex)) <- nubOrdOn fst
 
     shapeOf :: Int -> (Int, Exchange) -> Shape
     shapeOf i (n, ex)
-        | exchangeIsProductOutput ex = Left i
-        | otherwise = Right (n, groupElement ex, isAvoided ex, exchangeFlowId ex, exchangeUnitId ex, exchangeLocation ex)
+        | exchangeIsProductOutput ex = ProductAt i
+        | otherwise =
+            LineOf
+                LineShape
+                    { lsNumber = n
+                    , lsGroup = groupElement ex
+                    , lsRole = roleOf ex
+                    , lsFlow = exchangeFlowId ex
+                    , lsUnit = exchangeUnitId ex
+                    , lsLocation = exchangeLocation ex
+                    , lsSupplier = supplierOf ex
+                    }
 
     together :: M.Map Shape (NonEmpty Double)
     together = groupInOrder [(shape, exchangeAmount ex) | (shape, (_, ex)) <- shaped]
@@ -892,11 +942,17 @@ mergeRepeated numbered = [(n, total shape ex) | (shape, (n, ex)) <- nubOrdOn fst
         Just amounts@(_ :| _ : _) -> withAmount (sum amounts) ex
         _ -> ex
 
-    isAvoided :: Exchange -> Bool
-    isAvoided = \case
-        TechnosphereExchange{techRole = role} -> role == AvoidedProduct
-        BiosphereExchange{} -> False
-        WasteExchange{} -> False
+    roleOf :: Exchange -> Maybe TechRole
+    roleOf = \case
+        TechnosphereExchange{techRole = role} -> Just role
+        BiosphereExchange{} -> Nothing
+        WasteExchange{} -> Nothing
+
+    supplierOf :: Exchange -> Maybe UUID
+    supplierOf = \case
+        TechnosphereExchange{techActivityLinkId = link} -> link
+        BiosphereExchange{} -> Nothing
+        WasteExchange{} -> Nothing
 
 -- | How the products of one dataset are told apart in the file.
 data Division1
@@ -927,7 +983,7 @@ divisionOf cfg unitDB act
     | all exchangeIsProductOutput (exchanges act) = Unkeyed "its products share no line"
     | otherwise = case blockWeights cfg unitDB products of
         PricesWeigh shares
-            | any statesPrice products -> scaled FromPrices shares
+            | any (\p -> statesPrice p && not (declaresZero p)) products -> scaled FromPrices shares
             -- The prices deduced from the shares give them back only to the last
             -- digit, which would then move at every export: the shares weigh.
             | otherwise -> scaled FromShares (fromMaybe shares (traverse (fmap dsPercent . exchangeDeclaredShare) products))
@@ -936,6 +992,10 @@ divisionOf cfg unitDB act
   where
     products :: [Exchange]
     products = filter exchangeIsProductOutput (exchanges act)
+
+    -- A product held at 0 % is never weighed ('propertyKeyShares'), so its price weighs nothing.
+    declaresZero :: Exchange -> Bool
+    declaresZero ex = (dsPercent <$> exchangeDeclaredShare ex) == Just 0
 
     -- A price deduced from a share is that share again, and no reason to call the key economic.
     statesPrice :: Exchange -> Bool
