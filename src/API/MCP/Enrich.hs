@@ -153,8 +153,11 @@ groupsQuery GroupsRequest{grqAttribution = attribution, grqGroups = specs} =
                     ]
                 <> foldMap flowPairs (gfsFlow f)
       where
+        key :: Text -> Text
         key suffix = "g" <> T.pack (show rank) <> suffix
+        field :: Text -> Maybe Text -> [(Text, Text)]
         field suffix = foldMap (\value -> [(key suffix, value)])
+        flowPairs :: GroupFlowSpec -> [(Text, Text)]
         flowPairs GroupFlowSpec{gflName = substance, gflMatch = match, gflMedium = medium} =
             field "-flow-name" substance
                 <> field "-flow-match" (mfilter (== "contains") match)
