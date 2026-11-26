@@ -138,7 +138,7 @@ spec = do
             a <- ask "server/discover" []
             skills <- builtins
             let text = [t | Just (String t) <- [a >>= at ["result", "instructions"]]]
-                before = [fst (T.breakOn "Workflow:" t) | t <- text]
+                before = [fst (T.breakOn "Workflow:" t) | t <- text, "Workflow:" `T.isInfixOf` t]
             length before `shouldBe` 1
             [n | n <- map skillName skills, not (any (n `T.isInfixOf`) before)] `shouldBe` []
 

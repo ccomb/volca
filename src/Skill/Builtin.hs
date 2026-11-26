@@ -34,14 +34,13 @@ carbonFootprint =
                 T.unlines $
                     [ "# Carbon footprint of a product"
                     , ""
-                    , chooseTheDatabase
                     ]
                         <> findTheProcess
                         <> [ "3. " <> chooseTheCollection <> " Score the process with `score_activity`: one call gives every impact category of the method collection. Take the total climate change impact category, and its parts when the method collection has them: fossil, biogenic, land use and land use change."
                            , "4. The score is for the functional unit it returns: convert it to what the person asked, and say so."
                            , "5. Answer with the total and its unit, then each part on its own line. Name the process and its location, the stage it stops at, the database, the method collection, and give the `web_url` link. When the method collection has no parts, give the total alone and say so."
                            , ""
-                           , "If no process fits, say so, and name the closest one and how it differs. Never replace the database's answer with a web estimate."
+                           , "Never replace the database's answer with a web estimate."
                            ]
             }
 
@@ -55,10 +54,9 @@ pefHotspots =
                 T.unlines $
                     [ "# Hotspots of a product, PEF method"
                     , ""
-                    , chooseTheDatabase
                     ]
                         <> findTheProcess
-                        <> [ "3. " <> chooseTheCollection <> " With `list_scoring_sets`, find its EF single score set. When none is loaded, say so and stop: never weight the impact categories yourself."
+                        <> [ "3. " <> chooseTheCollection <> " With `list_scoring_sets`, find the EF single score set of that collection, otherwise of another loaded one, and say which collection holds it. When none is loaded, say so and stop: never weight the impact categories yourself."
                            , "4. Score the process with `score_activity`, with `exchange_contributions` set to true: step 8 reads them."
                            , "5. Most relevant impact categories: rank the impact categories by their weighted contribution to the single score, in absolute value, and keep them, largest first, until they add up to at least 80 %. Keep at least three."
                            , "6. For each of them, `get_contributing_activities`: keep the processes, largest first in absolute value, until they add up to more than 80 % of that impact category. Compute the shares yourself from the absolute values: the shares the tool returns keep their sign. Raise `limit` until the rows cover the total."
@@ -73,14 +71,13 @@ pefHotspots =
 {- | The first two steps of every skill that scores a product, written once:
 a client may load one skill alone, so each carries them whole.
 -}
-chooseTheDatabase :: Text
-chooseTheDatabase = "1. Choose the database with `list_databases`: the one whose description, region and sector fit the product."
-
 findTheProcess :: [Text]
 findTheProcess =
-    [ "2. Find the process with `search_activities`, in the language of the database's names. Read every candidate, and keep each detail the person gave: variety, production mode (conventional, organic), quality, location, stage (at farm gate, at plant, at consumer). When no candidate holds them, search again with those words."
+    [ "1. Choose the database with `list_databases`: the one whose description, region and sector fit the product."
+    , "2. Find the process with `search_activities`, in the language of the database's names. Read every candidate, and keep each detail the person gave: variety, production mode (conventional, organic), quality, location, stage (at farm gate, at plant, at consumer). When no candidate holds them, search again with those words."
     , "   A generic process (\"Cow milk {FR}\") is not the specific one (\"Cow milk, organic, at farm gate {FR}\"), even when their scores are close. When two candidates fit, say which you took and why, or ask."
     , "   A packaging, an ingredient or a by-product of the product is not the product: when every candidate is one of those, search again with another spelling or another word for the product."
+    , "   If no process fits, say so, name the closest one and how it differs, and stop there."
     ]
 
 -- | Which method collection scores a product, when the person names none.
