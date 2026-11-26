@@ -996,7 +996,7 @@ allocationDb =
             LocationDeclared
             "kg"
             ( packExchanges
-                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 50 Nothing Nothing)) M.empty noProperties Nothing
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (ShareDeclared (DeclaredShare 50 Nothing Nothing))) M.empty noProperties Nothing
                 , TechnosphereExchange matU 10.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
                 ]
             )
@@ -1044,7 +1044,7 @@ zeroAllocationDb =
             LocationDeclared
             "kg"
             ( packExchanges
-                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare 0 Nothing Nothing)) M.empty noProperties Nothing
+                [ TechnosphereExchange prodU 1.0 unitU ReferenceProduct Nothing ClaimByProduct "" Nothing Nothing (Just (ShareDeclared (DeclaredShare 0 Nothing Nothing))) M.empty noProperties Nothing
                 , TechnosphereExchange matU 0.0 unitU Input Nothing ClaimByProduct "" Nothing Nothing Nothing M.empty noProperties Nothing
                 ]
             )
@@ -1202,7 +1202,7 @@ guardDb alloc ntype exs =
         Activity "guard maker" [] [] M.empty M.empty "GLO" LocationDeclared "kg" (packExchanges (map withShare exs)) M.empty ntype Nothing Nothing noDates
     -- The share a source declares lives on the reference exchange.
     withShare ex = case ex of
-        TechnosphereExchange{techRole = ReferenceProduct} -> ex{techShare = (\p -> DeclaredShare p Nothing Nothing) <$> alloc}
+        TechnosphereExchange{techRole = ReferenceProduct} -> ex{techShare = (\p -> ShareDeclared (DeclaredShare p Nothing Nothing)) <$> alloc}
         TechnosphereExchange{} -> ex
         BiosphereExchange{} -> ex
         WasteExchange{} -> ex

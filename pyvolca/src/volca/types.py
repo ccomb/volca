@@ -1244,7 +1244,9 @@ class Activity(FromJson):
     activity's exchanges in a multi-output (allocated) process, e.g. a
     cheese activity that also yields whey, cream and permeate gives each
     product its own share, summing to ~100. It is ``None`` for single-output
-    processes. ``allocation_formula`` carries the raw symbolic formula when
+    processes, and for a product of a block its source divided line by line,
+    each input and emission by its own fraction, which leaves no share for the
+    product as a whole. ``allocation_formula`` carries the raw symbolic formula when
     the source expressed the share as an expression rather than a number,
     else ``None``.
 

@@ -13,7 +13,18 @@ import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
+import Database.Allocation (
+    Allocating (..),
+    AllocationRefusal (..),
+    PropertyRefusal (..),
+    allocate,
+    asAllocated,
+    describePropertyRefusal,
+    describeRefusal,
+    propertyKeyRefusals,
+ )
 import Database.Loader (LoadOptions (..), defaultLoadOptions, loadDatabaseWithLocationAliases)
+import Database.Quality (QualityCheck (..), QualityReport (..), qualityReport)
 import EcoSpold.Common (ParsedDataset (..))
 import EcoSpold.Parser1 (parseAllWithXeno, parseWithXeno)
 import Types
@@ -88,6 +99,18 @@ key product fraction lines' =
 everyLine :: [Int]
 everyLine = [20, 21, 30]
 
+-- | Keys giving the electricity wholly to the cheese, the milk and the CO2 80/20.
+lineByLine :: [BC.ByteString]
+lineByLine = [key 10 "80" [20, 30], key 10 "100" [21], key 11 "20" [20, 30]]
+
+-- | The product rows of every process of a database.
+productRows :: SimpleDatabase -> [Exchange]
+productRows db = [ex | act <- M.elems (sdbActivities db), ex <- exchanges act, exchangeIsProductOutput ex]
+
+-- | A key by a property, over the database's units.
+byProperty :: SimpleDatabase -> AllocationProperty -> Allocating
+byProperty db prop = Allocating{alKey = ByProperty prop, alUnitConfig = defaultUnitConfig, alUnitDB = sdbUnits db}
+
 parsed :: BC.ByteString -> IO ParsedDataset
 parsed xml = either fail pure (parseWithXeno xml)
 
@@ -119,6 +142,10 @@ roles p = [techRole ex | ex@TechnosphereExchange{} <- exchanges (pdActivity p), 
 
 warns :: ParsedDataset -> Text -> Expectation
 warns p part = pdWarnings p `shouldSatisfy` any (part `T.isInfixOf`)
+
+-- | The gate's refusal, if any.
+asAllocated' :: Activity -> Maybe AllocationRefusal
+asAllocated' act = either Just (const Nothing) (asAllocated act)
 
 shouldBeNear :: Maybe Double -> Double -> Expectation
 shouldBeNear actual expected = case actual of
@@ -167,7 +194,7 @@ spec = do
 
         it "declares those fractions as the products' shares, which a block kept whole keeps" $ do
             p <- parsed (cheeseBlock cheeseAndWhey [key 10 "80" everyLine, key 11 "20" everyLine])
-            [dsPercent <$> techShare ex | ex@TechnosphereExchange{} <- exchanges (pdActivity p), techRole ex /= Input] `shouldBe` [Just 80, Just 20]
+            [dsPercent <$> exchangeDeclaredShare ex | ex@TechnosphereExchange{} <- exchanges (pdActivity p), techRole ex /= Input] `shouldBe` [Just 80, Just 20]
             pdWarnings p `shouldBe` []
 
         it "divides line by line when the fractions differ, a line no key gives a product counting 0 for it" $ do
@@ -180,6 +207,34 @@ spec = do
             M.lookup "milk" (inventoryOf db "cheese") `shouldBeNear` 8
             M.lookup "electricity" (inventoryOf db "whey") `shouldBeNear` 0
             M.lookup "milk" (inventoryOf db "whey") `shouldBeNear` 2
+
+        it "states no share for a product divided line by line, only that it is" $ do
+            p <- parsed (cheeseBlock cheeseAndWhey lineByLine)
+            [techShare ex | ex@TechnosphereExchange{} <- exchanges (pdActivity p), techRole ex /= Input] `shouldBe` [Just ShareByLine, Just ShareByLine]
+
+        it "gives the processes of a block divided line by line no allocation percentage, and the quality report no sum to judge" $ do
+            db <- loadAs ReadDeclared (cheeseBlock cheeseAndWhey lineByLine)
+            map activityReferenceShare (M.elems (sdbActivities db)) `shouldBe` [Nothing, Nothing]
+            qcOffenders (qrAllocationSums (qualityReport "es1" db)) `shouldBe` []
+
+        it "deduces no price for a block divided line by line and read whole, where a block of shares gets one" $ do
+            byLine <- loadAs ReadWhole (cheeseBlock cheeseAndWhey lineByLine)
+            map (epPrice . exchangeProperties) (productRows byLine) `shouldBe` [Nothing, Nothing]
+            shared <- loadAs ReadWhole (cheeseBlock cheeseAndWhey [key 10 "80" everyLine, key 11 "20" everyLine])
+            map (epPrice . exchangeProperties) (productRows shared) `shouldBe` [Just (DeducedFromShare 80), Just (DeducedFromShare (20 / 9))]
+
+        it "refuses to divide such a block read whole by price, saying its source divides it line by line" $ do
+            db <- loadAs ReadWhole (cheeseBlock cheeseAndWhey lineByLine)
+            map snd (propertyKeyRefusals (byProperty db Price) (M.elems (sdbActivities db))) `shouldBe` [DividedByLine]
+            map snd (propertyKeyRefusals (byProperty db DryMass) (M.elems (sdbActivities db))) `shouldBe` [NotStated]
+            describePropertyRefusal Price DividedByLine `shouldSatisfy` T.isInfixOf "divides each line"
+
+        it "keeps such a block whole under the declared key once its lines' fractions are gone, and says how to divide it" $ do
+            db <- loadAs ReadWhole (cheeseBlock cheeseAndWhey lineByLine)
+            let declared = Allocating{alKey = Declared, alUnitConfig = defaultUnitConfig, alUnitDB = sdbUnits db}
+            [length (allocate declared act) | act <- M.elems (sdbActivities db)] `shouldBe` [1]
+            map asAllocated' (M.elems (sdbActivities db)) `shouldBe` [Just (ProductsDividedByLine 2)]
+            describeRefusal (ProductsDividedByLine 2) `shouldSatisfy` T.isInfixOf "load its files again under the declared key"
 
         it "gives nothing to a product whose keys cover no shared line, and says so" $ do
             let xml = cheeseBlock cheeseAndWhey [key 10 "100" everyLine, key 11 "100" [11]]
@@ -227,7 +282,7 @@ spec = do
         it "reads the keys of each dataset of a file apart" $
             case parseAllWithXeno (document [dataset 7 "first" (cheeseAndWhey <> sharedLines) [key 10 "80" everyLine, key 11 "20" everyLine], dataset 8 "second" (cheeseAndWhey <> sharedLines) []]) of
                 Right [Right first, Right second] -> do
-                    [dsPercent <$> techShare ex | ex@TechnosphereExchange{} <- exchanges (pdActivity first), techRole ex /= Input] `shouldBe` [Just 80, Just 20]
+                    [dsPercent <$> exchangeDeclaredShare ex | ex@TechnosphereExchange{} <- exchanges (pdActivity first), techRole ex /= Input] `shouldBe` [Just 80, Just 20]
                     [techShare ex | ex@TechnosphereExchange{} <- exchanges (pdActivity second), techRole ex /= Input] `shouldBe` [Nothing, Nothing]
                 other -> expectationFailure (show (fmap (fmap (fmap (activityName . pdActivity))) other))
 

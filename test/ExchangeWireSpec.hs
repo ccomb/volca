@@ -9,7 +9,7 @@ generates from.
 -}
 module ExchangeWireSpec (spec) where
 
-import Data.Aeson (Key, Value (..), object, toJSON, (.=))
+import Data.Aeson (Key, Value (..), decode, encode, object, toJSON, (.=))
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Map as M
 import Data.OpenApi (toSchema)
@@ -36,6 +36,17 @@ spec = describe "the wire shape of an exchange" $ do
     it "carries nothing beside the tag when the product row is the claim" $
         keyOf "supplierClaim" (toJSON techEx)
             `shouldBe` Just (object ["tag" .= ("ClaimByProduct" :: T.Text)])
+
+    it "marks a product divided line by line, which has no percentage" $
+        keyOf "share" (toJSON techEx{techShare = Just ShareByLine}) `shouldBe` Just (object ["byLine" .= True])
+
+    it "keeps the shape of a declared share" $
+        keyOf "share" (toJSON techEx{techShare = Just (ShareDeclared (DeclaredShare 80 Nothing Nothing))})
+            `shouldBe` Just (object ["percent" .= (80 :: Double), "formula" .= Null, "by" .= Null])
+
+    it "reads both shapes back" $
+        map (decode . encode) [ShareByLine, ShareDeclared (DeclaredShare 80 (Just "f") (Just Price))]
+            `shouldBe` map Just [ShareByLine, ShareDeclared (DeclaredShare 80 (Just "f") (Just Price))]
 
 -- | The value an object gives a key, when it is an object and gives it one.
 keyOf :: Key -> Value -> Maybe Value

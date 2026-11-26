@@ -357,6 +357,12 @@ spec = describe "an openLCA package written from a database" $ do
             factorsOf unweighed `shouldBe` (Nothing, [])
             T.concat (warned unweighed) `shouldSatisfy` T.isInfixOf "no price or share weighs it"
 
+        it "writes no factor for a block its source divides line by line, which has no share to weigh it by" $ do
+            let byLine ex = ex{techShare = Just ShareByLine, techProperties = noProperties}
+                divided = dairy [byLine cheese, byLine (cream (DeducedFromShare 1))]
+            factorsOf divided `shouldBe` (Nothing, [])
+            T.concat (warned divided) `shouldSatisfy` T.isInfixOf "no price or share weighs it"
+
         it "gives a coproduct that is a waste its factor too" $ do
             let wasted = (dairy [cheese, cream (DeducedFromShare (49 / 3))]){sdbWasteFlows = M.singleton creamF (WasteFlow creamF "whey" kg M.empty Nothing Nothing)}
             map fst (snd (factorsOf wasted)) `shouldBe` [made, creamF]
@@ -368,7 +374,7 @@ spec = describe "an openLCA package written from a database" $ do
 -- | A product row of a block, with the share its source declares and its price.
 productRow :: UUID -> Double -> TechRole -> Double -> Price -> Exchange
 productRow flow amount role share price =
-    TechnosphereExchange flow amount kg role Nothing ClaimByProduct "" Nothing Nothing (Just (DeclaredShare share Nothing Nothing)) M.empty noProperties{epPrice = Just price} Nothing
+    TechnosphereExchange flow amount kg role Nothing ClaimByProduct "" Nothing Nothing (Just (ShareDeclared (DeclaredShare share Nothing Nothing))) M.empty noProperties{epPrice = Just price} Nothing
 
 creamF, buyer, buttered :: UUID
 creamF = UUID.fromWords 9 0 0 10

@@ -266,7 +266,7 @@ simaProSpec = describe "SimaPro export of parameters and formulas" $ do
   where
     orShare act = act{activityLines = packExchanges (map orIt (exchanges act))}
     orIt ex = case ex of
-        TechnosphereExchange{techShare = Just share@DeclaredShare{dsFormula = Just "flour_share"}} -> ex{techShare = Just share{dsFormula = Just "flour_share * or"}}
+        TechnosphereExchange{techShare = Just (ShareDeclared share@DeclaredShare{dsFormula = Just "flour_share"})} -> ex{techShare = Just (ShareDeclared share{dsFormula = Just "flour_share * or"})}
         _ -> ex
     roundFlour = onFlour "round(flour_per_loaf)"
 

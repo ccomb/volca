@@ -54,6 +54,7 @@ module Database.Allocation (
 ) where
 
 import Control.Applicative ((<|>))
+import Data.Bifunctor (first)
 import Data.Containers.ListUtils (nubOrd)
 import Data.List (find, partition)
 import Data.List.NonEmpty (NonEmpty)
@@ -72,6 +73,10 @@ data AllocationRefusal
         { refusedOutputs :: !Int
         , refusedWithoutShare :: !Int
         }
+    | {- | Product outputs of the activity, each of which its source divides line
+      by line: kept whole, they have no share a derived key could divide them by.
+      -}
+      ProductsDividedByLine !Int
     | -- | How many reference exchanges the activity carries, where exactly one is needed.
       NoSingleReference !Int
     deriving (Eq, Show)
@@ -94,10 +99,10 @@ data Allocating = Allocating
     , alUnitDB :: !UnitDB
     }
 
-{- | A share for one exchange of one product's process, overriding the
-product's own share for that exchange alone: causal allocation, where a
-source divides each input and emission between the products on its own
-terms. Keyed by the positions of the product and of the exchange in the
+{- | A share for one exchange of one product's process: causal allocation,
+where a source divides each input and emission between the products on its
+own terms. An exchange no pair names follows the product's own share, or goes
+whole to a product the source divides line by line ('ShareByLine'). Keyed by the positions of the product and of the exchange in the
 activity as its reader built it, because those are what every reader has;
 the pairs describe the block, not any one process cut from it, so nothing is
 stored on the exchanges. Percentages, like 'DeclaredShare'.
@@ -186,8 +191,22 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
             | length products < 2 -> (,) FromSource <$> declaredShares
             | otherwise -> Nothing
 
+    {- A product divided line by line takes, on a line no pair names, the
+    whole line: the openLCA causal reading, where a line without a factor
+    stays whole. Without a single pair, a block of several such products has
+    nothing to be divided by, and handing each product the whole of every line
+    would count the block once per product. -}
     declaredShares :: Maybe [Double]
-    declaredShares = map dsPercent <$> traverse (exchangeDeclaredShare . snd) products
+    declaredShares
+        | length products > 1, any (byLine . snd) products, M.null pairs = Nothing
+        | otherwise = traverse (shareOf . snd) products
+      where
+        byLine ex = exchangeProductShare ex == Just ShareByLine
+        shareOf ex = case exchangeProductShare ex of
+            Just (ShareDeclared declared) -> Just (dsPercent declared)
+            Just ShareByLine -> Just wholeUnlessPaired
+            Nothing -> Nothing
+        wholeUnlessPaired = 100
 
     process :: SharesFrom -> (Int, Exchange) -> Double -> Activity
     process from (productAt, productEx) share =
@@ -230,7 +249,7 @@ allocateWith Allocating{alKey = key, alUnitConfig = unitCfg, alUnitDB = unitDB} 
 
     withShare :: AllocationProperty -> Double -> Exchange -> Exchange
     withShare prop share ex = case ex of
-        TechnosphereExchange{} -> ex{techShare = Just (DeclaredShare{dsPercent = share, dsFormula = Nothing, dsBy = Just prop})}
+        TechnosphereExchange{} -> ex{techShare = Just (ShareDeclared DeclaredShare{dsPercent = share, dsFormula = Nothing, dsBy = Just prop})}
         BiosphereExchange{} -> ex
         WasteExchange{} -> ex
 
@@ -310,6 +329,7 @@ describePropertyRefusal prop refusal = propertyName prop <> ": " <> because
         PricesNotComparable units -> "prices in " <> T.intercalate " and " units <> " cannot be compared"
         NegativeRevenue amount -> "a product brings in " <> T.pack (show amount)
         NothingSold -> "every product sells for nothing"
+        DividedByLine -> "its source divides each line between the products on its own terms, which gives no product a share or a price"
 
 {- | The blocks a property key could not divide, named, with the reason.
 
@@ -328,8 +348,15 @@ propertyKeyRefusals Allocating{alKey = key, alUnitConfig = cfg, alUnitDB = unitD
     -- is not something it can refuse either.
     weigh :: AllocationProperty -> Activity -> Either PropertyRefusal (NonEmpty Double)
     weigh prop act = case NE.nonEmpty (filter exchangeIsProductOutput (nonPlainExchanges act)) of
-        Just block | NE.length block > 1 -> propertyShares prop unitDB cfg block
+        Just block | NE.length block > 1 -> first (dividedByLine prop block) (propertyShares prop unitDB cfg block)
         _ -> Right (pure 100)
+
+    -- A product its source divides line by line states no share a price can be
+    -- deduced from: that, not a missing price, is why the block has none.
+    dividedByLine :: AllocationProperty -> NonEmpty Exchange -> PropertyRefusal -> PropertyRefusal
+    dividedByLine prop block refusal = case (prop, refusal) of
+        (Price, NotStated) | any ((== Just ShareByLine) . exchangeProductShare) block -> DividedByLine
+        _ -> refusal
 
 -- | 'allocate' over a parsed list, in order.
 allocateAll :: Allocating -> [Activity] -> [Activity]
@@ -340,13 +367,20 @@ exchange.
 -}
 asAllocated :: Activity -> Either AllocationRefusal AllocatedActivity
 asAllocated act
+    | any isCoproduct products
+    , null withoutShare
+    , any ((== Just ShareByLine) . exchangeProductShare) products =
+        Left (ProductsDividedByLine (length products))
     | any isCoproduct products =
-        Left (UnallocatedOutputs (length products) (length (filter (isNothing . exchangeDeclaredShare) products)))
+        Left (UnallocatedOutputs (length products) (length withoutShare))
     | references /= 1 = Left (NoSingleReference references)
     | otherwise = Right (AllocatedActivity act)
   where
     products :: [Exchange]
     products = filter exchangeIsProductOutput (nonPlainExchanges act)
+
+    withoutShare :: [Exchange]
+    withoutShare = filter (not . exchangeShareStated) products
 
     references :: Int
     references = length (filter exchangeIsReference (nonPlainExchanges act))
@@ -365,6 +399,13 @@ describeRefusal refusal = case refusal of
             <> " product outputs, "
             <> T.pack (show withoutShare)
             <> " without a declared share: state a share on every product row, or load the data already allocated"
+    -- The pairs that divided each line stay with the source files: no key
+    -- applied to the database rebuilds them, and a price deduced from a share
+    -- has no share to start from.
+    ProductsDividedByLine outputs ->
+        T.pack (show outputs)
+            <> " product outputs kept whole, which their source divides line by line:"
+            <> " load its files again under the declared key, or divide them by a physical property they state"
     NoSingleReference 0 -> "no reference exchange: one product output must be the reference"
     NoSingleReference k -> T.pack (show k) <> " reference exchanges where exactly one is needed"
 
@@ -372,6 +413,8 @@ describeRefusal refusal = case refusal of
 data PropertyRefusal
     = -- | A product of the block states nothing of the property, and nothing stands in for it.
       NotStated
+    | -- | As 'NotStated', for a block its source divides line by line, which has no share to deduce a price from.
+      DividedByLine
     | -- | The unit a product is stated in, which is not a mass.
       NotAMass !Text
     | -- | The amount a product states, which no share can be read from.
@@ -547,12 +590,13 @@ normalise act = promote (filter (keep . snd) (zip [0 ..] (exchanges act)))
         | exchangeFlowId ex == exchangeFlowId single && exchangeIsProductOutput ex = asReference ex
         | otherwise = ex
 
-{- | Whether a block was kept whole although every product declares a share:
-the key it was read under kept it so, since a missing share is the only thing
-that leaves a block whole under @declared@.
+{- | Whether a block was kept whole although its source says how to divide it
+for every product, by a share or line by line: the key it was read under kept
+it so, since saying nothing is the only thing that leaves a block whole under
+@declared@.
 -}
 keptWhole :: Activity -> Bool
-keptWhole act = any isCoproduct products && all (isJust . exchangeDeclaredShare) products
+keptWhole act = any isCoproduct products && all exchangeShareStated products
   where
     products :: [Exchange]
     products = filter exchangeIsProductOutput (nonPlainExchanges act)

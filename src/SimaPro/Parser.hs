@@ -1811,8 +1811,8 @@ productToExchange unitCfg env role ProductRow{..} =
         -- A product row states its share of the block; an avoided product row
         -- has the same columns but names a substitution, not a share of anything.
         share = case role of
-            ReferenceProduct -> Just declared
-            Coproduct -> Just declared
+            ReferenceProduct -> Just (ShareDeclared declared)
+            Coproduct -> Just (ShareDeclared declared)
             AvoidedProduct -> Nothing
             ReferenceInput -> Nothing
             Input -> Nothing
