@@ -140,6 +140,19 @@ class VoLCAError(Exception):
         super().__init__(message)
 
 
+CHAIN_REFUSED_PREFIX = "Refused: the chain of "
+"""How the engine's refusal of a chain begins (``chainRefusedPrefix``)."""
+
+
+class ChainRefused(VoLCAError):
+    """The engine refused a calculation that sums a process's chain: the chain
+    reaches inputs that only a database not loaded would supply, and a score
+    would count them as zero (wire revision 124). The message names the main
+    ones; the supply chain of the process names them all. Loading the database
+    that supplies them lifts the refusal.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -819,6 +832,8 @@ class Client:
         try:
             r.raise_for_status()
         except requests.HTTPError:
+            if r.status_code == 422 and r.text.startswith(CHAIN_REFUSED_PREFIX):
+                raise ChainRefused(r.text, status_code=r.status_code, body=r.text) from None
             body = r.text[:200]
             raise VoLCAError(
                 f"{r.status_code} {r.reason} for {r.request.method} {r.url}: {body}",
@@ -3315,7 +3330,7 @@ class Client:
         batches = [process_ids[i : i + chunk] for i in range(0, len(process_ids), chunk)]
         with ThreadPoolExecutor(workers) as pool:
             scored = list(pool.map(lambda ids: self.score_activities(ids, collection=collection, top_flows=0, exclude_long_term=exclude_long_term), batches))
-        unscored = [pid for b in scored for pid in b.not_found + b.invalid + b.unscorable + [u.process_id for u in b.unsolvable]]
+        unscored = [pid for b in scored for pid in b.not_found + b.invalid + b.unscorable + [u.process_id for u in b.unsolvable] + [r.process_id for r in b.refused]]
         return [
             {
                 "process_id": s.process_id,

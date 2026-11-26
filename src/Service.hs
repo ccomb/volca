@@ -226,6 +226,8 @@ data ServiceError
       ParameterRefused Text
     | -- | A request names a line by a position the activity does not have.
       NoSuchLine Text
+    | -- | The chain summed reaches inputs only a database not loaded would supply; the text names them.
+      ChainRefused Text
     deriving (Show)
 
 {- | A formula checked where it would be written, at the defaults. A formula
@@ -275,6 +277,7 @@ serviceMessage = \case
     Withheld msg -> msg
     ParameterRefused msg -> msg
     NoSuchLine msg -> msg
+    ChainRefused msg -> msg
     e@(InvalidUUID _) -> T.pack (show e)
     e@(InvalidProcessId _) -> T.pack (show e)
     e@(AmbiguousActivity _) -> T.pack (show e)
@@ -2851,7 +2854,7 @@ buildSupplyChainFromScalingVector geographies db dbName processId supplyVec scf 
             , scrWithheldCutoffs = cutoffWithheld cutoffs
             }
   where
-    -- One database, and one walk of it: the index is scanned here rather than cached.
+    -- One database, and one walk of it that follows no link: the index is scanned here rather than cached.
     cutoffs :: Cutoffs
     cutoffs = cutoffsReached (const (gapIndexOf db)) S.empty [SharedSolver.Reached dbName db supplyVec]
 

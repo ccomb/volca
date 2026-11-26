@@ -17,8 +17,8 @@ import Test.Hspec
 import API.Types (CutoffInput (..), WithheldCutoffs (..))
 import Config (defaultConfig)
 import Database (buildDatabaseWithMatrices)
-import Database.Cutoffs (Cutoffs (..), GapIndex (..), cutoffsReached, gapIndexOf, noCutoffs)
-import Database.Loader (GapReport (..), gapReportForLoaded)
+import Database.Cutoffs (ChainRefusal (..), CheckedSolution, Cutoffs (..), GapIndex (..), checked, checkedCutoffs, checkedSolution, cutoffsReached, gapIndexIn, gapIndexOf, linkCheckIn, noCutoffs, refuses, refusesSomewhere)
+import Database.Loader (GapReason (..), GapReport (..), gapReportForLoaded)
 import Database.Manager (CachePolicy (..), clearMethodMappingCacheForDb, getGapIndex, initDatabaseManager)
 import Impact (LicencedSolution (..), WithheldPart (..), partitionByLicence)
 import qualified SharedSolver as SS
@@ -95,11 +95,18 @@ solve deps name db key = do
         >>= either (fail . show) pure
 
 shown :: SS.CrossDBSolution -> LicencedSolution
-shown sol = LicencedSolution{lsWhole = sol, lsShown = sol, lsWithheld = []}
+shown sol = LicencedSolution{lsWhole = asChecked sol, lsShown = asChecked sol, lsWithheld = []}
+
+-- | A solution taken as checked, against indexes holding no gap: what the licence split is handed.
+asChecked :: SS.CrossDBSolution -> CheckedSolution
+asChecked = either (error . show) id . checked (const noGap) S.empty
+
+noGap :: GapIndex
+noGap = GapIndex False M.empty M.empty
 
 -- | The index of every database of the example, scanned as the cache would.
 indexIn :: [(Text, Database)] -> Text -> GapIndex
-indexIn dbs name = maybe (GapIndex M.empty) gapIndexOf (lookup name dbs)
+indexIn dbs name = maybe noGap gapIndexOf (lookup name dbs)
 
 noNameMatch :: NE.NonEmpty BlockerReason
 noNameMatch = NE.singleton (BlockerReason "no_name_match" Nothing)
@@ -115,13 +122,15 @@ cutoff db product amount consumers reasons =
         , ciAmount = amount
         , ciConsumers = consumers
         , ciReasons = reasons
+        , -- In these databases, which declare no dependency, an identity nobody ships is a cut-off of their own.
+          ciRefusing = any ((/= "dangling_source_identity") . brReason) reasons
         }
 
 -- | A link from R's input of M to the producer of M in another database.
 linkM :: Database -> Database -> Database
 linkM consumer supplier =
     let linked = linkDatabases consumer supplier "supplier" 0.5
-     in linked{dbCrossDBLinks = map (\l -> l{cdlConsumerFlowId = mFlow, cdlExchangeUnit = "kg"}) (dbCrossDBLinks linked)}
+     in linked{dbCrossDBLinks = map (\l -> l{cdlConsumerFlowId = mFlow, cdlExchangeUnit = "kg", cdlFlowName = "M"}) (dbCrossDBLinks linked)}
 
 {- | The cut-offs a solution reaches, each withheld dependency counted, with
 the amounts rounded to a billionth, so a sum the solver carries to the last
@@ -129,7 +138,7 @@ bit compares with the one worked out by hand.
 -}
 metBy :: (Text -> GapIndex) -> LicencedSolution -> Cutoffs
 metBy indexOf sol =
-    let met = cutoffsReached indexOf (S.fromList (map wpDatabase (lsWithheld sol))) (NE.toList (SS.csScalings (lsWhole sol)))
+    let met = cutoffsReached indexOf (S.fromList (map wpDatabase (lsWithheld sol))) (NE.toList (SS.csScalings (checkedSolution (lsWhole sol))))
      in met{cutoffShown = map (\c -> c{ciAmount = fromIntegral (round (ciAmount c * 1e9) :: Integer) / 1e9}) (cutoffShown met)}
 
 spec :: Spec
@@ -177,8 +186,8 @@ spec = do
             sol <- solve [("supplier", supplier)] "consumer" linked (actR, rFlow)
             metBy (indexIn dbs) (shown sol)
                 `shouldBe` Cutoffs [cutoff "supplier" "K" 0.5 1 noNameMatch] []
-            metBy (indexIn dbs) (partitionByLicence M.empty (S.singleton "supplier") sol)
-                `shouldBe` Cutoffs [] [WithheldCutoffs "supplier" 1]
+            metBy (indexIn dbs) (partitionByLicence M.empty (S.singleton "supplier") (asChecked sol))
+                `shouldBe` Cutoffs [] [WithheldCutoffs "supplier" 1 1]
 
         it "lists an input whose source identity no database holds" $ do
             db <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, linkedTo absentAct mFlow 0.5])])
@@ -211,6 +220,85 @@ spec = do
             db <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, linkedTo actP pFlow 2]), ((actP, pFlow), mkActivity "P" [reference pFlow])])
             sol <- solve [] "main" db (actR, rFlow)
             metBy (indexIn [("main", db)]) (shown sol) `shouldBe` noCutoffs
+
+    describe "refuses" $ do
+        it "refuses an input a loadable database would supply" $
+            refuses False (GapBlocked noNameMatch) `shouldBe` True
+        it "serves a link the curator declined" $
+            refuses True (GapBlocked (NE.singleton (BlockerReason "alias_declined" Nothing))) `shouldBe` False
+        it "refuses a declined link beside another reason" $
+            refuses False (GapBlocked (BlockerReason "alias_declined" Nothing NE.:| [BlockerReason "unit_incompatible" Nothing])) `shouldBe` True
+        it "serves an identity nobody ships in a database that takes from no other" $
+            refuses False GapDanglingIdentity `shouldBe` False
+        it "refuses an identity nobody ships in a database that takes from another" $
+            refuses True GapDanglingIdentity `shouldBe` True
+        it "serves a waste left without a treatment" $
+            refuses True GapWasteInput `shouldBe` False
+
+    describe "checked" $ do
+        it "refuses a chain reaching an input no loaded database supplies, naming it" $ do
+            db <- mainDb
+            sol <- solve [] "main" db (actR, rFlow)
+            either Just (const Nothing) (checked (indexIn [("main", db)]) S.empty sol)
+                `shouldBe` Just (ChainRefusal 1 ["M"])
+
+        it "serves a chain that does not reach the missing input" $ do
+            -- Q needs N, which nobody makes; P alone, run from a database without Q, reaches nothing missing.
+            db <- build (simple [((actP, pFlow), mkActivity "P" [reference pFlow]), ((actQ, qFlow), mkActivity "Q" [reference qFlow, techInput nFlow 1])])
+            sol <- solve [] "main" db (actP, pFlow)
+            fmap checkedCutoffs (checked (indexIn [("main", db)]) S.empty sol) `shouldBe` Right noCutoffs
+
+        it "serves a cut-off the publisher made, and keeps naming it" $ do
+            db <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, linkedTo absentAct mFlow 0.5])])
+            sol <- solve [] "main" db (actR, rFlow)
+            fmap (map ciProduct . cutoffShown . checkedCutoffs) (checked (indexIn [("main", db)]) S.empty sol) `shouldBe` Right ["M"]
+
+        it "refuses an identity nobody ships once the database declares a dependency" $ do
+            db <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, linkedTo absentAct mFlow 0.5])])
+            sol <- solve [] "main" db (actR, rFlow)
+            let declaring = gapIndexIn (const Nothing) ["background"] db
+            either Just (const Nothing) (checked (const declaring) S.empty sol) `shouldBe` Just (ChainRefusal 1 ["M"])
+            refusesSomewhere declaring `shouldBe` True
+            refusesSomewhere (gapIndexOf db) `shouldBe` False
+
+        it "counts, without naming it, a refusing input inside a dependency whose licence keeps its detail" $ do
+            supplier <- build (simple [((actS, mFlow), mkActivity "S" [reference mFlow, techInput kFlow 1])])
+            consumer <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, techInput mFlow 0.5])])
+            let linked = linkM consumer supplier
+            sol <- solve [("supplier", supplier)] "consumer" linked (actR, rFlow)
+            either Just (const Nothing) (checked (indexIn [("consumer", linked), ("supplier", supplier)]) (S.singleton "supplier") sol)
+                `shouldBe` Just (ChainRefusal 1 [])
+
+    describe "a link to another database" $ do
+        it "refuses the chain while the database it names is not loaded" $ do
+            -- The link stays on the consumer, cached, while its supplier's database is gone: the solve counts it as zero.
+            supplier <- build (simple [((actS, mFlow), mkActivity "S" [reference mFlow])])
+            consumer <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, techInput mFlow 0.5])])
+            let linked = linkM consumer supplier
+                alone = gapIndexIn (linkCheckIn (const Nothing)) [] linked
+            sol <- solve [] "consumer" linked (actR, rFlow)
+            map (\c -> (ciProduct c, ciAmount c, ciReasons c, ciRefusing c)) (cutoffShown (cutoffsReached (const alone) S.empty (NE.toList (SS.csScalings sol))))
+                `shouldBe` [("M", 0.5, NE.singleton (BlockerReason "dependency_not_loaded" (Just "supplier")), True)]
+            refusesSomewhere alone `shouldBe` True
+
+        it "refuses the chain when the database loaded lacks the supplier" $ do
+            supplier <- build (simple [((actS, mFlow), mkActivity "S" [reference mFlow])])
+            other <- build (simple [((actQ, qFlow), mkActivity "Q" [reference qFlow])])
+            consumer <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, techInput mFlow 0.5])])
+            let linked = linkM consumer supplier
+                lacking = gapIndexIn (linkCheckIn (\n -> if n == "supplier" then Just other else Nothing)) [] linked
+            sol <- solve [] "consumer" linked (actR, rFlow)
+            map ciReasons (cutoffShown (cutoffsReached (const lacking) S.empty (NE.toList (SS.csScalings sol))))
+                `shouldBe` [NE.singleton (BlockerReason "supplier_missing" (Just "supplier"))]
+
+        it "is answered once the database that supplies it is loaded" $ do
+            supplier <- build (simple [((actS, mFlow), mkActivity "S" [reference mFlow])])
+            consumer <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, techInput mFlow 0.5])])
+            let linked = linkM consumer supplier
+                loaded = gapIndexIn (linkCheckIn (\n -> if n == "supplier" then Just supplier else Nothing)) [] linked
+            sol <- solve [("supplier", supplier)] "consumer" linked (actR, rFlow)
+            refusesSomewhere loaded `shouldBe` False
+            fmap checkedCutoffs (checked (\n -> if n == "consumer" then loaded else gapIndexOf supplier) S.empty sol) `shouldBe` Right noCutoffs
 
     describe "getGapIndex" $
         it "never serves one version's index to another version of the same database" $ do

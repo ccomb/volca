@@ -45,8 +45,7 @@ module Impact (
     PartScore (..),
     partitionByLicence,
     licencedSolution,
-    licencedCutoffs,
-    solutionCutoffs,
+    checkSolution,
     scoreParts,
     LicencedContributions (..),
     licencedContributionsOf,
@@ -70,7 +69,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
 
-import Database.Cutoffs (Cutoffs (..), cutoffsOf)
+import Database.Cutoffs (ChainRefusal, CheckedSolution, checkedOf, checkedSolution, reshaped)
 import Database.Manager (CollectionName, DatabaseManager (..), getGapIndex, getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, refusingDatabases)
 import Matrix (Inventory, applyBiosphereMatrix)
 import Method.Mapping (
@@ -120,37 +119,32 @@ The root is never one of them: what the requested database refuses is refused
 before anything is solved, so a root revisited through a cycle stays shown.
 -}
 data LicencedSolution = LicencedSolution
-    { lsWhole :: SharedSolver.CrossDBSolution
+    { lsWhole :: CheckedSolution
     -- ^ What the score is read on: the shown part and the withheld ones add up to it.
-    , lsShown :: SharedSolver.CrossDBSolution
+    , lsShown :: CheckedSolution
     , lsWithheld :: [WithheldPart]
     }
 
 -- | One dependency's share of a solution, alone.
 data WithheldPart = WithheldPart
     { wpDatabase :: Text
-    , wpSolution :: SharedSolver.CrossDBSolution
+    , wpSolution :: CheckedSolution
     }
 
-{- | The cut-off inputs a solution meets, with the indexes the manager keeps:
-named in the part the licences show, one count for each dependency that keeps
-its detail, since the products it misses are part of that detail. A database
-whose licence keeps the amounts of its exchanges to itself (it refuses
-ReadInventory), the root's own included, is counted rather than named too: an
-unsupplied input and what the chain asks of it are such amounts, as the
-unlinked waste a batch drops under that licence is.
+{- | Check a solution for a calculation that sums its chain, with the indexes
+the manager keeps, and read its cut-offs under the licences for one
+permission: named in the part the licences show, one count for each dependency
+that keeps its detail, since the products it misses are part of that detail.
+A database whose licence keeps the amounts of its exchanges to itself (it
+refuses ReadInventory), the root's own included, is counted rather than named
+too: an unsupplied input and what the chain asks of it are such amounts, as
+the unlinked waste a batch drops under that licence is.
 -}
-licencedCutoffs :: DatabaseManager -> LicencedSolution -> IO Cutoffs
-licencedCutoffs dbManager ls = do
+checkSolution :: DatabaseManager -> Permission -> SharedSolver.CrossDBSolution -> IO (Either ChainRefusal CheckedSolution)
+checkSolution dbManager permission sol = do
     amountsKept <- refusingDatabases dbManager ReadInventory
-    cutoffsOf (getGapIndex dbManager) (S.fromList (map wpDatabase (lsWithheld ls)) <> amountsKept) scalings
-  where
-    scalings :: [Reached]
-    scalings = NE.toList (SharedSolver.csScalings (lsWhole ls))
-
--- | The cut-offs of a solution, read under the licences for one permission.
-solutionCutoffs :: DatabaseManager -> Permission -> SharedSolver.CrossDBSolution -> IO Cutoffs
-solutionCutoffs dbManager permission sol = licencedCutoffs dbManager =<< licencedSolution dbManager permission sol
+    withheld <- withheldDatabases dbManager permission sol
+    checkedOf (getGapIndex dbManager) (S.fromList withheld <> amountsKept) sol
 
 {- | Split a solution by the databases whose licence refuses a permission.
 
@@ -165,16 +159,19 @@ The inventory of a part is rebuilt the way the solver builds it, each
 database's biosphere times its vector, then the long-term policy again. When
 no dependency keeps anything the solution is returned as it is.
 -}
-partitionByLicence :: BioFlowDB -> S.Set Text -> SharedSolver.CrossDBSolution -> LicencedSolution
-partitionByLicence flowDB refusing sol
-    | null withheld = LicencedSolution{lsWhole = sol, lsShown = sol, lsWithheld = []}
+partitionByLicence :: BioFlowDB -> S.Set Text -> CheckedSolution -> LicencedSolution
+partitionByLicence flowDB refusing checkedSol
+    | null withheld = LicencedSolution{lsWhole = checkedSol, lsShown = checkedSol, lsWithheld = []}
     | otherwise =
         LicencedSolution
-            { lsWhole = sol
-            , lsShown = keeping (`notElem` withheld)
-            , lsWithheld = [WithheldPart{wpDatabase = name, wpSolution = keeping (== name)} | name <- withheld]
+            { lsWhole = checkedSol
+            , lsShown = reshaped (const (keeping (`notElem` withheld))) checkedSol
+            , lsWithheld = [WithheldPart{wpDatabase = name, wpSolution = reshaped (const (keeping (== name))) checkedSol} | name <- withheld]
             }
   where
+    sol :: SharedSolver.CrossDBSolution
+    sol = checkedSolution checkedSol
+
     scalings :: NE.NonEmpty Reached
     scalings = SharedSolver.csScalings sol
 
@@ -202,12 +199,14 @@ withheldNames refusing sol =
     root :: Text
     root = reachedName (NE.head scalings)
 
--- | 'partitionByLicence' under the licences the engine serves.
-licencedSolution :: DatabaseManager -> Permission -> SharedSolver.CrossDBSolution -> IO LicencedSolution
-licencedSolution dbManager permission sol = do
+{- | 'partitionByLicence' under the licences the engine serves, of a solution
+checked for a calculation that sums its chain, which is what a split is for.
+-}
+licencedSolution :: DatabaseManager -> Permission -> CheckedSolution -> IO LicencedSolution
+licencedSolution dbManager permission checkedSol = do
     (mFlows, _) <- getMergedFlowMetadata dbManager
     refusing <- refusingDatabases dbManager permission
-    pure (partitionByLicence mFlows refusing sol)
+    pure (partitionByLicence mFlows refusing checkedSol)
 
 -- | 'withheldNames' under the licences the engine serves.
 withheldDatabases :: DatabaseManager -> Permission -> SharedSolver.CrossDBSolution -> IO [Text]
@@ -293,9 +292,10 @@ scoreSolution ::
     CollectionName ->
     Method ->
     MethodTables ->
-    SharedSolver.CrossDBSolution ->
+    CheckedSolution ->
     IO (Either Text Double)
-scoreSolution dbManager collection method tables sol = do
+scoreSolution dbManager collection method tables checkedSol = do
+    let sol = checkedSolution checkedSol
     unitCfg <- getMergedUnitConfig dbManager
     (mFlows, mUnits) <- getMergedFlowMetadata dbManager
     perDb <- perDatabaseTables dbManager collection method sol
@@ -305,7 +305,7 @@ scoreSolution dbManager collection method tables sol = do
             else Right <$> evaluate (loScore (computeLCIAScoreFromTables unitCfg mUnits mFlows (SharedSolver.csInventory sol) tables))
   where
     ltMode :: LongTermMode
-    ltMode = SharedSolver.csLongTerm sol
+    ltMode = SharedSolver.csLongTerm (checkedSolution checkedSol)
 
 {- | The flows that made that score, each with what it contributed and the
 factor the score applied to it.
@@ -322,9 +322,10 @@ contributionsOf ::
     CollectionName ->
     Method ->
     MethodTables ->
-    SharedSolver.CrossDBSolution ->
+    CheckedSolution ->
     IO (Either Text ([FlowContribution], [UUID]))
-contributionsOf dbManager collection method tables sol = do
+contributionsOf dbManager collection method tables checkedSol = do
+    let sol = checkedSolution checkedSol
     unitCfg <- getMergedUnitConfig dbManager
     (mFlows, mUnits) <- getMergedFlowMetadata dbManager
     perDb <- perDatabaseTables dbManager collection method sol
@@ -334,7 +335,7 @@ contributionsOf dbManager collection method tables sol = do
             else pure (Right (inventoryContributions unitCfg mUnits mFlows (SharedSolver.csInventory sol) tables))
   where
     ltMode :: LongTermMode
-    ltMode = SharedSolver.csLongTerm sol
+    ltMode = SharedSolver.csLongTerm (checkedSolution checkedSol)
 
 {- | Whether any database of the solution carries factors that depend on where
 a flow occurs. One that carries none is not evidence that the method has none:
@@ -366,9 +367,10 @@ processContributionsOf ::
     Method ->
     -- | The root's tables, which a method no database locates is scored from
     MethodTables ->
-    SharedSolver.CrossDBSolution ->
+    CheckedSolution ->
     IO (Either Text (M.Map (Text, ProcessId) Double))
-processContributionsOf dbManager collection method tables sol = do
+processContributionsOf dbManager collection method tables checkedSol = do
+    let sol = checkedSolution checkedSol
     unitCfg <- getMergedUnitConfig dbManager
     (mFlows, mUnits) <- getMergedFlowMetadata dbManager
     perDb <- perDatabaseTables dbManager collection method sol

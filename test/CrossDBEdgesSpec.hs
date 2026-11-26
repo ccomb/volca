@@ -20,6 +20,7 @@ import Test.Hspec
 import API.Routes (batchedScoresFor, getActivitySupplyChain)
 import API.Types (SupplyChainEdge (..), SupplyChainEntry (..), SupplyChainResponse (..), WithheldInput (..))
 import qualified Database.Manager as DM
+import Impact (checkSolution)
 import Matrix (accumulateDepDemandsWith)
 import Method.Types (Method (..))
 import qualified SharedSolver as SS
@@ -72,7 +73,8 @@ scoreOf manager name db idx = do
     sol <-
         either (fail . T.unpack) pure
             =<< SS.computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup manager) db name (DM.ldSharedSolver loaded) idx
-    scores <- batchedScoresFor manager name (DM.CollectionName collection) db sol [climate]
+    checkedSol <- either (fail . show) pure =<< checkSolution manager SeeDetailedScores sol
+    scores <- batchedScoresFor manager name (DM.CollectionName collection) db checkedSol [climate]
     maybe (fail "no score") (either (fail . show) pure) (M.lookup (methodId climate) scores)
 
 spec :: Spec

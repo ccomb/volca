@@ -31,6 +31,7 @@ import API.Types (
     BatchImpactsResponse (..),
     FunctionalUnit,
     LCIABatchResult (..),
+    RefusedEntry (..),
     ScoringIndicator (..),
     UnsolvableEntry (..),
     WithheldCutoffs (..),
@@ -144,9 +145,11 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
         , "invalid" .= birInvalid bir
         , "unscorable" .= birUnscorable bir
         , "unsolvable" .= unsolvable
+        , "refused" .= refused
         , "basis" .= birBasis bir
         ]
             ++ ["reading_notice" .= notice | Just notice <- [readingNotice [ss]]]
+            ++ ["refused_notice" .= refusedNotice | not (null refused)]
             ++ topLevelFU
             ++ cutoffPairs
   where
@@ -158,6 +161,14 @@ toColumnarBatch summaryOnly mBaseUrl dbName coll ss bir =
         [ object ["reason" .= reason, "parameter_set" .= set, "process_ids" .= pids]
         | ((reason, set), pids) <- M.toList (groupInOrder [((ueReason u, ueParameterSet u), ueProcessId u) | u <- birUnsolvable bir])
         ]
+    -- The sentence once for the batch, each process with the count its own refusal names.
+    refused :: [Value]
+    refused =
+        [ object ["process_id" .= reProcessId r, "parameter_set" .= reParameterSet r, "count" .= reCount r]
+        | r <- birRefused bir
+        ]
+    refusedNotice :: Text
+    refusedNotice = "Each refused process has a chain reaching inputs that only a database not loaded would supply (count says how many): a score would count them as zero. score_activity on one names them; loading the database that supplies them lifts the refusal."
     cutoffCount :: LCIABatchResult -> Int
     cutoffCount lbr = length (lbrCutoffInputs lbr) + sum (map wcCount (lbrWithheldCutoffs lbr))
     -- The lists stand once per row that met any, keyed by its process id, beside the count in its row.

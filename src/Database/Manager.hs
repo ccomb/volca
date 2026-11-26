@@ -43,6 +43,7 @@ module Database.Manager (
     listDatabases,
     clearMethodMappingCacheForDb,
     getGapIndex,
+    loadStatusOf,
     clearMethodCachesFor,
 
     -- * Load/Unload
@@ -236,7 +237,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import Database (Geographies, buildDatabaseWithMatrices, readGeographies)
 import qualified Database.Child as Child
-import Database.Cutoffs (GapIndex, gapIndexMoved, gapIndexOf)
+import Database.Cutoffs (GapIndex, gapIndexIn, gapIndexMoved, linkCheckIn, refusesSomewhere)
 import qualified Database.Loader as Loader
 import Database.MatrixBuild (technosphereChange)
 import qualified Database.Quality as Quality
@@ -956,6 +957,9 @@ the clear, and the index is read at that version's process identifiers.
 getGapIndex :: DatabaseManager -> Text -> Database -> IO GapIndex
 getGapIndex manager dbName db = do
     identity <- identityOf db
+    declared <- maybe [] dcDepends . M.lookup dbName <$> readTVarIO (dmAvailableDbs manager)
+    loaded <- readTVarIO (dmLoadedDbs manager)
+    let scanned = gapIndexIn (linkCheckIn (fmap ldDatabase . (`M.lookup` loaded))) declared db
     cached <- M.lookup dbName <$> readTVarIO (dmGapIndexCache manager)
     atValues <- M.lookup dbName <$> readTVarIO (dmGapIndexAtValues manager)
     case (cached, atValues) of
@@ -964,7 +968,7 @@ getGapIndex manager dbName db = do
         _ ->
             loadedAtDefaults manager dbName db >>= \case
                 Nothing -> do
-                    idx <- Control.Exception.evaluate (gapIndexOf db)
+                    idx <- Control.Exception.evaluate scanned
                     atomically (modifyTVar' (dmGapIndexCache manager) (M.insert dbName (identity, idx)))
                     pure idx
                 Just base ->
@@ -974,7 +978,17 @@ getGapIndex manager dbName db = do
                             idx <- Control.Exception.evaluate . gapIndexMoved db pids =<< getGapIndex manager dbName base
                             atomically (modifyTVar' (dmGapIndexAtValues manager) (M.insert dbName (identity, idx)))
                             pure idx
-                        Nothing -> Control.Exception.evaluate (gapIndexOf db)
+                        Nothing -> Control.Exception.evaluate scanned
+
+{- | The status of a loaded database: partially linked when some input it asks
+for would refuse a calculation whose chain reaches it ('refusesSomewhere'),
+as a score of such a chain is refused; a cut-off its publisher left keeps it
+loaded.
+-}
+loadStatusOf :: DatabaseManager -> Text -> Database -> IO DatabaseLoadStatus
+loadStatusOf manager dbName db = do
+    refusing <- refusesSomewhere <$> getGapIndex manager dbName db
+    pure (if refusing then PartiallyLinked else Loaded)
 
 {- | The processes @db@ holds in place of those of @base@, told apart by identity
 as 'Database.MatrixBuild.withActivities' keeps the others; 'Nothing' when the
@@ -2446,12 +2460,8 @@ listDatabases manager = do
 
     forM (M.toList availableDbs) $ \(name, config) -> do
         let mLoaded = M.lookup name loadedDbs
-            !status = case mLoaded of
-                Nothing -> Unloaded
-                Just ld
-                    | unresolvedCount (dbLinkingStats (ldDatabase ld)) > 0 -> PartiallyLinked
-                    | otherwise -> Loaded
-            !actCount = maybe 0 (V.length . dbActivities . ldDatabase) mLoaded
+        !status <- maybe (pure Unloaded) (loadStatusOf manager name . ldDatabase) mLoaded
+        let !actCount = maybe 0 (V.length . dbActivities . ldDatabase) mLoaded
         modification <- databaseModification availableDbs config
         return
             DatabaseStatus

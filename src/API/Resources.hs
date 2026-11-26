@@ -1041,9 +1041,10 @@ description r = case r of
         \category. list_scoring_sets names the \
         \sets. exchange_contributions splits each score \
         \by the process's own lines, to group into stages \
-        \(ingredients, transport, packaging). Inputs \
-        \no loaded database supplies count as zero, in 'cutoffInputs'; \
-        \'withheldCutoffs' counts those a licence hides. 'basis': what the score \
+        \(ingredients, transport, packaging). Inputs its \
+        \publisher left unsupplied count as zero, in 'cutoffInputs'; \
+        \'withheldCutoffs' counts those a licence hides. A chain reaching inputs \
+        \only a database not loaded would supply is refused, naming them. 'basis': what the score \
         \rests on (engine and commit; each database read, its release, whether \
         \copied, edited, allocated otherwise or patched; method collection, \
         \whether a modified copy; swaps and parameter values sent). Quote \
@@ -1053,7 +1054,7 @@ description r = case r of
         "LCA / ACV: rank N processes on one \
         \scoring set, one call. Columnar JSON \
         \{scoring_set, scoring_unit, functional_unit?, columns, rows, not_found, \
-        \invalid, unscorable, unsolvable, cutoff_notice?, \
+        \invalid, unscorable, unsolvable, refused, cutoff_notice?, \
         \cutoff_inputs_by_process_id?, withheld_cutoffs_by_process_id?}. \
         \'columns' heads 'rows' (one scalar array per process): ['activity_name', \
         \'process_id', 'web_url', 'total', \
@@ -1067,8 +1068,10 @@ description r = case r of
         \per-impact-category scores: score_activity \
         \gives them. Unresolved IDs: not_found / \
         \invalid; refused allocation: unscorable; no solver answer (a loop \
-        \consuming all it makes): unsolvable; one line per reason with its \
-        \process_ids, the rest still ranked. 'basis' once for all (see \
+        \consuming all it makes): unsolvable, one line per reason with its \
+        \process_ids; a chain reaching inputs only a database not loaded would \
+        \supply: refused, one entry per process with why; the rest still \
+        \ranked. 'basis' once for all (see \
         \score_activity); a row's parameter set is a position in 'parameterSets'. \
         \Set that weighs (list_scoring_sets): quote 'reading_notice' with any \
         \comparison. Method collection with several sets: pass scoring_sets: \
