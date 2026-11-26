@@ -95,9 +95,9 @@ resultType = at ["resultType"]
 searchRoot :: [(Key, Value)]
 searchRoot = ["database" .= ("root" :: Text), "name" .= ("act" :: Text)]
 
--- | An answer to a form: what the person did, and the box when they sent it.
-answer :: Text -> Maybe Bool -> Value
-answer action box = object (("action" .= action) : ["content" .= object ["accept" .= b] | Just b <- [box]])
+-- | An answer to a form: what the person did.
+answer :: Text -> Value
+answer action = object ["action" .= action]
 
 accepted :: DM.DatabaseManager -> IO (S.Set Text)
 accepted manager = DM.acceptedTerms manager Nothing
@@ -119,7 +119,7 @@ spec = do
             textOf r `shouldSatisfy` T.isInfixOf "call accept_terms"
 
     describe "a client that shows forms" $ do
-        it "is asked to show the terms in full, with one box to tick, naming the database asked for" $ do
+        it "is asked to show the terms in full, with no field to fill, naming the database asked for" $ do
             manager <- managerOn root dependency licence
             r <- call manager showsForms [] "search_activities" searchRoot
             resultType r `shouldBe` Just (String "input_required")
@@ -130,34 +130,29 @@ spec = do
                     m `shouldSatisfy` T.isInfixOf "Read with care."
                     m `shouldSatisfy` T.isInfixOf "Reading root reads dep"
                 other -> expectationFailure ("no message: " <> show other)
-            (form >>= at ["requestedSchema", "properties", "accept", "type"]) `shouldBe` Just (String "boolean")
+            (form >>= at ["requestedSchema", "properties"]) `shouldBe` Just (object [])
             accepted manager `shouldReturn` S.empty
 
-        it "runs the tool once the box is ticked, and asks no more" $ do
+        it "runs the tool once the person accepts, and asks no more" $ do
             manager <- managerOn root dependency licence
-            r <- call manager showsForms [(formKey licence, answer "accept" (Just True))] "search_activities" searchRoot
+            r <- call manager showsForms [(formKey licence, answer "accept")] "search_activities" searchRoot
             resultType r `shouldBe` Just (String "complete")
             at ["isError"] r `shouldNotBe` Just (Bool True)
             accepted manager `shouldReturn` S.singleton fingerprint
             again <- call manager showsForms [] "search_activities" searchRoot
             resultType again `shouldBe` Just (String "complete")
 
-        it "is refused, with nothing to get around, when the person declines or leaves the box empty" $ do
-            let refusals = [answer "decline" Nothing, answer "accept" (Just False)]
-            mapM_
-                ( \a -> do
-                    manager <- managerOn root dependency licence
-                    r <- call manager showsForms [(formKey licence, a)] "search_activities" searchRoot
-                    at ["isError"] r `shouldBe` Just (Bool True)
-                    textOf r `shouldSatisfy` T.isInfixOf "did not accept"
-                    textOf r `shouldNotSatisfy` T.isInfixOf "accept_terms"
-                    accepted manager `shouldReturn` S.empty
-                )
-                refusals
+        it "is refused, with nothing to get around, when the person declines" $ do
+            manager <- managerOn root dependency licence
+            r <- call manager showsForms [(formKey licence, answer "decline")] "search_activities" searchRoot
+            at ["isError"] r `shouldBe` Just (Bool True)
+            textOf r `shouldSatisfy` T.isInfixOf "did not accept"
+            textOf r `shouldNotSatisfy` T.isInfixOf "accept_terms"
+            accepted manager `shouldReturn` S.empty
 
         it "is refused when the form is closed with no answer, naming the cookie a client with no screen accepts by" $ do
             manager <- managerOn root dependency licence
-            r <- callWith [("Cookie", "volca_terms=f0")] manager showsForms [(formKey licence, answer "cancel" Nothing)] "search_activities" searchRoot
+            r <- callWith [("Cookie", "volca_terms=f0")] manager showsForms [(formKey licence, answer "cancel")] "search_activities" searchRoot
             at ["isError"] r `shouldBe` Just (Bool True)
             textOf r `shouldSatisfy` T.isInfixOf "closed with no answer"
             -- The cookie keeps the text it already opened.
@@ -167,7 +162,7 @@ spec = do
 
         it "asks again when the answer is for another text" $ do
             manager <- managerOn root dependency licence
-            r <- call manager showsForms [("terms-older", answer "accept" (Just True))] "search_activities" searchRoot
+            r <- call manager showsForms [("terms-older", answer "accept")] "search_activities" searchRoot
             resultType r `shouldBe` Just (String "input_required")
             accepted manager `shouldReturn` S.empty
 
@@ -184,7 +179,7 @@ spec = do
             asked <- call manager showsForms [] "accept_terms" ["database" .= ("dep" :: Text)]
             resultType asked `shouldBe` Just (String "input_required")
             accepted manager `shouldReturn` S.empty
-            _ <- call manager showsForms [(formKey licence, answer "accept" (Just True))] "accept_terms" ["database" .= ("dep" :: Text)]
+            _ <- call manager showsForms [(formKey licence, answer "accept")] "accept_terms" ["database" .= ("dep" :: Text)]
             accepted manager `shouldReturn` S.singleton fingerprint
 
         it "records at once for a client of the old era, as it always did" $ do
@@ -209,7 +204,7 @@ spec = do
     describe "termsStep" $ do
         let one = theTerms licence
             other = one{termsDatabase = "other", termsFingerprint = "f2"}
-            yes = answer "accept" (Just True)
+            yes = answer "accept"
         it "asks every text again while one is unanswered, so none is recorded alone" $
             termsStep (InForm (KM.fromList [(fromText ("terms-" <> fingerprint), yes)])) [one, other] `shouldBe` AskInForm (one NE.:| [other])
 
@@ -218,7 +213,7 @@ spec = do
             termsStep InChat [] `shouldBe` NothingMissing
 
         it "names only the terms the person refused" $
-            termsStep (InForm (KM.fromList [(fromText ("terms-" <> fingerprint), yes), ("terms-f2", answer "decline" Nothing)])) [one, other] `shouldBe` Declined SaidNo (other NE.:| [])
+            termsStep (InForm (KM.fromList [(fromText ("terms-" <> fingerprint), yes), ("terms-f2", answer "decline")])) [one, other] `shouldBe` Declined SaidNo (other NE.:| [])
 
     describe "toolAnswered" $
         it "does not count a question to the person as an answer" $ do

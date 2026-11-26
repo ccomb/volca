@@ -977,7 +977,7 @@ alone.
 -}
 data TermsOutcome
     = NothingMissing
-    | -- | Every form ticked: these terms are to be recorded, then the call runs.
+    | -- | Every form accepted: these terms are to be recorded, then the call runs.
       AcceptedAll (NE.NonEmpty Terms)
     | AskInChat (NE.NonEmpty Terms)
     | AskInForm (NE.NonEmpty Terms)
@@ -992,7 +992,7 @@ data Refusal = SaidNo | ClosedTheForm
     deriving (Eq, Show)
 
 -- | What the person did with one form.
-data FormAnswer = Ticked | Answered Refusal
+data FormAnswer = Accepted | Answered Refusal
     deriving (Eq)
 
 termsStep :: Asking -> [Terms] -> TermsOutcome
@@ -1010,11 +1010,11 @@ termsStep asking missing = case (NE.nonEmpty missing, asking) of
         answeredAs :: FormAnswer -> Maybe (NE.NonEmpty Terms)
         answeredAs a = NE.nonEmpty [t | (t, Just b) <- answered, a == b]
   where
-    -- Accepted only with the box ticked; declining or leaving the box empty is a no.
+    -- The form has no field: the accept button is the person's agreement.
     formAnswer :: Value -> FormAnswer
     formAnswer = \case
         Object r -> case KM.lookup "action" r of
-            Just (String "accept") | Just (Object c) <- KM.lookup "content" r, KM.lookup "accept" c == Just (Bool True) -> Ticked
+            Just (String "accept") -> Accepted
             Just (String "cancel") -> Answered ClosedTheForm
             _ -> Answered SaidNo
         _ -> Answered SaidNo
@@ -1047,7 +1047,9 @@ askingOf Modern req
         _ -> mempty
 
 {- | The answer that asks the person, in their client, to accept each text:
-the text in full and one box to tick.
+the text in full and no field, so accepting is one click on the client's
+accept button. A box to tick as well would turn a click on accept with the
+box left empty into a refusal.
 -}
 inputRequired :: RequestId -> [Text] -> NE.NonEmpty Terms -> Value
 inputRequired rid asked ts =
@@ -1068,8 +1070,7 @@ inputRequired rid asked ts =
                     , "requestedSchema"
                         .= object
                             [ "type" .= ("object" :: Text)
-                            , "properties" .= object ["accept" .= object ["type" .= ("boolean" :: Text), "title" .= ("I accept these terms of use" :: Text), "default" .= False]]
-                            , "required" .= ["accept" :: Text]
+                            , "properties" .= object []
                             ]
                     ]
             ]

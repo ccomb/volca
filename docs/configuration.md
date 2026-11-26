@@ -78,7 +78,7 @@ licence = "CC-BY-4.0"          # the licence it is published under, by SPDX iden
 # accept = true                #   readers accept its text before reading it, or
                                #   anything built on it: refused until they send
                                #   the text's fingerprint in the volca_terms
-                               #   cookie, tick the box of the form their
+                               #   cookie, accept in the form their
                                #   assistant shows when its client shows
                                #   forms, or have it call the MCP tool
                                #   accept_terms. New text, asked again. Off by
