@@ -1,15 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-{- | A database whose inputs stay unsupplied is computed, and says so.
+{- | A chain is computed through the cut-offs its publisher made, and says so,
+and refused when it reaches an input only a database not loaded would supply.
 
-The engine used to refuse any calculation on a database the linker left
-products unresolved in. It now solves it, counting each unsupplied input as
-zero, and every answer carries the list of the ones its chain met. The fixture
-is the one 'CutoffsSpec' works out by hand: R takes 2 kg of P and 0.5 kg of M,
-P takes 3 kg of M, nobody makes M, so solving R meets 6.5 kg of M asked by two
-processes. P also emits 1 kg of carbon dioxide per kilogram, which the method
-weighs at 1. Z needs nothing, and D asks 0.5 kg of N from an activity no database
-holds.
+The fixture is the one 'CutoffsSpec' works out by hand: R takes 2 kg of P and
+0.5 kg of M, P takes 3 kg of M, and M is named by an activity no database holds,
+which in a database taking from no other is a dataset its release did not ship:
+solving R meets 6.5 kg of M asked by two processes, and is served. P also emits
+1 kg of carbon dioxide per kilogram, which the method weighs at 1. Z needs
+nothing, D asks 0.5 kg of N from that same absent activity, and X asks 1 kg of
+K, which no database makes under that name: a calculation that sums X's chain
+is refused.
 -}
 module ComputeWithCutoffsSpec (spec) where
 
@@ -17,6 +18,7 @@ import Control.Concurrent.STM (atomically, modifyTVar')
 import Data.Aeson (Object, Value (..), object, (.=))
 import Data.Aeson.Key (Key, fromText)
 import qualified Data.Aeson.KeyMap as KM
+import Data.Either (isRight)
 import Data.Foldable (toList)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
@@ -63,7 +65,7 @@ import Usage (anonymous)
 u :: String -> UUID
 u suffix = read ("00000000-0000-0000-0000-0000000002" <> suffix)
 
-rFlow, pFlow, mFlow, nFlow, zFlow, dFlow, kFlow :: UUID
+rFlow, pFlow, mFlow, nFlow, zFlow, dFlow, kFlow, xFlow :: UUID
 rFlow = u "01"
 pFlow = u "02"
 mFlow = u "03"
@@ -71,13 +73,15 @@ nFlow = u "04"
 zFlow = u "05"
 dFlow = u "06"
 kFlow = u "07"
+xFlow = u "08"
 
-actR, actP, actZ, actD, actS, absentAct :: UUID
+actR, actP, actZ, actD, actS, actX, absentAct :: UUID
 actR = u "a1"
 actP = u "a2"
 actZ = u "a3"
 actD = u "a4"
 actS = u "a5"
+actX = u "a6"
 absentAct = u "ff" -- named by a source identity, held by no database
 
 -- | The flow the method weighs at 1, in the unit these fixtures use.
@@ -107,7 +111,7 @@ simple acts =
         , sdbTechFlows =
             M.fromList
                 [ (f, mkTechFlow f n)
-                | (f, n) <- [(rFlow, "R"), (pFlow, "P"), (mFlow, "M"), (nFlow, "N"), (zFlow, "Z"), (dFlow, "D"), (kFlow, "K")]
+                | (f, n) <- [(rFlow, "R"), (pFlow, "P"), (mFlow, "M"), (nFlow, "N"), (zFlow, "Z"), (dFlow, "D"), (kFlow, "K"), (xFlow, "X")]
                 ]
         , sdbBioFlows = M.singleton (bfId co2) co2
         , sdbWasteFlows = M.empty
@@ -129,10 +133,11 @@ build sdb = do
 mainSdb :: SimpleDatabase
 mainSdb =
     simple
-        [ ((actR, rFlow), mkActivity "R" [reference rFlow, linkedTo actP pFlow 2, techInput mFlow 0.5])
-        , ((actP, pFlow), mkActivity "P" [reference pFlow, techInput mFlow 3, emits 1])
+        [ ((actR, rFlow), mkActivity "R" [reference rFlow, linkedTo actP pFlow 2, linkedTo absentAct mFlow 0.5])
+        , ((actP, pFlow), mkActivity "P" [reference pFlow, linkedTo absentAct mFlow 3, emits 1])
         , ((actZ, zFlow), mkActivity "Z" [reference zFlow])
         , ((actD, dFlow), mkActivity "D" [reference dFlow, linkedTo absentAct nFlow 0.5])
+        , ((actX, xFlow), mkActivity "X" [reference xFlow, techInput kFlow 1, emits 1])
         ]
 
 -- | A single score on the one method, so the score breakdowns have a score to break down.
@@ -179,8 +184,9 @@ coll = DM.CollectionName collection
 ok :: DM.DatabaseManager -> AppM a -> IO a
 ok manager handler = runIn manager handler >>= either (\code -> fail ("HTTP " <> show code)) pure
 
-noNameMatch :: NE.NonEmpty BlockerReason
+noNameMatch, dangling :: NE.NonEmpty BlockerReason
 noNameMatch = NE.singleton (BlockerReason "no_name_match" Nothing)
+dangling = NE.singleton (BlockerReason "dangling_source_identity" Nothing)
 
 cutoff :: Text -> Text -> Double -> Int -> NE.NonEmpty BlockerReason -> CutoffInput
 cutoff db product amount consumers reasons =
@@ -193,11 +199,13 @@ cutoff db product amount consumers reasons =
         , ciAmount = amount
         , ciConsumers = consumers
         , ciReasons = reasons
+        , -- These databases declare no dependency: an identity nobody ships is a cut-off of their own.
+          ciRefusing = reasons /= dangling
         }
 
 -- | What solving R meets: 0.5 kg of M for R itself and 2 × 3 for P.
 metByR :: [CutoffInput]
-metByR = [cutoff "main" "M" 6.5 2 noNameMatch]
+metByR = [cutoff "main" "M" 6.5 2 dangling]
 
 {- | Amounts rounded to a billionth, so a sum the solver carries to the last bit
 compares with the one worked out by hand.
@@ -221,15 +229,49 @@ surfaces manager pid =
         , ("contributing activities", carCutoffInputs <$> ok manager (getContributingActivities "main" pid coll methodText Nothing Nothing))
         , ("flows of a single score", cfrCutoffInputs <$> ok manager (getScoreContributingFlows "main" pid coll "Single" "total" Nothing Nothing))
         , ("activities of a single score", carCutoffInputs <$> ok manager (getScoreContributingActivities "main" pid coll "Single" "total" Nothing Nothing))
-        , ("supply chain", scrCutoffInputs <$> ok manager (getActivitySupplyChain "main" pid Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing [] [] [] Nothing Nothing Nothing))
+        , ("supply chain", scrCutoffInputs <$> ok manager (supplyChainOf pid))
         , ("supply-chain aggregate", aggCutoffInputs <$> aggregateIn manager pid "supply_chain")
         , ("biosphere aggregate", aggCutoffInputs <$> aggregateIn manager pid "biosphere")
         , ("consumption aggregate", aggCutoffInputs <$> aggregateIn manager pid "consumption")
         ]
 
+-- | Every REST surface that sums a chain, asked about one process: the HTTP status of a refusal, or nothing when served.
+summing :: DM.DatabaseManager -> Text -> [(String, IO (Maybe Int))]
+summing manager pid =
+    [ ("inventory", refusal (getActivityInventory "main" pid Nothing Nothing))
+    , ("single-method score", refusal (getActivityLCIA "main" pid coll methodText Nothing))
+    , ("score panel", refusal (getActivityLCIABatch "main" pid coll Nothing Nothing))
+    , ("sensitivity baseline", refusal (postActivitySensitivity "main" pid coll methodText (SensitivityRequest [])))
+    , ("contributing flows", refusal (getContributingFlows "main" pid coll methodText Nothing Nothing))
+    , ("contributing activities", refusal (getContributingActivities "main" pid coll methodText Nothing Nothing))
+    , ("flows of a single score", refusal (getScoreContributingFlows "main" pid coll "Single" "total" Nothing Nothing))
+    , ("activities of a single score", refusal (getScoreContributingActivities "main" pid coll "Single" "total" Nothing Nothing))
+    , ("supply-chain aggregate", refusal (aggregateOf pid "supply_chain"))
+    , ("biosphere aggregate", refusal (aggregateOf pid "biosphere"))
+    , ("consumption aggregate", refusal (aggregateOf pid "consumption"))
+    ]
+  where
+    refusal :: AppM a -> IO (Maybe Int)
+    refusal handler = either Just (const Nothing) <$> runIn manager handler
+
+supplyChainOf :: Text -> AppM SupplyChainResponse
+supplyChainOf pid = getActivitySupplyChain "main" pid Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing [] [] [] Nothing Nothing Nothing
+
+aggregateOf :: Text -> Text -> AppM Aggregation
+aggregateOf pid scope = getActivityAggregate "main" pid (Just scope) Nothing Nothing Nothing Nothing Nothing Nothing [] Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+
 aggregateIn :: DM.DatabaseManager -> Text -> Text -> IO Aggregation
-aggregateIn manager pid scope =
-    ok manager (getActivityAggregate "main" pid (Just scope) Nothing Nothing Nothing Nothing Nothing Nothing [] Nothing Nothing Nothing Nothing Nothing Nothing Nothing)
+aggregateIn manager pid scope = ok manager (aggregateOf pid scope)
+
+-- | The status the manager lists a database under.
+statusOf :: DM.DatabaseManager -> Text -> IO (Maybe DM.DatabaseLoadStatus)
+statusOf manager name = lookup name . map (\s -> (DM.dsName s, DM.dsStatus s)) <$> DM.listDatabases manager
+
+-- | An MCP tool's whole reply, as text, for an error a payload reader would not take.
+mcpReply :: DM.DatabaseManager -> Text -> [(Key, Value)] -> IO Text
+mcpReply manager tool args =
+    T.pack . show
+        <$> callTool anonymous manager [] Nothing Nothing noRequestId tool (KM.fromList ([("database", String "main"), ("collection", String collection), ("method_id", String methodText)] ++ args))
 
 {- | R buys its 0.5 kg of M from S in a dependency keeping its detail; S, run at
 0.5, takes 1 kg of K nobody makes.
@@ -240,11 +282,18 @@ withheldDependency = dependencyUnder (own [SeeDetailedScores])
 -- | The same two databases, the dependency under the licence given.
 dependencyUnder :: Licence -> IO DM.DatabaseManager
 dependencyUnder licence = do
-    supplier <- build (simple [((actS, mFlow), mkActivity "S" [reference mFlow, techInput kFlow 1])])
+    (supplier, rootDb) <- linkedPair (linkedTo absentAct kFlow 1)
+    managerOf [("dep", licence, supplier), ("main", LicenceUnstated, rootDb)]
+
+{- | R buying its 0.5 kg of M from S in a dependency, S taking 1 kg of K the way
+given, and R's database linked to S's.
+-}
+linkedPair :: Exchange -> IO (Database, Database)
+linkedPair sInput = do
+    supplier <- build (simple [((actS, mFlow), mkActivity "S" [reference mFlow, sInput])])
     consumer <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, techInput mFlow 0.5])])
     let linked = linkDatabases consumer supplier "dep" 0.5
-        rootDb = linked{dbCrossDBLinks = map (\l -> l{cdlConsumerFlowId = mFlow}) (dbCrossDBLinks linked), dbDependsOn = ["dep"]}
-    managerOf [("dep", licence, supplier), ("main", LicenceUnstated, rootDb)]
+    pure (supplier, linked{dbCrossDBLinks = map (\l -> l{cdlConsumerFlowId = mFlow}) (dbCrossDBLinks linked), dbDependsOn = ["dep"]})
 
 rootOf :: DM.DatabaseManager -> IO Database
 rootOf manager = DM.getDatabase manager "main" >>= maybe (fail "main not loaded") (pure . DM.ldDatabase)
@@ -315,6 +364,60 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         it "gives nothing for the direct aggregate, which solves nothing" $
             (aggCutoffInputs <$> aggregateIn manager pid "direct") `shouldReturn` []
 
+    describe "a chain reaching an input only a database not loaded would supply" $ do
+        (manager, db) <- runIO mainManager
+        pid <- runIO (pidOf db (actX, xFlow))
+        mapM_ (\(name, run) -> it ("refuses the " <> name) (run `shouldReturn` Just 422)) (summing manager pid)
+
+        it "serves the supply chain, naming the input as refusing" $
+            (rounded . scrCutoffInputs <$> ok manager (supplyChainOf pid)) `shouldReturn` [cutoff "main" "K" 1 1 noNameMatch]
+
+        it "serves the direct aggregate, which sums no chain" $
+            isRight <$> runIn manager (aggregateOf pid "direct") `shouldReturn` True
+
+        it "says why through MCP, naming the input" $ do
+            reply <- mcpReply manager "get_impacts" [("process_id", String pid)]
+            reply `shouldSatisfy` T.isInfixOf "Refused: the chain of X reaches 1 input that a database would supply once loaded and linked (K); its upstream names them."
+
+        it "refuses that row of a batch and scores the others" $ do
+            pidZ <- pidOf db (actZ, zFlow)
+            payload <- mcp manager "score_activities" [("process_ids", Array (V.fromList [String pid, String pidZ]))]
+            (case KM.lookup "rows" payload of Just (Array rows) -> Just (length rows); _ -> Nothing) `shouldBe` Just 1
+            KM.lookup "refused" payload
+                `shouldBe` Just (Array (V.singleton (object ["process_id" .= pid, "parameter_set" .= Null, "count" .= (1 :: Int)])))
+            KM.member "refused_notice" payload `shouldBe` True
+
+        it "lists the database as partially linked" $
+            statusOf manager "main" `shouldReturn` Just DM.PartiallyLinked
+
+    it "lists a database whose cut-offs are all its publisher's as loaded" $ do
+        db <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, linkedTo absentAct mFlow 0.5])])
+        manager <- managerOf [("main", LicenceUnstated, db)]
+        statusOf manager "main" `shouldReturn` Just DM.Loaded
+
+    it "refuses a chain whose dependency holds a refusing input, counting it without naming it when the licence keeps the detail" $ do
+        (supplier, rootDb) <- linkedPair (techInput kFlow 1)
+        manager <- managerOf [("dep", own [SeeDetailedScores], supplier), ("main", LicenceUnstated, rootDb)]
+        pid <- pidOf rootDb (actR, rFlow)
+        either Just (const Nothing) <$> runIn manager (getActivityLCIA "main" pid coll methodText Nothing) `shouldReturn` Just 422
+        reply <- mcpReply manager "get_impacts" [("process_id", String pid)]
+        reply `shouldSatisfy` T.isInfixOf "Refused: the chain of R reaches 1 input that a database would supply once loaded and linked; its upstream names them."
+
+    it "refuses a chain linked to a dependency not loaded, until the dependency loads" $ do
+        (supplier, rootDb) <- linkedPair (linkedTo absentAct kFlow 1)
+        manager <- managerOf [("main", LicenceUnstated, rootDb)]
+        pid <- pidOf rootDb (actR, rFlow)
+        either Just (const Nothing) <$> runIn manager (getActivityLCIA "main" pid coll methodText Nothing) `shouldReturn` Just 422
+        (map ciReasons . scrCutoffInputs <$> ok manager (supplyChainOf pid))
+            `shouldReturn` [NE.singleton (BlockerReason "dependency_not_loaded" (Just "dep"))]
+        statusOf manager "main" `shouldReturn` Just DM.PartiallyLinked
+        -- Loading the dependency clears what was built against its absence, as a load publishes it.
+        DM.addDatabase manager (configFor "dep" LicenceUnstated)
+        install manager "dep" supplier
+        DM.clearMethodMappingCacheForDb manager "dep"
+        isRight <$> runIn manager (getActivityLCIA "main" pid coll methodText Nothing) `shouldReturn` True
+        statusOf manager "main" `shouldReturn` Just DM.Loaded
+
     describe "a sibling whose chain meets none" $ do
         (manager, db) <- runIO mainManager
         pid <- runIO (pidOf db (actZ, zFlow))
@@ -324,21 +427,21 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         (manager, db) <- mainManager
         pid <- pidOf db (actD, dFlow)
         ieCutoffInputs <$> ok manager (getActivityInventory "main" pid Nothing Nothing)
-            `shouldReturn` [cutoff "main" "N" 0.5 1 (NE.singleton (BlockerReason "dangling_source_identity" Nothing))]
+            `shouldReturn` [cutoff "main" "N" 0.5 1 dangling]
 
     it "counts, without naming it, the unsupplied input inside a dependency whose licence keeps its detail" $ do
         manager <- withheldDependency
         rootDb <- rootOf manager
         pid <- pidOf rootDb (actR, rFlow)
         result <- ok manager (getActivityLCIA "main" pid coll methodText Nothing)
-        (lrCutoffInputs result, lrWithheldCutoffs result) `shouldBe` ([], [WithheldCutoffs "dep" 1])
+        (lrCutoffInputs result, lrWithheldCutoffs result) `shouldBe` ([], [WithheldCutoffs "dep" 1 0])
 
     it "names in neither sensitivity the cut-offs of a dependency refusing detailed scores but not its inventory" $ do
         manager <- withheldDependency
         rootDb <- rootOf manager
         pid <- pidOf rootDb (actR, rFlow)
         rest <- ok manager (postActivitySensitivity "main" pid coll methodText (SensitivityRequest []))
-        (srCutoffInputs rest, srWithheldCutoffs rest) `shouldBe` ([], [WithheldCutoffs "dep" 1])
+        (srCutoffInputs rest, srWithheldCutoffs rest) `shouldBe` ([], [WithheldCutoffs "dep" 1 0])
         payload <- mcp manager "compute_sensitivity" [("process_id", String pid), ("perturbations", Array V.empty)]
         let namedIn = [d | Just (Array xs) <- [KM.lookup "cutoff_inputs" payload], Object o <- toList xs, Just d <- [KM.lookup "database" o]]
         namedIn `shouldBe` []
@@ -353,8 +456,8 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
                     ( (rounded (scrCutoffInputs chain), scrWithheldCutoffs chain)
                     , (rounded (aggCutoffInputs consumption), aggWithheldCutoffs consumption)
                     )
-        let named = [cutoff "dep" "K" 0.5 1 noNameMatch]
-            counted = [WithheldCutoffs "dep" 1]
+        let named = [cutoff "dep" "K" 0.5 1 dangling]
+            counted = [WithheldCutoffs "dep" 1 0]
         it "names the input the dependency leaves unsupplied" $
             reached LicenceUnstated `shouldReturn` ((named, []), (named, []))
         it "names it still when the dependency keeps only its detailed scores" $
@@ -367,8 +470,8 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         manager <- managerOf [("main", own [ReadInventory], db)]
         pid <- pidOf db (actR, rFlow)
         panel <- ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing)
-        (lbrCutoffInputs panel, lbrWithheldCutoffs panel) `shouldBe` ([], [WithheldCutoffs "main" 1])
-        map (\r -> (lrCutoffInputs r, lrWithheldCutoffs r)) (lbrResults panel) `shouldBe` [([], [WithheldCutoffs "main" 1])]
+        (lbrCutoffInputs panel, lbrWithheldCutoffs panel) `shouldBe` ([], [WithheldCutoffs "main" 1 0])
+        map (\r -> (lrCutoffInputs r, lrWithheldCutoffs r)) (lbrResults panel) `shouldBe` [([], [WithheldCutoffs "main" 1 0])]
 
     it "says in the MCP notice how many a dependency keeping its detail holds, naming none" $ do
         manager <- withheldDependency
@@ -378,11 +481,11 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         KM.lookup "cutoff_notice" payload
             `shouldBe` Just (String "This result counts 1 input no loaded database supplies as zero: 1 inside dep, whose licence keeps the detail to itself.")
         KM.lookup "cutoff_inputs" payload `shouldBe` Just (Array V.empty)
-        KM.lookup "withheld_cutoffs" payload `shouldBe` Just (Array (V.singleton (object ["database" .= ("dep" :: Text), "count" .= (1 :: Int)])))
+        KM.lookup "withheld_cutoffs" payload `shouldBe` Just (Array (V.singleton (object ["database" .= ("dep" :: Text), "count" .= (1 :: Int), "refusing" .= (0 :: Int)])))
 
     it "names five inputs in the notice and puts one \"and\" before the last count" $ do
         let shown = [cutoff "main" name 1 1 noNameMatch | name <- ["A", "B", "C", "D", "E", "F", "G"]]
-        cutoffNotice Cutoffs{cutoffShown = shown, cutoffWithheld = [WithheldCutoffs "dep" 1]}
+        cutoffNotice Cutoffs{cutoffShown = shown, cutoffWithheld = [WithheldCutoffs "dep" 1 0]}
             `shouldBe` Just "This result counts 8 inputs no loaded database supplies as zero: A (1.000 kg), B (1.000 kg), C (1.000 kg), D (1.000 kg), E (1.000 kg), 2 more, and 1 inside dep, whose licence keeps the detail to itself; each listed input says why no database supplies it, and the gap report has them all."
 
     describe "what each score rests on, said once per answer" $ do

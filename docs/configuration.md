@@ -38,7 +38,10 @@ displayName = "Sector DB"      # the name shown; an upload is renamed with
                                # PUT /db/{name}/display-name, its name staying
 description = "Food sector"    # changed on an upload with PUT /db/{name}/description
 path = "DBs/sector.CSV"
-depends = ["agribalyse-3.2"]   # loads agribalyse first, then links
+depends = ["agribalyse-3.2"]   # loads agribalyse first, then links; a score
+                               # whose chain reaches a process nobody ships
+                               # is then refused, that process being taken
+                               # for one of the dependency's
 load = true
 default = false                # preselected database in the UI
 deletable = false              # allow deletion via the API

@@ -68,7 +68,8 @@ data ComputedQualityReport = ComputedQualityReport
     , cqNegativeScores :: !QualityCheck
     , cqUnsolvable :: !QualityCheck
     {- ^ Activities with no score to judge: the solver has no answer for their
-    supply chain, and each offender says why
+    supply chain, or the chain reaches inputs only a database not loaded would
+    supply, and each offender says why
     -}
     }
     deriving (Show, Eq)

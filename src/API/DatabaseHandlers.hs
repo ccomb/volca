@@ -286,6 +286,7 @@ import Database.Manager (
     loadFlowSynonyms,
     loadMethodCollection,
     loadOlcaPackageMethod,
+    loadStatusOf,
     loadUnitDefs,
     madeFrom,
     readDocumentFile,
@@ -379,7 +380,6 @@ import Types (
     reasonText,
     spdxId,
     splitByMode,
-    unresolvedCount,
     withheldSentence,
  )
 import Xlsx (Workbook, openWorkbook)
@@ -1597,7 +1597,7 @@ convertDbStatus ds =
         , dsaDisplayName = dsDisplayName ds
         , dsaDescription = dsDescription ds
         , dsaLoadAtStartup = dsLoadAtStartup ds
-        , dsaStatus = statusToText (dsStatus ds)
+        , dsaStatus = statusText (dsStatus ds)
         , dsaIsUploaded = dsIsUploaded ds
         , dsaPath = dsPath ds
         , dsaFormat = formatDisplayText <$> dsFormat ds
@@ -1611,30 +1611,31 @@ convertDbStatus ds =
         , dsaModification = dsModification ds
         , dsaAdded = addedText <$> dsAdded ds
         }
-  where
-    statusToText Unloaded = "unloaded"
-    statusToText PartiallyLinked = "partially_linked"
-    statusToText Loaded = "loaded"
+
+-- | A database's status as the wire names it.
+statusText :: DatabaseLoadStatus -> Text
+statusText = \case
+    Unloaded -> "unloaded"
+    PartiallyLinked -> "partially_linked"
+    Loaded -> "loaded"
 
 -- | The status of a database just loaded, under the terms in force now.
 loadedStatus :: DatabaseManager -> LoadedDatabase -> IO DatabaseStatusAPI
 loadedStatus manager loaded = do
     configs <- readTVarIO (dmAvailableDbs manager)
     modification <- databaseModification configs (ldConfig loaded)
-    pure (makeStatusFromLoadedDb configs modification loaded)
+    status <- loadStatusOf manager (dcName (ldConfig loaded)) (ldDatabase loaded)
+    pure (makeStatusFromLoadedDb configs modification status loaded)
 
 {- | Create DatabaseStatusAPI from a loaded database (derives status from linking
 stats). The configurations are there for its terms, which a copy takes from its
 source.
 -}
-makeStatusFromLoadedDb :: M.Map Text DatabaseConfig -> Modification -> LoadedDatabase -> DatabaseStatusAPI
-makeStatusFromLoadedDb configs modification loaded =
+makeStatusFromLoadedDb :: M.Map Text DatabaseConfig -> Modification -> DatabaseLoadStatus -> LoadedDatabase -> DatabaseStatusAPI
+makeStatusFromLoadedDb configs modification loadStatus loaded =
     let config = ldConfig loaded
         db = ldDatabase loaded
-        status =
-            if unresolvedCount (dbLinkingStats db) > 0
-                then "partially_linked"
-                else "loaded"
+        status = statusText loadStatus
      in DatabaseStatusAPI
             { dsaName = dcName config
             , dsaDisplayName = dcDisplayName config

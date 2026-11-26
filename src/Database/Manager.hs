@@ -43,6 +43,7 @@ module Database.Manager (
     listDatabases,
     clearMethodMappingCacheForDb,
     getGapIndex,
+    loadStatusOf,
     clearMethodCachesFor,
 
     -- * Load/Unload
@@ -236,7 +237,7 @@ import Data.Time (diffUTCTime, getCurrentTime)
 import qualified Data.UUID as UUID
 import Database (Geographies, buildDatabaseWithMatrices, readGeographies)
 import qualified Database.Child as Child
-import Database.Cutoffs (GapIndex, gapIndexMoved, gapIndexOf)
+import Database.Cutoffs (GapIndex, gapIndexMoved, linkCheckIn, refusesSomewhere, scannedGaps, withLinksAnswered)
 import qualified Database.Loader as Loader
 import Database.MatrixBuild (technosphereChange)
 import qualified Database.Quality as Quality
@@ -945,9 +946,12 @@ getFlowClosure manager dbName db = atomically $ do
             pure closure
 
 {- | A database's unsupplied inputs by consumer, scanned once per database
-('dmGapIndexCache'). Built outside a transaction, as the method mappings are:
-it reads nothing the manager holds, so a transaction would only retry the scan
-each time another database's entry landed.
+('dmGapIndexCache'). The scan of its edges reads only the database, so it runs
+outside a transaction, which would retry it each time another database's
+entry landed. Its links are checked against the databases loaded, and its
+declared dependencies read, in the transaction that stores the entry: a
+dependency staged again between a read and the store clears the entry after
+it, never before.
 
 An entry is served only to the very database it was scanned from: a request
 still holding the version before an edit or a relink may write its index after
@@ -956,6 +960,12 @@ the clear, and the index is read at that version's process identifiers.
 getGapIndex :: DatabaseManager -> Text -> Database -> IO GapIndex
 getGapIndex manager dbName db = do
     identity <- identityOf db
+    let scanned = do
+            gaps <- Control.Exception.evaluate (scannedGaps db)
+            pure $ do
+                declared <- maybe [] dcDepends . M.lookup dbName <$> readTVar (dmAvailableDbs manager)
+                loaded <- readTVar (dmLoadedDbs manager)
+                pure (withLinksAnswered (linkCheckIn (fmap ldDatabase . (`M.lookup` loaded))) declared db gaps)
     cached <- M.lookup dbName <$> readTVarIO (dmGapIndexCache manager)
     atValues <- M.lookup dbName <$> readTVarIO (dmGapIndexAtValues manager)
     case (cached, atValues) of
@@ -964,9 +974,12 @@ getGapIndex manager dbName db = do
         _ ->
             loadedAtDefaults manager dbName db >>= \case
                 Nothing -> do
-                    idx <- Control.Exception.evaluate (gapIndexOf db)
-                    atomically (modifyTVar' (dmGapIndexCache manager) (M.insert dbName (identity, idx)))
-                    pure idx
+                    answered <- scanned
+                    idx <- atomically $ do
+                        idx <- answered
+                        modifyTVar' (dmGapIndexCache manager) (M.insert dbName (identity, idx))
+                        pure idx
+                    Control.Exception.evaluate idx
                 Just base ->
                     movedFrom base db >>= \case
                         -- At other parameter values: the loaded database's index, its moved processes scanned again.
@@ -974,7 +987,17 @@ getGapIndex manager dbName db = do
                             idx <- Control.Exception.evaluate . gapIndexMoved db pids =<< getGapIndex manager dbName base
                             atomically (modifyTVar' (dmGapIndexAtValues manager) (M.insert dbName (identity, idx)))
                             pure idx
-                        Nothing -> Control.Exception.evaluate (gapIndexOf db)
+                        Nothing -> Control.Exception.evaluate =<< atomically =<< scanned
+
+{- | The status of a loaded database: partially linked when some input it asks
+for would refuse a calculation whose chain reaches it ('refusesSomewhere'),
+as a score of such a chain is refused; a cut-off its publisher left keeps it
+loaded.
+-}
+loadStatusOf :: DatabaseManager -> Text -> Database -> IO DatabaseLoadStatus
+loadStatusOf manager dbName db = do
+    refusing <- refusesSomewhere <$> getGapIndex manager dbName db
+    pure (if refusing then PartiallyLinked else Loaded)
 
 {- | The processes @db@ holds in place of those of @base@, told apart by identity
 as 'Database.MatrixBuild.withActivities' keeps the others; 'Nothing' when the
@@ -2446,12 +2469,8 @@ listDatabases manager = do
 
     forM (M.toList availableDbs) $ \(name, config) -> do
         let mLoaded = M.lookup name loadedDbs
-            !status = case mLoaded of
-                Nothing -> Unloaded
-                Just ld
-                    | unresolvedCount (dbLinkingStats (ldDatabase ld)) > 0 -> PartiallyLinked
-                    | otherwise -> Loaded
-            !actCount = maybe 0 (V.length . dbActivities . ldDatabase) mLoaded
+        !status <- maybe (pure Unloaded) (loadStatusOf manager name . ldDatabase) mLoaded
+        let !actCount = maybe 0 (V.length . dbActivities . ldDatabase) mLoaded
         modification <- databaseModification availableDbs config
         return
             DatabaseStatus

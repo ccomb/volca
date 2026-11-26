@@ -118,7 +118,7 @@ mkEntry pid name fu setName total inds =
         }
 
 emptyBir :: BatchImpactsResponse
-emptyBir = BatchImpactsResponse{birResults = [], birNotFound = [], birInvalid = [], birUnscorable = [], birUnsolvable = [], birBasis = basis, birReadingNotice = Nothing}
+emptyBir = BatchImpactsResponse{birResults = [], birNotFound = [], birInvalid = [], birUnscorable = [], birUnsolvable = [], birRefused = [], birBasis = basis, birReadingNotice = Nothing}
 
 basis :: ScoreBasis
 basis = ScoreBasis{sbEngine = "0.0 (test)", sbDatabases = [], sbMethods = BasisMethods{bmCollection = "EF31", bmCopyOf = Nothing, bmModified = False}, sbSubstitutions = [], sbParameterSets = []}
@@ -186,6 +186,7 @@ spec = do
                     , birInvalid = []
                     , birUnscorable = []
                     , birUnsolvable = []
+                    , birRefused = []
                     , birBasis = basis
                     , birReadingNotice = Nothing
                     }
@@ -268,6 +269,7 @@ spec = do
                     , birInvalid = []
                     , birUnscorable = []
                     , birUnsolvable = []
+                    , birRefused = []
                     , birBasis = basis
                     , birReadingNotice = Nothing
                     }
@@ -312,6 +314,7 @@ spec = do
                     , birInvalid = []
                     , birUnscorable = []
                     , birUnsolvable = []
+                    , birRefused = []
                     , birBasis = basis
                     , birReadingNotice = Nothing
                     }
@@ -351,6 +354,7 @@ spec = do
                     , birInvalid = []
                     , birUnscorable = []
                     , birUnsolvable = []
+                    , birRefused = []
                     , birBasis = basis
                     , birReadingNotice = Nothing
                     }

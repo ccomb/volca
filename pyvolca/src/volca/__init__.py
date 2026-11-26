@@ -4,7 +4,7 @@ See https://www.volca.run/docs/python/ for the full guide.
 """
 
 from ._download import DownloadError, Installed, download
-from .client import Client, RefDataKind, VoLCAError
+from .client import ChainRefused, Client, RefDataKind, VoLCAError
 from .compare import ActivityDiff, ActivityDiffRow, compare_activities
 from .server import Server
 from .types import (
@@ -37,6 +37,7 @@ from .types import (
     AggregateScope,
     AmbiguousActivities,
     BatchScores,
+    RefusedActivity,
     UnsolvableActivity,
     BioDirection,
     BioExchange,
@@ -148,6 +149,7 @@ __all__ = [
     "ActivityComparison",
     "ActivityContribution",
     "ActivityDetail",
+    "ChainRefused",
     "ExchangeName",
     "WithheldExchanges",
     "WithheldInput",
@@ -175,6 +177,7 @@ __all__ = [
     "AggregateScope",
     "AmbiguousActivities",
     "BatchScores",
+    "RefusedActivity",
     "UnsolvableActivity",
     "BioDirection",
     "BioExchange",

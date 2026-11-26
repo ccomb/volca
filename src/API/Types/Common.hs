@@ -297,6 +297,12 @@ data CutoffInput = CutoffInput
     -- ^ How many processes of the chain ask for it
     , ciReasons :: NE.NonEmpty BlockerReason
     -- ^ Why no supplier was found
+    , ciRefusing :: Bool
+    {- ^ Whether this input stops a calculation that sums the chain: a database
+    that could be loaded would supply it. False for the cut-offs the publisher
+    or a curator made: a dataset of the same release not shipped, a link
+    declined, a waste left untreated.
+    -}
     }
     deriving (Show, Eq, Generic)
     deriving (ToJSON, ToSchema) via (Stripped CutoffInput)
@@ -309,6 +315,8 @@ itself, the one asked included: how many, not which.
 data WithheldCutoffs = WithheldCutoffs
     { wcDatabase :: Text
     , wcCount :: Int
+    , wcRefusing :: Int
+    -- ^ How many of them stop a calculation that sums the chain, as 'ciRefusing'
     }
     deriving (Show, Eq, Generic)
     deriving (ToJSON, ToSchema) via (Stripped WithheldCutoffs)

@@ -44,7 +44,7 @@ import API.Types (
     apiFlowName,
  )
 import Database (Geographies)
-import Database.Cutoffs (Cutoffs (..), GapIndex, cutoffsOf, noCutoffs)
+import Database.Cutoffs (Cutoffs (..), GapIndex, chainRefusalOf, chainRefusalSentence, cutoffsOf, noCutoffs)
 import Matrix (activityNormalizationFactor, linkConsumer)
 import Service (
     ActivityFilterCore (..),
@@ -66,6 +66,7 @@ import Service (
 import SharedSolver (DepSolverLookup, Reached (..), SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (
+    Activity,
     BioFlowDB,
     BiosphereFlow (..),
     ClassificationFilter (..),
@@ -224,7 +225,10 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                                             processId
                                             (unswapped db supplyVec)
                                             af
-                                    return $ fmap (\resp -> (reduce params functionalUnit (Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)) (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}) eResp
+                                    return $ do
+                                        resp <- eResp
+                                        let cutoffs = Cutoffs (scrCutoffInputs resp) (scrWithheldCutoffs resp)
+                                        summedOver activity cutoffs (reduce params functionalUnit cutoffs (rowsFromSupplyChain resp)){aggWithheldDatabases = scrWithheldDatabases resp}
                     ScopeBiosphere -> do
                         solE <- computeInventoryMatrixWithDepsCached unitConfig depLookup db dbName solver processId
                         case solE of
@@ -234,7 +238,7 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                                 | otherwise -> do
                                     cutoffs <- cutoffsOf indexFor S.empty (NE.toList (SharedSolver.csScalings sol))
                                     let export = convertToInventoryExport db flowDB unitDB processId activity cutoffs (SharedSolver.csInventory sol)
-                                    return $ Right $ reduce params functionalUnit cutoffs (rowsFromBiosphere export)
+                                    return $ summedOver activity cutoffs (reduce params functionalUnit cutoffs (rowsFromBiosphere export))
                     ScopeConsumption -> do
                         -- ponytail: reuses the biosphere solve, whose inventory half is
                         -- discarded here; a scaling-only cross-DB walk is the upgrade
@@ -247,11 +251,17 @@ aggregate unitConfig geographies flowDB unitDB db dbName solver depLookup indexF
                                     (hidden, shown) = L.partition (withholds . reachedName) deps
                                 cutoffs <- cutoffsOf indexFor (S.fromList (map reachedName hidden)) (root : deps)
                                 return $
-                                    Right
+                                    summedOver
+                                        activity
+                                        cutoffs
                                         (reduce params functionalUnit cutoffs (rowsFromConsumption (root :| shown)))
                                             { aggWithheldDatabases = consumptionLines hidden
                                             }
   where
+    -- Every scope but the direct one sums the chain: refused when it reaches inputs no loaded database supplies.
+    summedOver :: Activity -> Cutoffs -> Aggregation -> Either ServiceError Aggregation
+    summedOver activity cutoffs answer = maybe (Right answer) (Left . ChainRefused . chainRefusalSentence (activityName activity)) (chainRefusalOf cutoffs)
+
     withholds :: Text -> Bool
     withholds name = name /= dbName && name `S.member` apWithheld params
 
