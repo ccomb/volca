@@ -241,7 +241,7 @@ spec = describe "a contributing flow's factor and contribution" $ do
 
     it "add up to the same score in the REST rows gathered by substance, the flow rows left empty" $ do
         flows <- runOk (getContributingFlows "sample" productD (CollectionName collectionName) methodIdText Nothing Nothing Nothing Nothing)
-        grouped <- runOk (getContributingFlows "sample" productD (CollectionName collectionName) methodIdText Nothing Nothing (Just True) Nothing)
+        grouped <- runOk (getContributingFlows "sample" productD (CollectionName collectionName) methodIdText (Just True) Nothing Nothing Nothing)
         let total = sum (map sceContribution (cfrTopSubstances grouped))
         (null (cfrTopFlows grouped), null (cfrTopSubstances flows), abs (total - sum (map fcoContribution (cfrTopFlows flows))) < 1e-9)
             `shouldBe` (True, True, True)

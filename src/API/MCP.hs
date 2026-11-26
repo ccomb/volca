@@ -3561,7 +3561,11 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
             ra = lrResolved req
             score = loScore (irOutcome ir)
             contribs = irContribs ir
-            hasNeg = any ((< 0) . fcContribution) contribs
+            substances = bySubstance contribs
+            -- Read on the rows listed: a credit inside a substance that adds up to a burden is no negative row.
+            hasNeg
+                | fromMaybe False grouped = any ((< 0) . scContribution) substances
+                | otherwise = any ((< 0) . fcContribution) contribs
             tables = irTables ir
             webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (lrCollection req) <> "#contributing-flows/" <> lrMethodIdText req)
             Diagnostics{dgFields = diagnostics, dgWithheld = diagnosticsWithheld} = diagnosticsOf dbName licence ir
@@ -3572,7 +3576,7 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
             withheldPair = ["withheld_databases" .= Service.withheldShares score (irWithheld ir) | not (null (irWithheld ir))]
             withheld = map Impact.psScore (irWithheld ir)
             topRows
-                | fromMaybe False grouped = map (substanceRow score) (rankRows scContribution withheld cut (bySubstance contribs))
+                | fromMaybe False grouped = map (substanceRow score) (rankRows scContribution withheld cut substances)
                 | otherwise = map (flowRow score (\f -> ["match_kind" .= Explain.flowMatchKind tables (bfId f)])) (rankRows fcContribution withheld cut contribs)
         liftIO $ Impact.warnUnknownFlowIds ("MCP get_contributing_flows " <> methodName method) (irUnknownUuids ir)
         pure $

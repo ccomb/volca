@@ -72,7 +72,7 @@ import GHC.Generics
 import qualified GHC.Stats
 import qualified Groups
 import qualified Impact
-import Impact.Ranking (Ranked (..), RowCut (..), rankRows, rowCut)
+import Impact.Ranking (Ranked (..), RowCut (..), listsNoRow, rankRows, rowCut)
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
 import Impact.Substances (SubstanceContribution (..), bySubstance, substanceCompartments, substanceFlowIds)
@@ -161,7 +161,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "compare" :> QueryParam "other_process_id" Text :> QueryParam "other_database" Text :> Get '[JSON] ActivityComparison
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "changes-present" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesPresence
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "apply-changes" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesApplied
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "cover_percent" Double :> QueryParam "by_substance" Bool :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "by_substance" Bool :> QueryParam "limit" Int :> QueryParam "cover_percent" Double :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "cover_percent" Double :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> "score" :> Capture "scoringSet" Text :> Capture "score" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> "score" :> Capture "scoringSet" Text :> Capture "score" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
@@ -881,7 +881,7 @@ licencedTopFlows ::
     RowCut ->
     IO (Either Text TopFlows)
 licencedTopFlows dbManager collection method tables ls score cut
-    | FirstRows n <- cut, n <= 0 = pure (Right (TopFlows [] []))
+    | listsNoRow cut = pure (Right (TopFlows [] []))
     | otherwise = fmap toTop <$> Impact.licencedContributionsOf dbManager collection method tables ls
   where
     toTop :: Impact.LicencedContributions -> TopFlows
@@ -3114,8 +3114,8 @@ getMethodCollectionComparison collection otherParam forcedPairs categoryParam li
     failed (CollectionMissing name loaded) = throwError err404{errBody = collectionNotLoadedBody name loaded}
     failed (PairsRefused r) = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 (CompareMethods.refusalMessage r))}
 
-getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Double -> Maybe Bool -> Maybe Bool -> AppM ContributingFlowsResult
-getContributingFlows dbName processIdText collectionName methodIdText limitParam coverParam bySubstanceParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
+getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Bool -> Maybe Int -> Maybe Double -> Maybe Bool -> AppM ContributingFlowsResult
+getContributingFlows dbName processIdText collectionName methodIdText bySubstanceParam limitParam coverParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     cut <- either badRequest pure (rowCut 20 limitParam coverParam)
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId activity method -> do
@@ -3132,7 +3132,11 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
         liftIO $ warnUnknownInventoryFlows ("contributing-flows " <> methodName method) mFlows (SharedSolver.csInventory sol)
         score <- liftIO (Impact.scoreSolution dbManager collectionName method tables checkedSol) >>= either scoringError pure
         ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores checkedSol)
-        lc <- liftIO (Impact.licencedContributionsOf dbManager collectionName method tables ls) >>= either scoringError pure
+        -- As in 'licencedTopFlows': no row asked, nothing walked, and no line beside the rows.
+        lc <-
+            if listsNoRow cut
+                then pure Impact.LicencedContributions{Impact.lcRows = [], Impact.lcUnknown = [], Impact.lcWithheld = []}
+                else liftIO (Impact.licencedContributionsOf dbManager collectionName method tables ls) >>= either scoringError pure
         basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
         let withheld = map Impact.psScore (Impact.lcWithheld lc)
             (perFlow, perSubstance)
