@@ -113,6 +113,7 @@ import Database.Author (
     AuthorContext (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
+    AuthoredLine (..),
     EditedActivity (..),
     ExchangeEdit (..),
     ExchangeSelector (..),
@@ -770,7 +771,7 @@ activityJSON a =
                 , "amount" .= aaProductAmount a
                 , "unit" .= aaProductUnit a
                 ]
-        , "exchanges" .= map exchangeJSON (aaExchanges a)
+        , "exchanges" .= map lineJSON (aaExchanges a)
         ]
 
 parseActivity :: Value -> Parser AuthoredActivity
@@ -782,7 +783,7 @@ parseActivity = withObject "authored activity" $ \o -> do
     productName <- prod .: "name"
     productAmount <- prod .: "amount"
     productUnit <- prod .: "unit"
-    exchanges <- o .: "exchanges" >>= traverse parseExchange
+    exchanges <- o .: "exchanges" >>= traverse parseLine
     pure
         AuthoredActivity
             { aaName = name
@@ -794,20 +795,30 @@ parseActivity = withObject "authored activity" $ \o -> do
             , aaExchanges = exchanges
             }
 
+-- | A stated activity's line: its exchange, marked when the person typed its amount, as an added line is.
+lineJSON :: AuthoredLine -> Value
+lineJSON line = object (exchangePairs (alExchange line) <> ["typed" .= True | alFrom line == TypedByPerson])
+
+-- | A line without the mark is the call's, so journals written before it read as they always did.
+parseLine :: Value -> Parser AuthoredLine
+parseLine v = AuthoredLine <$> parseExchange v <*> withObject "exchange" (\o -> typedFrom <$> o .:? "typed") v
+
 exchangeJSON :: AuthoredExchange -> Value
-exchangeJSON = \case
+exchangeJSON = object . exchangePairs
+
+exchangePairs :: AuthoredExchange -> [Pair]
+exchangePairs = \case
     AuthoredTechInput provider amount unit comment ->
-        object $ ["kind" .= ("input" :: Text), "provider" .= provider, "amount" .= amount] <> stated unit comment
+        ["kind" .= ("input" :: Text), "provider" .= provider, "amount" .= amount] <> stated unit comment
     AuthoredWasteOutput provider amount unit comment ->
-        object $ ["kind" .= ("waste" :: Text), "provider" .= provider, "amount" .= amount] <> stated unit comment
+        ["kind" .= ("waste" :: Text), "provider" .= provider, "amount" .= amount] <> stated unit comment
     AuthoredBio flow direction amount unit comment ->
-        object $
-            [ "kind" .= ("biosphere" :: Text)
-            , "flow" .= flowJSON flow
-            , "direction" .= directionText direction
-            , "amount" .= amount
-            ]
-                <> stated unit comment
+        [ "kind" .= ("biosphere" :: Text)
+        , "flow" .= flowJSON flow
+        , "direction" .= directionText direction
+        , "amount" .= amount
+        ]
+            <> stated unit comment
   where
     stated unit comment = optional "unit" unit <> optional "comment" comment
     optional key = maybe [] (\value -> [key .= (value :: Text)])

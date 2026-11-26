@@ -45,6 +45,7 @@ minted, which none of them enters.
 module Database.Author (
     -- * What an author writes
     AuthoredActivity (..),
+    AuthoredLine (..),
     AuthoredExchange (..),
     FlowRef (..),
     AuthorContext (..),
@@ -250,7 +251,14 @@ data AuthoredActivity = AuthoredActivity
     , aaProductName :: Text
     , aaProductAmount :: Double
     , aaProductUnit :: Text
-    , aaExchanges :: [AuthoredExchange]
+    , aaExchanges :: [AuthoredLine]
+    }
+    deriving (Eq, Show)
+
+-- | A line of a stated activity, with who gave its amount: a created line is an added line.
+data AuthoredLine = AuthoredLine
+    { alExchange :: AuthoredExchange
+    , alFrom :: AmountFrom
     }
     deriving (Eq, Show)
 
@@ -344,7 +352,7 @@ validateAuthored ctx activities =
 
 validateOne :: AuthorContext -> AuthoredActivity -> Either [Text] (ResolvedInsert, [Text])
 validateOne ctx a =
-    case (productChecks, partitionEithers (map resolveExchange (aaExchanges a)), mProductUnit) of
+    case (productChecks, partitionEithers (map (resolveExchange . alExchange) (aaExchanges a)), mProductUnit) of
         ([], ([], resolved), Just (unitRef, unitLabel)) ->
             let key = ProcessRef (authoredActivityUUID (aaName a) (aaLocation a)) (authoredProductUUID (aaProductName a) unitLabel)
                 productExchange =

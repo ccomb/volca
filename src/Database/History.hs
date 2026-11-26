@@ -31,6 +31,7 @@ import Database.Author (
     AmountFrom (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
+    AuthoredLine (..),
     ExchangeEdit (..),
     ExchangeSelector (..),
     FlowRef (..),
@@ -131,7 +132,7 @@ describeJournal namer = map line
 describeOp :: Namer -> JournalOp -> (Text, [Text])
 describeOp namer = \case
     Created activities pids ->
-        ("Added " <> counted (length activities) "process" "processes", zipWith (\act pid -> authoredTitle act <> ", " <> pid) activities pids)
+        ("Added " <> counted (length activities) "process" "processes", concat (zipWith created activities pids))
     Replaced target act ->
         ("Rewrote " <> activityNamed namer target, ["Now " <> authoredTitle act <> ", with " <> counted (length (aaExchanges act)) "exchange" "exchanges"])
     Deleted pids ->
@@ -140,6 +141,11 @@ describeOp namer = \case
         ("Edited " <> activityNamed namer target, map (describeEdit namer) editLines)
     ParametersEdited parameterLines ->
         ("Changed " <> counted (length parameterLines) "database parameter" "database parameters", map describeParameterLine parameterLines)
+  where
+    -- A created process, then each of its lines whose amount the person typed: the others are the call's, as an edit's are.
+    created act pid =
+        (authoredTitle act <> ", " <> pid)
+            : [authoredTitle act <> ": " <> authoredExchange namer (alExchange line) <> typedBy (alFrom line) | line <- aaExchanges act, alFrom line == TypedByPerson]
 
 describeEdit :: Namer -> EditLine -> Text
 describeEdit namer (EditLine edit _ before) = case edit of
@@ -149,7 +155,7 @@ describeEdit namer (EditLine edit _ before) = case edit of
     SetFormula selector Nothing -> selected selector <> ": formula removed"
     SetProperty prop flow (Just value) -> "Product " <> flowNamed namer flow <> ": " <> propertyName prop <> " set to " <> number (saAmount value) <> " " <> saUnit value
     SetProperty prop flow Nothing -> "Product " <> flowNamed namer flow <> ": " <> propertyName prop <> " removed"
-    AddExchange exchange from -> "Added " <> authoredExchange exchange <> typedBy from
+    AddExchange exchange from -> "Added " <> authoredExchange namer exchange <> typedBy from
     SetText (ActivityName name) -> "Name set to " <> quoted name
     SetText (ActivityLocation location) -> "Location set to " <> location
     SetText (ActivityDescription _) -> "Description rewritten"
@@ -169,16 +175,18 @@ describeEdit namer (EditLine edit _ before) = case edit of
         Nothing -> ""
         Just LocationNone -> " with no location"
         Just stated -> " in " <> locationCode stated
-    authoredExchange :: AuthoredExchange -> Text
-    authoredExchange = \case
-        AuthoredTechInput{atiProvider = provider, atiAmount = amount} -> "input from " <> activityNamed namer provider <> ", " <> number amount
-        AuthoredWasteOutput{awProvider = provider, awAmount = amount} -> "waste output to " <> activityNamed namer provider <> ", " <> number amount
-        AuthoredBio{abFlow = FlowById flowId, abAmount = amount} -> "flow " <> flowNamed namer flowId <> ", " <> number amount
-        AuthoredBio{abFlow = FlowByName name _ _, abAmount = amount} -> "flow " <> quoted name <> ", " <> number amount
-    typedBy :: AmountFrom -> Text
-    typedBy = \case
-        FromCall -> ""
-        TypedByPerson -> " (typed by the user)"
+
+authoredExchange :: Namer -> AuthoredExchange -> Text
+authoredExchange namer = \case
+    AuthoredTechInput{atiProvider = provider, atiAmount = amount} -> "input from " <> activityNamed namer provider <> ", " <> number amount
+    AuthoredWasteOutput{awProvider = provider, awAmount = amount} -> "waste output to " <> activityNamed namer provider <> ", " <> number amount
+    AuthoredBio{abFlow = FlowById flowId, abAmount = amount} -> "flow " <> flowNamed namer flowId <> ", " <> number amount
+    AuthoredBio{abFlow = FlowByName name _ _, abAmount = amount} -> "flow " <> quoted name <> ", " <> number amount
+
+typedBy :: AmountFrom -> Text
+typedBy = \case
+    FromCall -> ""
+    TypedByPerson -> " (typed by the user)"
 
 -- | "from 2.0 " before the new value, when the line kept what it replaced.
 fromPrior :: Prior [Double] -> Text

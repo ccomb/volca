@@ -6,6 +6,7 @@ it in a form when the client shows forms, and the history says so.
 -}
 module MCPTypedAmountsSpec (spec) where
 
+import Control.Concurrent.STM (atomically, modifyTVar')
 import Control.Monad (void)
 import Data.Aeson (Key, Value (..), object, (.=))
 import qualified Data.Aeson.KeyMap as KM
@@ -18,13 +19,14 @@ import Servant (runHandler)
 import Test.Hspec
 
 import API.DatabaseHandlers (databaseHistoryHandler)
-import API.MCP (AmountsOutcome (..), EditShape (..), Missing (..), Place (..), Refusal (..), amountsStep, callTool, fillAmounts, missingAmounts, noRequestId)
+import API.MCP (AmountsOutcome (..), CallShape (..), Missing (..), Place (..), Refusal (..), amountsStep, callTool, fillAmounts, missingAmounts, noRequestId)
 import API.Types (AddedList (..), DatabaseHistoryEntry (..))
 import ActivityWriteHandlerSpec (buildFixture, cheese, create, keyOf, supplierPid, uploadedConfig, withDb, withWritableDb)
 import App.Env (AppEnv (..), runApp)
 import Config (DatabaseConfig (..))
 import qualified Data.Set as S
-import Types (Acceptance (..), Attribution (..), Licence (..), OwnLicence (..), UsageCount (..))
+import Database.Manager (DatabaseManager (..), LoadedDatabase (..))
+import Types (Acceptance (..), Attribution (..), Database (..), Licence (..), OwnLicence (..), UsageCount (..))
 import Usage (Asking (..), Caller (..), anonymous)
 
 -- | One call of a tool on the writable database, asked as a client that shows forms or not.
@@ -35,6 +37,32 @@ call env asking name args =
 -- | Adding milk to the cheese, with or without an amount.
 addMilk :: [(Key, Value)] -> [(Key, Value)]
 addMilk line = [("process_id", String (keyOf cheese)), ("add_inputs", toArray [object (("provider" .= supplierPid) : line)])]
+
+-- | A process to create from milk, its product named as the process, with or without the milk's amount.
+newProcess :: Text -> [(Key, Value)] -> Value
+newProcess = newProcessFrom supplierPid
+
+-- | A process to create, its input drawn from this provider.
+newProcessFrom :: Text -> Text -> [(Key, Value)] -> Value
+newProcessFrom provider name line =
+    object
+        [ "name" .= name
+        , "location" .= ("FR" :: Text)
+        , "product_name" .= name
+        , "product_amount" .= (1 :: Int)
+        , "product_unit" .= ("kg" :: Text)
+        , "inputs" .= toArray [object (("provider" .= provider) : line)]
+        ]
+
+-- | Creating a yogurt from milk, with or without the milk's amount.
+createYogurt :: [(Key, Value)] -> [(Key, Value)]
+createYogurt line = [("activities", toArray [newProcess "yogurt" line])]
+
+-- | Another loaded database that depends on this one, so editing this one is refused.
+withDependent :: AppEnv -> IO ()
+withDependent env =
+    atomically $ modifyTVar' (dmLoadedDbs (aeDbManager env)) $ \dbs ->
+        maybe dbs (\ld -> M.insert "child" ld{ldDatabase = (ldDatabase ld){dbDependsOn = ["authored"]}} dbs) (M.lookup "authored" dbs)
 
 toArray :: [Value] -> Value
 toArray = Array . foldMap pure
@@ -214,14 +242,116 @@ spec = do
                 lines' <- details env
                 filter (T.isInfixOf "typed by the user") lines' `shouldSatisfy` ((== 1) . length)
 
+        it "refuses before any form while another loaded database depends on this one" $
+            withCheese $ \env -> do
+                withDependent env
+                r <- call env showsForms "edit_exchanges" (addMilk [])
+                at ["inputRequests"] (result r) `shouldBe` Nothing
+                textOf r `shouldSatisfy` T.isInfixOf "still required by"
+
+    describe "a line of a created process with no amount" $ do
+        it "creates the process when the call gives every amount, nothing marked typed" $
+            withCheese $ \env -> do
+                r <- call env InChat "create_activities" (createYogurt ["amount" .= (2 :: Int)])
+                isError r `shouldBe` False
+                lines' <- details env
+                filter (T.isInfixOf "\"yogurt\" (FR)") lines' `shouldSatisfy` (not . null)
+                filter (T.isInfixOf "typed by the user") lines' `shouldBe` []
+
+        it "is refused to a client that shows no form, naming the line and the new process, with nothing written" $
+            withCheese $ \env -> do
+                before <- details env
+                r <- call env InChat "create_activities" (createYogurt [])
+                isError r `shouldBe` True
+                textOf r `shouldSatisfy` T.isInfixOf "milk production (FR), kg, in the new process yogurt (FR)"
+                details env `shouldReturn` before
+
+        it "asks a client that shows forms, then creates the process with the typed amount, marked" $
+            withCheese $ \env -> do
+                r <- call env showsForms "create_activities" (createYogurt [])
+                let form = at ["inputRequests", "amounts", "params"] (result r)
+                (form >>= at ["requestedSchema", "properties", "0-add_inputs-0", "title"]) `shouldBe` Just (String "milk production (FR), kg")
+                (form >>= at ["requestedSchema", "properties", "0-add_inputs-0", "description"]) `shouldBe` Just (String "In the new process yogurt (FR)")
+                case form >>= at ["message"] of
+                    Just (String m) -> m `shouldSatisfy` T.isInfixOf "The assistant is creating yogurt (FR)"
+                    other -> expectationFailure ("no message: " <> show other)
+                done <- call env (typed "accept" [("0-add_inputs-0", Number 0.42)]) "create_activities" (createYogurt [])
+                isError done `shouldBe` False
+                textOf done `shouldSatisfy` T.isInfixOf "milk production (FR), kg, in the new process yogurt (FR): 0.42"
+                lines' <- details env
+                filter (T.isInfixOf "typed by the user") lines' `shouldBe` ["\"yogurt\" (FR): input from \"milk production\" (FR), 0.42 (typed by the user)"]
+
+        it "asks once for the lines of two new processes, each field naming its process" $
+            withCheese $ \env -> do
+                let both = [("activities", toArray [newProcess "yogurt" [], newProcess "kefir" []])]
+                r <- call env showsForms "create_activities" both
+                let props = at ["inputRequests", "amounts", "params", "requestedSchema", "properties"] (result r)
+                fmap KM.keys (props >>= asObject) `shouldBe` Just ["0-add_inputs-0", "1-add_inputs-0"]
+                (props >>= at ["1-add_inputs-0", "description"]) `shouldBe` Just (String "In the new process kefir (FR)")
+                done <- call env (typed "accept" [("0-add_inputs-0", Number 1), ("1-add_inputs-0", Number 2)]) "create_activities" both
+                isError done `shouldBe` False
+                lines' <- details env
+                filter (T.isInfixOf "typed by the user") lines' `shouldSatisfy` ((== 2) . length)
+
+        it "says nothing was created when the person declines" $
+            withCheese $ \env -> do
+                before <- details env
+                r <- call env (typed "decline" []) "create_activities" (createYogurt [])
+                textOf r `shouldSatisfy` T.isInfixOf "nothing was created"
+                details env `shouldReturn` before
+
+        it "refuses before any form a process the database already holds, or an unknown supplier" $
+            withCheese $ \env -> do
+                let again = object ["name" .= ("cheese, at dairy" :: Text), "location" .= ("FR" :: Text), "product_name" .= ("cheese" :: Text), "product_amount" .= (1 :: Int), "product_unit" .= ("kg" :: Text), "inputs" .= toArray [object ["provider" .= supplierPid]]]
+                held <- call env showsForms "create_activities" [("activities", toArray [again])]
+                isError held `shouldBe` True
+                at ["inputRequests"] (result held) `shouldBe` Nothing
+                unknown <- call env showsForms "create_activities" [("activities", toArray [newProcessFrom "nope" "yogurt" []])]
+                at ["inputRequests"] (result unknown) `shouldBe` Nothing
+                textOf unknown `shouldSatisfy` T.isInfixOf "unknown supplier"
+
+        it "refuses before any form while another loaded database depends on this one" $
+            withCheese $ \env -> do
+                withDependent env
+                r <- call env showsForms "create_activities" (createYogurt [])
+                at ["inputRequests"] (result r) `shouldBe` Nothing
+                textOf r `shouldSatisfy` T.isInfixOf "still required by"
+
+        it "refuses before any form a source it cannot read" $
+            withCheese $ \env -> do
+                r <- call env showsForms "create_activities" (("source", String "Smith 2020") : createYogurt [])
+                isError r `shouldBe` True
+                at ["inputRequests"] (result r) `shouldBe` Nothing
+
+        it "refuses a list under a name it does not read, rather than create the process without it" $
+            withCheese $ \env -> do
+                before <- details env
+                let misnamed = object ["name" .= ("yogurt" :: Text), "location" .= ("FR" :: Text), "product_name" .= ("yogurt" :: Text), "product_amount" .= (1 :: Int), "product_unit" .= ("kg" :: Text), "add_inputs" .= toArray [object ["provider" .= supplierPid, "amount" .= (1 :: Int)]]]
+                r <- call env InChat "create_activities" [("activities", toArray [misnamed])]
+                isError r `shouldBe` True
+                textOf r `shouldSatisfy` T.isInfixOf "unknown field add_inputs"
+                details env `shouldReturn` before
+
+        it "refuses a product amount that is not a number, naming it" $
+            withCheese $ \env -> do
+                let worded = object ["name" .= ("yogurt" :: Text), "location" .= ("FR" :: Text), "product_name" .= ("yogurt" :: Text), "product_amount" .= ("one" :: Text), "product_unit" .= ("kg" :: Text)]
+                r <- call env InChat "create_activities" [("activities", toArray [worded])]
+                isError r `shouldBe` True
+                textOf r `shouldSatisfy` T.isInfixOf "product_amount"
+
     describe "the amounts left out of a call" $ do
         let args = KM.fromList [("add_inputs", toArray [object ["provider" .= ("a" :: Text)], object ["provider" .= ("b" :: Text), "amount" .= (1 :: Int)]]), ("add_biosphere", toArray [object ["amount" .= Null]])]
         it "are the lines with no amount or a null one" $
             missingAmounts OneEdit args `shouldBe` [Place Nothing AddInputs 0, Place Nothing AddBiosphere 0]
 
         it "are filled where they were left out, and nowhere else" $ do
-            let filled = fillAmounts (M.fromList [(Place Nothing AddInputs 0, 5)]) args
+            let filled = fillAmounts OneEdit (M.fromList [(Place Nothing AddInputs 0, 5)]) args
             missingAmounts OneEdit filled `shouldBe` [Place Nothing AddBiosphere 0]
+
+        it "are read and filled in the lists a new process states" $ do
+            let created = KM.fromList [("activities", toArray [newProcess "yogurt" [], newProcess "kefir" ["amount" .= (1 :: Int)]])]
+            missingAmounts NewProcesses created `shouldBe` [Place (Just 0) AddInputs 0]
+            missingAmounts NewProcesses (fillAmounts NewProcesses (M.fromList [(Place (Just 0) AddInputs 0, 3)]) created) `shouldBe` []
 
     describe "amountsStep" $ do
         let one = Missing{missingPlace = Place Nothing AddInputs 0, missingProcess = "cheese (FR)", missingLine = "milk (FR), kg"}

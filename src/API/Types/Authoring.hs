@@ -29,6 +29,7 @@ import Database.Author (
     AmountFrom (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
+    AuthoredLine (..),
     ExchangeEdit (..),
     ExchangeSelector (..),
     FlowRef (..),
@@ -459,14 +460,22 @@ the activity they belong to, exactly as the validator's do, so a batch is
 fixed in one round trip whichever layer refused it.
 -}
 toAuthoredActivities :: [ActivityInput] -> Either [Text] [AuthoredActivity]
-toAuthoredActivities inputs = case partitionEithers (map toAuthoredActivity inputs) of
+toAuthoredActivities = toAuthoredActivitiesTyped (\_ _ _ -> FromCall)
+
+{- | 'toAuthoredActivities', told who gave the amount of each line, by the
+position of its activity in the batch, then its list and its position there.
+Only the assistant tool says anything but the call: it alone can have asked the
+person.
+-}
+toAuthoredActivitiesTyped :: (Int -> AddedList -> Int -> AmountFrom) -> [ActivityInput] -> Either [Text] [AuthoredActivity]
+toAuthoredActivitiesTyped amountFrom inputs = case partitionEithers (zipWith (toAuthoredActivity . amountFrom) [0 ..] inputs) of
     ([], authored) -> Right authored
     (errs, _) -> Left (concat errs)
 
-toAuthoredActivity :: ActivityInput -> Either [Text] AuthoredActivity
-toAuthoredActivity ai = case partitionEithers (map toBio (aiBiosphere ai)) of
+toAuthoredActivity :: (AddedList -> Int -> AmountFrom) -> ActivityInput -> Either [Text] AuthoredActivity
+toAuthoredActivity amountFrom ai = case partitionEithers [(\exchange -> AuthoredLine exchange (amountFrom list i)) <$> line | ((list, i), line) <- statedLines ai] of
     (errs@(_ : _), _) -> Left (map here (concat errs))
-    ([], bio) ->
+    ([], exchanges) ->
         Right
             AuthoredActivity
                 { aaName = aiName ai
@@ -475,7 +484,7 @@ toAuthoredActivity ai = case partitionEithers (map toBio (aiBiosphere ai)) of
                 , aaProductName = aiProductName ai
                 , aaProductAmount = aiProductAmount ai
                 , aaProductUnit = aiProductUnit ai
-                , aaExchanges = map toTechInput (aiInputs ai) <> bio <> map toWasteOutput (aiWasteOutputs ai)
+                , aaExchanges = exchanges
                 }
   where
     here msg = aiName ai <> " {" <> aiLocation ai <> "}: " <> msg
@@ -528,15 +537,22 @@ toExchangeEdits = toExchangeEditsTyped (\_ _ -> FromCall)
 
 -- | The lines an edit adds, each by its list and its position there, in the order they apply.
 addedLines :: ExchangeEditRequest -> [((AddedList, Int), Either [Text] AuthoredExchange)]
-addedLines req =
-    placed AddInputs (Right . toTechInput) (eerAddInputs req)
-        <> placed AddBiosphere toBio (eerAddBiosphere req)
-        <> placed AddWasteOutputs (Right . toWasteOutput) (eerAddWasteOutputs req)
+addedLines req = placedLines (eerAddInputs req) (eerAddBiosphere req) (eerAddWasteOutputs req)
+
+-- | The lines a new activity states, each by its list and its position there, in the order it lists them.
+statedLines :: ActivityInput -> [((AddedList, Int), Either [Text] AuthoredExchange)]
+statedLines ai = placedLines (aiInputs ai) (aiBiosphere ai) (aiWasteOutputs ai)
+
+placedLines :: [TechInputAPI] -> [BioExchangeAPI] -> [WasteOutputAPI] -> [((AddedList, Int), Either [Text] AuthoredExchange)]
+placedLines inputs bio waste =
+    placed AddInputs (Right . toTechInput) inputs
+        <> placed AddBiosphere toBio bio
+        <> placed AddWasteOutputs (Right . toWasteOutput) waste
   where
     placed :: AddedList -> (line -> Either [Text] AuthoredExchange) -> [line] -> [((AddedList, Int), Either [Text] AuthoredExchange)]
     placed list translate = zipWith (\i line -> ((list, i), translate line)) [0 ..]
 
--- | A list of lines an edit adds, each line of which may leave its amount to the person.
+-- | A list of added lines, an edit's or a new activity's, each line of which may leave its amount to the person.
 data AddedList = AddInputs | AddBiosphere | AddWasteOutputs
     deriving (Eq, Ord, Show, Enum, Bounded)
 

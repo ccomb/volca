@@ -37,6 +37,7 @@ import Database.Author (
     AuthorContext (..),
     AuthoredActivity (..),
     AuthoredExchange (..),
+    AuthoredLine (..),
     ExchangeEdit (..),
     ExchangeSelector (..),
     FlowRef (..),
@@ -146,6 +147,12 @@ spec = do
             let typedLine = event (edited supplierPid [(AddExchange usedOilOut TypedByPerson, 1), (AddExchange usedOilOut FromCall, 1)])
                 written = BL.toStrict (Aeson.encode typedLine)
             decodeStrict written `shouldBe` Just typedLine
+            T.count "\"typed\":true" (TE.decodeUtf8 written) `shouldBe` 1
+
+        it "marks a created line whose amount the person typed, and only that line" $ do
+            let created = event (Created [cheese{aaExchanges = [AuthoredLine usedOilOut TypedByPerson, AuthoredLine usedOilOut FromCall]}] ["a_b"])
+                written = BL.toStrict (Aeson.encode created)
+            decodeStrict written `shouldBe` Just created
             T.count "\"typed\":true" (TE.decodeUtf8 written) `shouldBe` 1
 
     describe "Database.Journal (file)" $ do
@@ -309,7 +316,7 @@ spec = do
         it "files the flow of a replayed waste output as a waste flow" $
             -- The live edit files it there; a replay that filed it elsewhere
             -- would give back, after a restart, a database that cannot export.
-            case replayJournal ctx [event (Created [cheese{aaExchanges = [usedOilOut]}] [cheeseKey])] of
+            case replayJournal ctx [event (Created [cheese{aaExchanges = [AuthoredLine usedOilOut FromCall]}] [cheeseKey])] of
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> M.member supplierProdId (dbWasteFlows db) `shouldBe` True
 
@@ -438,31 +445,33 @@ cheese =
         , aaProductAmount = 1.0
         , aaProductUnit = "kg"
         , aaExchanges =
-            [ AuthoredTechInput
-                { atiProvider = supplierPid
-                , atiAmount = 8.0
-                , atiUnit = Just "kg"
-                , atiComment = Just "milk in"
-                }
-            , AuthoredBio
-                { abFlow = FlowById co2Id
-                , abDirection = Emission
-                , abAmount = 0.5
-                , abUnit = Nothing
-                , abComment = Nothing
-                }
-            , AuthoredBio
-                { abFlow =
-                    FlowByName
-                        "Methane"
-                        Compartment{compartmentName = Air, compartmentSub = Just "low population density"}
-                        "kg"
-                , abDirection = Emission
-                , abAmount = 0.01
-                , abUnit = Just "kg"
-                , abComment = Nothing
-                }
-            ]
+            map
+                (`AuthoredLine` FromCall)
+                [ AuthoredTechInput
+                    { atiProvider = supplierPid
+                    , atiAmount = 8.0
+                    , atiUnit = Just "kg"
+                    , atiComment = Just "milk in"
+                    }
+                , AuthoredBio
+                    { abFlow = FlowById co2Id
+                    , abDirection = Emission
+                    , abAmount = 0.5
+                    , abUnit = Nothing
+                    , abComment = Nothing
+                    }
+                , AuthoredBio
+                    { abFlow =
+                        FlowByName
+                            "Methane"
+                            Compartment{compartmentName = Air, compartmentSub = Just "low population density"}
+                            "kg"
+                    , abDirection = Emission
+                    , abAmount = 0.01
+                    , abUnit = Just "kg"
+                    , abComment = Nothing
+                    }
+                ]
         }
 
 -- | A second authored activity, so a run of edits can name several.
@@ -535,7 +544,7 @@ richEvents =
     [ event (Created [cheese] ["a_b"])
     , event (Replaced "a_b" cheese)
     , event (Deleted ["a_b", "c_d"])
-    , event (Created [cheese{aaExchanges = [usedOilOut]}] ["a_b"])
+    , event (Created [cheese{aaExchanges = [AuthoredLine usedOilOut FromCall]}] ["a_b"])
     , event editedInventory
     , event unlinkedEdits
     , event retexted

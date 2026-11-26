@@ -117,6 +117,7 @@ data Resource
     | GetQualityReport
     | GetComputedQualityReport
     | GetCoverageReport
+    | CreateActivities
     | EditExchanges
     | EditActivities
     | SupplyMissing
@@ -231,6 +232,7 @@ resourceMutates r = case r of
     GetQualityReport -> False
     GetComputedQualityReport -> False
     GetCoverageReport -> False
+    CreateActivities -> True
     EditExchanges -> True
     EditActivities -> True
     SupplyMissing -> True
@@ -321,6 +323,7 @@ resourceNeeds r = case r of
     GetCoverageReport -> Nothing
     GetFlowFactors -> Nothing
     -- Its reply echoes the lines the caller wrote.
+    CreateActivities -> Nothing
     EditExchanges -> Nothing
     EditActivities -> Nothing
     SupplyMissing -> Nothing
@@ -394,6 +397,7 @@ resourceUsage r = case r of
     GetFlowMapping -> Nothing
     GetCharacterization -> Nothing
     ExplainCF -> Nothing
+    CreateActivities -> Nothing
     EditExchanges -> Nothing
     EditActivities -> Nothing
     SupplyMissing -> Nothing
@@ -486,6 +490,7 @@ apiPath r = case r of
     GetQualityReport -> Just (GET, ["db", "{dbName}", "quality-report"])
     GetComputedQualityReport -> Just (GET, ["db", "{dbName}", "computed-quality-report"])
     GetCoverageReport -> Just (GET, ["db", "{dbName}", "characterization-coverage"])
+    CreateActivities -> Just (POST, ["db", "{dbName}", "activities"])
     EditExchanges -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "exchanges"])
     EditActivities -> Just (POST, ["db", "{dbName}", "activities", "exchanges"])
     SupplyMissing -> Just (POST, ["db", "{dbName}", "missing-suppliers", "supply"])
@@ -568,6 +573,7 @@ mcpName r = case r of
     GetQualityReport -> "get_quality_report"
     GetComputedQualityReport -> "get_computed_quality_report"
     GetCoverageReport -> "get_characterization_coverage"
+    CreateActivities -> "create_activities"
     EditExchanges -> "edit_exchanges"
     EditActivities -> "edit_activities"
     SupplyMissing -> "supply_missing_product"
@@ -1132,10 +1138,20 @@ description r = case r of
         \by exact name scores them zero, silently. Grouped under the impact \
         \category's own name (rename target). One entry per method \
         \collection, so two versions compare side by side; optionally one."
+    CreateActivities ->
+        "LCA / ACV: create processes in a database of one's own, each with its \
+        \name, location, reference product (name, amount, unit) and what it \
+        \consumes and emits: inputs by their supplier's process_id, emission \
+        \and resource lines by flow id or by name, compartment and unit, waste \
+        \outputs by treatment process_id. A process the database already holds \
+        \(same name, location, product and its unit) is refused: edit_exchanges changes it. \
+        \Answer: the process_id of each process written, in order. Refused on \
+        \databases read from the engine's configuration (shared background): \
+        \copy first. 'transient': in memory only, an unload undoes it."
     EditExchanges ->
         "LCA / ACV: change what one process consumes and \
         \emits, or its name, location, description, \
-        \keeping the process: the tool that writes data. \
+        \keeping the process: the tool that changes a process's data. \
         \Adapts an imported process to the \
         \study: drop an out-of-scope substance, \
         \fix an amount, add a missing supplier, fix name or location, give a line \
@@ -1794,6 +1810,12 @@ params r = case r of
         [ pDatabase
         , Param "collection" "string" Optional "One loaded method collection (list_methods); every one when omitted."
         , pLimit "Max bridge groups per method collection (default all); bridgeGroupCount covers the full list."
+        ]
+    CreateActivities ->
+        [ pDatabase
+        , Param "activities" "array" Required "One element per process to create: {name, location, product_name, product_amount, product_unit, description?, inputs?, biosphere?, waste_outputs?}."
+        , Param "note" "string" Optional "Why, in a sentence. Kept in the history (get_database_history) and the export's changes report."
+        , pSource
         ]
     EditExchanges ->
         [ pDatabase

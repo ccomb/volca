@@ -47,6 +47,8 @@ module Database.Edit (
     WriteRefusal (..),
     WriteReport (..),
     writeActivities,
+    judgeWrite,
+    JudgedWrite (..),
     EditReport (..),
     editExchanges,
     editActivities,
@@ -662,23 +664,59 @@ writeActivities ::
     WriteVerb ->
     [AuthoredActivity] ->
     IO (Either WriteRefusal WriteReport)
-writeActivities _ _ _ _ _ [] =
+writeActivities manager dbName origin stated verb authored =
+    judgeWrite manager dbName verb authored >>= either (pure . Left) commit
+  where
+    -- Everything 'judgeWrite' judged was a snapshot taken before the reservation;
+    -- 'mutateReserved' re-reads the database under it and validates the
+    -- operation again against what is actually there, so a batch overtaken by
+    -- a concurrent edit is refused rather than written with a supplier link
+    -- that no longer resolves. In that rare interleaving the refusal degrades
+    -- from a classified status to a 'WriteFailed' message, never to a dangling
+    -- link. Identity minting is pure, so the keys cannot differ between the
+    -- two runs.
+    commit judged = do
+        outcome <- mutateUploadedDatabase manager dbName origin (pure (Change stated (jwOperation judged)))
+        pure $ case outcome of
+            Left err -> Left (WriteFailed err)
+            Right done ->
+                Right
+                    WriteReport
+                        { wrWritten = map (processRefText . riKey) (jwResolved judged)
+                        , wrPersisted = moPersisted done
+                        , wrWarnings = jwWarnings judged <> moWarnings done
+                        }
+
+-- | A batch judged and not yet written: what it was judged in, the rows it writes, their warnings, and the operation the journal records.
+data JudgedWrite = JudgedWrite
+    { jwContext :: AuthorContext
+    , jwResolved :: [ResolvedInsert]
+    , jwWarnings :: [Text]
+    , jwOperation :: JournalOp
+    }
+
+{- | Judge a batch exactly as 'writeActivities' does, and write nothing. An
+assistant tool judges a batch this way before asking a person for its missing
+amounts, so nobody types a number for a process refused anyway.
+-}
+judgeWrite :: DatabaseManager -> Text -> WriteVerb -> [AuthoredActivity] -> IO (Either WriteRefusal JudgedWrite)
+judgeWrite _ _ _ [] =
     -- Committing re-serializes the whole database and rebuilds its solver;
     -- an empty batch would pay all of that to write nothing.
     pure (Left (Malformed ["The batch is empty: there is nothing to write."]))
-writeActivities manager dbName origin stated verb authored =
+judgeWrite manager dbName verb authored =
     getDatabase manager dbName >>= \case
         Nothing -> pure (Left (NotLoaded dbName))
         Just loaded
             | not (dcIsUploaded (ldConfig loaded)) -> pure (Left (NotWritable dbName))
             | otherwise -> do
                 ctx <- authorContext manager (ldDatabase loaded)
-                case validateAuthored ctx authored of
-                    Left errs -> pure (Left (Malformed errs))
-                    Right (resolved, warnings) ->
-                        case presenceRefusal (ldDatabase loaded) verb resolved of
-                            Just refusal -> pure (Left refusal)
-                            Nothing -> either (pure . Left) (commit resolved warnings) (operation resolved)
+                required <- stillRequired manager dbName
+                pure $ do
+                    (resolved, warnings) <- first Malformed (validateAuthored ctx authored)
+                    maybe (Right ()) Left (presenceRefusal (ldDatabase loaded) verb resolved)
+                    required
+                    JudgedWrite ctx resolved warnings <$> operation resolved
   where
     {- The operation is what gets journalled and what gets applied - one
     description, so the record and the result cannot disagree. Its identities
@@ -692,25 +730,6 @@ writeActivities manager dbName origin stated verb authored =
         (ReplaceActivity _, [(activity, key)]) -> Right (Replaced key activity)
         (ReplaceActivity target, _) ->
             Left (Malformed ["a replace writes exactly one process over " <> target])
-    -- Everything above judged a snapshot taken before the reservation;
-    -- 'mutateReserved' re-reads the database under it and validates the
-    -- operation again against what is actually there, so a batch overtaken by
-    -- a concurrent edit is refused rather than written with a supplier link
-    -- that no longer resolves. In that rare interleaving the refusal degrades
-    -- from a classified status to a 'WriteFailed' message, never to a dangling
-    -- link. Identity minting is pure, so the keys cannot differ between the
-    -- two runs.
-    commit resolved warnings op = do
-        outcome <- mutateUploadedDatabase manager dbName origin (pure (Change stated op))
-        pure $ case outcome of
-            Left err -> Left (WriteFailed err)
-            Right done ->
-                Right
-                    WriteReport
-                        { wrWritten = map (processRefText . riKey) resolved
-                        , wrPersisted = moPersisted done
-                        , wrWarnings = warnings <> moWarnings done
-                        }
 
 -- | What an inventory edit produced, counted the way the request stated it.
 data EditReport = EditReport
@@ -814,7 +833,11 @@ judgeActivities manager dbName requests
                 | not (dcIsUploaded (ldConfig loaded)) -> pure (Left (NotWritable dbName))
                 | otherwise -> do
                     ctx <- authorContext manager (ldDatabase loaded)
-                    pure ((,) ctx <$> (addressEdits ctx requests >>= traverse (judged ctx)))
+                    required <- stillRequired manager dbName
+                    pure $ do
+                        judgedEdits <- addressEdits ctx requests >>= traverse (judged ctx)
+                        required
+                        pure (ctx, judgedEdits)
   where
     -- A batch names the activity each complaint is about; one edit alone
     -- reads as it always has.
@@ -1168,6 +1191,13 @@ authorContext manager db = do
     deps <- loadedDependencies manager db
     unitConfig <- getMergedUnitConfig manager
     pure (editingContext unitConfig db deps)
+
+-- | 'guardDependents' read from the manager, as a refusal: judging an edit refuses what committing it would.
+stillRequired :: DatabaseManager -> Text -> IO (Either WriteRefusal ())
+stillRequired manager dbName = do
+    loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    configs <- readTVarIO (dmAvailableDbs manager)
+    pure (first WriteFailed (guardDependents configs dbName loadedDbs))
 
 {- | Refuse an edit while another loaded database depends on this one. Shared
 with the delete path, which has the same reason: rebuilding renumbers every
