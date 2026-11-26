@@ -31,7 +31,6 @@ import qualified Data.Map as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Database.Cutoffs (chainRefusedPrefix)
 import Database.Manager (CollectionName (..), DatabaseManager (..))
 import Method.Mapping (LongTermMode (..))
 import Servant (ServerError (..))
@@ -61,12 +60,6 @@ data BatchError
       indicators' parts. Carries the verbatim engine message.
       -}
       Unprocessable Text
-    | {- | The activity's chain reaches inputs only a database not loaded would
-      supply, so a score would count them as zero (HTTP 422 whose body starts
-      with 'chainRefusedPrefix'). Carries the verbatim engine message, which
-      names those inputs.
-      -}
-      ChainRefused Text
     | {- | Catch-all for any other 'ServerError' surfaced by the Handler
       stack. Carries the HTTP status code and the verbatim body so
       nothing is silently swallowed.
@@ -221,9 +214,6 @@ translateError availableCollections se
         DatabaseNotLoaded rest
     | code == 404 = ActivityResolutionFailed body
     | code == 400 = ActivityResolutionFailed body
-    | code == 422
-    , chainRefusedPrefix `T.isPrefixOf` body =
-        ChainRefused body
     | code == 422 = Unprocessable body
     | otherwise = OtherBatchError code body
   where

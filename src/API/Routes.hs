@@ -2483,21 +2483,7 @@ postActivitySensitivity dbName processIdText collectionName methodIdText senReq 
     let functionalUnit = Service.functionalUnitIn db activity
     eRes <- liftIO $ Service.computeSensitivities db sharedSolver processId (srPerturbations senReq)
     (baselineX, perResults) <- either throwServiceError pure eRes
-    unitCfg <- liftIO $ getMergedUnitConfig dbManager
-    let depLookup = DM.mkDepSolverLookup dbManager
-        scaleToSolution x = do
-            eSol <-
-                SharedSolver.goWithDepsFromScalings
-                    unitCfg
-                    depLookup
-                    db
-                    dbName
-                    []
-                    [Right x]
-                    0
-            pure $ case eSol of
-                sol : _ -> sol
-                [] -> Left "cross-DB propagation returned empty result"
+    let scaleToSolution = Impact.solutionOfScaling dbManager db dbName
         buildEntry baselineLcia (p, eitherX) = case eitherX of
             Left err -> pure (PerturbedEntry p (Left err))
             Right x' -> do
@@ -3204,14 +3190,12 @@ activitiesResult dbManager dbName heading lim Impact.ProcessParts{Impact.ppShown
 data GroupFailure
     = -- | The request does not read: a group without a filter, a reading or a group that is not one
       GroupsMisread !Text
-    | -- | What was asked has no answer: a chain that cannot be cut or weighed
+    | -- | What was asked has no answer: a chain that cannot be cut or weighed, or that reaches inputs only a database not loaded would supply
       GroupsRefused !Text
     | -- | A score could not be computed: the collection's tables disagree
       GroupScoringFailed !Text
     | -- | A database the request reads keeps its detail to itself
       GroupsWithheld !Text
-    | -- | The root's chain reaches inputs only a database not loaded would supply
-      GroupsChainRefused !Text
 
 -- | The reading and the groups a request names.
 data GroupsAsked
@@ -3356,7 +3340,7 @@ rootReached :: DatabaseManager -> GroupRoot -> ExceptT GroupFailure IO RootReach
 rootReached dbManager GroupRoot{grName = dbName, grDatabase = db, grSolver = solver, grProcess = pid, grLongTerm = ltMode} = do
     unitCfg <- liftIO (getMergedUnitConfig dbManager)
     sol <- liftIO . Impact.withLongTermPolicy dbManager ltMode =<< withExceptT GroupsRefused (ExceptT (SharedSolver.computeInventoryMatrixWithDepsCached unitCfg (DM.mkDepSolverLookup dbManager) db dbName solver pid))
-    let refused = GroupsChainRefused . chainRefusalSentence (activityName (dbActivities db V.! fromIntegral pid))
+    let refused = GroupsRefused . chainRefusalSentence (activityName (dbActivities db V.! fromIntegral pid))
     checkedSol <- withExceptT refused (ExceptT (Impact.checkSolution dbManager SeeDetailedScores sol))
     RootReached checkedSol <$> liftIO (Impact.withheldDatabases dbManager SeeDetailedScores sol)
 
@@ -3710,7 +3694,6 @@ groupFailure = \case
     GroupsRefused why -> unprocessable why
     GroupScoringFailed why -> scoringError why
     GroupsWithheld why -> throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 why)}
-    GroupsChainRefused why -> unprocessable why
 
 postGroupContributions :: Text -> Text -> DM.CollectionName -> Maybe Bool -> GroupsRequest -> AppM GroupContributions
 postGroupContributions dbName processIdText collectionName mExcludeLT request = counted Contributing dbName (ProcessKey processIdText) $ do

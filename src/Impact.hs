@@ -46,6 +46,7 @@ module Impact (
     partitionByLicence,
     licencedSolution,
     checkSolution,
+    solutionOfScaling,
     scoreParts,
     LicencedContributions (..),
     licencedContributionsOf,
@@ -63,15 +64,15 @@ import Data.Bifunctor (first)
 import Data.Containers.ListUtils (nubOrd)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as M
-import Data.Maybe (listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (UUID)
 
 import Database.Cutoffs (ChainRefusal, CheckedSolution, checkedOf, checkedSolution, reshaped)
-import Database.Manager (CollectionName, DatabaseManager (..), getGapIndex, getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, refusingDatabases)
-import Matrix (Inventory, applyBiosphereMatrix)
+import Database.Manager (CollectionName, DatabaseManager (..), getGapIndex, getMergedFlowMetadata, getMergedUnitConfig, mapMethodToTablesCached, mkDepSolverLookup, refusingDatabases)
+import Matrix (Inventory, Vector, applyBiosphereMatrix)
 import Method.Mapping (
     FlowContribution (..),
     LCIAOutcome (..),
@@ -91,6 +92,7 @@ import Progress (ProgressLevel (..), reportProgress)
 import SharedSolver (Reached (..))
 import qualified SharedSolver
 import Types (BioFlowDB, Permission (..), ProcessId, includedSentence)
+import qualified Types
 
 {- | Record the long-term emission policy on a solution: drop the delayed
 emissions from its inventory and say so, in one move.
@@ -145,6 +147,13 @@ checkSolution dbManager permission sol = do
     amountsKept <- refusingDatabases dbManager ReadInventory
     withheld <- withheldDatabases dbManager permission sol
     checkedOf (getGapIndex dbManager) (S.fromList withheld <> amountsKept) sol
+
+-- | The solution across databases of a scaling vector of @db@, one perturbed by a sensitivity for one.
+solutionOfScaling :: DatabaseManager -> Types.Database -> Text -> Vector -> IO (Either Text SharedSolver.CrossDBSolution)
+solutionOfScaling dbManager db dbName x = do
+    unitCfg <- getMergedUnitConfig dbManager
+    fromMaybe (Left "cross-DB propagation returned empty result") . listToMaybe
+        <$> SharedSolver.goWithDepsFromScalings unitCfg (mkDepSolverLookup dbManager) db dbName [] [Right x] 0
 
 {- | Split a solution by the databases whose licence refuses a permission.
 

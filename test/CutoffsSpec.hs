@@ -281,6 +281,20 @@ spec = do
                 `shouldBe` [("M", 0.5, NE.singleton (BlockerReason "dependency_not_loaded" (Just "supplier")), True)]
             refusesSomewhere alone `shouldBe` True
 
+        it "reads each link at the parameter values the chain was solved at" $ do
+            -- The index is scanned at default values, where the link carries nothing; a parameter set gives it 0.5.
+            supplier <- build (simple [((actS, mFlow), mkActivity "S" [reference mFlow])])
+            consumer <- build (simple [((actR, rFlow), mkActivity "R" [reference rFlow, techInput mFlow 0.5])])
+            let atValues = linkM consumer supplier
+                atDefaults = atValues{dbCrossDBLinks = map (\l -> l{cdlCoefficient = 0}) (dbCrossDBLinks atValues)}
+                indexOf = gapIndexIn (linkCheckIn (const Nothing)) []
+                met index db = do
+                    sol <- solve [] "consumer" db (actR, rFlow)
+                    pure (map (\c -> (ciAmount c, ciRefusing c)) (cutoffShown (cutoffsReached (const index) S.empty (NE.toList (SS.csScalings sol)))))
+            met (indexOf atDefaults) atValues `shouldReturn` [(0.5, True)]
+            -- And the other way: a link a parameter set zeroes refuses nothing.
+            met (indexOf atValues) atDefaults `shouldReturn` []
+
         it "refuses the chain when the database loaded lacks the supplier" $ do
             supplier <- build (simple [((actS, mFlow), mkActivity "S" [reference mFlow])])
             other <- build (simple [((actQ, qFlow), mkActivity "Q" [reference qFlow])])

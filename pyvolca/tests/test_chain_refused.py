@@ -15,7 +15,7 @@ from volca import ChainRefused, RefusedActivity, VoLCAError
 from volca.client import Client
 from volca.types import BatchScores
 
-SENTENCE = "Refused: the chain of bread reaches 2 inputs that only a database not loaded would supply (flour, salt); its supply chain names them."
+SENTENCE = "Refused: the chain of bread reaches 2 inputs that a database would supply once loaded and linked (flour, salt); its upstream names them."
 
 
 def response(status: int, text: str) -> requests.Response:

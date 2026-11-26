@@ -10,6 +10,8 @@ module Database.Cutoffs (
     GapIndex (..),
     gapIndexOf,
     gapIndexIn,
+    scannedGaps,
+    withLinksAnswered,
     gapIndexMoved,
     refuses,
     refusesSomewhere,
@@ -41,10 +43,11 @@ import Data.Ord (Down (..))
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Vector as V
 import Database.Loader (GapEdge (..), GapReason (..), gapEdgesForLoaded, gapEdgesOfProcesses, gapReasons)
 import Matrix (activityNormalizationFactor, linkConsumer, processScaling)
 import SharedSolver (CrossDBSolution (..), Reached (..))
-import Types (BlockerReason (..), CrossDBLink (..), Database (..), ProcessId, findProcessId)
+import Types (BlockerReason (..), CrossDBLink (..), Database (..), LinkBlocker (AliasDeclined), ProcessId, blockerReason, findProcessId)
 
 {- | A database's unsupplied edges, by the process that asks for them, and
 whether the database takes from another one, which decides what an identity
@@ -55,8 +58,12 @@ counts them as zero, as it does an unsupplied edge.
 data GapIndex = GapIndex
     { giTakesFromAnother :: Bool
     , giByConsumer :: M.Map ProcessId [GapEdge]
-    , giUnanswered :: M.Map ProcessId [(CrossDBLink, BlockerReason)]
-    -- ^ The links carrying an amount that the loaded databases do not answer, and why
+    , giUnanswered :: M.Map ProcessId [(Int, BlockerReason)]
+    {- ^ The links the loaded databases do not answer, by their position in
+    'dbCrossDBLinks', and why. A position, not the link: at other parameter
+    values the database keeps its links in that order, each with its amount
+    at those values, so a link zero by default may carry one there.
+    -}
     }
     deriving (Show, Eq)
 
@@ -73,15 +80,25 @@ even when none is loaded and so none supplied a link: an identity nobody
 ships then names a process of the missing dependency.
 -}
 gapIndexIn :: LinkCheck -> [Text] -> Database -> GapIndex
-gapIndexIn answered declared db =
-    (indexedByConsumer db (gapEdgesForLoaded db))
+gapIndexIn answered declared db = withLinksAnswered answered declared db (scannedGaps db)
+
+-- | The unsupplied edges of the database, the long part of a scan, which reads nothing but the database.
+scannedGaps :: Database -> GapIndex
+scannedGaps db = indexedByConsumer db (gapEdgesForLoaded db)
+
+{- | The index with the links the loaded databases do not answer and the
+dependencies the configuration declares, both read from the manager: a cache
+of it holds only when they are read in the transaction that stores it.
+-}
+withLinksAnswered :: LinkCheck -> [Text] -> Database -> GapIndex -> GapIndex
+withLinksAnswered answered declared db gaps =
+    gaps
         { giTakesFromAnother = not (null (dbDependsOn db)) || not (null declared)
         , giUnanswered =
             NE.toList
                 <$> groupInOrder
-                    [ (pid, (l, why))
-                    | l <- dbCrossDBLinks db
-                    , cdlCoefficient l /= 0
+                    [ (pid, (position, why))
+                    | (position, l) <- zip [0 ..] (dbCrossDBLinks db)
                     , Just why <- [answered l]
                     , Just (pid, _) <- [linkConsumer db l]
                     ]
@@ -123,7 +140,7 @@ ships may be one of that other database's, missing from the version loaded.
 -}
 refuses :: Bool -> GapReason -> Bool
 refuses takesFromAnother reason = case reason of
-    GapBlocked reasons -> any ((/= "alias_declined") . brReason) reasons
+    GapBlocked reasons -> any ((/= brReason (blockerReason AliasDeclined)) . brReason) reasons
     GapDanglingIdentity -> takesFromAnother
     GapWasteInput -> False
 
@@ -225,13 +242,19 @@ cutoffInputsIn indexOf scalings =
         , x /= 0
         , e <- edges
         ]
+    -- Each link read from the database reached, at the parameter values it was solved at.
     linksMet =
         [ (linkKeyOf name l, Met (x * cdlCoefficient l / activityNormalizationFactor db pid) (S.singleton pid) (NE.singleton why) True)
         | Reached name db scaling <- scalings
-        , (pid, links) <- M.toList (giUnanswered (indexOf name))
+        , let unanswered = giUnanswered (indexOf name)
+        , not (M.null unanswered)
+        , let links = V.fromList (dbCrossDBLinks db)
+        , (pid, positioned) <- M.toList unanswered
         , let x = processScaling db scaling pid
         , x /= 0
-        , (l, why) <- links
+        , (position, why) <- positioned
+        , Just l <- [links V.!? position]
+        , cdlCoefficient l /= 0
         ]
 
     keyOf :: Text -> GapEdge -> CutoffKey
@@ -320,9 +343,9 @@ chainRefusalSentence what refusal =
         <> " reaches "
         <> T.pack (show (crCount refusal))
         <> (if crCount refusal == 1 then " input" else " inputs")
-        <> " that only a database not loaded would supply"
+        <> " that a database would supply once loaded and linked"
         <> named (crProducts refusal)
-        <> "; its supply chain names them."
+        <> "; its upstream names them."
   where
     named [] = ""
     named ps = " (" <> T.intercalate ", " (take 3 ps) <> (if length ps > 3 then ", \8230" else "") <> ")"

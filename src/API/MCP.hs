@@ -2574,7 +2574,6 @@ callComputeSensitivity dbManager mBaseUrl rid args =
                         args ::
                         Either Text [Perturbation]
                     )
-        unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
         eRes <-
             liftIO $
@@ -2583,11 +2582,8 @@ callComputeSensitivity dbManager mBaseUrl rid args =
         -- This tool takes no long-term policy: it compares a baseline with
         -- perturbations of it, and both sides count the same flows.
         let what = activityName (raActivity ra)
-            solutionOf x =
-                fromMaybe (Left "cross-DB propagation returned empty result") . listToMaybe
-                    <$> SharedSolver.goWithDepsFromScalings unitCfg (DM.mkDepSolverLookup dbManager) db dbName [] [Right x] 0
             checkedScoreOf x = do
-                checkedSol <- checkedIn dbManager SeeDetailedScores what =<< ExceptT (solutionOf x)
+                checkedSol <- checkedIn dbManager SeeDetailedScores what =<< ExceptT (Impact.solutionOfScaling dbManager db dbName x)
                 score <- ExceptT (Impact.scoreSolution dbManager collection method tables checkedSol)
                 pure (checkedSol, score)
         (baselineChecked, baselineScore) <- checkedScoreOf baselineX
@@ -3559,7 +3555,6 @@ groupFailureText (GroupsMisread why) = why
 groupFailureText (GroupsRefused why) = why
 groupFailureText (GroupScoringFailed why) = why
 groupFailureText (GroupsWithheld why) = why
-groupFailureText (GroupsChainRefused why) = why
 
 callGetGroupContributions :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetGroupContributions dbManager mBaseUrl rid args =
@@ -3835,7 +3830,6 @@ batchErrorMsg err = case err of
     BI.DatabaseNotLoaded name -> "Database not loaded: " <> name
     BI.ActivityResolutionFailed msg -> msg
     BI.Unprocessable msg -> msg
-    BI.ChainRefused msg -> msg
     BI.OtherBatchError code msg -> "HTTP " <> T.pack (show code) <> ": " <> msg
 
 {- | Look up the configured scoring-set names on a loaded method collection.

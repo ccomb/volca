@@ -718,8 +718,10 @@ description r = case r of
         \edges stay negative. filter_classification: \"System=Value[:exact|:starts-with]\" \
         \(default contains). Amounts are for 1 unit of the reference product; see \
         \'functionalUnit'. They are 'filteredTotalPerUnit' and, per group, \
-        \'quantityPerUnit'. Inputs no loaded database supplies count as zero, in \
-        \'cutoffInputs'; 'withheldCutoffs' counts those a licence hides."
+        \'quantityPerUnit'. Inputs the publisher left unsupplied count as zero, in \
+        \'cutoffInputs'; 'withheldCutoffs' counts those a licence hides. Every scope \
+        \but direct is refused when the chain reaches inputs only a database not \
+        \loaded would supply, naming them."
     GetSupplyChain ->
         "LCA / ACV: flat list of all upstream \
         \processes (chaîne amont, filière, \
@@ -743,9 +745,10 @@ description r = case r of
         \(m³), emissions (kg CO₂, kg CH₄, kg N), resource \
         \extraction. Amounts are for 1 unit of the \
         \reference product; see 'functional_unit'. Inputs \
-        \no loaded database supplies count as zero: 'cutoff_notice' opens the \
+        \the publisher left unsupplied count as zero: 'cutoff_notice' opens the \
         \answer, 'cutoff_inputs' lists them, 'withheld_cutoffs' counts those a \
-        \licence hides."
+        \licence hides. A chain reaching inputs only a database not loaded would \
+        \supply is refused, naming them."
     GetImpacts ->
         "LCA / ACV: LCIA score of a process for one impact category, with \
         \functional unit and top contributing flows. Answers empreinte carbone / \
@@ -761,9 +764,10 @@ description r = case r of
         \writes nothing at the flow's own \
         \place; 'writtenAt' says where, 'upTo' what it would add at the largest of \
         \those factors, in the score's unit. 'basis' as on score_activity. Inputs \
-        \no loaded database supplies count as zero: 'cutoff_notice' opens the \
+        \the publisher left unsupplied count as zero: 'cutoff_notice' opens the \
         \answer, 'cutoff_inputs' lists them, 'withheld_cutoffs' counts those a \
-        \licence hides."
+        \licence hides. A chain reaching inputs only a database not loaded would \
+        \supply is refused, naming them."
             <> webUrlTip
     ComputeSensitivity ->
         "LCA / ACV: sensitivity: score relative perturbations of supplier → \
@@ -1070,7 +1074,8 @@ description r = case r of
         \invalid; refused allocation: unscorable; no solver answer (a loop \
         \consuming all it makes): unsolvable, one line per reason with its \
         \process_ids; a chain reaching inputs only a database not loaded would \
-        \supply: refused, one entry per process with why; the rest still \
+        \supply: refused, one entry per process with the 'count' of such inputs, \
+        \'refused_notice' once saying what lifts it; the rest still \
         \ranked. 'basis' once for all (see \
         \score_activity); a row's parameter set is a position in 'parameterSets'. \
         \Set that weighs (list_scoring_sets): quote 'reading_notice' with any \

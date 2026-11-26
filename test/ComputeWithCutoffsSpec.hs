@@ -377,7 +377,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
 
         it "says why through MCP, naming the input" $ do
             reply <- mcpReply manager "get_impacts" [("process_id", String pid)]
-            reply `shouldSatisfy` T.isInfixOf "Refused: the chain of X reaches 1 input that only a database not loaded would supply (K); its supply chain names them."
+            reply `shouldSatisfy` T.isInfixOf "Refused: the chain of X reaches 1 input that a database would supply once loaded and linked (K); its upstream names them."
 
         it "refuses that row of a batch and scores the others" $ do
             pidZ <- pidOf db (actZ, zFlow)
@@ -401,7 +401,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         pid <- pidOf rootDb (actR, rFlow)
         either Just (const Nothing) <$> runIn manager (getActivityLCIA "main" pid coll methodText Nothing) `shouldReturn` Just 422
         reply <- mcpReply manager "get_impacts" [("process_id", String pid)]
-        reply `shouldSatisfy` T.isInfixOf "Refused: the chain of R reaches 1 input that only a database not loaded would supply; its supply chain names them."
+        reply `shouldSatisfy` T.isInfixOf "Refused: the chain of R reaches 1 input that a database would supply once loaded and linked; its upstream names them."
 
     it "refuses a chain linked to a dependency not loaded, until the dependency loads" $ do
         (supplier, rootDb) <- linkedPair (linkedTo absentAct kFlow 1)

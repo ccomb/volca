@@ -23,7 +23,6 @@ import API.Routes (ScoreLines (..), collectionNotLoadedMessage)
 import Config (defaultConfig)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text.Encoding as TE
-import Database.Cutoffs (chainRefusedPrefix)
 import Database.Manager (CachePolicy (..), initDatabaseManager)
 import Servant (err400, err404, err422, err500, errBody)
 import Test.Hspec
@@ -76,10 +75,6 @@ spec = do
         it "maps 422 to Unprocessable (verbatim body)" $
             translateError' [] 422 "Cannot convert 1 m3 to kg"
                 `shouldBe` Unprocessable "Cannot convert 1 m3 to kg"
-
-        it "maps a refused chain's 422 to ChainRefused (verbatim body)" $ do
-            let refusal = chainRefusedPrefix <> "bread reaches 2 inputs that only a database not loaded would supply (flour, salt)."
-            translateError' [] 422 refusal `shouldBe` ChainRefused refusal
 
         it "falls through to OtherBatchError for anything else" $
             translateError' [] 500 "internal error"
