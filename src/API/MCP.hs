@@ -1087,17 +1087,17 @@ readsThrough asked t
 declinedText :: Refusal -> [Text] -> Set.Set Text -> NE.NonEmpty Terms -> Text
 declinedText how asked inCookie ts = case how of
     SaidNo ->
-        "The user did not accept the terms of use of " <> owners <> ", so " <> reads <> " is not read. Never accept them on their behalf; if they change their mind, call the tool again and they will be asked."
+        "The user did not accept the terms of use of " <> owners <> ", so " <> readNames <> " is not read. Never accept them on their behalf; if they change their mind, call the tool again and they will be asked."
     ClosedTheForm ->
         T.unlines
-            [ "The form showing the terms of use of " <> owners <> " was closed with no answer, so " <> reads <> " is not read. Never accept them on their behalf."
+            [ "The form showing the terms of use of " <> owners <> " was closed with no answer, so " <> readNames <> " is not read. Never accept them on their behalf."
             , "If the user cannot see forms in this client, as in a run with no screen, they accept the terms by having the client send the cookie volca_terms=" <> T.intercalate "." cookie <> " with its requests, once they have read them: the fingerprints of every text accepted, separated by dots."
             ]
   where
     owners :: Text
     owners = T.intercalate ", " (map termsDatabase (NE.toList ts))
-    reads :: Text
-    reads = T.intercalate ", " asked
+    readNames :: Text
+    readNames = T.intercalate ", " asked
     -- What the cookie already holds and the fingerprints it lacks, so setting it keeps what it opened.
     cookie :: [Text]
     cookie = Set.toList (inCookie <> Set.fromList (map termsFingerprint (NE.toList ts)))
