@@ -65,7 +65,7 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, enc
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteRequest (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteRequest (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
@@ -3568,7 +3568,7 @@ callGetGroupContributions dbManager mBaseUrl rid args =
                     , grCollection = DM.CollectionName collName
                     }
         result <- liftIO (groupContributionsOf dbManager root (mcMethods mc) request)
-        let link = (<> (groupsPagePath dbName pidText (DM.CollectionName collName) <> groupsQuery request)) <$> groupsPageBase mBaseUrl args specs
+        let link = (<> (groupsPagePath dbName pidText (DM.CollectionName collName) <> groupsQuery request)) <$> groupsPageBase mBaseUrl args
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . addWebUrlMaybe link . toJSON) result
 
 callGetGroupMembers :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
@@ -3579,7 +3579,7 @@ callGetGroupMembers dbManager mBaseUrl rid args =
         let lim = fromMaybe 10 (intArg "limit" args)
         result <- liftIO (groupMembersOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
         GroupMembers{gmSolution = sol, gmParts = parts} <- either (throwE . groupFailureText) pure result
-        toolSuccessJson rid . object . (<> webUrlField (groupsPageBase mBaseUrl args specs) (groupPagePath req attribution specs)) <$> processesFields dbManager mBaseUrl req lim sol parts
+        toolSuccessJson rid . object . (<> webUrlField (groupsPageBase mBaseUrl args) (groupPagePath req attribution specs)) <$> processesFields dbManager mBaseUrl req lim sol parts
 
 callGetGroupFlows :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetGroupFlows dbManager mBaseUrl rid args =
@@ -3587,7 +3587,7 @@ callGetGroupFlows dbManager mBaseUrl rid args =
         req <- loadLcaRequest dbManager args
         (attribution, specs) <- except (groupsArgs args)
         let request = GroupMembersRequest attribution specs (textArg "group" args) (Just (fromMaybe 20 (intArg "limit" args)))
-            link = (<> groupPagePath req attribution specs) <$> groupsPageBase mBaseUrl args specs
+            link = (<> groupPagePath req attribution specs) <$> groupsPageBase mBaseUrl args
         result <- liftIO (groupFlowsOf dbManager (lcaGroupRoot req args) (lrMethod req) request)
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . addWebUrlMaybe link . toJSON) result
 
@@ -3596,14 +3596,11 @@ groupPagePath :: LcaRequest -> Maybe Text -> [GroupSpec] -> Text
 groupPagePath req attribution specs = groupsPagePath (lrDbName req) (raText (lrResolved req)) (lrCollection req) <> "/" <> encodeSegment (lrMethodIdText req) <> groupsQuery (GroupsRequest attribution specs)
 
 {- | Where a link to the groups page starts. None when long-term emissions are
-left out: the page counts them, so it would show other totals. None either
-when a group keeps a substance: the page reads only what a group takes of
-processes, so it would show another group under the same name.
+left out: the page counts them, so it would show other totals.
 -}
-groupsPageBase :: Maybe Text -> KeyMap Value -> [GroupSpec] -> Maybe Text
-groupsPageBase mBaseUrl args specs
+groupsPageBase :: Maybe Text -> KeyMap Value -> Maybe Text
+groupsPageBase mBaseUrl args
     | fromMaybe False (boolArg "exclude_long_term" args) = Nothing
-    | any (isJust . gfsFlow . gspFilter) specs = Nothing
     | otherwise = mBaseUrl
 
 callGetGroupCandidates :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
