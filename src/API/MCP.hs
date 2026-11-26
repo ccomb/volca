@@ -9,7 +9,7 @@ It speaks two eras of the protocol on the same address. A client of the
 request; an older client opens with @initialize@ and is answered as 2025-03-26.
 POST carries every request; anything else is refused with 405.
 -}
-module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId, Era (..), Rejection (..), classify, sameOrigin, modernVersion) where
+module API.MCP (mcpApp, mcpCountsAsActivity, WhileWorking, toolDefinitions, callTool, handleInitialize, webUrlBase, RpcRequest (..), RequestId (..), noRequestId, Era (..), Rejection (..), classify, sameOrigin, modernVersion, askingOf, TermsOutcome (..), Refusal (..), termsStep, toolAnswered) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Data.Aeson
@@ -87,7 +87,7 @@ import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, flowKindId, flowKindName, getUnitNameForBioFlow, granted, kindOfFlow, lookupExchangeFlow, lookupFlow, matchWord, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
-import Usage (Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
+import Usage (Asking (..), Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
 -- JSON-RPC 2.0 types
@@ -255,7 +255,8 @@ mcpApp dbManager presets hasFrontend mHosting mName whileWorking mUsage = do
     serve :: RequestHeaders -> Text -> Call -> IO Response
     serve hdrs sid (Call era method rpcReq) = do
         let runCall = if mcpCountsAsActivity (rpcMethod rpcReq) then whileWorking else id
-        resp <- runCall (handleRpc (callerOf hdrs) dbManager presets mHosting (webUrlBase hasFrontend hdrs) mName method rpcReq)
+        let caller = (callerOf hdrs){callerAsking = askingOf era rpcReq}
+        resp <- runCall (handleRpc caller dbManager presets mHosting (webUrlBase hasFrontend hdrs) mName method rpcReq)
         forM_ mUsage $ \lg ->
             noteToolCall dbManager (recordUse lg (usageLookup dbManager) (readerOf hdrs)) rpcReq resp
         pure $ case era of
@@ -427,13 +428,14 @@ sameOrigin hdrs = case lookup hOrigin hdrs of
         (_, rest) | not (T.null rest) -> T.drop 3 rest
         _ -> ""
 
-{- | Every result of the modern era says it is complete and which server gave
-it. An error carries no result and is left as it is.
+{- | Every result of the modern era says whether it is complete and which
+server gave it. An error carries no result and is left as it is.
 -}
 modernResult :: Maybe ServerName -> Value -> Value
 modernResult mName (Object o) = Object (maybe o (\r -> KM.insert "result" (stamp r) o) (KM.lookup "result" o))
   where
     stamp :: Value -> Value
+    -- The union keeps the result's own keys: one that asks the person stays "input_required".
     stamp (Object r) = Object (r <> KM.fromList [("resultType", String "complete"), ("_meta", object ["io.modelcontextprotocol/serverInfo" .= serverInfo mName])])
     stamp r = r
 modernResult _ v = v
@@ -875,9 +877,11 @@ noteToolCall dbManager note rpcReq resp
         resolves :: Bool
         resolves = either (const False) (const True) (Service.resolveActivityByProcessId db pid)
 
--- | Whether a tool call's reply is an answer rather than a refusal or an error.
+-- | Whether a tool call's reply is an answer rather than a refusal, an error, or a question to the person.
 toolAnswered :: Value -> Bool
-toolAnswered (Object o) | Just (Object r) <- KM.lookup "result" o = KM.lookup "isError" r /= Just (Bool True)
+toolAnswered (Object o)
+    | Just (Object r) <- KM.lookup "result" o =
+        KM.lookup "isError" r /= Just (Bool True) && KM.lookup "resultType" r /= Just (String "input_required")
 toolAnswered _ = False
 
 {- | The processes a tool call asks about, each with its database: the
@@ -925,23 +929,48 @@ callTool _ _ _ mHosting _ rid name _
 callTool _ _ presets _ _ rid _ args
     | Left err <- presetFilters presets args = return $ toolError rid err
 callTool caller dbManager presets mHosting mBaseUrl rid name args = do
-    terms <- DM.termsToAccept dbManager (databasesOfCall name args)
+    let asking = callerAsking caller
+        asked = L.nub (databasesOfCall asking name args)
+    terms <- DM.termsToAccept dbManager asked
     accepted <- (callerAcceptedTerms caller <>) <$> DM.acceptedTerms dbManager (callerReader caller)
     licences <- requestedLicences dbManager args
-    case (missingTerms accepted terms, licenceRefusalFor name licences) of
-        (missing@(_ : _), _) -> pure (toolError rid (termsRefusalText missing))
-        (_, Just refusal) -> pure (toolError rid refusal)
-        ([], Nothing) -> case R.fromMcpName name of
-            Nothing -> pure (toolError rid ("Unknown tool: " <> name))
-            Just resource -> dispatchTool caller dbManager presets mHosting mBaseUrl rid resource args (licenceOfDatabase licences)
+    let run resource = dispatchTool caller dbManager presets mHosting mBaseUrl rid resource args (licenceOfDatabase licences)
+    case (toolToRun name licences, termsStep asking (missingTerms accepted terms)) of
+        (Left refusal, _) | refusesBeforeAsking asking -> pure (toolError rid refusal)
+        (_, AskInChat ts) -> pure (toolError rid (termsRefusalText (NE.toList ts)))
+        (_, AskInForm ts) -> pure (inputRequired rid asked ts)
+        (_, Declined how ts) -> pure (toolError rid (declinedText how asked (callerAcceptedTerms caller) ts))
+        (Left refusal, NothingMissing) -> pure (toolError rid refusal)
+        (Left refusal, AcceptedAll _) -> pure (toolError rid refusal)
+        (Right resource, NothingMissing) -> run resource
+        (Right resource, AcceptedAll ts) -> DM.acceptTerms dbManager (callerReader caller) (NE.toList ts) >> run resource
+
+-- | The tool a call names, or why it is refused whatever the terms: an unknown name, or a licence that withholds its answer.
+toolToRun :: Text -> [NamedLicence] -> Either Text R.Resource
+toolToRun name licences = case R.fromMcpName name of
+    Nothing -> Left ("Unknown tool: " <> name)
+    Just resource -> maybe (Right resource) Left (licenceRefusalFor name licences)
+
+{- | Whether a refusal that holds whatever the terms comes before asking them.
+A form is shown only for a call that would then run: the person does not
+accept terms to be refused the tool anyway. In the conversation the terms
+come first, as they always did.
+-}
+refusesBeforeAsking :: Asking -> Bool
+refusesBeforeAsking = \case
+    InChat -> False
+    InForm _ -> True
 
 {- | The databases a call reads: those it names, and those its substitutions
-reach into. Loading or unloading one reads none of its data, and accepting its
-terms is how its reader gets to read it.
+reach into. Loading or unloading one reads none of its data. Accepting its
+terms is how its reader gets to read it, so the assistant calls it freely
+when the person is asked in the conversation; when the client shows forms,
+the call shows the terms' form like any other, and the person answers it.
 -}
-databasesOfCall :: Text -> KeyMap Value -> [Text]
-databasesOfCall name args
-    | name `elem` ["load_database", "unload_database", "accept_terms"] = []
+databasesOfCall :: Asking -> Text -> KeyMap Value -> [Text]
+databasesOfCall asking name args
+    | name `elem` ["load_database", "unload_database"] = []
+    | name == "accept_terms", InChat <- asking = []
     | otherwise = [db | key <- databaseArguments, Just (String db) <- [KM.lookup (fromText key) args]] ++ referencedDatabases (Object args)
 
 -- | What an assistant is told when terms are missing: the texts, and what to do with them.
@@ -952,6 +981,139 @@ termsRefusalText missing =
         , "Show the user these terms in full. Only if they explicitly accept them, call accept_terms with the database named below; never accept them on their behalf."
         ]
             ++ concat [["", "--- Terms of use of " <> termsDatabase t <> " ---", termsText t] ++ maybe [] (pure . disclosureSentence) (termsUsage t) | t <- missing]
+
+{- | What a call does about the terms its reader has not accepted: nothing
+when there are none or the person accepted them all in the forms, ask them,
+or stop because the person did not accept. All or nothing: a text left
+unanswered asks every form again, so no part of a call's terms is recorded
+alone.
+-}
+data TermsOutcome
+    = NothingMissing
+    | -- | Every form accepted: these terms are to be recorded, then the call runs.
+      AcceptedAll (NE.NonEmpty Terms)
+    | AskInChat (NE.NonEmpty Terms)
+    | AskInForm (NE.NonEmpty Terms)
+    | -- | The terms the person refused that way.
+      Declined Refusal (NE.NonEmpty Terms)
+    deriving (Eq, Show)
+
+{- | How the person did not accept: by saying no, or by closing the form with
+no answer, which is also what a client that cannot show forms sends.
+-}
+data Refusal = SaidNo | ClosedTheForm
+    deriving (Eq, Show)
+
+-- | What the person did with one form.
+data FormAnswer = Accepted | Answered Refusal
+    deriving (Eq)
+
+termsStep :: Asking -> [Terms] -> TermsOutcome
+termsStep asking missing = case (NE.nonEmpty missing, asking) of
+    (Nothing, _) -> NothingMissing
+    (Just ts, InChat) -> AskInChat ts
+    (Just ts, InForm answers)
+        | Just no <- answeredAs (Answered SaidNo) -> Declined SaidNo no
+        | Just closed <- answeredAs (Answered ClosedTheForm) -> Declined ClosedTheForm closed
+        | Just _ <- NE.nonEmpty [t | (t, Nothing) <- answered] -> AskInForm ts
+        | otherwise -> AcceptedAll ts
+      where
+        answered :: [(Terms, Maybe FormAnswer)]
+        answered = [(t, formAnswer <$> KM.lookup (termsFormKey t) answers) | t <- NE.toList ts]
+        answeredAs :: FormAnswer -> Maybe (NE.NonEmpty Terms)
+        answeredAs a = NE.nonEmpty [t | (t, Just b) <- answered, a == b]
+  where
+    -- The form has no field: the accept button is the person's agreement.
+    formAnswer :: Value -> FormAnswer
+    formAnswer = \case
+        Object r -> case KM.lookup "action" r of
+            Just (String "accept") -> Accepted
+            Just (String "cancel") -> Answered ClosedTheForm
+            _ -> Answered SaidNo
+        _ -> Answered SaidNo
+
+-- | The key of the form for one text: its fingerprint, so an answer holds for the very text shown.
+termsFormKey :: Terms -> Key
+termsFormKey t = fromText ("terms-" <> termsFingerprint t)
+
+{- | Whether the person can be asked in a form: only a client of the modern
+era that says it shows them, an empty elicitation capability meaning forms.
+-}
+askingOf :: Era -> RpcRequest -> Asking
+askingOf Legacy _ = InChat
+askingOf Modern req
+    | Just (Object e) <- KM.lookup "elicitation" capabilities
+    , KM.null e || KM.member "form" e =
+        InForm (objectAt "inputResponses" params)
+    | otherwise = InChat
+  where
+    params :: KeyMap Value
+    params = case rpcParams req of
+        Just (Object o) -> o
+        _ -> mempty
+    capabilities :: KeyMap Value
+    capabilities = objectAt "io.modelcontextprotocol/clientCapabilities" (objectAt "_meta" params)
+    -- The object under a key, or none when the key is missing or holds something else.
+    objectAt :: Key -> KeyMap Value -> KeyMap Value
+    objectAt k o = case KM.lookup k o of
+        Just (Object v) -> v
+        _ -> mempty
+
+{- | The answer that asks the person, in their client, to accept each text:
+the text in full and no field, so accepting is one click on the client's
+accept button. A box to tick as well would turn a click on accept with the
+box left empty into a refusal.
+-}
+inputRequired :: RequestId -> [Text] -> NE.NonEmpty Terms -> Value
+inputRequired rid asked ts =
+    rpcResult rid $
+        object
+            [ "resultType" .= ("input_required" :: Text)
+            , "inputRequests" .= object [termsFormKey t .= form t | t <- NE.toList ts]
+            ]
+  where
+    form :: Terms -> Value
+    form t =
+        object
+            [ "method" .= ("elicitation/create" :: Text)
+            , "params"
+                .= object
+                    [ "mode" .= ("form" :: Text)
+                    , "message" .= T.unlines ([readsThrough asked t, "", termsText t] ++ maybe [] (pure . disclosureSentence) (termsUsage t))
+                    , "requestedSchema"
+                        .= object
+                            [ "type" .= ("object" :: Text)
+                            , "properties" .= object []
+                            ]
+                    ]
+            ]
+
+{- | Whose terms these are, said from the database the person asked for: a
+form has no assistant beside it to explain why another database's terms show.
+-}
+readsThrough :: [Text] -> Terms -> Text
+readsThrough asked t
+    | termsDatabase t `elem` asked = "The publisher of " <> termsDatabase t <> " asks its users to accept its terms of use before reading it."
+    | otherwise = "Reading " <> T.intercalate ", " asked <> " reads " <> termsDatabase t <> ", whose publisher asks its users to accept its terms of use first."
+
+-- | What an assistant is told when the person did not accept: nothing to get around.
+declinedText :: Refusal -> [Text] -> Set.Set Text -> NE.NonEmpty Terms -> Text
+declinedText how asked inCookie ts = case how of
+    SaidNo ->
+        "The user did not accept the terms of use of " <> owners <> ", so " <> readNames <> " is not read. Never accept them on their behalf; if they change their mind, call the tool again and they will be asked."
+    ClosedTheForm ->
+        T.unlines
+            [ "The form showing the terms of use of " <> owners <> " was closed with no answer, so " <> readNames <> " is not read. Never accept them on their behalf."
+            , "If the user cannot see forms in this client, as in a run with no screen, they accept the terms by having the client send the cookie volca_terms=" <> T.intercalate "." cookie <> " with its requests, once they have read them: the fingerprints of every text accepted, separated by dots."
+            ]
+  where
+    owners :: Text
+    owners = T.intercalate ", " (map termsDatabase (NE.toList ts))
+    readNames :: Text
+    readNames = T.intercalate ", " asked
+    -- What the cookie already holds and the fingerprints it lacks, so setting it keeps what it opened.
+    cookie :: [Text]
+    cookie = Set.toList (inCookie <> Set.fromList (map termsFingerprint (NE.toList ts)))
 
 -- | Record that the reader accepted the terms of a database and of those it depends on.
 callAcceptTerms :: Maybe Text -> DatabaseManager -> RequestId -> KeyMap Value -> IO Value
