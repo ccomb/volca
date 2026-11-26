@@ -96,7 +96,7 @@ callMcp = callMcpIn Legacy
 -- | One tools/call on @\/mcp@ from a client of the given era.
 callMcpIn :: Era -> DM.DatabaseManager -> UsageLog -> Maybe Text -> Text -> [(Text, Text)] -> IO ()
 callMcpIn era manager lg reader tool args = do
-    app <- mcpApp manager [] False Nothing Nothing id (Just lg)
+    app <- mcpApp manager [] [] False Nothing Nothing id (Just lg)
     let meta = case era of
             Legacy -> []
             Modern -> ["_meta" .= object ["io.modelcontextprotocol/protocolVersion" .= modernVersion, "io.modelcontextprotocol/clientCapabilities" .= object []]]

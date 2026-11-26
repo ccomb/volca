@@ -34,7 +34,7 @@ data Answer = Answer {status :: Int, headers :: RequestHeaders, body :: Maybe Va
 post :: RequestHeaders -> Value -> IO Answer
 post hdrs payload = do
     manager <- initDatabaseManager defaultConfig NoCache
-    app <- mcpApp manager [] False Nothing (Just (ServerName "atelier")) id Nothing
+    app <- mcpApp manager [] [] False Nothing (Just (ServerName "atelier")) id Nothing
     chunks <- newIORef (BL.toChunks (encode payload))
     let next = atomicModifyIORef' chunks $ \case
             [] -> ([], mempty)

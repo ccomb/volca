@@ -37,6 +37,7 @@ import Database.Manager (DatabaseManager (..), initDatabaseManager)
 import qualified Database.Manager as DM
 import Network.HTTP.Client (Manager, defaultManagerSettings, managerResponseTimeout, newManager, responseTimeoutNone)
 import Progress
+import Skill (Skill)
 import qualified Types
 
 -- For server mode
@@ -296,6 +297,7 @@ runServerWithConfig cliConfig serverOpts mCfgFile = do
     baseApp <-
         createServerApp
             env
+            (cfgSkills config)
             staticDir
             (serverDesktopMode serverOpts)
             (scName (cfgServer config))
@@ -416,15 +418,15 @@ logRequest req = do
     hFlush stdout
 
 -- | Create a Wai application over a ready environment.
-createServerApp :: AppEnv -> FilePath -> Bool -> Maybe ServerName -> WhileWorking -> IO Application
-createServerApp env staticDir desktopMode serverName whileCalling = do
+createServerApp :: AppEnv -> [Skill] -> FilePath -> Bool -> Maybe ServerName -> WhileWorking -> IO Application
+createServerApp env skills staticDir desktopMode serverName whileCalling = do
     -- The MCP @web_url@ deep links point at Elm SPA routes served from
     -- 'staticDir'. When the SPA is not bundled (backend-only image), those
     -- URLs would 404, so we omit 'web_url' from MCP responses entirely.
     hasFrontend <- doesFileExist (staticDir </> "index.html")
     unless (desktopMode || hasFrontend) $
         reportProgress Info "Frontend not bundled. MCP responses will omit 'web_url'"
-    mcp <- mcpApp (aeDbManager env) (aeClassificationPresets env) hasFrontend (aeHostingConfig env) serverName whileCalling (aeUsageLog env)
+    mcp <- mcpApp (aeDbManager env) (aeClassificationPresets env) skills hasFrontend (aeHostingConfig env) serverName whileCalling (aeUsageLog env)
     -- The reader and the author ride on each request, so the environment does
     -- too, whether or not a usage log counts the reader.
     let apiApp req = serve lcaAPI (lcaServer env{aeReader = readerOf (requestHeaders req), aeAuthor = authorOf (requestHeaders req)}) req

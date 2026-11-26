@@ -136,3 +136,12 @@ name = "raw"
 label = "Raw"
 description = "a preset"
 filters = [{ system = "Category", value = "Agricultural", mode = "contains" }]
+
+[[skills]]
+name = "local-footprint"
+description = "Footprint of a local product: the database and method collection this instance uses."
+text = '''
+# Footprint of a local product
+
+1. Search the process with `search_activities`.
+'''

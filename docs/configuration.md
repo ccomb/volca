@@ -189,6 +189,14 @@ name = "agriculture"
 label = "Agriculture"
 filters = [{ system = "ISIC", value = "01", mode = "contains" }]  # mode: exact | contains | starts-with
 
+[[skills]]                     # a skill served to assistants over MCP
+name = "local-footprint"       # lowercase letters, numbers and hyphens
+description = "Footprint of a food product with the database this instance holds."
+text = '''
+# Footprint of a food product
+1. Search the process with `search_activities`...
+'''
+
 # [hosting] tunes upload/API limits when the engine runs behind a manager:
 # max_uploads, max_upload_mb, max_loaded_uploads, api_access,
 # upgrade_upload, upgrade_api, upgrade_vm_size, read_only, read_only_message,
@@ -249,6 +257,21 @@ place of a missing release says so with
 `POST /db/{name}/accept-substitution` (`{"release": {...}, "database": "ei-311"}`):
 the choice is written to its `meta.toml`, the setup links again within it, and
 scores computed on it are no longer the author's.
+
+## Skills
+
+A skill is a set of instructions an assistant loads when a question calls
+for it, or when the person types `/<server>:<name>`. The engine serves its
+skills over MCP, to clients of the 2026-07-28 revision that read the skills
+extension; other clients see none, and the tools work as before.
+
+The engine has built-in skills: `skills/list` names them, and their texts
+are in `src/Skill/Builtin.hs`. Each `[[skills]]` entry adds a skill,
+or replaces the built-in one of the same name. The engine writes the file's
+header from `name` and `description`, so the description must be printable
+on one line and cannot hold `---`; a name or description that breaks these
+rules stops the engine at start, with the reason. Changing a skill takes a
+restart.
 
 ## Usage log
 

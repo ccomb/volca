@@ -69,6 +69,8 @@ library
                      , Matrix.Sparse.Arrays
                      , Matrix.Sparse.Order
                      , SharedSolver
+                     , Skill
+                     , Skill.Builtin
                      , Database
                      , Database.Manager
                      , Database.Allocation
@@ -393,6 +395,7 @@ test-suite lca-tests
                      , MCPStreamSpec
                      , MCPRequestIdSpec
                      , MCPEraSpec
+                     , MCPSkillsSpec
                      , MCPTermsFormSpec
                      , MCPTypedAmountsSpec
                      , BatchImpactsSpec
