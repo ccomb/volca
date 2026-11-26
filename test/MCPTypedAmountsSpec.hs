@@ -112,13 +112,16 @@ spec = do
             withCheese $ \env -> do
                 r <- call env (typed "accept" [("add_inputs-0", Number 0.42)]) "edit_exchanges" (addMilk [])
                 isError r `shouldBe` False
+                textOf r `shouldSatisfy` T.isInfixOf "The user typed these amounts"
+                textOf r `shouldSatisfy` T.isInfixOf "milk production (FR), kg, added to cheese, at dairy (FR): 0.42"
                 lines' <- details env
                 filter (T.isInfixOf "typed by the user") lines' `shouldSatisfy` ((== 1) . length)
                 filter (T.isInfixOf "0.42") lines' `shouldSatisfy` (not . null)
 
         it "does not mark a line whose amount the call gave" $
             withCheese $ \env -> do
-                void (call env showsForms "edit_exchanges" (addMilk ["amount" .= (2 :: Int)]))
+                r <- call env showsForms "edit_exchanges" (addMilk ["amount" .= (2 :: Int)])
+                textOf r `shouldSatisfy` (not . T.isInfixOf "The user typed")
                 lines' <- details env
                 filter (T.isInfixOf "typed by the user") lines' `shouldBe` []
 
