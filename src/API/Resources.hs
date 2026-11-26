@@ -1149,9 +1149,7 @@ description r = case r of
         \given. Formulas in the engine's language (get_formula_language; \
         \check_formula tries one). After all changes, a line whose formula no \
         \longer gives its amount takes the formula's value, listed under \
-        \restated. An added line's amount you do not know: leave it out, never \
-        \guess it; the user types it (marked typed in the history). Refused on \
-        \databases read from the engine's configuration \
+        \restated. Refused on databases read from the engine's configuration \
         \(shared background): copy first. 'transient': in memory only, an unload \
         \undoes it."
     EditActivities ->

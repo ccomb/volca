@@ -187,6 +187,16 @@ spec = do
                 at ["inputRequests"] (result r) `shouldBe` Nothing
                 textOf r `shouldSatisfy` T.isInfixOf "a note is given once"
 
+        it "refuses the elements of edit_activities in the words the tool uses, each named by its process" $
+            withCheese $ \env -> do
+                let bogus = toArray [object ["kind" .= ("bogus" :: Text)]]
+                    first' = object ["process_id" .= supplierPid, "remove" .= bogus]
+                    second' = object ["process_id" .= keyOf cheese, "remove" .= bogus, "add_inputs" .= toArray [object ["provider" .= supplierPid]]]
+                r <- call env showsForms "edit_activities" [("edits", toArray [first', second'])]
+                at ["inputRequests"] (result r) `shouldBe` Nothing
+                textOf r `shouldSatisfy` T.isInfixOf supplierPid
+                textOf r `shouldSatisfy` T.isInfixOf (keyOf cheese)
+
         it "comes after the database's terms: accepted once, then the amounts, then the edit" $
             withDb buildFixture (\name dir -> (uploadedConfig name dir){dcLicence = askedTerms}) $ \env -> do
                 void (create env "authored" [cheese])
@@ -207,7 +217,7 @@ spec = do
             missingAmounts OneEdit args `shouldBe` [Place Nothing AddInputs 0, Place Nothing AddBiosphere 0]
 
         it "are filled where they were left out, and nowhere else" $ do
-            let filled = fillAmounts OneEdit (M.fromList [(Place Nothing AddInputs 0, 5)]) args
+            let filled = fillAmounts (M.fromList [(Place Nothing AddInputs 0, 5)]) args
             missingAmounts OneEdit filled `shouldBe` [Place Nothing AddBiosphere 0]
 
     describe "amountsStep" $ do

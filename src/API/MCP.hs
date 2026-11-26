@@ -46,7 +46,7 @@ import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
 import Data.Bifunctor (bimap, first)
 import Data.Either (partitionEithers)
 import Database (FlowFields (..), Geographies, filterByName, flowFieldsOf, flowQueryIn)
-import Database.Author (AmountFrom (..), AuthorContext (..), isUsableAmount, nameAdded, resolveProcess)
+import Database.Author (AmountFrom (..), AuthorContext (..), ExchangeEdit, isUsableAmount, nameAdded, resolveProcess)
 import Database.Cutoffs (Cutoffs (..))
 import Database.Edit (MissingRequest (..), databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, judgeActivities, refusalMessage, supplyMissing)
 import Database.Journal (statedFrom)
@@ -65,7 +65,7 @@ import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, enc
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), AddedList (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, toActivityEditsTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), AddedList (..), Aggregation (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupFilterSpec (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, toActivityEdits, toActivityEditsTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
@@ -816,7 +816,7 @@ paramsToSchema ps =
             , "properties"
                 .= object
                     [ "provider" .= stringField providerDesc
-                    , "amount" .= numberField "Amount exchanged. Left out (or null) when you do not know it: the user is asked for it."
+                    , "amount" .= nullableNumberField "Amount exchanged. Left out (or null) when you do not know it: the user is asked for it."
                     , "unit" .= stringField "Unit the amount is stated in. Defaults to the reference unit of the 'provider' process."
                     , "comment" .= stringField "Free-text note on this line"
                     ]
@@ -829,7 +829,7 @@ paramsToSchema ps =
             , "properties"
                 .= object
                     [ "direction" .= stringField "resource (taken from the environment) | emission (released into it)"
-                    , "amount" .= numberField "Amount exchanged, in the flow's own unit. Left out (or null) when you do not know it: the user is asked for it."
+                    , "amount" .= nullableNumberField "Amount exchanged, in the flow's own unit. Left out (or null) when you do not know it: the user is asked for it."
                     , "flow" .= stringField "Id of a flow the database already has (from get_activity or search_flows)"
                     , "name" .= stringField "Name of the flow instead, with its compartment and unit: the flow the database declares under them, or a new one when nothing does"
                     , "compartment" .= stringField "air | water | soil | natural resource"
@@ -841,6 +841,7 @@ paramsToSchema ps =
             ]
 
     stringField desc = object ["type" .= ("string" :: Text), "description" .= (desc :: Text)]
+    nullableNumberField desc = object ["type" .= (["number", "null"] :: [Text]), "description" .= (desc :: Text)]
     numberField desc = object ["type" .= ("number" :: Text), "description" .= (desc :: Text)]
 
 -- ---------------------------------------------------------------------------
@@ -1169,7 +1170,7 @@ withAmounts asking dbManager rid shape args run = case NE.nonEmpty (missingAmoun
         missingOf dbManager shape args places >>= \case
             Left refusal -> pure (toolError rid refusal)
             Right missing -> case amountsStep asking missing of
-                Typed amounts -> run (\place -> if M.member place amounts then TypedByPerson else FromCall) (fillAmounts shape amounts args)
+                Typed amounts -> run (\place -> if M.member place amounts then TypedByPerson else FromCall) (fillAmounts amounts args)
                 AmountsInChat ms -> pure (toolError rid (amountsInChatText ms))
                 AmountsInForm why ms -> pure (askInForms rid [amountsFormKey .= amountsForm args why ms])
                 AmountsRefused how -> pure (toolError rid (amountsRefusedText how))
@@ -1191,16 +1192,15 @@ missingAmounts shape args =
     ]
 
 -- | The call with these amounts written where it left them out.
-fillAmounts :: EditShape -> M.Map Place Double -> KeyMap Value -> KeyMap Value
-fillAmounts shape amounts args = M.foldrWithKey fill args amounts
+fillAmounts :: M.Map Place Double -> KeyMap Value -> KeyMap Value
+fillAmounts amounts args = M.foldrWithKey fill args amounts
   where
     fill :: Place -> Double -> KeyMap Value -> KeyMap Value
     fill (Place n list i) amount = atEdit n (adjustAt (atIndex i (KM.insert "amount" (toJSON amount))) (addedListKey list))
     atEdit :: Maybe Int -> (KeyMap Value -> KeyMap Value) -> KeyMap Value -> KeyMap Value
-    atEdit n f = case (shape, n) of
-        (ManyEdits, Just k) -> adjustAt (atIndex k f) "edits"
-        (ManyEdits, Nothing) -> id
-        (OneEdit, _) -> f
+    atEdit n f = case n of
+        Just k -> adjustAt (atIndex k f) "edits"
+        Nothing -> f
     atIndex :: Int -> (KeyMap Value -> KeyMap Value) -> Value -> Value
     atIndex k f = \case
         Array xs -> Array (V.imap (\j x -> if j == k then onObject f x else x) xs)
@@ -1230,19 +1230,24 @@ edit is refused whatever the amounts: judged with 1 in every gap.
 missingOf :: DatabaseManager -> EditShape -> KeyMap Value -> NE.NonEmpty Place -> IO (Either Text (NE.NonEmpty Missing))
 missingOf dbManager shape args places = runExceptT $ do
     dbName <- except (requireText "database" args)
-    requests <- except requestsOf
-    edits <- except (first (T.intercalate "\n") (traverse (\(_, process, request) -> (,) process <$> toExchangeEdits request) requests))
-    judged <- maybe (throwE "The request names no process: \"edits\" is empty.") pure (NE.nonEmpty edits)
+    (requests, judged) <- except theCall
     (ctx, _) <- ExceptT (first refusalMessage <$> judgeActivities dbManager dbName judged)
     pure (fmap (named ctx requests) places)
   where
     ones :: KeyMap Value
-    ones = fillAmounts shape (M.fromList [(p, 1) | p <- NE.toList places]) args
-    -- Read as the tool reads it, so what it would refuse is refused before the form.
-    requestsOf :: Either Text [(Maybe Int, Text, ExchangeEditRequest)]
-    requestsOf = case shape of
-        OneEdit -> (\process request -> [(Nothing, process, request)]) <$> requireText "process_id" ones <*> exchangeEditRequestOf ones
-        ManyEdits -> zipWith (\n e -> (Just n, aeProcessId e, aeEdit e)) [0 ..] . aqEdits <$> activitiesRequestOf ones
+    ones = fillAmounts (M.fromList [(p, 1) | p <- NE.toList places]) args
+    -- Read and translated as the tool does, so what it would refuse is refused before the form, in the same words.
+    theCall :: Either Text ([(Maybe Int, Text, ExchangeEditRequest)], NE.NonEmpty (Text, [ExchangeEdit]))
+    theCall = case shape of
+        OneEdit -> do
+            process <- requireText "process_id" ones
+            request <- exchangeEditRequestOf ones
+            edits <- first (T.intercalate "\n") (toExchangeEdits request)
+            pure ([(Nothing, process, request)], (process, edits) NE.:| [])
+        ManyEdits -> do
+            request <- activitiesRequestOf ones
+            edits <- first (T.intercalate "\n") (toActivityEdits request)
+            pure (zipWith (\n e -> (Just n, aeProcessId e, aeEdit e)) [0 ..] (aqEdits request), edits)
     named :: AuthorContext -> [(Maybe Int, Text, ExchangeEditRequest)] -> Place -> Missing
     named ctx requests place@(Place n list i) =
         Missing
@@ -2778,7 +2783,8 @@ callSupplyMissing dbManager origin rid args = runTool rid $ do
 
 {- | The arguments of one activity's edit, read into the request the HTTP
 endpoint reads, so what an assistant may change, and what it is refused, are
-exactly what a person is.
+what a person is. One difference: an added line's amount may be missing, to
+be typed by the person ('withAmounts' fills it before this reads it).
 
 Every list defaults to empty: an assistant that only removes a line should not
 have to state four empty arrays to say so. An edit that ends up naming nothing

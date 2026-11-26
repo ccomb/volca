@@ -442,8 +442,8 @@ nameAdded :: AuthorContext -> AuthoredExchange -> Text
 nameAdded ctx = \case
     AuthoredTechInput{atiProvider = provider, atiUnit = unit} -> supplied provider unit
     AuthoredWasteOutput{awProvider = provider, awUnit = unit} -> supplied provider unit
-    AuthoredBio{abFlow = FlowById flowId, abUnit = unit} -> case listToMaybe [(db, flow) | db <- dbs, Just flow <- [M.lookup flowId (dbBioFlows db)]] of
-        Just (db, flow) -> labelled (bfName flow <> maybe "" (\c -> " (" <> renderCompartment c <> ")") (bfCompartment flow)) (fromMaybe (unitNameOf (dbUnits db) (bfUnitId flow)) unit)
+    AuthoredBio{abFlow = FlowById flowId, abUnit = unit} -> case findBioFlow ctx flowId of
+        Just (flow, units, _) -> labelled (bfName flow <> maybe "" (\c -> " (" <> renderCompartment c <> ")") (bfCompartment flow)) (fromMaybe (unitNameOf units (bfUnitId flow)) unit)
         Nothing -> UUID.toText flowId
     AuthoredBio{abFlow = FlowByName name compartment unit} -> labelled (name <> " (" <> renderCompartment compartment <> ")") unit
   where
@@ -451,7 +451,7 @@ nameAdded ctx = \case
     dbs = acDb ctx : acDeps ctx
     supplied :: Text -> Maybe Text -> Text
     supplied provider unit = case listToMaybe [(db, act) | db <- dbs, Just pid <- [resolveProcess db provider], Just act <- [dbActivities db V.!? fromIntegral pid]] of
-        Just (db, act) -> labelled (activityName act <> " (" <> activityLocation act <> ")") (fromMaybe (refUnitOf db act exchangeIsReference) unit)
+        Just (_, act) -> labelled (activityName act <> " (" <> activityLocation act <> ")") (fromMaybe (either (const "") defaultUnit (resolveSupplier ctx provider)) unit)
         Nothing -> provider
     labelled :: Text -> Text -> Text
     labelled what unit
@@ -503,7 +503,9 @@ data ExchangeSelector
 
 {- | Who gave the amount of an added line: the call that made the change, or
 the person, typed in a form their client showed. The engine marks the second
-itself, from the answer of the form; no request can declare it.
+itself, from the client's answer to its form: no field of a request carries it.
+Like the acceptance of terms, it trusts the client to answer only what the
+person typed.
 -}
 data AmountFrom = FromCall | TypedByPerson
     deriving (Eq, Show)
@@ -1158,12 +1160,14 @@ resolveLinked ctx provider amount mUnit adopt build =
                 , reAdoption = adoption
                 , reWarnings = []
                 }
-    defaultUnit :: Supplier -> Text
-    defaultUnit sup =
-        case (supProducedUnit sup, supAnyRefUnit sup) of
-            ("", "") -> ""
-            ("", other) -> other
-            (produced, _) -> produced
+
+-- | The unit a line from this supplier is stated in when it names none: what the supplier produces, or else its reference either way.
+defaultUnit :: Supplier -> Text
+defaultUnit sup =
+    case (supProducedUnit sup, supAnyRefUnit sup) of
+        ("", "") -> ""
+        ("", other) -> other
+        (produced, _) -> produced
 
 {- | Judge the unit an amount is stated in against what the matrix will do
 with it. A provider with a produced reference output gets the conversion
