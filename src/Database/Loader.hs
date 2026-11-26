@@ -668,6 +668,9 @@ History of manual bumps:
      block kept whole, and a single file of one such dataset is keyed by its
      file name. Nothing changes type, so a cache written just before would
      keep the block undivided.
+- 89: a product its source divides line by line carries 'ShareByLine'
+     rather than a share of 100 %, so a block read whole has no price
+     deduced for it.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -675,7 +678,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 88
+     in hi `xor` lo `xor` 89
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.

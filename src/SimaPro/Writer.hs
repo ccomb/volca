@@ -329,8 +329,14 @@ checkSimaProExportable db =
     coproductOffenders =
         [ (activityName act, refusal)
         | act <- M.elems (sdbActivities db)
-        , Left refusal@UnallocatedOutputs{} <- [asAllocated act]
+        , Left refusal <- [asAllocated act]
+        , keptWholeRefusal refusal
         ]
+    keptWholeRefusal :: AllocationRefusal -> Bool
+    keptWholeRefusal refusal = case refusal of
+        UnallocatedOutputs{} -> True
+        ProductsDividedByLine{} -> True
+        NoSingleReference{} -> False
     referenceOffenders =
         [ (activityName act, n)
         | act <- M.elems (sdbActivities db)
@@ -929,8 +935,9 @@ serializeActivity cats consumer ProcessExport{peParameters = parameters, peLines
         -- Each exchange with its formula, and its share's, as SimaPro writes them, where it has them.
         unscaledExchanges = [(IM.lookup i formulas, withShare i (unscale ex)) | (i, ex) <- zip [0 ..] (exchanges act)]
         withShare i ex = case ex of
-            TechnosphereExchange{techShare = Just share} -> ex{techShare = Just share{dsFormula = IM.lookup i shares}}
-            TechnosphereExchange{} -> ex
+            TechnosphereExchange{techShare = Just (ShareDeclared share)} -> ex{techShare = Just (ShareDeclared share{dsFormula = IM.lookup i shares})}
+            TechnosphereExchange{techShare = Just ShareByLine} -> ex
+            TechnosphereExchange{techShare = Nothing} -> ex
             BiosphereExchange{} -> ex
             WasteExchange{} -> ex
         numbered = zip [0 ..] unscaledExchanges

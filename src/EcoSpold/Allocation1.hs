@@ -15,9 +15,10 @@ Two shapes come out of it:
   * every product takes one fraction of every line it shares, or none of any:
     that fraction is the product's declared share, as any other reader states
     it, and a reading that keeps the block whole keeps it;
-  * the fractions differ from line to line: each product is declared at 100 %
-    and each (product, line) pair carries its own fraction, which only a
-    division by declared shares applies.
+  * the fractions differ from line to line: each product is marked as divided
+    line by line ('ShareByLine'), with no share of its own, and each (product,
+    line) pair carries its own fraction, which only a division by declared
+    shares applies.
 
 A key the dataset cannot be read by (a number that names no line or several,
 a product that is not one, two fractions for one pair) leaves the block
@@ -65,10 +66,10 @@ divide nameOf numbered keys
     | not (null refused) = whole ["its allocation keys are not applied, and the block is kept whole: " <> T.intercalate "; " (nub refused)]
     | M.null fractions = whole ["its allocation keys give no product a line it shares, so they are not applied, and the block is kept whole"]
     | Just shares <- traverse uniform productsAt =
-        Division (declared (M.fromList (zip productsAt shares))) noExchangeShares (unkeyed <> sums)
+        Division (declared (M.fromList (zip productsAt (map percent shares)))) noExchangeShares (unkeyed <> sums)
     | otherwise =
         Division
-            (declared (M.fromList [(at, 100) | at <- productsAt]))
+            (declared (M.fromList [(at, ShareByLine) | at <- productsAt]))
             (exchangeShares (M.fromList [(pair, M.findWithDefault 0 pair fractions) | pair <- pairs]))
             (lineByLine : sums)
   where
@@ -127,7 +128,7 @@ divide nameOf numbered keys
             | Just (f : rest) <- sequence found, all (== f) rest -> Just f
             | otherwise -> Nothing
 
-    declared :: M.Map Int Double -> [Exchange]
+    declared :: M.Map Int ProductShare -> [Exchange]
     declared shares = [maybe ex (`withShare` ex) (M.lookup at shares) | (at, (_, ex)) <- placed]
 
     unkeyed :: [Text]
@@ -154,10 +155,14 @@ divide nameOf numbered keys
       where
         total = sum [M.findWithDefault 0 (SharedExchange p s) fractions | p <- productsAt]
 
--- | A product row declaring this share.
-withShare :: Double -> Exchange -> Exchange
+-- | A share of the whole inventory, as a key states it.
+percent :: Double -> ProductShare
+percent share = ShareDeclared DeclaredShare{dsPercent = share, dsFormula = Nothing, dsBy = Nothing}
+
+-- | A product row dividing its block this way.
+withShare :: ProductShare -> Exchange -> Exchange
 withShare share ex = case ex of
-    TechnosphereExchange{} -> ex{techShare = Just DeclaredShare{dsPercent = share, dsFormula = Nothing, dsBy = Nothing}}
+    TechnosphereExchange{} -> ex{techShare = Just share}
     BiosphereExchange{} -> ex
     WasteExchange{} -> ex
 

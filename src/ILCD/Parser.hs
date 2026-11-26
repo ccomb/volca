@@ -937,7 +937,7 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
     --    refuses it, which is the honest outcome: better refused than split on a
     --    number that meant something else.
     --
-    declaredShareOf :: TechRole -> ILCDExchangeRaw -> Maybe DeclaredShare
+    declaredShareOf :: TechRole -> ILCDExchangeRaw -> Maybe ProductShare
     declaredShareOf role raw = case role of
         ReferenceProduct -> shareOf raw
         Coproduct -> shareOf raw
@@ -946,8 +946,8 @@ buildActivity flowInfoMap techFlowDB bioFlowDB wasteFlowDB unitDB p =
         AvoidedProduct -> Nothing
 
     -- \| The number itself, once the role says a share belongs on the exchange.
-    shareOf :: ILCDExchangeRaw -> Maybe DeclaredShare
-    shareOf raw = (\pct -> DeclaredShare pct Nothing Nothing) <$> ierShare raw
+    shareOf :: ILCDExchangeRaw -> Maybe ProductShare
+    shareOf raw = (\pct -> ShareDeclared (DeclaredShare pct Nothing Nothing)) <$> ierShare raw
 
     -- Look up the reference exchange's flow unit. Reference exchange is typically
     -- a technosphere product, but for waste-treatment processes it may be a

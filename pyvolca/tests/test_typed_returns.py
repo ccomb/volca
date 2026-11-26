@@ -724,6 +724,18 @@ class TestActivityAllocation:
     def test_is_allocated_true_for_multi_output(self):
         assert ActivityDetail.from_json(self._cheese_envelope()).is_allocated is True
 
+    def test_is_allocated_true_for_a_block_divided_line_by_line(self):
+        # Its products carry no percentage; the block's size says it was divided.
+        product = {"activityName": "Cogeneration", "location": "CH", "productAmount": 1.0,
+                   "productUnit": "MJ", "allocationPercent": None, "blockProducts": 2}
+        detail = ActivityDetail.from_json({"activity": {
+            "processId": "heat", "activityName": "Cogeneration", "location": "CH", "unit": "MJ",
+            "allProducts": [{**product, "processId": "heat", "productName": "heat"},
+                            {**product, "processId": "power", "productName": "power"}],
+        }})
+        assert detail.allocation_percent is None
+        assert detail.is_allocated is True
+
     def test_is_allocated_false_for_mono_product(self):
         detail = ActivityDetail.from_json({"activity": {
             "processId": "flour", "activityName": "Wheat flour", "location": "FR",

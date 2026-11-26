@@ -20,7 +20,7 @@ import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Control.Monad (mfilter, (<=<), (>=>))
 import Crypto.Hash (SHA256 (..), hashWith)
-import Data.Aeson (FromJSON (..), ToJSON (..), object, withObject, withText, (.!=), (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (..), object, withObject, withText, (.!=), (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
 import Data.Int (Int32)
 import qualified Data.IntSet as IS
@@ -54,7 +54,7 @@ import qualified Data.HashMap.Strict.InsOrd as InsOrdHashMap
 import Data.List (find, nub, sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
-import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), declareSchemaRef, enum_, properties, required, type_)
+import Data.OpenApi (NamedSchema (..), OpenApiType (..), Referenced (..), ToSchema (..), declareSchemaRef, deprecated, enum_, oneOf, properties, required, type_)
 import Data.Ord (Down (..))
 import qualified Expr
 import Search.BM25.Types (BM25Index)
@@ -279,6 +279,59 @@ data DeclaredShare = DeclaredShare
     }
     deriving (Eq, Show, Generic, NFData, Store)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeclaredShare)
+
+{- | How a source divides the inventory of a block for one of its products.
+
+Either a share of the whole inventory, or nothing that holds for the product
+as a whole: the source divides each line on its own terms (EcoSpold 1 keys
+giving each line its own fraction, openLCA causal allocation), and only the
+pairs its reader hands 'Database.Allocation.allocateWith' carry the division.
+Such a product has no percentage to price it by, write back or show, and the
+type gives it none; it still says the source divided the block, which keeping
+the block whole and linking to its coproducts rely on.
+-}
+data ProductShare
+    = ShareDeclared !DeclaredShare
+    | ShareByLine
+    deriving (Eq, Show, Generic, NFData, Store)
+
+{- | On the wire, a declared share as it always was,
+@{"percent":80,"formula":null,"by":null}@, and a division by line as
+@{"byLine":true}@.
+
+A division by line also carries the 100 % an engine of wire revision 122 or
+older wrote in its place, so a client reading @percent@ on every share keeps
+working until the next minor release, which drops it. A client that knows
+@byLine@ reads it first and ignores the rest.
+-}
+instance ToJSON ProductShare where
+    toJSON share = case share of
+        ShareDeclared declared -> toJSON declared
+        ShareByLine -> object ["byLine" .= True, "percent" .= (100 :: Double), "formula" .= Null, "by" .= Null]
+
+instance FromJSON ProductShare where
+    parseJSON value = byLine value <|> (ShareDeclared <$> parseJSON value)
+      where
+        byLine :: Value -> Parser ProductShare
+        byLine = withObject "ProductShare" $ \o -> do
+            marked <- o .: "byLine"
+            if marked then pure ShareByLine else fail "byLine is false"
+
+instance ToSchema ProductShare where
+    declareNamedSchema _ = do
+        declared <- declareSchemaRef (Proxy :: Proxy DeclaredShare)
+        let byLine =
+                mempty
+                    & type_ ?~ OpenApiObject
+                    & properties
+                        .~ InsOrdHashMap.fromList
+                            [ ("byLine", Inline (mempty & type_ ?~ OpenApiBoolean & enum_ ?~ [toJSON True]))
+                            , ("percent", Inline (mempty & type_ ?~ OpenApiNumber & deprecated ?~ True))
+                            , ("formula", Inline (mempty & type_ ?~ OpenApiNull & deprecated ?~ True))
+                            , ("by", Inline (mempty & type_ ?~ OpenApiNull & deprecated ?~ True))
+                            ]
+                    & required .~ ["byLine"]
+        pure (NamedSchema (Just "ProductShare") (mempty & oneOf ?~ [declared, Inline byLine]))
 
 {- | An amount together with the unit it is stated in.
 
@@ -622,7 +675,7 @@ data Exchange
         -}
         , techComment :: !(Maybe Text) -- Free-text per-exchange comment from source
         , techPedigree :: !(Maybe Pedigree) -- LCA data-quality scores when available
-        , techShare :: !(Maybe DeclaredShare) -- The share a product output was declared with; Nothing on inputs and where the source states none
+        , techShare :: !(Maybe ProductShare) -- How the source divides the block for a product output; Nothing on inputs and where the source states nothing
         , techClassification :: !(M.Map Text Text) -- What the source says of this product row (SimaPro "Category", EcoSpold2 CPC); carried onto the process whose reference it is; empty on inputs
         , techProperties :: !ExchangeProperties -- Properties the source states of this line, the material an allocation key other than the declared one is computed from
         , techFormula :: !(Maybe ExchangeFormula) -- What makes the amount follow the dataset's parameters; Nothing where nothing does
@@ -765,11 +818,32 @@ exchangeClassification TechnosphereExchange{techClassification = cls} = cls
 exchangeClassification BiosphereExchange{} = M.empty
 exchangeClassification WasteExchange{} = M.empty
 
--- | The share a technosphere exchange was declared with; nothing on the other axes.
+{- | The share of the whole inventory a technosphere exchange was declared
+with; nothing on the other axes, and nothing for a product its source divides
+line by line, which has none.
+-}
 exchangeDeclaredShare :: Exchange -> Maybe DeclaredShare
-exchangeDeclaredShare TechnosphereExchange{techShare = share} = share
-exchangeDeclaredShare BiosphereExchange{} = Nothing
-exchangeDeclaredShare WasteExchange{} = Nothing
+exchangeDeclaredShare ex = case ex of
+    TechnosphereExchange{techShare = Just (ShareDeclared share)} -> Just share
+    TechnosphereExchange{techShare = Just ShareByLine} -> Nothing
+    TechnosphereExchange{techShare = Nothing} -> Nothing
+    BiosphereExchange{} -> Nothing
+    WasteExchange{} -> Nothing
+
+-- | How the source divides its block for this product; nothing on the other axes.
+exchangeProductShare :: Exchange -> Maybe ProductShare
+exchangeProductShare ex = case ex of
+    TechnosphereExchange{techShare = share} -> share
+    BiosphereExchange{} -> Nothing
+    WasteExchange{} -> Nothing
+
+-- | Whether the source divides its block line by line for this product.
+exchangeDividedByLine :: Exchange -> Bool
+exchangeDividedByLine ex = exchangeProductShare ex == Just ShareByLine
+
+-- | Whether the source says how to divide its block for this product, by a share or line by line.
+exchangeShareStated :: Exchange -> Bool
+exchangeShareStated = isJust . exchangeProductShare
 
 -- | The physical properties the source states of a row; none on the other axes.
 exchangeProperties :: Exchange -> ExchangeProperties
