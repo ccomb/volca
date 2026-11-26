@@ -33,8 +33,9 @@ import Data.Text (Text)
 import qualified Data.Vector as V
 import Test.Hspec
 
-import API.Types (FunctionalUnit (..), GroupClassification (..), GroupFilterSpec (..), GroupSpec (..), GroupsRequest (..))
+import API.Types (FunctionalUnit (..), GroupClassification (..), GroupFilterSpec (..), GroupFlowSpec (..), GroupSpec (..), GroupsRequest (..))
 import Database.Manager (CollectionName (..))
+import Types (Medium (..))
 
 butter :: Value
 butter = toJSON (FunctionalUnit "kg" "butter")
@@ -112,6 +113,12 @@ spec = do
                 `shouldBe` "?g1=Transport&g1-name=transport&g1-location=FR"
         it "says an empty list, which is not the ready-made set" $
             groupsQuery (GroupsRequest Nothing []) `shouldBe` "?groups=none"
+        it "spells the substance a group keeps, and the own-emissions reading it is read in" $ do
+            let fields = GroupSpec "N2O of the fields" (GroupFilterSpec (Just "at farm") Nothing Nothing Nothing (Just (GroupFlowSpec (Just "nitrous") (Just "contains") (Just Air))))
+                n2o = GroupSpec "N2O" (GroupFilterSpec Nothing Nothing Nothing Nothing (Just (GroupFlowSpec (Just "N2O") (Just "substance") Nothing)))
+                water = GroupSpec "Water" (GroupFilterSpec Nothing Nothing Nothing Nothing (Just (GroupFlowSpec Nothing Nothing (Just NaturalResource))))
+            groupsQuery (GroupsRequest Nothing [fields, n2o, water])
+                `shouldBe` "?reading=own&g1=N2O%20of%20the%20fields&g1-name=at%20farm&g1-flow-name=nitrous&g1-flow-match=contains&g1-flow-medium=air&g2=N2O&g2-flow-name=N2O&g3=Water&g3-flow-medium=natural%20resource"
     describe "groupsPagePath" $
         it "escapes the collection like the other pages" $
             groupsPagePath "agb" "p1" (CollectionName "EF 3.1") `shouldBe` "/db/agb/activity/p1/groups/EF%203.1"
