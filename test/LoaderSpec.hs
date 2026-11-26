@@ -14,6 +14,7 @@ import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
+import Database.Allocation (noExchangeShares)
 import Database.Loader
 import EcoSpold.Common (ParsedDataset (..))
 import TestHelpers (loadSampleDatabase)
@@ -76,6 +77,7 @@ minimalDataset act techs =
         , pdActivityId = Nothing
         , pdWarnings = []
         , pdLiterature = []
+        , pdExchangeShares = noExchangeShares
         }
 
 {- | One reader's share of a load, always under the same (activity, product)

@@ -118,7 +118,7 @@ import Control.Monad
 import Data.Bits (xor)
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
-import Data.Containers.ListUtils (nubOrdOn)
+import Data.Containers.ListUtils (nubOrd, nubOrdOn)
 import Data.Either (lefts, partitionEithers, rights)
 import Data.Indexing (groupInOrder)
 import Data.List (intercalate, sort, sortBy, sortOn)
@@ -146,10 +146,11 @@ import qualified Data.Vector.Unboxed as VU
 import Data.Word (Word64)
 import Database.Allocation (
     Allocating (..),
-    allocate,
     allocateAll,
+    allocateWith,
     isCoproduct,
     keptWhole,
+    noExchangeShares,
     producerKeyBy,
     producerKeyOf,
  )
@@ -314,13 +315,26 @@ harvestOf entries =
         , hvBioFlows = MS.fromListWith mergeBioFlows [(bfId f, f) | f <- bios]
         , hvWasteFlows = MS.fromListWith mergeWasteFlows [(wfId f, f) | f <- wastes]
         , hvUnits = MS.fromListWith namedOverPlaceholder [(unitId u, u) | u <- units]
-        , hvDatasetNumbers = groupInOrder [(pdDatasetNumber parsed, key) | (key, parsed) <- entries, pdDatasetNumber parsed /= 0]
+        , hvDatasetNumbers =
+            groupInOrder
+                [ (pdDatasetNumber parsed, filed)
+                | (key, parsed) <- entries
+                , pdDatasetNumber parsed /= 0
+                , filed <- key : coproductKeys key (pdActivity parsed)
+                ]
         , hvRawFlows = length techs + length bios + length wastes
         , hvRawUnits = length units
         , hvUnitNames = MS.fromListWith S.union [(unitId u, S.singleton (unitName u)) | u <- units, not (isPlaceholderUnit u)]
         , hvLiterature = S.fromList (concatMap (pdLiterature . snd) entries)
         }
   where
+    -- A block kept whole answers its number for each of its coproducts too,
+    -- under the key its child gives the piece making it ('producerKeyOf'), so
+    -- an input carrying the number and a coproduct's name finds it.
+    coproductKeys :: (UUID, UUID) -> Activity -> [(UUID, UUID)]
+    coproductKeys (actUUID, _) act =
+        [(actUUID, flow) | keptWhole act, flow <- nubOrd [exchangeFlowId ex | ex <- exchanges act, isCoproduct ex]]
+
     -- The only two rows under one identifier that can be reconciled: a
     -- declaration with no name carries a placeholder, and a real name takes
     -- its place whichever was read first. Two real names stop the load.
@@ -649,6 +663,11 @@ History of manual bumps:
 - 87: an EcoSpold2 process carries the classification of its reference
      product (CPC, HS), where it carried the activity's alone. Nothing
      changes type, so a cache written just before would keep it without.
+- 88: an EcoSpold 1 dataset of several products is divided by its
+     allocation keys, its dataset number answers for each coproduct of a
+     block kept whole, and a single file of one such dataset is keyed by its
+     file name. Nothing changes type, so a cache written just before would
+     keep the block undivided.
 
 The signature is stored inside the cache file and checked on load.
 If it doesn't match, the cache is automatically invalidated and rebuilt.
@@ -656,7 +675,7 @@ If it doesn't match, the cache is automatically invalidated and rebuilt.
 schemaSignature :: Word64
 schemaSignature =
     let Fingerprint hi lo = typeRepFingerprint (typeRep (Proxy :: Proxy Database))
-     in hi `xor` lo `xor` 87
+     in hi `xor` lo `xor` 88
 
 {- |
 Helper function to parse UUID from Text with deterministic UUID generation fallback.
@@ -792,7 +811,9 @@ because there a location was expected and is missing.
 -}
 type NameOnlyIndex = M.Map T.Text (NE.NonEmpty NameProducer)
 
-{- | Dataset number → the datasets carrying it, for EcoSpold1 Tier 1 linking.
+{- | Dataset number → the datasets carrying it, for EcoSpold1 Tier 1 linking,
+and, for a block kept whole, the key each of its coproducts is linked by
+('producerKeyOf'), which names the block rather than a dataset of its own.
 
 One number names several datasets rather than one whenever the block it came
 from declares more than one product: allocation rewrites such a block into one
@@ -1226,7 +1247,7 @@ fixExchangeLink ExchangeLinkContext{..} consumer ex@TechnosphereExchange{techFlo
             , loDatasetNumber = dsNum
             }
         | not (T.null declaredLoc)
-        , Just supplier <- [M.lookup supplierKey elcActivities]
+        , Just supplier <- [producerKeyOf elcActivities supplierKey >>= (`M.lookup` elcActivities)]
         , activityLocation supplier /= declaredLoc
         , M.member (normalizeText (tfName flow), declaredLoc) elcSupplierIndex
         ]
@@ -1374,13 +1395,15 @@ refusedFiles offered refusals =
     rest = ["  ... and " <> T.pack (show (refused - 10)) <> " more" | refused > 10]
 
 {- | Allocate a parsed dataset before it is keyed: one entry per process
-'allocate' splits it into, each carrying the file's flows and units, so the
-entry is then keyed on its own reference product.
+'allocateWith' splits it into, with the fractions the dataset gives single
+lines, each carrying the file's flows and units, so the entry is then keyed on
+its own reference product. Those fractions name lines by their place in the
+block, so no entry keeps them.
 -}
 allocateParsed :: LoadOptions -> ParsedDataset -> [ParsedDataset]
 allocateParsed opts parsed =
-    [ parsed{pdActivity = act}
-    | act <- NE.toList (allocate (allocating opts unitMap) (pdActivity parsed))
+    [ parsed{pdActivity = act, pdExchangeShares = noExchangeShares}
+    | act <- NE.toList (allocateWith (allocating opts unitMap) (pdExchangeShares parsed) (pdActivity parsed))
     ]
   where
     unitMap :: UnitDB
@@ -1924,7 +1947,9 @@ loadSingleEcoSpold1File opts filepath = do
             let results = concatMap (allocateParsed opts) parsed
 
             -- Build activity map from all parsed activities
-            let fileUUID = case results of
+            -- Counted as read, before allocation, as a directory counts them:
+            -- a dataset of several products is still one dataset of the file.
+            let fileUUID = case parsed of
                     [_] -> datasetUUIDFromPath filepath
                     _ -> Nothing
                 !harvested = harvestOf [(datasetKey fileUUID r, r) | r <- results]
