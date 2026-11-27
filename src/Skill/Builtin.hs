@@ -57,14 +57,14 @@ pefHotspots =
                     ]
                         <> findTheProcess
                         <> [ "3. " <> chooseTheCollection <> " With `list_scoring_sets`, find the EF single score set of that collection, otherwise of another loaded one, and say which collection holds it. When none is loaded, say so and stop: never weight the impact categories yourself."
-                           , "4. Score the process with `score_activity`, with `exchange_contributions` set to true: step 8 reads them."
-                           , "5. Most relevant impact categories: rank the impact categories by their weighted contribution to the single score, in absolute value, and keep them, largest first, until they add up to at least 80 %. Keep at least three."
-                           , "6. For each of them, `get_contributing_activities`: keep the processes, largest first in absolute value, until they add up to more than 80 % of that impact category. Compute the shares yourself from the absolute values: the shares the tool returns keep their sign. Raise `limit` until the rows cover the total."
-                           , "7. For each of them, `get_contributing_flows`: the same rule on emissions and resources. Say that these are the emissions of the whole chain, not of each process."
-                           , "8. Life cycle stages: group the `exchange_contributions` of `score_activity` (ingredients, transport, packaging...), and say how you grouped."
-                           , "9. Answer with a table per step: name, share, cumulated share. Name the process and its location, the database, the method collection, and give the `web_url` link."
+                           , "4. Score the process with `score_activity`, with `scoring_sets` set to that set alone and `exchange_contributions` set to true: steps 5 and 8 read its answer."
+                           , "5. Most relevant impact categories: read that set's single score in `scoringShares`. Its rows come largest first: keep them until `cumulativePercent` reaches at least 80, and at least three. Report each one's `percent`, which keeps its sign as the PEF method reads the categories; when one is negative, say so."
+                           , "6. For each of them, `get_contributing_activities` with `cover_percent: 80`: the rows returned are the most relevant processes, the PEF rule on absolute values already applied. When the last row's `cumulative_percent` is not above 80, the list stopped at its cap: say it is incomplete."
+                           , "7. For each of them, `get_contributing_flows` with `cover_percent: 80` and `by_substance: true`: the same rule on emissions and resources, each substance gathered over its sub-compartments. Say that these are the emissions of the whole chain, not of each process."
+                           , "8. Life cycle stages: group the `exchangeContributions` of `score_activity` by the line names in `lineNames` (ingredients, transport, packaging...), add their signed shares, and say how you grouped."
+                           , "9. Answer with a table per step: name, share, cumulated share, as the tools return them. Name the process and its location, the database, the method collection, and give the `web_url` link."
                            , ""
-                           , "When a licence hides the detail of a database, say which lists are incomplete."
+                           , "When a licence hides the detail of a database (`withheld_databases`), say which lists are incomplete."
                            ]
             }
 
