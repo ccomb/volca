@@ -21,8 +21,8 @@ module API.BatchImpacts (
     translateError,
 ) where
 
-import API.Routes (ScoreLines, activityLCIABatchH, batchImpactsH, collectionNotLoadedPrefix, computedQualityReportH, databaseNotLoadedPrefix, postReducedModel)
-import API.Types (BatchImpactsRequest (..), BatchImpactsResponse, ComputedQualityReportAPI, LCIABatchResult, ParameterName, ParameterValue, ReducedModel, ReducedModelRequest (..), SubstitutionRequest)
+import API.Routes (PanelAsk, activityLCIABatchH, batchImpactsH, collectionNotLoadedPrefix, computedQualityReportH, databaseNotLoadedPrefix, postReducedModel)
+import API.Types (BatchImpactsRequest (..), BatchImpactsResponse, ComputedQualityReportAPI, LCIABatchResult, ParameterName, ParameterValue, ReducedModel, ReducedModelRequest (..))
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (HostingConfig)
 import Control.Concurrent.STM (readTVarIO)
@@ -82,15 +82,11 @@ runActivityLCIABatch ::
     Text ->
     -- | method collection name
     Text ->
-    -- | optional what-if supplier substitutions
-    Maybe SubstitutionRequest ->
-    -- | whether to keep or drop delayed long-term emissions
-    LongTermMode ->
-    -- | whether to say what each line of the activity adds to each score
-    ScoreLines ->
+    -- | swaps, long-term emissions, lines and top flows asked
+    PanelAsk ->
     IO (Either BatchError LCIABatchResult)
-runActivityLCIABatch dbm hosting dbName pid coll mSub ltMode scoreLines =
-    runBare dbm hosting (activityLCIABatchH dbName pid (CollectionName coll) mSub ltMode scoreLines)
+runActivityLCIABatch dbm hosting dbName pid coll ask =
+    runBare dbm hosting (activityLCIABatchH dbName pid (CollectionName coll) ask)
 
 {- | Score N activities against every method in a collection in one
 solve of all their demands plus parallel characterization. Unresolved process

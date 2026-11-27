@@ -3169,6 +3169,7 @@ class Client:
         exclude_long_term: bool | None = None,
         parameters: list[ParameterValue] | None = None,
         exchange_contributions: bool = False,
+        top_flows: int | None = None,
     ) -> LCIABatchResult:
         """Compute LCIA for every impact category in a collection, in one call.
 
@@ -3183,6 +3184,8 @@ class Client:
         :attr:`LCIAResult.exchange_contributions` of the activity's own lines,
         which add up to its score, to group into stages; it is refused with
         ``substitutions``, and scoring-set scores are not split by line.
+        ``top_flows`` sets how many top contributing flows each result lists
+        (5 when left out, 0 for none).
 
         Left without a ``collection``, the call runs against the only loaded
         one, and refuses when several are loaded rather than picking one.
@@ -3200,6 +3203,8 @@ class Client:
             self._require_wire(66, "get_impacts_batch(parameters=...)", engine_hint="0.16.0")
         if exchange_contributions:
             self._require_wire(70, "get_impacts_batch(exchange_contributions=True)", engine_hint="0.16.0")
+        if top_flows is not None:
+            self._require_wire(127, "get_impacts_batch(top_flows=...)", engine_hint="0.19.1")
         url = (
             f"{self.base_url}/api/v1/db/{self.db}/activity/{process_id}"
             f"/impacts/{collection}"
@@ -3211,6 +3216,8 @@ class Client:
         )
         if exchange_contributions:
             params["exchange-contributions"] = _format_query_value(True)
+        if top_flows is not None:
+            params["top-flows"] = str(top_flows)
         if substitutions or parameters:
             r = self._session.post(
                 url, json=_substitution_body(substitutions, parameters), params=params

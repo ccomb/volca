@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.15.0** speaks wire formats **113 to 126** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.15.0** speaks wire formats **113 to 127** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1306,7 +1306,7 @@ Args:
     substitutions: Upstream supplier swaps; see `get_supply_chain`.
     parameters: Values for input parameters; see `get_supply_chain`.
 
-##### `Client.get_impacts_batch(process_id: str, *, collection: str | None = None, substitutions: list[SubstitutionLike] | None = None, exclude_long_term: bool | None = None, parameters: list[ParameterValue] | None = None, exchange_contributions: bool = False) -> LCIABatchResult`
+##### `Client.get_impacts_batch(process_id: str, *, collection: str | None = None, substitutions: list[SubstitutionLike] | None = None, exclude_long_term: bool | None = None, parameters: list[ParameterValue] | None = None, exchange_contributions: bool = False, top_flows: int | None = None) -> LCIABatchResult`
 
 Compute LCIA for every impact category in a collection, in one call.
 
@@ -1321,6 +1321,8 @@ values for input parameters, as `get_supply_chain` takes them.
 `LCIAResult.exchange_contributions` of the activity's own lines,
 which add up to its score, to group into stages; it is refused with
 ``substitutions``, and scoring-set scores are not split by line.
+``top_flows`` sets how many top contributing flows each result lists
+(5 when left out, 0 for none).
 
 Left without a ``collection``, the call runs against the only loaded
 one, and refuses when several are loaded rather than picking one.
@@ -2288,7 +2290,7 @@ Or with no TOML of one's own, the databases and methods named by path::
         client = Client(base_url=srv.base_url, db="agb")
         client.load_database("agb")
 
-**Constructor**: `Server(config: str | None = 'volca.toml', port: Union[int, Literal['auto']] = 0, binary: str = 'volca', databases: collections.abc.Mapping[str, str | pathlib.Path] | None = None, methods: collections.abc.Mapping[str, str | pathlib.Path] | None = None)`
+**Constructor**: `Server(config: str | None = 'volca.toml', port: Union[int, Literal['auto']] = 0, binary: str = 'volca', databases: collections.abc.Mapping[str, str | pathlib._local.Path] | None = None, methods: collections.abc.Mapping[str, str | pathlib._local.Path] | None = None)`
 
 #### Properties
 

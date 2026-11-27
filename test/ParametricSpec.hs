@@ -18,7 +18,7 @@ takes bread in grams.
 module ParametricSpec (spec) where
 
 import API.MCP (callTool, noRequestId)
-import API.Routes (ScoreLines (..), activityLCIABatchH, batchImpactsH, computedQualityReportH, postReducedModel)
+import API.Routes (PanelAsk (..), ScoreLines (..), activityLCIABatchH, batchImpactsH, computedQualityReportH, postReducedModel)
 import API.Types (ActivityForAPI (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), ComputedQualityReportAPI (..), ExchangeContribution (..), ExchangeWithUnit (..), FreeParameter (..), FunctionalUnit (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), QualityCheckAPI (..), QualityOffenderAPI (..), ReducedModel (..), ReducedModelRequest (..), Substitution (..), SubstitutionRequest (..), SubstitutionScope (..), UnsolvableEntry (..), toSelector)
 import App.Env (AppEnv (..), AppM, runApp)
 import Config (defaultConfig)
@@ -219,7 +219,7 @@ spec = describe "a database at other values of its parameters" $ do
         batch <- answer manager (batchImpactsH "bakery" (CollectionName "co2") Nothing Nothing IncludeLongTerm (BatchImpactsRequest processes sets))
         alone <-
             sequence
-                [ answer manager (activityLCIABatchH "bakery" process (CollectionName "co2") (Just (SubstitutionRequest [] values)) IncludeLongTerm WithoutLines)
+                [ answer manager (activityLCIABatchH "bakery" process (CollectionName "co2") (PanelAsk (Just (SubstitutionRequest [] values)) IncludeLongTerm WithoutLines Nothing))
                 | values <- sets
                 , process <- processes
                 ]
@@ -281,7 +281,7 @@ spec = describe "a database at other values of its parameters" $ do
             map mprName (rdmProcesses model) `shouldMatchList` ["bread", "flour", "loaf", "dough"]
             rdmFunctionalUnit model `shouldBe` FunctionalUnit "kg" "loaf"
             forM_ sets $ \values -> do
-                engine <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") (Just (SubstitutionRequest [] (zipWith (\n v -> ParameterValue (pnProcess n) (pnName n) v) names values))) policy WithoutLines)
+                engine <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") (PanelAsk (Just (SubstitutionRequest [] (zipWith (\n v -> ParameterValue (pnProcess n) (pnName n) v) names values))) policy WithoutLines Nothing))
                 (scores, scoring) <- either (fail . T.unpack) pure (modelAt model values)
                 (values, zipWith (withinTolerance 1e-9) (scoresOf engine) scores) `shouldBe` (values, map (const True) scores)
                 M.keys scoring `shouldBe` M.keys (lbrScoringResults engine)
@@ -300,7 +300,7 @@ spec = describe "a database at other values of its parameters" $ do
 
     it "splits each score by the activity's lines, which add up to it" $ do
         manager <- scoringManager
-        let scored process values = answer manager (activityLCIABatchH "bakery" (processIdText process) (CollectionName "model") (Just (SubstitutionRequest [] values)) IncludeLongTerm WithLines)
+        let scored process values = answer manager (activityLCIABatchH "bakery" (processIdText process) (CollectionName "model") (PanelAsk (Just (SubstitutionRequest [] values)) IncludeLongTerm WithLines Nothing))
             climate batch = [byPosition r | r <- lbrResults batch, lrMethodName r == "Climate change"]
         -- The bread: 2 kg of flour at 0.25, a French kilowatt-hour at 1, a German one at zero, and its own 1.
         (climate <$> scored (aBread, pBread) []) `shouldReturnNear` [M.fromList [(1, 0.5), (2, 1), (3, 0), (4, 1)]]
@@ -318,15 +318,24 @@ spec = describe "a database at other values of its parameters" $ do
         loaf <- scored (aLoaf, pLoaf) []
         [M.keys (byPosition r) | r <- lbrResults loaf] `shouldBe` [[1, 2, 3, 4], [1, 2, 3, 4]]
 
+    it "lists as many top flows per category as asked, five when not asked" $ do
+        manager <- scoringManager
+        let loaf = processIdText (aLoaf, pLoaf)
+            listed top = map (length . lrTopContributors) . lbrResults <$> answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") (PanelAsk Nothing IncludeLongTerm WithoutLines top))
+        listed (Just 0) `shouldReturn` [0, 0]
+        listed (Just 1) `shouldReturn` [1, 1]
+        five <- listed (Just 5)
+        listed Nothing `shouldReturn` five
+
     it "gives the lines only when asked, without substitutions, and under a licence that shows them" $ do
         manager <- scoringManager
         let loaf = processIdText (aLoaf, pLoaf)
-            scored request lines' = runHandler (runApp (envOf manager) (activityLCIABatchH "bakery" loaf (CollectionName "model") request IncludeLongTerm lines'))
-        plain <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") Nothing IncludeLongTerm WithoutLines)
+            scored request lines' = runHandler (runApp (envOf manager) (activityLCIABatchH "bakery" loaf (CollectionName "model") (PanelAsk request IncludeLongTerm lines' Nothing)))
+        plain <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") (PanelAsk Nothing IncludeLongTerm WithoutLines Nothing))
         map (null . lrExchangeContributions) (lbrResults plain) `shouldBe` [True, True]
         substituted <- scored (Just (SubstitutionRequest [Substitution (processIdText (aBread, pBread)) (processIdText (aCake, pCake)) AllConsumers] [])) WithLines
         either errHTTPCode (const 200) substituted `shouldBe` 400
-        split <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") Nothing IncludeLongTerm WithLines)
+        split <- answer manager (activityLCIABatchH "bakery" loaf (CollectionName "model") (PanelAsk Nothing IncludeLongTerm WithLines Nothing))
         let kept refused = map (null . lrExchangeContributions) (lbrResults (withholdBatch "bakery" (LicenceOwn OwnLicence{ownText = "Ours", ownRefused = S.fromList refused, ownAttribution = AttributionRequired, ownAcceptance = NoAcceptance}) split))
         kept [] `shouldBe` [False, False]
         kept [ReadInventory] `shouldBe` [True, True]

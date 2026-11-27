@@ -1817,6 +1817,7 @@ params r = case r of
         , pExcludeLongTerm
         , pScoringSetsFilter
         , Param "exchange_contributions" "boolean" Optional "True: each impact category's result lists what each of the process's lines adds ('exchangeContributions': position as get_activity numbers exchanges, contribution, share), largest first, summing to the score. Scoring-set scores not split. Not with 'substitutions'. Empty when the licence keeps detail or inventory to itself. Default false."
+        , Param "top_flows" "integer" Optional "How many top contributing flows each impact category lists in 'topContributors' (default 5). 0 leaves them out, for an answer a fraction of the size when get_contributing_flows gives the flows."
         ]
     ScoreActivities ->
         [ pDatabase
