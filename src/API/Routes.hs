@@ -14,7 +14,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChainConsumers, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), GroupCandidate (..), GroupCandidates (..), GroupCandidatesRequest (..), GroupClassification (..), GroupContributions (..), GroupFilterSpec (..), GroupFlowSpec (..), GroupMembersRequest (..), GroupPart (..), GroupSet (..), GroupSpec (..), GroupsRequest (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RefusedEntry (..), RelinkRequest (..), RelinkResponse (..), RootDb (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldScores (..), WithheldShare (..), apiFlowOfKind, formulaLanguage, parseProducerFilter, parseSubRef)
+import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChainConsumers, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), GroupCandidate (..), GroupCandidates (..), GroupCandidatesRequest (..), GroupClassification (..), GroupContributions (..), GroupFilterSpec (..), GroupFlowSpec (..), GroupMembersRequest (..), GroupPart (..), GroupSet (..), GroupSpec (..), GroupsRequest (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RefusedEntry (..), RelinkRequest (..), RelinkResponse (..), RootDb (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstanceContributionEntry (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldScores (..), WithheldShare (..), apiFlowOfKind, formulaLanguage, parseProducerFilter, parseSubRef)
 import App.Env (AppEnv (..), AppM, counted, countedEach, httpOrigin, runApp)
 import qualified Builtin
 import Config (DatabaseConfig (..))
@@ -72,9 +72,10 @@ import GHC.Generics
 import qualified GHC.Stats
 import qualified Groups
 import qualified Impact
-import Impact.Ranking (Ranked (..), RowCut (..), rankRows, rowCut)
+import Impact.Ranking (Ranked (..), RowCut (..), listsNoRow, rankRows, rowCut)
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
+import Impact.Substances (SubstanceContribution (..), bySubstance, substanceCompartments, substanceFlowIds)
 import Matrix (Inventory)
 import qualified Matrix
 import qualified Method.Explain as Explain
@@ -160,7 +161,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "compare" :> QueryParam "other_process_id" Text :> QueryParam "other_database" Text :> Get '[JSON] ActivityComparison
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "changes-present" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesPresence
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "apply-changes" :> ReqBody '[JSON] ChangesQuery :> Post '[JSON] ChangesApplied
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "cover_percent" Double :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "by_substance" Bool :> QueryParam "limit" Int :> QueryParam "cover_percent" Double :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "limit" Int :> QueryParam "cover_percent" Double :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-flows" :> Capture "collection" DM.CollectionName :> "score" :> Capture "scoringSet" Text :> Capture "score" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingFlowsResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "contributing-activities" :> Capture "collection" DM.CollectionName :> "score" :> Capture "scoringSet" Text :> Capture "score" Text :> QueryParam "limit" Int :> QueryParam "exclude-long-term" Bool :> Get '[JSON] ContributingActivitiesResult
@@ -880,7 +881,7 @@ licencedTopFlows ::
     RowCut ->
     IO (Either Text TopFlows)
 licencedTopFlows dbManager collection method tables ls score cut
-    | FirstRows n <- cut, n <= 0 = pure (Right (TopFlows [] []))
+    | listsNoRow cut = pure (Right (TopFlows [] []))
     | otherwise = fmap toTop <$> Impact.licencedContributionsOf dbManager collection method tables ls
   where
     toTop :: Impact.LicencedContributions -> TopFlows
@@ -917,6 +918,22 @@ topContributorRows matchKind score ranked =
         , fcoMatchKind = matchKind (bfId f)
         }
     | Ranked{rkRow = FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c}, rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} <- ranked
+    ]
+
+-- | The rows of a list of flows gathered by substance, ranked and cut by 'rankRows'.
+substanceRows :: Double -> [Ranked SubstanceContribution] -> [SubstanceContributionEntry]
+substanceRows score ranked =
+    [ SubstanceContributionEntry
+        { sceName = scName s
+        , sceContribution = scContribution s
+        , sceSharePct = if score /= 0 then scContribution s / score * 100 else 0
+        , sceAbsoluteSharePct = absolute
+        , sceCumulativeSharePct = cumulative
+        , sceCategory = maybe "" mediumText (scMedium s)
+        , sceCompartments = substanceCompartments s
+        , sceFlowIds = substanceFlowIds s
+        }
+    | Ranked{rkRow = s, rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} <- ranked
     ]
 
 {- | Batch fast path: scores via 'batchedScoresFor', then build LCIAResult
@@ -1726,7 +1743,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 125: @cover_percent@ on the contributing-flows and
+(revision 126: @by_substance@ on the contributing-flows route, the flows of
+one name and one medium gathered in the rows of @topSubstances@, @topFlows@
+left empty;
+revision 125: @cover_percent@ on the contributing-flows and
 contributing-activities routes, the rows cut once they cover more than that
 percentage of the sum of absolute contributions, and every row of a list of
 contributions with its @absoluteSharePct@ and @cumulativeSharePct@ of that sum;
@@ -2020,7 +2040,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 125
+currentWireVersion = 126
 
 getVersion :: AppM Value
 getVersion = do
@@ -3094,8 +3114,8 @@ getMethodCollectionComparison collection otherParam forcedPairs categoryParam li
     failed (CollectionMissing name loaded) = throwError err404{errBody = collectionNotLoadedBody name loaded}
     failed (PairsRefused r) = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 (CompareMethods.refusalMessage r))}
 
-getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Int -> Maybe Double -> Maybe Bool -> AppM ContributingFlowsResult
-getContributingFlows dbName processIdText collectionName methodIdText limitParam coverParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
+getContributingFlows :: Text -> Text -> DM.CollectionName -> Text -> Maybe Bool -> Maybe Int -> Maybe Double -> Maybe Bool -> AppM ContributingFlowsResult
+getContributingFlows dbName processIdText collectionName methodIdText bySubstanceParam limitParam coverParam mExcludeLT = counted Contributing dbName (ProcessKey processIdText) $ do
     DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
     cut <- either badRequest pure (rowCut 20 limitParam coverParam)
     withActivityAndMethod dbName collectionName processIdText methodIdText $ \db sharedSolver actProcessId activity method -> do
@@ -3112,15 +3132,24 @@ getContributingFlows dbName processIdText collectionName methodIdText limitParam
         liftIO $ warnUnknownInventoryFlows ("contributing-flows " <> methodName method) mFlows (SharedSolver.csInventory sol)
         score <- liftIO (Impact.scoreSolution dbManager collectionName method tables checkedSol) >>= either scoringError pure
         ls <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores checkedSol)
-        top <- liftIO (licencedTopFlows dbManager collectionName method tables ls score cut) >>= either scoringError pure
+        -- As in 'licencedTopFlows': no row asked, nothing walked, and no line beside the rows.
+        lc <-
+            if listsNoRow cut
+                then pure Impact.LicencedContributions{Impact.lcRows = [], Impact.lcUnknown = [], Impact.lcWithheld = []}
+                else liftIO (Impact.licencedContributionsOf dbManager collectionName method tables ls) >>= either scoringError pure
         basis <- liftIO (activityBasis dbManager collectionName sol Nothing)
+        let withheld = map Impact.psScore (Impact.lcWithheld lc)
+            (perFlow, perSubstance)
+                | fromMaybe False bySubstanceParam = ([], substanceRows score (rankRows scContribution withheld cut (bySubstance (Impact.lcRows lc))))
+                | otherwise = (topContributorRows (Explain.flowMatchKind tables) score (rankRows fcContribution withheld cut (Impact.lcRows lc)), [])
         return
             ContributingFlowsResult
                 { cfrMethod = methodName method
                 , cfrUnit = methodUnit method
                 , cfrTotalScore = score
-                , cfrTopFlows = tfRows top
-                , cfrWithheldDatabases = tfWithheld top
+                , cfrTopFlows = perFlow
+                , cfrTopSubstances = perSubstance
+                , cfrWithheldDatabases = Service.withheldShares score (Impact.lcWithheld lc)
                 , cfrCutoffInputs = cutoffShown cutoffs
                 , cfrWithheldCutoffs = cutoffWithheld cutoffs
                 , cfrBasis = basis
@@ -3484,6 +3513,7 @@ groupFlowsOf dbManager root method request = runExceptT $ do
             , cfrUnit = methodUnit method
             , cfrTotalScore = score
             , cfrTopFlows = tfRows top
+            , cfrTopSubstances = []
             , cfrWithheldDatabases = filter ((/= 0) . wsContribution) (tfWithheld top)
             , cfrCutoffInputs = cutoffShown cutoffs
             , cfrWithheldCutoffs = cutoffWithheld cutoffs
@@ -3844,6 +3874,7 @@ getScoreContributingFlows dbName processIdText collectionName setName scoreName 
             , cfrUnit = hdUnit heading
             , cfrTotalScore = total
             , cfrTopFlows = topContributorRows (const Nothing) total (rankRows fcContribution (map Impact.psScore withheld) (FirstRows (fromMaybe 20 limitParam)) rows)
+            , cfrTopSubstances = []
             , cfrWithheldDatabases = Service.withheldShares total withheld
             , cfrCutoffInputs = cutoffShown (hdCutoffs heading)
             , cfrWithheldCutoffs = cutoffWithheld (hdCutoffs heading)

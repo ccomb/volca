@@ -19,6 +19,7 @@ module Impact.Ranking (
     Ranked (..),
     rowCut,
     rankRows,
+    listsNoRow,
 ) where
 
 import Data.List (sortOn)
@@ -59,6 +60,12 @@ rowCut defaultRows rows = \case
     -- A long tail of small rows can take hundreds to reach a high percentage: the answer stays readable.
     coveringCap :: Int
     coveringCap = 100
+
+-- | Whether the cut lists no row at all, so the contributions need not be walked.
+listsNoRow :: RowCut -> Bool
+listsNoRow = \case
+    FirstRows n -> n <= 0
+    Covering _ cap -> cap <= 0
 
 {- | The rows, largest first in absolute value, cut where asked. The unlisted
 parts are the scores a licence keeps whole: their absolute values join the sum,

@@ -860,7 +860,9 @@ description r = case r of
         "LCA / ACV: emissions and resources weighing most in one impact \
         \category: 'which emissions drive my climate change score?'. Flow \
         \'match_kind': how its factor was found (rungs on explain_cf), null if \
-        \none reaches it. 'basis' as on score_activity."
+        \none reaches it. 'basis' as on score_activity. by_substance: one row \
+        \per substance and medium, its flows added up ('flow_ids', \
+        \'compartments'), no factor."
             <> coverTip
             <> webUrlTip
     GetContributingActivities ->
@@ -1663,6 +1665,7 @@ params r = case r of
         , pCollection
         , pLimit "Max flows to return, largest contribution first in absolute value (default 20; the cap of cover_percent, 100 when omitted)"
         , pCoverPercent
+        , Param "by_substance" "boolean" Optional "True: gather the flows of one name (case aside) and one medium in one row, e.g. fossil carbon dioxide to urban air, rural air and the stratosphere; the shares and cover_percent then read the rows gathered. Two databases spelling a substance differently keep two rows."
         , pExcludeLongTerm
         , Param "include_diagnostics" "boolean" Optional "True: uncharacterized flows above 0.1% of total |amount|, each with up to 3 similar candidate CFs (PubChem-expanded Jaccard + CAS)."
         ]

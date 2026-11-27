@@ -3054,6 +3054,26 @@ class ActivityContribution(FromJson):
 
 
 @dataclass
+class SubstanceContribution(FromJson):
+    """The flows of one substance in one medium, gathered in one row.
+
+    Emitted inside ``ContributingFlows.top_substances`` when the flows are
+    asked ``by_substance`` (wire revision 126). ``name`` is its largest flow's
+    spelling; flows whose names differ only by case or surrounding spaces
+    are one substance. The shares read as on :class:`FlowContribution`.
+    """
+
+    name: str
+    contribution: float
+    share_pct: float
+    absolute_share_pct: float
+    cumulative_share_pct: float
+    category: str  # medium only, "" when its flows record none
+    compartments: list[str] = field(default_factory=list)
+    flow_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ContributingFlows:
     """Top elementary flows driving an LCIA score.
 
@@ -3078,6 +3098,9 @@ class ContributingFlows:
     basis: ScoreBasis | None = None
     """What the score these flows add up to rests on (wire revision 101);
     ``None`` from an older engine."""
+    top_substances: list[SubstanceContribution] = field(default_factory=list)
+    """The rows gathered by substance, asked with ``by_substance``, in place
+    of ``top_flows``, which is then empty (wire revision 126)."""
 
     @classmethod
     def from_json(cls, d: dict) -> "ContributingFlows":
@@ -3091,6 +3114,7 @@ class ContributingFlows:
             cutoff_inputs=[CutoffInput.from_json(c) for c in d.get("cutoffInputs", [])],
             withheld_cutoffs=[WithheldCutoffs.from_json(w) for w in d.get("withheldCutoffs", [])],
             basis=ScoreBasis.maybe(d.get("basis")),
+            top_substances=[SubstanceContribution.from_json(s) for s in d.get("topSubstances", [])],
         )
 
 

@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.15.0** speaks wire formats **113 to 125** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.15.0** speaks wire formats **113 to 126** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1237,7 +1237,7 @@ under the PEF rule. ``method_id`` takes a method name as well as a
 UUID, and ``collection`` is read off the resolved method unless you
 pin it.
 
-##### `Client.get_contributing_flows(process_id: str, method_id: str, *, collection: str | None = None, limit: int | None = None, cover_percent: float | None = None) -> ContributingFlows`
+##### `Client.get_contributing_flows(process_id: str, method_id: str, *, collection: str | None = None, limit: int | None = None, cover_percent: float | None = None, by_substance: bool = False) -> ContributingFlows`
 
 Which elementary flows drive a given impact category.
 
@@ -1245,7 +1245,9 @@ Returns a `ContributingFlows`, largest contribution first in
 absolute value. ``cover_percent`` (0 to 100) returns the flows until
 their ``cumulative_share_pct`` passes it, ``limit`` capping them (100
 when omitted): 80 lists the most relevant flows under the PEF rule.
-``method_id`` takes a method name as well as a UUID, and
+``by_substance`` gathers the flows of one name and one medium in the
+rows of ``top_substances``, which the shares and ``cover_percent``
+then read. ``method_id`` takes a method name as well as a UUID, and
 ``collection`` is read off the resolved method unless you pin it.
 
 ##### `Client.get_flow(flow_id: str, db_name: str | None = None) -> FlowDetail`
@@ -3305,6 +3307,7 @@ absolute contributions the rows cover (wire revision 125).
 | `cutoff_inputs` | `list[CutoffInput]` | list() |
 | `withheld_cutoffs` | `list[WithheldCutoffs]` | list() |
 | `basis` | `ScoreBasis \| None` | None |
+| `top_substances` | `list[SubstanceContribution]` | list() |
 
 ### `DatabaseComparison`
 
@@ -3653,6 +3656,26 @@ Emitted inside ``LCIAResult.top_contributors``.
 | `match_kind` | `str \| None` | None |
 | `absolute_share_pct` | `float` | 0.0 |
 | `cumulative_share_pct` | `float` | 0.0 |
+
+### `SubstanceContribution`
+
+The flows of one substance in one medium, gathered in one row.
+
+Emitted inside ``ContributingFlows.top_substances`` when the flows are
+asked ``by_substance`` (wire revision 126). ``name`` is its largest flow's
+spelling; flows whose names differ only by case or surrounding spaces
+are one substance. The shares read as on `FlowContribution`.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `name` | `str` | _required_ |
+| `contribution` | `float` | _required_ |
+| `share_pct` | `float` | _required_ |
+| `absolute_share_pct` | `float` | _required_ |
+| `cumulative_share_pct` | `float` | _required_ |
+| `category` | `str` | _required_ |
+| `compartments` | `list[str]` | list() |
+| `flow_ids` | `list[str]` | list() |
 
 ### `FlowDetail`
 

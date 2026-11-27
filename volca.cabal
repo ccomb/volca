@@ -59,6 +59,7 @@ library
                      , Impact
                      , Impact.Score
                      , Impact.Ranking
+                     , Impact.Substances
                      , Groups
                      , Tree
                      , Matrix
@@ -398,6 +399,7 @@ test-suite lca-tests
                      , MCPEraSpec
                      , MCPSkillsSpec
                      , RankingSpec
+                     , SubstancesSpec
                      , MCPTermsFormSpec
                      , MCPTypedAmountsSpec
                      , BatchImpactsSpec
