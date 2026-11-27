@@ -29,6 +29,8 @@ while any copy of it is loaded.
 -}
 module Database.Edit (
     copyDatabase,
+    createDatabase,
+    dependsOf,
     deriveDatabase,
     Derivation (..),
     derivationOf,
@@ -148,6 +150,7 @@ import Database.Manager (
     solverFor,
     supplierMappingPath,
     unloadDatabase,
+    uploadMetaToConfig,
     withReservedName,
  )
 import Database.Rebuild (activityMap, processKey, resolveProcess)
@@ -168,6 +171,7 @@ import Types (
     Database (..),
     Exchange,
     FileReading (..),
+    Licence (..),
     Parameter,
     ProcessId,
     ProcessRef (..),
@@ -239,6 +243,83 @@ nameIsFree manager slug = do
             then Left ("Database already exists: " <> slug)
             else Right ()
 
+{- | The databases a created one depends on, at least one: without a supplier
+to buy from, a process written there could take no input.
+-}
+dependsOf :: [Text] -> Either Text (NonEmpty Text)
+dependsOf names =
+    maybe (Left "name at least one loaded database in depends: the processes written here take their suppliers from it") Right $
+        NE.nonEmpty (filter (not . T.null . T.strip) names)
+
+{- | Create an empty database of one's own under @newName@, for an author to
+write processes into, their suppliers taken from @depends@.
+
+It has no file: its home holds a @meta.toml@ saying it is read from its
+journal, and the journal its writes fill. It is loaded the way a restart
+loads it, so the two cannot disagree. Every dependency must be loaded
+already: a database links only to what is in memory, and a load of several
+minutes is not something a create should start unasked.
+-}
+createDatabase :: DatabaseManager -> Text -> NonEmpty Text -> IO (Either Text (LoadedDatabase, [DepLoadResult]))
+createDatabase manager newName depends = do
+    loadedDbs <- readTVarIO (dmLoadedDbs manager)
+    case filter (`M.notMember` loadedDbs) (NE.toList depends) of
+        _ | T.null slug -> pure (Left ("Invalid name (no usable characters): " <> newName))
+        missing@(_ : _) -> pure (Left ("Load " <> T.intercalate ", " missing <> " first: a database depends only on loaded ones"))
+        [] -> withReservedName manager slug (nameIsFree manager slug) $ \() -> loadCreated manager slug depends
+  where
+    slug :: Text
+    slug = slugify newName
+
+{- | Give the created database its home, register it and load it, or take
+everything back when the load refuses it.
+-}
+loadCreated :: DatabaseManager -> Text -> NonEmpty Text -> IO (Either Text (LoadedDatabase, [DepLoadResult]))
+loadCreated manager slug depends =
+    recordCreated slug depends >>= \case
+        Left err -> pure (Left err)
+        Right config -> do
+            atomically $ modifyTVar' (dmAvailableDbs manager) (M.insert slug config)
+            recordDependencies manager slug (dcDepends config)
+                >>= either (reportProgress Warning . T.unpack . ("the dependencies of " <>) . (slug <>) . (" hold until the restart only: " <>)) pure
+            loadDatabase manager slug >>= \case
+                Left err -> Left err <$ discardDerived manager slug
+                Right result -> pure (Right result)
+
+{- | Write the created database's home, and the config a restart reads back
+from it, so the database is the same before and after one.
+-}
+recordCreated :: Text -> NonEmpty Text -> IO (Either Text DatabaseConfig)
+recordCreated slug depends = do
+    written <- try $ do
+        uploadsDir <- UploadedDB.getDatabaseUploadsDir
+        let home = uploadsDir </> T.unpack slug
+        createDirectoryIfMissing True home
+        added <- addedNow
+        let meta =
+                UploadedDB.UploadMeta
+                    { UploadedDB.umVersion = UploadedDB.metaVersion
+                    , UploadedDB.umDisplayName = slug
+                    , UploadedDB.umDescription = Nothing
+                    , UploadedDB.umFormat = UnknownFormat
+                    , UploadedDB.umDataPath = "."
+                    , UploadedDB.umDepends = NE.toList depends
+                    , UploadedDB.umSource = Nothing
+                    , UploadedDB.umReading = FromJournal
+                    , UploadedDB.umBuiltIn = Nothing
+                    , UploadedDB.umLicence = LicenceUnstated
+                    , UploadedDB.umRelease = Nothing
+                    , UploadedDB.umRequires = []
+                    , UploadedDB.umPackageMethod = Nothing
+                    , UploadedDB.umAdded = Just added
+                    }
+        UploadedDB.writeUploadMeta home meta
+        pure (uploadMetaToConfig slug home meta)
+    pure $ case written of
+        Right config -> Right config
+        Left (err :: SomeException) ->
+            Left $ "could not record the database " <> slug <> ": " <> T.pack (show err)
+
 {- | Make a parent of a database read from its files, or a child of a parent,
 and register it under @newName@.
 
@@ -289,6 +370,7 @@ deriveDatabase manager srcName newName derivation = do
         (AsChild _, FromFiles ReadWhole) -> Nothing
         (AsChild _, FromFiles ReadDeclared) -> Just notParent
         (AsChild _, ByModel _) -> Just notParent
+        (_, FromJournal) -> Just (srcName <> " is written by its journal and reads no file: there is nothing to divide again")
     notParent = srcName <> " is not a parent: derive a parent from it first, then the child from that parent"
 
 -- | What a derivation makes of its source.

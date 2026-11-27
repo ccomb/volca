@@ -247,9 +247,11 @@ readingRefusal model content = either Just (const Nothing) (readingOf model (fst
 
 -- | The reading a meta.toml's keys name, with the system model kept beside it.
 readingOf :: Maybe Text -> [(Text, Text)] -> Either Text Reading
-readingOf model pairs = case lookup "system_model_file" pairs of
-    Just _ -> maybe (Left ("its system model, " <> T.pack systemModelFileName <> ", is missing")) (fmap ByModel . parseSystemModel) model
-    Nothing -> FromFiles <$> parseFileReading (maybe "declared" unquote (lookup "allocation" pairs))
+readingOf model pairs = case (lookup "system_model_file" pairs, unquote <$> lookup "reading" pairs) of
+    (Just _, _) -> maybe (Left ("its system model, " <> T.pack systemModelFileName <> ", is missing")) (fmap ByModel . parseSystemModel) model
+    (Nothing, Just "journal") -> Right FromJournal
+    (Nothing, Just other) -> Left ("reading = \"" <> other <> "\" is not a way to read a database; \"journal\" is the one this key names")
+    (Nothing, Nothing) -> FromFiles <$> parseFileReading (maybe "declared" unquote (lookup "allocation" pairs))
 
 {- | Parse meta.toml content, given the system model kept beside it if any.
 Simple key=value parser (not a full TOML parser)
@@ -445,6 +447,7 @@ formatMetaToml UploadMeta{..} =
     readingLine reading = case reading of
         FromFiles fr -> "allocation = " <> quote (allocationKeyText (fileReadingKey fr))
         ByModel _ -> "system_model_file = " <> quote (T.pack systemModelFileName)
+        FromJournal -> "reading = " <> quote "journal"
 
     requirementLines :: Requirement -> [Text]
     requirementLines Requirement{reqRelease = Release{..}, ..} =

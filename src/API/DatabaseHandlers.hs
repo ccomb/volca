@@ -29,6 +29,7 @@ module API.DatabaseHandlers (
     explainedFlowAPI,
     copyDatabaseHandler,
     deriveDatabaseHandler,
+    createDatabaseHandler,
     systemModelHandler,
     deleteDatabaseHandler,
     deleteActivitiesHandler,
@@ -146,6 +147,7 @@ import API.Types (
     CollectionBridgesAPI (..),
     ComputedQualityReportAPI (..),
     CoverageReportAPI (..),
+    CreateRequest (..),
     DatabaseExportRequest (..),
     DatabaseHistoryEntry (..),
     DatabaseListResponse (..),
@@ -226,9 +228,11 @@ import Database.Edit (
     WriteReport (..),
     WriteVerb (..),
     copyDatabase,
+    createDatabase,
     databaseHistory,
     databaseProvenance,
     deleteActivitiesInDB,
+    dependsOf,
     derivationOf,
     deriveDatabase,
     editActivities,
@@ -706,6 +710,25 @@ deriveDatabaseHandler dbName newName request = do
   where
     badRequest :: Text -> AppM a
     badRequest err = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 err)}
+
+{- | Create an empty database of one's own under @newName@, its suppliers taken
+from the loaded databases @depends@ names. It answers as a load does, and
+spends both budgets as a copy does: what comes out is another loaded database
+of the user's own.
+-}
+createDatabaseHandler :: Text -> CreateRequest -> AppM LoadDatabaseResponse
+createDatabaseHandler newName request = do
+    guardMutation
+    depends <- either (failWith err400) pure (dependsOf (crDepends request))
+    dbManager <- asks aeDbManager
+    hostingConfig <- asks aeHostingConfig
+    refusal <- liftIO $ do
+        (uploaded, loadedUploads) <- quotaCounts dbManager
+        pure (copyRefusal uploaded loadedUploads hostingConfig)
+    mapM_ (failWith err403) refusal
+    (loadedDb, depResults) <- ioEither400 (createDatabase dbManager newName depends)
+    status <- liftIO (loadedStatus dbManager loadedDb)
+    pure (LoadSucceeded status depResults)
 
 {- | A child's system model, each exception with the processes it takes from
 the parent as loaded. A database read from its files has none: a 400 that says

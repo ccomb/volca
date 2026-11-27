@@ -254,6 +254,7 @@ changesReport provenance carried =
     reallocated reading = case reading of
         FromFiles ReadWhole -> "Multi-output processes are kept whole, not divided as the original divides them."
         FromFiles ReadDeclared -> "Multi-output processes are divided by the shares the original declares."
+        FromJournal -> "Every process is one this database's journal writes: it reads no file."
         ByModel model ->
             "Multi-output processes are divided by the system model "
                 <> smName model

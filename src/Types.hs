@@ -2809,13 +2809,19 @@ data Selector
     | ByProcesses !(NonEmpty UUID)
     deriving (Show, Eq, Generic, NFData)
 
-{- | How a database is read: from its files, or divided from its parent by a
-model. The parent is the database's source, which the delete guard, the
-licence and the patches already follow.
+{- | How a database is read: from its files, divided from its parent by a
+model, or from nothing but its journal. The parent is the database's source,
+which the delete guard, the licence and the patches already follow.
+
+A database read from its journal was created empty for someone to write
+into: it has no file, its processes are the ones its journal writes, and its
+suppliers are in the databases it depends on. It is told apart from a file
+that yields no process, which is refused: that one was meant to hold some.
 -}
 data Reading
     = FromFiles !FileReading
     | ByModel !SystemModel
+    | FromJournal
     deriving (Show, Eq, Generic, NFData)
 
 -- | The model a child was divided by, if it is one.
@@ -2823,6 +2829,7 @@ modelOf :: Reading -> Maybe SystemModel
 modelOf reading = case reading of
     ByModel model -> Just model
     FromFiles _ -> Nothing
+    FromJournal -> Nothing
 
 -- | A model as a listing names it.
 data ModelTitle = ModelTitle
@@ -2842,6 +2849,8 @@ readingKey :: Reading -> AllocationKey
 readingKey reading = case reading of
     FromFiles fr -> fileReadingKey fr
     ByModel model -> ByProperty (smDefault model)
+    -- An authored process has one product: there is nothing to divide.
+    FromJournal -> fileReadingKey ReadDeclared
 
 {- | Per-database knob controlling how aggressively geography may be widened when
 linking an exchange to a supplier. Maps to TOML field @geography_policy@.

@@ -10,7 +10,7 @@ below is given a name that exists nowhere, on a writable instance.
 -}
 module FailureStatusSpec (spec) where
 
-import API.Types (DeriveRequest (..), UploadChunk (..))
+import API.Types (CreateRequest (..), DeriveRequest (..), UploadChunk (..))
 import Control.Exception (AsyncException (HeapOverflow), Exception, SomeException, toException)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -21,6 +21,7 @@ import TestHelpers (withScratchDataDir)
 import API.DatabaseHandlers (
     RefDataKind (..),
     copyDatabaseHandler,
+    createDatabaseHandler,
     deleteDatabaseHandler,
     deleteMethodHandler,
     deleteRefData,
@@ -68,6 +69,7 @@ failing =
     , ("delete", (`failure` deleteDatabaseHandler "nope"))
     , ("copy", (`failure` copyDatabaseHandler "nope" "nope-copy"))
     , ("derive", (`failure` deriveDatabaseHandler "nope" "nope-derived" DeriveRequest{drParent = Just True, drSystemModel = Nothing}))
+    , ("create", (`failure` createDatabaseHandler "nope-new" (CreateRequest ["nope"])))
     , ("finalize", (`failure` finalizeDatabaseHandler "nope"))
     , ("upload", (`failure` uploadDatabaseHandler (Just "nope") Nothing (source [])))
     , ("upload without a name", (`failure` uploadDatabaseHandler Nothing Nothing (source [])))
@@ -130,6 +132,7 @@ spec = describe "A failed request" $ do
             env <- envWith (Just noUploadsLeft)
             fmap fst <$> failure env (uploadDatabaseHandler (Just "nope") Nothing (source [])) `shouldReturn` Just 403
             fmap fst <$> failure env (copyDatabaseHandler "nope" "nope-copy") `shouldReturn` Just 403
+            fmap fst <$> failure env (createDatabaseHandler "nope-new" (CreateRequest ["nope"])) `shouldReturn` Just 403
 
     it "answers 413 when the upload is larger than the plan allows" $
         withScratchDataDir $ do

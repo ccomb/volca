@@ -1063,6 +1063,26 @@ class Client:
             "derive_database",
         )
 
+    def create_database(self, new_name: str, depends: list[str]) -> dict:
+        """Create an empty database of your own under ``new_name``, to write
+        processes into with :meth:`create_activities`.
+
+        Its processes take their suppliers from the databases ``depends``
+        names, at least one, each already loaded: search them for suppliers,
+        since the new database holds none. It is kept across restarts and can
+        be deleted. Refused when ``depends`` is empty or names a database not
+        loaded, when the name is taken, or when the hosting quota is met.
+
+        Returns the engine's ``LoadDatabaseResponse`` dict, as
+        :meth:`load_database` does: ``"database"`` describes the new database,
+        under the name it was registered with.
+        """
+        self._require_wire(129, "create_database", engine_hint="0.19.1")
+        return self._require_success(
+            self._call("create_database", new_name=new_name, body={"depends": depends}),
+            "create_database",
+        )
+
     def system_model(self, *, db_name: str | None = None) -> dict:
         """The system model a child is divided by::
 

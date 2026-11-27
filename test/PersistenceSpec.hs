@@ -39,7 +39,7 @@ import Test.Hspec
 
 import Config (Config (..), DatabaseConfig (..), Dependencies (..), declaredDepends, defaultConfig)
 import Database (buildDatabaseWithMatrices)
-import Database.Author (AmountFrom (..), ExchangeEdit (..), ExchangeSelector (..))
+import Database.Author (AmountFrom (..), AuthoredActivity (..), AuthoredExchange (..), AuthoredLine (..), ExchangeEdit (..), ExchangeSelector (..))
 import Database.DependencyChoices (Keeper (..), Kept (..), readKept)
 import Database.Edit (
     DeleteOutcome (..),
@@ -48,12 +48,17 @@ import Database.Edit (
     MissingRequest (..),
     MutationOutcome (..),
     SpareChoice (..),
+    WriteReport (..),
+    WriteVerb (..),
     copyDatabase,
+    createDatabase,
     deleteActivitiesInDB,
+    dependsOf,
     editActivities,
     mutateUploadedDatabase,
     refusalMessage,
     supplyMissing,
+    writeActivities,
  )
 import Database.Journal (Change (..), Entry (..), JournalOp (..), journalPath, journalStamp, nothingStated, readJournal, writeAppliedStamp)
 import Database.Loader (matrixCacheFile)
@@ -510,6 +515,46 @@ spec = describe "persisting an edit" $ do
                 removed `shouldSatisfy` failsWith "made from it"
                 listDirectory (uploads </> "bafu-like") >>= (`shouldSatisfy` elem "data")
 
+    describe "a database created empty" $ do
+        it "holds no process, and a home saying it is read from its journal" $
+            withBakeryAndMill $ \dataRoot manager -> do
+                created <- createDatabase manager "Lyocell study" ("mill" :| [])
+                fmap (dcName . ldConfig . fst) created `shouldBe` Right "lyocell-study"
+                processKeysOf manager "lyocell-study" `shouldReturn` []
+                meta <- readUploadMeta (homeOf dataRoot "lyocell-study")
+                fmap umReading meta `shouldBe` Just FromJournal
+                fmap umDepends meta `shouldBe` Just ["mill"]
+                -- Empty because nothing was written yet, not because a read failed.
+                fmap dsiIsReady <$> getDatabaseSetupInfo manager "lyocell-study" `shouldReturn` Right True
+
+        it "takes a process buying from its dependency, and keeps it across a restart" $
+            withBakeryAndMill $ \_ manager -> do
+                (void <$> createDatabase manager "lyocell" ("mill" :| [])) `shouldReturn` Right ()
+                milled <- head' <$> processKeysOf manager "mill"
+                written <- writeActivities manager "lyocell" noOrigin nothingStated CreateActivities [porridge milled]
+                fmap (length . wrWritten) (first refusalMessage written) `shouldBe` Right 1
+                keys <- processKeysOf manager "lyocell"
+                suppliersOf manager "lyocell" `shouldReturn` Set.singleton "mill"
+                -- What a restart finds is the home alone: no file, the journal.
+                restarted <- initDatabaseManager defaultConfig UseCache
+                (void <$> getDatabaseSetupInfo restarted "lyocell") `shouldReturn` Left (SetupNotLoaded "lyocell")
+                mustLoad restarted "lyocell"
+                processKeysOf restarted "lyocell" `shouldReturn` keys
+                suppliersOf restarted "lyocell" `shouldReturn` Set.singleton "mill"
+
+        it "is deleted with its home" $
+            withBakeryAndMill $ \dataRoot manager -> do
+                (void <$> createDatabase manager "lyocell" ("mill" :| [])) `shouldReturn` Right ()
+                unloadDatabase manager "lyocell" `shouldReturn` Right ()
+                removeDatabase manager "lyocell" `shouldReturn` Right ()
+                doesDirectoryExist (homeOf dataRoot "lyocell") `shouldReturn` False
+
+        it "is refused a dependency not loaded, a name taken, or no dependency at all" $
+            withBakeryAndMill $ \_ manager -> do
+                createDatabase manager "lyocell" ("nowhere" :| []) >>= (`shouldSatisfy` failsWith "Load nowhere first") . void
+                createDatabase manager "bakery" ("mill" :| []) >>= (`shouldSatisfy` failsWith "already exists") . void
+                dependsOf ["", " "] `shouldSatisfy` failsWith "at least one"
+
     describe "deleting an uploaded database" $
         it "leaves no directory behind when its data sits in a subdirectory" $
             -- Its cache sits beside the data, inside the upload: deleting the
@@ -793,6 +838,19 @@ withGranaryAndBakery act =
         writeUpload dataRoot "granary" [] [datasetBuying 1 "barley" "kg" []]
         writeUpload dataRoot "bakery" [] [datasetBuying 1 "bread" "kg" [("barley, output", 2)]]
         initDatabaseManager defaultConfig UseCache >>= act dataRoot
+
+-- | Porridge of the mill's product, written where the mill is a dependency.
+porridge :: Text -> AuthoredActivity
+porridge milled =
+    AuthoredActivity
+        { aaName = "porridge"
+        , aaLocation = "FR"
+        , aaDescription = []
+        , aaProductName = "porridge"
+        , aaProductAmount = 1
+        , aaProductUnit = "kg"
+        , aaExchanges = [AuthoredLine (AuthoredTechInput milled 0.5 Nothing Nothing) FromCall]
+        }
 
 bakery :: [Text]
 bakery =

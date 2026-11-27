@@ -26,6 +26,7 @@ import API.DatabaseHandlers (
     addDependencyHandler,
     copyDatabaseHandler,
     createActivitiesHandler,
+    createDatabaseHandler,
     deleteActivitiesHandler,
     deleteDatabaseHandler,
     deleteMethodHandler,
@@ -61,6 +62,7 @@ import API.Types (
     ActivityWriteRequest (..),
     CategoryEditOp (..),
     CategoryEditRequest (..),
+    CreateRequest (..),
     DeleteSelectionRequest (..),
     ExchangeEditRequest (..),
     FactorEditOp (..),
@@ -129,6 +131,7 @@ mutatingHandlers =
     , ("unload", run (unloadDatabaseHandler "nope"))
     , ("delete", run (deleteDatabaseHandler "nope"))
     , ("copy", run (copyDatabaseHandler "nope" "nope-copy"))
+    , ("create", run (createDatabaseHandler "nope-new" (CreateRequest ["nope"])))
     , ("relink", run (relinkDatabaseHandler "nope" (RelinkRequest Nothing Nothing)))
     , ("delete-selection", run (deleteActivitiesHandler "nope" everything))
     , ("add-dependency", run (addDependencyHandler "nope" "dep"))
@@ -248,7 +251,7 @@ spec = do
 
     describe "Resource registry" $
         it "counts exactly the operations that change shared state as mutations" $
-            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, CreateActivities, EditExchanges, EditActivities, SupplyMissing, EditDatabaseParameters, SaveScenario, DropScenario, CopyMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
+            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, CreateDatabase, CreateActivities, EditExchanges, EditActivities, SupplyMissing, EditDatabaseParameters, SaveScenario, DropScenario, CopyMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
 
     describe "REST handlers under read_only" $ do
         it "refuse every mutating endpoint with 403" $

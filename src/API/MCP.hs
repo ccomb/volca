@@ -49,7 +49,7 @@ import Data.Functor ((<&>))
 import Database (FlowFields (..), Geographies, filterByName, flowFieldsOf, flowQueryIn)
 import Database.Author (AmountFrom (..), AuthorContext (..), ChosenLines (..), ExchangeSelector, describeSelector, isUsableAmount, nameAdded, nameChosen, resolveProcess)
 import Database.Cutoffs (CheckedSolution, Cutoffs (..), chainRefusalSentence, checkedCutoffs, checkedSolution)
-import Database.Edit (JudgedWrite (..), MissingRequest (..), WriteRefusal, WriteReport (..), WriteVerb (..), databaseHistory, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, judgeActivities, judgeWrite, refusalMessage, supplyMissing, writeActivities)
+import Database.Edit (JudgedWrite (..), MissingRequest (..), WriteRefusal, WriteReport (..), WriteVerb (..), createDatabase, databaseHistory, dependsOf, derivationOf, deriveDatabase, editActivities, editDatabaseParameters, editExchanges, judgeActivities, judgeWrite, refusalMessage, supplyMissing, writeActivities)
 import Database.Journal (statedFrom)
 import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
@@ -1602,6 +1602,7 @@ dispatchTool Caller{callerReader = reader, callerAuthor = by, callerAsking = ask
     R.LoadDatabase -> callLoadDatabase dbManager mHosting rid args
     R.UnloadDatabase -> callUnloadDatabase dbManager rid args
     R.DeriveDatabase -> callDeriveDatabase dbManager mHosting rid args
+    R.CreateDatabase -> callCreateDatabase dbManager mHosting rid args
     R.ListPresets -> callListPresets presets rid
     R.SearchActivities -> withDb dbManager rid args $ callSearchActivities (DM.managerGeographies dbManager) presets rid args
     R.SearchFlows -> withDb dbManager rid args $ callSearchFlows (DM.dmChemSynonyms dbManager) rid args
@@ -1944,6 +1945,27 @@ callDeriveDatabase dbManager mHosting rid args = runTool rid $ do
                 , "allocation" .= allocationKeyText (readingKey (dcReading (ldConfig loaded)))
                 , "system_model" .= (modelTitle <$> modelOf (dcReading (ldConfig loaded)))
                 , "activities" .= V.length (dbActivities (ldDatabase loaded))
+                , "dependencies" .= deps
+                ]
+
+{- | Create an empty database of one's own, its suppliers taken from the
+loaded databases @depends@ names. Wraps 'Edit.createDatabase'; the hosting
+quota applies as it does to a copy. The answer names the database as
+registered, the slug of the name asked, which is the one later tools take.
+-}
+callCreateDatabase :: DatabaseManager -> Maybe HostingConfig -> RequestId -> KeyMap Value -> IO Value
+callCreateDatabase dbManager mHosting rid args = runTool rid $ do
+    newName <- except (requireText "new_name" args)
+    depends <- except (dependsOf (textArrayArg "depends" args))
+    liftIO (quotaCounts dbManager) >>= \(uploaded, loadedUploads) ->
+        maybe (pure ()) throwE (copyRefusal uploaded loadedUploads mHosting)
+    (loaded, deps) <- ExceptT (createDatabase dbManager newName depends)
+    pure $
+        toolSuccessJson rid $
+            object
+                [ "status" .= ("loaded" :: Text)
+                , "database" .= dcName (ldConfig loaded)
+                , "depends" .= depends
                 , "dependencies" .= deps
                 ]
 
