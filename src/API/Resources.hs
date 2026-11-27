@@ -1347,9 +1347,23 @@ pCollection =
         \(e.g. two EF 3.1 versions); an ambiguous UUID fails \
         \listing them."
 
+{- | The collection of a tool whose answer names, in @basis@, the collection it
+scored with: left out, the engine takes the instance's default, so an assistant
+need not choose one.
+-}
+pScoringCollection :: Param
+pScoringCollection =
+    Param
+        "collection"
+        "string"
+        Optional
+        "Method collection (list_methods). Over MCP, leave it out to use this \
+        \instance's default method collection, which 'basis' names; name \
+        \one only when the person asks for it."
+
 -- | The collection a scoring set is configured on.
 pScoreCollection :: Param
-pScoreCollection = Param "collection" "string" Required "Method collection name the scoring set is configured on (from list_scoring_sets)"
+pScoreCollection = Param "collection" "string" Optional "Method collection the scoring set is configured on (from list_scoring_sets). Over MCP, leave it out to use the only loaded one holding the set, else this instance's default method collection, which 'basis' names"
 
 pScoringSet :: Param
 pScoringSet = Param "scoring_set" "string" Required "Scoring set name (from list_scoring_sets)"
@@ -1593,7 +1607,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , pMethodId
-        , pCollection
+        , pScoringCollection
         , Param "top_flows" "integer" Optional "Number of top contributing flows to return (default 5)"
         , pSubstitutions
         , pParameters
@@ -1604,7 +1618,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , pMethodId
-        , pCollection
+        , pScoringCollection
         , Param
             "perturbations"
             "array"
@@ -1617,7 +1631,7 @@ params r = case r of
     GetReducedModel ->
         [ pDatabase
         , pProcessId
-        , pCollection
+        , Param "collection" "string" Required "Method collection name (list_methods)"
         , Param
             "parameters"
             "array"
@@ -1665,7 +1679,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "method_id" "string" Required "UUID of the impact category"
-        , pCollection
+        , pScoringCollection
         , pLimit "Max flows to return, largest contribution first in absolute value (default 20; the cap of cover_percent, 100 when omitted)"
         , pCoverPercent
         , Param "by_substance" "boolean" Optional "True: gather the flows of one name (case aside) and one medium in one row, e.g. fossil carbon dioxide to urban air, rural air and the stratosphere; the shares and cover_percent then read the rows gathered. Two databases spelling a substance differently keep two rows."
@@ -1676,7 +1690,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "method_id" "string" Required "UUID of the impact category"
-        , pCollection
+        , pScoringCollection
         , pLimit "Max processes to return, largest contribution first in absolute value (default 10; the cap of cover_percent, 100 when omitted)"
         , pCoverPercent
         , pExcludeLongTerm
@@ -1693,7 +1707,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "method_id" "string" Required "UUID of the impact category"
-        , pCollection
+        , pScoringCollection
         , pAttribution
         , pGroups
         , Param "group" "string" Optional "Name of the group to list; left out, the rest"
@@ -1704,7 +1718,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "method_id" "string" Required "UUID of the impact category"
-        , pCollection
+        , pScoringCollection
         , pAttribution
         , pGroups
         , Param "group" "string" Optional "Name of the group to list; left out, the rest"
@@ -1780,11 +1794,11 @@ params r = case r of
         [ Param "database_a" "string" Required "First database name"
         , Param "process_id_a" "string" Required "Process ID in database_a (activityUUID_productUUID format)"
         , Param "method_id_a" "string" Required "Impact category UUID for the A side"
-        , Param "collection_a" "string" Optional "Method collection for the A side; needed only when method_id_a is loaded in more than one method collection."
+        , Param "collection_a" "string" Optional "Method collection for the A side; this instance's default method collection when omitted, which 'basis' names."
         , Param "database_b" "string" Required "Second database name"
         , Param "process_id_b" "string" Required "Process ID in database_b (activityUUID_productUUID format)"
         , Param "method_id_b" "string" Required "Impact category UUID for the B side"
-        , Param "collection_b" "string" Optional "Method collection for the B side; needed only when method_id_b is loaded in more than one method collection."
+        , Param "collection_b" "string" Optional "Method collection for the B side; this instance's default method collection when omitted, which 'basis' names."
         , Param "top_flows" "integer" Optional "Per-side flow drill-down depth (default 10)"
         ]
     CompareActivities ->
@@ -1811,7 +1825,7 @@ params r = case r of
     ScoreActivity ->
         [ pDatabase
         , pProcessId
-        , Param "collection" "string" Required "Method collection name (use list_methods to discover)"
+        , pScoringCollection
         , pSubstitutions
         , pParameters
         , pExcludeLongTerm
@@ -1821,7 +1835,7 @@ params r = case r of
         ]
     ScoreActivities ->
         [ pDatabase
-        , Param "collection" "string" Required "Method collection name"
+        , pScoringCollection
         , Param "process_ids" "array" Required "Process IDs to score (activityUUID_productUUID). All resolved in one multi-RHS solve."
         , pScoringSetsFilter
         , pSummaryOnly

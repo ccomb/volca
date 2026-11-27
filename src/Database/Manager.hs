@@ -5661,7 +5661,8 @@ listMethodCollections manager = do
         | T.isInfixOf ".json" (T.toLower (T.pack p)) = "Regionalized LCIA JSON"
         | otherwise = "ILCD"
 
-{- | The collection the configuration offers a reader first, if it marks one.
+{- | The collection the configuration offers a reader first, and scores with
+when a call names none, if it marks one.
 'validateConfig' lets one entry carry the mark, and a copy or an upload never
 does.
 -}

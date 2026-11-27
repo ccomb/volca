@@ -1650,35 +1650,64 @@ methodRefusalMessage = \case
     MethodNotFound msg -> msg
     MethodAmbiguous msg -> msg
 
-{- | Choose the (collection, method) for a UUID from the loaded set, optionally
-restricted to a named collection. A method's engine UUID is a UUIDv5 of its
-name, so the *same* UUID can be loaded under several collections (e.g. two EF
-3.1 versions). Resolving must therefore be loud, not first-match:
+{- | The method collection a request asks for: one it names, or none. A request
+that names none carries the instance's default collection when its answer
+names the collection it was scored with (the @basis@ of a score), and
+'Nothing' otherwise, so a collection is never chosen without saying so.
+-}
+data CollectionAsk
+    = Named Text
+    | Unnamed (Maybe Text)
+    deriving (Eq, Show)
 
-  * @Just c@   -- resolve within collection @c@; a UUID is unique inside one
-                 collection, so this is unambiguous (or a not-found error).
-  * @Nothing@  -- infer. One match resolves; more than one is reported as an
-                 error listing the collections to choose from, rather than
-                 silently picking whichever loaded first.
+{- | The collection to use among the loaded candidates: the one named, when it is
+one of them; otherwise the only candidate; otherwise the default the request
+carries, when it is one of them. 'Nothing' when no rule picks one, for the
+caller to refuse in its own words. A default that is off or failed to load is
+never among the candidates, so it is never picked.
+-}
+chooseCollection :: CollectionAsk -> [Text] -> Maybe Text
+chooseCollection ask candidates = case (ask, candidates) of
+    (Named c, _) -> find (== c) candidates
+    (Unnamed _, [only]) -> Just only
+    (Unnamed mDefault, _) -> mDefault >>= \d -> find (== d) candidates
+
+{- | The sentence a refusal adds when the instance's default collection exists
+but is not among the candidates, so the caller knows why it was not taken.
+-}
+defaultMissing :: CollectionAsk -> [Text] -> Text
+defaultMissing ask candidates = case ask of
+    Unnamed (Just d) | d `notElem` candidates -> " The default method collection '" <> d <> "' is not among them."
+    Unnamed _ -> ""
+    Named _ -> ""
+
+{- | Choose the (collection, method) for a UUID from the loaded set. A method's
+engine UUID is a UUIDv5 of its name, so the *same* UUID can be loaded under
+several collections (e.g. two EF 3.1 versions). Resolving must therefore be
+loud, not first-match: 'chooseCollection' picks among the collections that
+carry the UUID, and when it picks none the refusal lists them.
 
 Pure so the disambiguation is total and testable without a 'DatabaseManager'.
 The REST routes and the MCP tools both resolve through it.
 -}
-selectMethod :: Maybe Text -> UUID -> [(Text, Method)] -> Either MethodRefusal (Text, Method)
-selectMethod mCollection uuid loaded =
-    case filter keep loaded of
-        [] -> Left (MethodNotFound notFound)
-        [hit] -> Right hit
-        hit : _ -> maybe (Left (MethodAmbiguous ambiguous)) (const (Right hit)) mCollection
+selectMethod :: CollectionAsk -> UUID -> [(Text, Method)] -> Either MethodRefusal (Text, Method)
+selectMethod ask uuid loaded =
+    case (chooseCollection ask carriers >>= \col -> (,) col <$> lookup col hits, ask, carriers) of
+        (Just hit, _, _) -> Right hit
+        (Nothing, Named _, _) -> Left (MethodNotFound notFound)
+        (Nothing, Unnamed _, []) -> Left (MethodNotFound notFound)
+        (Nothing, Unnamed _, _ : _) -> Left (MethodAmbiguous ambiguous)
   where
-    keep :: (Text, Method) -> Bool
-    keep (col, m) = methodId m == uuid && maybe True (== col) mCollection
+    hits :: [(Text, Method)]
+    hits = filter ((== uuid) . methodId . snd) loaded
+    carriers :: [Text]
+    carriers = nub (map fst hits)
     uuidText :: Text
     uuidText = UUID.toText uuid
     notFound :: Text
-    notFound = case mCollection of
-        Nothing -> "Impact category not found: " <> uuidText
-        Just c ->
+    notFound = case ask of
+        Unnamed _ -> "Impact category not found: " <> uuidText
+        Named c ->
             "Impact category "
                 <> uuidText
                 <> " not found in method collection '"
@@ -1690,8 +1719,9 @@ selectMethod mCollection uuid loaded =
         "Impact category UUID "
             <> uuidText
             <> " is loaded in multiple method collections: "
-            <> T.intercalate ", " (nub [col | (col, m) <- loaded, methodId m == uuid])
+            <> T.intercalate ", " carriers
             <> ". Pass 'collection' to disambiguate."
+            <> defaultMissing ask carriers
 
 {- | Look a method up by UUID, in the named collection or, without one, in the
 only collection that carries it. The collection name comes back with the
@@ -1702,7 +1732,7 @@ loadMethodByUUID mCollection uuidText = do
     dbManager <- asks aeDbManager
     loadedMethods <- liftIO $ DM.getLoadedMethods dbManager
     uuid <- maybe (throwError err400{errBody = "Invalid impact category UUID format"}) pure (UUID.fromText uuidText)
-    either refuse (pure . first DM.CollectionName) (selectMethod mCollection uuid loadedMethods)
+    either refuse (pure . first DM.CollectionName) (selectMethod (maybe (Unnamed Nothing) Named mCollection) uuid loadedMethods)
   where
     refuse :: MethodRefusal -> AppM a
     refuse = \case
