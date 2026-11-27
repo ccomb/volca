@@ -85,4 +85,4 @@ findTheProcess =
 default when the call names none, so a small model has no choice to get wrong.
 -}
 chooseTheCollection :: Text
-chooseTheCollection = "Leave `collection` out unless the person names one: the engine then uses the method collection this instance offers first, and `basis` names it. If the engine refuses because several method collections are loaded, take the Environmental Footprint (EF) one it lists (often EF-3.1), not a variant adapted for a particular tool nor `plain-indicators`. Once a method collection is named, by the person or after a refusal, pass it in every later call."
+chooseTheCollection = "Leave `collection` out unless the person names one: the engine then uses the method collection this instance offers first, and `basis` names it. If the engine refuses because several method collections are loaded, take the Environmental Footprint (EF) one it lists (often EF-3.1), not a variant adapted for a particular tool nor `plain-indicators`. Once you use a method collection other than the one the engine took (named by the person, taken after a refusal, or holding the set you looked for), pass it in every later call."
