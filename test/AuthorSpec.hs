@@ -35,6 +35,7 @@ import Database.Author (
     ExchangeSelector (..),
     FlowRef (..),
     ResolvedInsert (..),
+    amountsBeforeEach,
     applyExchangeEdits,
     authoredActivityUUID,
     authoredProductUUID,
@@ -640,6 +641,14 @@ spec = do
                         , AddExchange (wasteOut treatPid 0.1 Nothing) FromCall
                         ]
                 activityFacts (eaActivity edited) `shouldBe` activityFacts importedActivity
+
+            -- The history reads each edit as the batch applies it: a line just
+            -- added in a unit the database had no row for is one the next edit
+            -- sets, beside the line that was there.
+            it "reads the amounts before each edit with the unit rows the edits bring" $
+                withTonnes $ \cfg -> do
+                    let edits = [AddExchange (AuthoredTechInput supplierPid 0.5 (Just "t") Nothing) FromCall, SetAmount (SelectInput supplierPid) 0.7 FromCall]
+                    map length (amountsBeforeEach (contextOf fixtureDb){acUnitConfig = cfg} importedActivity edits) `shouldBe` [0, 2]
 
             it "keeps the pedigree of the lines it leaves alone" $ do
                 edited <- editOrFail [RemoveExchange (SelectBiosphere co2Id)]

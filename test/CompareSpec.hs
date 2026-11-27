@@ -75,7 +75,7 @@ import Types (
     noProperties,
     packExchanges,
  )
-import UnitConversion (UnitConfig, defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
+import UnitConversion (UnitConfig, buildFromCSV, defaultUnitConfig, mkUnitConfig, ucDimensionOrder, ucUnits)
 
 spec :: Spec
 spec = describe "Service.Compare" $ do
@@ -289,6 +289,14 @@ spec = describe "Service.Compare" $ do
             (capSummary answer, capExchanges answer) `shouldBe` ([OutcomeApplied, OutcomeApplied], [OutcomeApplied, OutcomeApplied])
             after <- applied ctx p edits
             (activityName after, [a | BiosphereExchange{bioAmount = a} <- exchanges after]) `shouldBe` ("wheat production, corrected", [3])
+        it "adds a line in a unit the table knows and the database records no row for" $ do
+            (p, ctx) <- wheatIn [] [row 2 barley "barley production" []]
+            cfg <- either (fail . T.unpack) pure (buildFromCSV "name,dimension,factor\nkg,mass,1.0\nt,mass,1000\n")
+            let inTonnes = ctx{acUnitConfig = cfg}
+                (answer, edits) = applicableChanges inTonnes p (changesQuery [] [barleyLine (LineAdded (Quantity 2 "t"))])
+            capExchanges answer `shouldBe` [OutcomeApplied]
+            after <- applied inTonnes p edits
+            [a | TechnosphereExchange{techRole = Input, techAmount = a} <- exchanges after] `shouldBe` [2]
         it "refuses a change that would undo one applied before it" $ do
             (p, ctx) <- wheatIn [emits co2 kg 1] []
             let raised = lowered{ecChange = LineChanged SameFlow (Quantity 1 "kg") (Quantity 2 "kg")}

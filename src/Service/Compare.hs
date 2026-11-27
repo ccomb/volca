@@ -118,7 +118,7 @@ import API.Types (
 import Database.Author (
     ActivityText (..),
     AmountFrom (..),
-    AuthorContext,
+    AuthorContext (..),
     AuthoredExchange (..),
     EditedActivity (..),
     ExchangeEdit (..),
@@ -127,6 +127,8 @@ import Database.Author (
     applyExchangeEdits,
     lineSelector,
     retextsAuthoredIdentity,
+    unitsAdded,
+    withStatedUnits,
  )
 import Service (ReferenceProductInfo (..), ServiceError (ActivityNotFound), TargetRef (..), buildCrossDBLinkMap, crossDBLinkIndex, crossDBLinksOf, mkActivitySummary, referenceProductOf, resolveActivityAndProcessId, resolveTarget)
 import Types (
@@ -575,8 +577,10 @@ applicableChanges ctx p query =
                     | not (all (presentIn after) (change : held)) -> refused "Another change of this request says otherwise."
                     | otherwise -> (Accepted (edits <> more) (change : held) after, OutcomeApplied)
                   where
+                    -- Read in the unit rows the edits were applied with: a
+                    -- row a stated unit brings in names its new lines.
                     after :: ProcessIn
-                    after = p{inActivity = eaActivity edited}
+                    after = p{inActivity = eaActivity edited, inDatabase = (inDatabase p){dbUnits = dbUnits (acDb (withStatedUnits (unitsAdded (edits <> more)) ctx))}}
       where
         refused :: Text -> (Accepted, ChangeOutcome)
         refused why = (sofar, OutcomeNotApplicable why)

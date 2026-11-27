@@ -150,7 +150,7 @@ import Types (
     withAmount,
     withFormula,
  )
-import UnitConversion (UnitConfig, UnitReading (..), convertUnit, readUnit, unitKey)
+import UnitConversion (UnitConfig, UnitReading (..), convertUnit, isKnownUnit, readUnit, unitKey)
 
 -- ---------------------------------------------------------------------------
 -- Deterministic identity
@@ -744,7 +744,9 @@ the lines the edits before it in the batch left, as 'applyExchangeEdits' applies
 it. An edit naming no line has none.
 -}
 amountsBeforeEach :: AuthorContext -> Activity -> [ExchangeEdit] -> [[Double]]
-amountsBeforeEach ctx act edits = zipWith (amountsBefore . accActivity) (scanl (applyStep ctx) (startingFrom act) edits) edits
+amountsBeforeEach given act edits = zipWith (amountsBefore . accActivity) (scanl (applyStep ctx) (startingFrom act) edits) edits
+  where
+    ctx = withStatedUnits (unitsAdded edits) given
 
 amountsBefore :: Activity -> ExchangeEdit -> [Double]
 amountsBefore activity = \case
@@ -1771,18 +1773,11 @@ withStatedUnits stated given = foldl' record given stated
 
     record :: AuthorContext -> Text -> AuthorContext
     record ctx unit
-        | knownToTheTable unit && null (unitsMeant ctx unit) =
+        | isKnownUnit cfg unit && null (unitsMeant ctx unit) =
             let minted = mintedUnit (unitKey cfg unit)
                 db = acDb ctx
              in ctx{acDb = db{dbUnits = M.insert (unitId minted) minted (dbUnits db)}}
         | otherwise = ctx
-
-    knownToTheTable :: Text -> Bool
-    knownToTheTable unit = case readUnit cfg unit of
-        ReadExact _ -> True
-        ReadRespelt _ _ -> True
-        ReadAmbiguous{} -> False
-        ReadUnknown -> False
 
 -- | A unit row an author's statement brings in, keyed on the table's spelling of it.
 mintedUnit :: Text -> Unit
