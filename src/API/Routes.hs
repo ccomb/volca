@@ -14,7 +14,7 @@ import API.DatabaseHandlers (explainCFToAPI, explainedFlowAPI, simpleAction)
 import qualified API.DatabaseHandlers as DBHandlers
 import qualified API.MethodEditHandlers as MethodEdit
 import qualified API.OpenApi
-import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChainConsumers, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), GroupCandidate (..), GroupCandidates (..), GroupCandidatesRequest (..), GroupClassification (..), GroupContributions (..), GroupFilterSpec (..), GroupFlowSpec (..), GroupMembersRequest (..), GroupPart (..), GroupSet (..), GroupSpec (..), GroupsRequest (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RefusedEntry (..), RelinkRequest (..), RelinkResponse (..), RootDb (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstanceContributionEntry (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldScores (..), WithheldShare (..), apiFlowOfKind, formulaLanguage, parseProducerFilter, parseSubRef)
+import API.Types (ActivateResponse (..), ActivitiesEditRequest, ActivitiesEditResponse, ActivityComparison, ActivityContribution (..), ActivityInfo (..), ActivityInput (..), ActivitySummary (..), ActivityWriteRequest (..), ActivityWriteResponse (..), Aggregation (..), AvailableMethodCollection, BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), BinaryContent (..), CatalogueEntry, CatalogueFingerprint (..), CataloguePage, CategoryEditRequest, ChainConsumers, ChangesApplied, ChangesPresence, ChangesQuery (..), CharacterizationEntry (..), CharacterizationResult (..), ClassificationEntryInfo (..), ClassificationPresetInfo (..), ClassificationSystem (..), CollectionCoverage (..), CollectionFactors (..), ComputedQualityReportAPI (..), ConsumersResponse (..), ContributingActivitiesResult (..), ContributingFlowsResult (..), CoverageReportAPI (..), CutoffWasteFlow (..), DatabaseComparison, DatabaseExportRequest (..), DatabaseHistoryEntry, DatabaseListResponse, DeleteSelectionRequest (..), DeleteSelectionResponse (..), DeriveRequest (..), ExchangeContribution (..), ExchangeDetail (..), ExchangeEditRequest (..), ExchangeEditResponse (..), ExplainCFResult (..), ExportRequest (..), FactorEditRequest, FactorReading, FlowCFEntry (..), FlowCFMapping (..), FlowContributionEntry (..), FlowDetail (..), FlowFactorsResult (..), FlowSearchResult (..), FlowSummary (..), FormulaCheckRequest, FormulaCheckResponse, FormulaLanguage, FreeParameter (..), FunctionalUnit, GapReportAPI (..), GraphExport (..), GroupCandidate (..), GroupCandidates (..), GroupCandidatesRequest (..), GroupClassification (..), GroupContributions (..), GroupFilterSpec (..), GroupFlowSpec (..), GroupMembersRequest (..), GroupPart (..), GroupSet (..), GroupSpec (..), GroupSubstancePart (..), GroupSubstances (..), GroupsRequest (..), HostingInfo (..), InventoryExport (..), LCIABatchResult (..), LCIAResult (..), LoadDatabaseResponse (..), MappingStatus (..), MethodCollectionComparison (..), MethodCollectionListResponse (..), MethodCollectionProfile (..), MethodCollectionStatusAPI (..), MethodDetail (..), MethodEditResponse, MethodFactorAPI (..), MethodFlowAPI, MethodHistoryEntry, MethodSummary (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI, ParameterName (..), ParameterValue, ParametersEditRequest, ParametersEditResponse, PerturbedEntry (..), ProcessDivisionAPI (..), QualityReportAPI (..), ReducedMethod (..), ReducedModel (..), ReducedModelRequest (..), RefDataListResponse (..), RefDataRowsResponse (..), RefusedEntry (..), RelinkRequest (..), RelinkResponse (..), RootDb (..), ScenarioAPI, ScenarioSaveRequest, ScoreBasis, ScorePairs, ScoreUnits, ScoreUnitsRequest (..), ScoringEditRequest, ScoringIndicator (..), ScoringSetAPI, SearchCountsAPI (..), SearchResults (..), SensitivityRequest (..), SensitivityResponse (..), SubstanceCell (..), SubstanceContributionEntry (..), SubstanceNamed (..), SubstancePart (..), SubstitutionRequest (..), SupplyChainResponse (..), SupplyMissingRequest, SynonymGroupsResponse (..), SystemModelAPI (..), TreeExport (..), UnmappedFlowAPI (..), UnsolvableEntry (..), UploadChunk (..), UploadResponse (..), WithheldScores (..), WithheldShare (..), apiFlowOfKind, formulaLanguage, parseProducerFilter, parseSubRef)
 import App.Env (AppEnv (..), AppM, counted, countedEach, httpOrigin, runApp)
 import qualified Builtin
 import Config (DatabaseConfig (..))
@@ -75,7 +75,7 @@ import qualified Impact
 import Impact.Ranking (Ranked (..), RowCut (..), listsNoRow, rankRows, rowCut)
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
-import Impact.Substances (SubstanceContribution (..), bySubstance, substanceCompartments, substanceFlowIds)
+import Impact.Substances (PartRow (..), Spelling (..), SubstanceContribution (..), SubstanceGrid (..), bySubstance, substanceCompartments, substanceFlowIds, substanceGrid, substancesNamed)
 import Matrix (Inventory)
 import qualified Matrix
 import qualified Method.Explain as Explain
@@ -149,6 +149,7 @@ type LCAAPI =
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "groups" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] GroupsRequest :> Post '[JSON] GroupContributions
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "group-members" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] GroupMembersRequest :> Post '[JSON] ContributingActivitiesResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "group-flows" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] GroupMembersRequest :> Post '[JSON] ContributingFlowsResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "group-substances" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] GroupsRequest :> Post '[JSON] GroupSubstances
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "group-candidates" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] GroupCandidatesRequest :> Post '[JSON] GroupCandidates
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "reduced-model" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> ReqBody '[JSON] ReducedModelRequest :> Post '[JSON] ReducedModel
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "inventory" :> QueryParam "flow" Text :> QueryParam "limit" Int :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] InventoryExport
@@ -1785,7 +1786,10 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 127: @top-flows@ on an activity's impacts route, how many top
+(revision 128: the @group-substances@ route, a score split between groups
+for one impact category, each group's part and the rest's split by substance
+on common lines;
+revision 127: @top-flows@ on an activity's impacts route, how many top
 contributing flows each impact category lists, 0 for none;
 revision 126: @by_substance@ on the contributing-flows route, the flows of
 one name and one medium gathered in the rows of @topSubstances@, @topFlows@
@@ -2084,7 +2088,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 127
+currentWireVersion = 128
 
 getVersion :: AppM Value
 getVersion = do
@@ -3565,6 +3569,66 @@ groupFlowsOf dbManager root method request = runExceptT $ do
             , cfrFunctionalUnit = grFunctionalUnit root
             }
 
+{- | A root's score split between groups for one method, as
+'groupContributionsOf' splits it, each group's part and the rest's split by
+substance on common lines. The rest is what the databases granting their
+detail hold of it, each database withholding its detail a line of its own. A
+part's flows are read as 'groupFlowsOf' reads them, what a database keeping
+its detail or its exchange amounts holds of the part one number: its
+substances, its others and that number add up to its score.
+-}
+groupSubstancesOf :: DatabaseManager -> GroupRoot -> Method -> GroupsRequest -> IO (Either GroupFailure GroupSubstances)
+groupSubstancesOf dbManager root method GroupsRequest{grqAttribution = word, grqGroups = specs} = runExceptT $ do
+    wanted <- withExceptT GroupsMisread (except (readGroups word specs))
+    licence <- liftIO (DM.databaseLicence dbManager (grName root))
+    mapM_ (throwE . GroupsWithheld) (DBHandlers.licenceRefusal ReadInventory (grName root) =<< licence)
+    GroupSplit{gsSolution = sol, gsParts = parts} <- splitIntoGroups dbManager root wanted
+    keeping <- liftIO ((<>) <$> DM.refusingDatabases dbManager SeeDetailedScores <*> DM.refusingDatabases dbManager ReadInventory)
+    (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
+    tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) collectionName (grDatabase root) method)
+    let scoreOf :: CheckedSolution -> ExceptT GroupFailure IO Double
+        scoreOf = scoring . Impact.scoreSolution dbManager collectionName method tables
+        flowsOf :: CheckedSolution -> ExceptT GroupFailure IO Impact.LicencedContributions
+        flowsOf = scoring . Impact.licencedContributionsOf dbManager collectionName method tables . Impact.partitionByLicence mFlows keeping
+    total <- scoreOf sol
+    rest <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores (partIn mFlows sol (Groups.partsRest parts)))
+    withheld <- scoring (Impact.scoreParts dbManager collectionName method tables (Impact.lsWithheld rest))
+    restScore <- scoreOf (Impact.lsShown rest)
+    restFlows <- flowsOf (Impact.lsShown rest)
+    groupScores <- traverse (scoreOf . partIn mFlows sol) (Groups.partsGroups parts)
+    groupFlows <- traverse (flowsOf . partIn mFlows sol) (Groups.partsGroups parts)
+    let grid = substanceGrid substancesNamed (map Impact.lcRows (restFlows : groupFlows))
+    pure
+        GroupSubstances
+            { gssAttribution = Groups.attributionWord (attributionOf wanted)
+            , gssMethod = methodName method
+            , gssUnit = methodUnit method
+            , gssTotal = total
+            , gssSubstances = [SubstanceNamed name (mediumText <$> medium) | Spelling{spName = name, spMedium = medium} <- sgSubstances grid]
+            , gssGroups = zipWith GroupSubstancePart (groupNamesIn wanted) (zipWith (substancePart grid) groupScores groupFlows)
+            , gssRest = substancePart grid restScore restFlows
+            , gssWithheldDatabases = Service.withheldShares total withheld
+            , gssFunctionalUnit = grFunctionalUnit root
+            }
+  where
+    collectionName :: DM.CollectionName
+    collectionName = grCollection root
+    scoring :: IO (Either Text a) -> ExceptT GroupFailure IO a
+    scoring = withExceptT GroupScoringFailed . ExceptT
+
+-- | A part's score and flows on the grid's lines, what a licence withholds of it one number.
+substancePart :: SubstanceGrid -> Double -> Impact.LicencedContributions -> SubstancePart
+substancePart grid score flows =
+    SubstancePart
+        { sprScore = score
+        , sprCells = [SubstanceCell r c | (r, c) <- M.toList (prCells row)]
+        , sprOtherSubstances = prOthers row
+        , sprWithheld = sum (map Impact.psScore (Impact.lcWithheld flows))
+        }
+  where
+    row :: PartRow
+    row = sgRow grid (Impact.lcRows flows)
+
 {- | The score of one unit of each process the root reaches, with all it
 brings upstream, from each process's own score per unit. It does not depend
 on the groups: a request reads it once, whatever groups it tries.
@@ -3807,6 +3871,14 @@ postGroupFlows dbName processIdText collectionName methodIdText mExcludeLT reque
         dbManager <- asks aeDbManager
         let root = groupRootOf dbName db solver pid activity collectionName mExcludeLT
         liftIO (groupFlowsOf dbManager root method request) >>= either groupFailure pure
+
+postGroupSubstances :: Text -> Text -> DM.CollectionName -> Text -> Maybe Bool -> GroupsRequest -> AppM GroupSubstances
+postGroupSubstances dbName processIdText collectionName methodIdText mExcludeLT request = counted Contributing dbName (ProcessKey processIdText) $ do
+    DBHandlers.refuseUnlessGranted SeeDetailedScores dbName
+    withActivityAndMethod dbName collectionName processIdText methodIdText $ \db solver pid activity method -> do
+        dbManager <- asks aeDbManager
+        let root = groupRootOf dbName db solver pid activity collectionName mExcludeLT
+        liftIO (groupSubstancesOf dbManager root method request) >>= either groupFailure pure
 
 postGroupCandidates :: Text -> Text -> DM.CollectionName -> Text -> Maybe Bool -> GroupCandidatesRequest -> AppM GroupCandidates
 postGroupCandidates dbName processIdText collectionName methodIdText mExcludeLT request = counted Contributing dbName (ProcessKey processIdText) $ do
@@ -4304,6 +4376,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> postGroupContributions
             :<|> postGroupMembers
             :<|> postGroupFlows
+            :<|> postGroupSubstances
             :<|> postGroupCandidates
             :<|> postReducedModel
             :<|> postActivityInventory

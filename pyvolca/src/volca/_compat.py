@@ -39,8 +39,10 @@ to it. The per-capability gates of ``Client._require_wire`` that name a lower
 revision only matter to a client that opted out of that check with
 ``VOLCA_SKIP_COMPAT_CHECK``; they stay for that case."""
 
-KNOWN_WIRE = 127
-"""The newest wire revision this pyvolca understands (revision 127 let an
+KNOWN_WIRE = 128
+"""The newest wire revision this pyvolca understands (revision 128 split a
+score between groups by substance on the engine's ``group-substances`` route,
+which this client does not call yet; revision 127 let an
 activity's impacts list fewer top contributing flows per category, which
 ``top_flows`` of ``get_impacts_batch`` asks; revision 126 gathered
 the flows of one substance and one medium in the rows of

@@ -237,6 +237,54 @@ withheldLines o =
     , Just contribution <- [KM.lookup "contribution" row]
     ]
 
+-- | A split by substance as get_group_substances writes it, a group by its name.
+data SubstanceSplit = SubstanceSplit
+    { ssTotal :: Maybe Double
+    , ssSubstances :: [Value]
+    , ssGroups :: [(Value, Maybe PartNumbers)]
+    , ssRest :: Maybe PartNumbers
+    , ssWithheldDatabases :: [(Value, Value)]
+    }
+    deriving (Eq, Show)
+
+-- | One part of a split by substance: its cells by position in the substances.
+data PartNumbers = PartNumbers
+    { pnScore :: Double
+    , pnCells :: [(Int, Double)]
+    , pnOtherSubstances :: Double
+    , pnWithheld :: Double
+    }
+    deriving (Eq, Show)
+
+-- | A part with these cells and nothing else: no other substance, nothing withheld.
+cellsOnly :: Double -> [(Int, Double)] -> PartNumbers
+cellsOnly score cells = PartNumbers{pnScore = score, pnCells = cells, pnOtherSubstances = 0, pnWithheld = 0}
+
+substanceSplit :: Object -> SubstanceSplit
+substanceSplit o =
+    SubstanceSplit
+        { ssTotal = numberIn o "total"
+        , ssSubstances = [name | Just (Array ss) <- [KM.lookup "substances" o], Object s <- toList ss, Just name <- [KM.lookup "name" s]]
+        , ssGroups = [(name, partNumbers =<< KM.lookup "part" g) | Just (Array gs) <- [KM.lookup "groups" o], Object g <- toList gs, Just name <- [KM.lookup "name" g]]
+        , ssRest = partNumbers =<< KM.lookup "rest" o
+        , ssWithheldDatabases = withheldLines o
+        }
+  where
+    partNumbers :: Value -> Maybe PartNumbers
+    partNumbers = \case
+        Object p -> do
+            Array cells <- KM.lookup "cells" p
+            PartNumbers <$> numberIn p "score" <*> traverse cell (toList cells) <*> numberIn p "otherSubstances" <*> numberIn p "withheld"
+        _ -> Nothing
+    cell :: Value -> Maybe (Int, Double)
+    cell = \case
+        Object c -> (,) . round <$> numberIn c "substance" <*> numberIn c "score"
+        _ -> Nothing
+    numberIn :: Object -> Key -> Maybe Double
+    numberIn obj key = case KM.lookup key obj of
+        Just (Number n) -> Just (realToFrac n)
+        _ -> Nothing
+
 -- | The root emitting 1 kg of carbon dioxide and 0.5 kg of methane; the dependency emits 2 kg of methane, one flow with it.
 twoFlowRoot :: Database
 twoFlowRoot =
@@ -478,6 +526,69 @@ spec = do
                 linksTo groups' wanted tool = linked tool groups' >>= (`shouldSatisfy` maybe False (\case String url -> all (`T.isInfixOf` url) wanted; _ -> False))
             mapM_ (linksTo co2 ["reading=own", "g1=CO2", "g1-flow-name=Carbon%20dioxide"]) ["get_group_members", "get_group_flows", "get_group_contributions"]
             mapM_ (linksTo france ["g1=France", "g1-location=FR"]) ["get_group_members", "get_group_flows", "get_group_contributions"]
+
+    describe "MCP, a split between groups by substance" $ do
+        let france = Array (V.singleton (Object (KM.fromList [("name", String "France"), ("filter", Object (KM.singleton "location" (String "FR")))])))
+            co2 = Array (V.singleton (Object (KM.fromList [("name", String "CO2"), ("filter", Object (KM.singleton "flow" (Object (KM.singleton "name" (String "Carbon dioxide")))))])))
+            split manager args = substanceSplit <$> (payload =<< callOn manager "get_group_substances" args)
+        it "gives each group's part and the rest's by substance, as the split by groups gives them, in both readings by process" $ do
+            manager <- managerWith LicenceUnstated
+            -- France takes the dependency's one process, its 2 kg of methane; the root's carbon dioxide stays in the rest.
+            mapM_
+                ( \reading ->
+                    split manager [("groups", france), ("attribution", String reading)]
+                        `shouldReturn` SubstanceSplit
+                            { ssTotal = Just 21
+                            , ssSubstances = ["Methane", "Carbon dioxide"]
+                            , ssGroups = [(String "France", Just (cellsOnly 20 [(0, 20)]))]
+                            , ssRest = Just (cellsOnly 1 [(1, 1)])
+                            , ssWithheldDatabases = []
+                            }
+                )
+                ["first-match", "own"]
+
+        it "splits a group keeping a substance by emission, under a method read where each process stands" $ do
+            manager <- managerOn twoFlowRoot dependency LicenceUnstated
+            atomically $ modifyTVar' (DM.dmLoadedMethods manager) (M.insert collection (MethodCollection [regionalClimate] [] []))
+            split manager [("method_id", String (UUID.toText (methodId regionalClimate))), ("groups", co2)]
+                `shouldReturn` SubstanceSplit
+                    { ssTotal = Just 29
+                    , ssSubstances = ["Methane", "Carbon dioxide"]
+                    , ssGroups = [(String "CO2", Just (cellsOnly 4 [(1, 4)]))]
+                    , ssRest = Just (cellsOnly 25 [(0, 25)])
+                    , ssWithheldDatabases = []
+                    }
+
+        -- The rest is what the databases granting their detail hold, as on the split by groups; a part's flows are read as get_group_flows reads them.
+        it "keeps a database withholding its detail out of the rest, on a line of its own" $ do
+            manager <- managerOn twoFlowRoot dependency detailKept
+            split manager [("groups", co2)]
+                `shouldReturn` SubstanceSplit
+                    { ssTotal = Just 26
+                    , ssSubstances = ["Methane", "Carbon dioxide"]
+                    , ssGroups = [(String "CO2", Just (cellsOnly 1 [(1, 1)]))]
+                    , ssRest = Just (cellsOnly 5 [(0, 5)])
+                    , ssWithheldDatabases = [(String "dep", Number 20)]
+                    }
+
+        it "counts in the rest a database keeping the amounts of its exchanges, as one number" $ do
+            manager <- managerOn twoFlowRoot dependency inventoryKept
+            split manager [("groups", co2)]
+                `shouldReturn` SubstanceSplit
+                    { ssTotal = Just 26
+                    , ssSubstances = ["Methane", "Carbon dioxide"]
+                    , ssGroups = [(String "CO2", Just (cellsOnly 1 [(1, 1)]))]
+                    , ssRest = Just (cellsOnly 25 [(0, 5)]){pnWithheld = 20}
+                    , ssWithheldDatabases = []
+                    }
+
+        it "refuses a root whose licence keeps the amounts of its exchanges, and a split with no group" $ do
+            manager <- managerOn twoFlowRoot dependency LicenceUnstated
+            empty <- callOn manager "get_group_substances" [("groups", Array V.empty)]
+            errorText empty `shouldSatisfy` (/= Nothing)
+            DM.addDatabase manager (configFor "root" inventoryKept)
+            kept <- callOn manager "get_group_substances" [("groups", co2)]
+            errorText kept `shouldSatisfy` maybe False ("root" `T.isInfixOf`)
 
     describe "MCP, the groups a process could start" $ do
         let candidates manager extra = callOn manager "get_group_candidates" (("candidate", String ("dep::" <> processIdToText dependency 0)) : extra)
