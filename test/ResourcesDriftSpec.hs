@@ -276,6 +276,7 @@ knownDivergences =
     , ("score_activity", "process_id")
     , ("score_activity", "scoring_sets")
     , ("score_activity", "substitutions")
+    , ("score_activity", "top_flows")
     , ("search_activities", "classification_match")
     , ("search_activities", "classification_value")
     , ("search_activities", "classifications")

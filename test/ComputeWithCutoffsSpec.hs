@@ -223,7 +223,7 @@ surfaces manager pid =
         (fmap (fmap rounded))
         [ ("inventory", ieCutoffInputs <$> ok manager (getActivityInventory "main" pid Nothing Nothing))
         , ("single-method score", lrCutoffInputs <$> ok manager (getActivityLCIA "main" pid coll methodText Nothing))
-        , ("score panel", lbrCutoffInputs <$> ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing))
+        , ("score panel", lbrCutoffInputs <$> ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing Nothing))
         , ("sensitivity baseline", srCutoffInputs <$> ok manager (postActivitySensitivity "main" pid coll methodText (SensitivityRequest [])))
         , ("contributing flows", cfrCutoffInputs <$> ok manager (getContributingFlows "main" pid coll methodText Nothing Nothing Nothing Nothing))
         , ("contributing activities", carCutoffInputs <$> ok manager (getContributingActivities "main" pid coll methodText Nothing Nothing Nothing))
@@ -240,7 +240,7 @@ summing :: DM.DatabaseManager -> Text -> [(String, IO (Maybe Int))]
 summing manager pid =
     [ ("inventory", refusal (getActivityInventory "main" pid Nothing Nothing))
     , ("single-method score", refusal (getActivityLCIA "main" pid coll methodText Nothing))
-    , ("score panel", refusal (getActivityLCIABatch "main" pid coll Nothing Nothing))
+    , ("score panel", refusal (getActivityLCIABatch "main" pid coll Nothing Nothing Nothing))
     , ("sensitivity baseline", refusal (postActivitySensitivity "main" pid coll methodText (SensitivityRequest [])))
     , ("contributing flows", refusal (getContributingFlows "main" pid coll methodText Nothing Nothing Nothing Nothing))
     , ("contributing activities", refusal (getContributingActivities "main" pid coll methodText Nothing Nothing Nothing))
@@ -338,7 +338,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         mapM_ (\(name, run) -> it ("answers the " <> name <> " and names what it counted as zero") (run `shouldReturn` metByR)) (surfaces manager pid)
 
         it "gives each method of the panel the panel's list" $ do
-            panel <- ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing)
+            panel <- ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing Nothing)
             map (rounded . lrCutoffInputs) (lbrResults panel) `shouldBe` [metByR]
 
         -- x_R = 1 and x_P = 2, R taking 2 kg of P; P emits 1 kg per kilogram, so 2 kg in
@@ -469,7 +469,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
         db <- build mainSdb
         manager <- managerOf [("main", own [ReadInventory], db)]
         pid <- pidOf db (actR, rFlow)
-        panel <- ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing)
+        panel <- ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing Nothing)
         (lbrCutoffInputs panel, lbrWithheldCutoffs panel) `shouldBe` ([], [WithheldCutoffs "main" 1 0])
         map (\r -> (lrCutoffInputs r, lrWithheldCutoffs r)) (lbrResults panel) `shouldBe` [([], [WithheldCutoffs "main" 1 0])]
 
@@ -495,7 +495,7 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
             keyedBasis = KM.member "basis"
 
         it "names the database asked and the dependency its chain reached, above a panel's methods and not in them" $ do
-            panel <- ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing)
+            panel <- ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing Nothing)
             namesOf (lbrBasis panel) `shouldBe` Just ["main", "dep"]
             map (isJust . lrBasis) (lbrResults panel) `shouldBe` [False]
 

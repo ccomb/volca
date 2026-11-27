@@ -141,8 +141,8 @@ type LCAAPI =
                     :> QueryParam "group_by" Text
                     :> QueryParam "aggregate" Text
                     :> Get '[JSON] Aggregation
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> QueryParam "exchange-contributions" Bool :> Get '[JSON] LCIABatchResult
-                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> QueryParam "exchange-contributions" Bool :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIABatchResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> QueryParam "exchange-contributions" Bool :> QueryParam "top-flows" Int :> Get '[JSON] LCIABatchResult
+                :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> QueryParam "exclude-long-term" Bool :> QueryParam "exchange-contributions" Bool :> QueryParam "top-flows" Int :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIABatchResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> QueryParam "top-flows" Int :> Get '[JSON] LCIAResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "impacts" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> ReqBody '[JSON] SubstitutionRequest :> Post '[JSON] LCIAResult
                 :<|> "db" :> Capture "dbName" Text :> "activity" :> Capture "processId" Text :> "sensitivity" :> Capture "collection" DM.CollectionName :> Capture "methodId" Text :> ReqBody '[JSON] SensitivityRequest :> Post '[JSON] SensitivityResponse
@@ -1009,6 +1009,15 @@ buildLCIABatchResultCached dbManager dbName collectionName db actPid activity co
 data ScoreLines = WithoutLines | WithLines
     deriving (Eq, Show)
 
+-- | What a panel request asks beyond the process and the collection.
+data PanelAsk = PanelAsk
+    { paSubstitutions :: Maybe SubstitutionRequest
+    , paLongTerm :: LongTermMode
+    , paLines :: ScoreLines
+    , paTopFlows :: Maybe Int
+    -- ^ How many top contributing flows each category lists; 5 when not asked, or the instance's cap when lower
+    }
+
 {- | Top-level LCIA batch entry point – AppM-returning. Used by the Servant
 routes (via thin where-aliases) and by API.BatchImpacts.
 -}
@@ -1016,11 +1025,14 @@ activityLCIABatchH ::
     Text ->
     Text ->
     DM.CollectionName ->
-    Maybe SubstitutionRequest ->
-    LongTermMode ->
-    ScoreLines ->
+    PanelAsk ->
     AppM LCIABatchResult
-activityLCIABatchH dbName processIdText collectionName mSub ltMode scoreLines = do
+activityLCIABatchH dbName processIdText collectionName PanelAsk{paSubstitutions = mSub, paLongTerm = ltMode, paLines = scoreLines, paTopFlows = topFlowsParam} = do
+    -- Before any lookup, as for a batch: a request this instance will not run
+    -- gets the same answer whether or not its names resolve.
+    hosting <- asks aeHostingConfig
+    forM_ (Config.scoringRefusal hosting 1 topFlowsParam) $ \msg ->
+        throwError err403{errBody = BSL.fromStrict (T.encodeUtf8 msg)}
     dbManager <- asks aeDbManager
     when (scoreLines == WithLines && not (all (null . srSubstitutions) mSub)) $
         badRequest "What each line adds to the score is given without swaps: a swapped supplier answers no line of the process."
@@ -1055,7 +1067,7 @@ activityLCIABatchH dbName processIdText collectionName mSub ltMode scoreLines = 
         rawResultsE <-
             liftIO $
                 mapConcurrently
-                    (\m -> computeCategoryResult dbManager dbName collectionName db ls functionalUnit 5 (Just (resolveBatchedScore m scoreMap)) m)
+                    (\m -> computeCategoryResult dbManager dbName collectionName db ls functionalUnit (max 0 (fromMaybe (maybe 5 (min 5) (Config.hcMaxTopFlows =<< hosting)) topFlowsParam)) (Just (resolveBatchedScore m scoreMap)) m)
                     methods
         rawResults <- either scoringError pure (sequence rawResultsE)
         licence <- DBHandlers.servedLicence dbName
@@ -1743,7 +1755,9 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 126: @by_substance@ on the contributing-flows route, the flows of
+(revision 127: @top-flows@ on an activity's impacts route, how many top
+contributing flows each impact category lists, 0 for none;
+revision 126: @by_substance@ on the contributing-flows route, the flows of
 one name and one medium gathered in the rows of @topSubstances@, @topFlows@
 left empty;
 revision 125: @cover_percent@ on the contributing-flows and
@@ -2040,7 +2054,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 126
+currentWireVersion = 127
 
 getVersion :: AppM Value
 getVersion = do
@@ -2817,15 +2831,15 @@ freeParameter db ParameterName{pnProcess = processText} (process, name) =
   where
     defined = maybe (dbParameters db) (activityParameters . (dbActivities db V.!) . fromIntegral) process
 
-getActivityLCIABatch :: Text -> Text -> DM.CollectionName -> Maybe Bool -> Maybe Bool -> AppM LCIABatchResult
-getActivityLCIABatch dbName processIdText collectionName mExcludeLT mLines =
+getActivityLCIABatch :: Text -> Text -> DM.CollectionName -> Maybe Bool -> Maybe Bool -> Maybe Int -> AppM LCIABatchResult
+getActivityLCIABatch dbName processIdText collectionName mExcludeLT mLines mTop =
     counted Scoring dbName (ProcessKey processIdText) $
-        activityLCIABatchH dbName processIdText collectionName Nothing (longTermModeFromExclude (fromMaybe False mExcludeLT)) (scoreLinesFrom mLines)
+        activityLCIABatchH dbName processIdText collectionName (PanelAsk Nothing (longTermModeFromExclude (fromMaybe False mExcludeLT)) (scoreLinesFrom mLines) mTop)
 
-postActivityLCIABatch :: Text -> Text -> DM.CollectionName -> Maybe Bool -> Maybe Bool -> SubstitutionRequest -> AppM LCIABatchResult
-postActivityLCIABatch dbName processIdText collectionName mExcludeLT mLines subReq =
+postActivityLCIABatch :: Text -> Text -> DM.CollectionName -> Maybe Bool -> Maybe Bool -> Maybe Int -> SubstitutionRequest -> AppM LCIABatchResult
+postActivityLCIABatch dbName processIdText collectionName mExcludeLT mLines mTop subReq =
     counted Scoring dbName (ProcessKey processIdText) $
-        activityLCIABatchH dbName processIdText collectionName (Just subReq) (longTermModeFromExclude (fromMaybe False mExcludeLT)) (scoreLinesFrom mLines)
+        activityLCIABatchH dbName processIdText collectionName (PanelAsk (Just subReq) (longTermModeFromExclude (fromMaybe False mExcludeLT)) (scoreLinesFrom mLines) mTop)
 
 scoreLinesFrom :: Maybe Bool -> ScoreLines
 scoreLinesFrom = \case

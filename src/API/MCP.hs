@@ -66,7 +66,7 @@ import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPagePath, groupsQuery, impactsPath, overObject, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, rawScoreMapByName, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
+import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), PanelAsk (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, rawScoreMapByName, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
 import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteRequest (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), AmountList (..), ClassificationSystem (..), ExchangeContribution (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), LCIAResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, setAmountLines, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
@@ -4000,10 +4000,15 @@ callScoreActivity dbManager mHosting mBaseUrl rid args =
         subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
         values <- except (parseArrayArg "parameters" Nothing args :: Either Text [ParameterValue])
         wantedSets <- except (parseArrayArg "scoring_sets" Nothing args :: Either Text [Text])
-        let mSub = if null subs && null values then Nothing else Just SubstitutionRequest{srSubstitutions = subs, srParameters = values}
-            ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
-            scoreLines = scoreLinesFrom (boolArg "exchange_contributions" args)
-        res <- liftIO $ BI.runActivityLCIABatch dbManager mHosting dbName pidText coll mSub ltMode scoreLines
+        topFlows <- except (optionalWhole "top_flows" args)
+        let ask =
+                PanelAsk
+                    { paSubstitutions = if null subs && null values then Nothing else Just SubstitutionRequest{srSubstitutions = subs, srParameters = values}
+                    , paLongTerm = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
+                    , paLines = scoreLinesFrom (boolArg "exchange_contributions" args)
+                    , paTopFlows = topFlows
+                    }
+        res <- liftIO $ BI.runActivityLCIABatch dbManager mHosting dbName pidText coll ask
         case res of
             Left e -> throwE (batchErrorMsg e)
             Right lbr -> do
