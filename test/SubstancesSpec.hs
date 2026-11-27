@@ -11,7 +11,7 @@ import Data.Text (Text)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Impact.Substances (SubstanceContribution (..), bySubstance, substanceCompartments, substanceFlowIds)
+import Impact.Substances (PartRow (..), SubstanceContribution (..), SubstanceGrid (..), bySubstance, substanceCompartments, substanceFlowIds, substanceGrid)
 import Method.Mapping (FlowContribution (..))
 import Types (BiosphereFlow (..), Compartment (..), Medium (..))
 
@@ -27,7 +27,28 @@ row n name medium sub c =
         }
 
 spec :: Spec
-spec = describe "Impact.Substances.bySubstance" $ do
+spec = do
+    bySubstanceSpec
+    substanceGridSpec
+
+substanceGridSpec :: Spec
+substanceGridSpec = describe "Impact.Substances.substanceGrid" $ do
+    -- Two parts of one score: the methane of the second lowers it.
+    let first = [row 1 "carbon dioxide, fossil " Air (Just "low. pop.") 1, row 2 "Methane" Air Nothing 2]
+        second = [row 3 "Carbon dioxide, fossil" Air (Just "high. pop.") 3, row 4 "Dinitrogen monoxide" Air Nothing 5, row 5 "Methane" Air Nothing (-4)]
+
+    it "names the substances weighing most over every part, by the sum of their absolute values" $
+        sgSubstances (substanceGrid 2 [first, second]) `shouldBe` [("Methane", Just Air), ("Dinitrogen monoxide", Just Air)]
+
+    it "spells a substance as its largest flow over every part" $
+        sgSubstances (substanceGrid 3 [first, second]) `shouldBe` [("Methane", Just Air), ("Dinitrogen monoxide", Just Air), ("Carbon dioxide, fossil", Just Air)]
+
+    it "gives each part its cells by rank and every other substance together, adding up to its flows" $ do
+        let grid = substanceGrid 2 [first, second]
+        map (sgRow grid) [first, second] `shouldBe` [PartRow [(0, 2)] 1, PartRow [(0, -4), (1, 5)] 3]
+
+bySubstanceSpec :: Spec
+bySubstanceSpec = describe "Impact.Substances.bySubstance" $ do
     let rows =
             [ row 1 "Carbon dioxide, fossil" Air (Just "low. pop.") 23.8
             , row 2 "Methane, biogenic" Air (Just "low. pop.") 25.1

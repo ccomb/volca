@@ -66,7 +66,7 @@ import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPagePath, groupsQuery, impactsPath, overObject, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (CollectionAsk (..), GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), PanelAsk (..), chooseCollection, collectionNotLoadedMessage, defaultMissing, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, rawScoreMapByName, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
+import API.Routes (CollectionAsk (..), GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), PanelAsk (..), chooseCollection, collectionNotLoadedMessage, defaultMissing, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, groupSubstancesOf, methodRefusalMessage, methodSummary, rawScoreMapByName, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
 import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteRequest (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), AmountList (..), ClassificationSystem (..), ExchangeContribution (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), LCIAResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, setAmountLines, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
@@ -1626,6 +1626,7 @@ dispatchTool Caller{callerReader = reader, callerAuthor = by, callerAsking = ask
     R.GetGroupContributions -> callGetGroupContributions dbManager mBaseUrl rid args
     R.GetGroupMembers -> callGetGroupMembers dbManager mBaseUrl rid args
     R.GetGroupFlows -> callGetGroupFlows dbManager mBaseUrl rid args
+    R.GetGroupSubstances -> callGetGroupSubstances dbManager mBaseUrl rid args
     R.GetGroupCandidates -> callGetGroupCandidates dbManager rid args
     R.GetScoreContributingFlows -> callGetScoreContributingFlows dbManager mBaseUrl rid args
     R.GetScoreContributingActivities -> callGetScoreContributingActivities dbManager mBaseUrl rid args
@@ -3795,6 +3796,15 @@ callGetGroupFlows dbManager mBaseUrl rid args =
         let request = GroupMembersRequest attribution specs (textArg "group" args) (Just (fromMaybe 20 (intArg "limit" args)))
             link = (<> groupPagePath req attribution specs) <$> groupsPageBase mBaseUrl args
         result <- liftIO (groupFlowsOf dbManager (lcaGroupRoot req args) (lrMethod req) request)
+        either (throwE . groupFailureText) (pure . toolSuccessJson rid . addWebUrlMaybe link . toJSON) result
+
+callGetGroupSubstances :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
+callGetGroupSubstances dbManager mBaseUrl rid args =
+    runTool rid $ do
+        req <- loadLcaRequest dbManager TakeTheDefault args
+        (attribution, specs) <- except (groupsArgs args)
+        let link = (<> groupPagePath req attribution specs) <$> groupsPageBase mBaseUrl args
+        result <- liftIO (groupSubstancesOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupsRequest attribution specs))
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . addWebUrlMaybe link . toJSON) result
 
 -- | The groups page of one impact category, with the groups asked.

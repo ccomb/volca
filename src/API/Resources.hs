@@ -96,6 +96,7 @@ data Resource
     | GetGroupContributions
     | GetGroupMembers
     | GetGroupFlows
+    | GetGroupSubstances
     | GetGroupCandidates
     | GetScoreContributingFlows
     | GetScoreContributingActivities
@@ -211,6 +212,7 @@ resourceMutates r = case r of
     GetGroupContributions -> False
     GetGroupMembers -> False
     GetGroupFlows -> False
+    GetGroupSubstances -> False
     GetGroupCandidates -> False
     GetScoreContributingFlows -> False
     GetScoreContributingActivities -> False
@@ -291,6 +293,7 @@ resourceNeeds r = case r of
     GetGroupContributions -> Just SeeDetailedScores
     GetGroupMembers -> Just SeeDetailedScores
     GetGroupFlows -> Just SeeDetailedScores
+    GetGroupSubstances -> Just SeeDetailedScores
     GetGroupCandidates -> Just SeeDetailedScores
     GetScoreContributingFlows -> Just SeeDetailedScores
     GetScoreContributingActivities -> Just SeeDetailedScores
@@ -367,6 +370,7 @@ resourceUsage r = case r of
     GetGroupContributions -> Just Contributing
     GetGroupMembers -> Just Contributing
     GetGroupFlows -> Just Contributing
+    GetGroupSubstances -> Just Contributing
     GetGroupCandidates -> Just Contributing
     GetScoreContributingFlows -> Just Contributing
     GetScoreContributingActivities -> Just Contributing
@@ -469,6 +473,7 @@ apiPath r = case r of
     GetGroupContributions -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "groups", "{collection}"])
     GetGroupMembers -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "group-members", "{collection}", "{methodId}"])
     GetGroupFlows -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "group-flows", "{collection}", "{methodId}"])
+    GetGroupSubstances -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "group-substances", "{collection}", "{methodId}"])
     GetGroupCandidates -> Just (POST, ["db", "{dbName}", "activity", "{processId}", "group-candidates", "{collection}", "{methodId}"])
     GetScoreContributingFlows -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-flows", "{collection}", "score", "{scoringSet}", "{score}"])
     GetScoreContributingActivities -> Just (GET, ["db", "{dbName}", "activity", "{processId}", "contributing-activities", "{collection}", "score", "{scoringSet}", "{score}"])
@@ -552,6 +557,7 @@ mcpName r = case r of
     GetGroupContributions -> "get_group_contributions"
     GetGroupMembers -> "get_group_members"
     GetGroupFlows -> "get_group_flows"
+    GetGroupSubstances -> "get_group_substances"
     GetGroupCandidates -> "get_group_candidates"
     GetScoreContributingFlows -> "get_score_contributing_flows"
     GetScoreContributingActivities -> "get_score_contributing_activities"
@@ -904,6 +910,20 @@ description r = case r of
         \groups as get_group_candidates' candidate_flow. A database whose \
         \licence withholds its detail or its exchange amounts lists no flow, \
         \only a line under 'withheldDatabases'."
+            <> webUrlTip
+    GetGroupSubstances ->
+        "LCA / ACV: which substances each group of get_group_contributions \
+        \emits in one impact category, all groups at once: 'who emits the \
+        \N2O?', the flows of a Sankey diagram from groups to substances. Same \
+        \'attribution' and 'groups' as that call, read the same way. \
+        \'substances': the eight weighing most over every part (sum of the \
+        \absolute values), spelled as their largest flow; one substance is \
+        \one name and one medium, whatever its sub-compartments. Each part \
+        \(each group, the 'rest'): 'cells' by a substance's rank in that \
+        \list, 'otherSubstances' for every other one, 'withheld' for what a \
+        \database whose licence keeps its detail holds of the part. They add \
+        \up to the part's 'score'; groups, rest and 'withheldDatabases' add \
+        \up to 'total'."
             <> webUrlTip
     GetGroupCandidates ->
         "LCA / ACV: groups a process or a flow could start, narrowest first. \
@@ -1723,6 +1743,15 @@ params r = case r of
         , pGroups
         , Param "group" "string" Optional "Name of the group to list; left out, the rest"
         , pLimit "Max flows to return, sorted by contribution (default 20)"
+        , pExcludeLongTerm
+        ]
+    GetGroupSubstances ->
+        [ pDatabase
+        , pProcessId
+        , Param "method_id" "string" Required "UUID of the impact category"
+        , pScoringCollection
+        , pAttribution
+        , pGroups
         , pExcludeLongTerm
         ]
     GetGroupCandidates ->

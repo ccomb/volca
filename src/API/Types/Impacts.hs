@@ -1026,6 +1026,63 @@ data GroupContributions = GroupContributions
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped GroupContributions)
 
+-- | A substance a split by substance names: as its largest flow spells it, and its medium, null for flows filed under none.
+data SubstanceNamed = SubstanceNamed
+    { snmName :: Text
+    , snmMedium :: Maybe Text
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped SubstanceNamed)
+
+-- | What a part gives one substance named, by the substance's rank in the list.
+data SubstanceCell = SubstanceCell
+    { sclSubstance :: Int
+    , sclScore :: Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped SubstanceCell)
+
+{- | One part of a score split by substance: what it gives each substance
+named (a substance it gives nothing has no cell), every other substance
+together, and what a database whose licence withholds its detail keeps of it,
+as one number. They add up to its score.
+-}
+data SubstancePart = SubstancePart
+    { sprScore :: Double
+    , sprCells :: [SubstanceCell]
+    , sprOtherSubstances :: Double
+    , sprWithheld :: Double
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped SubstancePart)
+
+-- | One group's part, split by substance.
+data GroupSubstancePart = GroupSubstancePart
+    { gsbName :: Text
+    , gsbPart :: SubstancePart
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupSubstancePart)
+
+{- | A score split between groups as 'GroupContributions' splits it, for one
+method, and each group's part and the rest's split by substance on common
+lines: the substances weighing most over every part. The groups, the rest and
+the withheld databases add up to the total.
+-}
+data GroupSubstances = GroupSubstances
+    { gssAttribution :: Text
+    , gssMethod :: Text
+    , gssUnit :: Text
+    , gssTotal :: Double
+    , gssSubstances :: [SubstanceNamed]
+    , gssGroups :: [GroupSubstancePart]
+    , gssRest :: SubstancePart
+    , gssWithheldDatabases :: [WithheldShare]
+    , gssFunctionalUnit :: FunctionalUnit
+    }
+    deriving (Generic)
+    deriving (ToJSON, ToSchema) via (Stripped GroupSubstances)
+
 {- | Groups made ready for one classification system: what a database whose
 processes carry it can be split by without writing a group.
 -}
