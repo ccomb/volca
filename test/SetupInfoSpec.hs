@@ -11,7 +11,7 @@ import qualified Data.Text as T
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), defaultConfig)
 import Database (buildDatabaseWithMatrices)
 import Database.Manager (
     CachePolicy (..),
@@ -123,7 +123,7 @@ stubConfig =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

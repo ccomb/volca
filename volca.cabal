@@ -176,6 +176,7 @@ library
                      , Database.Crate
                      , Database.Digest
                      , Database.Requirements
+                     , Database.DependencyChoices
                      , Database.Export
                      , Database.ExportFormulas
                      , Database.ExportSupplier
@@ -277,6 +278,7 @@ test-suite lca-tests
   hs-source-dirs:      test
   main-is:             Spec.hs
   other-modules:       TestHelpers
+                     , SpecHook
                      , TestWorkbook
                      , UsageSpec
                      , HistorySpec
@@ -490,6 +492,7 @@ test-suite lca-tests
                      , CrateSpec
                      , DigestSpec
                      , RequirementsSpec
+                     , DependencyChoicesSpec
                      , ZipSpec
                      , PropertiesSpec
                      , NativeActivityTypeSpec

@@ -14,7 +14,7 @@ import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import Test.Hspec
 
-import Config (DatabaseConfig (..))
+import Config (DatabaseConfig (..), Dependencies (..))
 import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (buildIndexedDatabase, emptyAliasMap)
 import Database.Loader (relinkSimpleDatabase)
@@ -205,7 +205,7 @@ stubConfig =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

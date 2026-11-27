@@ -12,7 +12,7 @@ import System.IO.Temp (withSystemTempDirectory)
 import System.Info (os)
 import Test.Hspec
 
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), defaultConfig)
 import Database.Manager (CachePolicy (..), DatabaseManager, addDatabase, initDatabaseManager, loadDatabase, readDocumentFile)
 import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
 
@@ -25,7 +25,7 @@ ilcdConfig =
         , dcDescription = Nothing
         , dcLoad = False
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

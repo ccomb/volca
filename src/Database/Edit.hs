@@ -88,7 +88,7 @@ import qualified Data.Vector as V
 import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, makeAbsolute)
 import System.FilePath ((</>))
 
-import Config (DatabaseConfig (..), licenceOf)
+import Config (DatabaseConfig (..), dependsNames, licenceOf)
 import Data.JournalFile (Origin)
 import Database (Geographies)
 import Database.Allocation (Allocating (..), describePropertyRefusal, keptWhole, producerCandidatesBy, propertyKeyRefusals)
@@ -141,6 +141,7 @@ import Database.Manager (
     managerGeographies,
     parentOf,
     publishLoaded,
+    recordDependencies,
     relinkDatabase,
     removeDatabase,
     scenariosHome,
@@ -461,7 +462,7 @@ recordDerived slug srcConfig reading = do
                 , UploadedDB.umDescription = dcDescription srcConfig
                 , UploadedDB.umFormat = fromMaybe UnknownFormat (dcFormat srcConfig)
                 , UploadedDB.umDataPath = sourcePath
-                , UploadedDB.umDepends = dcDepends srcConfig
+                , UploadedDB.umDepends = dependsNames (dcDepends srcConfig)
                 , UploadedDB.umSource = Just (dcName srcConfig)
                 , UploadedDB.umReading = reading
                 , UploadedDB.umBuiltIn = Nothing
@@ -500,18 +501,18 @@ fail into an inconsistent state: the registry swap is a pure STM commit.
 -}
 registerCopy :: DatabaseManager -> Text -> LoadedDatabase -> IO (Either Text LoadedDatabase)
 registerCopy manager slug loaded = do
-    -- The terms in force, not the ones the source was loaded with: a change
-    -- since reached the registry and not the loaded config.
-    inForce <- licenceOf <$> readTVarIO (dmAvailableDbs manager) <*> pure (ldConfig loaded)
-    let src = loaded{ldConfig = (ldConfig loaded){dcLicence = inForce}}
+    -- The terms and dependencies in force, not the ones the source was loaded
+    -- with: a change since reached the registry and not the loaded config.
+    configs <- readTVarIO (dmAvailableDbs manager)
+    let srcConfig = ldConfig loaded
+        deps = maybe (dcDepends srcConfig) dcDepends (M.lookup (dcName srcConfig) configs)
+        src = loaded{ldConfig = srcConfig{dcLicence = licenceOf configs srcConfig, dcDepends = deps}}
     added <- addedNow
     recordCopy slug added src >>= \case
         Left err -> pure (Left err)
         Right () -> do
             let copiedDb = ldDatabase src
-                -- The dependencies the copy's meta.toml names, not the ones
-                -- the source was loaded with: a relink since added to them.
-                newConfig = (renameConfig slug added (ldConfig src)){dcDepends = dbDependsOn copiedDb}
+                newConfig = renameConfig slug added (ldConfig src)
             -- Fresh solver: a distinct name keys a distinct factorization cache.
             solver <- solverFor slug copiedDb
             synonymDB <- getMergedSynonymDB manager
@@ -527,6 +528,10 @@ registerCopy manager slug loaded = do
                 publishLoaded manager slug copied indexedDb
                 modifyTVar' (dmAvailableDbs manager) (M.insert slug newConfig)
             clearMethodMappingCacheForDb manager slug
+            -- The copy links where its source does, after a restart too: a
+            -- source left with no dependency on its setup page keeps none.
+            recordDependencies manager slug (dcDepends newConfig)
+                >>= either (reportProgress Warning . T.unpack . ("the dependencies of the copy " <>) . (slug <>) . (" hold until the restart only: " <>)) pure
             pure (Right copied)
 
 {- | Give the copy a home: a directory of its own holding the @meta.toml@ that
@@ -575,7 +580,7 @@ recordCopy slug added src = do
                 , UploadedDB.umDescription = dcDescription config
                 , UploadedDB.umFormat = fromMaybe UnknownFormat (dcFormat config)
                 , UploadedDB.umDataPath = sourcePath
-                , UploadedDB.umDepends = dbDependsOn (ldDatabase src)
+                , UploadedDB.umDepends = dependsNames (dcDepends config)
                 , UploadedDB.umSource = Just (dcName config)
                 , -- A copy holds the source's value as it stands, which the
                   -- source's own key produced.

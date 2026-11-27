@@ -24,7 +24,7 @@ import Test.Hspec
 import API.MCP (RequestId (..), RpcRequest (..), callTool, handleInitialize, mcpCountsAsActivity, noRequestId, toolDefinitions, webUrlBase)
 import API.Resources (allResources, mcpName)
 import API.Routes (collectionNotLoadedMessage)
-import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), ReadOnly (..), ServerName (..), defaultConfig)
+import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), Dependencies (..), ReadOnly (..), ServerName (..), defaultConfig)
 import qualified Data.UUID as UUID
 import Database.Manager (CachePolicy (..), DatabaseManager (..), addDatabase, getMethodCollection, initDatabaseManager, loadDatabase)
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
@@ -118,7 +118,7 @@ sampleConfig =
         , dcDescription = Nothing
         , dcLoad = False
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

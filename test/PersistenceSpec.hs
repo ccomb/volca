@@ -20,7 +20,6 @@ would move.
 module PersistenceSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
-import Control.Exception (bracket_)
 import Control.Monad (forM_, void, when)
 import Data.Bifunctor (first)
 import Data.Either (isRight)
@@ -34,14 +33,14 @@ import qualified Data.Text.IO as TIO
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, listDirectory, removeFile)
-import System.Environment (setEnv, unsetEnv)
 import System.FilePath (takeDirectory, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (Config (..), DatabaseConfig (..), Dependencies (..), declaredDepends, defaultConfig)
 import Database (buildDatabaseWithMatrices)
 import Database.Author (AmountFrom (..), ExchangeEdit (..), ExchangeSelector (..))
+import Database.DependencyChoices (Keeper (..), Kept (..), readKept)
 import Database.Edit (
     DeleteOutcome (..),
     DeleteRequest (..),
@@ -82,7 +81,7 @@ import Database.Upload (DatabaseFormat (..))
 import Database.UploadedDatabase (UploadMeta (..), metaVersion, readUploadMeta, writeUploadMeta)
 import Service (noExclusions)
 import SharedSolver (SharedSolver, createSharedSolver)
-import TestHelpers (modelDividingBy)
+import TestHelpers (modelDividingBy, withDataDirAt)
 import Types (
     Activity (..),
     AllocationProperty (..),
@@ -211,7 +210,7 @@ spec = describe "persisting an edit" $ do
             withBakeryAndMill $ \dataRoot manager -> do
                 relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
                 suppliersOf manager "bakery" `shouldReturn` Set.singleton "mill"
-                dependsRecorded dataRoot "bakery" `shouldReturn` Just ["mill"]
+                keptFor "bakery" `shouldReturn` Just (Kept ByClick ["mill"])
                 restarted <- initDatabaseManager defaultConfig UseCache
                 removeFile (cacheOf (homeOf dataRoot "bakery") "bakery")
                 mustLoad restarted "bakery"
@@ -254,20 +253,21 @@ spec = describe "persisting an edit" $ do
                 reloaded <- loadDatabase restarted "bakery"
                 void reloaded `shouldBe` Right ()
 
-        it "records again a dependency that only its cache still named" $
-            -- How a database relinked before the dependency was recorded stands.
+        it "keeps as found a dependency that only its cache still named, and loads it" $
+            -- How a database relinked before the engine kept dependencies stands.
             withBakeryAndMill $ \dataRoot manager -> do
                 relinkDatabaseWithMapping manager "bakery" "mill" barleyIsMilled >>= (`shouldSatisfy` isRight)
                 writeUpload dataRoot "bakery" [] bakery
+                removeFile (dataRoot </> "dependencies.toml")
                 restarted <- initDatabaseManager defaultConfig UseCache
                 mustLoad restarted "bakery"
-                dependsRecorded dataRoot "bakery" `shouldReturn` Just ["mill"]
+                keptFor "bakery" `shouldReturn` Just (Kept ByLinking ["mill"])
+                M.member "mill" <$> readTVarIO (dmLoadedDbs restarted) `shouldReturn` True
                 suppliersOf restarted "bakery" `shouldReturn` Set.singleton "mill"
 
         it "loads alone once its dependency is removed and unloaded, at this load and the next" $
             -- The list's Load, not the setup page's: the setup page will not
-            -- load a database with inputs left unresolved. Every input
-            -- resolved, as a cache that still had one open is read again.
+            -- load a database with inputs left unresolved.
             withBakeryAndMill $ \_ manager -> do
                 relinkDatabaseWithMapping manager "bakery" "mill" allMilled >>= (`shouldSatisfy` isRight)
                 suppliersOf manager "bakery" `shouldReturn` Set.singleton "mill"
@@ -278,6 +278,69 @@ spec = describe "persisting an edit" $ do
                 M.member "mill" <$> readTVarIO (dmLoadedDbs manager) `shouldReturn` False
                 void (reloadOf manager "bakery")
                 M.member "mill" <$> readTVarIO (dmLoadedDbs manager) `shouldReturn` False
+
+        it "loads alone once its dependency is removed, while that dependency stays loaded, and after a restart" $
+            withBakeryAndMill $ \dataRoot manager -> do
+                relinkDatabaseWithMapping manager "bakery" "mill" allMilled >>= (`shouldSatisfy` isRight)
+                (void <$> removeDependencyFromStaged manager (DependencyEdit "bakery" "mill")) `shouldReturn` Right ()
+                keptFor "bakery" `shouldReturn` Just (Kept ByClick [])
+                mustLoad manager "bakery"
+                suppliersOf manager "bakery" `shouldReturn` Set.empty
+                void (reloadOf manager "bakery")
+                suppliersOf manager "bakery" `shouldReturn` Set.empty
+                restarted <- initDatabaseManager defaultConfig UseCache
+                mustLoad restarted "bakery"
+                suppliersOf restarted "bakery" `shouldReturn` Set.empty
+                M.member "mill" <$> readTVarIO (dmLoadedDbs restarted) `shouldReturn` False
+                -- Its files read again, it still links to nothing.
+                unloadDatabase restarted "bakery" `shouldReturn` Right ()
+                removeFile (cacheOf (homeOf dataRoot "bakery") "bakery")
+                mustLoad restarted "mill"
+                mustLoad restarted "bakery"
+                suppliersOf restarted "bakery" `shouldReturn` Set.empty
+
+        it "keeps nothing for a database loaded alone, and what it found once it links" $
+            withDataDir $ \dataRoot -> do
+                writeUpload dataRoot "granary" [] [datasetBuying 1 "barley" "kg" []]
+                writeUpload dataRoot "bakery" [] [datasetBuying 1 "bread" "kg" [("barley, output", 2)]]
+                manager <- initDatabaseManager defaultConfig UseCache
+                mustLoad manager "bakery"
+                keptFor "bakery" `shouldReturn` Nothing
+                unloadDatabase manager "bakery" `shouldReturn` Right ()
+                mustLoad manager "granary"
+                mustLoad manager "bakery"
+                keptFor "bakery" `shouldReturn` Just (Kept ByLinking ["granary"])
+                unloadDatabase manager "bakery" `shouldReturn` Right ()
+                unloadDatabase manager "granary" `shouldReturn` Right ()
+                mustLoad manager "bakery"
+                M.member "granary" <$> readTVarIO (dmLoadedDbs manager) `shouldReturn` True
+                suppliersOf manager "bakery" `shouldReturn` Set.singleton "granary"
+
+        it "links to what loads with it once its cache, written alone, is read with a supplier loaded" $
+            -- The cache is not thrown away for it: the relink finds the supplier.
+            withDataDir $ \dataRoot -> do
+                writeUpload dataRoot "granary" [] [datasetBuying 1 "barley" "kg" []]
+                writeUpload dataRoot "bakery" [] [datasetBuying 1 "bread" "kg" [("barley, output", 2)]]
+                manager <- initDatabaseManager defaultConfig UseCache
+                mustLoad manager "bakery"
+                unloadDatabase manager "bakery" `shouldReturn` Right ()
+                restarted <- initDatabaseManager defaultConfig UseCache
+                mustLoad restarted "granary"
+                mustLoad restarted "bakery"
+                suppliersOf restarted "bakery" `shouldReturn` Set.singleton "granary"
+                keptFor "bakery" `shouldReturn` Just (Kept ByLinking ["granary"])
+
+        it "goes along with a copy that kept no dependency, after a restart too" $
+            withBakeryAndMill $ \_ manager -> do
+                relinkDatabaseWithMapping manager "bakery" "mill" allMilled >>= (`shouldSatisfy` isRight)
+                (void <$> removeDependencyFromStaged manager (DependencyEdit "bakery" "mill")) `shouldReturn` Right ()
+                mustLoad manager "bakery"
+                (void <$> copyDatabase manager "bakery" "hybrid") `shouldReturn` Right ()
+                keptFor "hybrid" `shouldReturn` Just (Kept ByClick [])
+                restarted <- initDatabaseManager defaultConfig UseCache
+                mustLoad restarted "hybrid"
+                suppliersOf restarted "hybrid" `shouldReturn` Set.empty
+                M.member "mill" <$> readTVarIO (dmLoadedDbs restarted) `shouldReturn` False
 
         it "links to a database loaded after its setup page was opened, where nobody chose its dependencies" $
             withDataDir $ \dataRoot -> do
@@ -301,17 +364,35 @@ spec = describe "persisting an edit" $ do
                 mustLoad manager "hybrid"
                 suppliersOf manager "hybrid" `shouldReturn` Set.singleton "mill"
 
-    describe "the dependencies an upload records" $
-        it "do not keep it from a supplier found in a database they do not name" $
-            -- What is recorded only adds: a database loaded while one of its
-            -- suppliers was closed finds it at the next reading of its files.
+    describe "the dependencies a database is given" $ do
+        it "are the ones it links to, and no other, even one that would supply it" $
             withDataDir $ \dataRoot -> do
                 writeUpload dataRoot "barley-farm" [] [datasetBuying 1 "barley" "kg" [], dataset 2 "electricity production, wind"]
                 writeUpload dataRoot "oat-farm" [] [datasetBuying 1 "oats" "kg" [], dataset 2 "electricity production, solar"]
                 writeUpload dataRoot "bakery" ["barley-farm"] [datasetBuying 1 "bread" "kg" [("barley, output", 2), ("oats, output", 1)], dataset 2 "electricity production, hydro"]
                 manager <- initDatabaseManager defaultConfig UseCache
                 forM_ ["barley-farm", "oat-farm", "bakery"] (mustLoad manager)
-                suppliersOf manager "bakery" `shouldReturn` Set.fromList ["barley-farm", "oat-farm"]
+                suppliersOf manager "bakery" `shouldReturn` Set.singleton "barley-farm"
+
+        it "give way to one removed on the setup page of a configured database, at the next start" $
+            withDataDir $ \dataRoot -> do
+                let config =
+                        defaultConfig
+                            { cfgDatabases =
+                                [ configuredAt dataRoot "granary" Unsettled
+                                , configuredAt dataRoot "bakery" (declaredDepends ["granary"])
+                                ]
+                            }
+                writeDatasets (dataRoot </> "configured" </> "granary") [datasetBuying 1 "barley" "kg" []]
+                writeDatasets (dataRoot </> "configured" </> "bakery") [datasetBuying 1 "bread" "kg" [("barley, output", 2)]]
+                manager <- initDatabaseManager config UseCache
+                suppliersOf manager "bakery" `shouldReturn` Set.singleton "granary"
+                (void <$> removeDependencyFromStaged manager (DependencyEdit "bakery" "granary")) `shouldReturn` Right ()
+                restarted <- initDatabaseManager config UseCache
+                M.member "granary" <$> readTVarIO (dmLoadedDbs restarted) `shouldReturn` True
+                suppliersOf restarted "bakery" `shouldReturn` Set.empty
+                void (reloadOf restarted "bakery")
+                suppliersOf restarted "bakery" `shouldReturn` Set.empty
 
     describe "a copy" $ do
         it "gets a home of its own at once, holding no data" $
@@ -483,7 +564,7 @@ one example, so nothing is written next to the sources.
 withDataDir :: (FilePath -> IO ()) -> IO ()
 withDataDir act =
     withSystemTempDirectory "volca-persist" $ \dir ->
-        bracket_ (setEnv "VOLCA_DATA_DIR" dir) (unsetEnv "VOLCA_DATA_DIR") (act dir)
+        withDataDirAt dir (act dir)
 
 -- | The uploads directory a database's home sits in.
 uploadsDirOf :: FilePath -> FilePath
@@ -644,9 +725,26 @@ suppliersOf :: DatabaseManager -> Text -> IO (Set.Set Text)
 suppliersOf manager name =
     maybe Set.empty (Set.fromList . map cdlSourceDatabase . dbCrossDBLinks . ldDatabase) . M.lookup name <$> readTVarIO (dmLoadedDbs manager)
 
--- | The dependencies an upload's meta.toml names.
-dependsRecorded :: FilePath -> Text -> IO (Maybe [Text])
-dependsRecorded dataRoot name = fmap umDepends <$> readUploadMeta (homeOf dataRoot name)
+-- | The dependencies the engine keeps for a database, in the data directory.
+keptFor :: Text -> IO (Maybe Kept)
+keptFor name = either (fail . T.unpack) (pure . M.lookup name) =<< readKept
+
+-- | Datasets in a directory of their own, as a configured database reads them.
+writeDatasets :: FilePath -> [Text] -> IO ()
+writeDatasets dir datasets = do
+    createDirectoryIfMissing True dir
+    forM_ (zip [1 :: Int ..] datasets) $ \(number, text) ->
+        TIO.writeFile (dir </> "process_" <> T.unpack (UUID.toText (mkUUID (100 + number))) <> ".xml") text
+
+-- | A database of the configuration, loaded at start, reading the datasets written for it.
+configuredAt :: FilePath -> Text -> Dependencies -> DatabaseConfig
+configuredAt dataRoot name deps =
+    (configuredConfig name)
+        { dcPath = dataRoot </> "configured" </> T.unpack name
+        , dcFormat = Just EcoSpold1
+        , dcLoad = True
+        , dcDepends = deps
+        }
 
 -- | The process id of the activity of this name.
 processIdNamed :: DatabaseManager -> Text -> IO Text
@@ -806,7 +904,7 @@ baseConfig name =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Just EcoSpold2
         , dcIsUploaded = False

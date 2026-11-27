@@ -26,7 +26,6 @@ import qualified Data.UUID as UUID
 import qualified Data.Vector as V
 import Servant (ServerError, errBody, errHTTPCode, getResponse, runHandler)
 import System.Directory (createDirectoryIfMissing)
-import System.Environment (setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
@@ -55,13 +54,13 @@ import API.Types (
     TechInputAPI (..),
  )
 import App.Env (AppEnv (..), runApp)
-import Config (DatabaseConfig (..), defaultConfig)
-import Control.Exception (bracket_)
+import Config (DatabaseConfig (..), Dependencies (..), defaultConfig)
 import Data.JournalFile (Author (..), sourceFrom)
 import Database (buildDatabaseWithMatrices)
 import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), databaseModification, getDatabase, initDatabaseManager)
 import Database.Upload (DatabaseFormat (..))
 import SharedSolver (createSharedSolver)
+import TestHelpers (withDataDirAt)
 import Types (
     Activity (..),
     BioDirection (..),
@@ -600,7 +599,7 @@ withWritableDb = withDb buildFixture uploadedConfig
 withDb :: IO Database -> (Text -> FilePath -> DatabaseConfig) -> (AppEnv -> IO ()) -> IO ()
 withDb build mkConfig act =
     withSystemTempDirectory "volca-write" $ \root ->
-        bracket_ (setEnv "VOLCA_DATA_DIR" root) (unsetEnv "VOLCA_DATA_DIR") $ do
+        withDataDirAt root $ do
             let dataDir = root </> "uploads" </> "databases" </> "authored" </> "data"
             createDirectoryIfMissing True dataDir
             dbm <- initDatabaseManager defaultConfig NoCache
@@ -633,7 +632,7 @@ uploadedConfig name dataDir =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Just EcoSpold2
         , dcIsUploaded = True

@@ -11,6 +11,7 @@ unless its reader says so.
 -}
 module Database.Requirements (
     admits,
+    linksTo,
     admission,
     requiredDatabases,
     Satisfaction (..),
@@ -29,7 +30,7 @@ import GHC.Generics (Generic)
 
 import API.JsonOptions (Stripped (..), parseClosed)
 
-import Config (DatabaseConfig (..))
+import Config (DatabaseConfig (..), Dependencies (..))
 import Types (Release (..), Requirement (..), codeSchema, sameRelease, sameReleaseName)
 
 -- | Whether a database may meet one requirement: it is the one accepted in its place, or, with none accepted, one of that release.
@@ -41,6 +42,17 @@ meets configs name req = case reqSubstitute req of
 -- | Whether a database may link to the one named.
 admits :: M.Map Text DatabaseConfig -> DatabaseConfig -> Text -> Bool
 admits configs config name = null (dcRequires config) || any (meets configs name) (dcRequires config)
+
+{- | Whether a database links to another: its requirements admit it, and, once
+its dependencies are settled, they name it. Until then it links to whatever is
+loaded beside it.
+-}
+linksTo :: M.Map Text DatabaseConfig -> DatabaseConfig -> Text -> Bool
+linksTo configs config name = admits configs config name && named (dcDepends config)
+  where
+    named :: Dependencies -> Bool
+    named Unsettled = True
+    named (Settled _ names) = name `elem` names
 
 -- | 'admits', or the sentence a link it refuses reads.
 admission :: M.Map Text DatabaseConfig -> DatabaseConfig -> Text -> Either Text ()

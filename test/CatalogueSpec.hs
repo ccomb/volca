@@ -18,7 +18,7 @@ import Test.Hspec
 import API.Routes (getCatalogue, getCatalogueFingerprint, getClassifications)
 import API.Types (CatalogueEntry (..), CatalogueFingerprint (..), CatalogueMeasure (..), CataloguePage (..))
 import App.Env (AppEnv (..), AppM, runApp)
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), defaultConfig)
 import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), initDatabaseManager)
 import Service.Catalogue (PageWindow (..), catalogueEntries, catalogueFingerprint, catalogueMaxLimit, cataloguePage, measureOf)
 import TestHelpers (loadSampleDatabase, mkSolverFromDb)
@@ -154,7 +154,7 @@ sampleConfig =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

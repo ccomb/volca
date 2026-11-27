@@ -7,7 +7,7 @@ import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import Test.Hspec
 
-import Config (DatabaseConfig (..))
+import Config (DatabaseConfig (..), Dependencies (..))
 import Database.CrossLinking (IndexedDatabase (..))
 import Database.Manager (
     DependencyChoice (..),
@@ -25,7 +25,7 @@ cfg name display =
         , dcDescription = Nothing
         , dcLoad = False
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

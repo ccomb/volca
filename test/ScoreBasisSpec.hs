@@ -4,7 +4,7 @@
 module ScoreBasisSpec (spec) where
 
 import API.Types (BasisDatabase (..), BasisMethods (..))
-import Config (DatabaseConfig (..), MethodConfig (..), MethodOrigin (..), MethodPatch (..), MethodPatchMatch (..))
+import Config (DatabaseConfig (..), Dependencies (..), MethodConfig (..), MethodOrigin (..), MethodPatch (..), MethodPatchMatch (..))
 import Data.Foldable (toList)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -24,7 +24,7 @@ database name =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

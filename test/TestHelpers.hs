@@ -5,6 +5,7 @@ module TestHelpers (
     dbConfigFor,
     modelDividingBy,
     withScratchDataDir,
+    withDataDirAt,
     loadSampleDatabase,
     loadSampleDatabaseWithPath,
     withinTolerance,
@@ -31,9 +32,9 @@ module TestHelpers (
 ) where
 
 import Builtin (builtinGeographies)
-import Config (DatabaseConfig (..))
+import Config (DatabaseConfig (..), Dependencies (..))
 import Control.Concurrent.STM (atomically, modifyTVar')
-import Control.Exception (bracket_)
+import Control.Exception (bracket)
 import Control.Monad (zipWithM_)
 import qualified Data.ByteString.Lazy as BL
 import Data.Either (fromRight)
@@ -50,7 +51,7 @@ import Database.Loader (loadDatabase)
 import Database.Manager (hierarchyFromGeographies, parseGeographies)
 import qualified Database.Manager as DM
 import qualified SharedSolver as SS
-import System.Environment (setEnv, unsetEnv)
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 import Types
@@ -81,7 +82,18 @@ belongs to the example rather than to the working tree it was run from.
 withScratchDataDir :: IO () -> IO ()
 withScratchDataDir act =
     withSystemTempDirectory "volca-scratch" $ \dir ->
-        bracket_ (setEnv "VOLCA_DATA_DIR" dir) (unsetEnv "VOLCA_DATA_DIR") act
+        withDataDirAt dir act
+
+{- | Run with the engine's data directory at @dir@, then point it back where it
+was: the whole run has one of its own (see SpecHook), and an example that
+left it unset would have the next ones write into the working tree.
+-}
+withDataDirAt :: FilePath -> IO a -> IO a
+withDataDirAt dir act =
+    bracket
+        (lookupEnv "VOLCA_DATA_DIR" <* setEnv "VOLCA_DATA_DIR" dir)
+        (maybe (unsetEnv "VOLCA_DATA_DIR") (setEnv "VOLCA_DATA_DIR"))
+        (const act)
 
 -- | Load a SAMPLE database for testing
 loadSampleDatabase :: String -> IO Database
@@ -295,7 +307,7 @@ dbConfigFor name =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

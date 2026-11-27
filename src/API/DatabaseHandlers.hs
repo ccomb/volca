@@ -195,7 +195,7 @@ import API.Types (
     toParameterEdits,
  )
 import App.Env (AppEnv (..), AppM, httpOrigin)
-import Config (DatabaseConfig (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), hostingReadOnly, licenceOf, messageOr, readOnlyRefusalFor)
+import Config (DatabaseConfig (..), Dependencies (..), HostingConfig (..), MethodConfig (..), MethodOrigin (..), ReadOnly (..), RefDataConfig (..), RefDataSource (..), dependsNames, hostingReadOnly, licenceOf, messageOr, readOnlyRefusalFor)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.Reader (asks)
 import Data.Aeson (Value)
@@ -1562,7 +1562,7 @@ uploadDatabaseHandler mName mDesc src = do
                             , dcDescription = mDescription
                             , dcLoad = False -- Don't auto-load
                             , dcDefault = False
-                            , dcDepends = []
+                            , dcDepends = Unsettled
                             , dcLocationAliases = M.empty
                             , dcFormat = Just (urFormat uploadResult)
                             , dcIsUploaded = True -- Freshly uploaded database
@@ -1646,7 +1646,7 @@ makeStatusFromLoadedDb configs modification loadStatus loaded =
             , dsaPath = T.pack (dcPath config)
             , dsaFormat = formatDisplayText <$> dcFormat config
             , dsaActivityCount = V.length (dbActivities db)
-            , dsaDependsOn = dcDepends config
+            , dsaDependsOn = dependsNames (dcDepends config)
             , dsaAllocation = allocationKeyText (readingKey (dcReading config))
             , dsaSystemModel = modelTitle <$> modelOf (dcReading config)
             , dsaSource = dcSource config

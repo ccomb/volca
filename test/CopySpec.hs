@@ -30,7 +30,7 @@ import Test.Hspec
 import API.DatabaseHandlers (copyDatabaseHandler)
 import API.Types (ActivateResponse (..), DatabaseStatusAPI (..), ParameterValue (..), ScenarioAPI (..))
 import App.Env (AppEnv (..), runApp)
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), defaultConfig)
 import Database (buildDatabaseWithMatrices)
 import Database.Edit (copyDatabase, refusalMessage)
 import Database.Manager (
@@ -383,7 +383,7 @@ mkConfig name =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False
