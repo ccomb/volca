@@ -559,16 +559,16 @@ handleSkills skills method req = case method of
 serverInfo :: Maybe ServerName -> Value
 serverInfo mName = object ["name" .= maybe "volca" unServerName mName, "version" .= T.pack Version.version]
 
-{- | The instructions of the server, with the lines the era adds placed before
-the workflow: a client may cut long instructions, and the workflow line would
-otherwise send the assistant to the tools first.
+{- | The instructions of the server, with the lines the era adds placed first,
+after the instance's name: a client may cut long instructions, and the lines
+about the tools would otherwise send the assistant to them before a skill.
 -}
 instructions :: [Text] -> Maybe ServerName -> Text
 instructions eraLines mName =
     T.unlines
         ( foldMap (\n -> ["This server is the VoLCA instance named " <> unServerName n <> ". Say which instance you queried when several are connected."]) mName
-            <> aboutLines
             <> eraLines
+            <> aboutLines
             <> workflowLines
         )
 

@@ -134,11 +134,11 @@ spec = do
             a <- post [] (request "skills/list" [])
             (a >>= at ["error", "code"]) `shouldBe` Just (Number (-32601))
 
-        it "are named by the instructions of server/discover, before the workflow line" $ do
+        it "are named by the instructions of server/discover, before what the tools do" $ do
             a <- ask "server/discover" []
             skills <- builtins
             let text = [t | Just (String t) <- [a >>= at ["result", "instructions"]]]
-                before = [fst (T.breakOn "Workflow:" t) | t <- text, "Workflow:" `T.isInfixOf` t]
+                before = [fst (T.breakOn "LCA / ACV database tool" t) | t <- text, "LCA / ACV database tool" `T.isInfixOf` t]
             length before `shouldBe` 1
             [n | n <- map skillName skills, not (any (n `T.isInfixOf`) before)] `shouldBe` []
 
@@ -147,6 +147,11 @@ spec = do
             let text = [t | Just (String t) <- [a >>= at ["result", "instructions"]]]
             length text `shouldBe` 1
             filter (\t -> "skills" `T.isInfixOf` t) text `shouldBe` []
+
+        it "leave the method collection to the engine, and pef-hotspots names the PEF set" $ do
+            skills <- builtins
+            [skillName s | s <- skills, not ("Leave `collection` out" `T.isInfixOf` skillFile s)] `shouldBe` []
+            [skillName s | s <- skills, skillName s == "pef-hotspots", "`PEF`" `T.isInfixOf` skillFile s] `shouldBe` ["pef-hotspots"]
 
         it "each tell that a packaging or an ingredient is not the product asked" $ do
             skills <- builtins
