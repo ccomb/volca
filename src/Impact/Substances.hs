@@ -13,8 +13,10 @@ module Impact.Substances (
     SubstanceContribution (..),
     bySubstance,
     SubstanceGrid (..),
+    Spelling (..),
     PartRow (..),
     substanceGrid,
+    substancesNamed,
     substanceCompartments,
     substanceFlowIds,
 ) where
@@ -58,7 +60,11 @@ orders them. The flows of a line come largest first in absolute value, whatever
 order they were given in.
 -}
 bySubstance :: [FlowContribution] -> [SubstanceContribution]
-bySubstance = map line . M.elems . groupInOrder . map keyed . sortOn (Down . abs . fcContribution)
+bySubstance = M.elems . substanceLines
+
+-- | The lines of 'bySubstance', under the key that makes each one.
+substanceLines :: [FlowContribution] -> M.Map SubstanceKey SubstanceContribution
+substanceLines = fmap line . groupInOrder . map keyed . sortOn (Down . abs . fcContribution)
   where
     keyed :: FlowContribution -> (SubstanceKey, FlowContribution)
     keyed row = (keyOf (fcFlow row), row)
@@ -75,11 +81,22 @@ bySubstance = map line . M.elems . groupInOrder . map keyed . sortOn (Down . abs
 keyOf :: BiosphereFlow -> SubstanceKey
 keyOf f = SubstanceKey{skName = T.toCaseFold (T.strip (bfName f)), skMedium = compartmentName <$> bfCompartment f}
 
+-- | How many substances a split by substance names; every other one goes in each part's others.
+substancesNamed :: Int
+substancesNamed = 8
+
+-- | A substance as one of its flows spells it.
+data Spelling = Spelling
+    { spName :: !Text
+    , spMedium :: !(Maybe Medium)
+    }
+    deriving (Eq, Show)
+
 {- | Several parts of one score on common substance lines: the substances
 named, and how a part reads on them.
 -}
 data SubstanceGrid = SubstanceGrid
-    { sgSubstances :: ![(Text, Maybe Medium)]
+    { sgSubstances :: ![Spelling]
     -- ^ Heaviest first, each spelled as its largest flow over every part
     , sgRow :: [FlowContribution] -> PartRow
     -- ^ A part's flows on those lines
@@ -87,40 +104,41 @@ data SubstanceGrid = SubstanceGrid
 
 -- | What one part gives each substance named, by its rank, and every other substance together.
 data PartRow = PartRow
-    { prCells :: ![(Int, Double)]
-    -- ^ By rank, a substance the part gives nothing left out
+    { prCells :: !(M.Map Int Double)
+    -- ^ By rank from 0, a substance the part gives nothing left out
     , prOthers :: !Double
     }
     deriving (Eq, Show)
 
 {- | The @n@ substances weighing most over every part, by the sum of the
 absolute values of what each part gives them, so a substance that lowers the
-score is named as readily as one that raises it. A part's flows land in a
-cell or in its others: its row adds up to its flows.
+score is named as readily as one that raises it; a substance no part gives
+anything is never named. A part's flows land in a cell or in its others: its
+row adds up to its flows.
 -}
 substanceGrid :: (Foldable t) => Int -> t [FlowContribution] -> SubstanceGrid
 substanceGrid n parts =
     SubstanceGrid
         { sgSubstances = [spelling | (_, (_, Max (Arg _ spelling))) <- named]
-        , sgRow = row . lined
+        , sgRow = row . substanceLines
         }
   where
-    lined :: [FlowContribution] -> M.Map SubstanceKey SubstanceContribution
-    lined = M.fromList . map (\s -> (keyOf (fcFlow (NE.head (scFlows s))), s)) . bySubstance
     -- Over every part, a substance's weight and the spelling of its largest flow.
-    summed :: M.Map SubstanceKey (Sum Double, Max (Arg Double (Text, Maybe Medium)))
-    summed = M.unionsWith (<>) (map (M.map summary . lined) (toList parts))
-    summary :: SubstanceContribution -> (Sum Double, Max (Arg Double (Text, Maybe Medium)))
-    summary s = (Sum (abs (scContribution s)), Max (Arg (abs (fcContribution (NE.head (scFlows s)))) (scName s, scMedium s)))
-    named :: [(SubstanceKey, (Sum Double, Max (Arg Double (Text, Maybe Medium))))]
-    named = take n (sortOn (Down . getSum . fst . snd) (M.toList summed))
+    summed :: M.Map SubstanceKey (Sum Double, Max (Arg Double Spelling))
+    summed = M.unionsWith (<>) (map (M.map summary . substanceLines) (toList parts))
+    summary :: SubstanceContribution -> (Sum Double, Max (Arg Double Spelling))
+    summary s = (Sum (abs (scContribution s)), Max (Arg (abs (fcContribution (NE.head (scFlows s)))) (Spelling (scName s) (scMedium s))))
+    named :: [(SubstanceKey, (Sum Double, Max (Arg Double Spelling)))]
+    named = take n (sortOn (Down . weight) (filter ((> 0) . weight) (M.toList summed)))
+    weight :: (SubstanceKey, (Sum Double, Max (Arg Double Spelling))) -> Double
+    weight = getSum . fst . snd
     rank :: M.Map SubstanceKey Int
     rank = M.fromList (zip (map fst named) [0 ..])
     row :: M.Map SubstanceKey SubstanceContribution -> PartRow
     row line =
         let (cells, others) = M.partitionWithKey (\k _ -> M.member k rank) (M.map scContribution line)
          in PartRow
-                { prCells = sortOn fst [(r, c) | (k, c) <- M.toList cells, c /= 0, Just r <- [M.lookup k rank]]
+                { prCells = M.fromList [(r, c) | (k, c) <- M.toList cells, c /= 0, Just r <- [M.lookup k rank]]
                 , prOthers = sum others
                 }
 

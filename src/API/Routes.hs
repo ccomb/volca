@@ -75,7 +75,7 @@ import qualified Impact
 import Impact.Ranking (Ranked (..), RowCut (..), listsNoRow, rankRows, rowCut)
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
-import Impact.Substances (PartRow (..), SubstanceContribution (..), SubstanceGrid (..), bySubstance, substanceCompartments, substanceFlowIds, substanceGrid)
+import Impact.Substances (PartRow (..), Spelling (..), SubstanceContribution (..), SubstanceGrid (..), bySubstance, substanceCompartments, substanceFlowIds, substanceGrid, substancesNamed)
 import Matrix (Inventory)
 import qualified Matrix
 import qualified Method.Explain as Explain
@@ -3569,10 +3569,6 @@ groupFlowsOf dbManager root method request = runExceptT $ do
             , cfrFunctionalUnit = grFunctionalUnit root
             }
 
--- | How many substances a split by substance names; every other one goes in each part's others.
-substancesNamed :: Int
-substancesNamed = 8
-
 {- | A root's score split between groups for one method, as
 'groupContributionsOf' splits it, each group's part and the rest's split by
 substance on common lines. The rest is what the databases granting their
@@ -3587,40 +3583,51 @@ groupSubstancesOf dbManager root method GroupsRequest{grqAttribution = word, grq
     licence <- liftIO (DM.databaseLicence dbManager (grName root))
     mapM_ (throwE . GroupsWithheld) (DBHandlers.licenceRefusal ReadInventory (grName root) =<< licence)
     GroupSplit{gsSolution = sol, gsParts = parts} <- splitIntoGroups dbManager root wanted
-    let collectionName = grCollection root
     keeping <- liftIO ((<>) <$> DM.refusingDatabases dbManager SeeDetailedScores <*> DM.refusingDatabases dbManager ReadInventory)
     (mFlows, _) <- liftIO (DM.getMergedFlowMetadata dbManager)
     tables <- liftIO (DM.mapMethodToTablesCached dbManager (grName root) collectionName (grDatabase root) method)
-    let scoring :: IO (Either Text a) -> ExceptT GroupFailure IO a
-        scoring = withExceptT GroupScoringFailed . ExceptT
+    let scoreOf :: CheckedSolution -> ExceptT GroupFailure IO Double
         scoreOf = scoring . Impact.scoreSolution dbManager collectionName method tables
-        readPart part = (,) <$> scoreOf part <*> scoring (Impact.licencedContributionsOf dbManager collectionName method tables (Impact.partitionByLicence mFlows keeping part))
+        flowsOf :: CheckedSolution -> ExceptT GroupFailure IO Impact.LicencedContributions
+        flowsOf = scoring . Impact.licencedContributionsOf dbManager collectionName method tables . Impact.partitionByLicence mFlows keeping
     total <- scoreOf sol
     rest <- liftIO (Impact.licencedSolution dbManager SeeDetailedScores (partIn mFlows sol (Groups.partsRest parts)))
     withheld <- scoring (Impact.scoreParts dbManager collectionName method tables (Impact.lsWithheld rest))
-    groupsRead <- traverse (readPart . partIn mFlows sol) (Groups.partsGroups parts)
-    restRead <- readPart (Impact.lsShown rest)
-    let grid = substanceGrid substancesNamed [Impact.lcRows flows | (_, flows) <- restRead : groupsRead]
-        split (score, flows) =
-            let PartRow{prCells = cells, prOthers = others} = sgRow grid (Impact.lcRows flows)
-             in SubstancePart
-                    { sprScore = score
-                    , sprCells = [SubstanceCell r c | (r, c) <- cells]
-                    , sprOtherSubstances = others
-                    , sprWithheld = sum (map Impact.psScore (Impact.lcWithheld flows))
-                    }
+    restScore <- scoreOf (Impact.lsShown rest)
+    restFlows <- flowsOf (Impact.lsShown rest)
+    groupScores <- traverse (scoreOf . partIn mFlows sol) (Groups.partsGroups parts)
+    groupFlows <- traverse (flowsOf . partIn mFlows sol) (Groups.partsGroups parts)
+    let grid = substanceGrid substancesNamed (map Impact.lcRows (restFlows : groupFlows))
     pure
         GroupSubstances
             { gssAttribution = Groups.attributionWord (attributionOf wanted)
             , gssMethod = methodName method
             , gssUnit = methodUnit method
             , gssTotal = total
-            , gssSubstances = [SubstanceNamed name (mediumText <$> medium) | (name, medium) <- sgSubstances grid]
-            , gssGroups = zipWith GroupSubstancePart (groupNamesIn wanted) (map split groupsRead)
-            , gssRest = split restRead
+            , gssSubstances = [SubstanceNamed name (mediumText <$> medium) | Spelling{spName = name, spMedium = medium} <- sgSubstances grid]
+            , gssGroups = zipWith GroupSubstancePart (groupNamesIn wanted) (zipWith (substancePart grid) groupScores groupFlows)
+            , gssRest = substancePart grid restScore restFlows
             , gssWithheldDatabases = Service.withheldShares total withheld
             , gssFunctionalUnit = grFunctionalUnit root
             }
+  where
+    collectionName :: DM.CollectionName
+    collectionName = grCollection root
+    scoring :: IO (Either Text a) -> ExceptT GroupFailure IO a
+    scoring = withExceptT GroupScoringFailed . ExceptT
+
+-- | A part's score and flows on the grid's lines, what a licence withholds of it one number.
+substancePart :: SubstanceGrid -> Double -> Impact.LicencedContributions -> SubstancePart
+substancePart grid score flows =
+    SubstancePart
+        { sprScore = score
+        , sprCells = [SubstanceCell r c | (r, c) <- M.toList (prCells row)]
+        , sprOtherSubstances = prOthers row
+        , sprWithheld = sum (map Impact.psScore (Impact.lcWithheld flows))
+        }
+  where
+    row :: PartRow
+    row = sgRow grid (Impact.lcRows flows)
 
 {- | The score of one unit of each process the root reaches, with all it
 brings upstream, from each process's own score per unit. It does not depend

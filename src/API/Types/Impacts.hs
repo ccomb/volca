@@ -1034,7 +1034,7 @@ data SubstanceNamed = SubstanceNamed
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped SubstanceNamed)
 
--- | What a part gives one substance named, by the substance's rank in the list.
+-- | What a part gives one substance named, by the substance's position in the list, counted from 0.
 data SubstanceCell = SubstanceCell
     { sclSubstance :: Int
     , sclScore :: Double
@@ -1044,8 +1044,9 @@ data SubstanceCell = SubstanceCell
 
 {- | One part of a score split by substance: what it gives each substance
 named (a substance it gives nothing has no cell), every other substance
-together, and what a database whose licence withholds its detail keeps of it,
-as one number. They add up to its score.
+together, and what a database whose licence keeps its detail or its exchange
+amounts holds of it, as one number (the rest leaves a database keeping its
+detail to a line of its own). They add up to its score.
 -}
 data SubstancePart = SubstancePart
     { sprScore :: Double

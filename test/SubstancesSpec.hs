@@ -7,11 +7,12 @@ or of another name, keeps its own line.
 module SubstancesSpec (spec) where
 
 import Data.List (sortOn)
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Impact.Substances (PartRow (..), SubstanceContribution (..), SubstanceGrid (..), bySubstance, substanceCompartments, substanceFlowIds, substanceGrid)
+import Impact.Substances (PartRow (..), Spelling (..), SubstanceContribution (..), SubstanceGrid (..), bySubstance, substanceCompartments, substanceFlowIds, substanceGrid)
 import Method.Mapping (FlowContribution (..))
 import Types (BiosphereFlow (..), Compartment (..), Medium (..))
 
@@ -38,14 +39,17 @@ substanceGridSpec = describe "Impact.Substances.substanceGrid" $ do
         second = [row 3 "Carbon dioxide, fossil" Air (Just "high. pop.") 3, row 4 "Dinitrogen monoxide" Air Nothing 5, row 5 "Methane" Air Nothing (-4)]
 
     it "names the substances weighing most over every part, by the sum of their absolute values" $
-        sgSubstances (substanceGrid 2 [first, second]) `shouldBe` [("Methane", Just Air), ("Dinitrogen monoxide", Just Air)]
+        sgSubstances (substanceGrid 2 [first, second]) `shouldBe` [Spelling "Methane" (Just Air), Spelling "Dinitrogen monoxide" (Just Air)]
 
     it "spells a substance as its largest flow over every part" $
-        sgSubstances (substanceGrid 3 [first, second]) `shouldBe` [("Methane", Just Air), ("Dinitrogen monoxide", Just Air), ("Carbon dioxide, fossil", Just Air)]
+        sgSubstances (substanceGrid 3 [first, second]) `shouldBe` [Spelling "Methane" (Just Air), Spelling "Dinitrogen monoxide" (Just Air), Spelling "Carbon dioxide, fossil" (Just Air)]
+
+    it "never names a substance no part gives anything, however few weigh something" $
+        sgSubstances (substanceGrid 8 [first, [row 6 "Ammonia" Air Nothing 0]]) `shouldBe` [Spelling "Methane" (Just Air), Spelling "carbon dioxide, fossil " (Just Air)]
 
     it "gives each part its cells by rank and every other substance together, adding up to its flows" $ do
         let grid = substanceGrid 2 [first, second]
-        map (sgRow grid) [first, second] `shouldBe` [PartRow [(0, 2)] 1, PartRow [(0, -4), (1, 5)] 3]
+        map (sgRow grid) [first, second] `shouldBe` [PartRow (M.fromList [(0, 2)]) 1, PartRow (M.fromList [(0, -4), (1, 5)]) 3]
 
 bySubstanceSpec :: Spec
 bySubstanceSpec = describe "Impact.Substances.bySubstance" $ do

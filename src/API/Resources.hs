@@ -43,6 +43,7 @@ import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Groups (maxGroups)
+import Impact.Substances (substancesNamed)
 import Network.HTTP.Types.Method (StdMethod (..))
 import ReducedModel (maxProcesses)
 import Types (Permission (..))
@@ -916,14 +917,19 @@ description r = case r of
         \emits in one impact category, all groups at once: 'who emits the \
         \N2O?', the flows of a Sankey diagram from groups to substances. Same \
         \'attribution' and 'groups' as that call, read the same way. \
-        \'substances': the eight weighing most over every part (sum of the \
-        \absolute values), spelled as their largest flow; one substance is \
-        \one name and one medium, whatever its sub-compartments. Each part \
-        \(each group, the 'rest'): 'cells' by a substance's rank in that \
-        \list, 'otherSubstances' for every other one, 'withheld' for what a \
-        \database whose licence keeps its detail holds of the part. They add \
-        \up to the part's 'score'; groups, rest and 'withheldDatabases' add \
-        \up to 'total'."
+        \'substances': at most "
+            <> T.pack (show substancesNamed)
+            <> ", the ones weighing most over every part (sum of the \
+               \absolute values), spelled as their largest flow; one substance is \
+               \one name and one medium, whatever its sub-compartments. Each part \
+               \(each group, the 'rest'): 'cells', each naming a substance by its \
+               \position in that list counted from 0 (substance 0 is the first), \
+               \'otherSubstances' for every other one, 'withheld' for what a \
+               \database whose licence keeps its detail or its exchange amounts \
+               \holds of the part (for the rest, a database keeping its detail \
+               \is a line of 'withheldDatabases' instead). They add up to the \
+               \part's 'score'; groups, rest and 'withheldDatabases' add up to \
+               \'total'."
             <> webUrlTip
     GetGroupCandidates ->
         "LCA / ACV: groups a process or a flow could start, narrowest first. \
