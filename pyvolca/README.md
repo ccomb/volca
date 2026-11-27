@@ -1322,7 +1322,7 @@ values for input parameters, as `get_supply_chain` takes them.
 which add up to its score, to group into stages; it is refused with
 ``substitutions``, and scoring-set scores are not split by line.
 ``top_flows`` sets how many top contributing flows each result lists
-(5 when left out, 0 for none).
+(5 when left out, or the engine's limit when lower; 0 for none).
 
 Left without a ``collection``, the call runs against the only loaded
 one, and refuses when several are loaded rather than picking one.
