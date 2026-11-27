@@ -66,7 +66,7 @@ import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPagePath, groupsQuery, impactsPath, overObject, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
+import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, rawScoreMapByName, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
 import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteRequest (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), AmountList (..), ClassificationSystem (..), ExchangeContribution (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), LCIAResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, setAmountLines, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
@@ -92,7 +92,7 @@ import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Skill (Skill, skillContents, skillEntry, skillResource, skillUri)
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, exchanges, flowKindId, flowKindName, getUnitNameForBioFlow, granted, kindOfFlow, lookupExchangeFlow, lookupFlow, matchWord, mediumText, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Compartment (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, exchanges, flowKindId, flowKindName, getUnitNameForBioFlow, granted, kindOfFlow, lookupExchangeFlow, lookupFlow, matchWord, mediumText, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
 import Usage (Asking (..), Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -3961,21 +3961,6 @@ batchErrorMsg err = case err of
     BI.Unprocessable msg -> msg
     BI.OtherBatchError code msg -> "HTTP " <> T.pack (show code) <> ": " <> msg
 
-{- | Look up the configured scoring-set names on a loaded method collection.
-Returns the empty list when the collection is not loaded; in that case
-the batch runner has already returned 'BI.CollectionNotLoaded' and the
-filter is never consulted, so the empty result here is harmless. We
-read 'mcScoringSets' directly -- not the keys of @scoringResults@ -- so
-that a set whose evaluation produced no scores still counts as
-"configured" for the @scoring_sets@ filter.
--}
-configuredScoringSetNames :: DatabaseManager -> Text -> IO [Text]
-configuredScoringSetNames dbm collName = do
-    loaded <- readTVarIO (dmLoadedMethods dbm)
-    pure $ case M.lookup collName loaded of
-        Just mc -> map ssName (mcScoringSets mc)
-        Nothing -> []
-
 {- | Handler for the 'score_activity' MCP tool.
 
 Returns the full LCIABatchResult shape (per-method scores, per-scoring-set
@@ -4003,15 +3988,14 @@ callScoreActivity dbManager mHosting mBaseUrl rid args =
         case res of
             Left e -> throwE (batchErrorMsg e)
             Right lbr -> do
-                configured <- liftIO $ configuredScoringSetNames dbManager coll
                 mActName <- liftIO $ lookupActivityName dbManager dbName pidText
                 mc <- requireCollection dbManager coll
                 names <- case nubOrd [ecPosition ec | r <- lbrResults lbr, ec <- lrExchangeContributions r] of
                     [] -> pure M.empty
                     positions -> do
                         ld <- requireDatabase dbManager dbName
-                        (_, act) <- liftService (Service.resolveActivityAndProcessId (ldDatabase ld) pidText)
-                        except (lineNamesOf (ldDatabase ld) act positions)
+                        (pid, act) <- liftService (Service.resolveActivityAndProcessId (ldDatabase ld) pidText)
+                        except (lineNamesOf (ldDatabase ld) (pid, act) positions)
                 let mTopUrl = scoreActivityWebUrl mBaseUrl dbName pidText coll
                     shares = scoringShares (mcScoringSets mc) (lbrResults lbr)
                     panelFields =
@@ -4022,7 +4006,7 @@ callScoreActivity dbManager mHosting mBaseUrl rid args =
                             addWebUrlMaybe
                                 mTopUrl
                                 (withCutoffNotice (Cutoffs (lbrCutoffInputs lbr) (lbrWithheldCutoffs lbr)) (overObject (<> KM.fromList panelFields) (slimLCIAPanel (toJSON lbr))))
-                except (toolSuccessJson rid <$> filterScoringSets configured wantedSets enriched)
+                except (toolSuccessJson rid <$> filterScoringSets (map ssName (mcScoringSets mc)) wantedSets enriched)
 
 {- | What each impact category weighs in every score of every set, by set then
 score, largest first in absolute value. A score that is no weighted sum, or
@@ -4039,29 +4023,43 @@ scoringShares sets results =
             ]
   where
     raw :: M.Map Text Double
-    raw = M.fromList [(lrMethodName r, lrScore r) | r <- results]
+    raw = rawScoreMapByName results
     shareRows :: [Ranked (Text, Double)] -> [Value]
     shareRows ranked = map (shareRow (sum (map (snd . rkRow) ranked))) ranked
     shareRow :: Double -> Ranked (Text, Double) -> Value
     shareRow total Ranked{rkRow = (category, term), rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} =
         object
             [ "category" .= category
-            , "percent" .= (if total /= 0 then term / total * 100 else 0 :: Double)
-            , "absolutePercent" .= absolute
-            , "cumulativePercent" .= cumulative
+            , "sharePct" .= (if total /= 0 then term / total * 100 else 0 :: Double)
+            , "absoluteSharePct" .= absolute
+            , "cumulativeSharePct" .= cumulative
             ]
 
 {- | The name of each line a panel weighs, by its position among the
-activity's exchanges. A position the activity has no line at is refused: the
-names would no longer say which line weighs what.
+activity's exchanges, read as get_activity reads the line: its flow, then the
+supplier of a product or the compartment of an emission, so that one product
+from two suppliers, or one substance to two compartments, reads as two lines.
+A position the activity has no line at is refused: the names would no longer
+say which line weighs what.
 -}
-lineNamesOf :: Database -> Activity -> [Int] -> Either Text (M.Map Int Text)
-lineNamesOf db act = fmap M.fromList . traverse named
+lineNamesOf :: Database -> (ProcessId, Activity) -> [Int] -> Either Text (M.Map Int Text)
+lineNamesOf db (pid, act) = fmap M.fromList . traverse named
   where
+    listed :: [ExchangeWithUnit]
+    listed = zipWith (Service.toExchangeWithUnit db (Service.buildCrossDBLinkMap db pid)) [0 ..] (exchanges act)
     named :: Int -> Either Text (Int, Text)
-    named position = case exchanges act !? position of
-        Just exchange -> Right (position, Service.exchangeLineName db exchange)
+    named position = case listed !? position of
+        Just line -> Right (position, lineName line)
         Nothing -> Left ("No line at position " <> T.pack (show position) <> " of " <> activityName act)
+
+-- | A line's flow, then what tells it from another line of the same flow.
+lineName :: ExchangeWithUnit -> Text
+lineName line = ewuFlowName line <> maybe "" (\detail -> " (" <> detail <> ")") (supplier <|> place)
+  where
+    supplier :: Maybe Text
+    supplier = (\name -> "from " <> name <> maybe "" (\loc -> " {" <> loc <> "}") (mfilter (not . T.null) (ewuTargetLocation line))) <$> ewuTargetActivityName line
+    place :: Maybe Text
+    place = (\c -> mediumText (compartmentName c) <> maybe "" (", " <>) (compartmentSub c)) <$> ewuCompartment line
 
 {- | Resolve the activity name for a (db, processId) pair. 'Nothing' when
 the database is not loaded or the PID does not resolve -- callers fold

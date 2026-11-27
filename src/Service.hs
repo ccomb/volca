@@ -1739,13 +1739,6 @@ crossDBLinkIndex db =
 crossDBLinksOf :: Database -> M.Map UUID (M.Map UUID CrossDBLink) -> ProcessId -> M.Map UUID CrossDBLink
 crossDBLinksOf db index pid = fromMaybe M.empty (processIdToRef db pid >>= \ref -> M.lookup (prActivity ref) index)
 
-{- | The name a line of an activity is read under: its flow's, or the raw UUID
-when the flow does not resolve, a failure the reader can follow rather than a
-silent "unknown".
--}
-exchangeLineName :: Database -> Exchange -> Text
-exchangeLineName db exchange = maybe (unresolvedFlowName (exchangeFlowId exchange)) fst (resolveFlow db exchange)
-
 toExchangeWithUnit ::
     Database ->
     M.Map UUID CrossDBLink ->
@@ -1755,8 +1748,8 @@ toExchangeWithUnit ::
 toExchangeWithUnit db links position exchange =
     -- Surface the raw UUID when the flow does not resolve – a clear failure
     -- the consumer can debug, not a silent "unknown".
-    let flowName = exchangeLineName db exchange
-        compartment = snd =<< resolveFlow db exchange
+    let unresolvedName = unresolvedFlowName (exchangeFlowId exchange)
+        (flowName, compartment) = fromMaybe (unresolvedName, Nothing) (resolveFlow db exchange)
         target = resolveTarget db links exchange
      in ExchangeWithUnit
             { ewuPosition = position

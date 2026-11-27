@@ -347,7 +347,7 @@ spec = describe "a database at other values of its parameters" $ do
             callTool anonymous manager [] Nothing Nothing noRequestId "score_activity" . KM.fromList $
                 [("database", String "bakery"), ("process_id", String (processIdText (aLoaf, pLoaf))), ("collection", String "model"), ("exchange_contributions", Bool True)]
         let numbers = \case
-                Array rows -> [n | Object row <- V.toList rows, Just (Number n) <- [KM.lookup "percent" row]]
+                Array rows -> [n | Object row <- V.toList rows, Just (Number n) <- [KM.lookup "sharePct" row]]
                 _ -> []
             total = KM.lookup "scoringShares" =<< payloadOf reply
         -- One set splits, the circular one has no score to split.
