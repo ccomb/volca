@@ -64,7 +64,7 @@ import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (activitiesReportToAPI, copyRefusal, coverageReportToAPI, databaseHistoryToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
 import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
-import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPagePath, groupsQuery, impactsPath, overObject, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
+import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsDiagramQuery, groupsPagePath, groupsQuery, impactsPath, overObject, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (CollectionAsk (..), GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), PanelAsk (..), chooseCollection, collectionNotLoadedMessage, defaultMissing, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, groupSubstancesOf, methodRefusalMessage, methodSummary, rawScoreMapByName, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
@@ -3786,7 +3786,7 @@ callGetGroupMembers dbManager mBaseUrl rid args =
         let lim = fromMaybe 10 (intArg "limit" args)
         result <- liftIO (groupMembersOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
         GroupMembers{gmSolution = sol, gmParts = parts} <- either (throwE . groupFailureText) pure result
-        toolSuccessJson rid . object . (<> webUrlField (groupsPageBase mBaseUrl args) (groupPagePath req attribution specs)) <$> processesFields dbManager mBaseUrl req (FirstRows lim) sol parts
+        toolSuccessJson rid . object . (<> webUrlField (groupsPageBase mBaseUrl args) (groupPagePath groupsQuery req attribution specs)) <$> processesFields dbManager mBaseUrl req (FirstRows lim) sol parts
 
 callGetGroupFlows :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetGroupFlows dbManager mBaseUrl rid args =
@@ -3794,7 +3794,7 @@ callGetGroupFlows dbManager mBaseUrl rid args =
         req <- loadLcaRequest dbManager TakeTheDefault args
         (attribution, specs) <- except (groupsArgs args)
         let request = GroupMembersRequest attribution specs (textArg "group" args) (Just (fromMaybe 20 (intArg "limit" args)))
-            link = (<> groupPagePath req attribution specs) <$> groupsPageBase mBaseUrl args
+            link = (<> groupPagePath groupsQuery req attribution specs) <$> groupsPageBase mBaseUrl args
         result <- liftIO (groupFlowsOf dbManager (lcaGroupRoot req args) (lrMethod req) request)
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . addWebUrlMaybe link . toJSON) result
 
@@ -3803,13 +3803,13 @@ callGetGroupSubstances dbManager mBaseUrl rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager TakeTheDefault args
         (attribution, specs) <- except (groupsArgs args)
-        let link = (<> groupPagePath req attribution specs) <$> groupsPageBase mBaseUrl args
+        let link = (<> groupPagePath groupsDiagramQuery req attribution specs) <$> groupsPageBase mBaseUrl args
         result <- liftIO (groupSubstancesOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupsRequest attribution specs))
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . addWebUrlMaybe link . toJSON) result
 
--- | The groups page of one impact category, with the groups asked.
-groupPagePath :: LcaRequest -> Maybe Text -> [GroupSpec] -> Text
-groupPagePath req attribution specs = groupsPagePath (lrDbName req) (raText (lrResolved req)) (lrCollection req) <> "/" <> encodeSegment (lrMethodIdText req) <> groupsQuery (GroupsRequest attribution specs)
+-- | The groups page of one impact category, with the groups asked, in the query 'query' spells.
+groupPagePath :: (GroupsRequest -> Text) -> LcaRequest -> Maybe Text -> [GroupSpec] -> Text
+groupPagePath query req attribution specs = groupsPagePath (lrDbName req) (raText (lrResolved req)) (lrCollection req) <> "/" <> encodeSegment (lrMethodIdText req) <> query (GroupsRequest attribution specs)
 
 {- | Where a link to the groups page starts. None when long-term emissions are
 left out: the page counts them, so it would show other totals.
