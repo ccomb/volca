@@ -67,9 +67,11 @@ import Database.Manager (
     RelativeDataPath (..),
     SetupError (..),
     addDatabase,
+    addDependencyToStaged,
     getDatabaseSetupInfo,
     initDatabaseManager,
     loadDatabase,
+    relinkDatabase,
     relinkDatabaseWithMapping,
     removeDatabase,
     removeDependencyFromStaged,
@@ -374,6 +376,18 @@ spec = describe "persisting an edit" $ do
                 forM_ ["barley-farm", "oat-farm", "bakery"] (mustLoad manager)
                 suppliersOf manager "bakery" `shouldReturn` Set.singleton "barley-farm"
 
+        it "load at start, when a configured database was given an upload on its setup page" $
+            withDataDir $ \dataRoot -> do
+                writeUpload dataRoot "granary" [] [datasetBuying 1 "barley" "kg" []]
+                writeDatasets (dataRoot </> "configured" </> "bakery") [datasetBuying 1 "bread" "kg" [("barley, output", 2)]]
+                let config = defaultConfig{cfgDatabases = [configuredAt dataRoot "bakery" Unsettled]}
+                manager <- initDatabaseManager config UseCache
+                mustLoad manager "granary"
+                (void <$> addDependencyToStaged manager (DependencyEdit "bakery" "granary")) `shouldReturn` Right ()
+                restarted <- initDatabaseManager config UseCache
+                M.member "granary" <$> readTVarIO (dmLoadedDbs restarted) `shouldReturn` True
+                suppliersOf restarted "bakery" `shouldReturn` Set.singleton "granary"
+
         it "give way to one removed on the setup page of a configured database, at the next start" $
             withDataDir $ \dataRoot -> do
                 let config =
@@ -393,6 +407,38 @@ spec = describe "persisting an edit" $ do
                 suppliersOf restarted "bakery" `shouldReturn` Set.empty
                 void (reloadOf restarted "bakery")
                 suppliersOf restarted "bakery" `shouldReturn` Set.empty
+
+        it "grow by no relink, while a database that would supply it is loaded" $
+            withGranaryAndBakery $ \_ manager -> do
+                mustLoad manager "bakery"
+                mustLoad manager "granary"
+                relinkDatabase manager "bakery" >>= (`shouldSatisfy` isRight)
+                suppliersOf manager "bakery" `shouldReturn` Set.empty
+                keptFor "bakery" `shouldReturn` Nothing
+
+        it "are shown on its setup page, opened after a restart, rather than those its cache was written with" $
+            withGranaryAndBakery $ \_ manager -> do
+                mustLoad manager "granary"
+                mustLoad manager "bakery"
+                (void <$> removeDependencyFromStaged manager (DependencyEdit "bakery" "granary")) `shouldReturn` Right ()
+                restarted <- initDatabaseManager defaultConfig UseCache
+                mustLoad restarted "granary"
+                info <- getDatabaseSetupInfo restarted "bakery"
+                fmap dsiCrossDBLinks info `shouldBe` Right 0
+                fmap dsiUnresolvedLinks info `shouldBe` Right 1
+
+        it "are forgotten with the database, so one uploaded again under its name links again" $
+            withGranaryAndBakery $ \dataRoot manager -> do
+                mustLoad manager "granary"
+                mustLoad manager "bakery"
+                (void <$> removeDependencyFromStaged manager (DependencyEdit "bakery" "granary")) `shouldReturn` Right ()
+                removeDatabase manager "bakery" `shouldReturn` Right ()
+                keptFor "bakery" `shouldReturn` Nothing
+                writeUpload dataRoot "bakery" [] [datasetBuying 1 "bread" "kg" [("barley, output", 2)]]
+                restarted <- initDatabaseManager defaultConfig UseCache
+                mustLoad restarted "granary"
+                mustLoad restarted "bakery"
+                suppliersOf restarted "bakery" `shouldReturn` Set.singleton "granary"
 
     describe "a copy" $ do
         it "gets a home of its own at once, holding no data" $
@@ -705,6 +751,16 @@ withBakeryAt dataPath act =
         manager <- initDatabaseManager defaultConfig UseCache
         forM_ ["mill", "bakery"] (mustLoad manager)
         act dataRoot manager
+
+{- | A granary selling barley under the very name a bakery buys it, each an
+upload nothing settled, neither loaded.
+-}
+withGranaryAndBakery :: (FilePath -> DatabaseManager -> IO ()) -> IO ()
+withGranaryAndBakery act =
+    withDataDir $ \dataRoot -> do
+        writeUpload dataRoot "granary" [] [datasetBuying 1 "barley" "kg" []]
+        writeUpload dataRoot "bakery" [] [datasetBuying 1 "bread" "kg" [("barley, output", 2)]]
+        initDatabaseManager defaultConfig UseCache >>= act dataRoot
 
 bakery :: [Text]
 bakery =

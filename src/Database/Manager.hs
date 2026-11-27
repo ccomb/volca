@@ -2022,7 +2022,7 @@ loadOneDatabase manager LoadLevel{..} dbConfig = withLogScope (dcName dbConfig) 
             atomically $ publishLoaded manager (dcName dbConfig) loaded indexedDb
             configsNow <- readTVarIO (dmAvailableDbs manager)
             when (source == FromCache && cacheBehind configsNow llOtherIndexes pinRead loaded) $
-                relinkWithin manager (dcName dbConfig) llOtherIndexes (Just pinRead)
+                relinkWithin manager (dcName dbConfig) llOtherIndexes (Just pinRead) LoadedToo
                     >>= either (warnSelfRelinkFailed (dcName dbConfig)) (const (pure ()))
             dbEnd <- getCurrentTime
             let !dbDuration = realToFrac (diffUTCTime dbEnd dbStart) :: Double
@@ -3078,7 +3078,10 @@ loadDatabaseSingleFromConfig manager dbName = do
         -- A fresh parse linked without the mapping, so one held means relinking;
         -- so does a pin settled since the cache was written.
         when (needsSelfRelink origin || isJust (ldSupplierMapping loaded) || not (sameSet pinRead (dbDependsOn (ldDatabase loaded)))) $
-            relinkDatabaseWith manager dbName (Just pinRead) >>= either (warnSelfRelinkFailed dbName) (const (pure ()))
+            readTVarIO (dmIndexedDbs manager)
+                >>= \indexes ->
+                    relinkWithin manager dbName (M.elems indexes) (Just pinRead) LoadedToo
+                        >>= either (warnSelfRelinkFailed dbName) (const (pure ()))
         relinkDependents manager dbName
         {- Cache what the journal produced, so the next load does not replay
         it, and stamp the cache with the journal it holds. The stamp goes
@@ -3792,32 +3795,39 @@ relinkDatabaseWith ::
     IO (Either Text RelinkResult)
 relinkDatabaseWith manager dbName persistedDeps = do
     indexedDbs <- readTVarIO (dmIndexedDbs manager)
-    relinkWithin manager dbName (M.elems indexedDbs) persistedDeps
+    relinkWithin manager dbName (M.elems indexedDbs) persistedDeps PinnedOnly
+
+{- | How far a relink may look: within the database's dependencies, or, for a
+database nothing settled, at every database loaded. Only a load looks that far,
+as a load from its files would: a relink or an edit never adds a dependency.
+-}
+data LinkReach = PinnedOnly | LoadedToo
 
 {- | 'relinkDatabaseWith' against the indexes given rather than those loaded
 now: the startup links each level against the snapshot it started with.
 -}
-relinkWithin :: DatabaseManager -> Text -> [IndexedDatabase] -> Maybe [Text] -> IO (Either Text RelinkResult)
-relinkWithin manager dbName indexes persistedDeps = withLogScope dbName $ do
+relinkWithin :: DatabaseManager -> Text -> [IndexedDatabase] -> Maybe [Text] -> LinkReach -> IO (Either Text RelinkResult)
+relinkWithin manager dbName indexes persistedDeps reach = withLogScope dbName $ do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
     maybe (relinkStaged manager dbName Nothing) relinkLoaded (M.lookup dbName loadedDbs)
   where
     relinkLoaded :: LoadedDatabase -> IO (Either Text RelinkResult)
     relinkLoaded loaded = do
         configs <- readTVarIO (dmAvailableDbs manager)
-        {- Strict pin: settled, the candidates are the database's dependency
-        set ('dbDependsOn'), never the full set of loaded DBs; relink
-        recomputes links *within* the whole pin (so a mapping relink against
-        one dependency re-resolves the others unchanged instead of dropping
-        them) but never expands or shrinks it. Unsettled, they are every
-        database it links to, and its dependencies are what the links reach,
-        recorded as found. The choice is read from the list, which a click
-        made during a load has already reached. -}
+        {- Strict pin: the candidates are the database's dependency set
+        ('dbDependsOn'), never the full set of loaded DBs; relink recomputes
+        links *within* the whole pin (so a mapping relink against one
+        dependency re-resolves the others unchanged instead of dropping them)
+        but never expands or shrinks it. A load of a database nothing settled
+        is the exception: the candidates are every database it links to, and
+        its dependencies are what the links reach, recorded as found. The
+        choice is read from the list, which a click made during a load has
+        already reached. -}
         let config = fromMaybe (ldConfig loaded) (M.lookup dbName configs)
             pinnedDeps = dbDependsOn (ldDatabase loaded)
-            (candidate, pin) = case dcDepends config of
-                Unsettled -> (linksTo configs config, PinFromLinks)
-                Settled _ _ -> ((`elem` pinnedDeps), KeepPin)
+            (candidate, pin) = case (reach, dcDepends config) of
+                (LoadedToo, Unsettled) -> (linksTo configs config, PinFromLinks)
+                _ -> ((`elem` pinnedDeps), KeepPin)
             otherIndexes = [idb | idb <- indexes, idbName idb /= dbName, candidate (idbName idb)]
         synonymDB <- getMergedSynonymDB manager
         unitConfig <- getMergedUnitConfig manager
@@ -4250,12 +4260,20 @@ publishLoaded manager dbName loaded indexedDb = do
 -- | Helper to remove database from in-memory maps only
 removeFromMemory :: DatabaseManager -> Text -> IO (Either Text ())
 removeFromMemory manager dbName = do
-    atomically $ do
-        modifyTVar' (dmAvailableDbs manager) (M.delete dbName)
-        modifyTVar' (dmStagedDbs manager) (M.delete dbName)
-        modifyTVar' (dmStagingDbs manager) (S.delete dbName)
+    -- What the engine kept for it goes with it: a database uploaded again
+    -- under its name starts unsettled.
+    withMVar (dmDependencyLock manager) $ \() -> do
+        atomically $ do
+            modifyTVar' (dmAvailableDbs manager) (M.delete dbName)
+            modifyTVar' (dmStagedDbs manager) (M.delete dbName)
+            modifyTVar' (dmStagingDbs manager) (S.delete dbName)
+        configs <- readTVarIO (dmAvailableDbs manager)
+        writeKept (M.elems configs) >>= either (reportProgress Warning . notForgotten) pure
     reportProgress Info $ "Removed database: " <> T.unpack dbName
     return $ Right ()
+  where
+    notForgotten :: Text -> String
+    notForgotten err = "The dependencies kept for " <> T.unpack dbName <> " stay in the file until its next change: " <> T.unpack err
 
 --------------------------------------------------------------------------------
 -- Staged Database Operations
