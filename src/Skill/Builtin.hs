@@ -54,10 +54,12 @@ pefHotspots =
                 T.unlines $
                     [ "# Hotspots of a product, PEF method"
                     , ""
+                    , "Run every step before you answer."
+                    , ""
                     ]
                         <> findTheProcess
-                        <> [ "3. " <> chooseTheCollection <> " With `list_scoring_sets`, find the EF single score set of that collection, otherwise of another loaded one, and say which collection holds it. When none is loaded, say so and stop: never weight the impact categories yourself."
-                           , "4. Score the process with `score_activity`, with `scoring_sets` set to that set alone and `exchange_contributions` set to true: steps 5 and 8 read its answer."
+                        <> [ "3. " <> chooseTheCollection <> " With `list_scoring_sets` and that `collection`, find the EF single score set of that collection, otherwise of another loaded one, and say which collection holds it. When none is loaded, say so and stop: never weight the impact categories yourself."
+                           , "4. Score the process with `score_activity`, with `scoring_sets` set to that set alone, `exchange_contributions` set to true and `top_flows` set to 0 (step 7 gives the flows): steps 5 and 8 read its answer."
                            , "5. Most relevant impact categories: read that set's single score in `scoringShares`. Its rows come largest first: keep them until `cumulativeSharePct` reaches at least 80, and at least three. Report each one's `sharePct`, which keeps its sign as the PEF method reads the categories; when one is negative, say so."
                            , "6. For each of them, `get_contributing_activities` with `cover_percent: 80`: the rows returned are the most relevant processes, the PEF rule on absolute values already applied. When the last row's `cumulative_percent` is not above 80, the list stopped at its cap: say it is incomplete."
                            , "7. For each of them, `get_contributing_flows` with `cover_percent: 80` and `by_substance: true`: the same rule on emissions and resources, each substance gathered over its sub-compartments. Say that these are the emissions of the whole chain, not of each process."
@@ -82,4 +84,4 @@ findTheProcess =
 
 -- | Which method collection scores a product, when the person names none.
 chooseTheCollection :: Text
-chooseTheCollection = "Choose the method collection with `list_methods`: the one the person names, otherwise the Environmental Footprint (EF) collection itself rather than a variant adapted for a particular tool."
+chooseTheCollection = "Choose the method collection with `list_methods`: the one the person names, otherwise the plain Environmental Footprint (EF) collection, often named by its acronym and version (EF-3.1), rather than a variant whose name says it is adapted for a particular tool."
