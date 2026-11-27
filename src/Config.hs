@@ -403,7 +403,7 @@ data MethodConfig = MethodConfig
     , mcOrigin :: !MethodOrigin
     , mcActive :: !Bool
     , mcDefault :: !Bool
-    -- ^ The collection a reader is offered first; at most one carries it.
+    -- ^ The collection a reader is offered first, and a scoring tool called without one scores with; at most one carries it.
     , mcHome :: !(Maybe FilePath)
     {- ^ The directory under @uploads/methods/@ a collection lives in, holding
     its @meta.toml@ and its journal. A collection there is changed through its

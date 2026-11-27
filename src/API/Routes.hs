@@ -1413,10 +1413,9 @@ computedQualityReportH dbName mCollection mLimit = do
     dbManager <- asks aeDbManager
     (db, _solver) <- requireDatabaseByName dbName
     loadedCollections <- liftIO $ readTVarIO (dmLoadedMethods dbManager)
-    mDefault <- liftIO $ DM.defaultMethodCollection dbManager
     collection <- case (mCollection, M.keys loadedCollections) of
         (Just c, _) -> pure (DM.CollectionName c) -- an unknown name answers 404 in batchImpactsH below
-        (Nothing, loaded) | Just c <- chooseCollection (Unnamed mDefault) loaded -> pure (DM.CollectionName c)
+        (Nothing, [only]) -> pure (DM.CollectionName only)
         (Nothing, []) ->
             throwError err400{errBody = "No method collection loaded - the computed checks judge scores, so they need one"}
         (Nothing, several) ->
@@ -1678,7 +1677,7 @@ but is not among the candidates, so the caller knows why it was not taken.
 -}
 defaultMissing :: CollectionAsk -> [Text] -> Text
 defaultMissing ask candidates = case ask of
-    Unnamed (Just d) | d `notElem` candidates -> " The default method collection '" <> d <> "' is not among them: it does not carry this, or is not loaded."
+    Unnamed (Just d) | d `notElem` candidates -> " The default method collection '" <> d <> "' is not among them."
     Unnamed _ -> ""
     Named _ -> ""
 

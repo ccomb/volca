@@ -69,6 +69,13 @@ spec = describe "a scoring tool called without a method collection" $ do
         refusal <- callUnnamed manager "score_activity"
         either (\reply -> T.pack reply `shouldSatisfy` T.isInfixOf "Several method collections") (const (expectationFailure "expected a refusal")) refusal
 
+    it "takes the only collection holding the scoring set asked, default or not" $ do
+        manager <- managerUnder LicenceUnstated
+        reply <-
+            callTool anonymous manager [] Nothing Nothing noRequestId "get_score_contributing_flows" $
+                KM.fromList [("database", String "sample"), ("process_id", String productD), ("scoring_set", String "Single"), ("score", String "total")]
+        (payloadOf reply >>= basisCollection) `shouldBe` Just (String collectionName)
+
     it "scores with the default one, which basis names" $ do
         manager <- managerUnder LicenceUnstated
         atomically $ modifyTVar' (dmAvailableMethods manager) (M.insert collectionName markedDefault)

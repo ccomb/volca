@@ -1136,8 +1136,8 @@ description r = case r of
     GetComputedQualityReport ->
         "LCA / ACV: computed checks of a LOADED database, judged against the \
         \catalogue's own norms. Scores every process with \
-        \one method collection ('collection', else the \
-        \only loaded one, else the default one): per-impact-category outliers \
+        \one method collection (the only loaded one, or \
+        \'collection'): per-impact-category outliers \
         \on a log scale by median/MAD within (impact \
         \category, reference unit) groups (a \
         \mg-read-as-kg slip lands three orders out); entries scoring zero \
@@ -1363,7 +1363,7 @@ pScoringCollection =
 
 -- | The collection a scoring set is configured on.
 pScoreCollection :: Param
-pScoreCollection = Param "collection" "string" Optional "Method collection the scoring set is configured on (from list_scoring_sets); this instance's default method collection when omitted, which 'basis' names"
+pScoreCollection = Param "collection" "string" Optional "Method collection the scoring set is configured on (from list_scoring_sets). Over MCP, leave it out to use the only loaded one holding the set, else this instance's default method collection, which 'basis' names"
 
 pScoringSet :: Param
 pScoringSet = Param "scoring_set" "string" Required "Scoring set name (from list_scoring_sets)"
@@ -1707,7 +1707,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "method_id" "string" Required "UUID of the impact category"
-        , pCollection
+        , pScoringCollection
         , pAttribution
         , pGroups
         , Param "group" "string" Optional "Name of the group to list; left out, the rest"
@@ -1718,7 +1718,7 @@ params r = case r of
         [ pDatabase
         , pProcessId
         , Param "method_id" "string" Required "UUID of the impact category"
-        , pCollection
+        , pScoringCollection
         , pAttribution
         , pGroups
         , Param "group" "string" Optional "Name of the group to list; left out, the rest"
@@ -1855,7 +1855,7 @@ params r = case r of
         ]
     GetComputedQualityReport ->
         [ pDatabase
-        , Param "collection" "string" Optional "Method collection to score with; the only loaded one, else this instance's default method collection, when omitted."
+        , Param "collection" "string" Optional "Method collection to score with; required when several are loaded."
         , pLimit "Max findings per check, worst first (default all); offenderCount covers the full list."
         ]
     GetCoverageReport ->
