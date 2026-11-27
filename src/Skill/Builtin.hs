@@ -16,7 +16,7 @@ engine at start, with the reason, rather than being served and dropped by
 the client.
 -}
 builtinSkills :: Either Text [Skill]
-builtinSkills = sequence [carbonFootprint, pefHotspots]
+builtinSkills = sequence [carbonFootprint, pefHotspots, processFromDocument]
 
 {- | The skills a configuration declares, then each built-in one none of them
 replaces by taking its name.
@@ -67,6 +67,48 @@ pefHotspots =
                            , ""
                            , "When a licence hides the detail of a database (`withheld_databases`), say which lists are incomplete."
                            ]
+            }
+
+processFromDocument :: Either Text Skill
+processFromDocument =
+    skillFrom
+        SkillSource
+            { sourceName = "process-from-document"
+            , sourceDescription = "Turn a life cycle assessment report, a research paper or a picture of an inventory table into processes of a database: every level of the chain the document gives, each input linked to a supplier, the document named as the source. Use when given a PDF, a paper or an image holding an inventory (inputs and outputs with their amounts) to write into the database."
+            , sourceText =
+                T.unlines
+                    [ "# Processes from a document"
+                    , ""
+                    , "Run every step before you answer. Every amount comes from the document, or from a computation or a general fact you name: never from memory of another study, nor from the web."
+                    , ""
+                    , "1. Read the whole document. List each inventory it gives: the product, the amount the lines are stated for, the table and the page. An inventory lists inputs and outputs with their amounts. Impact results (kg CO2-eq, points, MJ eq) and a list of the datasets used are not an inventory."
+                    , "   - No inventory with amounts: say so, say what the document holds instead, and stop. Never work a recipe back from impact results."
+                    , "   - Inventories of several products that do not feed one another: take the one the person named; otherwise list them and ask which."
+                    , "   - When the document also gives the inventory of an input of the product (the pulp of a fibre, the wood chips of that pulp), that input is a process of its own, at every level the document describes. Write them from upstream to downstream, each with steps 2 to 7: each process takes the one before it by the process_id it got. Never put a proxy where the document gives the inventory."
+                    , "2. Write each recipe as a table: one row per input and per output, with the name as the document writes it, the amount, the unit, and where the number comes from: \"document, table 2, page 9\", \"computed: <formula>\" or \"general knowledge: <fact>\" (a density, a heating value). Add up the rows the document gives twice for one input (the same input at two stages), and keep each stage in the source. Keep the document's reference amount and unit for the product (1 t, 1 kg, 1000 m2)."
+                    , "3. The database to write into is the one the person names, when it takes writing. When they name none, or the engine refuses to write it because it is shared background data, create one with `create_database`: `new_name` after the study (\"lyocell-smith-2024\"), `depends` the database that holds the suppliers, the one the person names or the one `list_databases` shows whose region and sector fit. When the name is taken, choose another. When the engine refuses for a quota or because the instance is read-only, give the recipes, say why nothing was written, and stop. A database of your own that `list_databases` shows not loaded: `load_database` it first."
+                    , "4. Inputs: find each supplier with `search_activities` in the database of the suppliers (a database you created holds none, except the processes you wrote at step 1), with English words of the product. Read the candidates: prefer the document's location, then a regional or global one. When none is the input, search again with a shorter word, its chemical family or a near substance (a solvent's base molecule), then with a generic product of its kind (\"chemicals organic\", \"chemicals inorganic\"); take the closest one and write \"proxy: <why>\" in the line's comment. Every input the document gives an amount for gets a supplier, a proxy when nothing closer exists: a line left out weighs zero, which is further from the truth than a proxy."
+                    , "   Give each amount in the unit of its supplier's product. Prefer a supplier stated in the document's unit (energy in MJ: a heat process; in kWh: electricity). Otherwise convert, and write the conversion in the line's comment: \"document: 7.2 MJ; 1 kWh = 3.6 MJ\"."
+                    , "5. Outputs: the product is the reference product. Wastewater and solid waste go in `waste_outputs`, to the treatment process `search_activities` finds. Emissions to air, water or soil the document gives go in `biosphere`, by name, compartment and unit; find the database's name for each with `search_flows` in the database of the suppliers."
+                    , "6. Write the process with `create_activities`:"
+                    , "   - `name`: the product and its route, with the document's author and year, e.g. \"Glass bottle, production (Smith 2024)\";"
+                    , "   - `location`: the one the document gives; GLO when it gives none, and say so;"
+                    , "   - `product_name`, `product_amount`, `product_unit`: the document's reference amount, e.g. 1 and \"t\";"
+                    , "   - `description`, one string per paragraph. The first one names the document: \"Source: <title>, <authors>, <year>, file <file name>\". Then its reference amount, and what it leaves out;"
+                    , "   - `inputs` and `waste_outputs`: {provider, amount, unit, comment}, provider being the supplier's process_id;"
+                    , "   - each line's `comment`: its source from step 2, the conversion from step 4, and \"proxy: ...\" when it is one;"
+                    , "   - a line the document names without an amount: leave `amount` out, and the person types it."
+                    , "   When the call refuses a unit, write the amount in the supplier's unit, convert it, and put the conversion in the comment."
+                    , "7. Check with `get_activity` on the new process_id that every input has a supplier. Fix one that has none with `edit_exchanges`."
+                    , "8. " <> chooseTheCollection <> " Score the last process of the chain, the document's product, with `score_activity`, with `top_flows: 0`. Take the total climate change impact category."
+                    , "9. Answer with:"
+                    , "   - the database written into, and whether you created it;"
+                    , "   - each process's name, its process_id and the `web_url` link;"
+                    , "   - each recipe table, with the supplier taken for each line;"
+                    , "   - each proxy, each line left out, and why;"
+                    , "   - what the document does not say: location, year, allocation, transport;"
+                    , "   - the climate change total, for the document's reference amount."
+                    ]
             }
 
 {- | The first two steps of every skill that scores a product, written once:
