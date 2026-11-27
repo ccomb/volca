@@ -55,7 +55,7 @@ spec = describe "the functional unit of a computed answer" $ do
     it "is one kilogram of product D on every REST answer" $ do
         let collection = CollectionName collectionName
         single <- runOk (getActivityLCIA "sample" productD collection methodIdText Nothing)
-        panel <- runOk (getActivityLCIABatch "sample" productD collection Nothing Nothing)
+        panel <- runOk (getActivityLCIABatch "sample" productD collection Nothing Nothing Nothing)
         batch <- runOk (postImpactsBatch "sample" collection Nothing Nothing (BatchImpactsRequest [productD] []))
         flows <- runOk (getContributingFlows "sample" productD collection methodIdText Nothing Nothing Nothing Nothing)
         activities <- runOk (getContributingActivities "sample" productD collection methodIdText Nothing Nothing Nothing)
