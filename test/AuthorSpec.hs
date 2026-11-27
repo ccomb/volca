@@ -42,6 +42,7 @@ import Database.Author (
     lineSelector,
     nameChosen,
     validateAuthored,
+    withStatedUnits,
  )
 import Database.Rebuild (deleteActivities, insertActivities, replaceActivities)
 import EcoSpold.Writer2 (checkEcoSpold2Exportable)
@@ -212,6 +213,23 @@ spec = do
                             activityUnit (riActivity r) `shouldBe` "kg"
                             prProduct (riKey r) `shouldBe` authoredProductUUID "cheese" "kg"
                         Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
+
+            -- The fixture records kilograms, not tonnes; the unit table knows
+            -- both, so the tonne is a row the write brings, not a refusal.
+            it "takes a product unit the table knows and the database does not record" $
+                withTonnes $ \cfg ->
+                    case validateAuthored (contextOf fixtureDb){acUnitConfig = cfg} [baseActivity{aaProductUnit = "t"}] of
+                        Left errs -> expectationFailure ("expected acceptance, got " <> show errs)
+                        Right ([r], _) -> do
+                            activityUnit (riActivity r) `shouldBe` "t"
+                            prProduct (riKey r) `shouldBe` authoredProductUUID "cheese" "t"
+                        Right (rs, _) -> expectationFailure ("expected one insert, got " <> show (length rs))
+
+            it "adds one row for a unit stated under several spellings, and none for one it records" $
+                withTonnes $ \cfg -> do
+                    let ctx = (contextOf fixtureDb){acUnitConfig = cfg}
+                        added = M.difference (dbUnits (acDb (withStatedUnits ["t", "tonne", "Mg", "kg", "furlong"] ctx))) (dbUnits fixtureDb)
+                    map unitName (M.elems added) `shouldBe` ["t"]
 
             it "names the units a spelling could be when the database records two of them" $
                 withSpellings $ \cfg -> do
@@ -836,6 +854,14 @@ withSpellings check =
         (expectationFailure . T.unpack)
         check
         (buildFromCSV "name,dimension,factor\nkg,mass,1.0\nkilogram,mass,1.0\nkilo,mass,1.0\n")
+
+-- | A unit table holding the kilogram and three spellings of the tonne, each a row of its own.
+withTonnes :: (UnitConfig -> Expectation) -> Expectation
+withTonnes check =
+    either
+        (expectationFailure . T.unpack)
+        check
+        (buildFromCSV "name,dimension,factor\nkg,mass,1.0\nt,mass,1000\ntonne,mass,1000\nMg,mass,1000\n")
 
 -- | The same database with no activities, used to prove a dependency link resolves.
 emptyOf :: Database -> Database
