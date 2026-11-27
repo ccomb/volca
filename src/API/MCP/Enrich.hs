@@ -288,8 +288,8 @@ validateRequested configured requested =
                     <> T.intercalate ", " configured
                 )
 
-{- | Filter the three scoring maps to keys in 'requested'. Validation has
-already run in the caller.
+{- | Filter every map keyed by scoring set to keys in 'requested'. Validation
+has already run in the caller.
 -}
 restrictScoringSets :: [Text] -> Value -> Value
 restrictScoringSets requested =

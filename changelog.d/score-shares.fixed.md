@@ -1,1 +1,1 @@
-- `score_activity` with `scoring_sets` kept the per-line rows of every set; it now keeps only those of the sets asked for.
+- `score_activity` with `scoring_sets` kept, in `scoringRows`, the rows of every scoring set; it now keeps only those of the sets asked for.
