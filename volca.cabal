@@ -373,6 +373,7 @@ test-suite lca-tests
                      , ChainConsumersSpec
                      , SwapLinksSpec
                      , MethodResolveSpec
+                     , DefaultCollectionSpec
                      , ChemSynonymsSpec
                      , SubstanceRegistrySpec
                      , SynonymDBSpec

@@ -66,7 +66,7 @@ import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPagePath, groupsQuery, impactsPath, overObject, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
-import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), PanelAsk (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, rawScoreMapByName, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
+import API.Routes (CollectionAsk (..), GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), PanelAsk (..), chooseCollection, collectionNotLoadedMessage, defaultMissing, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, rawScoreMapByName, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
 import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteRequest (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), AmountList (..), ClassificationSystem (..), ExchangeContribution (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), LCIAResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, setAmountLines, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
@@ -2623,7 +2623,7 @@ per the naming audit; internal Haskell types keep the 'LCIA' acronym
 callGetImpacts :: DatabaseManager -> Maybe Text -> Licence -> RequestId -> KeyMap Value -> IO Value
 callGetImpacts dbManager mBaseUrl licence rid args =
     runTool rid $ do
-        req <- loadLcaRequest dbManager args
+        req <- loadLcaRequest dbManager TakeTheDefault args
         ir <- runImpactsRequest dbManager args req
         (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
         let topN = fromMaybe 5 (intArg "top_flows" args)
@@ -2683,7 +2683,7 @@ the databases its chain reaches, checked as the REST sensitivity checks it.
 callComputeSensitivity :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callComputeSensitivity dbManager mBaseUrl rid args =
     runTool rid $ do
-        req <- loadLcaRequest dbManager args
+        req <- loadLcaRequest dbManager TakeTheDefault args
         let ld = lrLoaded req
             db = ldDatabase ld
             method = lrMethod req
@@ -2818,8 +2818,8 @@ callCompareImpacts dbManager rid args =
     runTool rid $ do
         argsA <- except $ subArgs "_a" args
         argsB <- except $ subArgs "_b" args
-        reqA <- loadLcaRequest dbManager argsA
-        reqB <- loadLcaRequest dbManager argsB
+        reqA <- loadLcaRequest dbManager TakeTheDefault argsA
+        reqB <- loadLcaRequest dbManager TakeTheDefault argsB
         irA <- runImpactsRequest dbManager argsA reqA
         irB <- runImpactsRequest dbManager argsB reqB
         (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
@@ -3237,7 +3237,7 @@ callGetFlowMapping :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetFlowMapping dbManager rid args = runTool rid $ do
     (dbName, methodIdText, mCol) <- except $ (,,) <$> requireText "database" args <*> requireText "method_id" args <*> optionalText "collection" args
     ld <- requireDatabase dbManager dbName
-    (collection, method) <- ExceptT (resolveMethod dbManager mCol methodIdText)
+    (collection, method) <- ExceptT (resolveMethod dbManager (maybe (Unnamed Nothing) Named mCol) methodIdText)
     let db = ldDatabase ld
     mappings <- liftIO $ DM.mapMethodToFlowsCached dbManager dbName collection db method
     let stats = computeMappingStats mappings
@@ -3369,7 +3369,7 @@ callExplainCF dbManager mBaseUrl rid args = runTool rid $ do
     (dbName, methodIdText, mCol) <- except $ (,,) <$> requireText "database" args <*> requireText "method_id" args <*> optionalText "collection" args
     flowIdText <- except (requireText "flow_id" args)
     ld <- requireDatabase dbManager dbName
-    (collection, method) <- ExceptT (resolveMethod dbManager mCol methodIdText)
+    (collection, method) <- ExceptT (resolveMethod dbManager (maybe (Unnamed Nothing) Named mCol) methodIdText)
     fid <- except $ maybe (Left ("Malformed flow id: " <> flowIdText)) Right (UUID.fromText (T.strip flowIdText))
     let db = ldDatabase ld
     (flow, explanation) <- ExceptT (DM.explainFlowFactor dbManager dbName collection db method fid)
@@ -3403,7 +3403,7 @@ callGetCharacterization :: DatabaseManager -> RequestId -> KeyMap Value -> IO Va
 callGetCharacterization dbManager rid args = runTool rid $ do
     (dbName, methodIdText, mCol) <- except $ (,,) <$> requireText "database" args <*> requireText "method_id" args <*> optionalText "collection" args
     ld <- requireDatabase dbManager dbName
-    (collection, method) <- ExceptT (resolveMethod dbManager mCol methodIdText)
+    (collection, method) <- ExceptT (resolveMethod dbManager (maybe (Unnamed Nothing) Named mCol) methodIdText)
     let db = ldDatabase ld
         lim = fromMaybe 20 (intArg "limit" args)
         flowQ = textArg "flow" args
@@ -3503,16 +3503,47 @@ mkMcpCrossDBEntry dbManager rootDbName mBaseUrl view unitDB score Ranked{rkRow =
             ]
                 ++ webUrlPair
 
-{- | Resolve a method UUID (raw text) to its collection name and 'Method',
-optionally pinned to a collection. Thin IO edge over 'selectMethod'.
+{- | Resolve a method UUID (raw text) to its collection name and 'Method', in
+the collection asked. Thin IO edge over 'selectMethod'.
 -}
-resolveMethod :: DatabaseManager -> Maybe Text -> Text -> IO (Either Text (DM.CollectionName, Method))
-resolveMethod dbManager mCollection methodIdText =
+resolveMethod :: DatabaseManager -> CollectionAsk -> Text -> IO (Either Text (DM.CollectionName, Method))
+resolveMethod dbManager ask methodIdText =
     case UUID.fromText methodIdText of
         Nothing -> return $ Left "Invalid impact category UUID format"
         Just uuid ->
-            bimap methodRefusalMessage (first DM.CollectionName) . selectMethod mCollection uuid
+            bimap methodRefusalMessage (first DM.CollectionName) . selectMethod ask uuid
                 <$> DM.getLoadedMethods dbManager
+
+{- | What a tool does when the call names no method collection and several
+could serve. Only a tool whose answer names the collection it scored with
+(its @basis@) takes the instance's default: the others refuse, listing them.
+-}
+data WhenUnnamed = TakeTheDefault | RefuseTheChoice
+
+-- | The collection a call asks for, from its optional @collection@ argument.
+collectionAsk :: DatabaseManager -> WhenUnnamed -> Maybe Text -> IO CollectionAsk
+collectionAsk dbManager whenUnnamed = \case
+    Just c -> pure (Named c)
+    Nothing -> case whenUnnamed of
+        TakeTheDefault -> Unnamed <$> DM.defaultMethodCollection dbManager
+        RefuseTheChoice -> pure (Unnamed Nothing)
+
+{- | The method collection a scoring tool uses: the one the call names, else
+the only one loaded, else the instance's default. Refuses, naming the loaded
+ones, when none of those holds. Every caller's answer carries @basis@, which
+names the collection.
+-}
+scoringCollection :: DatabaseManager -> KeyMap Value -> ExceptT Text IO Text
+scoringCollection dbManager args = do
+    mCol <- except (optionalText "collection" args)
+    ask <- liftIO (collectionAsk dbManager TakeTheDefault mCol)
+    loaded <- liftIO (M.keys <$> readTVarIO (dmLoadedMethods dbManager))
+    case (ask, chooseCollection ask loaded) of
+        (_, Just c) -> pure c
+        (Named c, Nothing) -> throwE (collectionNotLoadedMessage c loaded)
+        (Unnamed _, Nothing) | null loaded -> throwE "No method collection is loaded."
+        (Unnamed _, Nothing) ->
+            throwE ("Several method collections are loaded (" <> T.intercalate ", " loaded <> "): pass 'collection' to pick one." <> defaultMissing ask loaded)
 
 {- | Raw text + its parsed 'ProcessId' + the looked-up 'Activity' + the
 functional unit derived from that activity. Bundled so the four (which must
@@ -3546,8 +3577,8 @@ data LcaRequest = LcaRequest
 Short-circuits on the first failure (missing arg, unknown DB, bad UUID,
 unknown method, unresolvable process id).
 -}
-loadLcaRequest :: DatabaseManager -> KeyMap Value -> ExceptT Text IO LcaRequest
-loadLcaRequest dbManager args = do
+loadLcaRequest :: DatabaseManager -> WhenUnnamed -> KeyMap Value -> ExceptT Text IO LcaRequest
+loadLcaRequest dbManager whenUnnamed args = do
     (dbName, pidText, methodIdText, mCol) <-
         except $
             (,,,)
@@ -3556,7 +3587,8 @@ loadLcaRequest dbManager args = do
                 <*> requireText "method_id" args
                 <*> optionalText "collection" args
     ld <- requireDatabase dbManager dbName
-    (col, method) <- ExceptT (resolveMethod dbManager mCol methodIdText)
+    ask <- liftIO (collectionAsk dbManager whenUnnamed mCol)
+    (col, method) <- ExceptT (resolveMethod dbManager ask methodIdText)
     (pid, act) <- liftService (Service.resolveScorable (ldDatabase ld) pidText)
     let functionalUnit = Service.functionalUnitIn (ldDatabase ld) act
     pure
@@ -3572,7 +3604,7 @@ loadLcaRequest dbManager args = do
 callGetContributingFlows :: DatabaseManager -> Maybe Text -> Licence -> RequestId -> KeyMap Value -> IO Value
 callGetContributingFlows dbManager mBaseUrl licence rid args =
     runTool rid $ do
-        req <- loadLcaRequest dbManager args
+        req <- loadLcaRequest dbManager TakeTheDefault args
         cut <- except (contributionsCut 20 args)
         grouped <- except (optionalBool "by_substance" args)
         ir <- runImpactsRequest dbManager args req
@@ -3650,7 +3682,7 @@ substanceRow score Ranked{rkRow = s, rkAbsolutePercent = absolute, rkCumulativeP
 callGetContributingActivities :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetContributingActivities dbManager mBaseUrl rid args =
     runTool rid $ do
-        req <- loadLcaRequest dbManager args
+        req <- loadLcaRequest dbManager TakeTheDefault args
         let ld = lrLoaded req
             db = ldDatabase ld
             method = lrMethod req
@@ -3738,7 +3770,7 @@ callGetGroupContributions dbManager mBaseUrl rid args =
 callGetGroupMembers :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetGroupMembers dbManager mBaseUrl rid args =
     runTool rid $ do
-        req <- loadLcaRequest dbManager args
+        req <- loadLcaRequest dbManager RefuseTheChoice args
         (attribution, specs) <- except (groupsArgs args)
         let lim = fromMaybe 10 (intArg "limit" args)
         result <- liftIO (groupMembersOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
@@ -3748,7 +3780,7 @@ callGetGroupMembers dbManager mBaseUrl rid args =
 callGetGroupFlows :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetGroupFlows dbManager mBaseUrl rid args =
     runTool rid $ do
-        req <- loadLcaRequest dbManager args
+        req <- loadLcaRequest dbManager RefuseTheChoice args
         (attribution, specs) <- except (groupsArgs args)
         let request = GroupMembersRequest attribution specs (textArg "group" args) (Just (fromMaybe 20 (intArg "limit" args)))
             link = (<> groupPagePath req attribution specs) <$> groupsPageBase mBaseUrl args
@@ -3770,7 +3802,7 @@ groupsPageBase mBaseUrl args
 callGetGroupCandidates :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callGetGroupCandidates dbManager rid args =
     runTool rid $ do
-        req <- loadLcaRequest dbManager args
+        req <- loadLcaRequest dbManager RefuseTheChoice args
         (attribution, specs) <- except (groupsArgs args)
         result <- liftIO (groupCandidatesOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupCandidatesRequest attribution specs (textArg "candidate" args) (textArg "candidate_flow" args)))
         either (throwE . groupFailureText) (pure . toolSuccessJson rid . toJSON) result
@@ -3804,13 +3836,13 @@ data ContributionTab = ByFlow | ByActivity
 
 loadScoreRequest :: DatabaseManager -> KeyMap Value -> ExceptT Text IO ScoreRequest
 loadScoreRequest dbManager args = do
-    (dbName, pidText, collName, ref) <-
+    (dbName, pidText, ref) <-
         except $
-            (,,,)
+            (,,)
                 <$> requireText "database" args
                 <*> requireText "process_id" args
-                <*> requireText "collection" args
                 <*> (ScoreRef <$> requireText "scoring_set" args <*> requireText "score" args)
+    collName <- scoringCollection dbManager args
     ld <- requireDatabase dbManager dbName
     mc <- requireCollection dbManager collName
     rs <- except (first Score.refusalMessage (Score.resolveScore (mcMethods mc) (mcScoringSets mc) ref))
@@ -3996,7 +4028,7 @@ callScoreActivity dbManager mHosting mBaseUrl rid args =
     runTool rid $ do
         dbName <- except (requireText "database" args)
         pidText <- except (requireText "process_id" args)
-        coll <- except (requireText "collection" args)
+        coll <- scoringCollection dbManager args
         subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
         values <- except (parseArrayArg "parameters" Nothing args :: Either Text [ParameterValue])
         wantedSets <- except (parseArrayArg "scoring_sets" Nothing args :: Either Text [Text])
@@ -4117,7 +4149,7 @@ callScoreActivities :: DatabaseManager -> Maybe HostingConfig -> Maybe Text -> R
 callScoreActivities dbManager mHosting mBaseUrl rid args =
     runTool rid $ do
         dbName <- except (requireText "database" args)
-        coll <- except (requireText "collection" args)
+        coll <- scoringCollection dbManager args
         pids <- except (parseArrayArg "process_ids" (Just "'process_ids' required (array of strings)") args :: Either Text [Text])
         wantedSets <- except (parseArrayArg "scoring_sets" Nothing args :: Either Text [Text])
         parameterSets <- except (parseArrayArg "parameter_sets" Nothing args :: Either Text [[ParameterValue]])
