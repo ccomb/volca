@@ -4,4 +4,5 @@
   document gives, from upstream to downstream, links each input to a
   supplier (a named proxy when none is closer), names the document as the
   source in each process's description, and creates an empty database of
-  one's own to write into when none takes writing.
+  one's own to write into when the person names none, or names one that
+  takes no writing.
