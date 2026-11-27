@@ -338,6 +338,10 @@ loadDerived manager slug srcConfig derivation = do
         Left err -> pure (Left err)
         Right derivedConfig -> do
             atomically $ modifyTVar' (dmAvailableDbs manager) (M.insert slug derivedConfig)
+            -- It links where its source does, after a restart too: a source
+            -- left with no dependency on its setup page leaves it none.
+            recordDependencies manager slug (dcDepends derivedConfig)
+                >>= either (reportProgress Warning . T.unpack . ("the dependencies of " <>) . (slug <>) . (" hold until the restart only: " <>)) pure
             loadDatabase manager slug >>= \case
                 Left err -> Left err <$ discardDerived manager slug
                 Right (loaded, deps) -> do

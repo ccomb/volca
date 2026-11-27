@@ -40,7 +40,7 @@ import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 
-import Config (DatabaseConfig (..), Dependencies (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), DependencyOrigin (..), defaultConfig)
 import Data.Foldable (toList)
 import Database.Author (ExchangeEdit (..))
 import Database.Child (childOf)
@@ -58,6 +58,7 @@ import Database.Manager (
     initDatabaseManager,
     loadDatabase,
     processTraced,
+    recordDependencies,
     unloadDatabase,
  )
 import Database.SystemModel (Traced (..), parseSystemModel, takenProcesses, traceOf, tracedRule)
@@ -152,6 +153,14 @@ spec = around_ withScratchDataDir $ describe "Database.Edit.deriveDatabase" $ do
             fmap dcReading (M.lookup "cheese-wet" available) `shouldBe` Just (ByModel (modelDividingBy WetMass))
             fmap dcSource (M.lookup "cheese-wet" available) `shouldBe` Just (Just parentName)
             loadedDb rebooted "cheese-wet" >>= (`shouldSatisfy` near [2.5, 7.5]) . milkAmounts
+
+    it "keeps its source's choice of no dependency after a restart" $
+        withSource coproductCSV $ \manager -> do
+            recordDependencies manager source (Settled Clicked []) `shouldReturn` Right ()
+            _ <- either (fail . show) pure =<< deriveDatabase manager source parentName AsParent
+            rebooted <- initDatabaseManager defaultConfig NoCache
+            available <- readTVarIO (dmAvailableDbs rebooted)
+            fmap dcDepends (M.lookup parentName available) `shouldBe` Just (Settled Clicked [])
 
     describe "a child of a parent" $ do
         it "divides the parent's blocks by the prices their declared shares became" $

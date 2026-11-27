@@ -4,15 +4,19 @@
 {- | The dependencies the engine keeps for a database, apart from what its
 configuration says: those clicked on its setup page, and those it found by
 linking against the databases loaded beside it. They live in one file of the
-data directory, written whole from memory at every change, so the file is
-never more than a picture of what the engine holds.
+data directory, written whole at every change: the entries of the databases
+the engine holds from memory, those of any other database as they were, since
+an engine started on another configuration from the same directory may hold
+it.
 -}
 module Database.DependencyChoices (
     Kept (..),
     Keeper (..),
     keptOf,
     settleWith,
+    standingKept,
     overriddenDeclarations,
+    keptAfter,
     renderKept,
     decodeKept,
     choicesFile,
@@ -24,12 +28,13 @@ import Control.Exception (IOException, try)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe (mapMaybe)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)
 import System.FilePath ((</>))
-import TOML (DecodeTOML (..), Decoder, getArrayOf, getField, getFieldWith)
+import TOML (DecodeTOML (..), Decoder, getArrayOf, getFieldWith)
 import qualified TOML
 
 import Config (DatabaseConfig (..), Dependencies (..), DependencyOrigin (..))
@@ -73,14 +78,64 @@ settleWith kept config = config{dcDepends = settled (M.lookup (dcName config) ke
     settled (Just (Kept ByLinking names)) Unsettled = Settled Found names
     settled Nothing Unsettled = Unsettled
 
--- | One sentence per database whose configured dependencies a click replaces.
+{- | The entries a start can stand on, and one sentence for each left out or
+naming a database the engine does not hold. An entry that would close a loop
+through the dependencies the configuration declares, or through the entries
+taken before it, is left out: the start could load none of the databases. An
+entry naming a database unknown here stays, said, as it may come back.
+-}
+standingKept :: Map Text Kept -> [DatabaseConfig] -> (Map Text Kept, [String])
+standingKept kept configs = (standing, map unknown (M.toList (M.filter (any (`S.notMember` known) . keptDepends) standing)) <> looping)
+  where
+    known :: S.Set Text
+    known = S.fromList (map dcName configs)
+
+    declared :: Map Text [Text]
+    declared = M.fromList [(dcName c, names) | c <- configs, Settled Configured names <- [dcDepends c]]
+
+    held :: Map Text Kept
+    held = M.restrictKeys kept known
+
+    (standing, looping) = M.foldrWithKey admit (M.empty, []) held
+
+    admit :: Text -> Kept -> (Map Text Kept, [String]) -> (Map Text Kept, [String])
+    admit name entry (taken, said)
+        | any (reaches (dependenciesWith taken) name) (keptDepends entry) =
+            (taken, (T.unpack name <> " keeps " <> listed (keptDepends entry) <> " in dependencies.toml, which would close a loop; it is left out") : said)
+        | otherwise = (M.insert name entry taken, said)
+
+    -- The dependencies of a database once these entries are taken, a click over the configuration.
+    dependenciesWith :: Map Text Kept -> Text -> [Text]
+    dependenciesWith taken name = case (M.lookup name taken, M.lookup name declared) of
+        (Just (Kept ByClick names), _) -> names
+        (_, Just names) -> names
+        (Just (Kept ByLinking names), Nothing) -> names
+        (Nothing, Nothing) -> []
+
+    reaches :: (Text -> [Text]) -> Text -> Text -> Bool
+    reaches dependenciesOf target = go S.empty
+      where
+        go :: S.Set Text -> Text -> Bool
+        go seen name
+            | name == target = True
+            | S.member name seen = False
+            | otherwise = any (go (S.insert name seen)) (dependenciesOf name)
+
+    unknown :: (Text, Kept) -> String
+    unknown (name, entry) =
+        T.unpack name
+            <> " keeps "
+            <> listed (filter (`S.notMember` known) (keptDepends entry))
+            <> " in dependencies.toml, which no database here is named: it does not link there until its setup page changes"
+
+-- | One sentence per configured database whose dependencies a click replaces.
 overriddenDeclarations :: Map Text Kept -> [DatabaseConfig] -> [String]
 overriddenDeclarations kept = mapMaybe overridden
   where
     overridden :: DatabaseConfig -> Maybe String
     overridden config = case (dcDepends config, M.lookup (dcName config) kept) of
         (Settled Configured declared, Just (Kept ByClick clicked))
-            | declared /= clicked ->
+            | not (dcIsUploaded config) && S.fromList declared /= S.fromList clicked ->
                 Just $
                     T.unpack (dcName config)
                         <> " links to "
@@ -90,18 +145,27 @@ overriddenDeclarations kept = mapMaybe overridden
                         <> " its configuration names"
         _ -> Nothing
 
-    listed :: [Text] -> String
-    listed [] = "nothing"
-    listed names = T.unpack (T.intercalate ", " names)
+listed :: [Text] -> String
+listed [] = "nothing"
+listed names = T.unpack (T.intercalate ", " names)
 
--- | The file, as the engine writes it from the databases it holds.
-renderKept :: [DatabaseConfig] -> Text
-renderKept configs =
+{- | The entries after a change: those of the databases the engine holds,
+from memory; those of any other database as they were, but the ones forgotten.
+-}
+keptAfter :: [Text] -> [DatabaseConfig] -> Map Text Kept -> Map Text Kept
+keptAfter forgotten configs before =
+    M.union
+        (M.fromList [(dcName c, k) | c <- configs, Just k <- [keptOf c]])
+        (M.withoutKeys before (S.fromList (forgotten <> map dcName configs)))
+
+-- | The file holding these entries.
+renderKept :: Map Text Kept -> Text
+renderKept kept =
     T.unlines $
         [ "# Written by the engine at every change: the dependencies chosen on a"
         , "# database's setup page (clicked), or found by linking (found)."
         ]
-            <> concat [entry (dcName c) k | c <- configs, Just k <- [keptOf c]]
+            <> concatMap (uncurry entry) (M.toList kept)
   where
     entry :: Text -> Kept -> [Text]
     entry name (Kept by names) =
@@ -142,15 +206,20 @@ readKept = do
         then pure (Right M.empty)
         else either (\e -> Left (T.pack (path <> ": " <> show (e :: IOException)))) (either (Left . ((T.pack path <> ": ") <>)) Right . decodeKept) <$> try (TIO.readFile path)
 
-{- | Write the file whole, from the databases the engine holds. Written beside
-and then renamed, so a reader never meets half of it.
+{- | Write the file again after a change ('keptAfter'). Written beside and then
+renamed, so a reader never meets half of it. A file that does not read is
+left as it is, and the change refused, rather than written over with the
+entries it holds lost.
 -}
-writeKept :: [DatabaseConfig] -> IO (Either Text ())
-writeKept configs = do
+writeKept :: [Text] -> [DatabaseConfig] -> IO (Either Text ())
+writeKept forgotten configs = do
     path <- choicesFile
     dir <- getDataDir
-    result <- try $ do
-        createDirectoryIfMissing True dir
-        TIO.writeFile (path <> ".tmp") (renderKept configs)
-        renameFile (path <> ".tmp") path
-    pure $ either (\e -> Left (T.pack (path <> ": " <> show (e :: IOException)))) Right result
+    readKept >>= \case
+        Left err -> pure (Left err)
+        Right before -> do
+            result <- try $ do
+                createDirectoryIfMissing True dir
+                TIO.writeFile (path <> ".tmp") (renderKept (keptAfter forgotten configs before))
+                renameFile (path <> ".tmp") path
+            pure $ either (\e -> Left (T.pack (path <> ": " <> show (e :: IOException)))) Right result

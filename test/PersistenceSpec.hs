@@ -376,6 +376,38 @@ spec = describe "persisting an edit" $ do
                 forM_ ["barley-farm", "oat-farm", "bakery"] (mustLoad manager)
                 suppliersOf manager "bakery" `shouldReturn` Set.singleton "barley-farm"
 
+        it "are linked again at start, when the dependency has come to supply what its cache left unresolved" $
+            withDataDir $ \dataRoot -> do
+                let config =
+                        defaultConfig
+                            { cfgDatabases =
+                                [ configuredAt dataRoot "granary" Unsettled
+                                , configuredAt dataRoot "bakery" (declaredDepends ["granary"])
+                                ]
+                            }
+                    granaryDir = dataRoot </> "configured" </> "granary"
+                writeDatasets granaryDir [datasetBuying 1 "oats" "kg" []]
+                writeDatasets (dataRoot </> "configured" </> "bakery") [datasetBuying 1 "bread" "kg" [("barley, output", 2)]]
+                -- The second start leaves its cache standing on the granary, with the barley unresolved.
+                forM_ [(), ()] $ \() -> do
+                    manager <- initDatabaseManager config UseCache
+                    suppliersOf manager "bakery" `shouldReturn` Set.empty
+                writeDatasets granaryDir [datasetBuying 1 "barley" "kg" []]
+                let granaryCache = matrixCacheFile "granary" granaryDir
+                doesFileExist granaryCache >>= (`when` removeFile granaryCache)
+                restarted <- initDatabaseManager config UseCache
+                suppliersOf restarted "bakery" `shouldReturn` Set.singleton "granary"
+
+        it "are shown on its setup page after a restart, loaded and selected, when it has no cache yet" $
+            withGranaryAndBakery $ \_ manager -> do
+                (void <$> getDatabaseSetupInfo manager "bakery") `shouldReturn` Right ()
+                mustLoad manager "granary"
+                (void <$> addDependencyToStaged manager (DependencyEdit "bakery" "granary")) `shouldReturn` Right ()
+                restarted <- initDatabaseManager defaultConfig UseCache
+                info <- getDatabaseSetupInfo restarted "bakery"
+                M.member "granary" <$> readTVarIO (dmLoadedDbs restarted) `shouldReturn` True
+                fmap dsiCrossDBLinks info `shouldBe` Right 1
+
         it "load at start, when a configured database was given an upload on its setup page" $
             withDataDir $ \dataRoot -> do
                 writeUpload dataRoot "granary" [] [datasetBuying 1 "barley" "kg" []]

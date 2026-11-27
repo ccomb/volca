@@ -386,7 +386,7 @@ import Data.Containers.ListUtils (nubOrd)
 import Data.JournalFile (Entry (..), readEntries)
 import Database.Author (editingContext)
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
-import Database.DependencyChoices (overriddenDeclarations, readKept, settleWith, writeKept)
+import Database.DependencyChoices (overriddenDeclarations, readKept, settleWith, standingKept, writeKept)
 import Database.History (Carried (..))
 import qualified Database.Journal as Journal
 import Database.RelinkMapping (SupplierMapping (..), mappingAliases, readSupplierMapping)
@@ -1607,8 +1607,9 @@ discoverDatabases config = do
     uploaded <- discoverUploadedDatabases
     let combined = withSourcePatches (configured ++ uploaded)
     mapM_ (reportProgress Warning) (shadowedNames "database" dcName dcPath combined)
-    kept <- readKept >>= either (\err -> M.empty <$ reportProgress Warning ("The dependencies the engine keeps do not read, so none is kept until the next change writes them again: " <> T.unpack err)) pure
-    mapM_ (reportProgress Warning) (overriddenDeclarations kept combined)
+    onDisk <- readKept >>= either (\err -> M.empty <$ reportProgress Warning ("The dependencies the engine keeps do not read, so none is kept, and no change is written to them, until the file reads again: " <> T.unpack err)) pure
+    let (kept, unsound) = standingKept onDisk combined
+    mapM_ (reportProgress Warning) (unsound <> overriddenDeclarations kept combined)
     return (map (settleWith kept) combined)
 
 -- | Configured method collections plus the uploaded ones.
@@ -1978,19 +1979,21 @@ data LoadLevel = LoadLevel
     , llOtherIndexes :: ![IndexedDatabase]
     }
 
-{- | Whether a database read from its cache links otherwise than its cache
-says: on dependencies settled since it was written, or, settled on none, with
-inputs still unresolved and a database loaded it may now link to.
+{- | Whether a database read from its cache may link otherwise than its cache
+says: on dependencies settled since it was written, or with inputs still
+unresolved while a database it links to is loaded, which may have come to
+supply them since (it failed to load then, or its files were replaced).
 -}
 cacheBehind :: Map Text DatabaseConfig -> [IndexedDatabase] -> [Text] -> LoadedDatabase -> Bool
 cacheBehind configs indexes pinRead loaded =
     not (sameSet pinRead (dbDependsOn db))
-        || ( dcDepends config == Unsettled
-                && unresolvedCount (dbLinkingStats db) > 0
+        || ( unresolvedCount (dbLinkingStats db) > 0
                 && any (\idb -> idbName idb /= dcName config && linksTo configs config (idbName idb)) indexes
            )
   where
+    db :: Database
     db = ldDatabase loaded
+    config :: DatabaseConfig
     config = fromMaybe (ldConfig loaded) (M.lookup (dcName (ldConfig loaded)) configs)
 
 {- | Load a single database with per-database timing, then register it. It
@@ -2164,7 +2167,7 @@ together.
 recordDependencies :: DatabaseManager -> Text -> Dependencies -> IO (Either Text ())
 recordDependencies manager dbName deps = withMVar (dmDependencyLock manager) $ \() -> do
     configs <- readTVarIO (dmAvailableDbs manager)
-    written <- writeKept (M.elems (M.adjust (settledOn deps) dbName configs))
+    written <- writeKept [] (M.elems (M.adjust (settledOn deps) dbName configs))
     forM_ written $ \() -> atomically (settleEverywhere manager dbName deps)
     pure written
 
@@ -2182,7 +2185,7 @@ recordFound manager dbName found = withMVar (dmDependencyLock manager) $ \() -> 
     case (dcDepends <$> M.lookup dbName configs, loops) of
         (Just Unsettled, []) -> do
             let deps = Settled Found found
-            writeKept (M.elems (M.adjust (settledOn deps) dbName configs)) >>= either (reportProgress Warning . T.unpack . notKept) pure
+            writeKept [] (M.elems (M.adjust (settledOn deps) dbName configs)) >>= either (reportProgress Warning . T.unpack . notKept) pure
             atomically (settleEverywhere manager dbName deps)
         (Just Unsettled, loop : _) -> reportProgress Warning $ "The dependencies linking found for " <> T.unpack dbName <> " are not kept: " <> T.unpack loop
         _ -> pure ()
@@ -3827,7 +3830,8 @@ relinkWithin manager dbName indexes persistedDeps reach = withLogScope dbName $ 
             pinnedDeps = dbDependsOn (ldDatabase loaded)
             (candidate, pin) = case (reach, dcDepends config) of
                 (LoadedToo, Unsettled) -> (linksTo configs config, PinFromLinks)
-                _ -> ((`elem` pinnedDeps), KeepPin)
+                (LoadedToo, Settled _ _) -> ((`elem` pinnedDeps), KeepPin)
+                (PinnedOnly, _) -> ((`elem` pinnedDeps), KeepPin)
             otherIndexes = [idb | idb <- indexes, idbName idb /= dbName, candidate (idbName idb)]
         synonymDB <- getMergedSynonymDB manager
         unitConfig <- getMergedUnitConfig manager
@@ -4000,12 +4004,17 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                     stagedWithin manager StagedRelink{srStaged = cached, srIndexedDbs = indexedDbs, srNewDeps = chosen}
         stage "  [OK] Staged from cache: " staged
 
-    -- Linked within the databases its requirements admit, every one when it has none.
+    {- Linked within its settled dependencies, loaded first and all kept
+    selected, so the page shows the choice and the next click starts from it;
+    settled on none, within every database loaded its requirements admit, and
+    only those its links need are selected. -}
     parseAndLink :: Map Text DatabaseConfig -> BuildInputs -> ExceptT Text IO ()
     parseAndLink configs inputs = do
+        let config = fromMaybe dbConfig (M.lookup dbName configs)
+        forM_ (settledNames (dcDepends config)) (liftIO . autoLoadDeps manager)
         -- Resolve nested directory structure (e.g. ZIP extracts with multiple subdirs)
         path <- liftIO $ Upload.findDataDirectory (dcPath dbConfig)
-        indexedDbs <- liftIO $ M.filterWithKey (\name _ -> linksTo configs dbConfig name) <$> readTVarIO (dmIndexedDbs manager)
+        indexedDbs <- liftIO $ M.filterWithKey (\name _ -> linksTo configs config name) <$> readTVarIO (dmIndexedDbs manager)
         {- A CSV export or a workbook names one file; the loader is handed that
         rather than the directory holding it. Either way the loader gets a
         path: a source that holds no file of its own format is left to produce
@@ -4029,23 +4038,29 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                     (dmLocationHierarchy manager)
                     (dcGeographyPolicy dbConfig)
                     loadPath
-        let minimalDeps = computeMinimalSelectedDeps (Loader.cdlLinks stats)
-        (finalStats, finalDB) <-
-            liftIO $ minimalCover indexedDbs synonymDB unitConfig minimalDeps simpleDb stats
+        (selected, (finalStats, finalDB)) <- liftIO $ case dcDepends config of
+            Settled _ names -> pure (names, (stats, simpleDb))
+            Unsettled ->
+                let minimalDeps = computeMinimalSelectedDeps (Loader.cdlLinks stats)
+                 in (minimalDeps,) <$> minimalCover indexedDbs synonymDB unitConfig minimalDeps simpleDb stats
         mapping <- liftIO $ storedSupplierMapping manager dbConfig
         liftIO $
             stage "  [OK] Staged: " $
                 StagedDatabase
                     { sdSimpleDB = finalDB
-                    , sdConfig = dbConfig
+                    , sdConfig = config
                     , sdMissingProducts = stagedMissingProducts finalDB finalStats
-                    , sdSelectedDeps = minimalDeps
+                    , sdSelectedDeps = selected
                     , sdCrossDBLinks = Loader.cdlLinks finalStats
                     , sdLinkingStats = finalStats
                     , sdBuiltWith = inputs
                     , sdCachedDB = Nothing
                     , sdSupplierMapping = mapping
                     }
+
+    settledNames :: Dependencies -> Maybe [Text]
+    settledNames (Settled _ names) = Just names
+    settledNames Unsettled = Nothing
 
     {- Drop the dependencies whose links are all substitutable by another at
     the same score. If that shrinks the set, linking runs again restricted to
@@ -4268,7 +4283,7 @@ removeFromMemory manager dbName = do
             modifyTVar' (dmStagedDbs manager) (M.delete dbName)
             modifyTVar' (dmStagingDbs manager) (S.delete dbName)
         configs <- readTVarIO (dmAvailableDbs manager)
-        writeKept (M.elems configs) >>= either (reportProgress Warning . notForgotten) pure
+        writeKept [dbName] (M.elems configs) >>= either (reportProgress Warning . notForgotten) pure
     reportProgress Info $ "Removed database: " <> T.unpack dbName
     return $ Right ()
   where
