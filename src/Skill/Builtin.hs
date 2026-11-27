@@ -54,17 +54,19 @@ pefHotspots =
                 T.unlines $
                     [ "# Hotspots of a product, PEF method"
                     , ""
+                    , "Run every step before you answer."
+                    , ""
                     ]
                         <> findTheProcess
-                        <> [ "3. " <> chooseTheCollection <> " With `list_scoring_sets`, find the EF single score set of that collection, otherwise of another loaded one, and say which collection holds it. When none is loaded, say so and stop: never weight the impact categories yourself."
-                           , "4. Score the process with `score_activity`, with `exchange_contributions` set to true: step 8 reads them."
-                           , "5. Most relevant impact categories: rank the impact categories by their weighted contribution to the single score, in absolute value, and keep them, largest first, until they add up to at least 80 %. Keep at least three."
-                           , "6. For each of them, `get_contributing_activities`: keep the processes, largest first in absolute value, until they add up to more than 80 % of that impact category. Compute the shares yourself from the absolute values: the shares the tool returns keep their sign. Raise `limit` until the rows cover the total."
-                           , "7. For each of them, `get_contributing_flows`: the same rule on emissions and resources. Say that these are the emissions of the whole chain, not of each process."
-                           , "8. Life cycle stages: group the `exchange_contributions` of `score_activity` (ingredients, transport, packaging...), and say how you grouped."
-                           , "9. Answer with a table per step: name, share, cumulated share. Name the process and its location, the database, the method collection, and give the `web_url` link."
+                        <> [ "3. " <> chooseTheCollection <> " With `list_scoring_sets` and that `collection`, find the EF single score set of that method collection. When it holds none, ask `list_scoring_sets` for the other EF method collections `list_methods` showed, one at a time, and say which one holds the set. When none does, say so and stop: never weight the impact categories yourself."
+                           , "4. Score the process with `score_activity`, with the method collection that holds the set, `scoring_sets` set to that set alone, `exchange_contributions` set to true and `top_flows` set to 0 (step 7 gives the flows): steps 5 and 8 read its answer."
+                           , "5. Most relevant impact categories: read that set's single score in `scoringShares`. Its rows come largest first: keep them until `cumulativeSharePct` reaches at least 80, and at least three. Report each one's `sharePct`, which keeps its sign as the PEF method reads the impact categories, beside `cumulativeSharePct`, which adds absolute values; when one is negative, say so."
+                           , "6. For each of them, `get_contributing_activities` with `cover_percent: 80`: the rows returned are the most relevant processes, the PEF rule on absolute values already applied. Report each one's `absolute_percent` and `cumulative_percent`, not the signed `contribution_percent`. When the last row's `cumulative_percent` is not above 80, the list stopped at its cap: say it is incomplete."
+                           , "7. For each of them, `get_contributing_flows` with `cover_percent: 80` and `by_substance: true`: the same rule on emissions and resources, each substance gathered over its sub-compartments, with the same two shares. Say that these are the emissions of the whole chain, not of each process."
+                           , "8. Life cycle stages: group the `exchangeContributions` of `score_activity` by the line names in `lineNames` (ingredients, transport, packaging...), add their signed shares, and say how you grouped."
+                           , "9. Answer with a table per step: name, share, cumulated share, with the fields steps 5 to 8 name. Name the process and its location, the database, the method collection, and give the `web_url` link."
                            , ""
-                           , "When a licence hides the detail of a database, say which lists are incomplete."
+                           , "When a licence hides the detail of a database (`withheld_databases`), say which lists are incomplete."
                            ]
             }
 
@@ -82,4 +84,4 @@ findTheProcess =
 
 -- | Which method collection scores a product, when the person names none.
 chooseTheCollection :: Text
-chooseTheCollection = "Choose the method collection with `list_methods`: the one the person names, otherwise the Environmental Footprint (EF) collection itself rather than a variant adapted for a particular tool."
+chooseTheCollection = "Choose the method collection with `list_methods`: the one the person names, otherwise the plain Environmental Footprint (EF) collection, often named by its acronym and version (EF-3.1), rather than a variant whose name says it is adapted for a particular tool."
