@@ -1049,7 +1049,10 @@ description r = case r of
         \category. list_scoring_sets names the \
         \sets. exchange_contributions splits each score \
         \by the process's own lines, to group into stages \
-        \(ingredients, transport, packaging). Inputs its \
+        \(ingredients, transport, packaging); 'lineNames' names each line \
+        \by its position. 'scoringShares': what each impact category weighs \
+        \in each weighted score, by set then score, largest first, signed \
+        \'percent' beside 'absolutePercent' and 'cumulativePercent'. Inputs its \
         \publisher left unsupplied count as zero, in 'cutoffInputs'; \
         \'withheldCutoffs' counts those a licence hides. A chain reaching inputs \
         \only a database not loaded would supply is refused, naming them. 'basis': what the score \

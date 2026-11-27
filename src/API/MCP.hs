@@ -64,15 +64,16 @@ import qualified API.BatchImpacts as BI
 import API.DatabaseHandlers (activitiesReportToAPI, copyRefusal, coverageReportToAPI, databaseHistoryToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
 import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
-import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPagePath, groupsQuery, impactsPath, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
+import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPagePath, groupsQuery, impactsPath, overObject, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
 import API.MethodEditHandlers (collectionFlows, historyToAPI, outcomeToAPI, scoringSetAPI)
 import API.Routes (GroupFailure (..), GroupMembers (..), GroupRoot (..), MethodComparisonAsk (..), MethodComparisonFailure (..), collectionNotLoadedMessage, flowFactorsToAPI, groupCandidatesOf, groupContributionsOf, groupFlowsOf, groupMembersOf, groupSetsOf, methodRefusalMessage, methodSummary, runMethodComparison, runMethodProfile, scoreLinesFrom, selectMethod)
 import API.Terms (referencedDatabases)
-import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteRequest (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), AmountList (..), ClassificationSystem (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, setAmountLines, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
+import API.Types (ActivitiesEditRequest (..), ActivityEditAPI (..), ActivityForAPI (..), ActivityInfo (..), ActivityInput (..), ActivityWriteRequest (..), ActivityWriteResponse (..), AddedList (..), Aggregation (..), AmountList (..), ClassificationSystem (..), ExchangeContribution (..), ExchangeEditRequest (..), ExchangeWithUnit (..), FormulaCheckRequest (..), FunctionalUnit, GroupCandidatesRequest (..), GroupMembersRequest (..), GroupSpec (..), GroupsRequest (..), InventoryExport (..), InventoryFlowDetail (..), InventoryMetadata (..), LCIABatchResult (..), LCIAResult (..), ParameterName, ParameterValue (..), ParametersEditRequest (..), Perturbation (..), ProbableMisses, ScoreAPI (..), ScoreBasis, ScoringSetAPI (..), Substitution (..), SubstitutionRequest (..), SupplyChainResponse (..), WithheldShare, addedLines, formulaLanguage, parseProducerFilter, setAmountLines, statedLines, toActivityEdits, toActivityEditsTyped, toAuthoredActivities, toAuthoredActivitiesTyped, toCategoryEdit, toExchangeEdits, toExchangeEditsTyped, toFactorEdit, toParameterEdits, toScoringEdit)
 import Control.Monad (forM, forM_, join, mfilter, when, (>=>))
+import Data.Containers.ListUtils (nubOrd)
 import Data.JournalFile (Channel (..), Origin (..))
 import qualified Data.JournalFile as JournalFile (Source)
-import Data.List (find)
+import Data.List (find, (!?))
 import qualified Data.List as L
 import qualified Data.Set as Set
 import Method.ChemSynonyms (ChemSynonyms)
@@ -91,7 +92,7 @@ import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
 import Skill (Skill, skillContents, skillEntry, skillResource, skillUri)
-import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, flowKindId, flowKindName, getUnitNameForBioFlow, granted, kindOfFlow, lookupExchangeFlow, lookupFlow, matchWord, mediumText, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
+import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, exchanges, flowKindId, flowKindName, getUnitNameForBioFlow, granted, kindOfFlow, lookupExchangeFlow, lookupFlow, matchWord, mediumText, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
 import Usage (Asking (..), Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
 -- ---------------------------------------------------------------------------
@@ -4004,13 +4005,63 @@ callScoreActivity dbManager mHosting mBaseUrl rid args =
             Right lbr -> do
                 configured <- liftIO $ configuredScoringSetNames dbManager coll
                 mActName <- liftIO $ lookupActivityName dbManager dbName pidText
+                mc <- requireCollection dbManager coll
+                names <- case nubOrd [ecPosition ec | r <- lbrResults lbr, ec <- lrExchangeContributions r] of
+                    [] -> pure M.empty
+                    positions -> do
+                        ld <- requireDatabase dbManager dbName
+                        (_, act) <- liftService (Service.resolveActivityAndProcessId (ldDatabase ld) pidText)
+                        except (lineNamesOf (ldDatabase ld) act positions)
                 let mTopUrl = scoreActivityWebUrl mBaseUrl dbName pidText coll
+                    shares = scoringShares (mcScoringSets mc) (lbrResults lbr)
+                    panelFields =
+                        ["scoringShares" .= shares | not (M.null shares)]
+                            <> ["lineNames" .= M.mapKeys (T.pack . show) names | not (M.null names)]
                     enriched =
                         maybe id attachMarketHintByName mActName $
                             addWebUrlMaybe
                                 mTopUrl
-                                (withCutoffNotice (Cutoffs (lbrCutoffInputs lbr) (lbrWithheldCutoffs lbr)) (slimLCIAPanel (toJSON lbr)))
+                                (withCutoffNotice (Cutoffs (lbrCutoffInputs lbr) (lbrWithheldCutoffs lbr)) (overObject (<> KM.fromList panelFields) (slimLCIAPanel (toJSON lbr))))
                 except (toolSuccessJson rid <$> filterScoringSets configured wantedSets enriched)
+
+{- | What each impact category weighs in every score of every set, by set then
+score, largest first in absolute value. A score that is no weighted sum, or
+weighs a single category, is left out: it has nothing to split. The signed
+share sits beside the absolute ones, since the PEF method reads the categories
+signed.
+-}
+scoringShares :: [ScoringSet] -> [LCIAResult] -> M.Map Text (M.Map Text [Value])
+scoringShares sets results =
+    M.filter (not . M.null) $
+        M.fromList
+            [ (ssName ss, M.mapMaybeWithKey (\name _ -> shareRows <$> Score.indicatorShares ss name raw) (ssScores ss))
+            | ss <- sets
+            ]
+  where
+    raw :: M.Map Text Double
+    raw = M.fromList [(lrMethodName r, lrScore r) | r <- results]
+    shareRows :: [Ranked (Text, Double)] -> [Value]
+    shareRows ranked = map (shareRow (sum (map (snd . rkRow) ranked))) ranked
+    shareRow :: Double -> Ranked (Text, Double) -> Value
+    shareRow total Ranked{rkRow = (category, term), rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} =
+        object
+            [ "category" .= category
+            , "percent" .= (if total /= 0 then term / total * 100 else 0 :: Double)
+            , "absolutePercent" .= absolute
+            , "cumulativePercent" .= cumulative
+            ]
+
+{- | The name of each line a panel weighs, by its position among the
+activity's exchanges. A position the activity has no line at is refused: the
+names would no longer say which line weighs what.
+-}
+lineNamesOf :: Database -> Activity -> [Int] -> Either Text (M.Map Int Text)
+lineNamesOf db act = fmap M.fromList . traverse named
+  where
+    named :: Int -> Either Text (Int, Text)
+    named position = case exchanges act !? position of
+        Just exchange -> Right (position, Service.exchangeLineName db exchange)
+        Nothing -> Left ("No line at position " <> T.pack (show position) <> " of " <> activityName act)
 
 {- | Resolve the activity name for a (db, processId) pair. 'Nothing' when
 the database is not loaded or the PID does not resolve -- callers fold
