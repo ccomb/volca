@@ -46,7 +46,7 @@ import API.Types (
 import App.Env (AppEnv (..), AppM, runApp)
 import CLI.Client (deleteSelectionBody)
 import CLI.Types (DbDeleteArgs (..))
-import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), defaultConfig)
+import Config (ClassificationEntry (..), ClassificationPreset (..), DatabaseConfig (..), Dependencies (..), defaultConfig)
 import Database (buildDatabaseWithMatrices)
 import Database.Edit (SpareChoice (..))
 import Database.Manager (CachePolicy (..), DatabaseManager (..), LoadedDatabase (..), initDatabaseManager)
@@ -562,7 +562,7 @@ fixtureConfig =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

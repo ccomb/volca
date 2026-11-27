@@ -75,3 +75,4 @@ coverage-report/
 dist-prof/
 
 .docker-bundle/
+/dependencies.toml

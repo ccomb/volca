@@ -9,6 +9,10 @@ module Config (
     ServerConfig (..),
     ServerName (..),
     DatabaseConfig (..),
+    Dependencies (..),
+    DependencyOrigin (..),
+    dependsNames,
+    declaredDepends,
     withSourcePatches,
     licenceOf,
     MethodConfig (..),
@@ -275,6 +279,35 @@ data ServerConfig = ServerConfig
     deriving (Show, Eq, Generic)
 
 -- | Database configuration
+
+{- | The databases a database links to, and who said so. Until settled, it
+links to every database loaded beside it; once settled, to the ones named and
+no other, whoever named them.
+-}
+data Dependencies = Unsettled | Settled !DependencyOrigin ![Text]
+    deriving (Show, Eq)
+
+{- | Who settled a database's dependencies: a click on its setup page, its
+configuration, or the engine, from what linking against the loaded databases
+found.
+-}
+data DependencyOrigin = Clicked | Configured | Found
+    deriving (Show, Eq)
+
+-- | The databases named, none while unsettled.
+dependsNames :: Dependencies -> [Text]
+dependsNames = \case
+    Unsettled -> []
+    Settled _ names -> names
+
+{- | A @depends@ list as a configuration file writes it: an empty one says
+nothing more than an absent one, as a configuration listing @depends = []@ on
+every database means.
+-}
+declaredDepends :: [Text] -> Dependencies
+declaredDepends [] = Unsettled
+declaredDepends names = Settled Configured names
+
 data DatabaseConfig = DatabaseConfig
     { dcName :: !Text -- Internal identifier (URL-safe slug)
     , dcDisplayName :: !Text -- Human-readable name for UI
@@ -282,7 +315,7 @@ data DatabaseConfig = DatabaseConfig
     , dcDescription :: !(Maybe Text)
     , dcLoad :: !Bool -- Load at startup (renamed from dcActive)
     , dcDefault :: !Bool
-    , dcDepends :: ![Text] -- Names of databases this one depends on (for cross-DB linking)
+    , dcDepends :: !Dependencies -- The databases this one links to, once settled
     , dcLocationAliases :: !(Map Text Text) -- Wrong location → correct location (e.g., "ENTSO" → "ENTSO-E")
     , dcFormat :: !(Maybe DatabaseFormat) -- Detected format (EcoSpold2, EcoSpold1, SimaProCSV)
     , dcIsUploaded :: !Bool -- True for uploaded databases (vs. configured in TOML)
@@ -717,7 +750,7 @@ instance DecodeTOML DatabaseConfig where
         dcDescription <- getFieldOpt "description"
         dcLoad <- fromMaybe False <$> getFieldOpt "load"
         dcDefault <- fromMaybe False <$> getFieldOpt "default"
-        dcDepends <- fromMaybe [] <$> getFieldOptWith (getArrayOf tomlDecoder) "depends"
+        dcDepends <- declaredDepends . fromMaybe [] <$> getFieldOptWith (getArrayOf tomlDecoder) "depends"
         dcLocationAliases <- fromMaybe M.empty <$> getFieldOpt "locationAliases"
         let dcFormat = Nothing -- Format is detected at runtime, not stored in config
         let dcIsUploaded = False -- Databases from TOML are not uploaded
@@ -1340,7 +1373,7 @@ validateConfig cfg = do
     -- Validate dependency references exist
     let nameSet = S.fromList dbNames
     forM_ (cfgDatabases cfg) $ \db ->
-        forM_ (dcDepends db) $ \dep ->
+        forM_ (dependsNames (dcDepends db)) $ \dep ->
             unless (S.member dep nameSet) $
                 Left $
                     "Database \"" <> dcName db <> "\" depends on unknown database: \"" <> dep <> "\""
@@ -1368,12 +1401,12 @@ resolveLoadOrder configs =
         | S.member name visited = expandTransitive cfgMap rest visited
         | otherwise = case M.lookup name cfgMap of
             Nothing -> expandTransitive cfgMap rest visited -- unknown, skip
-            Just cfg -> expandTransitive cfgMap (dcDepends cfg ++ rest) (S.insert name visited)
+            Just cfg -> expandTransitive cfgMap (dependsNames (dcDepends cfg) ++ rest) (S.insert name visited)
 
     -- Kahn's algorithm: dependencies come first
     topoSort cfgMap names =
         let nameSet = S.fromList names
-            depsOf n = maybe [] (filter (`S.member` nameSet) . dcDepends) (M.lookup n cfgMap)
+            depsOf n = maybe [] (filter (`S.member` nameSet) . dependsNames . dcDepends) (M.lookup n cfgMap)
             inDeg = M.fromList [(n, length (depsOf n)) | n <- names]
             queue = [n | (n, 0) <- M.toList inDeg]
             -- Reverse adjacency: dep → [nodes that depend on dep]

@@ -20,7 +20,6 @@ and leaves the beta-only input unresolved (surfaced, not silently linked).
 module StrictPinSpec (spec) where
 
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
-import Control.Exception (bracket_)
 import Control.Monad (void)
 import qualified Data.ByteString as BS
 import Data.Either (fromLeft)
@@ -31,8 +30,9 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.UUID as UUID
 import Test.Hspec
+import TestHelpers (withDataDirAt)
 
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), declaredDepends, defaultConfig)
 import Database (buildDatabaseWithMatrices)
 import Database.CrossLinking (buildIndexedDatabaseFromDB)
 import Database.Edit (copyDatabase)
@@ -53,7 +53,6 @@ import Database.RelinkMapping (SupplierMapping (..), readSupplierMapping)
 import SharedSolver (SharedSolver, createSharedSolver)
 import SynonymDB (emptySynonymDB)
 import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.Environment (setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Types (
@@ -371,7 +370,7 @@ linkCount manager name = length . dbCrossDBLinks . ldDatabase . (M.! name) <$> r
 
 -- | Run with the engine's data directory, where homes are written, under @root@.
 withDataDir :: FilePath -> IO a -> IO a
-withDataDir root = bracket_ (setEnv "VOLCA_DATA_DIR" root) (unsetEnv "VOLCA_DATA_DIR")
+withDataDir = withDataDirAt
 
 -- | The home the engine gives a database with one.
 homeOf :: FilePath -> Text -> FilePath
@@ -384,7 +383,7 @@ loadedFor db solver cfg =
 -- | A minimal loaded-supplier config (no own dependencies, no cache path).
 supplierLoadedConfig :: Text -> DatabaseConfig
 supplierLoadedConfig name =
-    (consumerConfig ""){dcName = name, dcDisplayName = name, dcDepends = []}
+    (consumerConfig ""){dcName = name, dcDisplayName = name, dcDepends = Unsettled}
 
 buildOrFail :: SimpleParts -> IO Database
 buildOrFail (SimpleParts acts flows units) = do
@@ -420,7 +419,7 @@ consumerConfig path =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = ["alpha"]
+        , dcDepends = declaredDepends ["alpha"]
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

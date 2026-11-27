@@ -51,7 +51,7 @@ import API.Types (
     SubstanceContributionEntry (..),
  )
 import App.Env (AppEnv (..), AppM, runApp)
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), defaultConfig)
 import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), addDatabase, initDatabaseManager, loadDatabase)
 import Method.Types (Compartment (..), FlowDirection (..), Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..), ScoringSetOrigin (..))
 import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
@@ -128,7 +128,7 @@ sampleConfig =
         , dcDescription = Nothing
         , dcLoad = False
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

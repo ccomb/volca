@@ -6,7 +6,7 @@ import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import Test.Hspec
 
-import Config (DatabaseConfig (..))
+import Config (DatabaseConfig (..), Dependencies (..))
 import Database.Requirements
 import Types (FileReading (..), GeographyPolicy (..), Licence (..), Reading (..), Release (..), Requirement (..))
 
@@ -22,7 +22,7 @@ config name release requires =
         , dcDescription = Nothing
         , dcLoad = False
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = True

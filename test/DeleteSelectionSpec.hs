@@ -37,7 +37,7 @@ import Test.Hspec
 import API.Types (DeleteSelectionRequest (..))
 import CLI.Client (deleteSelectionBody)
 import CLI.Types (DbDeleteArgs (..))
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), defaultConfig)
 import Data.Aeson (eitherDecode, encode)
 import Database (buildDatabaseWithMatrices)
 import Database.Allocation (Allocating (..), allocate)
@@ -709,7 +709,7 @@ mkConfig name =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

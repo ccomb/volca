@@ -50,6 +50,7 @@ module Database.Manager (
     loadDatabase,
     unloadDatabase,
     relinkDatabase,
+    recordDependencies,
     relinkDatabaseWithMapping,
     RelinkResult (..),
     addDatabase,
@@ -385,10 +386,11 @@ import Data.Containers.ListUtils (nubOrd)
 import Data.JournalFile (Entry (..), readEntries)
 import Database.Author (editingContext)
 import Database.CrossLinking (IndexedDatabase (..), LinkingContext (..), buildIndexedDatabaseFromDB, defaultLinkingThreshold)
+import Database.DependencyChoices (overriddenDeclarations, readKept, settleWith, standingKept, writeKept)
 import Database.History (Carried (..))
 import qualified Database.Journal as Journal
 import Database.RelinkMapping (SupplierMapping (..), mappingAliases, readSupplierMapping)
-import Database.Requirements (ReleaseSubstitution (..), RequiredRelease, acceptSubstitute, admission, admits, requiredDatabases, requiredReleases)
+import Database.Requirements (ReleaseSubstitution (..), RequiredRelease, acceptSubstitute, admission, admits, linksTo, requiredDatabases, requiredReleases)
 import Database.Upload (detectMethodFormat, detectedFormatLabel, findMethodDirectory, listDirectoryRecursive)
 import qualified Database.Upload as Upload
 import qualified Database.UploadedDatabase as UploadedDB
@@ -856,6 +858,12 @@ data DatabaseManager = DatabaseManager
     database at the parameter values it states: each is as large as the loaded
     database's, so they are made one at a time and the others wait.
     -}
+    , dmDependencyLock :: !(MVar ())
+    {- ^ Held by every change to the dependencies the engine keeps: each
+    writes the whole file from memory, and two interleaved would each write a
+    picture missing the other's change, or record a database found unsettled
+    after a click settled it.
+    -}
     , dmMethodEditLock :: !(MVar ())
     {- ^ Held by every change to a method collection, and by every copy: an
     edit reads the collection, appends a line and swaps the result in, and two
@@ -963,7 +971,7 @@ getGapIndex manager dbName db = do
     let scanned = do
             gaps <- Control.Exception.evaluate (scannedGaps db)
             pure $ do
-                declared <- maybe [] dcDepends . M.lookup dbName <$> readTVar (dmAvailableDbs manager)
+                declared <- maybe [] (dependsNames . dcDepends) . M.lookup dbName <$> readTVar (dmAvailableDbs manager)
                 loaded <- readTVar (dmLoadedDbs manager)
                 pure (withLinksAnswered (linkCheckIn (fmap ldDatabase . (`M.lookup` loaded))) declared db gaps)
     cached <- M.lookup dbName <$> readTVarIO (dmGapIndexCache manager)
@@ -1599,7 +1607,10 @@ discoverDatabases config = do
     uploaded <- discoverUploadedDatabases
     let combined = withSourcePatches (configured ++ uploaded)
     mapM_ (reportProgress Warning) (shadowedNames "database" dcName dcPath combined)
-    return combined
+    onDisk <- readKept >>= either (\err -> M.empty <$ reportProgress Warning ("The dependencies the engine keeps do not read, so none is kept, and no change is written to them, until the file reads again: " <> T.unpack err)) pure
+    let (kept, unsound) = standingKept onDisk combined
+    mapM_ (reportProgress Warning) (unsound <> overriddenDeclarations kept combined)
+    return (map (settleWith kept) combined)
 
 -- | Configured method collections plus the uploaded ones.
 discoverMethods :: Config -> IO [MethodConfig]
@@ -1787,6 +1798,7 @@ newManager ManagerSeed{..} = do
     gapIndexAtValuesVar <- newTVarIO M.empty
     scoringSlots <- traverse newQSem msScoringSlots
     methodEditLock <- newMVar ()
+    dependencyLock <- newMVar ()
     scenarioLock <- newMVar ()
     factorisationLock <- newMVar ()
     acceptedTermsVar <- newTVarIO M.empty
@@ -1828,6 +1840,7 @@ newManager ManagerSeed{..} = do
             , dmScoringSlots = scoringSlots
             , dmFactorisationLock = factorisationLock
             , dmMethodEditLock = methodEditLock
+            , dmDependencyLock = dependencyLock
             , dmScenarioLock = scenarioLock
             , dmAcceptedTerms = acceptedTermsVar
             }
@@ -1854,7 +1867,7 @@ autoLoadRefDataSources manager RefDataSources{..} = do
 -- | Load every configured database, one dependency level at a time, in parallel.
 loadAllDatabases :: DatabaseManager -> [DatabaseConfig] -> IO ()
 loadAllDatabases manager allDbConfigs =
-    case resolveLoadOrder allDbConfigs of
+    case resolveLoadOrder configured of
         Left err -> reportError $ "Dependency resolution failed: " <> T.unpack err
         Right loadOrder -> do
             synonymDB <- getMergedSynonymDB manager
@@ -1885,11 +1898,31 @@ loadAllDatabases manager allDbConfigs =
                             , llOtherIndexes = M.elems currentIndexedDbs
                             }
                 mapConcurrently_ (loadOneDatabase manager level) levelConfigs
+            {- An uploaded database a configured one was set to depend on is
+            loaded the way any upload is, its journal and mapping with it; its
+            dependents are relinked to it as it lands. -}
+            loadedNow <- readTVarIO (dmLoadedDbs manager)
+            configsNow <- readTVarIO (dmAvailableDbs manager)
+            let uploadsNamed =
+                    nubOrd
+                        [ dep
+                        | name <- M.keys loadedNow
+                        , Just c <- [M.lookup name configsNow]
+                        , dep <- dependsNames (dcDepends c)
+                        , M.notMember dep loadedNow
+                        , maybe False dcIsUploaded (M.lookup dep configsNow)
+                        ]
+            forM_ uploadsNamed $ \dep ->
+                loadDatabase manager dep >>= either (reportError . (("  [FAIL] Failed to load " <> T.unpack dep <> ": ") <>) . T.unpack) (const (pure ()))
             loadedCount <- M.size <$> readTVarIO (dmLoadedDbs manager)
             reportProgress Info $ "Multi-database mode: " ++ show loadedCount ++ " database(s) loaded"
   where
+    -- The order and levels are the configuration's: an upload is not read as files.
+    configured :: [DatabaseConfig]
+    configured = filter (not . dcIsUploaded) allDbConfigs
+
     configMap :: Map Text DatabaseConfig
-    configMap = M.fromList [(dcName c, c) | c <- allDbConfigs]
+    configMap = M.fromList [(dcName c, c) | c <- configured]
 
     configsNamed :: [Text] -> [DatabaseConfig]
     configsNamed names = [c | name <- names, Just c <- [M.lookup name configMap]]
@@ -1946,27 +1979,54 @@ data LoadLevel = LoadLevel
     , llOtherIndexes :: ![IndexedDatabase]
     }
 
--- | Load a single database with per-database timing, then register it
+{- | Whether a database read from its cache may link otherwise than its cache
+says: on dependencies settled since it was written, or with inputs still
+unresolved while a database it links to is loaded, which may have come to
+supply them since (it failed to load then, or its files were replaced).
+-}
+cacheBehind :: Map Text DatabaseConfig -> [IndexedDatabase] -> [Text] -> LoadedDatabase -> Bool
+cacheBehind configs indexes pinRead loaded =
+    not (sameSet pinRead (dbDependsOn db))
+        || ( unresolvedCount (dbLinkingStats db) > 0
+                && any (\idb -> idbName idb /= dcName config && linksTo configs config (idbName idb)) indexes
+           )
+  where
+    db :: Database
+    db = ldDatabase loaded
+    config :: DatabaseConfig
+    config = fromMaybe (ldConfig loaded) (M.lookup (dcName (ldConfig loaded)) configs)
+
+{- | Load a single database with per-database timing, then register it. It
+links to the databases settled for it, or to every one of the level when none
+are; a cache read on other dependencies than those is relinked within them.
+-}
 loadOneDatabase :: DatabaseManager -> LoadLevel -> DatabaseConfig -> IO ()
 loadOneDatabase manager LoadLevel{..} dbConfig = withLogScope (dcName dbConfig) $ do
     dbStart <- getCurrentTime
     reportProgress Info $ "[STARTING] Loading database: " <> T.unpack (dcDisplayName dbConfig)
+    configs <- readTVarIO (dmAvailableDbs manager)
+    let config = fromMaybe dbConfig (M.lookup (dcName dbConfig) configs)
     result <-
         loadDatabaseFromConfigWithCrossDB
-            dbConfig
+            config
             llSynonyms
             llUnitConfig
             (dmCachePolicy manager)
-            llOtherIndexes
+            (filter (linksTo configs config . idbName) llOtherIndexes)
             (dmLocationHierarchy manager)
     case result of
-        Right (loaded0, _source) -> do
+        Right (justRead, source) -> do
+            (settled, pinRead) <- settleRead manager justRead
             -- Backfill empty bfCAS from the registry's name↔CAS edges before
             -- indexing, so a CAS-less source (e.g. a SimaPro export) still
             -- reaches the native CAS bridge.
-            let loaded = loaded0{ldDatabase = enrichBioFlowCAS (dmCasBindings manager) (ldDatabase loaded0)}
+            let loaded = settled{ldDatabase = enrichBioFlowCAS (dmCasBindings manager) (ldDatabase settled)}
                 indexedDb = buildIndexedDatabaseFromDB (dcName dbConfig) llSynonyms (ldDatabase loaded)
             atomically $ publishLoaded manager (dcName dbConfig) loaded indexedDb
+            configsNow <- readTVarIO (dmAvailableDbs manager)
+            when (source == FromCache && cacheBehind configsNow llOtherIndexes pinRead loaded) $
+                relinkWithin manager (dcName dbConfig) llOtherIndexes (Just pinRead) LoadedToo
+                    >>= either (warnSelfRelinkFailed (dcName dbConfig)) (const (pure ()))
             dbEnd <- getCurrentTime
             let !dbDuration = realToFrac (diffUTCTime dbEnd dbStart) :: Double
             reportProgressWithTiming Info ("  [OK] Loaded: " <> T.unpack (dcDisplayName dbConfig)) dbDuration
@@ -2042,7 +2102,7 @@ computeDepLevels configMap loadOrder =
         levelOf :: Map Text Int -> Text -> Int
         levelOf lvls name = case M.lookup name configMap of
             Nothing -> 0
-            Just cfg -> case dcDepends cfg of
+            Just cfg -> case dependsNames (dcDepends cfg) of
                 [] -> 0
                 deps -> 1 + foldl' max 0 [M.findWithDefault 0 d lvls | d <- deps]
         -- Fold through topo-sorted order to assign levels
@@ -2078,7 +2138,7 @@ uploadMetaToConfig slug dirPath meta =
         , dcDescription = UploadedDB.umDescription meta
         , dcLoad = False -- Never auto-load uploads
         , dcDefault = False
-        , dcDepends = UploadedDB.umDepends meta
+        , dcDepends = declaredDepends (UploadedDB.umDepends meta)
         , dcLocationAliases = M.empty
         , dcFormat = Just (UploadedDB.umFormat meta)
         , dcIsUploaded = True -- Discovered from uploads/ directory
@@ -2098,40 +2158,51 @@ uploadMetaToConfig slug dirPath meta =
         , dcAdded = UploadedDB.umAdded meta
         }
 
-{- | Record an uploaded database's dependency pin where a restart can find it.
-
-The pin otherwise lives in the staging registry and inside the binary matrix
-cache, so a restart between choosing a dependency and finalizing the database
-used to lose it without saying so: the database came back linked to nothing.
-Writes 'UploadedDB.umDepends' and keeps the in-memory config in step.
-
-A configured (TOML) database has no meta.toml to write and owns its
-dependencies in the config file, so it is left alone.
+{- | Settle a database's dependencies, under 'dmDependencyLock'. The file the
+engine keeps is written first, from memory as it will be: a click it could not
+record is refused, as a choice lost at the next restart would be. Then the
+three configs the database is served from, listed, staged and loaded, move
+together.
 -}
-persistUploadDepends :: DatabaseManager -> Text -> [Text] -> IO ()
-persistUploadDepends manager dbName deps = do
-    availableDbs <- readTVarIO (dmAvailableDbs manager)
-    case M.lookup dbName availableDbs of
-        Nothing -> pure ()
-        Just dbConfig
-            | not (dcIsUploaded dbConfig) -> pure ()
-            | otherwise -> do
-                uploadsDir <- UploadedDB.getDatabaseUploadsDir
-                let uploadRoot = uploadsDir </> T.unpack dbName
-                mMeta <- UploadedDB.readUploadMeta uploadRoot
-                case mMeta of
-                    Nothing ->
-                        -- Losing the pin silently is the very bug this exists
-                        -- to fix, so a missing meta.toml at least says so.
-                        reportProgress Warning $
-                            "No meta.toml under "
-                                <> uploadRoot
-                                <> "; the dependency pin of "
-                                <> T.unpack dbName
-                                <> " lives in memory only and is lost at restart"
-                    Just meta -> UploadedDB.writeUploadMeta uploadRoot meta{UploadedDB.umDepends = deps}
-                atomically $
-                    modifyTVar' (dmAvailableDbs manager) (M.adjust (\c -> c{dcDepends = deps}) dbName)
+recordDependencies :: DatabaseManager -> Text -> Dependencies -> IO (Either Text ())
+recordDependencies manager dbName deps = withMVar (dmDependencyLock manager) $ \() -> do
+    configs <- readTVarIO (dmAvailableDbs manager)
+    written <- writeKept [] (M.elems (M.adjust (settledOn deps) dbName configs))
+    forM_ written $ \() -> atomically (settleEverywhere manager dbName deps)
+    pure written
+
+{- | What linking found, recorded for a database nothing has settled, when it
+found something. A click made meanwhile wins, the check and the record being
+one step under the lock. A record that would close a loop between databases is
+said and left out: the next start could load neither. One the file cannot take
+is said, and kept in memory until the restart.
+-}
+recordFound :: DatabaseManager -> Text -> [Text] -> IO ()
+recordFound _ _ [] = pure ()
+recordFound manager dbName found = withMVar (dmDependencyLock manager) $ \() -> do
+    configs <- readTVarIO (dmAvailableDbs manager)
+    loops <- lefts <$> traverse (refuseLoop manager . DependencyEdit dbName) found
+    case (dcDepends <$> M.lookup dbName configs, loops) of
+        (Just Unsettled, []) -> do
+            let deps = Settled Found found
+            writeKept [] (M.elems (M.adjust (settledOn deps) dbName configs)) >>= either (reportProgress Warning . T.unpack . notKept) pure
+            atomically (settleEverywhere manager dbName deps)
+        (Just Unsettled, loop : _) -> reportProgress Warning $ "The dependencies linking found for " <> T.unpack dbName <> " are not kept: " <> T.unpack loop
+        _ -> pure ()
+  where
+    notKept :: Text -> Text
+    notKept err = "The dependencies linking found for " <> dbName <> " hold until the restart only: " <> err
+
+-- | A config standing on these dependencies.
+settledOn :: Dependencies -> DatabaseConfig -> DatabaseConfig
+settledOn deps config = config{dcDepends = deps}
+
+-- | Settle the dependencies of the listed, staged and loaded configs of a database together.
+settleEverywhere :: DatabaseManager -> Text -> Dependencies -> STM ()
+settleEverywhere manager dbName deps = do
+    modifyTVar' (dmAvailableDbs manager) (M.adjust (settledOn deps) dbName)
+    modifyTVar' (dmStagedDbs manager) (M.adjust (\st -> st{sdConfig = settledOn deps (sdConfig st)}) dbName)
+    modifyTVar' (dmLoadedDbs manager) (M.adjust (\l -> l{ldConfig = settledOn deps (ldConfig l)}) dbName)
 
 -- | The terms a database is served under, Nothing for a name the engine does not know.
 databaseLicence :: DatabaseManager -> Text -> IO (Maybe Licence)
@@ -2483,7 +2554,7 @@ listDatabases manager = do
                 , dsPath = T.pack (dcPath config)
                 , dsFormat = dcFormat config
                 , dsActivityCount = actCount
-                , dsDependsOn = dcDepends config
+                , dsDependsOn = dependsNames (dcDepends config)
                 , dsAllocation = readingKey (dcReading config)
                 , dsSystemModel = modelTitle <$> modelOf (dcReading config)
                 , dsSource = dcSource config
@@ -2763,21 +2834,6 @@ data RawLoad = RawLoad
     , rlGeographyPolicy :: !GeographyPolicy
     }
 
-{- | What the matrix cache next to the source is worth for this load. A cache
-that still records unresolved links while dependencies are now available is
-worth rebuilding, and that is the one case the caller announces.
--}
-data CacheVerdict
-    = Fresh Database
-    | Stale
-    | Absent
-
-cacheVerdict :: [IndexedDatabase] -> Maybe Database -> CacheVerdict
-cacheVerdict _ Nothing = Absent
-cacheVerdict otherIndexes (Just db)
-    | unresolvedCount (dbLinkingStats db) > 0, not (null otherIndexes) = Stale
-    | otherwise = Fresh db
-
 {- | Load raw database from a configured source path, with cross-database linking.
 
 The cache lives next to @sourcePath@ (see 'Loader.matrixCacheFile').
@@ -2796,16 +2852,16 @@ loadDatabaseRawWithCrossDB RawLoad{..} = do
         NoCache -> return Nothing
         ReadCache -> Loader.loadCachedDatabaseWithMatrices rlDbName rlSourcePath inputs
         UseCache -> Loader.loadCachedDatabaseWithMatrices rlDbName rlSourcePath inputs
-    case cacheVerdict rlOtherIndexes mCachedDb of
-        Fresh db -> do
+    {- A cache that reads is the database as it was last linked: what it
+    could link to since is the relink's to find, never a second reading of the
+    sources. -}
+    case mCachedDb of
+        Just db -> do
             Loader.reportCrossDBLinkingStats (toSimpleDatabase db) (dbLinkingStats db)
             return $ Right (db, FromCache)
-        Stale -> do
-            reportProgress Info "Cache has unresolved links, rebuilding with available dependencies..."
-            rebuildFromSource
-        Absent -> rebuildFromSource
+        Nothing -> rebuildFromSource
   where
-    -- Cache miss or stale: now we need the source. Resolve the archive if any.
+    -- Cache miss: now we need the source. Resolve the archive if any.
     rebuildFromSource :: IO (Either Text (Database, LoadSource))
     rebuildFromSource = resolveDataPath rlSourcePath >>= either (pure . Left) fromPath
 
@@ -2886,8 +2942,9 @@ loadDatabaseSingle manager dbName = do
             | isNothing (notReadyReason (stagedLinkCounts staged)) ->
                 finalizeDatabase manager dbName
             | otherwise -> do
-                -- Cannot finalize: clear staged entry, reload from config
-                -- (loadDatabase pre-loaded deps, so fresh load should resolve links)
+                -- Cannot finalize: clear the staged entry and load from config,
+                -- on the dependencies settled for it, or against what is
+                -- loaded when none are.
                 atomically $ modifyTVar' (dmStagedDbs manager) (M.delete dbName)
                 loadDatabaseSingleFromConfig manager dbName
         Nothing -> loadDatabaseSingleFromConfig manager dbName
@@ -2934,9 +2991,8 @@ needsSelfRelink origin = case origin of
     Replayed -> True
     FromParent -> True
 
--- | Load a database from config (not staged)
-loadDatabaseSingleFromConfig ::
-    DatabaseManager -> Text -> IO (Either Text LoadedDatabase)
+-- | Load a database from config (not staged).
+loadDatabaseSingleFromConfig :: DatabaseManager -> Text -> IO (Either Text LoadedDatabase)
 loadDatabaseSingleFromConfig manager dbName = do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
     -- Already loaded is a success, not work to do.
@@ -2950,17 +3006,18 @@ loadDatabaseSingleFromConfig manager dbName = do
         liftIO $ reportProgress Info $ "[STARTING] Loading database: " <> T.unpack (dcDisplayName dbConfig)
         synonymDB <- liftIO $ getMergedSynonymDB manager
         liftIO $ warnReopenedBridges synonymDB
-        (parsed, origin) <- parseOrReplay dbConfig synonymDB
+        ReadForLoad{..} <- parseOrReplay dbConfig synonymDB
         mapping <- liftIO $ storedSupplierMapping manager dbConfig
-        let loaded = parsed{ldSupplierMapping = mapping}
-        liftIO $ publish dbConfig synonymDB loaded origin
-        pure loaded
+        let loaded = rlLoaded{ldSupplierMapping = mapping}
+        liftIO $ publish synonymDB loaded rlOrigin rlPinRead
+        -- What callers get is the database as the relink left it.
+        liftIO $ fromMaybe loaded . M.lookup dbName <$> readTVarIO (dmLoadedDbs manager)
 
     {- A cache saved before the last edit was journalled would come back
     without it, so that case reads the sources again and the journal is
     replayed over them. A cache hit already holds the edits (its stamp says
     so); a fresh parse holds only what the author uploaded. -}
-    parseOrReplay :: DatabaseConfig -> SynonymDB -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
+    parseOrReplay :: DatabaseConfig -> SynonymDB -> ExceptT Text IO ReadForLoad
     parseOrReplay dbConfig synonymDB = do
         configs <- liftIO $ readTVarIO (dmAvailableDbs manager)
         case (dcReading dbConfig, parentOf configs dbConfig) of
@@ -2972,17 +3029,18 @@ loadDatabaseSingleFromConfig manager dbName = do
     edited on it reaches the child.
     shortcut: a child is never cached and is divided again at every load;
     cache it under its parent's journal stamp when that shows in load times. -}
-    fromParent :: DatabaseConfig -> SynonymDB -> Text -> SystemModel -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
+    fromParent :: DatabaseConfig -> SynonymDB -> Text -> SystemModel -> ExceptT Text IO ReadForLoad
     fromParent dbConfig synonymDB parentName model = do
         (parent, _) <- ExceptT (loadDatabase manager parentName)
         unitConfig <- liftIO $ getMergedUnitConfig manager
         liftIO $ reportProgress Info $ "Dividing " <> T.unpack dbName <> " from its parent " <> T.unpack parentName
         child <- ExceptT (Child.childOf unitConfig model (ldDatabase parent))
         (db, solver) <- liftIO $ withRuntime dbName synonymDB child
-        (edited, _) <- ExceptT (replayEdits manager dbConfig (withRecordedDeps dbConfig LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = dbConfig, ldSupplierMapping = Nothing}))
-        pure (edited, FromParent)
+        (settled, pinRead) <- liftIO $ settleRead manager LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = dbConfig, ldSupplierMapping = Nothing}
+        (edited, _) <- ExceptT (replayEdits manager dbConfig settled)
+        pure (ReadForLoad edited FromParent pinRead)
 
-    fromFiles :: M.Map Text DatabaseConfig -> DatabaseConfig -> SynonymDB -> ExceptT Text IO (LoadedDatabase, LoadOrigin)
+    fromFiles :: M.Map Text DatabaseConfig -> DatabaseConfig -> SynonymDB -> ExceptT Text IO ReadForLoad
     fromFiles configs dbConfig synonymDB = do
         currentIndexedDbs <- liftIO $ readTVarIO (dmIndexedDbs manager)
         unitConfig <- liftIO $ getMergedUnitConfig manager
@@ -2995,16 +3053,21 @@ loadDatabaseSingleFromConfig manager dbName = do
                         synonymDB
                         unitConfig
                         cachePolicy
-                        (filter (admits configs dbConfig . idbName) (M.elems currentIndexedDbs))
+                        (filter (linksTo configs dbConfig . idbName) (M.elems currentIndexedDbs))
                         (dmLocationHierarchy manager)
-        ExceptT $ case eitherResult of
-            Left (ex :: SomeException) -> pure $ Left $ "Exception loading database: " <> T.pack (show ex)
-            Right (Left err) -> pure (Left err)
-            Right (Right (loaded, FromCache)) -> pure (Right (withRecordedDeps dbConfig loaded, CacheHit))
-            Right (Right (loaded, FromSource)) -> replayEdits manager dbConfig (withRecordedDeps dbConfig loaded)
+        (justRead, source) <- except $ case eitherResult of
+            Left (ex :: SomeException) -> Left $ "Exception loading database: " <> T.pack (show ex)
+            Right result -> result
+        (settled, pinRead) <- liftIO $ settleRead manager justRead
+        case source of
+            FromCache -> pure (ReadForLoad settled CacheHit pinRead)
+            FromSource -> (\(edited, origin) -> ReadForLoad edited origin pinRead) <$> ExceptT (replayEdits manager dbConfig settled)
 
-    publish :: DatabaseConfig -> SynonymDB -> LoadedDatabase -> LoadOrigin -> IO ()
-    publish dbConfig synonymDB loaded origin = do
+    {- The pin read is what the cache holds: when the settled one differs, the
+    relink rewrites the cache, even when no link changes. -}
+    publish :: SynonymDB -> LoadedDatabase -> LoadOrigin -> [Text] -> IO ()
+    publish synonymDB loaded origin pinRead = do
+        let dbConfig = ldConfig loaded
         atomically $
             publishLoaded manager dbName loaded (buildIndexedDatabaseFromDB dbName synonymDB (ldDatabase loaded))
         clearMethodMappingCacheForDb manager dbName
@@ -3015,47 +3078,47 @@ loadDatabaseSingleFromConfig manager dbName = do
             dbName
             (SynonymOrigin ("Auto-extracted from " <> dcDisplayName dbConfig))
             (extractFromEcoSpold2 (dbBioFlows (ldDatabase loaded)))
-        -- A fresh parse linked without the mapping, so one held means relinking.
-        when (needsSelfRelink origin || isJust (ldSupplierMapping loaded)) $
-            relinkDatabase manager dbName >>= either (warnSelfRelinkFailed dbName) (const (pure ()))
+        -- A fresh parse linked without the mapping, so one held means relinking;
+        -- so does a pin settled since the cache was written.
+        when (needsSelfRelink origin || isJust (ldSupplierMapping loaded) || not (sameSet pinRead (dbDependsOn (ldDatabase loaded)))) $
+            readTVarIO (dmIndexedDbs manager)
+                >>= \indexes ->
+                    relinkWithin manager dbName (M.elems indexes) (Just pinRead) LoadedToo
+                        >>= either (warnSelfRelinkFailed dbName) (const (pure ()))
         relinkDependents manager dbName
-        -- A mapping links to a database no input reaches by name: only what
-        -- is recorded finds it again when the files are read afresh.
-        when (isJust (ldSupplierMapping loaded)) $ recordDependencies manager dbName
         {- Cache what the journal produced, so the next load does not replay
         it, and stamp the cache with the journal it holds. The stamp goes
         last: a cache that is not stamped is read again from source. -}
         when (origin == Replayed) $ recordReplayedCache manager dbConfig
 
-{- | A database just read, depending also on the databases its home records.
-
-What is recorded only adds to what the reading found. A dependency chosen by a
-mapping relink reaches no input by name, so the files read afresh do not find
-it; and nothing is taken away, so a supplier in a database the record does not
-name is still found. A configured database owns its dependencies in the
-configuration file and is left as read.
+{- | A database read for a load: on the dependencies settled for it, and those
+it was read with, which its cache holds.
 -}
-withRecordedDeps :: DatabaseConfig -> LoadedDatabase -> LoadedDatabase
-withRecordedDeps dbConfig loaded
-    | dcIsUploaded dbConfig = loaded{ldDatabase = db{dbDependsOn = nubOrd (dbDependsOn db <> dcDepends dbConfig)}}
-    | otherwise = loaded
-  where
-    db :: Database
-    db = ldDatabase loaded
+data ReadForLoad = ReadForLoad
+    { rlLoaded :: !LoadedDatabase
+    , rlOrigin :: !LoadOrigin
+    , rlPinRead :: ![Text]
+    }
 
-{- | Record the dependencies a database stands on now, loaded or staged, where
-a restart reads them. Nothing is written when they are already what is
-recorded.
+{- | A database just read, on the dependencies settled for it, before any
+journal is replayed over it, since the replay finds its suppliers there. One
+nothing has settled records what it was read with, if anything: a parse found
+it against the databases loaded, and a cache from before the dependencies were
+kept holds what it was last linked to. Also the pin it was read with.
 -}
-recordDependencies :: DatabaseManager -> Text -> IO ()
-recordDependencies manager dbName = do
-    loadedDbs <- readTVarIO (dmLoadedDbs manager)
-    stagedDbs <- readTVarIO (dmStagedDbs manager)
-    configs <- readTVarIO (dmAvailableDbs manager)
-    let standing = standingDependencies loadedDbs stagedDbs dbName
-        recorded = maybe [] dcDepends (M.lookup dbName configs)
-    forM_ standing $ \deps ->
-        unless (sameSet deps recorded) $ persistUploadDepends manager dbName deps
+settleRead :: DatabaseManager -> LoadedDatabase -> IO (LoadedDatabase, [Text])
+settleRead manager loaded = do
+    let name = dcName (ldConfig loaded)
+        pinRead = dbDependsOn (ldDatabase loaded)
+    recordFound manager name pinRead
+    deps <- maybe Unsettled dcDepends . M.lookup name <$> readTVarIO (dmAvailableDbs manager)
+    pure (standingOn deps loaded, pinRead)
+
+-- | A loaded database on settled dependencies; as it was read while unsettled.
+standingOn :: Dependencies -> LoadedDatabase -> LoadedDatabase
+standingOn Unsettled loaded = loaded
+standingOn deps@(Settled _ names) loaded =
+    loaded{ldDatabase = (ldDatabase loaded){dbDependsOn = names}, ldConfig = settledOn deps (ldConfig loaded)}
 
 -- | The dependencies a database stands on now: loaded, or staged, as a dependency edit leaves it.
 standingDependencies :: Map Text LoadedDatabase -> Map Text StagedDatabase -> Text -> Maybe [Text]
@@ -3502,7 +3565,13 @@ data RelinkInputs = RelinkInputs
     , riContext :: !LinkingContext
     , riPersistedDeps :: !(Maybe [Text])
     -- ^ The dependency set the matrix cache on disk records, when it is known.
+    , riPin :: !PinRule
     }
+
+{- | Where a relink's dependencies come from: the ones settled, unchanged by
+it; or, for a database nothing settled, the databases its links reach.
+-}
+data PinRule = KeepPin | PinFromLinks
 
 {- | What a relink produced: the rewritten database, the report for the caller,
 and whether the matrix cache on disk is now behind. Whether the links
@@ -3537,16 +3606,19 @@ relinkPlan RelinkInputs{..} =
     simple :: SimpleDatabase
     simple = toSimpleDatabase riDatabase
 
+    -- The units a parse could not read are found only by the parse: kept.
     newStats :: CrossDBLinkingStats
-    newStats = (Loader.findAllCrossDBLinks riContext simple){cdlTotalInputs = Loader.countTotalTechInputs simple}
+    newStats = (Loader.findAllCrossDBLinks riContext simple){cdlTotalInputs = Loader.countTotalTechInputs simple, cdlUnknownUnits = cdlUnknownUnits (dbLinkingStats riDatabase)}
 
     newLinks :: [CrossDBLink]
     newLinks = cdlLinks newStats
 
-    -- Strict pin: the dependency set is the user's selection, unchanged by
-    -- relinking. Only the links within it are refreshed.
+    -- Strict pin: settled dependencies are unchanged by relinking, only the
+    -- links within them are refreshed. Unsettled ones are what the links reach.
     newDeps :: [Text]
-    newDeps = dbDependsOn riDatabase
+    newDeps = case riPin of
+        KeepPin -> dbDependsOn riDatabase
+        PinFromLinks -> M.keys (crossDBBySource newStats)
 
     db' :: Database
     db' =
@@ -3556,9 +3628,8 @@ relinkPlan RelinkInputs{..} =
             , dbLinkingStats = newStats
             }
 
-    -- The pin is invariant under relink (newDeps is the set already recorded),
-    -- so a change can only be in the links. Compare as sets: link order is not
-    -- significant and must not trigger a redundant cache write.
+    -- Compare as sets: link order is not significant and must not trigger a
+    -- redundant cache write.
     linksChanged :: Bool
     linksChanged = not (sameSet newLinks (dbCrossDBLinks riDatabase))
 
@@ -3631,10 +3702,13 @@ relinkDatabaseWithMapping manager dbName depDb mapping = withLogScope dbName $ d
                 atomically $
                     modifyTVar' (dmLoadedDbs manager) (M.adjust (withMapping . addPinnedDep depDb) dbName)
                 relinkDatabaseWith manager dbName (Just persistedDeps)
-    forM_ relinked $ \_ -> do
-        storeSupplierMapping manager dbName mapping
-        recordDependencies manager dbName
-    pure relinked
+    case relinked of
+        Left err -> pure (Left err)
+        Right result -> do
+            storeSupplierMapping manager dbName mapping
+            standing <- standingDependencies <$> readTVarIO (dmLoadedDbs manager) <*> readTVarIO (dmStagedDbs manager) <*> pure dbName
+            recorded <- maybe (pure (Right ())) (recordDependencies manager dbName . Settled Clicked) standing
+            pure (result <$ recorded)
   where
     withMapping :: LoadedDatabase -> LoadedDatabase
     withMapping ld = ld{ldSupplierMapping = Just mapping}
@@ -3722,26 +3796,48 @@ relinkDatabaseWith ::
     Text ->
     Maybe [Text] ->
     IO (Either Text RelinkResult)
-relinkDatabaseWith manager dbName persistedDeps = withLogScope dbName $ do
+relinkDatabaseWith manager dbName persistedDeps = do
+    indexedDbs <- readTVarIO (dmIndexedDbs manager)
+    relinkWithin manager dbName (M.elems indexedDbs) persistedDeps PinnedOnly
+
+{- | How far a relink may look: within the database's dependencies, or, for a
+database nothing settled, at every database loaded. Only a load looks that far,
+as a load from its files would: a relink or an edit never adds a dependency.
+-}
+data LinkReach = PinnedOnly | LoadedToo
+
+{- | 'relinkDatabaseWith' against the indexes given rather than those loaded
+now: the startup links each level against the snapshot it started with.
+-}
+relinkWithin :: DatabaseManager -> Text -> [IndexedDatabase] -> Maybe [Text] -> LinkReach -> IO (Either Text RelinkResult)
+relinkWithin manager dbName indexes persistedDeps reach = withLogScope dbName $ do
     loadedDbs <- readTVarIO (dmLoadedDbs manager)
     maybe (relinkStaged manager dbName Nothing) relinkLoaded (M.lookup dbName loadedDbs)
   where
     relinkLoaded :: LoadedDatabase -> IO (Either Text RelinkResult)
     relinkLoaded loaded = do
-        indexedDbs <- readTVarIO (dmIndexedDbs manager)
-        -- Strict pin: candidates are restricted to the database's declared
-        -- dependency set ('dbDependsOn'), never the full set of loaded DBs.
-        -- This keeps the user's explicit selection authoritative: relink
-        -- recomputes links *within* the whole pin (so a mapping relink against
-        -- one dependency re-resolves the others unchanged instead of dropping
-        -- them) but never expands or shrinks the set.
-        let pinnedDeps = dbDependsOn (ldDatabase loaded)
-            otherIndexes = [idb | (n, idb) <- M.toList indexedDbs, n /= dbName, n `elem` pinnedDeps]
+        configs <- readTVarIO (dmAvailableDbs manager)
+        {- Strict pin: the candidates are the database's dependency set
+        ('dbDependsOn'), never the full set of loaded DBs; relink recomputes
+        links *within* the whole pin (so a mapping relink against one
+        dependency re-resolves the others unchanged instead of dropping them)
+        but never expands or shrinks it. A load of a database nothing settled
+        is the exception: the candidates are every database it links to, and
+        its dependencies are what the links reach, recorded as found. The
+        choice is read from the list, which a click made during a load has
+        already reached. -}
+        let config = fromMaybe (ldConfig loaded) (M.lookup dbName configs)
+            pinnedDeps = dbDependsOn (ldDatabase loaded)
+            (candidate, pin) = case (reach, dcDepends config) of
+                (LoadedToo, Unsettled) -> (linksTo configs config, PinFromLinks)
+                (LoadedToo, Settled _ _) -> ((`elem` pinnedDeps), KeepPin)
+                (PinnedOnly, _) -> ((`elem` pinnedDeps), KeepPin)
+            otherIndexes = [idb | idb <- indexes, idbName idb /= dbName, candidate (idbName idb)]
         synonymDB <- getMergedSynonymDB manager
         unitConfig <- getMergedUnitConfig manager
         -- Forced here on purpose: the whole link computation must be done
         -- before the transaction below opens, never inside it.
-        let !outcome = relinkPlan (planInputs loaded otherIndexes synonymDB unitConfig)
+        let !outcome = relinkPlan (planInputs loaded otherIndexes synonymDB unitConfig pin)
             db' = roDatabase outcome
             loaded' = loaded{ldDatabase = db'}
         atomically $
@@ -3754,10 +3850,11 @@ relinkDatabaseWith manager dbName persistedDeps = withLogScope dbName $ do
         when (roCacheChanged outcome) $ do
             Loader.saveCachedDatabaseWithMatrices dbName (dcPath (ldConfig loaded')) db'
             reportProgress Info (relinkSummary (roResult outcome))
+        recordFound manager dbName (case pin of PinFromLinks -> dbDependsOn db'; KeepPin -> [])
         return (Right (roResult outcome))
 
-    planInputs :: LoadedDatabase -> [IndexedDatabase] -> SynonymDB -> UnitConversion.UnitConfig -> RelinkInputs
-    planInputs loaded otherIndexes synonymDB unitConfig =
+    planInputs :: LoadedDatabase -> [IndexedDatabase] -> SynonymDB -> UnitConversion.UnitConfig -> PinRule -> RelinkInputs
+    planInputs loaded otherIndexes synonymDB unitConfig pin =
         RelinkInputs
             { riDbName = dbName
             , riDatabase = ldDatabase loaded
@@ -3772,6 +3869,7 @@ relinkDatabaseWith manager dbName persistedDeps = withLogScope dbName $ do
                     , lcSupplierAliases = mappingAliases (ldSupplierMapping loaded)
                     }
             , riPersistedDeps = persistedDeps
+            , riPin = pin
             }
 
     relinkSummary :: RelinkResult -> String
@@ -3841,7 +3939,7 @@ loadDatabase manager dbName = fmap flattenLoad (try (withLogScope dbName go))
     go = do
         -- Pre-load declared dependencies so they're available for cross-DB linking
         availableDbs <- readTVarIO (dmAvailableDbs manager)
-        let configDeps = maybe [] (\c -> dcDepends c <> requiredDatabases availableDbs c) (M.lookup dbName availableDbs)
+        let configDeps = maybe [] (\c -> dependsNames (dcDepends c) <> requiredDatabases availableDbs c) (M.lookup dbName availableDbs)
         depResults1 <- autoLoadDeps manager configDeps
 
         result <- loadDatabaseSingle manager dbName
@@ -3872,30 +3970,51 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
     dbName :: Text
     dbName = dcName dbConfig
 
+    {- The cache holds the links of its last write: on dependencies settled
+    since, the page would show links and gaps the database no longer has, so
+    it is relinked within them. -}
     fromCache :: Database -> ExceptT Text IO ()
     fromCache cachedDb = liftIO $ do
+        recordFound manager dbName (dbDependsOn cachedDb)
+        configs <- readTVarIO (dmAvailableDbs manager)
+        let config = fromMaybe dbConfig (M.lookup dbName configs)
+            chosen = case dcDepends config of
+                Settled _ names -> names
+                Unsettled -> dbDependsOn cachedDb
         -- Cache hit: auto-load dependencies so cross-DB solving works
-        _ <- autoLoadDeps manager (dbDependsOn cachedDb)
+        _ <- autoLoadDeps manager chosen
         mapping <- storedSupplierMapping manager dbConfig
-        stage "  [OK] Staged from cache: " $
-            StagedDatabase
-                { sdSimpleDB = toSimpleDatabase cachedDb
-                , sdConfig = dbConfig
-                , sdMissingProducts = []
-                , sdSelectedDeps = dbDependsOn cachedDb
-                , sdCrossDBLinks = dbCrossDBLinks cachedDb
-                , sdLinkingStats = dbLinkingStats cachedDb
-                , sdBuiltWith = dbBuiltWith cachedDb
-                , sdCachedDB = Just cachedDb
-                , sdSupplierMapping = mapping
-                }
+        let cached =
+                StagedDatabase
+                    { sdSimpleDB = toSimpleDatabase cachedDb
+                    , sdConfig = config
+                    , sdMissingProducts = []
+                    , sdSelectedDeps = dbDependsOn cachedDb
+                    , sdCrossDBLinks = dbCrossDBLinks cachedDb
+                    , sdLinkingStats = dbLinkingStats cachedDb
+                    , sdBuiltWith = dbBuiltWith cachedDb
+                    , sdCachedDB = Just cachedDb
+                    , sdSupplierMapping = mapping
+                    }
+        staged <-
+            if sameSet chosen (dbDependsOn cachedDb)
+                then pure cached
+                else do
+                    indexedDbs <- readTVarIO (dmIndexedDbs manager)
+                    stagedWithin manager StagedRelink{srStaged = cached, srIndexedDbs = indexedDbs, srNewDeps = chosen}
+        stage "  [OK] Staged from cache: " staged
 
-    -- Linked within the databases its requirements admit, every one when it has none.
+    {- Linked within its settled dependencies, loaded first and all kept
+    selected, so the page shows the choice and the next click starts from it;
+    settled on none, within every database loaded its requirements admit, and
+    only those its links need are selected. -}
     parseAndLink :: Map Text DatabaseConfig -> BuildInputs -> ExceptT Text IO ()
     parseAndLink configs inputs = do
+        let config = fromMaybe dbConfig (M.lookup dbName configs)
+        forM_ (settledNames (dcDepends config)) (liftIO . autoLoadDeps manager)
         -- Resolve nested directory structure (e.g. ZIP extracts with multiple subdirs)
         path <- liftIO $ Upload.findDataDirectory (dcPath dbConfig)
-        indexedDbs <- liftIO $ M.filterWithKey (\name _ -> admits configs dbConfig name) <$> readTVarIO (dmIndexedDbs manager)
+        indexedDbs <- liftIO $ M.filterWithKey (\name _ -> linksTo configs config name) <$> readTVarIO (dmIndexedDbs manager)
         {- A CSV export or a workbook names one file; the loader is handed that
         rather than the directory holding it. Either way the loader gets a
         path: a source that holds no file of its own format is left to produce
@@ -3919,23 +4038,29 @@ stageUploadedDatabase manager dbConfig = withLogScope dbName $ runExceptT $ do
                     (dmLocationHierarchy manager)
                     (dcGeographyPolicy dbConfig)
                     loadPath
-        let minimalDeps = computeMinimalSelectedDeps (Loader.cdlLinks stats)
-        (finalStats, finalDB) <-
-            liftIO $ minimalCover indexedDbs synonymDB unitConfig minimalDeps simpleDb stats
+        (selected, (finalStats, finalDB)) <- liftIO $ case dcDepends config of
+            Settled _ names -> pure (names, (stats, simpleDb))
+            Unsettled ->
+                let minimalDeps = computeMinimalSelectedDeps (Loader.cdlLinks stats)
+                 in (minimalDeps,) <$> minimalCover indexedDbs synonymDB unitConfig minimalDeps simpleDb stats
         mapping <- liftIO $ storedSupplierMapping manager dbConfig
         liftIO $
             stage "  [OK] Staged: " $
                 StagedDatabase
                     { sdSimpleDB = finalDB
-                    , sdConfig = dbConfig
+                    , sdConfig = config
                     , sdMissingProducts = stagedMissingProducts finalDB finalStats
-                    , sdSelectedDeps = minimalDeps
+                    , sdSelectedDeps = selected
                     , sdCrossDBLinks = Loader.cdlLinks finalStats
                     , sdLinkingStats = finalStats
                     , sdBuiltWith = inputs
                     , sdCachedDB = Nothing
                     , sdSupplierMapping = mapping
                     }
+
+    settledNames :: Dependencies -> Maybe [Text]
+    settledNames (Settled _ names) = Just names
+    settledNames Unsettled = Nothing
 
     {- Drop the dependencies whose links are all substitutable by another at
     the same score. If that shrinks the set, linking runs again restricted to
@@ -4150,12 +4275,20 @@ publishLoaded manager dbName loaded indexedDb = do
 -- | Helper to remove database from in-memory maps only
 removeFromMemory :: DatabaseManager -> Text -> IO (Either Text ())
 removeFromMemory manager dbName = do
-    atomically $ do
-        modifyTVar' (dmAvailableDbs manager) (M.delete dbName)
-        modifyTVar' (dmStagedDbs manager) (M.delete dbName)
-        modifyTVar' (dmStagingDbs manager) (S.delete dbName)
+    -- What the engine kept for it goes with it: a database uploaded again
+    -- under its name starts unsettled.
+    withMVar (dmDependencyLock manager) $ \() -> do
+        atomically $ do
+            modifyTVar' (dmAvailableDbs manager) (M.delete dbName)
+            modifyTVar' (dmStagedDbs manager) (M.delete dbName)
+            modifyTVar' (dmStagingDbs manager) (S.delete dbName)
+        configs <- readTVarIO (dmAvailableDbs manager)
+        writeKept [dbName] (M.elems configs) >>= either (reportProgress Warning . notForgotten) pure
     reportProgress Info $ "Removed database: " <> T.unpack dbName
     return $ Right ()
+  where
+    notForgotten :: Text -> String
+    notForgotten err = "The dependencies kept for " <> T.unpack dbName <> " stay in the file until its next change: " <> T.unpack err
 
 --------------------------------------------------------------------------------
 -- Staged Database Operations
@@ -4927,7 +5060,7 @@ refuseLoop manager edit = do
     configs <- readTVarIO (dmAvailableDbs manager)
     {- A database neither loaded nor staged stands on what its configuration
     records, which is what it will load with. -}
-    let dependenciesOf name = fromMaybe (maybe [] dcDepends (M.lookup name configs)) (standingDependencies loadedDbs stagedDbs name)
+    let dependenciesOf name = fromMaybe (maybe [] (dependsNames . dcDepends) (M.lookup name configs)) (standingDependencies loadedDbs stagedDbs name)
     pure (maybe (Right ()) (Left . loopRefusal edit) (loopClosedBy dependenciesOf edit))
 
 {- | The databases from the dependency back to the database being changed, when
@@ -4983,12 +5116,25 @@ data StagedRelink = StagedRelink
     , srNewDeps :: ![Text]
     }
 
-{- | Relink a staged database within a new dependency pin, write both back, and
-report the setup as it now stands. The two mutators above differ only in how
-they compute the pin.
+{- | Record the dependencies clicked for a staged database, relink it within
+them, and report the setup as it now stands. The two mutators above differ
+only in how they compute the pin. A click that cannot be recorded changes
+nothing: it would hold until the restart only.
 -}
 applyStagedDeps :: DatabaseManager -> Text -> StagedRelink -> IO (Either Text DatabaseSetupInfo)
-applyStagedDeps manager dbName StagedRelink{..} = do
+applyStagedDeps manager dbName relink = do
+    let deps = Settled Clicked (srNewDeps relink)
+    restaged <- stagedWithin manager relink
+    recordDependencies manager dbName deps >>= \case
+        Left err -> pure (Left err)
+        Right () -> do
+            atomically $
+                modifyTVar' (dmStagedDbs manager) (M.insert dbName restaged{sdConfig = settledOn deps (sdConfig restaged)})
+            first setupErrorMessage <$> getDatabaseSetupInfo manager dbName
+
+-- | A staged database relinked within a new dependency pin.
+stagedWithin :: DatabaseManager -> StagedRelink -> IO StagedDatabase
+stagedWithin manager StagedRelink{..} = do
     synonymDB <- getMergedSynonymDB manager
     unitConfig <- getMergedUnitConfig manager
     -- The mapping a relink applied stays in force when the dependencies change.
@@ -5002,12 +5148,7 @@ applyStagedDeps manager dbName StagedRelink{..} = do
                 (dcGeographyPolicy (sdConfig srStaged))
                 (mappingAliases mapping)
                 (sdSimpleDB srStaged)
-    atomically $
-        modifyTVar'
-            (dmStagedDbs manager)
-            (M.insert dbName (withRelinkedDeps srNewDeps mapping newStats srStaged))
-    persistUploadDepends manager dbName srNewDeps
-    first setupErrorMessage <$> getDatabaseSetupInfo manager dbName
+    pure (withRelinkedDeps srNewDeps mapping newStats srStaged)
 
 {- | A database ready to be made live, and whether this finalize introduced
 something the matrix cache on disk does not hold yet.
@@ -5102,9 +5243,8 @@ finalizeDatabase manager dbName = withLogScope dbName $ do
             modifyTVar' (dmStagedDbs manager) (M.delete dbName)
             publishLoaded manager dbName loaded indexedDb
         clearMethodMappingCacheForDb manager dbName
-        -- Finalizing is the moment the dependency pin becomes the database's
-        -- own; record it where a restart reads.
-        persistUploadDepends manager dbName (sdSelectedDeps staged)
+        -- Finalizing a database nothing settled keeps what its linking found.
+        recordFound manager dbName (sdSelectedDeps staged)
 
         {- Self-relink first against the current dep set: a cached or staged
         build can carry cross-DB links that do not match the deps now in

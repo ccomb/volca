@@ -13,7 +13,7 @@ import Test.Hspec
 
 import API.DatabaseHandlers (licenceRefusal)
 import API.Resources (Resource (..), resourceNeeds)
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), defaultConfig)
 import Database.Manager (CachePolicy (..), DatabaseManager, DatabaseStatus (..), LoadedDatabase (..), SettingRefusal (..), addDatabase, databaseLicence, getDatabase, initDatabaseManager, listDatabases, loadDatabase, setUploadDescription, setUploadDisplayName, setUploadLicence, setUploadRelease)
 import qualified Database.UploadedDatabase as UploadedDB
 import TestHelpers (membersOnly, withScratchDataDir)
@@ -52,7 +52,7 @@ configured =
         , dcDescription = Nothing
         , dcLoad = False
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False

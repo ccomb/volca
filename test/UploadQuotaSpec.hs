@@ -14,7 +14,7 @@ module UploadQuotaSpec (spec) where
 
 import API.DatabaseHandlers (copyRefusal, loadRefusal, memoryRefusal, uploadRefusal)
 import API.MCP (callTool, noRequestId)
-import Config (DatabaseConfig (..), HostingConfig (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), HostingConfig (..), defaultConfig)
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Data.Aeson (Value (..))
 import qualified Data.Aeson.KeyMap as KM
@@ -54,7 +54,7 @@ uploadedEntry name =
         , dcDescription = Nothing
         , dcLoad = False
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = True

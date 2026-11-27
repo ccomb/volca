@@ -11,10 +11,10 @@ import Control.Concurrent.STM (readTVarIO)
 import Control.Exception (finally)
 import qualified Data.Map.Strict as M
 import System.Directory (doesFileExist, getCurrentDirectory, makeAbsolute, setCurrentDirectory)
-import System.Environment (setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
+import TestHelpers (withDataDirAt)
 
 import Config (defaultConfig)
 import Database.Manager (
@@ -36,7 +36,7 @@ withTempManager action =
     withSystemTempDirectory "volca-auto-syns" $ \tmp -> do
         oldCwd <- getCurrentDirectory
         setCurrentDirectory tmp
-        (initDatabaseManager defaultConfig NoCache >>= action)
+        withDataDirAt tmp (initDatabaseManager defaultConfig NoCache >>= action)
             `finally` setCurrentDirectory oldCwd
 
 spec :: Spec
@@ -75,12 +75,9 @@ spec = describe "autoCreateFlowSynonyms" $ do
     it "persists the candidate under the data directory, not the working directory" $
         withTempManager $ \manager -> do
             dataDir <- makeAbsolute "volume"
-            setEnv "VOLCA_DATA_DIR" dataDir
-            ( do
-                    autoCreateFlowSynonyms manager "test-method" (SynonymOrigin "desc") [("alpha", "beta")]
-                    doesFileExist (dataDir </> "uploads" </> "flow-synonyms" </> "auto-test-method" </> "data.csv")
-                        `shouldReturn` True
-                    doesFileExist ("uploads" </> "flow-synonyms" </> "auto-test-method" </> "data.csv")
-                        `shouldReturn` False
-                )
-                `finally` unsetEnv "VOLCA_DATA_DIR"
+            withDataDirAt dataDir $ do
+                autoCreateFlowSynonyms manager "test-method" (SynonymOrigin "desc") [("alpha", "beta")]
+                doesFileExist (dataDir </> "uploads" </> "flow-synonyms" </> "auto-test-method" </> "data.csv")
+                    `shouldReturn` True
+                doesFileExist ("uploads" </> "flow-synonyms" </> "auto-test-method" </> "data.csv")
+                    `shouldReturn` False

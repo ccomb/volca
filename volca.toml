@@ -85,7 +85,8 @@ host = "127.0.0.1"
 #   description              Short description
 #   load          = false    Load at startup (transitively loads dependencies)
 #   default       = false    Use as the default database
-#   depends       = []       Names of databases this one depends on
+#   depends       = []       The databases this one links to, and no other;
+#                            absent, it links to what is loaded and keeps that
 #   locationAliases = {}     Location name corrections (e.g. {ENTSO = "ENTSO-E"})
 #
 # Example:

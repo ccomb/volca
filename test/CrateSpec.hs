@@ -18,7 +18,7 @@ import Data.Time.Calendar (fromGregorian)
 import qualified Data.UUID as UUID
 import Test.Hspec
 
-import Config (DatabaseConfig (..))
+import Config (DatabaseConfig (..), Dependencies (..))
 import Database.Crate
 import Database.SystemModel (Rule (..), Traced (..), parseSystemModel)
 import Database.Upload (DatabaseFormat (..))
@@ -104,7 +104,7 @@ config name release =
         , dcDescription = Nothing
         , dcLoad = False
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = True

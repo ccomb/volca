@@ -52,7 +52,7 @@ import API.MCP (callTool, noRequestId)
 import API.Routes (batchedScoresFor, getActivityInventory, getActivitySupplyChain)
 import API.Types (SupplyChainEntry (..), SupplyChainResponse (..), WithheldProcesses (..))
 import App.Env (AppEnv (..), AppM, runApp)
-import Config (DatabaseConfig (..), defaultConfig)
+import Config (DatabaseConfig (..), Dependencies (..), defaultConfig)
 import Database.Cutoffs (CheckedSolution, reshaped)
 import qualified Database.Manager as DM
 import FlowContributionSpec (payloadOf)
@@ -147,7 +147,7 @@ configFor name licence =
         , dcDescription = Nothing
         , dcLoad = True
         , dcDefault = False
-        , dcDepends = []
+        , dcDepends = Unsettled
         , dcLocationAliases = M.empty
         , dcFormat = Nothing
         , dcIsUploaded = False
