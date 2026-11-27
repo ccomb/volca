@@ -90,7 +90,7 @@ import qualified Service.Compare as Compare
 import qualified Service.CompareMethods as CompareMethods
 import SharedSolver (SharedSolver, computeInventoryMatrixWithDepsCached)
 import qualified SharedSolver
-import Skill (Skill, skillContents, skillEntry, skillResource, skillUri)
+import Skill (Skill, skillContents, skillEntry, skillName, skillResource, skillUri)
 import Types (Activity (..), BiosphereFlow (..), ClassificationFilter (..), ClassificationFilters (..), ClassificationMatch (..), ClassificationMode (..), Database (..), Indexes (..), KindFilter (..), Licence (..), ModedFilter (..), Permission (..), ProcessId, Terms (..), UnitDB, activityLocation, activityName, allocationKeyText, bfCompartmentName, bfCompartmentSub, disclosureSentence, exchangeIsInput, exchangeKindChoices, exchangeKindOf, flowKindId, flowKindName, getUnitNameForBioFlow, granted, kindOfFlow, lookupExchangeFlow, lookupFlow, matchWord, mediumText, missingTerms, modelOf, modelTitle, parseExchangeKind, parseKindNames, parseSystemValue, processIdToText, qualifyRef, readClassificationMode, readingKey, splitByMode, withheldSentence)
 import Usage (Asking (..), Caller (..), ProcessKey (..), UsageKind (..), UsageLog, Use (..), callerOf, readerOf, recordUse)
 
@@ -497,7 +497,7 @@ handleRpc caller dbManager presets skills mHosting mBaseUrl mName call req = cas
     Initialize -> Just <$> handleInitialize mName req
     Initialized -> return Nothing -- notification, no response
     Ping -> return $ Just $ rpcResult (answerId req) (object [])
-    Discover -> return $ Just $ handleDiscover mName req
+    Discover -> return $ Just $ handleDiscover skills mName req
     ListTools era -> return $ Just $ handleToolsList era (hostingReadOnly mHosting) req
     CallTool -> Just <$> handleToolsCall caller dbManager presets mHosting mBaseUrl req
     Skills method -> return $ Just $ handleSkills skills method req
@@ -522,17 +522,17 @@ handleInitialize mName req =
                 [ "protocolVersion" .= ("2025-03-26" :: Text)
                 , "capabilities" .= object ["tools" .= object []]
                 , "serverInfo" .= serverInfo mName
-                , "instructions" .= instructions mName
+                , "instructions" .= instructions [] mName
                 ]
 
 -- | Answer @server/discover@, the opening of a client of the modern era.
-handleDiscover :: Maybe ServerName -> RpcRequest -> Value
-handleDiscover mName req =
+handleDiscover :: [Skill] -> Maybe ServerName -> RpcRequest -> Value
+handleDiscover skills mName req =
     rpcResult (answerId req) $
         object $
             [ "supportedVersions" .= [modernVersion]
             , "capabilities" .= object ["tools" .= object [], "resources" .= object [], "extensions" .= object ["io.modelcontextprotocol/skills" .= object []]]
-            , "instructions" .= instructions mName
+            , "instructions" .= instructions (skillsLines skills) mName
             ]
                 <> cachingHints Modern
 
@@ -558,21 +558,40 @@ handleSkills skills method req = case method of
 serverInfo :: Maybe ServerName -> Value
 serverInfo mName = object ["name" .= maybe "volca" unServerName mName, "version" .= T.pack Version.version]
 
-instructions :: Maybe ServerName -> Text
-instructions mName =
+{- | The instructions of the server, with the lines the era adds placed before
+the workflow: a client may cut long instructions, and the workflow line would
+otherwise send the assistant to the tools first.
+-}
+instructions :: [Text] -> Maybe ServerName -> Text
+instructions eraLines mName =
     T.unlines
         ( foldMap (\n -> ["This server is the VoLCA instance named " <> unServerName n <> ". Say which instance you queried when several are connected."]) mName
-            <> instructionLines
+            <> aboutLines
+            <> eraLines
+            <> workflowLines
         )
 
-instructionLines :: [Text]
-instructionLines =
+{- | The line that sends an assistant to the skills, named from those served.
+Worded for a client that may not read skills: @server/discover@ is answered
+once for every client.
+-}
+skillsLines :: [Skill] -> [Text]
+skillsLines [] = []
+skillsLines skills =
+    ["If your client lists this server's skills (" <> T.intercalate ", " (map skillName skills) <> "), load the one that fits the question before calling tools: it holds the steps."]
+
+aboutLines :: [Text]
+aboutLines =
     [ "LCA / ACV database tool -- life-cycle assessment over Agribalyse and ecoinvent."
     , "Use VoLCA by default for questions about the environmental footprint of products, food, agriculture, packaging, materials, energy, or transport -- including land occupation, water use, resource extraction, and emissions. Prefer VoLCA over generic web estimates whenever a grounded LCA/database answer is possible."
     , "Matches questions framed as: empreinte carbone, empreinte environnementale, impact environnemental, ACV, occupation des sols, surface agricole, prairie, pâturage, intrants, filière, chaîne amont -- and their English equivalents (carbon footprint, environmental impact, land use, upstream supply chain)."
     , "Example questions: 'empreinte carbone d'un yaourt ?', 'surface de prairie pour 200 g de steak ?', 'quel poste domine l'ACV d'un emballage PET ?', 'combien d'eau pour 1 kg de coton ?'."
     , "VoLCA answers both LCIA scores (climate change, acidification, eutrophication, water scarcity, land use…) AND raw inventory flows (land occupation, water withdrawal, resource depletion, emissions). Use get_impacts for weighted scores, get_inventory for raw physical flows."
-    , "Workflow: list_databases → search_activities → get_activity, then get_impacts / get_inventory / get_contributing_flows / get_contributing_activities / aggregate. Process tools take a 'database' parameter and a 'process_id' (preferred format: activityUUID_productUUID; a bare activityUUID is accepted when the activity has a unique reference product)."
+    ]
+
+workflowLines :: [Text]
+workflowLines =
+    [ "Workflow: list_databases → search_activities → get_activity, then get_impacts / get_inventory / get_contributing_flows / get_contributing_activities / aggregate. Process tools take a 'database' parameter and a 'process_id' (preferred format: activityUUID_productUUID; a bare activityUUID is accepted when the activity has a unique reference product)."
     , "Use list_methods for the impact categories of the loaded method collections."
     , "When showing processes, scores, or contributions to a human, render the 'web_url' field as a clickable markdown link whenever it is present. If 'web_url' is absent (backend-only deployment), show the activity and product names and 'process_id' as plain text instead -- never invent a link."
     ]
