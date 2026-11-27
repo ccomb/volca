@@ -87,7 +87,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.UUID as UUID
 import qualified Data.Vector as V
-import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, makeAbsolute)
+import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute)
 import System.FilePath ((</>))
 
 import Config (DatabaseConfig (..), dependsNames, licenceOf)
@@ -243,8 +243,8 @@ nameIsFree manager slug = do
             then Left ("Database already exists: " <> slug)
             else Right ()
 
-{- | The databases a created one depends on, at least one: without a supplier
-to buy from, a process written there could take no input.
+{- | The databases a created one depends on, at least one: without a database
+to take its suppliers from, a process written there could take no input.
 -}
 dependsOf :: [Text] -> Either Text (NonEmpty Text)
 dependsOf names =
@@ -279,46 +279,55 @@ loadCreated manager slug depends =
     recordCreated slug depends >>= \case
         Left err -> pure (Left err)
         Right config -> do
+            -- Its dependencies are the ones its meta.toml declares, which a
+            -- restart reads back: nothing more to keep for them.
             atomically $ modifyTVar' (dmAvailableDbs manager) (M.insert slug config)
-            recordDependencies manager slug (dcDepends config)
-                >>= either (reportProgress Warning . T.unpack . ("the dependencies of " <>) . (slug <>) . (" hold until the restart only: " <>)) pure
             loadDatabase manager slug >>= \case
                 Left err -> Left err <$ discardDerived manager slug
                 Right result -> pure (Right result)
 
 {- | Write the created database's home, and the config a restart reads back
 from it, so the database is the same before and after one.
+
+A home already on disk is refused even when no registry names it: a
+@meta.toml@ this engine cannot read leaves its database out of the registry,
+on disk for a binary that reads it, and its journal would be replayed into the
+database said to be empty.
 -}
 recordCreated :: Text -> NonEmpty Text -> IO (Either Text DatabaseConfig)
 recordCreated slug depends = do
-    written <- try $ do
-        uploadsDir <- UploadedDB.getDatabaseUploadsDir
-        let home = uploadsDir </> T.unpack slug
-        createDirectoryIfMissing True home
-        added <- addedNow
-        let meta =
-                UploadedDB.UploadMeta
-                    { UploadedDB.umVersion = UploadedDB.metaVersion
-                    , UploadedDB.umDisplayName = slug
-                    , UploadedDB.umDescription = Nothing
-                    , UploadedDB.umFormat = UnknownFormat
-                    , UploadedDB.umDataPath = "."
-                    , UploadedDB.umDepends = NE.toList depends
-                    , UploadedDB.umSource = Nothing
-                    , UploadedDB.umReading = FromJournal
-                    , UploadedDB.umBuiltIn = Nothing
-                    , UploadedDB.umLicence = LicenceUnstated
-                    , UploadedDB.umRelease = Nothing
-                    , UploadedDB.umRequires = []
-                    , UploadedDB.umPackageMethod = Nothing
-                    , UploadedDB.umAdded = Just added
-                    }
-        UploadedDB.writeUploadMeta home meta
-        pure (uploadMetaToConfig slug home meta)
-    pure $ case written of
-        Right config -> Right config
-        Left (err :: SomeException) ->
-            Left $ "could not record the database " <> slug <> ": " <> T.pack (show err)
+    home <- (</> T.unpack slug) <$> UploadedDB.getDatabaseUploadsDir
+    taken <- doesDirectoryExist home
+    if taken then pure (Left ("Database already exists: " <> slug <> " (its directory is on disk)")) else writeHome home
+  where
+    writeHome :: FilePath -> IO (Either Text DatabaseConfig)
+    writeHome home = do
+        written <- try $ do
+            createDirectoryIfMissing True home
+            added <- addedNow
+            let meta =
+                    UploadedDB.UploadMeta
+                        { UploadedDB.umVersion = UploadedDB.metaVersion
+                        , UploadedDB.umDisplayName = slug
+                        , UploadedDB.umDescription = Nothing
+                        , UploadedDB.umFormat = UnknownFormat
+                        , UploadedDB.umDataPath = "."
+                        , UploadedDB.umDepends = NE.toList depends
+                        , UploadedDB.umSource = Nothing
+                        , UploadedDB.umReading = FromJournal
+                        , UploadedDB.umBuiltIn = Nothing
+                        , UploadedDB.umLicence = LicenceUnstated
+                        , UploadedDB.umRelease = Nothing
+                        , UploadedDB.umRequires = []
+                        , UploadedDB.umPackageMethod = Nothing
+                        , UploadedDB.umAdded = Just added
+                        }
+            UploadedDB.writeUploadMeta home meta
+            pure (uploadMetaToConfig slug home meta)
+        pure $ case written of
+            Right config -> Right config
+            Left (err :: SomeException) ->
+                Left $ "could not record the database " <> slug <> ": " <> T.pack (show err)
 
 {- | Make a parent of a database read from its files, or a child of a parent,
 and register it under @newName@.
@@ -370,8 +379,10 @@ deriveDatabase manager srcName newName derivation = do
         (AsChild _, FromFiles ReadWhole) -> Nothing
         (AsChild _, FromFiles ReadDeclared) -> Just notParent
         (AsChild _, ByModel _) -> Just notParent
-        (_, FromJournal) -> Just (srcName <> " is written by its journal and reads no file: there is nothing to divide again")
+        (AsParent, FromJournal) -> Just fromJournal
+        (AsChild _, FromJournal) -> Just fromJournal
     notParent = srcName <> " is not a parent: derive a parent from it first, then the child from that parent"
+    fromJournal = srcName <> " is written by its journal and reads no file: there is nothing to divide again"
 
 -- | What a derivation makes of its source.
 data Derivation
@@ -646,8 +657,12 @@ recordCopy slug added src = do
         createDirectoryIfMissing True home
         -- The source's path may be relative to the working directory, while
         -- the copy's is read back from its own home; 'uploadMetaToConfig'
-        -- keeps an absolute path as it is.
-        sourcePath <- makeAbsolute (dcPath config)
+        -- keeps an absolute path as it is. A database read from its journal
+        -- reads no file: its copy keeps to its own home, where the journal is.
+        sourcePath <- case dcReading config of
+            FromJournal -> pure "."
+            FromFiles _ -> makeAbsolute (dcPath config)
+            ByModel _ -> makeAbsolute (dcPath config)
         hasJournal <- doesFileExist srcJournal
         when hasJournal $ copyFile srcJournal (journalPath home)
         -- The mapping the source was relinked with, so a load of the copy links as the source does.
@@ -1174,7 +1189,8 @@ refusalMessage = \case
         name
             <> " is a database this engine reads from its configuration, so it is shared\
                \ background data rather than yours to write. Copy it, or upload a database\
-               \ of your own, and author there."
+               \ of your own, and work there; new processes can also go in an empty\
+               \ database of your own that depends on it."
     Malformed errs -> T.intercalate "\n" errs
     AlreadyPresent keys -> "Already in this database: " <> T.intercalate ", " keys
     NotPresent keys -> "Not in this database: " <> T.intercalate ", " keys

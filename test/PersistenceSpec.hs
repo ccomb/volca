@@ -527,7 +527,7 @@ spec = describe "persisting an edit" $ do
                 -- Empty because nothing was written yet, not because a read failed.
                 fmap dsiIsReady <$> getDatabaseSetupInfo manager "lyocell-study" `shouldReturn` Right True
 
-        it "takes a process buying from its dependency, and keeps it across a restart" $
+        it "takes a process supplied by its dependency, and keeps it across a restart" $
             withBakeryAndMill $ \_ manager -> do
                 (void <$> createDatabase manager "lyocell" ("mill" :| [])) `shouldReturn` Right ()
                 milled <- head' <$> processKeysOf manager "mill"
@@ -548,6 +548,29 @@ spec = describe "persisting an edit" $ do
                 unloadDatabase manager "lyocell" `shouldReturn` Right ()
                 removeDatabase manager "lyocell" `shouldReturn` Right ()
                 doesDirectoryExist (homeOf dataRoot "lyocell") `shouldReturn` False
+
+        it "leaves a copy of it loading once it is deleted" $
+            -- The copy holds its own snapshot of the journal and reads no
+            -- file, so nothing of it lives in the home that goes.
+            withBakeryAndMill $ \_ manager -> do
+                (void <$> createDatabase manager "lyocell" ("mill" :| [])) `shouldReturn` Right ()
+                milled <- head' <$> processKeysOf manager "mill"
+                _ <- writeActivities manager "lyocell" noOrigin nothingStated CreateActivities [porridge milled]
+                (void <$> copyDatabase manager "lyocell" "lyocell-v2") `shouldReturn` Right ()
+                keys <- processKeysOf manager "lyocell"
+                forM_ ["lyocell", "lyocell-v2"] $ \name -> unloadDatabase manager name `shouldReturn` Right ()
+                removeDatabase manager "lyocell" `shouldReturn` Right ()
+                mustLoad manager "lyocell-v2"
+                processKeysOf manager "lyocell-v2" `shouldReturn` keys
+
+        it "does not take over a home left on disk that no registry names" $
+            -- A meta.toml this engine cannot read leaves its database out of
+            -- the registry, its files and journal still there.
+            withBakeryAndMill $ \dataRoot manager -> do
+                createDirectoryIfMissing True (homeOf dataRoot "lyocell")
+                TIO.writeFile (homeOf dataRoot "lyocell" </> "journal.jsonl") "kept\n"
+                createDatabase manager "lyocell" ("mill" :| []) >>= (`shouldSatisfy` failsWith "already exists") . void
+                TIO.readFile (homeOf dataRoot "lyocell" </> "journal.jsonl") `shouldReturn` "kept\n"
 
         it "is refused a dependency not loaded, a name taken, or no dependency at all" $
             withBakeryAndMill $ \_ manager -> do

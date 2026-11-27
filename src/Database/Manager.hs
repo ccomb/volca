@@ -2128,7 +2128,8 @@ discoverUploadedDatabases = do
         let dataDir = dirPath </> UploadedDB.umDataPath meta
         format <- case UploadedDB.umReading meta of
             FromJournal -> pure UploadedDB.UnknownFormat
-            _ -> Upload.detectDatabaseFormat dataDir
+            FromFiles _ -> Upload.detectDatabaseFormat dataDir
+            ByModel _ -> Upload.detectDatabaseFormat dataDir
         return $ uploadMetaToConfig slug dirPath meta{UploadedDB.umFormat = format}
 
 -- | Convert UploadMeta to DatabaseConfig
@@ -3398,10 +3399,6 @@ replayEdits manager dbConfig loaded =
                             (db, solver) <- withRuntime (dcName dbConfig) synonymDB edited
                             pure (Right (loaded{ldDatabase = db, ldSharedSolver = solver}, Replayed))
 
-{- | A database a rebuild handed back, with what the rebuild resets made again:
-the runtime indexes, and the solver, since every matrix row moved.
--}
-
 {- | What a database read from its journal is before the journal is replayed:
 no process, no flow, no unit. Its lines are an author's, who writes every
 amount as a quantity taken or given, so an input reaching a treatment whose
@@ -3423,6 +3420,9 @@ emptyJournalDatabase unitConfig =
             , sdbReferenceConvention = PositiveReferences
             }
 
+{- | A database a rebuild handed back, with what the rebuild resets made again:
+the runtime indexes, and the solver, since every matrix row moved.
+-}
 withRuntime :: Text -> SynonymDB -> Database -> IO (Database, SharedSolver)
 withRuntime dbName synonymDB rebuilt = do
     let db = BM25.addBM25Index (initializeRuntimeFields rebuilt synonymDB)
@@ -4259,7 +4259,13 @@ removeDatabase manager dbName = do
     copiesOf :: Text -> IO [Text]
     copiesOf name = do
         uploads <- UploadedDB.discoverUploadedDatabases
-        pure [slug | (slug, _, meta) <- uploads, UploadedDB.umSource meta == Just name]
+        pure [slug | (slug, _, meta) <- uploads, UploadedDB.umSource meta == Just name, readsFiles (UploadedDB.umReading meta)]
+    -- A copy of a database read from its journal holds its own snapshot of it.
+    readsFiles :: Reading -> Bool
+    readsFiles = \case
+        FromJournal -> False
+        FromFiles _ -> True
+        ByModel _ -> True
     deleteUpload :: DatabaseConfig -> IO (Either Text ())
     deleteUpload dbConfig = do
         uploadsDir <- UploadedDB.getDatabaseUploadsDir

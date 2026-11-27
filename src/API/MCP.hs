@@ -61,7 +61,7 @@ import qualified Impact.Score as Score
 import Impact.Substances (SubstanceContribution (..), bySubstance, substanceCompartments, substanceFlowIds)
 
 import qualified API.BatchImpacts as BI
-import API.DatabaseHandlers (activitiesReportToAPI, copyRefusal, coverageReportToAPI, databaseHistoryToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI, quotaCounts)
+import API.DatabaseHandlers (activitiesReportToAPI, copyQuotaRefusal, coverageReportToAPI, databaseHistoryToAPI, editReportToAPI, explainCFToAPI, gapReportToAPI, loadQuotaRefusal, parametersReportToAPI, qualityReportToAPI)
 import API.JsonOptions (parseClosed)
 import API.MCP.Columnar (resolveSingleScoringSet, toColumnarBatch)
 import API.MCP.Enrich (addWebUrlMaybe, attachMarketHintByName, cutoffFields, encodeSegment, filterScoringSets, groupsPagePath, groupsQuery, impactsPath, overObject, scoreActivityWebUrl, sensitivityPath, slimLCIAPanel, webUrlField, withCutoffNotice)
@@ -1933,8 +1933,7 @@ callDeriveDatabase dbManager mHosting rid args = runTool rid $ do
     dbName <- except (requireText "database" args)
     newName <- except (requireText "new_name" args)
     derivation <- except (derivationOf (boolArg "parent" args == Just True) (textArg "system_model" args))
-    liftIO (quotaCounts dbManager) >>= \(uploaded, loadedUploads) ->
-        maybe (pure ()) throwE (copyRefusal uploaded loadedUploads mHosting)
+    liftIO (copyQuotaRefusal dbManager mHosting) >>= mapM_ throwE
     (loaded, deps) <- ExceptT (deriveDatabase dbManager dbName newName derivation)
     pure $
         toolSuccessJson rid $
@@ -1957,8 +1956,7 @@ callCreateDatabase :: DatabaseManager -> Maybe HostingConfig -> RequestId -> Key
 callCreateDatabase dbManager mHosting rid args = runTool rid $ do
     newName <- except (requireText "new_name" args)
     depends <- except (dependsOf (textArrayArg "depends" args))
-    liftIO (quotaCounts dbManager) >>= \(uploaded, loadedUploads) ->
-        maybe (pure ()) throwE (copyRefusal uploaded loadedUploads mHosting)
+    liftIO (copyQuotaRefusal dbManager mHosting) >>= mapM_ throwE
     (loaded, deps) <- ExceptT (createDatabase dbManager newName depends)
     pure $
         toolSuccessJson rid $

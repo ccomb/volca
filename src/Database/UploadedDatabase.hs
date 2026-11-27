@@ -76,8 +76,9 @@ data UploadMeta = UploadMeta
     field existed reads none, which is what it meant.
     -}
     , umReading :: !Reading
-    {- ^ How this database's multi-output blocks are divided: by its files,
-    or, for a child, by the system model kept beside this file. The only
+    {- ^ How this database is read: its multi-output blocks divided by its files,
+    or, for a child, by the system model kept beside this file; or, for a
+    database read from its journal, from that journal alone. The only
     durable record of it: a child owns no files of its own, so nothing else
     on disk says the shares it loads are not the ones its source declares. A
     file written before @allocation@ existed reads back as declared, which is
@@ -127,10 +128,11 @@ version, taking absent fields to mean what their absence meant when they did
 not exist. Version 9 writes @system_model_file@ in place of @allocation@
 for a child, the model beside it, and no longer reads a property under
 @allocation@. Version 10 added @added@, when the engine made it, to the second
-and in UTC.
+and in UTC. Version 11 writes @reading = "journal"@ in place of @allocation@
+for a database read from its journal, which reads no file.
 -}
 metaVersion :: Int
-metaVersion = 10
+metaVersion = 11
 
 -- | The file a child's system model is kept in, beside its @meta.toml@.
 systemModelFileName :: FilePath

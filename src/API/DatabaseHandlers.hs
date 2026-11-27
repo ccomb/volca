@@ -94,6 +94,7 @@ module API.DatabaseHandlers (
     copyRefusal,
     quotaCounts,
     loadQuotaRefusal,
+    copyQuotaRefusal,
     simpleAction,
     formatToText,
     chooseMasterData,
@@ -671,10 +672,7 @@ copyDatabaseHandler dbName newName = do
     -- A copy produces another database of the user's own, already loaded, so
     -- it spends both budgets; without this, the quota is one rename away from
     -- meaningless.
-    refusal <- liftIO $ do
-        (uploaded, loadedUploads) <- quotaCounts dbManager
-        pure (copyRefusal uploaded loadedUploads hostingConfig)
-    mapM_ (failWith err403) refusal
+    liftIO (copyQuotaRefusal dbManager hostingConfig) >>= mapM_ (failWith err403)
     -- The status names the copy as registered, which is the slug of the name asked.
     copied <- ioEither400 (copyDatabase dbManager dbName newName)
     status <- liftIO (loadedStatus dbManager copied)
@@ -700,10 +698,7 @@ deriveDatabaseHandler dbName newName request = do
     hostingConfig <- asks aeHostingConfig
     -- A derived database is another database of the user's own, already
     -- loaded, so it spends both budgets exactly as a copy does.
-    refusal <- liftIO $ do
-        (uploaded, loadedUploads) <- quotaCounts dbManager
-        pure (copyRefusal uploaded loadedUploads hostingConfig)
-    mapM_ (failWith err403) refusal
+    liftIO (copyQuotaRefusal dbManager hostingConfig) >>= mapM_ (failWith err403)
     (loadedDb, depResults) <- ioEither400 (deriveDatabase dbManager dbName newName derivation)
     status <- liftIO (loadedStatus dbManager loadedDb)
     pure (LoadSucceeded status depResults)
@@ -722,10 +717,7 @@ createDatabaseHandler newName request = do
     depends <- either (failWith err400) pure (dependsOf (crDepends request))
     dbManager <- asks aeDbManager
     hostingConfig <- asks aeHostingConfig
-    refusal <- liftIO $ do
-        (uploaded, loadedUploads) <- quotaCounts dbManager
-        pure (copyRefusal uploaded loadedUploads hostingConfig)
-    mapM_ (failWith err403) refusal
+    liftIO (copyQuotaRefusal dbManager hostingConfig) >>= mapM_ (failWith err403)
     (loadedDb, depResults) <- ioEither400 (createDatabase dbManager newName depends)
     status <- liftIO (loadedStatus dbManager loadedDb)
     pure (LoadSucceeded status depResults)
@@ -1397,6 +1389,15 @@ loadQuotaRefusal :: DatabaseManager -> Maybe HostingConfig -> Text -> IO (Maybe 
 loadQuotaRefusal dbManager mHosting dbName = do
     (uploaded, loadedUploads) <- quotaCounts dbManager
     pure (loadRefusal uploaded loadedUploads dbName mHosting)
+
+{- | 'copyRefusal' read off the manager's current state, for every door that
+makes another loaded database of the user's own: a copy, a derivation, a
+created database, over REST and MCP alike.
+-}
+copyQuotaRefusal :: DatabaseManager -> Maybe HostingConfig -> IO (Maybe Text)
+copyQuotaRefusal dbManager mHosting = do
+    (uploaded, loadedUploads) <- quotaCounts dbManager
+    pure (copyRefusal uploaded loadedUploads mHosting)
 
 {- | Resolve the hosting upload-size policy into a streaming byte cap.
 Local/CLI mode (no hosting config) is unlimited. A configured limit of 0

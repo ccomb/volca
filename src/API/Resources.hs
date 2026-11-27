@@ -664,7 +664,7 @@ description r = case r of
     CreateDatabase ->
         "LCA / ACV: create an empty database of your own, to write processes \
         \into with create_activities when no database at hand takes writes. \
-        \Its processes buy from the databases named in depends, which must be \
+        \Its processes take their suppliers from the databases named in depends, which must be \
         \loaded: search suppliers there, since the new one holds none. Kept \
         \across restarts, deletable. Refused: no dependency, one not loaded, \
         \name taken, quota met, read-only instance."
@@ -1202,7 +1202,8 @@ description r = case r of
         \(same name, location, product and its unit) is refused: edit_exchanges changes it. \
         \Answer: the process_id of each process written, in order. Refused on \
         \databases read from the engine's configuration (shared background): \
-        \copy first. 'transient': in memory only, an unload undoes it."
+        \create_database gives one of your own. 'transient': in memory only, an \
+        \unload undoes it."
     EditExchanges ->
         "LCA / ACV: change what one process consumes and \
         \emits, or its name, location, description, \
