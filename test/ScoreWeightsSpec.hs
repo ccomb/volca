@@ -9,6 +9,8 @@ module ScoreWeightsSpec (spec) where
 import Data.Either (isLeft)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import Impact.Ranking (Ranked (..))
+import Impact.Score (indicatorShares)
 import Method.Types (ScoringSet (..), ScoringSetOrigin (..), scoreWeights)
 import Test.Hspec
 
@@ -72,3 +74,18 @@ spec = describe "scoreWeights" $ do
 
     it "refuses rather than reading a missing indicator as zero" $
         scoreWeights scoringSet "total" (M.delete "Climate change" rawScores) `shouldSatisfy` isLeft
+
+    describe "indicatorShares" $ do
+        -- Weighted terms: climate change -8 * 1.25, organics 3 * 5, inorganics 4 * 2.5.
+        let signed = M.fromList [("Climate change", -8), ("Ecotoxicity, organics", 3), ("Ecotoxicity, inorganics", 4)]
+        it "gives each indicator's weighted term, largest first, its absolute share of the absolute sum" $ do
+            let shares = indicatorShares scoringSet "total" signed
+                near :: Double -> Double -> Bool
+                near a b = abs (a - b) < 1e-9
+            fmap (map rkRow) shares `shouldBe` Just [("Ecotoxicity, organics", 15), ("Climate change", -10), ("Ecotoxicity, inorganics", 10)]
+            fmap (and . zipWith near [15 / 35 * 100, 10 / 35 * 100, 10 / 35 * 100] . map rkAbsolutePercent) shares `shouldBe` Just True
+            fmap (and . zipWith near [15 / 35 * 100, 25 / 35 * 100, 100] . map rkCumulativePercent) shares `shouldBe` Just True
+        it "has nothing for a score that is no weighted sum" $
+            indicatorShares (withTotal "cch * etf") "total" rawScores `shouldBe` Nothing
+        it "has nothing to split in a score of one indicator" $
+            indicatorShares (withTotal "cch") "total" rawScores `shouldBe` Nothing

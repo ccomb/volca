@@ -297,6 +297,23 @@ spec = do
                         `shouldBe` Just (object ["PEF" .= object []])
                 _ -> expectationFailure "expected an Object"
 
+        it "restricts the rows and the category shares as well" $ do
+            let withSplits = case sampleLBR of
+                    Object km ->
+                        Object
+                            ( km
+                                <> KM.fromList
+                                    [ (fromText "scoringRows", object ["PEF" .= object [], "ECS" .= object []])
+                                    , (fromText "scoringShares", object ["PEF" .= object [], "ECS" .= object []])
+                                    ]
+                            )
+                    other -> other
+            case filterScoringSets ["PEF", "ECS"] ["PEF"] withSplits of
+                Right (Object km) -> do
+                    KM.lookup (fromText "scoringRows") km `shouldBe` Just (object ["PEF" .= object []])
+                    KM.lookup (fromText "scoringShares") km `shouldBe` Just (object ["PEF" .= object []])
+                _ -> expectationFailure "expected an Object"
+
     describe "PR #79 – slimLCIAPanel NaN-score edge case" $ do
         let panelWithNaNScore =
                 object

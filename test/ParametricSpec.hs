@@ -26,6 +26,7 @@ import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (evaluate)
 import Control.Monad (foldM, forM_)
 import Data.Aeson (Value (..), decode, toJSON)
+import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Bifunctor (first)
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -338,6 +339,28 @@ spec = describe "a database at other values of its parameters" $ do
                 _ -> False
         (KM.lookup "results" =<< payloadOf reply) `shouldSatisfy` \case
             Just (Array rs) -> length rs == 2 && all split' rs
+            _ -> False
+
+    it "names the lines and splits each weighted score by category in its tool answer" $ do
+        manager <- scoringManager
+        reply <-
+            callTool anonymous manager [] Nothing Nothing noRequestId "score_activity" . KM.fromList $
+                [("database", String "bakery"), ("process_id", String (processIdText (aLoaf, pLoaf))), ("collection", String "model"), ("exchange_contributions", Bool True)]
+        let numbers = \case
+                Array rows -> [n | Object row <- V.toList rows, Just (Number n) <- [KM.lookup "sharePct" row]]
+                _ -> []
+            total = KM.lookup "scoringShares" =<< payloadOf reply
+        -- One set splits, the circular one has no score to split.
+        fmap (\case Object sets -> KM.keys sets; _ -> []) total `shouldBe` Just ["Single"]
+        case total of
+            Just (Object sets)
+                | Just (Object scores) <- KM.lookup "Single" sets
+                , Just rows <- KM.lookup "Total" scores -> do
+                    length (numbers rows) `shouldBe` 2
+                    realToFrac (sum (numbers rows)) `shouldSatisfy` withinTolerance 1e-9 (100 :: Double)
+            other -> expectationFailure ("no split of the single score: " <> show other)
+        (KM.lookup "lineNames" =<< payloadOf reply) `shouldSatisfy` \case
+            Just (Object names) -> map Key.toText (KM.keys names) == ["1", "2", "3", "4"] && notElem (String "") (KM.elems names)
             _ -> False
 
     it "gives through its tool the model the route gives" $ do

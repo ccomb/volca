@@ -1,0 +1,1 @@
+- The `score_activity` tool says what each impact category weighs in each weighted score, signed and in absolute value with a running total, so a reader keeps the categories that make 80 % of a single score without computing it, and names each line its `exchange_contributions` split by, so no second call is needed to read them.

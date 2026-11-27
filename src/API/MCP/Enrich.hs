@@ -288,16 +288,13 @@ validateRequested configured requested =
                     <> T.intercalate ", " configured
                 )
 
-{- | Filter the three scoring maps to keys in 'requested'. Validation has
-already run in the caller.
+{- | Filter every map keyed by scoring set to keys in 'requested'. Validation
+has already run in the caller.
 -}
 restrictScoringSets :: [Text] -> Value -> Value
 restrictScoringSets requested =
-    overObject (restrictAt scoringIndicatorsKey . restrictAt scoringUnitsKey . restrictAt scoringResultsKey)
+    overObject (foldr ((.) . restrictAt . fromText) id ["scoringResults", "scoringUnits", "scoringIndicators", "scoringRows", "scoringShares"])
   where
-    scoringResultsKey = fromText "scoringResults"
-    scoringUnitsKey = fromText "scoringUnits"
-    scoringIndicatorsKey = fromText "scoringIndicators"
     keep k _ = Key.toText k `elem` requested
     restrict = overObject (KM.filterWithKey keep)
     restrictAt k = adjustKey k restrict

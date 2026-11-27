@@ -24,6 +24,7 @@ module Impact.Score (
     flowParts,
     ScoreFlows (..),
     licencedFlowParts,
+    indicatorShares,
 ) where
 
 import Control.Monad (forM, mfilter, unless)
@@ -40,6 +41,7 @@ import Data.UUID (UUID)
 import Database.Cutoffs (CheckedSolution, checkedSolution)
 import Database.Manager (CollectionName, DatabaseManager, mapMethodToTablesCached)
 import qualified Impact
+import Impact.Ranking (Ranked, RowCut (..), rankRows)
 import Matrix (Inventory)
 import Method.Mapping (FlowContribution (..), MethodTables)
 import Method.Types (Method (..), ScoringSet (..), scoreWeights)
@@ -208,6 +210,21 @@ scoreOf src rs sol = runExceptT $ do
         (,) (methodName method) <$> withExceptT ScoringFailed (ExceptT (Impact.scoreSolution (srcManager src) (srcCollection src) method tables sol))
     weights <- except (weightsOf rs (M.fromList scores))
     pure (sum (M.intersectionWith (*) weights (M.fromList scores)))
+
+{- | What each indicator weighs in one score of a set, given every
+indicator's score: its weighted term, largest first in absolute value. Nothing
+for a score that is no weighted sum, which has no terms, and for one that
+weighs a single indicator, which has nothing to split.
+-}
+indicatorShares :: ScoringSet -> Text -> M.Map Text Double -> Maybe [Ranked (Text, Double)]
+indicatorShares ss scoreName raw = case scoreWeights ss scoreName raw of
+    Left _ -> Nothing
+    Right weights
+        | length terms > 1 -> Just (rankRows snd [] (FirstRows (length terms)) terms)
+        | otherwise -> Nothing
+      where
+        terms :: [(Text, Double)]
+        terms = M.toList (M.intersectionWith (*) (M.filter (/= 0) weights) raw)
 
 -- | A method's tables against the root database.
 tablesOf :: Source -> Method -> IO MethodTables
