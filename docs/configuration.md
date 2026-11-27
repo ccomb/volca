@@ -227,7 +227,9 @@ a large database holds all the cores for about a minute, and the other callers
 wait behind it. The first caps how many activities a batch score covers, and
 so also refuses the computed quality report on a database with more
 activities than that, since the report scores all of them; the second caps
-the top contributing flows a batch asks for per activity. Both hold on REST
+the top contributing flows a batch, or one activity's impacts, asks for per
+activity and impact category; one activity's impacts list five when the request
+names no number, or this cap when it is lower. Both hold on REST
 and MCP alike, and a refusal says the limit and what the request asked for.
 Absent, they set no limit. `GET /api/v1/hosting` reports both (`null` for no
 limit), so a client can size its requests instead of learning the limit from a

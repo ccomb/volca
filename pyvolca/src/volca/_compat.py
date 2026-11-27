@@ -40,7 +40,9 @@ revision only matter to a client that opted out of that check with
 ``VOLCA_SKIP_COMPAT_CHECK``; they stay for that case."""
 
 KNOWN_WIRE = 127
-"""The newest wire revision this pyvolca understands (revision 126 gathered
+"""The newest wire revision this pyvolca understands (revision 127 let an
+activity's impacts list fewer top contributing flows per category, which
+``top_flows`` of ``get_impacts_batch`` asks; revision 126 gathered
 the flows of one substance and one medium in the rows of
 ``ContributingFlows.top_substances``, which ``by_substance`` of
 ``get_contributing_flows`` asks; revision 125 cut a list

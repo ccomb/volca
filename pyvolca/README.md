@@ -2290,7 +2290,7 @@ Or with no TOML of one's own, the databases and methods named by path::
         client = Client(base_url=srv.base_url, db="agb")
         client.load_database("agb")
 
-**Constructor**: `Server(config: str | None = 'volca.toml', port: Union[int, Literal['auto']] = 0, binary: str = 'volca', databases: collections.abc.Mapping[str, str | pathlib._local.Path] | None = None, methods: collections.abc.Mapping[str, str | pathlib._local.Path] | None = None)`
+**Constructor**: `Server(config: str | None = 'volca.toml', port: Union[int, Literal['auto']] = 0, binary: str = 'volca', databases: collections.abc.Mapping[str, str | pathlib.Path] | None = None, methods: collections.abc.Mapping[str, str | pathlib.Path] | None = None)`
 
 #### Properties
 

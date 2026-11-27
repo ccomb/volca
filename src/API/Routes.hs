@@ -1015,7 +1015,7 @@ data PanelAsk = PanelAsk
     , paLongTerm :: LongTermMode
     , paLines :: ScoreLines
     , paTopFlows :: Maybe Int
-    -- ^ How many top contributing flows each category lists; 5 when not asked
+    -- ^ How many top contributing flows each category lists; 5 when not asked, or the instance's cap when lower
     }
 
 {- | Top-level LCIA batch entry point – AppM-returning. Used by the Servant
@@ -1067,7 +1067,7 @@ activityLCIABatchH dbName processIdText collectionName PanelAsk{paSubstitutions 
         rawResultsE <-
             liftIO $
                 mapConcurrently
-                    (\m -> computeCategoryResult dbManager dbName collectionName db ls functionalUnit (max 0 (fromMaybe 5 topFlowsParam)) (Just (resolveBatchedScore m scoreMap)) m)
+                    (\m -> computeCategoryResult dbManager dbName collectionName db ls functionalUnit (max 0 (fromMaybe (maybe 5 (min 5) (Config.hcMaxTopFlows =<< hosting)) topFlowsParam)) (Just (resolveBatchedScore m scoreMap)) m)
                     methods
         rawResults <- either scoringError pure (sequence rawResultsE)
         licence <- DBHandlers.servedLicence dbName

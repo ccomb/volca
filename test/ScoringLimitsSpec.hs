@@ -7,7 +7,8 @@ Scoring a whole database in one request holds every core for a minute, and
 every other caller of the instance waits behind it. @max_batch_activities@ and
 @max_top_flows@ under @[hosting]@ bound the two things that time grows with.
 These specs pin the rule itself, its reading from the config, and the refusal
-on both surfaces that score a set of activities, REST and MCP.
+on both surfaces that score a set of activities, REST and MCP, and on the
+impacts of one activity.
 -}
 module ScoringLimitsSpec (spec) where
 
@@ -16,11 +17,11 @@ import qualified TOML
 import Test.Hspec
 
 import API.BatchImpacts (BatchError (..), runBatchImpacts)
-import API.Routes (batchImpactsH, hostingInfo)
+import API.Routes (PanelAsk (..), ScoreLines (..), activityLCIABatchH, batchImpactsH, hostingInfo)
 import API.Types (BatchImpactsRequest (..), HostingInfo (..))
 import App.Env (AppEnv (..), runApp)
 import Config (HostingConfig (..), defaultConfig, scoringRefusal)
-import Database.Manager (CachePolicy (..), CollectionName (..), initDatabaseManager)
+import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager, initDatabaseManager)
 import Method.Mapping (LongTermMode (..))
 import Servant (ServerError (..), runHandler)
 
@@ -40,6 +41,21 @@ limits activities topFlows =
         , hcMaxBatchActivities = activities
         , hcMaxTopFlows = topFlows
         , hcMaxConcurrentScoring = Nothing
+        }
+
+-- | An application whose only interesting setting is its hosting limits.
+limitedEnv :: DatabaseManager -> HostingConfig -> AppEnv
+limitedEnv manager hosting =
+    AppEnv
+        { aeDbManager = manager
+        , aeMaxTreeDepth = 5
+        , aePassword = Nothing
+        , aeHostingConfig = Just hosting
+        , aeClassificationPresets = []
+        , aeDataVersion = Nothing
+        , aeUsageLog = Nothing
+        , aeReader = Nothing
+        , aeAuthor = Nothing
         }
 
 spec :: Spec
@@ -91,18 +107,7 @@ spec = do
     describe "the REST batch" $ do
         it "refuses a request past the limit before looking the database up" $ do
             manager <- initDatabaseManager defaultConfig NoCache
-            let env =
-                    AppEnv
-                        { aeDbManager = manager
-                        , aeMaxTreeDepth = 5
-                        , aePassword = Nothing
-                        , aeHostingConfig = Just (limits (Just 2) Nothing)
-                        , aeClassificationPresets = []
-                        , aeDataVersion = Nothing
-                        , aeUsageLog = Nothing
-                        , aeReader = Nothing
-                        , aeAuthor = Nothing
-                        }
+            let env = limitedEnv manager (limits (Just 2) Nothing)
             res <-
                 runHandler . runApp env $
                     batchImpactsH "no-such-db" (CollectionName "no-coll") Nothing Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = ["a", "b", "c"], birParameterSets = []}
@@ -113,6 +118,14 @@ spec = do
                 runHandler . runApp env{aeHostingConfig = Just (limits (Just 3) Nothing)} $
                     batchImpactsH "no-such-db" (CollectionName "no-coll") Nothing Nothing IncludeLongTerm BatchImpactsRequest{birProcessIds = ["a", "b"], birParameterSets = [[], []]}
             either (Just . errHTTPCode) (const Nothing) atSets `shouldBe` Just 403
+
+    describe "an activity's impacts" $
+        it "refuse more top flows than the limit before looking the database up" $ do
+            manager <- initDatabaseManager defaultConfig NoCache
+            let asking top = runHandler . runApp (limitedEnv manager (limits Nothing (Just 2))) $ activityLCIABatchH "no-such-db" "no-pid" (CollectionName "no-coll") (PanelAsk Nothing IncludeLongTerm WithoutLines top)
+            -- A 404 here would mean the database was looked up first.
+            (either (Just . errHTTPCode) (const Nothing) <$> asking (Just 3)) `shouldReturn` Just 403
+            (either (Just . errHTTPCode) (const Nothing) <$> asking Nothing) `shouldReturn` Just 404
 
     -- The assistant tools score through these wrappers, which used to run
     -- with no hosting section at all and so escaped every limit.

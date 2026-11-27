@@ -21,7 +21,7 @@ import API.MCP (callTool, noRequestId)
 import API.Routes (PanelAsk (..), ScoreLines (..), activityLCIABatchH, batchImpactsH, computedQualityReportH, postReducedModel)
 import API.Types (ActivityForAPI (..), BatchImpactsEntry (..), BatchImpactsRequest (..), BatchImpactsResponse (..), ComputedQualityReportAPI (..), ExchangeContribution (..), ExchangeWithUnit (..), FreeParameter (..), FunctionalUnit (..), LCIABatchResult (..), LCIAResult (..), ModelBinding (..), ModelEmission (..), ModelInput (..), ModelLine (..), ModelProcess (..), ModelReference (..), ModelScoringSet (..), ModelSupplier (..), ParameterAPI (..), ParameterName (..), ParameterValue (..), QualityCheckAPI (..), QualityOffenderAPI (..), ReducedModel (..), ReducedModelRequest (..), Substitution (..), SubstitutionRequest (..), SubstitutionScope (..), UnsolvableEntry (..), toSelector)
 import App.Env (AppEnv (..), AppM, runApp)
-import Config (defaultConfig)
+import Config (HostingConfig, defaultConfig)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (evaluate)
 import Control.Monad (foldM, forM_)
@@ -62,6 +62,7 @@ import Service (convertActivityForAPI, withholdBatch)
 import SharedSolver (CrossDBSolution (..), computeInventoryMatrixWithDepsCached, computeScalingVectorCached, getFactorization)
 import SynonymDB (emptySynonymDB)
 import System.Mem.StableName (makeStableName)
+import qualified TOML
 import Test.Hspec
 import TestHelpers (install, mkDepLookupFromMap, mkSolverFromDb, withinTolerance)
 import Types
@@ -326,6 +327,13 @@ spec = describe "a database at other values of its parameters" $ do
         listed (Just 1) `shouldReturn` [1, 1]
         five <- listed (Just 5)
         listed Nothing `shouldReturn` five
+
+    it "lists no more top flows than the instance allows when none are asked" $ do
+        manager <- scoringManager
+        hosting <- either (fail . show) pure (TOML.decode "max_top_flows = 0")
+        let loaf = processIdText (aLoaf, pLoaf)
+        panel <- runHandler (runApp (envOf manager){aeHostingConfig = Just hosting} (activityLCIABatchH "bakery" loaf (CollectionName "model") (PanelAsk Nothing IncludeLongTerm WithoutLines Nothing))) >>= either (fail . show) pure
+        map (length . lrTopContributors) (lbrResults panel) `shouldBe` [0, 0]
 
     it "gives the lines only when asked, without substitutions, and under a licence that shows them" $ do
         manager <- scoringManager
