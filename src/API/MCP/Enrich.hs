@@ -19,6 +19,7 @@ module API.MCP.Enrich (
     impactsPath,
     sensitivityPath,
     groupsPagePath,
+    groupsDiagramQuery,
     groupsQuery,
     scoreActivityWebUrl,
 
@@ -132,8 +133,15 @@ no group. A group keeping a substance is read in own emissions whatever the
 request named, so the address says @reading=own@ then too.
 -}
 groupsQuery :: GroupsRequest -> Text
-groupsQuery GroupsRequest{grqAttribution = attribution, grqGroups = specs} =
-    "?" <> T.intercalate "&" [key <> "=" <> encodeSegment value | (key, value) <- reading <> ranks]
+groupsQuery = groupsPageQuery []
+
+-- | 'groupsQuery', on the page's diagram from the groups to the substances.
+groupsDiagramQuery :: GroupsRequest -> Text
+groupsDiagramQuery = groupsPageQuery [("display", "sankey")]
+
+groupsPageQuery :: [(Text, Text)] -> GroupsRequest -> Text
+groupsPageQuery display GroupsRequest{grqAttribution = attribution, grqGroups = specs} =
+    "?" <> T.intercalate "&" [key <> "=" <> encodeSegment value | (key, value) <- reading <> ranks <> display]
   where
     reading :: [(Text, Text)]
     reading = [("reading", "own") | attribution == Just "own" || any (isJust . gfsFlow . gspFilter) specs]
