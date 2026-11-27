@@ -55,6 +55,7 @@ import Database.Manager (DatabaseManager (..), LoadedDatabase (..), getDatabase)
 import qualified Database.Manager as DM
 import Database.Scenarios (ScenarioName (..), dropScenario, listScenarios, saveScenario)
 import qualified Impact
+import Impact.Ranking (Ranked (..), RowCut (..), rankRows, rowCut)
 import Impact.Score (ScoreRef (..), Source (..))
 import qualified Impact.Score as Score
 
@@ -1815,6 +1816,20 @@ optionalWhole key args = case KM.lookup (fromText key) args of
     Just (Number n) | Just i <- toBoundedInteger n -> Right (Just i)
     Just _ -> Left ("Parameter '" <> key <> "' must be a whole number")
 
+-- | Read an optional number, refusing any other value rather than taking it for absent.
+optionalNumber :: Text -> KeyMap Value -> Either Text (Maybe Double)
+optionalNumber key args = case KM.lookup (fromText key) args of
+    Nothing -> Right Nothing
+    Just Null -> Right Nothing
+    Just (Number n) -> Right (Just (toRealFloat n))
+    Just _ -> Left ("Parameter '" <> key <> "' must be a number")
+
+-- | Where a list of contributions stops: @limit@ rows, or the rows covering @cover_percent@, capped by @limit@.
+contributionsCut :: Int -> KeyMap Value -> Either Text RowCut
+contributionsCut defaultRows args = do
+    limit <- optionalWhole "limit" args
+    rowCut defaultRows limit =<< optionalNumber "cover_percent" args
+
 -- | Read an argument that may be either a JSON array of strings or a single string.
 textArrayArg :: Text -> KeyMap Value -> [Text]
 textArrayArg key args = case KM.lookup (fromText key) args of
@@ -2611,7 +2626,8 @@ callGetImpacts dbManager mBaseUrl licence rid args =
             contribs = irContribs ir
             -- Under a licence that keeps what weighs in its scores, the score
             -- stays and its flows go, as 'Service.withholdContributors' does.
-            topFlows = if granted licence SeeDetailedScores then take topN contribs else []
+            topFlows = if granted licence SeeDetailedScores then rankRows fcContribution (map Impact.psScore (irWithheld ir)) (FirstRows topN) contribs else []
+            methodFields f = ["match_kind" .= Explain.flowMatchKind (irTables ir) (bfId f), "flow_unit" .= getUnitNameForBioFlow mUnits f]
             diagnosed = fromMaybe False (boolArg "include_diagnostics" args)
             Diagnostics{dgFields = diagnosticsFields, dgWithheld = diagnosticsWithheld} = diagnosticsOf dbName licence ir
             sentences =
@@ -2641,20 +2657,7 @@ callGetImpacts dbManager mBaseUrl licence rid args =
                         , "has_negative_contributions" .= hasNeg
                         , "probable_misses" .= missesOf mUnits dbName licence ir
                         , "basis" .= irBasis ir
-                        , "top_flows"
-                            .= [ object
-                                    [ "flow_name" .= bfName f
-                                    , "contribution" .= c
-                                    , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
-                                    , "flow_id" .= UUID.toText (bfId f)
-                                    , "category" .= bfCompartmentName f
-                                    , "compartment" .= bfCompartmentSub f
-                                    , "cf_value" .= cfVal
-                                    , "match_kind" .= Explain.flowMatchKind (irTables ir) (bfId f)
-                                    , "flow_unit" .= getUnitNameForBioFlow mUnits f
-                                    ]
-                               | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- topFlows
-                               ]
+                        , "top_flows" .= map (flowRow score methodFields) topFlows
                         ]
                             ++ webUrlPair
                             ++ withheldPair
@@ -3458,9 +3461,9 @@ mkMcpCrossDBEntry ::
     UnitDB ->
     -- | total score (for share %)
     Double ->
-    ((Text, ProcessId), Double) ->
+    Ranked ((Text, ProcessId), Double) ->
     IO Value
-mkMcpCrossDBEntry dbManager rootDbName mBaseUrl view unitDB score ((depDbName, pid), c) = do
+mkMcpCrossDBEntry dbManager rootDbName mBaseUrl view unitDB score Ranked{rkRow = ((depDbName, pid), c), rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} = do
     mLd <- getDatabase dbManager depDbName
     let (actName, actLoc, prodName, pidText) = case mLd of
             Just ld ->
@@ -3485,6 +3488,8 @@ mkMcpCrossDBEntry dbManager rootDbName mBaseUrl view unitDB score ((depDbName, p
             , "location" .= actLoc
             , "contribution" .= c
             , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
+            , "absolute_percent" .= absolute
+            , "cumulative_percent" .= cumulative
             ]
                 ++ webUrlPair
 
@@ -3558,14 +3563,13 @@ callGetContributingFlows :: DatabaseManager -> Maybe Text -> Licence -> RequestI
 callGetContributingFlows dbManager mBaseUrl licence rid args =
     runTool rid $ do
         req <- loadLcaRequest dbManager args
+        cut <- except (contributionsCut 20 args)
         ir <- runImpactsRequest dbManager args req
         let method = lrMethod req
             dbName = lrDbName req
             ra = lrResolved req
-            lim = fromMaybe 20 (intArg "limit" args)
             score = loScore (irOutcome ir)
             contribs = irContribs ir
-            top = take lim contribs
             hasNeg = any ((< 0) . fcContribution) contribs
             tables = irTables ir
             webUrlPair = webUrlField mBaseUrl (impactsPath dbName (raText ra) (lrCollection req) <> "#contributing-flows/" <> lrMethodIdText req)
@@ -3585,24 +3589,30 @@ callGetContributingFlows dbManager mBaseUrl licence rid args =
                     , "total_score" .= score
                     , "has_negative_contributions" .= hasNeg
                     , "basis" .= irBasis ir
-                    , "top_flows"
-                        .= [ object
-                                [ "flow_name" .= bfName f
-                                , "contribution" .= c
-                                , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
-                                , "flow_id" .= UUID.toText (bfId f)
-                                , "category" .= bfCompartmentName f
-                                , "compartment" .= bfCompartmentSub f
-                                , "cf_value" .= cfVal
-                                , "match_kind" .= Explain.flowMatchKind tables (bfId f)
-                                ]
-                           | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- top
-                           ]
+                    , "top_flows" .= map (flowRow score (\f -> ["match_kind" .= Explain.flowMatchKind tables (bfId f)])) (rankRows fcContribution (map Impact.psScore (irWithheld ir)) cut contribs)
                     ]
                         ++ withheldPair
                         ++ cutoffFields (irCutoffs ir)
                         ++ webUrlPair
                         ++ diagnosticsFields
+
+{- | One row of a list of flows: its part of the score, signed, and its share of
+the absolute sum with the rows before it. The method's own fields come last.
+-}
+flowRow :: Double -> (BiosphereFlow -> [Pair]) -> Ranked FlowContribution -> Value
+flowRow score methodFields Ranked{rkRow = FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c}, rkAbsolutePercent = absolute, rkCumulativePercent = cumulative} =
+    object $
+        [ "flow_name" .= bfName f
+        , "contribution" .= c
+        , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
+        , "absolute_percent" .= absolute
+        , "cumulative_percent" .= cumulative
+        , "flow_id" .= UUID.toText (bfId f)
+        , "category" .= bfCompartmentName f
+        , "compartment" .= bfCompartmentSub f
+        , "cf_value" .= cfVal
+        ]
+            <> methodFields f
 
 callGetContributingActivities :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetContributingActivities dbManager mBaseUrl rid args =
@@ -3614,8 +3624,8 @@ callGetContributingActivities dbManager mBaseUrl rid args =
             dbName = lrDbName req
             collection = lrCollection req
             ra = lrResolved req
-            lim = fromMaybe 10 (intArg "limit" args)
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
+        cut <- except (contributionsCut 10 args)
         unitCfg <- liftIO $ DM.getMergedUnitConfig dbManager
         solved <-
             ExceptT $
@@ -3630,18 +3640,18 @@ callGetContributingActivities dbManager mBaseUrl rid args =
         tables <- liftIO $ DM.mapMethodToTablesCached dbManager dbName collection db method
         contributions <- ExceptT (Impact.processContributionsOf dbManager collection method tables sol)
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores (checkedSolution sol))
-        toolSuccessJson rid . object <$> processesFields dbManager mBaseUrl req lim sol (Impact.splitProcessParts withheld contributions)
+        toolSuccessJson rid . object <$> processesFields dbManager mBaseUrl req cut sol (Impact.splitProcessParts withheld contributions)
 
 {- | The heaviest processes of a part of a score, with the cut-offs and basis
 of the solution it was read from.
 -}
-processesFields :: DatabaseManager -> Maybe Text -> LcaRequest -> Int -> CheckedSolution -> Impact.ProcessParts -> ExceptT Text IO [Pair]
-processesFields dbManager mBaseUrl req lim sol parts = do
+processesFields :: DatabaseManager -> Maybe Text -> LcaRequest -> RowCut -> CheckedSolution -> Impact.ProcessParts -> ExceptT Text IO [Pair]
+processesFields dbManager mBaseUrl req cut sol parts = do
     (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
     let cutoffs = checkedCutoffs sol
     basis <- liftIO (DM.solutionBasis dbManager (checkedSolution sol) (lrCollection req) (DM.Asked [] []))
     let view = ImpactsView{ivCollection = lrCollection req, ivFragment = "contributing-activities/" <> lrMethodIdText req}
-        ProcessLines{plScore = score, plTop = top, plWithheld = withheldLines} = processLines lim parts
+        ProcessLines{plScore = score, plTop = top, plNegative = negative, plWithheld = withheldLines} = processLines cut parts
         method = lrMethod req
     rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager (lrDbName req) mBaseUrl view mUnits score) top
     pure $
@@ -3649,7 +3659,7 @@ processesFields dbManager mBaseUrl req lim sol parts = do
         , "unit" .= methodUnit method
         , "functional_unit" .= raFunctionalUnit (lrResolved req)
         , "total_score" .= score
-        , "has_negative_contributions" .= any ((< 0) . snd) top
+        , "has_negative_contributions" .= negative
         , "basis" .= basis
         , "processes" .= rows
         ]
@@ -3700,7 +3710,7 @@ callGetGroupMembers dbManager mBaseUrl rid args =
         let lim = fromMaybe 10 (intArg "limit" args)
         result <- liftIO (groupMembersOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
         GroupMembers{gmSolution = sol, gmParts = parts} <- either (throwE . groupFailureText) pure result
-        toolSuccessJson rid . object . (<> webUrlField (groupsPageBase mBaseUrl args) (groupPagePath req attribution specs)) <$> processesFields dbManager mBaseUrl req lim sol parts
+        toolSuccessJson rid . object . (<> webUrlField (groupsPageBase mBaseUrl args) (groupPagePath req attribution specs)) <$> processesFields dbManager mBaseUrl req (FirstRows lim) sol parts
 
 callGetGroupFlows :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetGroupFlows dbManager mBaseUrl rid args =
@@ -3815,7 +3825,7 @@ callGetScoreContributingFlows dbManager mBaseUrl rid args =
         req <- loadScoreRequest dbManager args
         Score.ScoreFlows{Score.sfTotal = score, Score.sfRows = contribs, Score.sfWithheld = withheld} <-
             ExceptT (first Score.refusalMessage <$> Score.licencedFlowParts "MCP get_score_contributing_flows" (scrSource req) (scrScore req) (scrSolution req))
-        let top = take (fromMaybe 20 (intArg "limit" args)) (L.sortOn (negate . abs . fcContribution) contribs)
+        let top = rankRows fcContribution (map Impact.psScore withheld) (FirstRows (fromMaybe 20 (intArg "limit" args))) contribs
         pure $
             toolSuccessJson rid $
                 object $
@@ -3825,18 +3835,7 @@ callGetScoreContributingFlows dbManager mBaseUrl rid args =
                     , "total_score" .= score
                     , "has_negative_contributions" .= any ((< 0) . fcContribution) contribs
                     , "basis" .= scrBasis req
-                    , "top_flows"
-                        .= [ object
-                                [ "flow_name" .= bfName f
-                                , "contribution" .= c
-                                , "contribution_percent" .= (if score /= 0 then c / score * 100 else 0 :: Double)
-                                , "flow_id" .= UUID.toText (bfId f)
-                                , "category" .= bfCompartmentName f
-                                , "compartment" .= bfCompartmentSub f
-                                , "cf_value" .= cfVal
-                                ]
-                           | FlowContribution{fcFlow = f, fcFactor = cfVal, fcContribution = c} <- top
-                           ]
+                    , "top_flows" .= map (flowRow score (const [])) top
                     ]
                         ++ ["withheld_databases" .= Service.withheldShares score withheld | not (null withheld)]
                         ++ cutoffFields (checkedCutoffs (scrSolution req))
@@ -3849,8 +3848,8 @@ callGetScoreContributingActivities dbManager mBaseUrl rid args =
         contributions <- ExceptT (first Score.refusalMessage <$> Score.activityParts (scrSource req) (scrScore req) (scrSolution req))
         withheld <- liftIO (Impact.withheldDatabases dbManager SeeDetailedScores (checkedSolution (scrSolution req)))
         (_, mUnits) <- liftIO $ DM.getMergedFlowMetadata dbManager
-        let ProcessLines{plScore = score, plTop = top, plWithheld = withheldLines} =
-                processLines (fromMaybe 10 (intArg "limit" args)) (Impact.splitProcessParts withheld contributions)
+        let ProcessLines{plScore = score, plTop = top, plNegative = negative, plWithheld = withheldLines} =
+                processLines (FirstRows (fromMaybe 10 (intArg "limit" args))) (Impact.splitProcessParts withheld contributions)
         rows <- liftIO $ mapM (mkMcpCrossDBEntry dbManager (srcDbName (scrSource req)) mBaseUrl (scoreView req ByActivity) mUnits score) top
         pure $
             toolSuccessJson rid $
@@ -3859,7 +3858,7 @@ callGetScoreContributingActivities dbManager mBaseUrl rid args =
                     , "unit" .= Score.scoreUnit (scrScore req)
                     , "functional_unit" .= raFunctionalUnit (scrActivity req)
                     , "total_score" .= score
-                    , "has_negative_contributions" .= any ((< 0) . snd) top
+                    , "has_negative_contributions" .= negative
                     , "basis" .= scrBasis req
                     , "processes" .= rows
                     ]
@@ -3870,15 +3869,18 @@ callGetScoreContributingActivities dbManager mBaseUrl rid args =
 data ProcessLines = ProcessLines
     { plScore :: !Double
     -- ^ The shown terms and the dependencies' lines, so it is the score.
-    , plTop :: ![((Text, ProcessId), Double)]
+    , plTop :: ![Ranked ((Text, ProcessId), Double)]
+    , plNegative :: !Bool
+    -- ^ Whether any shown process lowers the score, listed or not
     , plWithheld :: ![WithheldShare]
     }
 
-processLines :: Int -> Impact.ProcessParts -> ProcessLines
-processLines lim Impact.ProcessParts{Impact.ppShown = shown, Impact.ppWithheld = parts} =
+processLines :: RowCut -> Impact.ProcessParts -> ProcessLines
+processLines cut Impact.ProcessParts{Impact.ppShown = shown, Impact.ppWithheld = parts} =
     ProcessLines
         { plScore = score
-        , plTop = take lim (L.sortOn (negate . abs . snd) (M.toList shown))
+        , plTop = rankRows snd (map Impact.psScore parts) cut (M.toList shown)
+        , plNegative = any (< 0) (M.elems shown)
         , plWithheld = Service.withheldShares score parts
         }
   where

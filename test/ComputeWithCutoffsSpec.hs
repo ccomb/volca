@@ -225,8 +225,8 @@ surfaces manager pid =
         , ("single-method score", lrCutoffInputs <$> ok manager (getActivityLCIA "main" pid coll methodText Nothing))
         , ("score panel", lbrCutoffInputs <$> ok manager (getActivityLCIABatch "main" pid coll Nothing Nothing))
         , ("sensitivity baseline", srCutoffInputs <$> ok manager (postActivitySensitivity "main" pid coll methodText (SensitivityRequest [])))
-        , ("contributing flows", cfrCutoffInputs <$> ok manager (getContributingFlows "main" pid coll methodText Nothing Nothing))
-        , ("contributing activities", carCutoffInputs <$> ok manager (getContributingActivities "main" pid coll methodText Nothing Nothing))
+        , ("contributing flows", cfrCutoffInputs <$> ok manager (getContributingFlows "main" pid coll methodText Nothing Nothing Nothing))
+        , ("contributing activities", carCutoffInputs <$> ok manager (getContributingActivities "main" pid coll methodText Nothing Nothing Nothing))
         , ("flows of a single score", cfrCutoffInputs <$> ok manager (getScoreContributingFlows "main" pid coll "Single" "total" Nothing Nothing))
         , ("activities of a single score", carCutoffInputs <$> ok manager (getScoreContributingActivities "main" pid coll "Single" "total" Nothing Nothing))
         , ("supply chain", scrCutoffInputs <$> ok manager (supplyChainOf pid))
@@ -242,8 +242,8 @@ summing manager pid =
     , ("single-method score", refusal (getActivityLCIA "main" pid coll methodText Nothing))
     , ("score panel", refusal (getActivityLCIABatch "main" pid coll Nothing Nothing))
     , ("sensitivity baseline", refusal (postActivitySensitivity "main" pid coll methodText (SensitivityRequest [])))
-    , ("contributing flows", refusal (getContributingFlows "main" pid coll methodText Nothing Nothing))
-    , ("contributing activities", refusal (getContributingActivities "main" pid coll methodText Nothing Nothing))
+    , ("contributing flows", refusal (getContributingFlows "main" pid coll methodText Nothing Nothing Nothing))
+    , ("contributing activities", refusal (getContributingActivities "main" pid coll methodText Nothing Nothing Nothing))
     , ("flows of a single score", refusal (getScoreContributingFlows "main" pid coll "Single" "total" Nothing Nothing))
     , ("activities of a single score", refusal (getScoreContributingActivities "main" pid coll "Single" "total" Nothing Nothing))
     , ("supply-chain aggregate", refusal (aggregateOf pid "supply_chain"))
@@ -513,8 +513,8 @@ spec = describe "computing a database whose inputs stay unsupplied" $ do
             perMethod `shouldBe` Just [False]
 
         it "gives it with the flows and activities a score breaks down into, and the baseline of a sweep" $ do
-            flows <- ok manager (getContributingFlows "main" pid coll methodText Nothing Nothing)
-            activities <- ok manager (getContributingActivities "main" pid coll methodText Nothing Nothing)
+            flows <- ok manager (getContributingFlows "main" pid coll methodText Nothing Nothing Nothing)
+            activities <- ok manager (getContributingActivities "main" pid coll methodText Nothing Nothing Nothing)
             scoreFlows <- ok manager (getScoreContributingFlows "main" pid coll "Single" "total" Nothing Nothing)
             scoreActivities <- ok manager (getScoreContributingActivities "main" pid coll "Single" "total" Nothing Nothing)
             sweep <- ok manager (postActivitySensitivity "main" pid coll methodText (SensitivityRequest []))

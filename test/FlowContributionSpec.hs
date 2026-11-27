@@ -235,7 +235,7 @@ mcpRows tool extraArgs = do
 spec :: Spec
 spec = describe "a contributing flow's factor and contribution" $ do
     it "land in their own fields in the REST contributing flows" $ do
-        result <- runOk (getContributingFlows "sample" productD (CollectionName collectionName) methodIdText Nothing Nothing)
+        result <- runOk (getContributingFlows "sample" productD (CollectionName collectionName) methodIdText Nothing Nothing Nothing)
         restRows (cfrTopFlows result) `shouldBe` expected
 
     it "land in their own fields in a REST single-category score" $ do

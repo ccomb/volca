@@ -122,6 +122,8 @@ data FlowContributionEntry = FlowContributionEntry
     { fcoFlowName :: Text -- Biosphere flow name (e.g. "Carbon dioxide, fossil")
     , fcoContribution :: Double -- Contribution in impact unit
     , fcoSharePct :: Double -- Percentage of total score (0-100)
+    , fcoAbsoluteSharePct :: Double -- Its absolute value as a percentage of the sum of every flow's absolute value, the parts a licence keeps unlisted included
+    , fcoCumulativeSharePct :: Double -- The same for this row and every row before it
     , fcoFlowId :: Text -- Flow UUID for disambiguation
     , fcoCategory :: Text -- Medium only (e.g. "air")
     , fcoCompartment :: Maybe Text -- Sub-compartment (e.g. "urban air")
@@ -256,6 +258,8 @@ data ActivityContribution = ActivityContribution
     , acLocation :: Text -- e.g. "FR"
     , acContribution :: Double -- Contribution in impact unit
     , acSharePct :: Double -- Percentage of total score (0-100)
+    , acAbsoluteSharePct :: Double -- Its absolute value as a percentage of the sum of every process's absolute value, the parts a licence keeps unlisted included
+    , acCumulativeSharePct :: Double -- The same for this row and every row before it
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped ActivityContribution)

@@ -340,6 +340,8 @@ class FlowContribution(FromJson):
     cf_value: float = 0.0  # the factor the score applied; effective (contribution / quantity) where factors depend on location
     compartment: str | None = None
     match_kind: str | None = None  # how the factor was found; None when no factor in the method reaches this flow, and on every row of a single score
+    absolute_share_pct: float = 0.0  # |contribution| over the sum of every flow's |contribution|, withheld lines included (wire revision 125)
+    cumulative_share_pct: float = 0.0  # the same for this row and every row before it (wire revision 125)
 
 
 @dataclass
@@ -3034,7 +3036,11 @@ class ActivityContribution(FromJson):
     """One upstream activity's contribution to an LCIA score.
 
     Returned in :class:`ContributingActivities.activities`. ``share_pct`` is
-    the percentage of the total impact this activity contributes (0..100).
+    the percentage of the total impact this activity contributes, negative for
+    one that lowers it. ``absolute_share_pct`` is its absolute value over the
+    sum of every activity's absolute value, withheld lines included, and
+    ``cumulative_share_pct`` the same for it and every row before it (wire
+    revision 125; 0 from an older engine).
     """
 
     process_id: str
@@ -3043,16 +3049,16 @@ class ActivityContribution(FromJson):
     location: str
     contribution: float
     share_pct: float
+    absolute_share_pct: float = 0.0
+    cumulative_share_pct: float = 0.0
 
 
 @dataclass
 class ContributingFlows:
     """Top elementary flows driving an LCIA score.
 
-    Note: the engine does not report a total: ``top_flows`` is whatever the
-    server returned under ``limit``, but pyvolca cannot tell whether more
-    flows were truncated. If you need exhaustive coverage, pass a generous
-    ``limit`` and inspect ``share_pct`` totals.
+    The last row's ``cumulative_share_pct`` says how much of the sum of
+    absolute contributions the rows cover (wire revision 125).
 
     ``functional_unit`` is what ``total_score`` and every contribution are for.
     """

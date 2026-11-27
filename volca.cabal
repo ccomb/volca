@@ -58,6 +58,7 @@ library
                      , Service.CompareMethods
                      , Impact
                      , Impact.Score
+                     , Impact.Ranking
                      , Groups
                      , Tree
                      , Matrix
@@ -396,6 +397,7 @@ test-suite lca-tests
                      , MCPRequestIdSpec
                      , MCPEraSpec
                      , MCPSkillsSpec
+                     , RankingSpec
                      , MCPTermsFormSpec
                      , MCPTypedAmountsSpec
                      , BatchImpactsSpec

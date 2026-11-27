@@ -39,8 +39,12 @@ to it. The per-capability gates of ``Client._require_wire`` that name a lower
 revision only matter to a client that opted out of that check with
 ``VOLCA_SKIP_COMPAT_CHECK``; they stay for that case."""
 
-KNOWN_WIRE = 124
-"""The newest wire revision this pyvolca understands (revision 124 refused a
+KNOWN_WIRE = 125
+"""The newest wire revision this pyvolca understands (revision 125 cut a list
+of contributions where its rows cover a percentage of the sum of absolute
+contributions, which ``cover_percent`` of ``get_contributing_flows`` and
+``get_contributing_activities`` asks, and gave each row its share of that sum;
+revision 124 refused a
 calculation whose chain reaches inputs only a database not loaded would supply,
 which every method raises as :class:`~volca.client.ChainRefused`, and listed
 such processes of a batch in ``BatchScores.refused``; revision 123 gave an

@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.15.0** speaks wire formats **113 to 124** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.15.0** speaks wire formats **113 to 125** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -1227,26 +1227,26 @@ a `SearchResults[ConsumerResult]` (iterate it to walk every
 consumer across all pages) and whose ``edges`` attribute carries
 the traversal subgraph (empty by default).
 
-##### `Client.get_contributing_activities(process_id: str, method_id: str, *, collection: str | None = None, limit: int | None = None) -> ContributingActivities`
+##### `Client.get_contributing_activities(process_id: str, method_id: str, *, collection: str | None = None, limit: int | None = None, cover_percent: float | None = None) -> ContributingActivities`
 
 Which upstream activities drive a given impact category.
 
-Same engine-side limitation as `get_contributing_flows`: no
-total exposed, so ``has_more`` cannot be derived. Inspect
-``share_pct`` totals to gauge coverage. ``method_id`` takes a method
-name as well as a UUID, and ``collection`` is read off the resolved
-method unless you pin it.
+The rows and ``cover_percent`` read as on
+`get_contributing_flows`: 80 lists the most relevant processes
+under the PEF rule. ``method_id`` takes a method name as well as a
+UUID, and ``collection`` is read off the resolved method unless you
+pin it.
 
-##### `Client.get_contributing_flows(process_id: str, method_id: str, *, collection: str | None = None, limit: int | None = None) -> ContributingFlows`
+##### `Client.get_contributing_flows(process_id: str, method_id: str, *, collection: str | None = None, limit: int | None = None, cover_percent: float | None = None) -> ContributingFlows`
 
 Which elementary flows drive a given impact category.
 
-Returns a `ContributingFlows`. Caveat: the engine does not
-report the total flow count, so pyvolca cannot derive ``has_more``
-from the response. Pass a generous ``limit`` if you need exhaustive
-coverage and inspect ``share_pct`` totals. ``method_id`` takes a method
-name as well as a UUID, and ``collection`` is read off the resolved
-method unless you pin it.
+Returns a `ContributingFlows`, largest contribution first in
+absolute value. ``cover_percent`` (0 to 100) returns the flows until
+their ``cumulative_share_pct`` passes it, ``limit`` capping them (100
+when omitted): 80 lists the most relevant flows under the PEF rule.
+``method_id`` takes a method name as well as a UUID, and
+``collection`` is read off the resolved method unless you pin it.
 
 ##### `Client.get_flow(flow_id: str, db_name: str | None = None) -> FlowDetail`
 
@@ -2456,7 +2456,11 @@ True when nothing differs and every line could be judged.
 One upstream activity's contribution to an LCIA score.
 
 Returned in `ContributingActivities.activities`. ``share_pct`` is
-the percentage of the total impact this activity contributes (0..100).
+the percentage of the total impact this activity contributes, negative for
+one that lowers it. ``absolute_share_pct`` is its absolute value over the
+sum of every activity's absolute value, withheld lines included, and
+``cumulative_share_pct`` the same for it and every row before it (wire
+revision 125; 0 from an older engine).
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -2466,6 +2470,8 @@ the percentage of the total impact this activity contributes (0..100).
 | `location` | `str` | _required_ |
 | `contribution` | `float` | _required_ |
 | `share_pct` | `float` | _required_ |
+| `absolute_share_pct` | `float` | 0.0 |
+| `cumulative_share_pct` | `float` | 0.0 |
 
 ### `ActivityDetail`
 
@@ -3283,10 +3289,8 @@ reports no total, so pyvolca cannot derive ``has_more``. Pass a generous
 
 Top elementary flows driving an LCIA score.
 
-Note: the engine does not report a total: ``top_flows`` is whatever the
-server returned under ``limit``, but pyvolca cannot tell whether more
-flows were truncated. If you need exhaustive coverage, pass a generous
-``limit`` and inspect ``share_pct`` totals.
+The last row's ``cumulative_share_pct`` says how much of the sum of
+absolute contributions the rows cover (wire revision 125).
 
 ``functional_unit`` is what ``total_score`` and every contribution are for.
 
@@ -3647,6 +3651,8 @@ Emitted inside ``LCIAResult.top_contributors``.
 | `cf_value` | `float` | 0.0 |
 | `compartment` | `str \| None` | None |
 | `match_kind` | `str \| None` | None |
+| `absolute_share_pct` | `float` | 0.0 |
+| `cumulative_share_pct` | `float` | 0.0 |
 
 ### `FlowDetail`
 
