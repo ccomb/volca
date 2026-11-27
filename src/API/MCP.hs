@@ -3516,7 +3516,8 @@ resolveMethod dbManager ask methodIdText =
 
 {- | What a tool does when the call names no method collection and several
 could serve. Only a tool whose answer names the collection it scored with
-(its @basis@) takes the instance's default: the others refuse, listing them.
+(its @basis@) takes the instance's default: the others refuse, listing them,
+so a collection is never chosen without saying so.
 -}
 data WhenUnnamed = TakeTheDefault | RefuseTheChoice
 
@@ -3528,22 +3529,31 @@ collectionAsk dbManager whenUnnamed = \case
         TakeTheDefault -> Unnamed <$> DM.defaultMethodCollection dbManager
         RefuseTheChoice -> pure (Unnamed Nothing)
 
-{- | The method collection a scoring tool uses: the one the call names, else
-the only one loaded, else the instance's default. Refuses, naming the loaded
-ones, when none of those holds. Every caller's answer carries @basis@, which
-names the collection.
+{- | The method collection a scoring tool uses: the one the call names, else,
+among the loaded collections that hold every scoring set asked, the only one,
+else the instance's default. Refuses, naming those collections, when none of
+these holds. Every caller's answer carries @basis@, which names the collection.
 -}
-scoringCollection :: DatabaseManager -> KeyMap Value -> ExceptT Text IO Text
-scoringCollection dbManager args = do
+scoringCollection :: DatabaseManager -> [Text] -> KeyMap Value -> ExceptT Text IO Text
+scoringCollection dbManager wantedSets args = do
     mCol <- except (optionalText "collection" args)
     ask <- liftIO (collectionAsk dbManager TakeTheDefault mCol)
-    loaded <- liftIO (M.keys <$> readTVarIO (dmLoadedMethods dbManager))
-    case (ask, chooseCollection ask loaded) of
+    loaded <- liftIO (readTVarIO (dmLoadedMethods dbManager))
+    let holders = [name | (name, mc) <- M.toList loaded, all (`elem` map ssName (mcScoringSets mc)) wantedSets]
+        candidates = case ask of
+            Named _ -> M.keys loaded
+            Unnamed _ -> holders
+    case (ask, chooseCollection ask candidates) of
         (_, Just c) -> pure c
-        (Named c, Nothing) -> throwE (collectionNotLoadedMessage c loaded)
-        (Unnamed _, Nothing) | null loaded -> throwE "No method collection is loaded."
+        (Named c, Nothing) -> throwE (collectionNotLoadedMessage c (M.keys loaded))
+        (Unnamed _, Nothing) | null holders -> throwE (noneHolds wantedSets)
         (Unnamed _, Nothing) ->
-            throwE ("Several method collections are loaded (" <> T.intercalate ", " loaded <> "): pass 'collection' to pick one." <> defaultMissing ask loaded)
+            throwE ("Several method collections could serve (" <> T.intercalate ", " holders <> "): pass 'collection' to pick one." <> defaultMissing ask holders)
+  where
+    noneHolds :: [Text] -> Text
+    noneHolds = \case
+        [] -> "No method collection is loaded."
+        sets -> "No loaded method collection holds the scoring set(s) " <> T.intercalate ", " sets <> ": list_scoring_sets names those it holds."
 
 {- | Raw text + its parsed 'ProcessId' + the looked-up 'Activity' + the
 functional unit derived from that activity. Bundled so the four (which must
@@ -3770,7 +3780,7 @@ callGetGroupContributions dbManager mBaseUrl rid args =
 callGetGroupMembers :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetGroupMembers dbManager mBaseUrl rid args =
     runTool rid $ do
-        req <- loadLcaRequest dbManager RefuseTheChoice args
+        req <- loadLcaRequest dbManager TakeTheDefault args
         (attribution, specs) <- except (groupsArgs args)
         let lim = fromMaybe 10 (intArg "limit" args)
         result <- liftIO (groupMembersOf dbManager (lcaGroupRoot req args) (lrMethod req) (GroupMembersRequest attribution specs (textArg "group" args) (Just lim)))
@@ -3780,7 +3790,7 @@ callGetGroupMembers dbManager mBaseUrl rid args =
 callGetGroupFlows :: DatabaseManager -> Maybe Text -> RequestId -> KeyMap Value -> IO Value
 callGetGroupFlows dbManager mBaseUrl rid args =
     runTool rid $ do
-        req <- loadLcaRequest dbManager RefuseTheChoice args
+        req <- loadLcaRequest dbManager TakeTheDefault args
         (attribution, specs) <- except (groupsArgs args)
         let request = GroupMembersRequest attribution specs (textArg "group" args) (Just (fromMaybe 20 (intArg "limit" args)))
             link = (<> groupPagePath req attribution specs) <$> groupsPageBase mBaseUrl args
@@ -3842,7 +3852,7 @@ loadScoreRequest dbManager args = do
                 <$> requireText "database" args
                 <*> requireText "process_id" args
                 <*> (ScoreRef <$> requireText "scoring_set" args <*> requireText "score" args)
-    collName <- scoringCollection dbManager args
+    collName <- scoringCollection dbManager [srSet ref] args
     ld <- requireDatabase dbManager dbName
     mc <- requireCollection dbManager collName
     rs <- except (first Score.refusalMessage (Score.resolveScore (mcMethods mc) (mcScoringSets mc) ref))
@@ -4028,10 +4038,10 @@ callScoreActivity dbManager mHosting mBaseUrl rid args =
     runTool rid $ do
         dbName <- except (requireText "database" args)
         pidText <- except (requireText "process_id" args)
-        coll <- scoringCollection dbManager args
         subs <- except (parseArrayArg "substitutions" Nothing args :: Either Text [Substitution])
         values <- except (parseArrayArg "parameters" Nothing args :: Either Text [ParameterValue])
         wantedSets <- except (parseArrayArg "scoring_sets" Nothing args :: Either Text [Text])
+        coll <- scoringCollection dbManager wantedSets args
         topFlows <- except (optionalWhole "top_flows" args)
         let ask =
                 PanelAsk
@@ -4149,9 +4159,9 @@ callScoreActivities :: DatabaseManager -> Maybe HostingConfig -> Maybe Text -> R
 callScoreActivities dbManager mHosting mBaseUrl rid args =
     runTool rid $ do
         dbName <- except (requireText "database" args)
-        coll <- scoringCollection dbManager args
         pids <- except (parseArrayArg "process_ids" (Just "'process_ids' required (array of strings)") args :: Either Text [Text])
         wantedSets <- except (parseArrayArg "scoring_sets" Nothing args :: Either Text [Text])
+        coll <- scoringCollection dbManager wantedSets args
         parameterSets <- except (parseArrayArg "parameter_sets" Nothing args :: Either Text [[ParameterValue]])
         let summaryOnly = fromMaybe False (boolArg "summary_only" args)
             ltMode = longTermModeFromExclude (fromMaybe False (boolArg "exclude_long_term" args))
