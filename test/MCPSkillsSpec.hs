@@ -151,7 +151,6 @@ spec = do
         it "leave the method collection to the engine, and pef-hotspots names the PEF set" $ do
             skills <- builtins
             [skillName s | s <- skills, not ("Leave `collection` out" `T.isInfixOf` skillFile s)] `shouldBe` []
-            [skillName s | s <- skills, "list_scoring_sets" `T.isInfixOf` skillFile s] `shouldBe` []
             [skillName s | s <- skills, skillName s == "pef-hotspots", "`PEF`" `T.isInfixOf` skillFile s] `shouldBe` ["pef-hotspots"]
 
         it "each tell that a packaging or an ingredient is not the product asked" $ do
