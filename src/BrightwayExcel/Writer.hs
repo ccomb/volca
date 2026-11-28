@@ -770,12 +770,14 @@ techTypeLabel = \case
 {- | Render a 'Compartment' to a Brightway @categories@ cell (@"air"@ or
 @"natural resource::in water"@). 'Nothing' (no compartment recorded) and an
 empty medium both become an empty cell – the inverse of 'splitCategories'.
+An unspecified subcompartment is written as none, the way Brightway holds it:
+biosphere3 has @("air",)@, never @("air", "unspecified")@.
 -}
 renderCategories :: Maybe Compartment -> Text
 renderCategories = \case
     Nothing -> ""
     Just (Compartment comp sub) -> case sub of
-        Just s | not (T.null (T.strip s)) -> mediumText comp <> "::" <> s
+        Just s | T.toLower (T.strip s) `notElem` ["", "unspecified", "(unspecified)"] -> mediumText comp <> "::" <> s
         _ -> mediumText comp
 
 -- ---------------------------------------------------------------------------
