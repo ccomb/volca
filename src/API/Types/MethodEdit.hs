@@ -240,7 +240,7 @@ describeDefects defects = T.intercalate "\n" (map (T.take refusalCap . fst) show
         rs ->
             "lines "
                 <> T.intercalate ", " (map run (take runsShown rs))
-                <> (if length rs > runsShown then ", … (" <> tshow (length (NE.nub ls)) <> " lines in all)" else "")
+                <> (if length rs > runsShown then ", … (" <> tshow (sum [b - a + 1 | (a, b) <- rs]) <> " lines in all)" else "")
     run :: (Int, Int) -> Text
     run (a, b) = if a == b then tshow a else tshow a <> "-" <> tshow b
     -- Consecutive lines, and a line named twice, make one run.
