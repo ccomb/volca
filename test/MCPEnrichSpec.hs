@@ -17,6 +17,7 @@ import API.MCP.Enrich (
     attachMarketHintByName,
     encodeSegment,
     filterScoringSets,
+    groupsDiagramQuery,
     groupsPagePath,
     groupsQuery,
     isMarketActivityName,
@@ -119,6 +120,10 @@ spec = do
                 water = GroupSpec "Water" (GroupFilterSpec Nothing Nothing Nothing Nothing (Just (GroupFlowSpec Nothing Nothing (Just NaturalResource))))
             groupsQuery (GroupsRequest Nothing [fields, n2o, water])
                 `shouldBe` "?reading=own&g1=N2O%20of%20the%20fields&g1-name=at%20farm&g1-flow-name=nitrous&g1-flow-match=contains&g1-flow-medium=air&g2=N2O&g2-flow-name=N2O&g3=Water&g3-flow-medium=natural%20resource"
+    describe "groupsDiagramQuery" $
+        it "opens the same split on the diagram" $
+            groupsDiagramQuery (GroupsRequest (Just "first-match") (drop 1 twoGroups))
+                `shouldBe` "?g1=Transport&g1-name=transport&g1-location=FR&display=sankey"
     describe "groupsPagePath" $
         it "escapes the collection like the other pages" $
             groupsPagePath "agb" "p1" (CollectionName "EF 3.1") `shouldBe` "/db/agb/activity/p1/groups/EF%203.1"
