@@ -58,7 +58,7 @@ import qualified Data.ByteString.Char8 as BC
 import Data.Either (partitionEithers)
 import Data.List (dropWhileEnd, elemIndex, sortOn, zip4)
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (fromMaybe, isNothing, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, isNothing, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -70,6 +70,7 @@ import Data.Word (Word8)
 import Data.Indexing (collisions)
 import Method.CSV (detectDelimiter, parseDouble, quotedCells, splitRow)
 import Method.Types
+import SynonymDB (normalizeNameKeepUnit)
 import Types (mediumText)
 
 -- | Why a line of a method CSV cannot be taken as written.
@@ -124,6 +125,8 @@ data Table = Table
     -- ^ the named ones: a column with a blank name holds no category
     , tWidth :: !Int
     -- ^ key columns and category columns, named or not
+    , tHeaderDefects :: ![CsvDefect]
+    -- ^ what the lenient reader tolerates in the header and the strict one refuses
     , tRows :: ![Line]
     }
 
@@ -185,11 +188,14 @@ splitHeaderFromData methodology dataLines =
             let !delim = detectDelimiter labelRow
                 atLabel = first (CsvDefect labelLine)
             keys <- atLabel (parseKeyColumns (splitRow delim labelRow))
-            let dropKeys = drop (kcCount keys) . splitRow delim
-            (cats, names, units) <- atLabel $ case filter (not . BS.null) (map lineBytes headerRows) of
-                [nameRow, unitRow] -> Right (dropKeys nameRow, dropKeys nameRow, dropKeys unitRow)
-                [catRow, nameRow, unitRow] -> Right (dropKeys catRow, dropKeys nameRow, dropKeys unitRow)
+            (catRow, nameRow, unitRow) <- atLabel $ case filter (not . BS.null . lineBytes) headerRows of
+                [nameRow, unitRow] -> Right (Nothing, nameRow, unitRow)
+                [catRow, nameRow, unitRow] -> Right (Just catRow, nameRow, unitRow)
                 _ -> Left "CSV method file needs at least 3 header rows (names, units, column labels)"
+            let dropKeys = drop (kcCount keys) . splitRow delim . lineBytes
+                names = dropKeys nameRow
+                cats = maybe names dropKeys catRow
+                units = dropKeys unitRow
             Right
                 Table
                     { tMethodology = methodology
@@ -202,9 +208,37 @@ splitHeaderFromData methodology dataLines =
                         , not (T.null n)
                         ]
                     , tWidth = kcCount keys + length names
+                    , tHeaderDefects =
+                        catMaybes
+                            ( widthDefect delim nameRow "units" unitRow
+                                : [widthDefect delim nameRow "categories" r | Just r <- [catRow]]
+                            )
                     , tRows = rows
                     }
         _ -> Left (CsvDefect 1 "CSV method file has no 'substance;compartment;...' label row")
+
+{- | A header row whose cell count differs from the names row's, refused on
+the shorter of the two: the columns past it would lose their name or unit.
+-}
+widthDefect :: Char -> Line -> Text -> Line -> Maybe CsvDefect
+widthDefect delim (Line nameLine names) what (Line otherLine other)
+    | nameWidth == otherWidth = Nothing
+    | otherwise =
+        Just $
+            CsvDefect
+                (if otherWidth < nameWidth then otherLine else nameLine)
+                ( "the names row has "
+                    <> tshow nameWidth
+                    <> " cells and the "
+                    <> what
+                    <> " row "
+                    <> tshow otherWidth
+                    <> ": every header row needs one cell per column"
+                )
+  where
+    nameWidth, otherWidth :: Int
+    nameWidth = length (splitRow delim names)
+    otherWidth = length (splitRow delim other)
 
 -- | Detect the label row: first cell is a variation of "substance".
 isLabelRow :: BS.ByteString -> Bool
@@ -274,7 +308,10 @@ nonBlank t = if T.null t then Nothing else Just t
 
 -- | Every defect of a table whose header read, in line order.
 tableDefects :: Table -> [CsvDefect]
-tableDefects t = sortOn cdLine (unitColumn <> unbalanced <> concatMap (rowDefects t) rows <> duplicates (tKeys t) rows)
+tableDefects t
+    -- Rows read against header rows that disagree would only echo them.
+    | not (null (tHeaderDefects t)) = tHeaderDefects t
+    | otherwise = sortOn cdLine (unitColumn <> unbalanced <> concatMap (rowDefects t) rows <> duplicates (tKeys t) rows)
   where
     unbalanced :: [CsvDefect]
     rows :: [Row]
@@ -370,7 +407,9 @@ compartmentDefect comp = case map T.strip (T.splitOn "/" comp) of
     known :: Text -> Bool
     known top = T.toCaseFold top `elem` knownTops
 
--- | What makes two rows one factor, read the way the factor is built.
+{- | What makes two rows one factor to matching: the name as matching keys
+it, the compartment with its sub-compartment folded, and the location.
+-}
 data RowKey = RowKey !Text !(Maybe Compartment) !(Maybe Text)
     deriving (Eq, Ord)
 
@@ -386,7 +425,7 @@ duplicates keys rows =
     -- A row refused for its substance or compartment already says so.
     keyed :: [(RowKey, Int)]
     keyed =
-        [ (RowKey sub (parseCSVCompartment comp) (nonBlank (keyedCell cells (kcLocation keys))), n)
+        [ (RowKey (normalizeNameKeepUnit sub) (foldSub <$> parseCSVCompartment comp) (nonBlank (keyedCell cells (kcLocation keys))), n)
         | Row n cells <- rows
         , let sub = cellAt cells 0
               comp = cellAt cells 1
@@ -394,6 +433,8 @@ duplicates keys rows =
         , not (T.null comp)
         , isNothing (compartmentDefect comp)
         ]
+    foldSub :: Compartment -> Compartment
+    foldSub (Compartment medium s q) = Compartment medium (T.toLower (T.strip s)) q
 
 -- | Deterministic namespace for CSV-derived UUIDs.
 csvMethodNamespace :: UUID

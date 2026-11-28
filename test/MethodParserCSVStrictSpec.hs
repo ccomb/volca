@@ -169,6 +169,33 @@ spec = describe "Method.ParserCSV strict" $ do
         CsvDefect line _ <- oneDefect (table ["\"Nitrogen oxides;air;;g;33"])
         line `shouldBe` 5
 
+    it "refuses a quote inside a cell, even balanced" $
+        strict (table ["a\"b\";air;;g;1"]) `shouldBe` Left [CsvDefect 5 "unbalanced quote"]
+
+    it "refuses two rows whose substances matching reads as one" $ do
+        defectLines (table ["Water;air;;m3;1", "water;air;;m3;3"]) `shouldBe` Left [5, 6]
+        defectLines (table ["Carbon dioxide, fossil;air;;kg;1", "Carbon dioxide fossil;air;;kg;1"])
+            `shouldBe` Left [5, 6]
+
+    it "refuses two rows whose sub-compartments differ only in case" $
+        defectLines (table ["Ammonia;water/groundwater;;kg;1", "Ammonia;water/Groundwater;;kg;3"])
+            `shouldBe` Left [5, 6]
+
+    it "keeps apart two rows of one substance in two units" $
+        defectLines (table ["Gas, natural/kg;natural resource;;kg;1", "Gas, natural/m3;natural resource;;m3;2"])
+            `shouldBe` Right ()
+
+    it "refuses header rows of unequal width, on the shorter row" $
+        strict
+            ( T.unlines
+                [ ";;;;GWP;Acidification"
+                , ";;;;kg CO2 eq"
+                , "substance;compartment;cas;unit;;"
+                , "Ammonia;air;;kg;1;2"
+                ]
+            )
+            `shouldBe` Left [CsvDefect 2 "the names row has 6 cells and the units row 5: every header row needs one cell per column"]
+
     it "reports every defect, not only the first" $
         defectLines (table ["Ammonia;air;;g;54", "Ammonia;soil;;g;1,5", ";air;;g;2", "Water;soil;;;3"])
             `shouldBe` Left [6, 7, 8]
