@@ -9,6 +9,7 @@ import Control.Monad (replicateM_, void)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Data.UUID (UUID)
 import qualified Data.Vector as V
@@ -18,17 +19,20 @@ import System.IO.Temp (withSystemTempDirectory)
 import System.Timeout (timeout)
 import Test.Hspec
 
+import API.Types.MethodEdit (CategoryEditOp (..), CategoryEditRequest (..), toCategoryEdit)
 import Config (Config (..), MethodOrigin (..), MethodPatch (..), MethodPatchMatch (..), ScoringSetConfig (..), defaultConfig)
 import qualified Config
 import Data.JournalFile (journalPath, noOrigin)
-import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getMethodCollection, initDatabaseManager, loadMethodCollection, mapMethodToIndexCached, unloadMethodCollection)
+import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getMergedUnitConfig, getMethodCollection, initDatabaseManager, loadMethodCollection, mapMethodToIndexCached, unloadMethodCollection)
 import Database.UploadedDatabase (getMethodUploadsDir)
 import Method.Edit
 import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), EditEffect (..), FactorEdit (..), FactorTarget (..))
 import Method.Mapping (MethodIndex (..))
+import Method.ParserCSV (parseMethodCSVStrict)
 import Method.Scoring (ScoringRow (..), rowsOf)
 import Method.ScoringEdit (RowDraft (..), ScoringEdit (..))
 import Method.Types (Method (..), MethodCF (..), MethodCollection (..), ScoringSet (..))
+import Method.WriterCSV (serializeColumnarMethodCSV)
 import TestHelpers (withScratchDataDir)
 import Types (PatchOp (..))
 
@@ -83,10 +87,46 @@ simaProFrom file = do
 
 -- | The collection as a reload reads it back from its journal.
 reloaded :: DatabaseManager -> IO (Maybe MethodCollection)
-reloaded manager = do
-    _ <- unloadMethodCollection manager "copy"
-    _ <- loadMethodCollection manager "copy"
-    getMethodCollection manager "copy"
+reloaded manager = reloadedAs manager "copy"
+
+-- | The named collection as a reload reads it back from its journal.
+reloadedAs :: DatabaseManager -> T.Text -> IO (Maybe MethodCollection)
+reloadedAs manager name = do
+    _ <- unloadMethodCollection manager name
+    _ <- loadMethodCollection manager name
+    getMethodCollection manager name
+
+-- | An empty collection of one's own, named « mine ».
+authored :: IO DatabaseManager
+authored = do
+    manager <- initDatabaseManager defaultConfig NoCache
+    created <- createMethodCollection manager "mine"
+    created `shouldBe` Right "mine"
+    pure manager
+
+-- | An import of a CSV text, read as the request that carries it is.
+importCsv :: DatabaseManager -> T.Text -> IO (Either MethodEditRefusal EditOutcome)
+importCsv manager csv = do
+    units <- getMergedUnitConfig manager
+    either
+        (pure . Left . EditRefused)
+        (editMethodCategories manager "mine" noOrigin)
+        (toCategoryEdit units (CategoryEditRequest ImportCategoryOp Nothing Nothing Nothing Nothing Nothing (Just csv)))
+
+-- | One category of two factors, under its name and its unit, as a CSV text.
+climate :: T.Text
+climate =
+    T.unlines
+        [ ";;;;Climate change"
+        , ";;;;kg CO2 eq"
+        , "substance;compartment;cas;unit;"
+        , "Carbon dioxide;air;124-38-9;kg;1"
+        , "Methane;air;74-82-8;kg;28"
+        ]
+
+-- | The factors of each category of a collection, in order.
+factorsOf :: Maybe MethodCollection -> [[MethodCF]]
+factorsOf = maybe [] (map methodFactors . mcMethods)
 
 anyPatch :: MethodPatch
 anyPatch = MethodPatch Nothing (MethodPatchMatch Nothing Nothing (Just "Methane") Nothing Nothing) (ScaleBy 2)
@@ -298,3 +338,101 @@ spec = describe "changing a method collection of one's own" $ do
             _ <- editScoringSets manager "copy" noOrigin (AddRow "Mine" (RowDraft "Carbon" Nothing ((co2, 1) :| []) Nothing (Just 1)))
             refused <- undoMethodEdit manager "copy" noOrigin (Just 2)
             either (T.unpack . refusalText) (const "undone") refused `shouldContain` "undo line 3 first"
+
+    it "imports a CSV text into an authored collection and keeps it across a reload" $
+        withScratchDataDir $ do
+            manager <- authored
+            imported <- importCsv manager climate
+            fmap eoLine imported `shouldBe` Right 1
+            fmap (eeTouched . eoEffect) imported `shouldBe` Right 2
+            edited <- getMethodCollection manager "mine"
+            fmap (map methodName . mcMethods) edited `shouldBe` Just ["Climate change"]
+            map (map mcfValue) (factorsOf edited) `shouldBe` [[1, 28]]
+            reloadedAs manager "mine" `shouldReturn` edited
+
+    it "refuses a CSV of two categories, writing nothing" $
+        withScratchDataDir $ do
+            manager <- authored
+            let two =
+                    T.unlines
+                        [ ";;;;Climate change;Ozone depletion"
+                        , ";;;;kg CO2 eq;kg CFC-11 eq"
+                        , "substance;compartment;cas;unit;;"
+                        , "Methane;air;74-82-8;kg;28;0"
+                        ]
+            refused <- importCsv manager two
+            void refused `shouldBe` Left (EditRefused "an import takes one impact category, and the text holds 2 (Climate change, Ozone depletion): send each in a call of its own")
+            fmap length <$> methodHistory manager "mine" `shouldReturn` Right 0
+
+    it "refuses a malformed CSV with every defect's line, writing nothing" $
+        withScratchDataDir $ do
+            manager <- authored
+            let malformed =
+                    T.unlines
+                        [ ";;;;Climate change"
+                        , ";;;;kg CO2 eq"
+                        , "substance;compartment;cas;unit;"
+                        , "Carbon dioxide;air;124-38-9;kg;1,5"
+                        , "Methane;air;74-82-8;kg;many"
+                        ]
+            refused <- importCsv manager malformed
+            void refused `shouldBe` Left (EditRefused "line 4: '1,5' is not a number\nline 5: 'many' is not a number")
+            fmap length <$> methodHistory manager "mine" `shouldReturn` Right 0
+
+    it "names once the lines that share a reason, within a size an answer carries" $
+        withScratchDataDir $ do
+            manager <- authored
+            let header = [";;;;Climate change", ";;;;kg CO2 eq", "substance;compartment;cas;unit;"]
+                csv = T.unlines . (header <>)
+                refusal = fmap (either refusalText (const "accepted")) . importCsv manager . csv
+                substance i = "Substance " <> T.pack (show (i :: Int))
+            same <- refusal [substance i <> ";Emissions to air;;kg;1" | i <- [1 .. 600]]
+            T.length same `shouldSatisfy` (< 20000)
+            T.unpack same `shouldStartWith` "lines 4-603: 'Emissions to air' is not a compartment"
+            apart <- refusal ["Methane;Emissions to air;;kg;28", "Carbon dioxide;air;;kg;1", "Ethane;Emissions to air;;kg;6"]
+            T.unpack apart `shouldStartWith` "lines 4, 6: 'Emissions to air' is not a compartment"
+            scattered <- refusal (concat [[substance i <> ";Emissions to air;;kg;1", substance (100 + i) <> ";air;;kg;1"] | i <- [1 .. 30]])
+            T.unpack scattered `shouldStartWith` "lines 4, 6, 8,"
+            T.unpack scattered `shouldContain` "42, … (30 lines in all): 'Emissions to air'"
+            distinct <- refusal [substance i <> ";" <> substance i <> ";;kg;1" | i <- [1 .. 600]]
+            T.length distinct `shouldSatisfy` (< 20000)
+            T.unpack distinct `shouldStartWith` "line 4: 'Substance 1' is not a compartment"
+            T.unpack distinct `shouldEndWith` "more lines"
+
+    it "refuses a flow unit the engine's unit table does not know, writing nothing" $
+        withScratchDataDir $ do
+            manager <- authored
+            refused <- importCsv manager (T.replace "Methane;air;74-82-8;kg;28" "Methane;air;74-82-8;gr;28" climate)
+            either (T.unpack . refusalText) (const "accepted") refused `shouldStartWith` "line 5: 'gr' is not a unit"
+            fmap length <$> methodHistory manager "mine" `shouldReturn` Right 0
+
+    it "exports an imported category with its locations" $
+        withScratchDataDir $ do
+            manager <- authored
+            let located =
+                    T.unlines
+                        [ ";;;;;Water scarcity"
+                        , ";;;;;m3 world eq"
+                        , "substance;compartment;cas;unit;location;"
+                        , "Water;air;;m3;CH;1.5"
+                        , "Water;air;;m3;FR;3"
+                        ]
+            importCsv manager located >>= either (fail . show) (const (pure ()))
+            collection <- getMethodCollection manager "mine"
+            written <- maybe (fail "the collection is not loaded") (either (fail . T.unpack) (pure . fst) . serializeColumnarMethodCSV) collection
+            units <- getMergedUnitConfig manager
+            back <- either (fail . show) pure (parseMethodCSVStrict units written)
+            map methodFactors back `shouldBe` factorsOf collection
+            map (map mcfConsumerLocation) (factorsOf collection) `shouldBe` [[Just "CH", Just "FR"]]
+            TE.decodeUtf8 written `shouldSatisfy` T.isInfixOf "location"
+
+    it "scales an imported category with the existing selector" $
+        withScratchDataDir $ do
+            manager <- authored
+            importCsv manager climate >>= either (fail . show) (const (pure ()))
+            let thousand = MethodPatch Nothing (MethodPatchMatch (Just "Climate change") Nothing Nothing Nothing Nothing) (ScaleBy 1000)
+            scaled <- editMethodFactors manager "mine" noOrigin (Patch thousand)
+            fmap (eeTouched . eoEffect) scaled `shouldBe` Right 2
+            edited <- getMethodCollection manager "mine"
+            map (map mcfValue) (factorsOf edited) `shouldBe` [[1000, 28000]]
+            reloadedAs manager "mine" `shouldReturn` edited

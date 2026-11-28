@@ -77,7 +77,7 @@ import Data.List (find, (!?))
 import qualified Data.List as L
 import qualified Data.Set as Set
 import Method.ChemSynonyms (ChemSynonyms)
-import Method.Edit (MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
+import Method.Edit (MethodEditRefusal (..), copyMethodCollection, createMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import qualified Method.Explain as Explain
 import Method.Journal (Exact (..))
 import Method.Mapping (FlowContribution (..), LCIAOutcome (..), MappingStats (..), Resolution (..), SimilarCF (..), SimilarReason (..), UncharacterizedFlow (..), computeMappingStats, defaultUncharacterizedOpts, longTermModeFromExclude, strategyToText)
@@ -1663,7 +1663,9 @@ dispatchTool Caller{callerReader = reader, callerAuthor = by, callerAsking = ask
     R.DropScenario -> callScenarios dbManager rid args $ \dbName -> do
         scenario <- except (requireText "name" args)
         ExceptT (first refusalMessage <$> dropScenario dbManager dbName origin (ScenarioName scenario))
+    R.LoadMethodCollection -> callLoadMethodCollection dbManager rid args
     R.CopyMethodCollection -> callCopyMethodCollection dbManager rid args
+    R.CreateMethodCollection -> callCreateMethodCollection dbManager rid args
     R.EditMethodFactors -> callEditMethodFactors dbManager origin rid args
     R.EditMethodCategories -> callEditMethodCategories dbManager origin rid args
     R.EditMethodScoringSets -> callEditScoringSets dbManager origin rid args
@@ -3146,12 +3148,26 @@ callScenarios dbManager rid args change = runTool rid $ do
     saved <- ExceptT (first refusalMessage <$> listScenarios dbManager dbName)
     return $ toolSuccessJson rid (toJSON saved)
 
+-- | Load a method collection through what the HTTP load route calls.
+callLoadMethodCollection :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callLoadMethodCollection dbManager rid args = runTool rid $ do
+    collection <- except (requireText "collection" args)
+    ExceptT (DM.loadMethodCollection dbManager collection)
+    return $ toolSuccessJson rid (object ["status" .= ("loaded" :: Text), "collection" .= collection])
+
 callCopyMethodCollection :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
 callCopyMethodCollection dbManager rid args = runTool rid $ do
     collection <- except (requireText "collection" args)
     newName <- except (requireText "new_name" args)
     copied <- ExceptT (first refusalText <$> copyMethodCollection dbManager collection newName)
     return $ toolSuccessJson rid (object ["collection" .= copied])
+
+-- | Answered as a copy is: the slug the next tools take.
+callCreateMethodCollection :: DatabaseManager -> RequestId -> KeyMap Value -> IO Value
+callCreateMethodCollection dbManager rid args = runTool rid $ do
+    newName <- except (requireText "new_name" args)
+    created <- ExceptT (first refusalText <$> createMethodCollection dbManager newName)
+    return $ toolSuccessJson rid (object ["collection" .= created])
 
 {- | Read through the request the HTTP endpoint reads, so a change an assistant
 asks for is refused or taken exactly as a person's is. The arguments are the
@@ -3171,12 +3187,13 @@ callEditMethodFactors dbManager origin rid args = runTool rid $ do
 callEditMethodCategories :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
 callEditMethodCategories dbManager origin rid args = runTool rid $ do
     (collection, request) <- except (editArguments names args)
-    edit <- except (toCategoryEdit request)
+    units <- liftIO (DM.getMergedUnitConfig dbManager)
+    edit <- except (toCategoryEdit units request)
     outcome <- ExceptT (first refusalText <$> editMethodCategories dbManager collection origin edit)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
   where
     names :: [(Key, Key)]
-    names = [("op", "op"), ("method_id", "methodId"), ("name", "name"), ("unit", "unit"), ("impact_category", "impactCategory"), ("methodology", "methodology")]
+    names = [("op", "op"), ("method_id", "methodId"), ("name", "name"), ("unit", "unit"), ("impact_category", "impactCategory"), ("methodology", "methodology"), ("csv", "csv")]
 
 -- | Read through the request the HTTP endpoint reads, as 'callEditMethodFactors' does.
 callEditScoringSets :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value

@@ -53,7 +53,7 @@ import API.DatabaseHandlers (
     uploadRefData,
  )
 import API.MCP (callTool, noRequestId, toolDefinitions)
-import API.MethodEditHandlers (copyMethodCollectionHandler, editMethodCategoriesHandler, editMethodFactorsHandler, editScoringSetsHandler, methodHistoryHandler, undoMethodEditHandler)
+import API.MethodEditHandlers (copyMethodCollectionHandler, createMethodCollectionHandler, editMethodCategoriesHandler, editMethodFactorsHandler, editScoringSetsHandler, methodHistoryHandler, undoMethodEditHandler)
 import API.Resources (Resource (..), allResources, resourceMutates)
 import API.Routes (getHosting, loadMethodCollectionHandler, unloadMethodCollectionHandler)
 import API.Types (
@@ -157,8 +157,9 @@ mutatingHandlers =
     , ("delete-refdata", run (deleteRefData FlowSynonyms "nope"))
     , ("upload-refdata", run (uploadRefData FlowSynonyms (Just "nope") Nothing (source [])))
     , ("copy-method", run (copyMethodCollectionHandler "nope" "nope-copy"))
+    , ("create-method", run (createMethodCollectionHandler "nope-new"))
     , ("edit-method-factors", run (editMethodFactorsHandler "nope" (FactorEditRequest SetOne Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)))
-    , ("edit-method-categories", run (editMethodCategoriesHandler "nope" (CategoryEditRequest AddCategoryOp Nothing (Just "x") (Just "kg") Nothing Nothing)))
+    , ("edit-method-categories", run (editMethodCategoriesHandler "nope" (CategoryEditRequest AddCategoryOp Nothing (Just "x") (Just "kg") Nothing Nothing Nothing)))
     , ("edit-scoring-sets", run (editScoringSetsHandler "nope" (ScoringEditRequest RemoveSetOp "x" Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)))
     , ("undo-method-edit", run (undoMethodEditHandler "nope" Nothing))
     ]
@@ -251,7 +252,7 @@ spec = do
 
     describe "Resource registry" $
         it "counts exactly the operations that change shared state as mutations" $
-            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, CreateDatabase, CreateActivities, EditExchanges, EditActivities, SupplyMissing, EditDatabaseParameters, SaveScenario, DropScenario, CopyMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
+            filter resourceMutates allResources `shouldBe` [LoadDatabase, UnloadDatabase, DeriveDatabase, CreateDatabase, CreateActivities, EditExchanges, EditActivities, SupplyMissing, EditDatabaseParameters, SaveScenario, DropScenario, LoadMethodCollection, CopyMethodCollection, CreateMethodCollection, EditMethodFactors, EditMethodCategories, EditMethodScoringSets, UndoMethodEdit]
 
     describe "REST handlers under read_only" $ do
         it "refuse every mutating endpoint with 403" $
@@ -316,6 +317,8 @@ spec = do
             let names ro = [n | Object o <- toolDefinitions ro, Just (String n) <- [KM.lookup "name" o]]
             names (ReadOnly True) `shouldNotContain` ["load_database"]
             names (ReadOnly True) `shouldNotContain` ["unload_database"]
+            names (ReadOnly True) `shouldNotContain` ["create_method_collection"]
+            names (ReadOnly False) `shouldContain` ["create_method_collection"]
             names (ReadOnly True) `shouldContain` ["list_databases"]
             names (ReadOnly False) `shouldContain` ["load_database"]
 

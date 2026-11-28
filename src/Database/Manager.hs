@@ -2506,21 +2506,30 @@ discoverUploadedMethodConfigs = do
 {- | Where an uploaded collection's factors come from, and the format they are
 in. An upload holds its own files, found inside its directory; a copy points
 at its source's, or names the collection built into the engine it was taken
-from. The format is read off the files rather than meta.toml: the file on disk
-may predate method-aware detection, and can't drift this way.
+from; one read from its journal, or a copy of one, reads nothing else. The
+format is read off the files rather than meta.toml: the file on disk may
+predate method-aware detection, and can't drift this way.
 -}
 originOf :: FilePath -> UploadedDB.UploadMeta -> IO (Either Text (MethodOrigin, Maybe Text))
-originOf dirPath meta = case (UploadedDB.umBuiltIn meta, UploadedDB.umSource meta) of
-    (Just name, _) ->
-        pure $
-            maybe
-                (Left ("no method collection named " <> name <> " is built into this engine"))
-                (\b -> Right (MethodBuiltIn b, Nothing))
-                (find ((== name) . builtinMethodName) builtinMethods)
-    (Nothing, Just _) -> fromFiles (UploadedDB.umDataPath meta)
-    -- Find the actual method directory (e.g., ILCD/lciamethods/)
-    (Nothing, Nothing) -> fromFiles =<< findMethodDirectory dirPath
+originOf dirPath meta
+    | UploadedDB.umReading meta == FromJournal = pure (journalOrigin meta)
+    | otherwise = case (UploadedDB.umBuiltIn meta, UploadedDB.umSource meta) of
+        (Just name, _) ->
+            pure $
+                maybe
+                    (Left ("no method collection named " <> name <> " is built into this engine"))
+                    (\b -> Right (MethodBuiltIn b, Nothing))
+                    (find ((== name) . builtinMethodName) builtinMethods)
+        (Nothing, Just _) -> fromFiles (UploadedDB.umDataPath meta)
+        -- Find the actual method directory (e.g., ILCD/lciamethods/)
+        (Nothing, Nothing) -> fromFiles =<< findMethodDirectory dirPath
   where
+    -- A journal read alone and something else to read: two answers, so neither is taken.
+    journalOrigin :: UploadedDB.UploadMeta -> Either Text (MethodOrigin, Maybe Text)
+    journalOrigin m = case (UploadedDB.umBuiltIn m, UploadedDB.umDataPath m) of
+        (Just name, _) -> Left ("it reads its journal alone, yet names the built-in collection " <> name)
+        (Nothing, "") -> Right (MethodFromJournal, Nothing)
+        (Nothing, path) -> Left ("it reads its journal alone, yet names the files " <> T.pack path)
     fromFiles :: FilePath -> IO (Either Text (MethodOrigin, Maybe Text))
     fromFiles methodDir = Right . (,) (MethodFromFile methodDir) . detectedFormatLabel <$> detectMethodFormat methodDir
 
@@ -5382,6 +5391,7 @@ loadMethodCollectionFromConfig policy mc = (>>= \reading -> reading <$ namedOnce
     parsed = case mcOrigin mc of
         MethodBuiltIn builtin -> pure (builtinMethodCollection builtin)
         MethodFromFile path -> loadMethodCollectionFromPath (methodCacheStamp policy) (mcPackageMethod mc) path
+        MethodFromJournal -> pure (Right (MethodRead (MethodCollection [] [] []) [] Nothing))
 
 {- | The stamp method caches are kept under, for a run that keeps caches. A
 database with a journal reads its cache and writes none; no method is loaded
@@ -5726,6 +5736,7 @@ listMethodCollections manager = do
     formatOf :: MethodOrigin -> Text
     formatOf (MethodBuiltIn _) = "Columnar CSV"
     formatOf (MethodFromFile path) = detectFormatFromPath path
+    formatOf MethodFromJournal = "Journal"
 
     detectFormatFromPath :: FilePath -> Text
     detectFormatFromPath p

@@ -2,17 +2,18 @@
 
 {- | Writer for the columnar CSV method format – the exact inverse of
 "Method.ParserCSV". One file, one column per impact category, one row per
-distinct (substance, compartment, CAS, flow unit): the spreadsheet view of
-a method collection.
+distinct (substance, compartment, CAS, flow unit, location): the
+spreadsheet view of a method collection.
 
 Deterministic: rows are sorted by their key, values render through
 'formatAmount', and nothing volatile (timestamp, version) is emitted, so
 the same collection always serializes to the same bytes.
 
-Projections onto the format's conventions (matching "Method.WriterSimaPro"
-where the two formats share a limitation):
+Projections onto the format's conventions:
 
-* a regionalized CF is written as a name-suffixed substance (@Water, FR@);
+* a regionalized CF keeps its location in a @location@ column, written only
+  when some factor has one, so a collection without located factors
+  serializes as it always did;
 * the compartment cell is the @top/sub/qualifier@ path the parser reads
   back exactly, so subcompartment distinctions survive;
 * flow direction is not a column – the parser re-derives it from the
@@ -46,8 +47,17 @@ import SimaPro.Writer (formatAmount)
 delim :: Char
 delim = ';'
 
-keyLabels :: [Text]
-keyLabels = ["substance", "compartment", "cas", "unit"]
+{- | The key columns written, each with its cell. Location comes last, and
+only when some factor has one: an older engine refuses a column it does not
+know, so a collection that needs none must not carry it.
+-}
+keyColumns :: [Method] -> [(Text, RowKey -> Text)]
+keyColumns ms =
+    [("substance", rkSubstance), ("compartment", rkCompartment), ("cas", rkCAS), ("unit", rkUnit)]
+        <> [("location", rkLocation) | any located (concatMap methodFactors ms)]
+  where
+    located :: MethodCF -> Bool
+    located = not . T.null . rkLocation . rowKey
 
 {- | Serialize a method collection to columnar CSV bytes, paired with the
 projection warnings. 'Left' when the format cannot represent the collection
@@ -57,6 +67,8 @@ serializeColumnarMethodCSV :: MethodCollection -> Either Text (BS.ByteString, [T
 serializeColumnarMethodCSV mc = do
     checkColumnarExportable mc
     let ms = mcMethods mc
+        columns = keyColumns ms
+        keyLabels = map fst columns
         headerRow field = joinRow delim (map (const "") keyLabels <> map (T.strip . field) ms)
         header =
             [ headerRow methodCategory
@@ -65,12 +77,22 @@ serializeColumnarMethodCSV mc = do
             , joinRow delim (keyLabels <> map (const "") ms)
             ]
         methodologyLine = maybe [] (\m -> ["# methodology: " <> T.strip m]) (sharedMethodology ms)
-        allLines = methodologyLine <> header <> tableRows ms
+        allLines = methodologyLine <> header <> tableRows (map snd columns) ms
         warnings = directionWarnings ms <> lossWarnings mc
     pure (TE.encodeUtf8 (T.unlines allLines), warnings)
 
--- | Key of a data row: what the parser reads back from the key columns.
-type RowKey = (Text, Text, Text, Text)
+{- | Key of a data row: what the parser reads back from the key columns. The
+fields are in sort order, so rows without a location keep the order they have
+always had.
+-}
+data RowKey = RowKey
+    { rkSubstance :: !Text
+    , rkCompartment :: !Text
+    , rkCAS :: !Text
+    , rkUnit :: !Text
+    , rkLocation :: !Text
+    }
+    deriving (Eq, Ord)
 
 {- | Every cell is emitted stripped: the parser strips what it reads, so
 surrounding whitespace (it occurs in real source data, e.g. a CAS written
@@ -79,11 +101,13 @@ not information.
 -}
 rowKey :: MethodCF -> RowKey
 rowKey cf =
-    ( T.strip (mcfFlowName cf <> maybe "" (", " <>) (mcfConsumerLocation cf))
-    , compartmentCell (mcfCompartment cf)
-    , maybe "" T.strip (mcfCAS cf)
-    , T.strip (mcfUnit cf)
-    )
+    RowKey
+        { rkSubstance = T.strip (mcfFlowName cf)
+        , rkCompartment = compartmentCell (mcfCompartment cf)
+        , rkCAS = maybe "" T.strip (mcfCAS cf)
+        , rkUnit = T.strip (mcfUnit cf)
+        , rkLocation = maybe "" T.strip (mcfConsumerLocation cf)
+        }
 
 -- | The @top/sub/qualifier@ path, segments stripped, trailing empties dropped.
 compartmentCell :: Maybe Compartment -> Text
@@ -98,10 +122,10 @@ inside one category keeps every occurrence: the widest column decides how
 many physical rows the key spans, and each occurrence lands on its own row
 in factor order.
 -}
-tableRows :: [Method] -> [Text]
-tableRows ms =
-    [ joinRow delim ([name, comp, cas, unit] <> [render i (M.lookup col table) | col <- columns])
-    | ((name, comp, cas, unit), table) <- M.toAscList grouped
+tableRows :: [RowKey -> Text] -> [Method] -> [Text]
+tableRows keyCells ms =
+    [ joinRow delim (map ($ key) keyCells <> [render i (M.lookup col table) | col <- columns])
+    | (key, table) <- M.toAscList grouped
     , i <- [0 .. depth table - 1]
     ]
   where

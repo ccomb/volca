@@ -141,19 +141,56 @@ spec = describe "Method.WriterCSV" $ do
                             map mcfUnit cfs `shouldBe` ["kg", "m2a"]
                             map mcfDirection cfs `shouldBe` [Output, Input]
 
-        it "writes a regionalized CF as a name-suffixed substance row" $ do
-            let cf = (mkCF "Water" (Just (Compartment "natural resource" "in water" "")) 42.95){mcfDirection = Input, mcfConsumerLocation = Just "FR"}
-            case serialize (collection [mkMethod "Water use" [cf]]) of
+        it "keeps a regionalized CF's location through write and parse" $ do
+            let water = Just (Compartment "natural resource" "in water" "")
+                located = (mkCF "Water" water 2.0){mcfDirection = Input, mcfConsumerLocation = Just "FR"}
+                global = (mkCF "Water" water 1.0){mcfDirection = Input}
+            case serialize (collection [mkMethod "Water use" [located, global]]) of
                 Left err -> expectationFailure (T.unpack err)
                 Right (out, warnings) -> do
                     warnings `shouldBe` []
-                    out `shouldSatisfy` T.isInfixOf "Water, FR;natural resource/in water;;kg;42.95"
                     case reparse out of
                         Left err -> expectationFailure ("re-parse failed: " <> err)
                         Right ms -> do
-                            let cfs = concatMap methodFactors ms
-                            map mcfFlowName cfs `shouldBe` ["Water, FR"]
-                            map mcfConsumerLocation cfs `shouldBe` [Nothing]
+                            let cfs = sortOn mcfValue (concatMap methodFactors ms)
+                            map mcfFlowName cfs `shouldBe` ["Water", "Water"]
+                            map mcfConsumerLocation cfs `shouldBe` [Nothing, Just "FR"]
+
+        it "reads a location key column placed before cas" $ do
+            let csv =
+                    T.unlines
+                        [ ";;;;;Water use"
+                        , ";;;;;m3 eq"
+                        , "substance;compartment;location;cas;unit;"
+                        , "Water;natural resource/in water;CH;7732-18-5;m3;3.5"
+                        ]
+            case reparse csv of
+                Left err -> expectationFailure ("parse failed: " <> err)
+                Right ms -> do
+                    let cfs = concatMap methodFactors ms
+                    map mcfConsumerLocation cfs `shouldBe` [Just "CH"]
+                    map mcfCAS cfs `shouldBe` [Just "7732-18-5"]
+                    map mcfValue cfs `shouldBe` [3.5]
+
+        it "writes no location column when no factor has one" $ do
+            raw <- BS.readFile "test/data/method.csv"
+            case parseMethodCSVBytes raw >>= first T.unpack . serializeColumnarMethodCSV . collection of
+                Left err -> expectationFailure err
+                Right (bytes, _) ->
+                    TE.decodeUtf8 bytes
+                        `shouldBe` T.unlines
+                            [ "# methodology: Test Method"
+                            , ";;;;global warming (GWP100);acidification;abiotic depletion"
+                            , ";;;;global warming (GWP100);acidification;abiotic depletion"
+                            , ";;;;kg CO2 eq.;kg SO2 eq.;kg antimony eq."
+                            , "substance;compartment;cas;unit;;;"
+                            , "Carbon dioxide;air;;kg CO2 eq.;1;;"
+                            , "Crude oil;natural resource;;kg antimony eq.;;;42"
+                            , "Methane;air;;kg CO2 eq.;28;;"
+                            , "Nitrogen oxides;air;;kg CO2 eq.;0;;"
+                            , "Nitrogen oxides;air;;kg SO2 eq.;;0.7;"
+                            , "Sulfur dioxide;air;;kg SO2 eq.;;1;"
+                            ]
 
         it "keeps duplicate factors for one key as separate rows" $ do
             let cf = mkCF "Chlordane" (Just (Compartment "air" "indoor" ""))

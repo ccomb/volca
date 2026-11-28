@@ -1649,8 +1649,8 @@ class Client:
         A collection the configuration declares, or one built into the engine,
         is never changed in place: copy it, then change the copy. The copy
         scores exactly as its source before any change and is loaded at once.
-        It reads its source's files, so the source cannot be deleted while the
-        copy exists. The copy is known by the slug of ``new_name`` (lower case,
+        A source with files of its own cannot be deleted while a copy reading
+        them exists. The copy is known by the slug of ``new_name`` (lower case,
         words joined by dashes); a name another collection already has is
         refused. Returns the collection made, whose ``name`` is the one the
         next call takes.
@@ -1659,6 +1659,22 @@ class Client:
         """
         self._require_wire(42, "copy_method_collection", engine_hint="0.15.0")
         return self._json(self._session.post(self._method_collection_url(collection, "copy", urllib.parse.quote(new_name, safe=""))))
+
+    def create_method_collection(self, new_name: str) -> dict:
+        """Create an empty method collection of your own under ``new_name``.
+
+        It holds no impact category: fill it one at a time with
+        :meth:`import_method_category`. It is loaded at once and kept in its
+        own journal, so after an engine restart it stays unloaded until
+        :meth:`load_method_collection` loads it. The collection is known by
+        the slug of ``new_name`` (lower case, words joined by dashes); a name
+        another collection already has is refused. Returns the collection
+        made, whose ``name`` is the one the next call takes.
+
+        Needs an engine speaking wire revision 130.
+        """
+        self._require_wire(130, "create_method_collection", engine_hint="0.19.1")
+        return self._json(self._session.post(self._method_collection_url(new_name, "create")))
 
     def set_method_factor(
         self,
@@ -1767,6 +1783,24 @@ class Client:
             collection,
             {"op": "add", "name": name, "unit": unit, "impactCategory": impact_category, "methodology": methodology},
         )
+
+    def import_method_category(self, collection: str, csv: str) -> dict:
+        """Import one impact category and its factors, from the text of a method CSV.
+
+        ``csv`` holds exactly one category, in the layout the engine reads for
+        a method file; a compartment is written ``top/sub``, with a qualifier
+        after a comma and never as a third segment, and each row's ``unit`` is
+        a flow unit spelt as the engine's unit table spells it. A text that
+        cannot be read as written is refused with each defect named by the
+        lines it is on in the text, and nothing is recorded. The category and
+        its factors are one change of the collection, undone together by
+        :meth:`undo_method_edit`. A name already in use is refused. The
+        answer's ``methodId`` names the category made.
+
+        Needs an engine speaking wire revision 130.
+        """
+        self._require_wire(130, "import_method_category", engine_hint="0.19.1")
+        return self._edit_method_categories("import_method_category", collection, {"op": "import", "csv": csv})
 
     def rename_method_category(self, collection: str, method_id: str, name: str) -> dict:
         """Rename an impact category of a collection of your own.

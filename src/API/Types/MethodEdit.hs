@@ -11,15 +11,20 @@ import API.Types.MethodComparison
 import Config (MethodPatch (..), MethodPatchMatch (..))
 import Control.Lens ((&), (?~))
 import Data.Aeson
+import Data.Indexing (groupInOrder)
+import Data.List (sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (isNothing)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToSchema (..), enum_, type_)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import GHC.Generics
 import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), FactorEdit (..), FactorTarget (..))
 import Method.Journal (Exact (..))
+import Method.ParserCSV (CsvDefect (..), parseMethodCSVStrict)
 import Method.ScoringEdit (RowDraft (..), ScoringEdit (..))
 import Method.Types (FlowDirection, MethodCF (..))
 import qualified Method.Types as MT
@@ -27,6 +32,7 @@ import Types (
     PatchOp (..),
     UUID,
  )
+import UnitConversion (UnitConfig)
 
 -- ---------------------------------------------------------------------------
 -- Changing a method collection of one's own
@@ -129,8 +135,8 @@ data CompartmentAPI = CompartmentAPI
 instance FromJSON CompartmentAPI where
     parseJSON = parseClosed
 
--- | What one request does to a collection's categories. Read from the four words below; any other is refused naming them.
-data CategoryEditOp = AddCategoryOp | RenameCategoryOp | SetCategoryUnitOp | RemoveCategoryOp
+-- | What one request does to a collection's categories. Read from the five words below; any other is refused naming them.
+data CategoryEditOp = AddCategoryOp | RenameCategoryOp | SetCategoryUnitOp | RemoveCategoryOp | ImportCategoryOp
     deriving (Eq, Show, Enum, Bounded)
 
 categoryEditOpName :: CategoryEditOp -> Text
@@ -139,6 +145,7 @@ categoryEditOpName = \case
     RenameCategoryOp -> "rename"
     SetCategoryUnitOp -> "set-unit"
     RemoveCategoryOp -> "remove"
+    ImportCategoryOp -> "import"
 
 instance FromJSON CategoryEditOp where
     parseJSON = withText "op" $ \t ->
@@ -162,7 +169,8 @@ instance ToSchema CategoryEditOp where
 
 {- | One change asked of a collection's categories. An addition names the
 name and the unit (the impact category and methodology are optional); a
-rename, a change of unit and a removal name the category by 'methodId'.
+rename, a change of unit and a removal name the category by 'methodId'; an
+import names the 'csv' text of one category, factors included.
 -}
 data CategoryEditRequest = CategoryEditRequest
     { cerOp :: CategoryEditOp
@@ -171,6 +179,7 @@ data CategoryEditRequest = CategoryEditRequest
     , cerUnit :: Maybe Text
     , cerImpactCategory :: Maybe Text
     , cerMethodology :: Maybe Text
+    , cerCsv :: Maybe Text
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped CategoryEditRequest)
@@ -178,15 +187,74 @@ data CategoryEditRequest = CategoryEditRequest
 instance FromJSON CategoryEditRequest where
     parseJSON = parseClosed
 
--- | What a change asks of a collection's categories, or the field it lacks.
-toCategoryEdit :: CategoryEditRequest -> Either Text CategoryEdit
-toCategoryEdit req = case cerOp req of
+{- | What a change asks of a collection's categories, or the field it lacks.
+An import reads its flow units against the table the engine scores with.
+-}
+toCategoryEdit :: UnitConfig -> CategoryEditRequest -> Either Text CategoryEdit
+toCategoryEdit units req = case cerOp req of
     AddCategoryOp ->
         maybe (Left "an add names name and unit") Right $
             (\name unit -> NewCategory (CategoryDraft name unit (cerImpactCategory req) (cerMethodology req))) <$> cerName req <*> cerUnit req
     RenameCategoryOp -> maybe (Left "a rename names methodId and name") Right (Rename <$> cerMethodId req <*> cerName req)
     SetCategoryUnitOp -> maybe (Left "a set-unit names methodId and unit") Right (ChangeUnit <$> cerMethodId req <*> cerUnit req)
     RemoveCategoryOp -> maybe (Left "a remove names methodId") (Right . Delete) (cerMethodId req)
+    ImportCategoryOp -> maybe (Left "an import names csv") (importedCategory units) (cerCsv req)
+
+-- | The one category a CSV text holds, or every line of it that cannot be taken as written.
+importedCategory :: UnitConfig -> Text -> Either Text CategoryEdit
+importedCategory units csv = case parseMethodCSVStrict units (TE.encodeUtf8 csv) of
+    Left defects -> Left (describeDefects defects)
+    Right [method] -> Right (ImportCategory method)
+    Right [] -> Left "the CSV text holds no impact category"
+    Right methods ->
+        Left $
+            "an import takes one impact category, and the text holds "
+                <> T.pack (show (length methods))
+                <> " ("
+                <> T.intercalate ", " (map MT.methodName methods)
+                <> "): send each in a call of its own"
+
+{- | The defects of a refused CSV text, one line per reason with the lines
+that share it, within a size an answer can carry: a table written wrong the
+same way on every row would otherwise repeat one reason per row.
+-}
+describeDefects :: [CsvDefect] -> Text
+describeDefects defects = T.intercalate "\n" (map (T.take refusalCap . fst) shown <> ["… and " <> tshow more <> " more lines" | more > 0])
+  where
+    -- The defects come in line order, and each reason keeps its lines in that order.
+    groups :: [(Text, NE.NonEmpty Int)]
+    groups = sortOn (NE.head . snd) (M.toList (groupInOrder [(cdReason d, cdLine d) | d <- defects]))
+    rendered :: [(Text, NE.NonEmpty Int)]
+    rendered = [(linesText ls <> ": " <> reason, ls) | (reason, ls) <- groups]
+    kept :: Int
+    kept = length (takeWhile (<= refusalCap) (scanl1 (+) (map ((+ 1) . T.length . fst) rendered)))
+    shown, omitted :: [(Text, NE.NonEmpty Int)]
+    (shown, omitted) = splitAt (max 1 kept) rendered
+    more :: Int
+    more = S.size (S.fromList (concatMap (NE.toList . snd) omitted))
+    tshow :: Int -> Text
+    tshow = T.pack . show
+    linesText :: NE.NonEmpty Int -> Text
+    linesText ls = case runs (NE.toList ls) of
+        [(a, b)] | a == b -> "line " <> tshow a
+        rs ->
+            "lines "
+                <> T.intercalate ", " (map run (take runsShown rs))
+                <> (if length rs > runsShown then ", … (" <> tshow (sum [b - a + 1 | (a, b) <- rs]) <> " lines in all)" else "")
+    run :: (Int, Int) -> Text
+    run (a, b) = if a == b then tshow a else tshow a <> "-" <> tshow b
+    -- Consecutive lines, and a line named twice, make one run.
+    runs :: [Int] -> [(Int, Int)]
+    runs = foldr extend []
+    extend :: Int -> [(Int, Int)] -> [(Int, Int)]
+    extend n ((a, b) : rest) | n == a || n + 1 == a = (n, b) : rest
+    extend n acc = (n, n) : acc
+    runsShown :: Int
+    runsShown = 20
+
+-- | Well under what an assistant's tool answer can carry.
+refusalCap :: Int
+refusalCap = 20000
 
 {- | What a change did: the journal line recording it, how many factors it
 touched, the one factor's value before and after, and the one category its

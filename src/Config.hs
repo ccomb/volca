@@ -393,8 +393,10 @@ fileOwner named = go S.empty
 {- | Where a method collection's factors come from. A built-in collection has
 no path: it is in the binary, and a configuration names it only to switch it
 off, to replace it with a file, or to attach scoring sets and patches to it.
+One read from its journal has neither: it starts empty, and its journal
+writes every category it holds.
 -}
-data MethodOrigin = MethodFromFile FilePath | MethodBuiltIn BuiltinMethod
+data MethodOrigin = MethodFromFile FilePath | MethodBuiltIn BuiltinMethod | MethodFromJournal
     deriving (Show, Eq, Generic)
 
 -- | Method configuration
@@ -666,16 +668,19 @@ describeSource (BuiltIn _) = "built-in"
 describeMethodOrigin :: MethodOrigin -> String
 describeMethodOrigin (MethodFromFile path) = path
 describeMethodOrigin (MethodBuiltIn _) = "built-in"
+describeMethodOrigin MethodFromJournal = "journal"
 
--- | The files a collection is read from; one built into the engine has none.
+-- | The files a collection is read from; one built into the engine, or read from its journal, has none.
 methodFiles :: MethodOrigin -> Maybe FilePath
 methodFiles (MethodFromFile path) = Just path
 methodFiles (MethodBuiltIn _) = Nothing
+methodFiles MethodFromJournal = Nothing
 
 -- | What a collection says about itself when its entry says nothing.
 originDescription :: MethodOrigin -> Maybe Text
 originDescription (MethodBuiltIn m) = Just (builtinMethodDescription m)
 originDescription (MethodFromFile _) = Nothing
+originDescription MethodFromJournal = Nothing
 
 {- | Where the data bundle the engine reads sits: the directory of the flow
 registry, the first @flow-synonyms@ entry that is not an upload, when that
@@ -1294,6 +1299,7 @@ overPaths f cfg =
     onMethod :: MethodOrigin -> MethodOrigin
     onMethod (MethodFromFile p) = MethodFromFile (content p)
     onMethod b@(MethodBuiltIn _) = b
+    onMethod MethodFromJournal = MethodFromJournal
 
 {- | Apply redirectIntoDataDir to every reference-data path on the Config.
 Database and method paths are the operator's own and are left untouched,

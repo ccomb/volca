@@ -444,6 +444,7 @@ test-suite lca-tests
                      , FactorTableSpec
                      , MethodCatalogSpec
                      , MethodWriterCSVSpec
+                     , MethodParserCSVStrictSpec
                      , MethodWriterILCDSpec
                      , MethodWriterOlcaSchemaSpec
                      , MethodWriterSimaProSpec
@@ -473,6 +474,7 @@ test-suite lca-tests
                      , JournalFileSpec
                      , JournalSpec
                      , MethodCopySpec
+                     , MethodCreateSpec
                      , MethodEditHandlerSpec
                      , FailureStatusSpec
                      , MethodEditPlanSpec

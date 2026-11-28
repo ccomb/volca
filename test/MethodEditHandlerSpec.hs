@@ -88,6 +88,14 @@ spec = describe "changing a method collection over HTTP" $ do
             e <- env
             made <- call e (copyMethodCollectionHandler "plain-indicators" "My Indicators")
             fmap (\c -> (mcaName c, mcaSource c, mcaStatus c)) made `shouldBe` Right ("my-indicators", Just "plain-indicators", "loaded")
+    it "answers a created collection as a copy, read from its journal alone, and imports a category into it" $
+        withScratchDataDir $ do
+            e <- env
+            made <- call e (createMethodCollectionHandler "My Method")
+            fmap (\c -> (mcaName c, mcaStatus c, mcaPath c, mcaFormat c)) made `shouldBe` Right ("my-method", "loaded", "journal", Just "Journal")
+            importing <- categoryRequest "{\"op\":\"import\",\"csv\":\";;;;Climate change\\n;;;;kg CO2 eq\\nsubstance;compartment;cas;unit;\\nMethane;air;74-82-8;kg;28\\n\"}"
+            imported <- call e (editMethodCategoriesHandler "my-method" importing)
+            fmap (\r -> (merLine r, merTouched r)) imported `shouldBe` Right (1, 1)
     it "refuses a set that does not name its category, naming the field" $
         withScratchDataDir $ do
             (e, _, flow) <- copied

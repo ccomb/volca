@@ -272,6 +272,8 @@ type LCAAPI =
                 -- Change a method collection of one's own through its journal; one
                 -- the configuration declares is copied first
                 :<|> "method-collections" :> Capture "collection" Text :> "copy" :> Capture "newName" Text :> Post '[JSON] MethodCollectionStatusAPI
+                -- An empty collection of one's own, its journal alone, answered as a copy
+                :<|> "method-collections" :> Capture "newName" Text :> "create" :> Post '[JSON] MethodCollectionStatusAPI
                 :<|> "method-collections" :> Capture "collection" Text :> "factors" :> ReqBody '[JSON] FactorEditRequest :> Post '[JSON] MethodEditResponse
                 :<|> "method-collections" :> Capture "collection" Text :> "categories" :> ReqBody '[JSON] CategoryEditRequest :> Post '[JSON] MethodEditResponse
                 :<|> "method-collections" :> Capture "collection" Text :> "scoring-sets" :> Get '[JSON] [ScoringSetAPI]
@@ -1788,7 +1790,11 @@ appears that a client must know about /before/ calling it. Adding a route
 does not exempt a change from the bump: an absent route answers 404, and so
 does a request naming a database the engine has not loaded, so a client
 cannot tell "this engine is too old" from "you asked for the wrong thing"
-(revision 129: the @create@ route, an empty database of one's own read from
+(revision 130: the @create@ route of a method collection, an empty one of
+one's own read from its journal, which a collection listing gives the path
+@journal@ and the format @Journal@; the @import@ op of the category edit, one
+impact category from the CSV text of its @csv@ field;
+revision 129: the @create@ route, an empty database of one's own read from
 its journal, which depends on loaded databases for its suppliers, and
 the @reading = "journal"@ line its meta.toml says it with;
 revision 128: the @group-substances@ route, a score split between groups
@@ -2093,7 +2099,7 @@ the whole filtered set).
 Clients compare it to decide compatibility and to gate such capabilities.
 -}
 currentWireVersion :: Int
-currentWireVersion = 129
+currentWireVersion = 130
 
 getVersion :: AppM Value
 getVersion = do
@@ -4466,6 +4472,7 @@ lcaServer env = hoistServer lcaAPI (runApp env) handlers
             :<|> getMethodCollectionComparison
             :<|> getMethodCollectionProfile
             :<|> MethodEdit.copyMethodCollectionHandler
+            :<|> MethodEdit.createMethodCollectionHandler
             :<|> MethodEdit.editMethodFactorsHandler
             :<|> MethodEdit.editMethodCategoriesHandler
             :<|> MethodEdit.scoringSetsHandler

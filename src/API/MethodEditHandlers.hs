@@ -3,7 +3,7 @@
 
 {- |
 Module      : API.MethodEditHandlers
-Description : The REST handlers that copy a method collection, change it and read its journal
+Description : The REST handlers that copy or create a method collection, change it and read its journal
 
 Each one maps the refusal of 'Method.Edit' to a status a client can branch on
 without reading the message, and the journal's lines to what a reader of the
@@ -11,6 +11,7 @@ collection calls them.
 -}
 module API.MethodEditHandlers (
     copyMethodCollectionHandler,
+    createMethodCollectionHandler,
     methodCollectionStatusAPI,
     editMethodFactorsHandler,
     editMethodCategoriesHandler,
@@ -63,8 +64,8 @@ import API.Types (
  )
 import App.Env (AppEnv (..), AppM, httpOrigin)
 import Data.JournalFile (Author (..), channelCode)
-import Database.Manager (DatabaseLoadStatus (..), MethodCollectionStatus (..), getMethodCollection, listMethodCollections)
-import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
+import Database.Manager (DatabaseLoadStatus (..), DatabaseManager, MethodCollectionStatus (..), getMergedUnitConfig, getMethodCollection, listMethodCollections)
+import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, createMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import Method.EditPlan (EditEffect (..))
 import Method.Journal (Exact (..), LineKind (..), MethodOp (..))
 import Method.Patch (describePatch)
@@ -80,11 +81,22 @@ copyMethodCollectionHandler :: Text -> Text -> AppM MethodCollectionStatusAPI
 copyMethodCollectionHandler collection newName = do
     guardMutation
     manager <- asks aeDbManager
-    copied <- liftIO (copyMethodCollection manager collection newName) >>= either refuse pure
+    liftIO (copyMethodCollection manager collection newName) >>= either refuse (statusOf manager)
+
+-- | The empty collection created, answered as a copy is, for the same reason.
+createMethodCollectionHandler :: Text -> AppM MethodCollectionStatusAPI
+createMethodCollectionHandler newName = do
+    guardMutation
+    manager <- asks aeDbManager
+    liftIO (createMethodCollection manager newName) >>= either refuse (statusOf manager)
+
+-- | The status of a collection just made, which the manager must list.
+statusOf :: DatabaseManager -> Text -> AppM MethodCollectionStatusAPI
+statusOf manager made = do
     statuses <- liftIO (listMethodCollections manager)
-    case [s | s <- statuses, mcsName s == copied] of
+    case [s | s <- statuses, mcsName s == made] of
         [s] -> pure (methodCollectionStatusAPI s)
-        _ -> throwError err500{errBody = BSL.fromStrict (TE.encodeUtf8 ("the copy " <> copied <> " was made but is not listed"))}
+        _ -> throwError err500{errBody = BSL.fromStrict (TE.encodeUtf8 ("the method collection " <> made <> " was made but is not listed"))}
 
 methodCollectionStatusAPI :: MethodCollectionStatus -> MethodCollectionStatusAPI
 methodCollectionStatusAPI s =
@@ -117,7 +129,8 @@ editMethodCategoriesHandler collection req = do
     guardMutation
     manager <- asks aeDbManager
     origin <- httpOrigin
-    edit <- either (refuse . EditRefused) pure (toCategoryEdit req)
+    units <- liftIO (getMergedUnitConfig manager)
+    edit <- either (refuse . EditRefused) pure (toCategoryEdit units req)
     outcomeToAPI <$> (liftIO (editMethodCategories manager collection origin edit) >>= either refuse pure)
 
 editScoringSetsHandler :: Text -> ScoringEditRequest -> AppM MethodEditResponse
