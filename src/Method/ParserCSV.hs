@@ -194,7 +194,7 @@ splitHeaderFromData methodology dataLines =
             let !delim = detectDelimiter labelRow
                 atLabel = first (CsvDefect labelLine)
             keys <- atLabel (parseKeyColumns (splitRow delim labelRow))
-            (catRow, nameRow, unitRow@(Line unitLine _)) <- atLabel $ case filter (not . BS.null . lineBytes) headerRows of
+            (catRow, nameRow@(Line nameLine _), unitRow@(Line unitLine _)) <- atLabel $ case filter (not . BS.null . lineBytes) headerRows of
                 [nameRow, unitRow] -> Right (Nothing, nameRow, unitRow)
                 [catRow, nameRow, unitRow] -> Right (Just catRow, nameRow, unitRow)
                 _ -> Left "CSV method file needs at least 3 header rows (names, units, column labels)"
@@ -202,24 +202,40 @@ splitHeaderFromData methodology dataLines =
                 names = dropKeys nameRow
                 cats = maybe names dropKeys catRow
                 units = dropKeys unitRow
+                columns =
+                    [ Column i c n u
+                    | (i, c, n, u) <- zip4 [0 ..] cats names units
+                    , not (T.null n)
+                    ]
+                -- Rows read past a names row that ends inside the key columns
+                -- would each be refused as too long, sending the author to the
+                -- wrong lines.
+                unnamedCategories =
+                    [ CsvDefect
+                        nameLine
+                        ( "no impact category is named past the "
+                            <> tshow (kcCount keys)
+                            <> " key columns of the label row: the names and units rows start with "
+                            <> tshow (kcCount keys)
+                            <> " cells before the category name"
+                        )
+                    | null columns
+                    ]
             Right
                 Table
                     { tMethodology = methodology
                     , tLabelLine = labelLine
                     , tDelim = delim
                     , tKeys = keys
-                    , tColumns =
-                        [ Column i c n u
-                        | (i, c, n, u) <- zip4 [0 ..] cats names units
-                        , not (T.null n)
-                        ]
+                    , tColumns = columns
                     , tWidth = kcCount keys + length names
                     , tUnitLine = unitLine
                     , tHeaderDefects =
-                        catMaybes
-                            ( widthDefect delim nameRow "units" unitRow
-                                : [widthDefect delim nameRow "categories" r | Just r <- [catRow]]
-                            )
+                        unnamedCategories
+                            <> catMaybes
+                                ( widthDefect delim nameRow "units" unitRow
+                                    : [widthDefect delim nameRow "categories" r | Just r <- [catRow]]
+                                )
                     , tRows = rows
                     }
         _ -> Left (CsvDefect 1 "CSV method file has no 'substance;compartment;...' label row")
@@ -420,7 +436,7 @@ tshow = T.pack . show
 unitDefect :: UnitConfig -> Text -> Maybe Text
 unitDefect units written = case readUnit units written of
     ReadExact _ -> Nothing
-    ReadRespelt _ _ -> Nothing
+    ReadRespelt spelling _ -> Just ("'" <> written <> "' is spelt '" <> spelling <> "' in the engine's unit table: write it so")
     ReadAmbiguous a b rest -> Just ("'" <> written <> "' could be " <> T.intercalate " or " (a : b : rest) <> ": write the unit meant")
     ReadUnknown -> Just ("'" <> written <> "' is not a unit the engine knows: write the flow unit as its unit table spells it (kg, g, m3, MJ, kWh)")
 

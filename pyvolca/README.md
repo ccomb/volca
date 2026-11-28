@@ -1590,12 +1590,12 @@ Import one impact category and its factors, from the text of a method CSV.
 ``csv`` holds exactly one category, in the layout the engine reads for
 a method file; a compartment is written ``top/sub``, with a qualifier
 after a comma and never as a third segment, and each row's ``unit`` is
-a flow unit the engine's unit table knows. A text that cannot be read
-as written is refused with each defect named by the lines it is on in
-the text, and nothing is recorded. The category and its factors are one change
-of the collection, undone together by `undo_method_edit`. A name
-already in use is refused. The answer's ``methodId`` names the
-category made.
+a flow unit spelt as the engine's unit table spells it. A text that
+cannot be read as written is refused with each defect named by the
+lines it is on in the text, and nothing is recorded. The category and
+its factors are one change of the collection, undone together by
+`undo_method_edit`. A name already in use is refused. The
+answer's ``methodId`` names the category made.
 
 Needs an engine speaking wire revision 130.
 

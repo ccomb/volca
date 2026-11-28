@@ -169,6 +169,24 @@ spec = describe "Method.ParserCSV strict" $ do
         fmap (map (map mcfUnit . methodFactors)) (strict (table ["Ammonia;air;;g;1", "Methane;air;;kg;28", "Water;water;;m3;2", "Gas, natural;natural resource;;MJ;3"]))
             `shouldBe` Right [["g", "kg", "m3", "MJ"]]
 
+    it "refuses a flow unit the table spells otherwise, naming its spelling" $ do
+        CsvDefect line reason <- oneDefect (table ["Methane;air;;KG;28"])
+        line `shouldBe` 5
+        reason `shouldSatisfy` T.isPrefixOf "'KG' is spelt 'kg'"
+
+    it "refuses a header whose names row stops before the label row's key columns end" $ do
+        CsvDefect line reason <-
+            oneDefect
+                ( T.unlines
+                    [ ";;;GWP"
+                    , ";;;kg CO2 eq"
+                    , "substance;compartment;cas;unit;"
+                    , "Methane;air;;kg;28"
+                    ]
+                )
+        line `shouldBe` 1
+        reason `shouldSatisfy` T.isPrefixOf "no impact category is named past the 4 key columns"
+
     it "refuses a row whose CAS number and unit swapped cells" $ do
         CsvDefect line reason <- oneDefect (table ["Methane;air;kg;74-82-8;28"])
         line `shouldBe` 5
