@@ -120,7 +120,10 @@ import Database.Author (
     FlowRef (..),
     ResolvedInsert (..),
     applyExchangeEdits,
+    unitsAdded,
+    unitsStated,
     validateAuthored,
+    withStatedUnits,
  )
 import Database.Rebuild (
     deleteActivitiesWith,
@@ -371,12 +374,22 @@ failureReason (Failure _ msg) = msg
 applyNumbered :: AuthorContext -> NonEmpty (Int, JournalOp) -> Either Failure Database
 applyNumbered ctx = foldM applyRun (acDb ctx) . runs . NE.toList
   where
+    {- The unit rows a run states land before it is resolved, so the database
+    it writes holds every row its lines name, whatever resolution mints. -}
     applyRun :: Database -> Run -> Either Failure Database
     applyRun db = \case
-        Alone numbered -> first (Failure (pure numbered)) (applyOne ctx{acDb = db} (snd numbered))
+        Alone numbered -> first (Failure (pure numbered)) (applyOne (withStatedUnits (unitsOf (snd numbered)) ctx{acDb = db}) (snd numbered))
         Edits edits -> do
-            inserts <- traverse (insertsOf db) edits
-            first (Failure (fmap eNumbered edits)) (replaceActivities (acUnitConfig ctx) (concat inserts) db)
+            let withUnits = acDb (withStatedUnits (concatMap (unitsAdded . map elEdit . eLines) edits) ctx{acDb = db})
+            inserts <- traverse (insertsOf withUnits) edits
+            first (Failure (fmap eNumbered edits)) (replaceActivities (acUnitConfig ctx) (concat inserts) withUnits)
+    unitsOf :: JournalOp -> [Text]
+    unitsOf = \case
+        Created activities _ -> concatMap unitsStated activities
+        Replaced _ activity -> unitsStated activity
+        Edited _ editLines -> unitsAdded (map elEdit editLines)
+        Deleted _ -> []
+        ParametersEdited _ -> []
     insertsOf :: Database -> NumberedEdit -> Either Failure [ResolvedInsert]
     insertsOf db edit =
         first (Failure (pure (eNumbered edit))) (editedInserts ctx{acDb = db} (eTarget edit) (eLines edit))

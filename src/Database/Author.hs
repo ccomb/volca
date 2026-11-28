@@ -55,6 +55,9 @@ module Database.Author (
     ResolvedInsert (..),
     validateAuthored,
     resolveProcess,
+    withStatedUnits,
+    unitsStated,
+    unitsAdded,
 
     -- * Editing an inventory in place
     ExchangeSelector (..),
@@ -147,7 +150,7 @@ import Types (
     withAmount,
     withFormula,
  )
-import UnitConversion (UnitConfig, UnitReading (..), convertUnit, readUnit, unitKey)
+import UnitConversion (UnitConfig, UnitReading (..), convertUnit, isKnownUnit, readUnit, unitKey)
 
 -- ---------------------------------------------------------------------------
 -- Deterministic identity
@@ -338,7 +341,7 @@ that check, each in the direction it means. What *is* checked here is that the
 batch does not mint one key twice, since no intent makes that coherent.
 -}
 validateAuthored :: AuthorContext -> [AuthoredActivity] -> Either [Text] ([ResolvedInsert], [Text])
-validateAuthored ctx activities =
+validateAuthored given activities =
     case partitionEithers (map (validateOne ctx) activities) of
         ([], oks) ->
             let inserts = map fst oks
@@ -347,6 +350,9 @@ validateAuthored ctx activities =
                     dups -> Left (map duplicateMessage dups)
         (errs, _) -> Left (concat errs)
   where
+    ctx :: AuthorContext
+    ctx = withStatedUnits (concatMap unitsStated activities) given
+
     duplicateMessage :: ProcessRef -> Text
     duplicateMessage key =
         "Two processes in this batch mint the same identity ("
@@ -697,7 +703,7 @@ matching several lines applies to all of them and reports how many. Complaints
 accumulate across the whole list, as they do for a written batch.
 -}
 applyExchangeEdits :: AuthorContext -> [ExchangeEdit] -> Activity -> Either [Text] EditedActivity
-applyExchangeEdits ctx edits act = case accErrors final of
+applyExchangeEdits given edits act = case accErrors final of
     [] -> case restated (Before (acDb ctx) act) (acDb ctx) (accActivity final) of
         Left refusal -> Left [describeParameterRefusal refusal]
         Right stated ->
@@ -717,6 +723,7 @@ applyExchangeEdits ctx edits act = case accErrors final of
                     }
     errs -> Left errs
   where
+    ctx = withStatedUnits (unitsAdded edits) given
     final = foldl' (applyStep ctx) (startingFrom act) edits
 
 startingFrom :: Activity -> EditAcc
@@ -737,7 +744,9 @@ the lines the edits before it in the batch left, as 'applyExchangeEdits' applies
 it. An edit naming no line has none.
 -}
 amountsBeforeEach :: AuthorContext -> Activity -> [ExchangeEdit] -> [[Double]]
-amountsBeforeEach ctx act edits = zipWith (amountsBefore . accActivity) (scanl (applyStep ctx) (startingFrom act) edits) edits
+amountsBeforeEach given act edits = zipWith (amountsBefore . accActivity) (scanl (applyStep ctx) (startingFrom act) edits) edits
+  where
+    ctx = withStatedUnits (unitsAdded edits) given
 
 amountsBefore :: Activity -> ExchangeEdit -> [Double]
 amountsBefore activity = \case
@@ -1742,6 +1751,52 @@ unitIndex cfg units =
         , key <- [unitSymbol u, unitName u]
         , not (T.null (T.strip key))
         ]
+
+{- | The context with a row for each stated unit that the unit table knows and
+the edited database records under none of its spellings.
+
+A database records only the units its files used: one read from EcoSpold 1
+whose amounts are all in kilograms has no row for a tonne, and a product
+stated per tonne would be refused although nothing about it is unclear. The
+row is minted from the table's spelling, so a replay of the journal mints the
+same one. The units are taken in the order stated, and each is looked up in
+the rows the ones before it added: a batch writing @t@ and then @tonne@ adds
+one row, the first, and the second finds it. A spelling the table cannot
+settle, or one two rows of the database answer, adds nothing, and its line is
+refused as before, naming why.
+-}
+withStatedUnits :: [Text] -> AuthorContext -> AuthorContext
+withStatedUnits stated given = foldl' record given stated
+  where
+    cfg :: UnitConfig
+    cfg = acUnitConfig given
+
+    record :: AuthorContext -> Text -> AuthorContext
+    record ctx unit
+        | isKnownUnit cfg unit && null (unitsMeant ctx unit) =
+            let minted = mintedUnit (unitKey cfg unit)
+                db = acDb ctx
+             in ctx{acDb = db{dbUnits = M.insert (unitId minted) minted (dbUnits db)}}
+        | otherwise = ctx
+
+-- | A unit row an author's statement brings in, keyed on the table's spelling of it.
+mintedUnit :: Text -> Unit
+mintedUnit spelling =
+    Unit{unitId = mintAuthored ["unit", spelling], unitName = spelling, unitSymbol = spelling, unitComment = ""}
+
+-- | Every unit a stated activity names: its product's, then its lines'.
+unitsStated :: AuthoredActivity -> [Text]
+unitsStated a = aaProductUnit a : mapMaybe (unitOfLine . alExchange) (aaExchanges a)
+
+-- | Every unit the lines a batch of edits adds name, in order.
+unitsAdded :: [ExchangeEdit] -> [Text]
+unitsAdded edits = [unit | AddExchange line _ <- edits, Just unit <- [unitOfLine line]]
+
+unitOfLine :: AuthoredExchange -> Maybe Text
+unitOfLine = \case
+    AuthoredTechInput{atiUnit = unit} -> unit
+    AuthoredBio{abUnit = unit} -> unit
+    AuthoredWasteOutput{awUnit = unit} -> unit
 
 unitNameOf :: UnitDB -> UUID -> Text
 unitNameOf units uid = maybe "" unitName (M.lookup uid units)

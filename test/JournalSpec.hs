@@ -89,6 +89,7 @@ import Types (
     UUID,
     Uncertainty (..),
     Unit (..),
+    exchangeUnitId,
     exchanges,
     noDates,
     noDocumentation,
@@ -96,7 +97,7 @@ import Types (
     packExchanges,
     processRefText,
  )
-import UnitConversion (defaultUnitConfig)
+import UnitConversion (buildFromCSV, defaultUnitConfig)
 
 rightOf :: Either Text a -> Maybe a
 rightOf = either (const Nothing) Just
@@ -207,6 +208,26 @@ spec = do
             case replayJournal ctx [event (Created [cheese] [cheeseKey])] of
                 Left err -> expectationFailure ("replay: " <> show err)
                 Right db -> processKeys db `shouldBe` S.insert cheeseKey (processKeys fixture)
+
+        it "records one row for a unit the database lacks, whichever spelling comes next" $ do
+            -- The fixture records kilograms only. A process per tonne mints a
+            -- row for the tonne, and a later line in "tonne" finds that row
+            -- rather than minting a second one of the same unit.
+            tonnes <- either (fail . T.unpack) pure (buildFromCSV "name,dimension,factor\nkg,mass,1.0\nt,mass,1000\ntonne,mass,1000\n")
+            let withTonnes = ctx{acUnitConfig = tonnes}
+                perTonne = cheese{aaProductUnit = "t"}
+                tonneKey = either (const "the activity does not resolve") (\(rs, _) -> T.concat (map (processRefText . riKey) rs)) (validateAuthored withTonnes [perTonne])
+                addTonne = AuthoredTechInput{atiProvider = supplierPid, atiAmount = 0.5, atiUnit = Just "tonne", atiComment = Nothing}
+                journal =
+                    [ event (Created [perTonne] [tonneKey])
+                    , event (Edited tonneKey [EditLine (AddExchange addTonne FromCall) 1 (Prior [])])
+                    ]
+            case replayJournal withTonnes journal of
+                Left err -> expectationFailure ("replay: " <> show err)
+                Right db -> do
+                    let added = M.difference (dbUnits db) (dbUnits fixture)
+                    map unitName (M.elems added) `shouldBe` ["t"]
+                    [ex | act <- V.toList (dbActivities db), ex <- exchanges act, M.notMember (exchangeUnitId ex) (dbUnits db)] `shouldBe` []
 
         it "gives the same database every time it is replayed" $
             let journal = [event (Created [cheese] [cheeseKey]), event (Replaced cheeseKey cheese{aaProductAmount = 2})]
