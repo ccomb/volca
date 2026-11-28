@@ -94,6 +94,8 @@ knownDivergences =
     , ("create_activities", "database")
     , ("create_activities", "note")
     , ("create_activities", "source")
+    , ("create_database", "depends")
+    , ("create_database", "new_name")
     , ("derive_database", "database")
     , ("derive_database", "new_name")
     , ("derive_database", "parent")

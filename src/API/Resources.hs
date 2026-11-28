@@ -59,7 +59,8 @@ question "what would this study look like allocated by mass", asked of a
 source nobody may edit. It also covers editing the inventory
 of an activity: adjusting an imported dataset to the study at hand is analysis
 work, done on a database of one's own, and the engine refuses it on the
-background data it reads from its configuration.
+background data it reads from its configuration. Creating the empty database
+of one's own that such writing needs, when none is at hand, is part of it.
 
 Infrastructure stays in Routes.hs only: method-collection loading, upload
 and delete, relink, database copy, auth, version. Those administer the
@@ -74,6 +75,7 @@ data Resource
     | UnloadDatabase
     | AcceptTerms
     | DeriveDatabase
+    | CreateDatabase
     | ListPresets
     | SearchActivities
     | SearchFlows
@@ -189,6 +191,7 @@ resourceMutates r = case r of
     UnloadDatabase -> True
     AcceptTerms -> False
     DeriveDatabase -> True
+    CreateDatabase -> True
     ListDatabases -> False
     ListPresets -> False
     SearchActivities -> False
@@ -310,6 +313,7 @@ resourceNeeds r = case r of
     UnloadDatabase -> Nothing
     AcceptTerms -> Nothing
     DeriveDatabase -> Nothing
+    CreateDatabase -> Nothing
     ListPresets -> Nothing
     SearchActivities -> Nothing
     SearchFlows -> Nothing
@@ -388,6 +392,7 @@ resourceUsage r = case r of
     UnloadDatabase -> Nothing
     AcceptTerms -> Nothing
     DeriveDatabase -> Nothing
+    CreateDatabase -> Nothing
     ListPresets -> Nothing
     SearchActivities -> Nothing
     SearchFlows -> Nothing
@@ -451,6 +456,7 @@ apiPath r = case r of
     UnloadDatabase -> Just (POST, ["db", "{dbName}", "unload"])
     AcceptTerms -> Nothing -- MCP-only: an HTTP reader accepts with the volca_terms cookie
     DeriveDatabase -> Just (POST, ["db", "{dbName}", "derive", "{newName}"])
+    CreateDatabase -> Just (POST, ["db", "{newName}", "create"])
     ListPresets -> Just (GET, ["classification-presets"])
     SearchActivities -> Just (GET, ["db", "{dbName}", "activities"])
     SearchFlows -> Just (GET, ["db", "{dbName}", "flows"])
@@ -535,6 +541,7 @@ mcpName r = case r of
     UnloadDatabase -> "unload_database"
     AcceptTerms -> "accept_terms"
     DeriveDatabase -> "derive_database"
+    CreateDatabase -> "create_database"
     ListPresets -> "list_presets"
     SearchActivities -> "search_activities"
     SearchFlows -> "search_flows"
@@ -654,6 +661,13 @@ description r = case r of
         \not a copy: seconds to minutes when large. Refused: neither or both given, \
         \child of a non-parent, model that does not read, exception taking or \
         \dividing nothing, read-only instance."
+    CreateDatabase ->
+        "LCA / ACV: create an empty database of your own, to write processes \
+        \into with create_activities when no database at hand takes writes. \
+        \Its processes take their suppliers from the databases named in depends, which must be \
+        \loaded: search suppliers there, since the new one holds none. Kept \
+        \across restarts, deletable. Refused: no dependency, one not loaded, \
+        \name taken, quota met, read-only instance."
     ListPresets ->
         "LCA / ACV: this instance's classification filter presets: each a label \
         \over (system, value, mode) filters, for search_activities' classification \
@@ -1188,7 +1202,8 @@ description r = case r of
         \(same name, location, product and its unit) is refused: edit_exchanges changes it. \
         \Answer: the process_id of each process written, in order. Refused on \
         \databases read from the engine's configuration (shared background): \
-        \copy first. 'transient': in memory only, an unload undoes it."
+        \create_database gives one of your own. 'transient': in memory only, an \
+        \unload undoes it."
     EditExchanges ->
         "LCA / ACV: change what one process consumes and \
         \emits, or its name, location, description, \
@@ -1551,6 +1566,10 @@ params r = case r of
         , Param "new_name" "string" Required "Name to register the new database under. Must not already exist."
         , Param "parent" "boolean" Optional "If true, make a parent: the source's files read again with each block of several products kept whole. Give this or system_model, not both."
         , Param "system_model" "string" Optional "The text of a system model's TOML file, to make a child of a parent. Example: name = \"Agribalyse, economic\"  version = \"1.0.0\"  [allocation] default = \"price\"  [[allocation.exceptions]] key = \"wet mass\"  reason = \"...\"  classification = { system = \"Category\", value = \"Agricultural\\\\Food\\\\Cheese production\" } (processes = [\"<activity id>\", ...] instead of classification for a few processes)."
+        ]
+    CreateDatabase ->
+        [ Param "new_name" "string" Required "Name to register the new database under. Must not already exist."
+        , Param "depends" "array" Required "Names of the loaded databases its processes take their suppliers from, at least one (list_databases)."
         ]
     ListPresets -> []
     SearchActivities ->

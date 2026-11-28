@@ -48,6 +48,7 @@ module Database.Manager (
 
     -- * Load/Unload
     loadDatabase,
+    uploadMetaToConfig,
     unloadDatabase,
     relinkDatabase,
     recordDependencies,
@@ -334,6 +335,7 @@ import Types (
     Permission (..),
     ProcessId,
     Reading (..),
+    ReferenceConvention (..),
     Release (..),
     SimpleDatabase (..),
     SupplierAmbiguity (..),
@@ -364,6 +366,7 @@ import Types (
     licenceUsage,
     modelOf,
     modelTitle,
+    noDocumentation,
     nonBlankText,
     parseAllocationKey,
     readingKey,
@@ -2120,9 +2123,13 @@ discoverUploadedDatabases = do
     uploads <- UploadedDB.discoverUploadedDatabases
     forM uploads $ \(slug, dirPath, meta) -> do
         reportProgress Info $ "Discovered uploaded database: " <> T.unpack slug
-        -- Always detect format from actual files (old uploads may have "unknown")
+        -- Always detect format from actual files (old uploads may have "unknown");
+        -- a database read from its journal has none.
         let dataDir = dirPath </> UploadedDB.umDataPath meta
-        format <- Upload.detectDatabaseFormat dataDir
+        format <- case UploadedDB.umReading meta of
+            FromJournal -> pure UploadedDB.UnknownFormat
+            FromFiles _ -> Upload.detectDatabaseFormat dataDir
+            ByModel _ -> Upload.detectDatabaseFormat dataDir
         return $ uploadMetaToConfig slug dirPath meta{UploadedDB.umFormat = format}
 
 -- | Convert UploadMeta to DatabaseConfig
@@ -2939,7 +2946,7 @@ loadDatabaseSingle manager dbName = do
         Just staged
             -- Same readiness gate as finalize itself, so the shortcut and the
             -- gate can't disagree
-            | isNothing (notReadyReason (stagedLinkCounts staged)) ->
+            | isNothing (notReadyReason (dcReading (sdConfig staged)) (stagedLinkCounts staged)) ->
                 finalizeDatabase manager dbName
             | otherwise -> do
                 -- Cannot finalize: clear the staged entry and load from config,
@@ -2960,6 +2967,8 @@ data LoadOrigin
     | Replayed
     | -- | Divided from its parent in memory, its own edits replayed over it
       FromParent
+    | -- | Built empty, its journal replayed over it
+      JournalOnly
     deriving (Eq)
 
 {- | Where the raw loader got the database. 'FromCache' means it came out of
@@ -2990,6 +2999,7 @@ needsSelfRelink origin = case origin of
     Parsed -> False
     Replayed -> True
     FromParent -> True
+    JournalOnly -> True
 
 -- | Load a database from config (not staged).
 loadDatabaseSingleFromConfig :: DatabaseManager -> Text -> IO (Either Text LoadedDatabase)
@@ -3024,6 +3034,19 @@ loadDatabaseSingleFromConfig manager dbName = do
             (FromFiles _, _) -> fromFiles configs dbConfig synonymDB
             (ByModel model, Just parentName) -> fromParent dbConfig synonymDB parentName model
             (ByModel _, Nothing) -> throwE (dbName <> " is divided by a system model, and none of its sources is a parent read under none")
+            (FromJournal, _) -> fromJournal dbConfig synonymDB
+
+    {- Nothing to read: the database starts empty and its journal writes it.
+    shortcut: never read from the cache its edits save, so the whole journal
+    is replayed at every load; read that cache when replays show in load times. -}
+    fromJournal :: DatabaseConfig -> SynonymDB -> ExceptT Text IO ReadForLoad
+    fromJournal dbConfig synonymDB = do
+        unitConfig <- liftIO $ getMergedUnitConfig manager
+        empty <- ExceptT (emptyJournalDatabase unitConfig)
+        (db, solver) <- liftIO $ withRuntime dbName synonymDB empty
+        (settled, pinRead) <- liftIO $ settleRead manager LoadedDatabase{ldDatabase = db, ldSharedSolver = solver, ldConfig = dbConfig, ldSupplierMapping = Nothing}
+        (edited, _) <- ExceptT (replayEdits manager dbConfig settled)
+        pure (ReadForLoad edited JournalOnly pinRead)
 
     {- The parent is loaded as it stands, its journal replayed, so what was
     edited on it reaches the child.
@@ -3204,13 +3227,14 @@ databaseModification configs config = do
 
 {- | Whether an upload holds work its files do not: edits, its own or those it
 carries from a parent, a division other than its files', or a relink mapping.
+A database read from its journal has no file at all: its journal is all of it.
 -}
 moreThanItsFiles :: DatabaseManager -> DatabaseConfig -> IO Bool
 moreThanItsFiles manager config = do
     configs <- readTVarIO (dmAvailableDbs manager)
     modification <- databaseModification configs config
     mapped <- maybe (pure False) (doesFileExist . supplierMappingPath) =<< editHome config
-    pure (modificationEdited modification || modificationReallocated modification || mapped)
+    pure (dcReading config == FromJournal || modificationEdited modification || modificationReallocated modification || mapped)
 
 -- | What a request substituted, and the parameter sets it scored at.
 data Asked = Asked
@@ -3375,6 +3399,27 @@ replayEdits manager dbConfig loaded =
                             (db, solver) <- withRuntime (dcName dbConfig) synonymDB edited
                             pure (Right (loaded{ldDatabase = db, ldSharedSolver = solver}, Replayed))
 
+{- | What a database read from its journal is before the journal is replayed:
+no process, no flow, no unit. Its lines are an author's, who writes every
+amount as a quantity taken or given, so an input reaching a treatment whose
+reference is negative is a demand, as in a database read from EcoSpold 1.
+-}
+emptyJournalDatabase :: UnitConversion.UnitConfig -> IO (Either Text Database)
+emptyJournalDatabase unitConfig =
+    buildDatabaseWithMatrices
+        (BuildInputs unitConfig M.empty ReadDeclared [])
+        SimpleDatabase
+            { sdbActivities = M.empty
+            , sdbTechFlows = M.empty
+            , sdbBioFlows = M.empty
+            , sdbWasteFlows = M.empty
+            , sdbUnits = M.empty
+            , sdbDocumentation = noDocumentation
+            , sdbParameters = M.empty
+            , sdbProductSystems = []
+            , sdbReferenceConvention = PositiveReferences
+            }
+
 {- | A database a rebuild handed back, with what the rebuild resets made again:
 the runtime indexes, and the solver, since every matrix row moved.
 -}
@@ -3405,6 +3450,7 @@ parentOf :: M.Map Text DatabaseConfig -> DatabaseConfig -> Maybe Text
 parentOf configs config = case dcReading config of
     ByModel _ -> find readWhole (drop 1 (sourceChain configs (dcName config)))
     FromFiles _ -> Nothing
+    FromJournal -> Nothing
   where
     readWhole :: Text -> Bool
     readWhole name = (dcReading <$> M.lookup name configs) == Just (FromFiles ReadWhole)
@@ -3421,6 +3467,7 @@ systemModelOf manager dbName = do
         Just config -> case dcReading config of
             ByModel model -> fmap fst <$> modelOnParent manager configs config model
             FromFiles _ -> pure (Left (dbName <> " is read from its files, not divided from a parent by a system model"))
+            FromJournal -> pure (Left (dbName <> " is written by its journal, not divided from a parent by a system model"))
 
 {- | The row of a child's delivery sheet for one of its processes, with the
 parent it names: Nothing for a database read from its files, or a process its
@@ -3435,6 +3482,7 @@ processTraced manager ld key = do
     configs <- readTVarIO (dmAvailableDbs manager)
     case dcReading (ldConfig ld) of
         FromFiles _ -> pure (Right Nothing)
+        FromJournal -> pure (Right Nothing)
         ByModel model ->
             fmap (\(onParent, parent) -> (ldConfig parent,) <$> find ((== key) . trProcess) (traceOf onParent (ldDatabase parent) (ldDatabase ld)))
                 <$> modelOnParent manager configs (ldConfig ld) model
@@ -3457,6 +3505,7 @@ madeFrom manager ld = runExceptT $ do
     configs <- liftIO $ readTVarIO (dmAvailableDbs manager)
     case dcReading config of
         FromFiles _ -> ReadFrom <$> ExceptT (sourcesIdentity configs config)
+        FromJournal -> ReadFrom <$> liftIO (journalIdentity config)
         ByModel model -> do
             -- The parent may have been unloaded since the child was divided: loaded again, it is the one the child was divided from.
             mapM_ (ExceptT . loadDatabase manager) (parentOf configs config)
@@ -3504,6 +3553,20 @@ sourcesIdentity configs config = do
                         , idReading = allocationKeyText (readingKey (dcReading config))
                         }
 
+{- | A database read from its journal, by digest: no file, so the files' digest
+is that of nothing, and the journal that writes all of it.
+-}
+journalIdentity :: DatabaseConfig -> IO Identity
+journalIdentity config = do
+    journal <- journalDigest config
+    pure
+        Identity
+            { idFiles = textDigest ""
+            , idPatches = Nothing
+            , idJournal = journal
+            , idReading = allocationKeyText (readingKey (dcReading config))
+            }
+
 -- | The digest of a database's journal, when it records a change.
 journalDigest :: DatabaseConfig -> IO (Maybe Text)
 journalDigest config =
@@ -3520,6 +3583,7 @@ filesReading :: Reading -> FileReading
 filesReading reading = case reading of
     FromFiles fr -> fr
     ByModel _ -> ReadWhole
+    FromJournal -> ReadDeclared
 
 {- | Save the replayed database to its matrix cache and stamp the cache with
 the journal it now holds, so the next load reads it instead of replaying.
@@ -4195,7 +4259,13 @@ removeDatabase manager dbName = do
     copiesOf :: Text -> IO [Text]
     copiesOf name = do
         uploads <- UploadedDB.discoverUploadedDatabases
-        pure [slug | (slug, _, meta) <- uploads, UploadedDB.umSource meta == Just name]
+        pure [slug | (slug, _, meta) <- uploads, UploadedDB.umSource meta == Just name, readsFiles (UploadedDB.umReading meta)]
+    -- A copy of a database read from its journal holds its own snapshot of it.
+    readsFiles :: Reading -> Bool
+    readsFiles = \case
+        FromJournal -> False
+        FromFiles _ -> True
+        ByModel _ -> True
     deleteUpload :: DatabaseConfig -> IO (Either Text ())
     deleteUpload dbConfig = do
         uploadsDir <- UploadedDB.getDatabaseUploadsDir
@@ -4622,11 +4692,13 @@ lcCompleteness lc
 
 {- | Why a database cannot be finalized: 'Nothing' means ready. The setup
 page's 'dsiIsReady' is the 'isNothing' of this, so the ready badge and the
-finalize gate always agree.
+finalize gate always agree. A database read from its journal holds the processes
+written into it, none when it was just created: that empty is no failed read.
 -}
-notReadyReason :: LinkCounts -> Maybe Text
-notReadyReason lc
-    | lcActivityCount lc == 0 =
+notReadyReason :: Reading -> LinkCounts -> Maybe Text
+notReadyReason reading lc
+    | lcActivityCount lc == 0
+    , reading /= FromJournal =
         Just "database contains 0 processes. The data file may be corrupted or in an unsupported format."
     | lcUnresolvedLinks lc > 0 =
         Just $
@@ -4749,7 +4821,7 @@ setupInfoFrom SetupSource{..} =
           -- last product, which is the collapse this list exists to avoid.
           dsiMissingSuppliers = concatMap missingSuppliersOf (take 10 ssMissing)
         , dsiDependencies = ssDependencies
-        , dsiIsReady = isNothing (notReadyReason ssCounts)
+        , dsiIsReady = isNothing (notReadyReason (dcReading ssConfig) ssCounts)
         , dsiUnknownUnits = S.toList (cdlUnknownUnits ssStats)
         , dsiLocationFallbacks = deduplicateFallbacks (cdlLocationFallbacks ssStats)
         , dsiLocationUnresolved = deduplicateUnresolved (cdlLocationUnresolved ssStats)
@@ -5175,13 +5247,13 @@ finalizeDatabase manager dbName = withLogScope dbName $ do
         loadedDbs <- readTVarIO (dmLoadedDbs manager)
         pure $ case M.lookup dbName loadedDbs of
             Nothing -> Left $ "Staged database not found: " <> dbName
-            Just loaded -> case notReadyReason (loadedLinkCounts (ldDatabase loaded)) of
+            Just loaded -> case notReadyReason (dcReading (ldConfig loaded)) (loadedLinkCounts (ldDatabase loaded)) of
                 Just reason -> Left ("Cannot finalize: " <> reason)
                 Nothing -> Right loaded
 
     finalizeStaged :: StagedDatabase -> ExceptT Text IO LoadedDatabase
     finalizeStaged staged = do
-        maybe (pure ()) (throwE . ("Cannot finalize: " <>)) (notReadyReason (stagedLinkCounts staged))
+        maybe (pure ()) (throwE . ("Cannot finalize: " <>)) (notReadyReason (dcReading (sdConfig staged)) (stagedLinkCounts staged))
         liftIO $ reportProgress Info $ "[STARTING] Finalizing database: " <> T.unpack dbName
         synonymDB <- liftIO (getMergedSynonymDB manager)
         build <- buildFinal staged synonymDB

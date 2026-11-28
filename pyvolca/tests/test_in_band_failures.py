@@ -40,6 +40,20 @@ def test_derive_database_raises_on_an_in_band_failure(client):
         client.derive_database("x-parent", parent=True, db_name="x")
 
 
+def test_create_database_sends_its_dependencies_in_the_body(client):
+    client._require_wire = mock.Mock()  # type: ignore[method-assign]
+    client._call = mock.Mock(return_value={"tag": "LoadSucceeded", "database": {"name": "lyocell"}})  # type: ignore[method-assign]
+    client.create_database("Lyocell", ["mill"])
+    client._call.assert_called_once_with("create_database", new_name="Lyocell", body={"depends": ["mill"]})
+
+
+def test_create_database_raises_on_an_in_band_failure(client):
+    client._require_wire = mock.Mock()  # type: ignore[method-assign]
+    client._call = mock.Mock(return_value={"tag": "LoadFailed", "error": "Load nope first"})  # type: ignore[method-assign]
+    with pytest.raises(VoLCAError, match="Load nope first"):
+        client.create_database("lyocell", ["nope"])
+
+
 def test_derive_database_still_takes_the_allocation_it_took_before(client):
     client._require_wire = mock.Mock()  # type: ignore[method-assign]
     client._call = mock.Mock(return_value={"tag": "LoadSucceeded", "database": {}, "deps": []})  # type: ignore[method-assign]

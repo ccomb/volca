@@ -29,6 +29,7 @@ module API.DatabaseHandlers (
     explainedFlowAPI,
     copyDatabaseHandler,
     deriveDatabaseHandler,
+    createDatabaseHandler,
     systemModelHandler,
     deleteDatabaseHandler,
     deleteActivitiesHandler,
@@ -93,6 +94,7 @@ module API.DatabaseHandlers (
     copyRefusal,
     quotaCounts,
     loadQuotaRefusal,
+    copyQuotaRefusal,
     simpleAction,
     formatToText,
     chooseMasterData,
@@ -146,6 +148,7 @@ import API.Types (
     CollectionBridgesAPI (..),
     ComputedQualityReportAPI (..),
     CoverageReportAPI (..),
+    CreateRequest (..),
     DatabaseExportRequest (..),
     DatabaseHistoryEntry (..),
     DatabaseListResponse (..),
@@ -226,9 +229,11 @@ import Database.Edit (
     WriteReport (..),
     WriteVerb (..),
     copyDatabase,
+    createDatabase,
     databaseHistory,
     databaseProvenance,
     deleteActivitiesInDB,
+    dependsOf,
     derivationOf,
     deriveDatabase,
     editActivities,
@@ -667,10 +672,7 @@ copyDatabaseHandler dbName newName = do
     -- A copy produces another database of the user's own, already loaded, so
     -- it spends both budgets; without this, the quota is one rename away from
     -- meaningless.
-    refusal <- liftIO $ do
-        (uploaded, loadedUploads) <- quotaCounts dbManager
-        pure (copyRefusal uploaded loadedUploads hostingConfig)
-    mapM_ (failWith err403) refusal
+    liftIO (copyQuotaRefusal dbManager hostingConfig) >>= mapM_ (failWith err403)
     -- The status names the copy as registered, which is the slug of the name asked.
     copied <- ioEither400 (copyDatabase dbManager dbName newName)
     status <- liftIO (loadedStatus dbManager copied)
@@ -696,16 +698,29 @@ deriveDatabaseHandler dbName newName request = do
     hostingConfig <- asks aeHostingConfig
     -- A derived database is another database of the user's own, already
     -- loaded, so it spends both budgets exactly as a copy does.
-    refusal <- liftIO $ do
-        (uploaded, loadedUploads) <- quotaCounts dbManager
-        pure (copyRefusal uploaded loadedUploads hostingConfig)
-    mapM_ (failWith err403) refusal
+    liftIO (copyQuotaRefusal dbManager hostingConfig) >>= mapM_ (failWith err403)
     (loadedDb, depResults) <- ioEither400 (deriveDatabase dbManager dbName newName derivation)
     status <- liftIO (loadedStatus dbManager loadedDb)
     pure (LoadSucceeded status depResults)
   where
     badRequest :: Text -> AppM a
     badRequest err = throwError err400{errBody = BSL.fromStrict (T.encodeUtf8 err)}
+
+{- | Create an empty database of one's own under @newName@, its suppliers taken
+from the loaded databases @depends@ names. It answers as a load does, and
+spends both budgets as a copy does: what comes out is another loaded database
+of the user's own.
+-}
+createDatabaseHandler :: Text -> CreateRequest -> AppM LoadDatabaseResponse
+createDatabaseHandler newName request = do
+    guardMutation
+    depends <- either (failWith err400) pure (dependsOf (crDepends request))
+    dbManager <- asks aeDbManager
+    hostingConfig <- asks aeHostingConfig
+    liftIO (copyQuotaRefusal dbManager hostingConfig) >>= mapM_ (failWith err403)
+    (loadedDb, depResults) <- ioEither400 (createDatabase dbManager newName depends)
+    status <- liftIO (loadedStatus dbManager loadedDb)
+    pure (LoadSucceeded status depResults)
 
 {- | A child's system model, each exception with the processes it takes from
 the parent as loaded. A database read from its files has none: a 400 that says
@@ -1374,6 +1389,15 @@ loadQuotaRefusal :: DatabaseManager -> Maybe HostingConfig -> Text -> IO (Maybe 
 loadQuotaRefusal dbManager mHosting dbName = do
     (uploaded, loadedUploads) <- quotaCounts dbManager
     pure (loadRefusal uploaded loadedUploads dbName mHosting)
+
+{- | 'copyRefusal' read off the manager's current state, for every door that
+makes another loaded database of the user's own: a copy, a derivation, a
+created database, over REST and MCP alike.
+-}
+copyQuotaRefusal :: DatabaseManager -> Maybe HostingConfig -> IO (Maybe Text)
+copyQuotaRefusal dbManager mHosting = do
+    (uploaded, loadedUploads) <- quotaCounts dbManager
+    pure (copyRefusal uploaded loadedUploads mHosting)
 
 {- | Resolve the hosting upload-size policy into a streaming byte cap.
 Local/CLI mode (no hosting config) is unlimited. A configured limit of 0

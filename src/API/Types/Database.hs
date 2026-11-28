@@ -395,6 +395,15 @@ data DeriveRequest = DeriveRequest
     deriving (Generic)
     deriving (ToJSON, FromJSON, ToSchema) via (Stripped DeriveRequest)
 
+{- | What an empty database of one's own is created with: the loaded
+databases its processes take their suppliers from (@depends@), at least one.
+-}
+newtype CreateRequest = CreateRequest
+    { crDepends :: [Text]
+    }
+    deriving (Generic)
+    deriving (ToJSON, FromJSON, ToSchema) via (Stripped CreateRequest)
+
 {- | A child's system model: its file as written, each exception with the
 processes of the parent it takes, each substitution with the processes it
 names, and each method parameter with the processes it moves, so a reader can

@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.15.0** speaks wire formats **113 to 128** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.15.0** speaks wire formats **113 to 129** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -787,6 +787,21 @@ carries. Needs wire revision 79.
 ``source`` says where the figures come from, as ``{"document": ...,
 "page": 7, "passage": ...}`` (page and passage are optional): it is
 kept beside the reason. Needs wire revision 111.
+
+##### `Client.create_database(new_name: str, depends: list[str]) -> dict`
+
+Create an empty database of your own under ``new_name``, to write
+processes into with `create_activities`.
+
+Its processes take their suppliers from the databases ``depends``
+names, at least one, each already loaded: search them for suppliers,
+since the new database holds none. It is kept across restarts and can
+be deleted. Refused when ``depends`` is empty or names a database not
+loaded, when the name is taken, or when the hosting quota is met.
+
+Returns the engine's ``LoadDatabaseResponse`` dict, as
+`load_database` does: ``"database"`` describes the new database,
+under the name it was registered with.
 
 ##### `Client.create_scoring_set(collection: str, name: str, rows: list[ScoringRow], *, unit: str | None = None) -> dict`
 
