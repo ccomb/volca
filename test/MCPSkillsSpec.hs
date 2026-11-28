@@ -91,7 +91,7 @@ spec = do
         it "lists each built-in skill with its header, its file and caching hints" $ do
             a <- ask "skills/list" []
             let names = [n | Just (Array skills) <- [a >>= at ["result", "skills"]], s <- V.toList skills, Just (String n) <- [at ["frontmatter", "name"] s]]
-            names `shouldBe` ["carbon-footprint", "pef-hotspots"]
+            names `shouldBe` ["carbon-footprint", "pef-hotspots", "process-from-document"]
             (a >>= at ["result", "skills", "0", "uri"]) `shouldBe` Just (String uri)
             (a >>= at ["result", "skills", "0", "resources", "0", "uri"]) `shouldBe` Just (String uri)
             (a >>= at ["result", "ttlMs"]) `shouldBe` Just (Number 3600000)
@@ -153,8 +153,9 @@ spec = do
             [skillName s | s <- skills, not ("Leave `collection` out" `T.isInfixOf` skillFile s)] `shouldBe` []
             [skillName s | s <- skills, skillName s == "pef-hotspots", "`PEF`" `T.isInfixOf` skillFile s] `shouldBe` ["pef-hotspots"]
 
-        it "each tell that a packaging or an ingredient is not the product asked" $ do
-            skills <- builtins
+        it "each tell, when they find a product to score, that a packaging or an ingredient is not the product asked" $ do
+            -- process-from-document writes the product rather than finding it.
+            skills <- filter ((/= "process-from-document") . skillName) <$> builtins
             [skillName s | s <- skills, not ("A packaging, an ingredient or a by-product of the product is not the product" `T.isInfixOf` skillFile s)] `shouldBe` []
 
     describe "a skill's file" $ do
@@ -173,7 +174,7 @@ spec = do
     describe "the skills of a configuration" $ do
         it "replace a built-in skill of the same name, and keep the others" $ do
             own <- either (fail . T.unpack) pure (skillFrom SkillSource{sourceName = "carbon-footprint", sourceDescription = "Our own footprint.", sourceText = "Ours.\n"})
-            fmap (map skillName) (servedSkills [own]) `shouldBe` Right ["carbon-footprint", "pef-hotspots"]
+            fmap (map skillName) (servedSkills [own]) `shouldBe` Right ["carbon-footprint", "pef-hotspots", "process-from-document"]
             fmap (map skillFile . take 1) (servedSkills [own]) `shouldBe` Right [skillFile own]
 
         it "are read from [[skills]], their text kept as written" $
@@ -190,4 +191,4 @@ spec = do
 
         it "are served with the built-in ones when no configuration is given" $ do
             loaded <- loadConfigOrDefault Nothing
-            fmap (map skillName . cfgSkills) loaded `shouldBe` Right ["carbon-footprint", "pef-hotspots"]
+            fmap (map skillName . cfgSkills) loaded `shouldBe` Right ["carbon-footprint", "pef-hotspots", "process-from-document"]
