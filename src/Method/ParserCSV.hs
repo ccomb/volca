@@ -20,11 +20,13 @@ __3-row__ (explicit categories):
 > substance;compartment;;;...                        ← label row
 
 The label row names the key columns; data columns start after them.
-@substance@ and @compartment@ are required, in that order. Two more key
-columns are recognised (in either order – this is what 'Method.WriterCSV'
-emits): @cas@ (the substance's CAS number) and @unit@ (the flow unit of
-that row, when it differs from the category unit in the header – real
-methods mix kg, m3 and MJ flows inside one category).
+@substance@ and @compartment@ are required, in that order. Three more key
+columns are recognised (in any order – 'Method.WriterCSV' emits them as
+@cas@, @unit@, @location@): @cas@ (the substance's CAS number), @unit@ (the
+flow unit of that row, when it differs from the category unit in the header –
+real methods mix kg, m3 and MJ flows inside one category) and @location@
+(the location a regionalized factor applies to; blank for a factor that has
+none).
 
 A compartment cell is either a legacy prose form (@Emissions to air@,
 @Resources@ – matched by keyword) or a @/@-separated path
@@ -81,19 +83,20 @@ data KeyColumns = KeyColumns
     { kcCount :: !Int
     , kcCAS :: !(Maybe Int)
     , kcUnit :: !(Maybe Int)
+    , kcLocation :: !(Maybe Int)
     }
 
 {- | Read the key columns off the label row. @substance@ and @compartment@
-must come first (that's also what 'isLabelRow' anchors on); @cas@ and @unit@
-are optional. An unrecognised key column is an error, not a silently skipped
-column of data.
+must come first (that's also what 'isLabelRow' anchors on); @cas@, @unit@
+and @location@ are optional. An unrecognised key column is an error, not a
+silently skipped column of data.
 -}
 parseKeyColumns :: [Text] -> Either String KeyColumns
 parseKeyColumns labels =
     let keys = map (T.toCaseFold . T.strip) (takeWhile (not . T.null . T.strip) labels)
      in case keys of
             ("substance" : "compartment" : extras) ->
-                case filter (`notElem` ["cas", "unit"]) extras of
+                case filter (`notElem` ["cas", "unit", "location"]) extras of
                     bad : _ -> Left ("unknown key column in CSV method label row: " <> T.unpack bad)
                     [] ->
                         Right
@@ -101,6 +104,7 @@ parseKeyColumns labels =
                                 { kcCount = length keys
                                 , kcCAS = (+ 2) <$> elemIndex "cas" extras
                                 , kcUnit = (+ 2) <$> elemIndex "unit" extras
+                                , kcLocation = (+ 2) <$> elemIndex "location" extras
                                 }
             _ -> Left "CSV method label row must start with 'substance;compartment'"
 
@@ -141,6 +145,7 @@ mkMethod methodology keys catName impactName unit colIdx cellRows =
             x : _ -> T.strip x
             [] -> ""
         keyed cells = maybe "" (cell cells)
+        nonBlank t = if T.null t then Nothing else Just t
         !factors =
             [ MethodCF
                 { mcfFlowRef = UUID5.generateNamed ns (bsKey $ sub <> "::" <> comp)
@@ -148,9 +153,9 @@ mkMethod methodology keys catName impactName unit colIdx cellRows =
                 , mcfDirection = directionFromCompartment comp compartment
                 , mcfValue = v
                 , mcfCompartment = compartment
-                , mcfCAS = if T.null cas then Nothing else Just cas
+                , mcfCAS = nonBlank cas
                 , mcfUnit = if T.null rowUnit then headerUnit else rowUnit
-                , mcfConsumerLocation = Nothing
+                , mcfConsumerLocation = nonBlank (keyed cells (kcLocation keys))
                 }
             | cells <- cellRows
             , let !sub = cell cells 0
