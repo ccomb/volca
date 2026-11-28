@@ -85,7 +85,7 @@ subcompartment: "non-urban air or from high stacks", "surface water", etc.
 qualifier: "long-term" or ""
 -}
 data Compartment = Compartment !Text !Text !Text
-    deriving (Eq, Show, Generic, NFData, Store, ToJSON, FromJSON)
+    deriving (Eq, Ord, Show, Generic, NFData, Store, ToJSON, FromJSON)
 
 {- | A normalized compartment subcompartment (e.g. @"surface water"@,
 @"(unspecified)"@). A lookup-key axis alongside the medium and a normalized

@@ -35,19 +35,30 @@ which is what the writer emits and the only way to keep subcompartment
 distinctions – most of a real method's factors are subcompartment-specific.
 
 One CSV file → multiple 'Method' values (one per column).
+
+'parseMethodCSVBytes' reads files as they come, dropping a factor it cannot
+read and matching prose compartments by keyword. 'parseMethodCSVStrict' is
+for a table written to be imported: it takes only @top/sub@ paths, requires
+the @unit@ key column, and refuses every line it would otherwise drop or
+guess at.
 -}
 module Method.ParserCSV (
     parseMethodCSVBytes,
+    parseMethodCSVStrict,
+    CsvDefect (..),
     isLabelRow,
     knownTops,
     stripBOM,
 ) where
 
 import Control.Applicative ((<|>))
+import Data.Bifunctor (first)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BC
-import Data.List (elemIndex, zip4)
-import Data.Maybe (fromMaybe)
+import Data.Either (partitionEithers)
+import Data.List (dropWhileEnd, elemIndex, sortOn, zip4)
+import qualified Data.List.NonEmpty as NE
+import Data.Maybe (fromMaybe, isNothing, maybeToList)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -56,25 +67,79 @@ import Data.UUID (UUID)
 import qualified Data.UUID.V5 as UUID5
 import Data.Word (Word8)
 
-import Method.CSV (detectDelimiter, parseDouble, splitRow)
+import Data.Indexing (collisions)
+import Method.CSV (detectDelimiter, parseDouble, quotedCells, splitRow)
 import Method.Types
 import Types (mediumText)
 
+-- | Why a line of a method CSV cannot be taken as written.
+data CsvDefect = CsvDefect
+    { cdLine :: !Int
+    -- ^ 1-based, counted in the text as sent, comments included
+    , cdReason :: !Text
+    }
+    deriving (Eq, Show)
+
 -- | Pure parser, exported for testing.
 parseMethodCSVBytes :: BS.ByteString -> Either String [Method]
-parseMethodCSVBytes bytes =
-    let allLines = map stripCR $ BC.lines (stripBOM bytes)
-        (comments, dataLines) = span (\l -> BC.isPrefixOf "#" l || BS.null l) allLines
-        methodology = extractMethodology comments
-     in do
-            (keys, cats, names, units, rows, delim) <- splitHeaderFromData dataLines
-            -- Split each data row once; every method column reads the same cells.
-            let cellRows = map (splitRow delim) rows
-            Right
-                [ mkMethod methodology keys catName impactName unit colIdx cellRows
-                | (colIdx, catName, impactName, unit) <- zip4 [0 ..] cats names units
-                , not (T.null impactName)
-                ]
+parseMethodCSVBytes = fmap tableMethods . first (T.unpack . cdReason) . readTable
+
+{- | Read a method CSV as written or not at all: what the lenient reader drops
+or guesses at is refused, every defect with its line, so the author fixes the
+text instead of losing factors in silence. A table without a defect gives the
+same methods as the lenient reader.
+-}
+parseMethodCSVStrict :: BS.ByteString -> Either [CsvDefect] [Method]
+parseMethodCSVStrict bytes = do
+    table <- first pure (readTable bytes)
+    case tableDefects table of
+        [] -> Right (tableMethods table)
+        defects -> Left defects
+
+-- | A line of the text with its 1-based number.
+data Line = Line !Int !BS.ByteString
+
+lineBytes :: Line -> BS.ByteString
+lineBytes (Line _ bytes) = bytes
+
+-- | A data line split into cells.
+data Row = Row !Int ![Text]
+
+-- | One impact category column of the header.
+data Column = Column
+    { colIndex :: !Int
+    -- ^ 0-based, counted after the key columns
+    , colCategory :: !Text
+    , colName :: !Text
+    , colUnit :: !Text
+    }
+
+-- | The header read, and the data lines after it.
+data Table = Table
+    { tMethodology :: !(Maybe Text)
+    , tLabelLine :: !Int
+    , tDelim :: !Char
+    , tKeys :: !KeyColumns
+    , tColumns :: ![Column]
+    -- ^ the named ones: a column with a blank name holds no category
+    , tWidth :: !Int
+    -- ^ key columns and category columns, named or not
+    , tRows :: ![Line]
+    }
+
+readTable :: BS.ByteString -> Either CsvDefect Table
+readTable bytes =
+    let allLines = zipWith Line [1 ..] (map stripCR (BC.lines (stripBOM bytes)))
+        (comments, rest) = span (\l -> BC.isPrefixOf "#" (lineBytes l) || BS.null (lineBytes l)) allLines
+     in splitHeaderFromData (extractMethodology (map lineBytes comments)) rest
+
+-- | Each named column read as one method.
+tableMethods :: Table -> [Method]
+tableMethods t = [mkMethod (tMethodology t) (tKeys t) col cellRows | col <- tColumns t]
+  where
+    -- Split each data row once; every method column reads the same cells.
+    cellRows :: [[Text]]
+    cellRows = map (splitRow (tDelim t) . lineBytes) (tRows t)
 
 {- | The key columns of the label row: the non-blank leading cells. Data
 columns start right after them.
@@ -91,13 +156,13 @@ must come first (that's also what 'isLabelRow' anchors on); @cas@, @unit@
 and @location@ are optional. An unrecognised key column is an error, not a
 silently skipped column of data.
 -}
-parseKeyColumns :: [Text] -> Either String KeyColumns
+parseKeyColumns :: [Text] -> Either Text KeyColumns
 parseKeyColumns labels =
     let keys = map (T.toCaseFold . T.strip) (takeWhile (not . T.null . T.strip) labels)
      in case keys of
             ("substance" : "compartment" : extras) ->
                 case filter (`notElem` ["cas", "unit", "location"]) extras of
-                    bad : _ -> Left ("unknown key column in CSV method label row: " <> T.unpack bad)
+                    bad : _ -> Left ("unknown key column in CSV method label row: " <> bad)
                     [] ->
                         Right
                             KeyColumns
@@ -109,74 +174,226 @@ parseKeyColumns labels =
             _ -> Left "CSV method label row must start with 'substance;compartment'"
 
 {- | Find the label row (first column starts with "substance") and split header
-rows from data rows.  Returns (keys, categories, names, units, dataRows,
-delimiter).  2-row layout → categories = names.  3-row layout → distinct.
+rows from data rows. 2-row layout → categories = names. 3-row layout →
+distinct. A defect of the header is on the label row, or on line 1 when there
+is none.
 -}
-splitHeaderFromData :: [BS.ByteString] -> Either String (KeyColumns, [Text], [Text], [Text], [BS.ByteString], Char)
-splitHeaderFromData dataLines =
-    case break isLabelRow dataLines of
-        (headerRows, labelRow : rows) -> do
+splitHeaderFromData :: Maybe Text -> [Line] -> Either CsvDefect Table
+splitHeaderFromData methodology dataLines =
+    case break (isLabelRow . lineBytes) dataLines of
+        (headerRows, Line labelLine labelRow : rows) -> do
             let !delim = detectDelimiter labelRow
-            keys <- parseKeyColumns (splitRow delim labelRow)
+                atLabel = first (CsvDefect labelLine)
+            keys <- atLabel (parseKeyColumns (splitRow delim labelRow))
             let dropKeys = drop (kcCount keys) . splitRow delim
-            case filter (not . BS.null) headerRows of
-                [nameRow, unitRow] ->
-                    let names = dropKeys nameRow
-                     in Right (keys, names, names, dropKeys unitRow, rows, delim)
-                [catRow, nameRow, unitRow] ->
-                    Right (keys, dropKeys catRow, dropKeys nameRow, dropKeys unitRow, rows, delim)
+            (cats, names, units) <- atLabel $ case filter (not . BS.null) (map lineBytes headerRows) of
+                [nameRow, unitRow] -> Right (dropKeys nameRow, dropKeys nameRow, dropKeys unitRow)
+                [catRow, nameRow, unitRow] -> Right (dropKeys catRow, dropKeys nameRow, dropKeys unitRow)
                 _ -> Left "CSV method file needs at least 3 header rows (names, units, column labels)"
-        _ -> Left "CSV method file has no 'substance;compartment;...' label row"
+            Right
+                Table
+                    { tMethodology = methodology
+                    , tLabelLine = labelLine
+                    , tDelim = delim
+                    , tKeys = keys
+                    , tColumns =
+                        [ Column i c n u
+                        | (i, c, n, u) <- zip4 [0 ..] cats names units
+                        , not (T.null n)
+                        ]
+                    , tWidth = kcCount keys + length names
+                    , tRows = rows
+                    }
+        _ -> Left (CsvDefect 1 "CSV method file has no 'substance;compartment;...' label row")
 
 -- | Detect the label row: first cell is a variation of "substance".
 isLabelRow :: BS.ByteString -> Bool
 isLabelRow line =
     case splitRow (detectDelimiter line) line of
-        (first : _) -> T.toCaseFold (T.strip first) == "substance"
+        (cell : _) -> T.toCaseFold (T.strip cell) == "substance"
         [] -> False
 
 -- | Build a single Method from one column of the pre-split CSV rows.
-mkMethod :: Maybe Text -> KeyColumns -> Text -> Text -> Text -> Int -> [[Text]] -> Method
-mkMethod methodology keys catName impactName unit colIdx cellRows =
-    let !ns = csvMethodNamespace
-        !mId = UUID5.generateNamed ns (bsKey $ "method:" <> impactName)
-        !headerUnit = if T.null unit then "unknown" else unit
-        cell cells i = case drop i cells of
-            x : _ -> T.strip x
-            [] -> ""
-        keyed cells = maybe "" (cell cells)
-        nonBlank t = if T.null t then Nothing else Just t
-        !factors =
-            [ MethodCF
-                { mcfFlowRef = UUID5.generateNamed ns (bsKey $ sub <> "::" <> comp)
-                , mcfFlowName = sub
-                , mcfDirection = directionFromCompartment comp compartment
-                , mcfValue = v
-                , mcfCompartment = compartment
-                , mcfCAS = nonBlank cas
-                , mcfUnit = if T.null rowUnit then headerUnit else rowUnit
-                , mcfConsumerLocation = nonBlank (keyed cells (kcLocation keys))
-                }
-            | cells <- cellRows
-            , let !sub = cell cells 0
-                  !comp = cell cells 1
-                  !cas = keyed cells (kcCAS keys)
-                  !rowUnit = keyed cells (kcUnit keys)
-                  !raw = cell cells (colIdx + kcCount keys)
-            , not (T.null sub)
-            , not (T.null raw)
-            , let compartment = parseCSVCompartment comp
-            , Just v <- [parseDouble raw]
-            ]
-     in Method
-            { methodId = mId
-            , methodName = impactName
-            , methodDescription = Nothing
-            , methodUnit = headerUnit
-            , methodCategory = catName
-            , methodMethodology = methodology
-            , methodFactors = factors
-            }
+mkMethod :: Maybe Text -> KeyColumns -> Column -> [[Text]] -> Method
+mkMethod methodology keys col cellRows =
+    Method
+        { methodId = UUID5.generateNamed csvMethodNamespace (bsKey $ "method:" <> colName col)
+        , methodName = colName col
+        , methodDescription = Nothing
+        , methodUnit = columnUnit col
+        , methodCategory = colCategory col
+        , methodMethodology = methodology
+        , methodFactors = [cf | cells <- cellRows, Just (Right cf) <- [cellFactor keys col cells]]
+        }
+
+-- | The unit a column's header gives its factors.
+columnUnit :: Column -> Text
+columnUnit col = if T.null (colUnit col) then "unknown" else colUnit col
+
+{- | The factor one row gives one column: none when the value cell or the
+substance is blank, else the factor or why its value is not one. Both readers
+go through it; the lenient one drops what the strict one refuses.
+-}
+cellFactor :: KeyColumns -> Column -> [Text] -> Maybe (Either Text MethodCF)
+cellFactor keys col cells
+    | T.null sub || T.null raw = Nothing
+    | otherwise = Just $ case parseDouble raw of
+        Nothing -> Left ("'" <> raw <> "' is not a number")
+        Just v ->
+            Right
+                MethodCF
+                    { mcfFlowRef = UUID5.generateNamed csvMethodNamespace (bsKey $ sub <> "::" <> comp)
+                    , mcfFlowName = sub
+                    , mcfDirection = directionFromCompartment comp compartment
+                    , mcfValue = v
+                    , mcfCompartment = compartment
+                    , mcfCAS = nonBlank (keyedCell cells (kcCAS keys))
+                    , mcfUnit = fromMaybe (columnUnit col) (nonBlank (keyedCell cells (kcUnit keys)))
+                    , mcfConsumerLocation = nonBlank (keyedCell cells (kcLocation keys))
+                    }
+  where
+    sub, comp, raw :: Text
+    sub = cellAt cells 0
+    comp = cellAt cells 1
+    raw = cellAt cells (colIndex col + kcCount keys)
+    compartment :: Maybe Compartment
+    compartment = parseCSVCompartment comp
+
+-- | The stripped cell at a 0-based position, blank past the end of the row.
+cellAt :: [Text] -> Int -> Text
+cellAt cells i = case drop i cells of
+    x : _ -> T.strip x
+    [] -> ""
+
+-- | The cell of an optional key column, blank when the table has none.
+keyedCell :: [Text] -> Maybe Int -> Text
+keyedCell cells = maybe "" (cellAt cells)
+
+nonBlank :: Text -> Maybe Text
+nonBlank t = if T.null t then Nothing else Just t
+
+-- | Every defect of a table whose header read, in line order.
+tableDefects :: Table -> [CsvDefect]
+tableDefects t = sortOn cdLine (unitColumn <> unbalanced <> concatMap (rowDefects t) rows <> duplicates (tKeys t) rows)
+  where
+    unbalanced :: [CsvDefect]
+    rows :: [Row]
+    (unbalanced, rows) = partitionEithers (map (strictRow (tDelim t)) (tRows t))
+    unitColumn :: [CsvDefect]
+    unitColumn =
+        [ CsvDefect (tLabelLine t) "no 'unit' key column: each row must name the unit of its flow"
+        | isNothing (kcUnit (tKeys t))
+        ]
+
+{- | A data line split as RFC 4180. An empty line is a row of no cells; any
+other line the quoting cannot read is refused rather than split naively. An
+odd number of quotes is refused too: the quoting would read an open quote to
+the end of the line, swallowing every cell after it into one.
+-}
+strictRow :: Char -> Line -> Either CsvDefect Row
+strictRow delim (Line n bs)
+    | BS.null bs = Right (Row n [])
+    | odd (BC.count '"' bs) = unbalanced
+    | otherwise = maybe unbalanced (Right . Row n) (quotedCells delim bs)
+  where
+    unbalanced :: Either CsvDefect Row
+    unbalanced = Left (CsvDefect n "unbalanced quote")
+
+-- | Why a row cannot be taken as written, each cause named once.
+rowDefects :: Table -> Row -> [CsvDefect]
+rowDefects t (Row n cells) = map (CsvDefect n) (surplus <> unnamed <> blanks <> compartment <> values)
+  where
+    keys :: KeyColumns
+    keys = tKeys t
+    -- Trailing blank cells say nothing, and a number split in two always leaves a non-blank one.
+    used, extra :: Int
+    used = length (dropWhileEnd (T.null . T.strip) cells)
+    extra = used - tWidth t
+    surplus :: [Text]
+    surplus =
+        [ "the row has "
+            <> (if extra == 1 then "one cell" else tshow extra <> " cells")
+            <> " too many: "
+            <> tshow used
+            <> " where the header has "
+            <> tshow (tWidth t)
+            <> "; quote a cell that holds the delimiter (under ',' a decimal comma splits a number in two)"
+        | extra > 0
+        ]
+    -- A miscounted delimiter in a header row moves the names off their values.
+    unnamed :: [Text]
+    unnamed =
+        [ "a value under a column the header does not name: count the delimiters of the header rows"
+        | any
+            (\i -> not (T.null (cellAt cells (kcCount keys + i))))
+            (filter (`notElem` map colIndex (tColumns t)) [0 .. tWidth t - kcCount keys - 1])
+        ]
+    blanks :: [Text]
+    blanks =
+        [ "blank " <> what <> " on a row that carries a value"
+        | not (all (T.null . T.strip) (drop (kcCount keys) cells))
+        , (what, column) <- [("substance", Just 0), ("compartment", Just 1), ("unit", kcUnit keys)]
+        , i <- maybeToList column
+        , T.null (cellAt cells i)
+        ]
+    comp :: Text
+    comp = cellAt cells 1
+    compartment :: [Text]
+    compartment = [reason | not (T.null comp), Just reason <- [compartmentDefect comp]]
+    values :: [Text]
+    values = [reason | col <- tColumns t, Just (Left reason) <- [cellFactor keys col cells]]
+
+tshow :: Int -> Text
+tshow = T.pack . show
+
+{- | Why a compartment cell is not a @top/sub@ path with a known top, if it is
+not. A qualifier goes after a comma inside the sub-compartment, because
+matching reads two segments of the path and loses a third.
+-}
+compartmentDefect :: Text -> Maybe Text
+compartmentDefect comp = case map T.strip (T.splitOn "/" comp) of
+    [top] | known top -> Nothing
+    [top, _] | known top -> Nothing
+    top : sub : rest@(_ : _)
+        | known top ->
+            Just
+                ( "'"
+                    <> comp
+                    <> "' has more than two segments; write the qualifier after a comma: '"
+                    <> top
+                    <> "/"
+                    <> T.intercalate ", " (sub : rest)
+                    <> "'"
+                )
+    _ -> Just ("'" <> comp <> "' is not a compartment: write top/sub, with top one of " <> T.intercalate ", " knownTops)
+  where
+    known :: Text -> Bool
+    known top = T.toCaseFold top `elem` knownTops
+
+-- | What makes two rows one factor, read the way the factor is built.
+data RowKey = RowKey !Text !(Maybe Compartment) !(Maybe Text)
+    deriving (Eq, Ord)
+
+-- | Each row that gives the same factor as another, naming the others.
+duplicates :: KeyColumns -> [Row] -> [CsvDefect]
+duplicates keys rows =
+    [ CsvDefect n ("same substance, compartment and location as line " <> T.intercalate ", " (map tshow others))
+    | (_, ns) <- collisions keyed
+    , n <- NE.toList ns
+    , let others = filter (/= n) (NE.toList ns)
+    ]
+  where
+    -- A row refused for its substance or compartment already says so.
+    keyed :: [(RowKey, Int)]
+    keyed =
+        [ (RowKey sub (parseCSVCompartment comp) (nonBlank (keyedCell cells (kcLocation keys))), n)
+        | Row n cells <- rows
+        , let sub = cellAt cells 0
+              comp = cellAt cells 1
+        , not (T.null sub)
+        , not (T.null comp)
+        , isNothing (compartmentDefect comp)
+        ]
 
 -- | Deterministic namespace for CSV-derived UUIDs.
 csvMethodNamespace :: UUID
