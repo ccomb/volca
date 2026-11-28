@@ -3187,7 +3187,8 @@ callEditMethodFactors dbManager origin rid args = runTool rid $ do
 callEditMethodCategories :: DatabaseManager -> Origin -> RequestId -> KeyMap Value -> IO Value
 callEditMethodCategories dbManager origin rid args = runTool rid $ do
     (collection, request) <- except (editArguments names args)
-    edit <- except (toCategoryEdit request)
+    units <- liftIO (DM.getMergedUnitConfig dbManager)
+    edit <- except (toCategoryEdit units request)
     outcome <- ExceptT (first refusalText <$> editMethodCategories dbManager collection origin edit)
     return $ toolSuccessJson rid (toJSON (outcomeToAPI outcome))
   where

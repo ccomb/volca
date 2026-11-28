@@ -8,8 +8,10 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Test.Hspec
 
+import Builtin (BuiltinTable (..), builtinContent)
 import Method.ParserCSV (CsvDefect (..), knownTops, parseMethodCSVBytes, parseMethodCSVStrict)
 import Method.Types
+import UnitConversion (UnitConfig, buildFromCSV)
 
 {- | A one-category table under a comment line, so the first data row is on
 line 5: comment, names, units, label.
@@ -25,7 +27,11 @@ table rows =
             <> rows
 
 strict :: Text -> Either [CsvDefect] [Method]
-strict = parseMethodCSVStrict . TE.encodeUtf8
+strict = parseMethodCSVStrict units . TE.encodeUtf8
+
+-- | The unit table the engine ships, which an import reads its flow units against.
+units :: UnitConfig
+units = either (error . T.unpack) id (buildFromCSV (builtinContent BuiltinUnits))
 
 -- | The single defect of a refused table, failing the test on anything else.
 oneDefect :: Text -> IO CsvDefect
@@ -153,6 +159,20 @@ spec = describe "Method.ParserCSV strict" $ do
                 ]
             )
             `shouldBe` Left [CsvDefect 2 "blank unit for the impact category 'Acidification'"]
+
+    it "refuses a flow unit the unit table does not know, naming it" $ do
+        CsvDefect line reason <- oneDefect (table ["Ammonia;air;;kg;2", "Nitrogen oxides;air;;gr;1.5"])
+        line `shouldBe` 6
+        reason `shouldSatisfy` T.isPrefixOf "'gr' is not a unit"
+
+    it "accepts the flow units the unit table knows" $
+        fmap (map (map mcfUnit . methodFactors)) (strict (table ["Ammonia;air;;g;1", "Methane;air;;kg;28", "Water;water;;m3;2", "Gas, natural;natural resource;;MJ;3"]))
+            `shouldBe` Right [["g", "kg", "m3", "MJ"]]
+
+    it "refuses a row whose CAS number and unit swapped cells" $ do
+        CsvDefect line reason <- oneDefect (table ["Methane;air;kg;74-82-8;28"])
+        line `shouldBe` 5
+        reason `shouldSatisfy` T.isPrefixOf "'74-82-8' is not a unit"
 
     it "refuses a table without a unit key column" $
         strict

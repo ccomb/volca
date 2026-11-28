@@ -72,6 +72,7 @@ import Method.CSV (detectDelimiter, parseDouble, quotedCells, splitRow)
 import Method.Types
 import SynonymDB (normalizeNameKeepUnit)
 import Types (mediumText)
+import UnitConversion (UnitConfig, UnitReading (..), readUnit)
 
 -- | Why a line of a method CSV cannot be taken as written.
 data CsvDefect = CsvDefect
@@ -90,10 +91,10 @@ or guesses at is refused, every defect with its line, so the author fixes the
 text instead of losing factors in silence. A table without a defect gives the
 same methods as the lenient reader.
 -}
-parseMethodCSVStrict :: BS.ByteString -> Either [CsvDefect] [Method]
-parseMethodCSVStrict bytes = do
+parseMethodCSVStrict :: UnitConfig -> BS.ByteString -> Either [CsvDefect] [Method]
+parseMethodCSVStrict units bytes = do
     table <- first pure (readTable bytes)
-    case tableDefects table of
+    case tableDefects units table of
         [] -> Right (tableMethods table)
         defects -> Left defects
 
@@ -309,11 +310,11 @@ nonBlank :: Text -> Maybe Text
 nonBlank t = if T.null t then Nothing else Just t
 
 -- | Every defect of a table whose header read, in line order.
-tableDefects :: Table -> [CsvDefect]
-tableDefects t
+tableDefects :: UnitConfig -> Table -> [CsvDefect]
+tableDefects units t
     -- Rows read against header rows that disagree would only echo them.
     | not (null (tHeaderDefects t)) = tHeaderDefects t
-    | otherwise = sortOn cdLine (unitColumn <> blankUnits <> unbalanced <> concatMap (rowDefects t) rows <> duplicates (tKeys t) rows)
+    | otherwise = sortOn cdLine (unitColumn <> blankUnits <> unbalanced <> concatMap (rowDefects units t) rows <> duplicates (tKeys t) rows)
   where
     unbalanced :: [CsvDefect]
     rows :: [Row]
@@ -346,8 +347,8 @@ strictRow delim (Line n bs)
     unbalanced = Left (CsvDefect n "unbalanced quote")
 
 -- | Why a row cannot be taken as written, each cause named once.
-rowDefects :: Table -> Row -> [CsvDefect]
-rowDefects t (Row n cells) = map (CsvDefect n) (surplus <> unnamed <> valueless <> blanks <> compartment <> values)
+rowDefects :: UnitConfig -> Table -> Row -> [CsvDefect]
+rowDefects units t (Row n cells) = map (CsvDefect n) (surplus <> unnamed <> valueless <> blanks <> unit <> compartment <> values)
   where
     keys :: KeyColumns
     keys = tKeys t
@@ -391,6 +392,16 @@ rowDefects t (Row n cells) = map (CsvDefect n) (surplus <> unnamed <> valueless 
         , i <- maybeToList column
         , T.null (cellAt cells i)
         ]
+    -- Scoring counts a factor in a unit its table does not know as if it were in the base unit.
+    unit :: [Text]
+    unit =
+        [ reason
+        | carriesValue
+        , i <- maybeToList (kcUnit keys)
+        , let written = cellAt cells i
+        , not (T.null written)
+        , Just reason <- [unitDefect units written]
+        ]
     comp :: Text
     comp = cellAt cells 1
     compartment :: [Text]
@@ -400,6 +411,14 @@ rowDefects t (Row n cells) = map (CsvDefect n) (surplus <> unnamed <> valueless 
 
 tshow :: Int -> Text
 tshow = T.pack . show
+
+-- | Why a flow unit is not one the table reads, if it is not.
+unitDefect :: UnitConfig -> Text -> Maybe Text
+unitDefect units written = case readUnit units written of
+    ReadExact _ -> Nothing
+    ReadRespelt _ _ -> Nothing
+    ReadAmbiguous a b rest -> Just ("'" <> written <> "' could be " <> T.intercalate " or " (a : b : rest) <> ": write the unit meant")
+    ReadUnknown -> Just ("'" <> written <> "' is not a unit the engine knows: write the flow unit as its unit table spells it (kg, g, m3, MJ, kWh)")
 
 {- | Why a compartment cell is not a @top/sub@ path with a known top, if it is
 not. A qualifier goes after a comma inside the sub-compartment, because

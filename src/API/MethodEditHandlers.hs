@@ -64,7 +64,7 @@ import API.Types (
  )
 import App.Env (AppEnv (..), AppM, httpOrigin)
 import Data.JournalFile (Author (..), channelCode)
-import Database.Manager (DatabaseLoadStatus (..), DatabaseManager, MethodCollectionStatus (..), getMethodCollection, listMethodCollections)
+import Database.Manager (DatabaseLoadStatus (..), DatabaseManager, MethodCollectionStatus (..), getMergedUnitConfig, getMethodCollection, listMethodCollections)
 import Method.Edit (EditOutcome (..), HistoryLine (..), MethodEditRefusal (..), copyMethodCollection, createMethodCollection, editMethodCategories, editMethodFactors, editScoringSets, methodHistory, refusalText, undoMethodEdit)
 import Method.EditPlan (EditEffect (..))
 import Method.Journal (Exact (..), LineKind (..), MethodOp (..))
@@ -129,7 +129,8 @@ editMethodCategoriesHandler collection req = do
     guardMutation
     manager <- asks aeDbManager
     origin <- httpOrigin
-    edit <- either (refuse . EditRefused) pure (toCategoryEdit req)
+    units <- liftIO (getMergedUnitConfig manager)
+    edit <- either (refuse . EditRefused) pure (toCategoryEdit units req)
     outcomeToAPI <$> (liftIO (editMethodCategories manager collection origin edit) >>= either refuse pure)
 
 editScoringSetsHandler :: Text -> ScoringEditRequest -> AppM MethodEditResponse

@@ -23,7 +23,7 @@ import API.Types.MethodEdit (CategoryEditOp (..), CategoryEditRequest (..), toCa
 import Config (Config (..), MethodOrigin (..), MethodPatch (..), MethodPatchMatch (..), ScoringSetConfig (..), defaultConfig)
 import qualified Config
 import Data.JournalFile (journalPath, noOrigin)
-import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getMethodCollection, initDatabaseManager, loadMethodCollection, mapMethodToIndexCached, unloadMethodCollection)
+import Database.Manager (CachePolicy (..), CollectionName (..), DatabaseManager (..), getMergedUnitConfig, getMethodCollection, initDatabaseManager, loadMethodCollection, mapMethodToIndexCached, unloadMethodCollection)
 import Database.UploadedDatabase (getMethodUploadsDir)
 import Method.Edit
 import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), EditEffect (..), FactorEdit (..), FactorTarget (..))
@@ -106,11 +106,12 @@ authored = do
 
 -- | An import of a CSV text, read as the request that carries it is.
 importCsv :: DatabaseManager -> T.Text -> IO (Either MethodEditRefusal EditOutcome)
-importCsv manager csv =
+importCsv manager csv = do
+    units <- getMergedUnitConfig manager
     either
         (pure . Left . EditRefused)
         (editMethodCategories manager "mine" noOrigin)
-        (toCategoryEdit (CategoryEditRequest ImportCategoryOp Nothing Nothing Nothing Nothing Nothing (Just csv)))
+        (toCategoryEdit units (CategoryEditRequest ImportCategoryOp Nothing Nothing Nothing Nothing Nothing (Just csv)))
 
 -- | One category of two factors, under its name and its unit, as a CSV text.
 climate :: T.Text
@@ -378,6 +379,13 @@ spec = describe "changing a method collection of one's own" $ do
             void refused `shouldBe` Left (EditRefused "line 4: '1,5' is not a number\nline 5: 'many' is not a number")
             fmap length <$> methodHistory manager "mine" `shouldReturn` Right 0
 
+    it "refuses a flow unit the engine's unit table does not know, writing nothing" $
+        withScratchDataDir $ do
+            manager <- authored
+            refused <- importCsv manager (T.replace "Methane;air;74-82-8;kg;28" "Methane;air;74-82-8;gr;28" climate)
+            either (T.unpack . refusalText) (const "accepted") refused `shouldStartWith` "line 5: 'gr' is not a unit"
+            fmap length <$> methodHistory manager "mine" `shouldReturn` Right 0
+
     it "exports an imported category with its locations" $
         withScratchDataDir $ do
             manager <- authored
@@ -392,7 +400,8 @@ spec = describe "changing a method collection of one's own" $ do
             importCsv manager located >>= either (fail . show) (const (pure ()))
             collection <- getMethodCollection manager "mine"
             written <- maybe (fail "the collection is not loaded") (either (fail . T.unpack) (pure . fst) . serializeColumnarMethodCSV) collection
-            back <- either (fail . show) pure (parseMethodCSVStrict written)
+            units <- getMergedUnitConfig manager
+            back <- either (fail . show) pure (parseMethodCSVStrict units written)
             map methodFactors back `shouldBe` factorsOf collection
             map (map mcfConsumerLocation) (factorsOf collection) `shouldBe` [[Just "CH", Just "FR"]]
             TE.decodeUtf8 written `shouldSatisfy` T.isInfixOf "location"

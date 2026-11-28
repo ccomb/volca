@@ -29,6 +29,7 @@ import Types (
     PatchOp (..),
     UUID,
  )
+import UnitConversion (UnitConfig)
 
 -- ---------------------------------------------------------------------------
 -- Changing a method collection of one's own
@@ -183,20 +184,22 @@ data CategoryEditRequest = CategoryEditRequest
 instance FromJSON CategoryEditRequest where
     parseJSON = parseClosed
 
--- | What a change asks of a collection's categories, or the field it lacks.
-toCategoryEdit :: CategoryEditRequest -> Either Text CategoryEdit
-toCategoryEdit req = case cerOp req of
+{- | What a change asks of a collection's categories, or the field it lacks.
+An import reads its flow units against the table the engine scores with.
+-}
+toCategoryEdit :: UnitConfig -> CategoryEditRequest -> Either Text CategoryEdit
+toCategoryEdit units req = case cerOp req of
     AddCategoryOp ->
         maybe (Left "an add names name and unit") Right $
             (\name unit -> NewCategory (CategoryDraft name unit (cerImpactCategory req) (cerMethodology req))) <$> cerName req <*> cerUnit req
     RenameCategoryOp -> maybe (Left "a rename names methodId and name") Right (Rename <$> cerMethodId req <*> cerName req)
     SetCategoryUnitOp -> maybe (Left "a set-unit names methodId and unit") Right (ChangeUnit <$> cerMethodId req <*> cerUnit req)
     RemoveCategoryOp -> maybe (Left "a remove names methodId") (Right . Delete) (cerMethodId req)
-    ImportCategoryOp -> maybe (Left "an import names csv") importedCategory (cerCsv req)
+    ImportCategoryOp -> maybe (Left "an import names csv") (importedCategory units) (cerCsv req)
 
 -- | The one category a CSV text holds, or every line of it that cannot be taken as written.
-importedCategory :: Text -> Either Text CategoryEdit
-importedCategory csv = case parseMethodCSVStrict (TE.encodeUtf8 csv) of
+importedCategory :: UnitConfig -> Text -> Either Text CategoryEdit
+importedCategory units csv = case parseMethodCSVStrict units (TE.encodeUtf8 csv) of
     Left defects -> Left (T.intercalate "\n" (map describe defects))
     Right [method] -> Right (ImportCategory method)
     Right [] -> Left "the CSV text holds no impact category"
