@@ -379,6 +379,26 @@ spec = describe "changing a method collection of one's own" $ do
             void refused `shouldBe` Left (EditRefused "line 4: '1,5' is not a number\nline 5: 'many' is not a number")
             fmap length <$> methodHistory manager "mine" `shouldReturn` Right 0
 
+    it "names once the lines that share a reason, within a size an answer carries" $
+        withScratchDataDir $ do
+            manager <- authored
+            let header = [";;;;Climate change", ";;;;kg CO2 eq", "substance;compartment;cas;unit;"]
+                csv = T.unlines . (header <>)
+                refusal = fmap (either refusalText (const "accepted")) . importCsv manager . csv
+                substance i = "Substance " <> T.pack (show (i :: Int))
+            same <- refusal [substance i <> ";Emissions to air;;kg;1" | i <- [1 .. 600]]
+            T.length same `shouldSatisfy` (< 20000)
+            T.unpack same `shouldStartWith` "lines 4-603: 'Emissions to air' is not a compartment"
+            apart <- refusal ["Methane;Emissions to air;;kg;28", "Carbon dioxide;air;;kg;1", "Ethane;Emissions to air;;kg;6"]
+            T.unpack apart `shouldStartWith` "lines 4, 6: 'Emissions to air' is not a compartment"
+            scattered <- refusal (concat [[substance i <> ";Emissions to air;;kg;1", substance (100 + i) <> ";air;;kg;1"] | i <- [1 .. 30]])
+            T.unpack scattered `shouldStartWith` "lines 4, 6, 8,"
+            T.unpack scattered `shouldContain` "42, … (30 lines in all): 'Emissions to air'"
+            distinct <- refusal [substance i <> ";" <> substance i <> ";;kg;1" | i <- [1 .. 600]]
+            T.length distinct `shouldSatisfy` (< 20000)
+            T.unpack distinct `shouldStartWith` "line 4: 'Substance 1' is not a compartment"
+            T.unpack distinct `shouldEndWith` "more lines"
+
     it "refuses a flow unit the engine's unit table does not know, writing nothing" $
         withScratchDataDir $ do
             manager <- authored

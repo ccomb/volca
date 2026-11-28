@@ -11,10 +11,13 @@ import API.Types.MethodComparison
 import Config (MethodPatch (..), MethodPatchMatch (..))
 import Control.Lens ((&), (?~))
 import Data.Aeson
+import Data.Indexing (groupInOrder)
+import Data.List (sortOn)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as M
 import Data.Maybe (isNothing)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToSchema (..), enum_, type_)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -200,7 +203,7 @@ toCategoryEdit units req = case cerOp req of
 -- | The one category a CSV text holds, or every line of it that cannot be taken as written.
 importedCategory :: UnitConfig -> Text -> Either Text CategoryEdit
 importedCategory units csv = case parseMethodCSVStrict units (TE.encodeUtf8 csv) of
-    Left defects -> Left (T.intercalate "\n" (map describe defects))
+    Left defects -> Left (describeDefects defects)
     Right [method] -> Right (ImportCategory method)
     Right [] -> Left "the CSV text holds no impact category"
     Right methods ->
@@ -210,9 +213,48 @@ importedCategory units csv = case parseMethodCSVStrict units (TE.encodeUtf8 csv)
                 <> " ("
                 <> T.intercalate ", " (map MT.methodName methods)
                 <> "): send each in a call of its own"
+
+{- | The defects of a refused CSV text, one line per reason with the lines
+that share it, within a size an answer can carry: a table written wrong the
+same way on every row would otherwise repeat one reason per row.
+-}
+describeDefects :: [CsvDefect] -> Text
+describeDefects defects = T.intercalate "\n" (map (T.take refusalCap . fst) shown <> ["… and " <> tshow more <> " more lines" | more > 0])
   where
-    describe :: CsvDefect -> Text
-    describe d = "line " <> T.pack (show (cdLine d)) <> ": " <> cdReason d
+    -- The defects come in line order, and each reason keeps its lines in that order.
+    groups :: [(Text, NE.NonEmpty Int)]
+    groups = sortOn (NE.head . snd) (M.toList (groupInOrder [(cdReason d, cdLine d) | d <- defects]))
+    rendered :: [(Text, NE.NonEmpty Int)]
+    rendered = [(linesText ls <> ": " <> reason, ls) | (reason, ls) <- groups]
+    kept :: Int
+    kept = length (takeWhile (<= refusalCap) (scanl1 (+) (map ((+ 1) . T.length . fst) rendered)))
+    shown, omitted :: [(Text, NE.NonEmpty Int)]
+    (shown, omitted) = splitAt (max 1 kept) rendered
+    more :: Int
+    more = S.size (S.fromList (concatMap (NE.toList . snd) omitted))
+    tshow :: Int -> Text
+    tshow = T.pack . show
+    linesText :: NE.NonEmpty Int -> Text
+    linesText ls = case runs (NE.toList ls) of
+        [(a, b)] | a == b -> "line " <> tshow a
+        rs ->
+            "lines "
+                <> T.intercalate ", " (map run (take runsShown rs))
+                <> (if length rs > runsShown then ", … (" <> tshow (length (NE.nub ls)) <> " lines in all)" else "")
+    run :: (Int, Int) -> Text
+    run (a, b) = if a == b then tshow a else tshow a <> "-" <> tshow b
+    -- Consecutive lines, and a line named twice, make one run.
+    runs :: [Int] -> [(Int, Int)]
+    runs = foldr extend []
+    extend :: Int -> [(Int, Int)] -> [(Int, Int)]
+    extend n ((a, b) : rest) | n == a || n + 1 == a = (n, b) : rest
+    extend n acc = (n, n) : acc
+    runsShown :: Int
+    runsShown = 20
+
+-- | Well under what an assistant's tool answer can carry.
+refusalCap :: Int
+refusalCap = 20000
 
 {- | What a change did: the journal line recording it, how many factors it
 touched, the one factor's value before and after, and the one category its
