@@ -76,6 +76,12 @@ spec = describe "BrightwayExcel.Writer" $ do
                 `shouldBe` "natural resource::in water"
         it "emits the bare medium when there is no sub" $
             renderCategories (Just (Compartment Air Nothing)) `shouldBe` "air"
+        -- Brightway writes an unspecified subcompartment as no subcompartment
+        -- at all (biosphere3 holds ("air",)), so "air::unspecified" links to
+        -- nothing there.
+        it "emits the bare medium for an unspecified sub" $
+            map (renderCategories . Just . Compartment Air . Just) ["unspecified", "(unspecified)", "Unspecified"]
+                `shouldBe` ["air", "air", "air"]
         it "emits empty for no recorded compartment" $
             renderCategories Nothing `shouldBe` ""
 
