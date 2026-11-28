@@ -4,17 +4,19 @@
 
 {- |
 Module      : Method.Edit
-Description : Copying a method collection, and changing a copy through its journal
+Description : Copying or creating a method collection, and changing it through its journal
 
 A collection the configuration declares, or one the engine carries, is never
 changed in place: it is copied, and the copy lives under @uploads/methods/@
 with a journal of its own. The copy reads its source's files, so it holds
-nothing but that journal and the @meta.toml@ that points at them.
+nothing but that journal and the @meta.toml@ that points at them. A collection
+created empty reads no file at all: its journal writes every category it holds.
 -}
 module Method.Edit (
     MethodEditRefusal (..),
     refusalText,
     copyMethodCollection,
+    createMethodCollection,
     EditOutcome (..),
     editMethodFactors,
     editMethodCategories,
@@ -86,21 +88,42 @@ copy is known by, the slug of the one asked for.
 -}
 copyMethodCollection :: DatabaseManager -> Text -> Text -> IO (Either MethodEditRefusal Text)
 copyMethodCollection manager srcName newName = withMVar (dmMethodEditLock manager) $ \() -> runExceptT $ do
-    let slug = slugify newName
-    when (T.null slug) $ throwE (EditRefused ("a copy needs a name with letters or digits: " <> newName))
     available <- liftIO (readTVarIO (dmAvailableMethods manager))
     source <- maybe (throwE (CollectionNotFound srcName)) pure (M.lookup srcName available)
+    installCollection manager newName (ExceptT (first EditRefused <$> journalSeed (dmCachePolicy manager) source)) (copyConfig source)
+
+{- | Create an empty collection of one's own, read from its journal alone, and
+load it. Gives the name it is known by, the slug of the one asked for.
+-}
+createMethodCollection :: DatabaseManager -> Text -> IO (Either MethodEditRefusal Text)
+createMethodCollection manager newName =
+    withMVar (dmMethodEditLock manager) $ \() -> runExceptT (installCollection manager newName (pure (SeedLines [])) authoredConfig)
+
+{- | Give a new collection its home under a free name, register it and load
+it, or take it all back. The seed is read once the name is known to be free,
+since reading it may mean reading a source's files again.
+-}
+installCollection ::
+    DatabaseManager ->
+    Text ->
+    ExceptT MethodEditRefusal IO JournalSeed ->
+    (Text -> FilePath -> AddedAt -> MethodConfig) ->
+    ExceptT MethodEditRefusal IO Text
+installCollection manager newName readSeed configFor = do
+    let slug = slugify newName
+    when (T.null slug) $ throwE (EditRefused ("a method collection needs a name with letters or digits: " <> newName))
+    available <- liftIO (readTVarIO (dmAvailableMethods manager))
     home <- liftIO ((</> T.unpack slug) <$> UploadedDB.getMethodUploadsDir)
     taken <- liftIO (doesDirectoryExist home)
     when (M.member slug available || taken) $ throwE (NameTaken slug)
-    seed <- ExceptT (first EditRefused <$> journalSeed (dmCachePolicy manager) source)
+    seed <- readSeed
     added <- liftIO addedNow
-    let copy = copyConfig slug home added source
-    recorded <- liftIO (recordMethodCopy home copy seed)
-    either (\err -> liftIO (discardCopy manager slug home) >> throwE (EditRefused err)) pure recorded
-    liftIO (addMethodCollection manager copy)
+    let config = configFor slug home added
+    recorded <- liftIO (recordMethodCopy home config seed)
+    either (\err -> liftIO (discardCollection manager slug home) >> throwE (EditRefused err)) pure recorded
+    liftIO (addMethodCollection manager config)
     loaded <- liftIO (loadMethodCollectionLocked manager slug)
-    either (\err -> liftIO (discardCopy manager slug home) >> throwE (EditRefused err)) pure loaded
+    either (\err -> liftIO (discardCollection manager slug home) >> throwE (EditRefused err)) pure loaded
     pure slug
 
 -- | Where a copy's journal starts.
@@ -128,7 +151,8 @@ journalSeed policy source = case mcHome source of
 {- | Write a copy's home: its journal, then its @meta.toml@, which only a
 whole journal earns. A directory without @meta.toml@ is not discovered, so a
 copy cut short leaves nothing a restart would take for one, and its caller
-removes it. The @meta.toml@ says what the copy's own configuration does.
+removes it. The @meta.toml@ says what the copy's own configuration does. A
+created collection is a copy of nothing: no journal yet, no file to read.
 -}
 recordMethodCopy :: FilePath -> MethodConfig -> JournalSeed -> IO (Either Text ())
 recordMethodCopy home copy seed = do
@@ -151,7 +175,7 @@ recordMethodCopy home copy seed = do
                     , UploadedDB.umDataPath = fromMaybe "" dataPath
                     , UploadedDB.umDepends = []
                     , UploadedDB.umSource = mcSource copy
-                    , UploadedDB.umReading = FromFiles ReadDeclared
+                    , UploadedDB.umReading = readingOf (mcOrigin copy)
                     , UploadedDB.umBuiltIn = builtinOf (mcOrigin copy)
                     , UploadedDB.umLicence = LicenceUnstated
                     , UploadedDB.umRelease = Nothing
@@ -160,17 +184,43 @@ recordMethodCopy home copy seed = do
                     , UploadedDB.umAdded = mcAdded copy
                     }
     pure $ case written of
-        Right result -> first (\err -> "could not record the copy " <> mcName copy <> ": " <> err) result
-        Left (err :: SomeException) -> Left ("could not record the copy " <> mcName copy <> ": " <> T.pack (show err))
+        Right result -> first (\err -> "could not record the method collection " <> mcName copy <> ": " <> err) result
+        Left (err :: SomeException) -> Left ("could not record the method collection " <> mcName copy <> ": " <> T.pack (show err))
   where
     builtinOf :: MethodOrigin -> Maybe Text
     builtinOf = \case
         MethodFromFile _ -> Nothing
         MethodBuiltIn b -> Just (builtinMethodName b)
+        MethodFromJournal -> Nothing
+
+    readingOf :: MethodOrigin -> Reading
+    readingOf = \case
+        MethodFromJournal -> FromJournal
+        MethodFromFile _ -> FromFiles ReadDeclared
+        MethodBuiltIn _ -> FromFiles ReadDeclared
+
+-- | A created collection as the registry lists it, the same before and after a restart.
+authoredConfig :: Text -> FilePath -> AddedAt -> MethodConfig
+authoredConfig slug home added =
+    MethodConfig
+        { mcName = slug
+        , mcOrigin = MethodFromJournal
+        , mcActive = False
+        , mcDefault = False
+        , mcHome = Just home
+        , mcSource = Nothing
+        , mcDescription = Nothing
+        , mcAdded = Just added
+        , mcFormat = Nothing
+        , mcScoringSets = []
+        , mcGlobalMethods = []
+        , mcPatches = []
+        , mcPackageMethod = Nothing
+        }
 
 -- | The copy as the registry lists it: its source's files, nothing configured.
-copyConfig :: Text -> FilePath -> AddedAt -> MethodConfig -> MethodConfig
-copyConfig slug home added source =
+copyConfig :: MethodConfig -> Text -> FilePath -> AddedAt -> MethodConfig
+copyConfig source slug home added =
     source
         { mcName = slug
         , mcActive = False
@@ -183,13 +233,13 @@ copyConfig slug home added source =
         , mcPatches = []
         }
 
--- | A copy that does not load is not kept.
-discardCopy :: DatabaseManager -> Text -> FilePath -> IO ()
-discardCopy manager slug home = do
+-- | A new collection that does not load is not kept.
+discardCollection :: DatabaseManager -> Text -> FilePath -> IO ()
+discardCollection manager slug home = do
     atomically (modifyTVar' (dmAvailableMethods manager) (M.delete slug))
     removed <- try (removeDirectoryRecursive home)
     either
-        (\(err :: SomeException) -> reportProgress Warning ("could not remove the copy " <> home <> " that did not load: " <> show err))
+        (\(err :: SomeException) -> reportProgress Warning ("could not remove the method collection " <> home <> " that did not load: " <> show err))
         pure
         removed
 

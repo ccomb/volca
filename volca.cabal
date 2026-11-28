@@ -474,6 +474,7 @@ test-suite lca-tests
                      , JournalFileSpec
                      , JournalSpec
                      , MethodCopySpec
+                     , MethodCreateSpec
                      , MethodEditHandlerSpec
                      , FailureStatusSpec
                      , MethodEditPlanSpec
