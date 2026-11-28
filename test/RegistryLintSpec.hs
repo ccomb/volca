@@ -130,6 +130,13 @@ spec = do
                     classOf "Antimony" `shouldNotBe` Nothing
                     classOf "Antimony, ion" `shouldBe` classOf "Antimony"
 
+                -- 1,1,2- and 1,1,1-trifluoroethane are two molecules, which
+                -- warm the climate by different amounts.
+                it "keeps the two trifluoroethane isomers apart" $ do
+                    classOf "Ethane, 1,1,1-trifluoro-, HFC-143a" `shouldNotBe` Nothing
+                    classOf "Ethane, 1,1,2-trifluoro-, HFC-143"
+                        `shouldNotBe` classOf "Ethane, 1,1,1-trifluoro-, HFC-143a"
+
                 -- Stibnite is the ore antimony is mined from, a resource name:
                 -- an emission of it is not the dissolved ion.
                 it "keeps the antimony ore out of the antimony emission class" $ do
