@@ -159,8 +159,11 @@ planCategoryEdit fresh collection = \case
         let method = Method fresh name Nothing unit (fromMaybe name (cdImpactCategory draft >>= given)) (cdMethodology draft) []
         pure (AddCategory Nothing method Regionalized, EditEffect 0 Nothing Nothing)
     ImportCategory method -> do
-        when (null (methodFactors method)) $ Left (methodName method <> " has no factor")
-        pure (AddCategory Nothing method{methodId = fresh} Regionalized, EditEffect (length (methodFactors method)) Nothing Nothing)
+        name <- nonBlank "name" (methodName method)
+        unit <- nonBlank "unit" (methodUnit method)
+        when (null (methodFactors method)) $ Left (name <> " has no factor")
+        let trimmed = method{methodId = fresh, methodName = name, methodUnit = unit, methodCategory = fromMaybe name (given (methodCategory method))}
+        pure (AddCategory Nothing trimmed Regionalized, EditEffect (length (methodFactors method)) Nothing Nothing)
     Rename category asked -> do
         method <- oneCategory collection category
         name <- nonBlank "name" asked

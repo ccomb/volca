@@ -125,6 +125,7 @@ data Table = Table
     -- ^ the named ones: a column with a blank name holds no category
     , tWidth :: !Int
     -- ^ key columns and category columns, named or not
+    , tUnitLine :: !Int
     , tHeaderDefects :: ![CsvDefect]
     -- ^ what the lenient reader tolerates in the header and the strict one refuses
     , tRows :: ![Line]
@@ -188,7 +189,7 @@ splitHeaderFromData methodology dataLines =
             let !delim = detectDelimiter labelRow
                 atLabel = first (CsvDefect labelLine)
             keys <- atLabel (parseKeyColumns (splitRow delim labelRow))
-            (catRow, nameRow, unitRow) <- atLabel $ case filter (not . BS.null . lineBytes) headerRows of
+            (catRow, nameRow, unitRow@(Line unitLine _)) <- atLabel $ case filter (not . BS.null . lineBytes) headerRows of
                 [nameRow, unitRow] -> Right (Nothing, nameRow, unitRow)
                 [catRow, nameRow, unitRow] -> Right (Just catRow, nameRow, unitRow)
                 _ -> Left "CSV method file needs at least 3 header rows (names, units, column labels)"
@@ -208,6 +209,7 @@ splitHeaderFromData methodology dataLines =
                         , not (T.null n)
                         ]
                     , tWidth = kcCount keys + length names
+                    , tUnitLine = unitLine
                     , tHeaderDefects =
                         catMaybes
                             ( widthDefect delim nameRow "units" unitRow
@@ -311,7 +313,7 @@ tableDefects :: Table -> [CsvDefect]
 tableDefects t
     -- Rows read against header rows that disagree would only echo them.
     | not (null (tHeaderDefects t)) = tHeaderDefects t
-    | otherwise = sortOn cdLine (unitColumn <> unbalanced <> concatMap (rowDefects t) rows <> duplicates (tKeys t) rows)
+    | otherwise = sortOn cdLine (unitColumn <> blankUnits <> unbalanced <> concatMap (rowDefects t) rows <> duplicates (tKeys t) rows)
   where
     unbalanced :: [CsvDefect]
     rows :: [Row]
@@ -320,6 +322,13 @@ tableDefects t
     unitColumn =
         [ CsvDefect (tLabelLine t) "no 'unit' key column: each row must name the unit of its flow"
         | isNothing (kcUnit (tKeys t))
+        ]
+    -- The lenient reader would give such a category the unit "unknown".
+    blankUnits :: [CsvDefect]
+    blankUnits =
+        [ CsvDefect (tUnitLine t) ("blank unit for the impact category '" <> colName col <> "'")
+        | col <- tColumns t
+        , T.null (T.strip (colUnit col))
         ]
 
 {- | A data line split as RFC 4180. An empty line is a row of no cells; any
@@ -338,7 +347,7 @@ strictRow delim (Line n bs)
 
 -- | Why a row cannot be taken as written, each cause named once.
 rowDefects :: Table -> Row -> [CsvDefect]
-rowDefects t (Row n cells) = map (CsvDefect n) (surplus <> unnamed <> blanks <> compartment <> values)
+rowDefects t (Row n cells) = map (CsvDefect n) (surplus <> unnamed <> valueless <> blanks <> compartment <> values)
   where
     keys :: KeyColumns
     keys = tKeys t
@@ -365,10 +374,19 @@ rowDefects t (Row n cells) = map (CsvDefect n) (surplus <> unnamed <> blanks <> 
             (\i -> not (T.null (cellAt cells (kcCount keys + i))))
             (filter (`notElem` map colIndex (tColumns t)) [0 .. tWidth t - kcCount keys - 1])
         ]
+    carriesValue :: Bool
+    carriesValue = not (all (T.null . T.strip) (drop (kcCount keys) cells))
+    -- A cell left out moves the value into a key column, leaving the value cell blank.
+    valueless :: [Text]
+    valueless =
+        [ "no value under any impact category: write the factor in its column (a cell left out of the row moves it into a key column), or remove the row"
+        | not carriesValue
+        , not (all (T.null . T.strip) cells)
+        ]
     blanks :: [Text]
     blanks =
         [ "blank " <> what <> " on a row that carries a value"
-        | not (all (T.null . T.strip) (drop (kcCount keys) cells))
+        | carriesValue
         , (what, column) <- [("substance", Just 0), ("compartment", Just 1), ("unit", kcUnit keys)]
         , i <- maybeToList column
         , T.null (cellAt cells i)

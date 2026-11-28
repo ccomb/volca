@@ -204,6 +204,12 @@ spec = describe "planning a change to a method collection" $ do
     it "refuses to import a category whose name is in use" $
         refusal (planCategoryEdit (uuid 300) collection (ImportCategory ecotox) >>= applyMethodOp collection . fst) `shouldContain` "already named"
 
+    it "imports a category under its name, unit and impact category with their edges trimmed" $ do
+        let spaced = ecotox{methodName = "Ecotoxicity, freshwater  ", methodUnit = " CTUe ", methodCategory = "Ecotoxicity, freshwater  "}
+        refusal (planCategoryEdit (uuid 300) collection (ImportCategory spaced) >>= applyMethodOp collection . fst) `shouldContain` "already named"
+        fmap fst (planCategoryEdit (uuid 300) collection (ImportCategory spaced{methodName = "Land use "}))
+            `shouldBe` Right (AddCategory Nothing ecotox{methodId = uuid 300, methodName = "Land use", methodUnit = "CTUe", methodCategory = "Ecotoxicity, freshwater"} Regionalized)
+
     it "refuses a new category with no name, no unit, or a name already there once its edges are trimmed" $ do
         let draft name unit = NewCategory (CategoryDraft name unit Nothing Nothing)
         refusal (planCategoryEdit (uuid 200) collection (draft "  " "Pt")) `shouldContain` "name"

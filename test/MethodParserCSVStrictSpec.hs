@@ -122,6 +122,38 @@ spec = describe "Method.ParserCSV strict" $ do
         strict (table [";air;;g;54"])
             `shouldBe` Left [CsvDefect 5 "blank substance on a row that carries a value"]
 
+    it "refuses a named row with no value, where a cell left out moved the value into a key column" $ do
+        let located row =
+                T.unlines
+                    [ ";;;;;GWP"
+                    , ";;;;;kg CO2 eq"
+                    , "substance;compartment;cas;unit;location;"
+                    , "Methane;air;74-82-8;kg;;28"
+                    , row
+                    ]
+        mapM_
+            ( \row -> do
+                CsvDefect line reason <- oneDefect (located row)
+                line `shouldBe` 5
+                reason `shouldSatisfy` T.isPrefixOf "no value under any impact category"
+            )
+            ["Water;water;;m3;2.5", "Carbon dioxide;air;kg;1", "Ethane;air;;kg;"]
+
+    it "accepts an empty line and a line of delimiters alone" $
+        fmap (map (length . methodFactors)) (strict (table ["Ammonia;air;;kg;2", "", ";;;;", "Methane;air;;kg;28"]))
+            `shouldBe` Right [2]
+
+    it "refuses a named impact category with a blank unit, on the units row" $
+        strict
+            ( T.unlines
+                [ ";;;;GWP;Acidification"
+                , ";;;;kg CO2 eq; "
+                , "substance;compartment;cas;unit;;"
+                , "Ammonia;air;;kg;1;2"
+                ]
+            )
+            `shouldBe` Left [CsvDefect 2 "blank unit for the impact category 'Acidification'"]
+
     it "refuses a table without a unit key column" $
         strict
             ( T.unlines
