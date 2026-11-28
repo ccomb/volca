@@ -24,7 +24,7 @@ The other direction is a promise about pyvolca's own names. A name this client p
 
 _Generated from `volca._compat`: run `python scripts/gen_api_md.py` to regenerate._
 
-This build of **pyvolca 0.15.0** speaks wire formats **113 to 129** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
+This build of **pyvolca 0.15.0** speaks wire formats **113 to 130** and requires a VoLCA engine **≥ v0.19.0**; a capability gated on a newer wire than the engine speaks refuses to run with a clear error. A name this build has retired keeps working until pyvolca **1.0**.
 
 <!-- END: compatibility -->
 
@@ -803,6 +803,20 @@ Returns the engine's ``LoadDatabaseResponse`` dict, as
 `load_database` does: ``"database"`` describes the new database,
 under the name it was registered with.
 
+##### `Client.create_method_collection(new_name: str) -> dict`
+
+Create an empty method collection of your own under ``new_name``.
+
+It holds no impact category: fill it one at a time with
+`import_method_category`. It is loaded at once and kept in its
+own journal, so after an engine restart it stays unloaded until
+`load_method_collection` loads it. The collection is known by the slug of ``new_name``
+(lower case, words joined by dashes); a name another collection
+already has is refused. Returns the collection made, whose ``name`` is
+the one the next call takes.
+
+Needs an engine speaking wire revision 130.
+
 ##### `Client.create_scoring_set(collection: str, name: str, rows: list[ScoringRow], *, unit: str | None = None) -> dict`
 
 Create a scoring set in a collection of your own, from its rows.
@@ -1568,6 +1582,21 @@ takes a method name as well as a UUID.
 The sets of groups made ready for a classification system that the
 database's processes carry, the one to start with first. Each set's
 ``groups`` go to `group_contributions` as they are.
+
+##### `Client.import_method_category(collection: str, csv: str) -> dict`
+
+Import one impact category and its factors, from the text of a method CSV.
+
+``csv`` holds exactly one category, in the layout the engine reads for
+a method file; a compartment is written ``top/sub``, with a qualifier
+after a comma and never as a third segment. A text that cannot be read
+as written is refused with each defect named by its line in the text,
+and nothing is recorded. The category and its factors are one change
+of the collection, undone together by `undo_method_edit`. A name
+already in use is refused. The answer's ``methodId`` names the
+category made.
+
+Needs an engine speaking wire revision 130.
 
 ##### `Client.install_method_collection(name: str) -> dict`
 

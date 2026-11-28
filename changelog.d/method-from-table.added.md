@@ -8,4 +8,6 @@
   line, and nothing is recorded. The collection is kept in its journal alone:
   the list of method collections gives it the path `"journal"` and the format
   `"Journal"`. After a restart it is not loaded; the new MCP tool
-  `load_method_collection` loads it again (wire revision 130).
+  `load_method_collection` loads it again. pyvolca creates the collection with
+  `create_method_collection()` and imports a category with
+  `import_method_category()` (wire revision 130).

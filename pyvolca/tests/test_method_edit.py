@@ -42,6 +42,36 @@ def test_copy(mocked_client):
     assert body is None
 
 
+def test_create(mocked_client):
+    client, session = mocked_client
+    _engine(session, wire=130)
+    session.post.return_value = _make_response({"name": "my-method"})
+    assert client.create_method_collection("My Method")["name"] == "my-method"
+    url, body, _ = _posted(session)
+    assert url == f"{BASE}/My%20Method/create"
+    assert body is None
+
+
+def test_import_category(mocked_client):
+    client, session = mocked_client
+    _engine(session, wire=130)
+    csv = "Category;Unit\nClimate change;kg CO2 eq\n"
+    client.import_method_category("my-method", csv)
+    url, body, _ = _posted(session)
+    assert url == f"{BASE}/my-method/categories"
+    assert body == {"op": "import", "csv": csv}
+
+
+def test_create_and_import_need_wire_130(mocked_client):
+    client, session = mocked_client
+    _engine(session, wire=129)
+    with pytest.raises(VoLCAError, match="wire revision >= 130"):
+        client.create_method_collection("My Method")
+    with pytest.raises(VoLCAError, match="wire revision >= 130"):
+        client.import_method_category("my-method", "x")
+    session.post.assert_not_called()
+
+
 def test_set_sends_only_what_it_names(mocked_client):
     client, session = mocked_client
     _engine(session)
