@@ -1303,16 +1303,16 @@ description r = case r of
         "LCA / ACV: copy a method collection under a new name, to change it. \
         \Declared and built-in method collections \
         \never change in place: their copies \
-        \do. The copy scores as its source until changed, loaded at once, reads \
-        \the source's files (source undeletable meanwhile). Named by the slug of \
+        \do. The copy scores as its source until changed, loaded at once; \
+        \a source whose files it reads cannot be deleted before it. Named by the slug of \
         \'new_name' (lower case, dashes), given in the response; a taken name is \
         \refused."
     CreateMethodCollection ->
         "LCA / ACV: create an empty method collection of your own, loaded at \
         \once, to fill one impact category per call with edit_method_categories \
         \op import. Named by the slug of 'new_name' (lower case, dashes), given \
-        \in the response. Kept across restarts (load_method_collection), \
-        \deletable. Refused: name taken, read-only instance."
+        \in the response. Kept across restarts (load_method_collection); no tool \
+        \deletes it, HTTP does once it is unloaded. Refused: name taken, read-only instance."
     EditMethodFactors ->
         "LCA / ACV: in a loaded method collection \
         \of one's own (copy, upload or created empty), change, \
@@ -1336,7 +1336,7 @@ description r = case r of
         \'method_id' (list_methods). A rename carries along scoring sets and \
         \unregionalized impact categories naming it. Refused: \
         \a name in use, removing an impact category a scoring \
-        \set weighs (set named), a malformed csv (each defect with its line). \
+        \set weighs (set named), a malformed csv (each defect with its lines). \
         \Response: journal line, factors touched and method_id."
     EditMethodScoringSets ->
         "LCA / ACV: change scoring sets of a loaded \
@@ -2033,7 +2033,7 @@ params r = case r of
         , Param "unit" "string" Optional "The impact category's unit, for add and set-unit"
         , Param "impact_category" "string" Optional "The group label the impact category carries; its own name when absent"
         , Param "methodology" "string" Optional "The methodology of a new impact category"
-        , Param "csv" "string" Optional "For import: one impact category as a method CSV, ';' between cells. Name and unit on the first two rows, above its factor column; then the label row substance;compartment;cas;unit;location (location optional); one row per factor. Compartment as top/sub (air/urban air close to ground), a qualifier after a comma (water/groundwater, long-term), never a third '/'; a medium alone (air, water) reaches every sub-compartment of it. A misspelt sub-compartment is not refused: get_flow_mapping shows what it reaches."
+        , Param "csv" "string" Optional "For import: one impact category as a method CSV, ';' between cells: name row, unit row, label row (its value cell blank), one row per factor:\n;;;;;Climate change\n;;;;;kg CO2 eq\nsubstance;compartment;cas;unit;location;\nMethane;air;74-82-8;kg;;28\nMethane;air;74-82-8;kg;CH;29\nunit is required, a flow unit the engine knows (kg, g, m3, MJ), refused otherwise; cas and location are optional. location is the code the database's processes carry (CH, FR), checked against no list; a row without one applies everywhere a located row does not. Compartment as top/sub (air/urban air close to ground), a qualifier after a comma (water/groundwater, long-term), never a third '/'; a medium alone (air, water) reaches every sub-compartment of it. A misspelt sub-compartment is not refused: get_flow_mapping shows what it reaches."
         ]
     EditMethodScoringSets ->
         [ Param "collection" "string" Required "Loaded method collection of one's own: a copy, an upload or one created empty"

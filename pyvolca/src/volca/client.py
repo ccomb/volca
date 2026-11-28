@@ -1649,8 +1649,8 @@ class Client:
         A collection the configuration declares, or one built into the engine,
         is never changed in place: copy it, then change the copy. The copy
         scores exactly as its source before any change and is loaded at once.
-        It reads its source's files, so the source cannot be deleted while the
-        copy exists. The copy is known by the slug of ``new_name`` (lower case,
+        A source with files of its own cannot be deleted while a copy reading
+        them exists. The copy is known by the slug of ``new_name`` (lower case,
         words joined by dashes); a name another collection already has is
         refused. Returns the collection made, whose ``name`` is the one the
         next call takes.
@@ -1666,10 +1666,10 @@ class Client:
         It holds no impact category: fill it one at a time with
         :meth:`import_method_category`. It is loaded at once and kept in its
         own journal, so after an engine restart it stays unloaded until
-        :meth:`load_method_collection` loads it. The collection is known by the slug of ``new_name``
-        (lower case, words joined by dashes); a name another collection
-        already has is refused. Returns the collection made, whose ``name`` is
-        the one the next call takes.
+        :meth:`load_method_collection` loads it. The collection is known by
+        the slug of ``new_name`` (lower case, words joined by dashes); a name
+        another collection already has is refused. Returns the collection
+        made, whose ``name`` is the one the next call takes.
 
         Needs an engine speaking wire revision 130.
         """
@@ -1789,9 +1789,10 @@ class Client:
 
         ``csv`` holds exactly one category, in the layout the engine reads for
         a method file; a compartment is written ``top/sub``, with a qualifier
-        after a comma and never as a third segment. A text that cannot be read
-        as written is refused with each defect named by its line in the text,
-        and nothing is recorded. The category and its factors are one change
+        after a comma and never as a third segment, and each row's ``unit`` is
+        a flow unit the engine's unit table knows. A text that cannot be read
+        as written is refused with each defect named by the lines it is on in
+        the text, and nothing is recorded. The category and its factors are one change
         of the collection, undone together by :meth:`undo_method_edit`. A name
         already in use is refused. The answer's ``methodId`` names the
         category made.

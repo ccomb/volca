@@ -30,9 +30,12 @@ none).
 
 A compartment cell is either a legacy prose form (@Emissions to air@,
 @Resources@ – matched by keyword) or a @/@-separated path
-(@water/groundwater/long-term@ = compartment, subcompartment, qualifier),
-which is what the writer emits and the only way to keep subcompartment
-distinctions – most of a real method's factors are subcompartment-specific.
+(@water/groundwater@ = compartment, subcompartment), which is what the writer
+emits and the only way to keep subcompartment distinctions – most of a real
+method's factors are subcompartment-specific. The file reader also takes a
+third segment as a qualifier; the strict reader takes @top/sub@ alone, with a
+qualifier after a comma inside the subcompartment (@water/groundwater,
+long-term@), because matching reads two segments and loses a third.
 
 One CSV file → multiple 'Method' values (one per column).
 
@@ -69,6 +72,7 @@ import Data.Word (Word8)
 
 import Data.Indexing (collisions)
 import Method.CSV (detectDelimiter, parseDouble, quotedCells, splitRow)
+import Method.Mapping (foldSub)
 import Method.Types
 import SynonymDB (normalizeNameKeepUnit)
 import Types (mediumText)
@@ -462,7 +466,7 @@ duplicates keys rows =
     -- A row refused for its substance or compartment already says so.
     keyed :: [(RowKey, Int)]
     keyed =
-        [ (RowKey (normalizeNameKeepUnit sub) (foldSub <$> parseCSVCompartment comp) (nonBlank (keyedCell cells (kcLocation keys))), n)
+        [ (RowKey (normalizeNameKeepUnit sub) (foldCompartment <$> parseCSVCompartment comp) (nonBlank (keyedCell cells (kcLocation keys))), n)
         | Row n cells <- rows
         , let sub = cellAt cells 0
               comp = cellAt cells 1
@@ -470,8 +474,8 @@ duplicates keys rows =
         , not (T.null comp)
         , isNothing (compartmentDefect comp)
         ]
-    foldSub :: Compartment -> Compartment
-    foldSub (Compartment medium s q) = Compartment medium (T.toLower (T.strip s)) q
+    foldCompartment :: Compartment -> Compartment
+    foldCompartment (Compartment medium s q) = let Subcompartment folded = foldSub (Subcompartment s) in Compartment medium folded q
 
 -- | Deterministic namespace for CSV-derived UUIDs.
 csvMethodNamespace :: UUID

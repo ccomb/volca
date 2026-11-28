@@ -2,15 +2,14 @@
 
 {- | Writer for the columnar CSV method format – the exact inverse of
 "Method.ParserCSV". One file, one column per impact category, one row per
-distinct (substance, compartment, CAS, flow unit): the spreadsheet view of
-a method collection.
+distinct (substance, compartment, CAS, flow unit, location): the
+spreadsheet view of a method collection.
 
 Deterministic: rows are sorted by their key, values render through
 'formatAmount', and nothing volatile (timestamp, version) is emitted, so
 the same collection always serializes to the same bytes.
 
-Projections onto the format's conventions (matching "Method.WriterSimaPro"
-where the two formats share a limitation):
+Projections onto the format's conventions:
 
 * a regionalized CF keeps its location in a @location@ column, written only
   when some factor has one, so a collection without located factors

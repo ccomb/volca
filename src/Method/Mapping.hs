@@ -37,6 +37,7 @@ module Method.Mapping (
     withSynonymNames,
     SubReading (..),
     subReadings,
+    foldSub,
     EnergyPrice (..),
     energyPriceOf,
     MethodIndex (..),
