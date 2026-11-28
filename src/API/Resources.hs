@@ -62,12 +62,14 @@ work, done on a database of one's own, and the engine refuses it on the
 background data it reads from its configuration. Creating the empty database
 of one's own that such writing needs, when none is at hand, is part of it.
 
-Infrastructure stays in Routes.hs only: method-collection loading, upload
+Infrastructure stays in Routes.hs only: method-collection unloading, upload
 and delete, relink, database copy, auth, version. Those administer the
 installation rather than answer a question about it, and have no
-analyst-facing equivalent across every surface. Copying and changing a method
-collection are analysis work, the method counterpart of editing an inventory,
-and so are here.
+analyst-facing equivalent across every surface. Copying, creating and changing
+a method collection are analysis work, the method counterpart of editing an
+inventory, and so are here. So is loading one: a collection of one's own is
+not loaded after a restart, and whoever was building it has to load it to go
+on.
 -}
 data Resource
     = ListDatabases
@@ -131,7 +133,9 @@ data Resource
     | ListScenarios
     | SaveScenario
     | DropScenario
+    | LoadMethodCollection
     | CopyMethodCollection
+    | CreateMethodCollection
     | EditMethodFactors
     | EditMethodCategories
     | EditMethodScoringSets
@@ -248,7 +252,9 @@ resourceMutates r = case r of
     ListScenarios -> False
     SaveScenario -> True
     DropScenario -> True
+    LoadMethodCollection -> True
     CopyMethodCollection -> True
+    CreateMethodCollection -> True
     EditMethodFactors -> True
     EditMethodCategories -> True
     EditMethodScoringSets -> True
@@ -343,7 +349,9 @@ resourceNeeds r = case r of
     DropScenario -> Nothing
     CompareMethodCollections -> Nothing
     ProfileMethodCollection -> Nothing
+    LoadMethodCollection -> Nothing
     CopyMethodCollection -> Nothing
+    CreateMethodCollection -> Nothing
     EditMethodFactors -> Nothing
     EditMethodCategories -> Nothing
     EditMethodScoringSets -> Nothing
@@ -420,7 +428,9 @@ resourceUsage r = case r of
     GetFlowFactors -> Nothing
     CompareMethodCollections -> Nothing
     ProfileMethodCollection -> Nothing
+    LoadMethodCollection -> Nothing
     CopyMethodCollection -> Nothing
+    CreateMethodCollection -> Nothing
     EditMethodFactors -> Nothing
     EditMethodCategories -> Nothing
     EditMethodScoringSets -> Nothing
@@ -512,7 +522,9 @@ apiPath r = case r of
     ListScenarios -> Just (GET, ["db", "{dbName}", "scenarios"])
     SaveScenario -> Just (PUT, ["db", "{dbName}", "scenarios", "{name}"])
     DropScenario -> Just (DELETE, ["db", "{dbName}", "scenarios", "{name}"])
+    LoadMethodCollection -> Just (POST, ["method-collections", "{name}", "load"])
     CopyMethodCollection -> Just (POST, ["method-collections", "{collection}", "copy", "{newName}"])
+    CreateMethodCollection -> Just (POST, ["method-collections", "{newName}", "create"])
     EditMethodFactors -> Just (POST, ["method-collections", "{collection}", "factors"])
     EditMethodCategories -> Just (POST, ["method-collections", "{collection}", "categories"])
     EditMethodScoringSets -> Just (POST, ["method-collections", "{collection}", "scoring-sets"])
@@ -597,7 +609,9 @@ mcpName r = case r of
     ListScenarios -> "list_scenarios"
     SaveScenario -> "save_scenario"
     DropScenario -> "drop_scenario"
+    LoadMethodCollection -> "load_method_collection"
     CopyMethodCollection -> "copy_method_collection"
+    CreateMethodCollection -> "create_method_collection"
     EditMethodFactors -> "edit_method_factors"
     EditMethodCategories -> "edit_method_categories"
     EditMethodScoringSets -> "edit_scoring_sets"
@@ -1280,6 +1294,11 @@ description r = case r of
         "Drop a scenario saved on a database; the answer lists those left. \
         \Refused for an unknown name and for shipped scenarios (back at every \
         \load)."
+    LoadMethodCollection ->
+        "LCA / ACV: load a method collection into memory, so its impact \
+        \categories score and take changes. A collection of one's own is not \
+        \loaded after a restart: load it by the name its creation gave. No \
+        \effect if loaded."
     CopyMethodCollection ->
         "LCA / ACV: copy a method collection under a new name, to change it. \
         \Declared and built-in method collections \
@@ -1288,9 +1307,15 @@ description r = case r of
         \the source's files (source undeletable meanwhile). Named by the slug of \
         \'new_name' (lower case, dashes), given in the response; a taken name is \
         \refused."
+    CreateMethodCollection ->
+        "LCA / ACV: create an empty method collection of your own, loaded at \
+        \once, to fill one impact category per call with edit_method_categories \
+        \op import. Named by the slug of 'new_name' (lower case, dashes), given \
+        \in the response. Kept across restarts (load_method_collection), \
+        \deletable. Refused: name taken, read-only instance."
     EditMethodFactors ->
         "LCA / ACV: in a loaded method collection \
-        \of one's own (copy or upload), change, \
+        \of one's own (copy, upload or created empty), change, \
         \remove or add one characterization factor, or rescale or set every factor \
         \a selector reaches. 'op': set / remove name a factor by method_id \
         \(list_methods), flow_id and location \
@@ -1303,19 +1328,20 @@ description r = case r of
         \method collections refused: copy_method_collection first."
     EditMethodCategories ->
         "LCA / ACV: in a loaded method collection \
-        \of one's own (copy or upload), add, \
-        \rename, re-unit or remove an impact category. 'op': add names 'name' and \
-        \'unit' (optional 'impact_category', 'methodology'), starting with no \
-        \factor (edit_method_factors adds them); rename, set-unit, remove name \
+        \of one's own (copy, upload or created empty), add, \
+        \import, rename, re-unit or remove an impact category. 'op': add names \
+        \'name' and 'unit' (optional 'impact_category', 'methodology'), starting \
+        \with no factor (edit_method_factors adds them); import reads one impact \
+        \category with its factors from 'csv'; rename, set-unit, remove name \
         \'method_id' (list_methods). A rename carries along scoring sets and \
         \unregionalized impact categories naming it. Refused: \
         \a name in use, removing an impact category a scoring \
-        \set weighs (set named). Response: journal line and \
-        \method_id."
+        \set weighs (set named), a malformed csv (each defect with its line). \
+        \Response: journal line, factors touched and method_id."
     EditMethodScoringSets ->
         "LCA / ACV: change scoring sets of a loaded \
-        \method collection of one's own (copy \
-        \or upload), each named by 'set'. 'op': create from 'rows' (optional \
+        \method collection of one's own (copy, \
+        \upload or created empty), each named by 'set'. 'op': create from 'rows' (optional \
         \'unit'), remove, rename to 'name', set-unit to 'unit', set-multiplier to \
         \'multiplier' (none drops it); add-row a 'row', change-row / remove-row the \
         \row of 'variable' (list_scoring_sets); set-formula of a computed \
@@ -1977,12 +2003,18 @@ params r = case r of
         [ pDatabase
         , Param "name" "string" Required "Name of the scenario"
         ]
+    LoadMethodCollection ->
+        [ Param "collection" "string" Required "Method collection to load"
+        ]
     CopyMethodCollection ->
         [ Param "collection" "string" Required "Method collection to copy"
         , Param "new_name" "string" Required "Name of the copy; it is known by its slug"
         ]
+    CreateMethodCollection ->
+        [ Param "new_name" "string" Required "Name of the new method collection; it is known by its slug"
+        ]
     EditMethodFactors ->
-        [ Param "collection" "string" Required "Loaded method collection of one's own: a copy or an upload"
+        [ Param "collection" "string" Required "Loaded method collection of one's own: a copy, an upload or one created empty"
         , Param "op" "string" Required "set, remove, add, scale or set-all"
         , Param "method_id" "string" Optional "The impact category (from list_methods), for set, remove and add"
         , Param "flow_id" "string" Optional "The factor's flow, for set and remove"
@@ -1994,16 +2026,17 @@ params r = case r of
         , Param "factor" "object" Optional "The factor to add: {flowId, name, direction (Input or Output), value, unit, compartment {medium, subcompartment, qualifier}, cas, location}"
         ]
     EditMethodCategories ->
-        [ Param "collection" "string" Required "Loaded method collection of one's own: a copy or an upload"
-        , Param "op" "string" Required "add, rename, set-unit or remove"
+        [ Param "collection" "string" Required "Loaded method collection of one's own: a copy, an upload or one created empty"
+        , Param "op" "string" Required "add, import, rename, set-unit or remove"
         , Param "method_id" "string" Optional "The impact category (from list_methods), for rename, set-unit and remove"
         , Param "name" "string" Optional "The impact category's name, for add and rename"
         , Param "unit" "string" Optional "The impact category's unit, for add and set-unit"
         , Param "impact_category" "string" Optional "The group label the impact category carries; its own name when absent"
         , Param "methodology" "string" Optional "The methodology of a new impact category"
+        , Param "csv" "string" Optional "For import: one impact category as a method CSV, ';' between cells. Name and unit on the first two rows, above its factor column; then the label row substance;compartment;cas;unit;location (location optional); one row per factor. Compartment as top/sub (air/urban air close to ground), a qualifier after a comma (water/groundwater, long-term), never a third '/'; a medium alone (air, water) reaches every sub-compartment of it. A misspelt sub-compartment is not refused: get_flow_mapping shows what it reaches."
         ]
     EditMethodScoringSets ->
-        [ Param "collection" "string" Required "Loaded method collection of one's own: a copy or an upload"
+        [ Param "collection" "string" Required "Loaded method collection of one's own: a copy, an upload or one created empty"
         , Param "op" "string" Required "create, remove, rename, set-unit, set-multiplier, add-row, change-row, remove-row, set-formula, set-score or remove-score"
         , Param "set" "string" Required "The scoring set (from list_scoring_sets); for create, the new set's name"
         , Param "name" "string" Optional "The set's new name, for rename"

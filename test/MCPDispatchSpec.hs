@@ -32,6 +32,17 @@ import TestHelpers (withScratchDataDir)
 import Types (ClassificationMatch (..), FileReading (..), GeographyPolicy (..), Licence (..), Reading (..))
 import Usage (anonymous)
 
+-- | One impact category of two factors, as the method CSV an import reads.
+climateCsv :: Text
+climateCsv =
+    T.unlines
+        [ ";;;;Climate change"
+        , ";;;;kg CO2 eq"
+        , "substance;compartment;cas;unit;"
+        , "Carbon dioxide;air;124-38-9;kg;1"
+        , "Methane;air;74-82-8;kg;28"
+        ]
+
 -- | The tool definition advertised under a given MCP name.
 toolByName :: Text -> Maybe Value
 toolByName name =
@@ -279,6 +290,26 @@ spec = describe "MCP database load/unload tools" $ do
                 unknown <- tool "edit_method_categories" [("collection", String "copy"), ("op", String "add"), ("name", String "Another"), ("unit", String "kg"), ("label", String "x")]
                 isError unknown `shouldBe` True
                 resultText unknown `shouldSatisfy` maybe False ("label" `T.isInfixOf`)
+
+        it "create an empty collection, named by its slug, and import a category into it from a CSV text" $
+            withScratchDataDir $ do
+                manager <- initDatabaseManager defaultConfig NoCache
+                let tool name = callTool anonymous manager [] Nothing Nothing noRequestId name . KM.fromList
+                created <- tool "create_method_collection" [("new_name", String "My Method")]
+                jsonField "collection" created `shouldBe` Just (String "my-method")
+                imported <- tool "edit_method_categories" [("collection", String "my-method"), ("op", String "import"), ("csv", String climateCsv)]
+                (jsonField "line" imported, jsonField "touched" imported) `shouldBe` (Just (Number 1), Just (Number 2))
+
+        it "load a created collection again after a restart, ready for an import" $
+            withScratchDataDir $ do
+                before <- initDatabaseManager defaultConfig NoCache
+                _ <- callTool anonymous before [] Nothing Nothing noRequestId "create_method_collection" (KM.singleton "new_name" (String "mine"))
+                manager <- initDatabaseManager defaultConfig NoCache
+                let tool name = callTool anonymous manager [] Nothing Nothing noRequestId name . KM.fromList
+                loaded <- tool "load_method_collection" [("collection", String "mine")]
+                isError loaded `shouldBe` False
+                imported <- tool "edit_method_categories" [("collection", String "mine"), ("op", String "import"), ("csv", String climateCsv)]
+                jsonField "line" imported `shouldBe` Just (Number 1)
 
         it "create a scoring set on a copy, which list_scoring_sets reads back as rows summed into its single score" $
             withScratchDataDir $ do
