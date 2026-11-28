@@ -158,7 +158,7 @@ mutatingHandlers =
     , ("upload-refdata", run (uploadRefData FlowSynonyms (Just "nope") Nothing (source [])))
     , ("copy-method", run (copyMethodCollectionHandler "nope" "nope-copy"))
     , ("edit-method-factors", run (editMethodFactorsHandler "nope" (FactorEditRequest SetOne Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)))
-    , ("edit-method-categories", run (editMethodCategoriesHandler "nope" (CategoryEditRequest AddCategoryOp Nothing (Just "x") (Just "kg") Nothing Nothing)))
+    , ("edit-method-categories", run (editMethodCategoriesHandler "nope" (CategoryEditRequest AddCategoryOp Nothing (Just "x") (Just "kg") Nothing Nothing Nothing)))
     , ("edit-scoring-sets", run (editScoringSetsHandler "nope" (ScoringEditRequest RemoveSetOp "x" Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing)))
     , ("undo-method-edit", run (undoMethodEditHandler "nope" Nothing))
     ]

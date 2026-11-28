@@ -17,9 +17,11 @@ import Data.Maybe (isNothing)
 import Data.OpenApi (NamedSchema (..), OpenApiType (..), ToSchema (..), enum_, type_)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import GHC.Generics
 import Method.EditPlan (CategoryDraft (..), CategoryEdit (..), FactorEdit (..), FactorTarget (..))
 import Method.Journal (Exact (..))
+import Method.ParserCSV (CsvDefect (..), parseMethodCSVStrict)
 import Method.ScoringEdit (RowDraft (..), ScoringEdit (..))
 import Method.Types (FlowDirection, MethodCF (..))
 import qualified Method.Types as MT
@@ -129,8 +131,8 @@ data CompartmentAPI = CompartmentAPI
 instance FromJSON CompartmentAPI where
     parseJSON = parseClosed
 
--- | What one request does to a collection's categories. Read from the four words below; any other is refused naming them.
-data CategoryEditOp = AddCategoryOp | RenameCategoryOp | SetCategoryUnitOp | RemoveCategoryOp
+-- | What one request does to a collection's categories. Read from the five words below; any other is refused naming them.
+data CategoryEditOp = AddCategoryOp | RenameCategoryOp | SetCategoryUnitOp | RemoveCategoryOp | ImportCategoryOp
     deriving (Eq, Show, Enum, Bounded)
 
 categoryEditOpName :: CategoryEditOp -> Text
@@ -139,6 +141,7 @@ categoryEditOpName = \case
     RenameCategoryOp -> "rename"
     SetCategoryUnitOp -> "set-unit"
     RemoveCategoryOp -> "remove"
+    ImportCategoryOp -> "import"
 
 instance FromJSON CategoryEditOp where
     parseJSON = withText "op" $ \t ->
@@ -162,7 +165,8 @@ instance ToSchema CategoryEditOp where
 
 {- | One change asked of a collection's categories. An addition names the
 name and the unit (the impact category and methodology are optional); a
-rename, a change of unit and a removal name the category by 'methodId'.
+rename, a change of unit and a removal name the category by 'methodId'; an
+import names the 'csv' text of one category, factors included.
 -}
 data CategoryEditRequest = CategoryEditRequest
     { cerOp :: CategoryEditOp
@@ -171,6 +175,7 @@ data CategoryEditRequest = CategoryEditRequest
     , cerUnit :: Maybe Text
     , cerImpactCategory :: Maybe Text
     , cerMethodology :: Maybe Text
+    , cerCsv :: Maybe Text
     }
     deriving (Generic)
     deriving (ToJSON, ToSchema) via (Stripped CategoryEditRequest)
@@ -187,6 +192,24 @@ toCategoryEdit req = case cerOp req of
     RenameCategoryOp -> maybe (Left "a rename names methodId and name") Right (Rename <$> cerMethodId req <*> cerName req)
     SetCategoryUnitOp -> maybe (Left "a set-unit names methodId and unit") Right (ChangeUnit <$> cerMethodId req <*> cerUnit req)
     RemoveCategoryOp -> maybe (Left "a remove names methodId") (Right . Delete) (cerMethodId req)
+    ImportCategoryOp -> maybe (Left "an import names csv") importedCategory (cerCsv req)
+
+-- | The one category a CSV text holds, or every line of it that cannot be taken as written.
+importedCategory :: Text -> Either Text CategoryEdit
+importedCategory csv = case parseMethodCSVStrict (TE.encodeUtf8 csv) of
+    Left defects -> Left (T.intercalate "\n" (map describe defects))
+    Right [method] -> Right (ImportCategory method)
+    Right [] -> Left "the CSV text holds no impact category"
+    Right methods ->
+        Left $
+            "an import takes one impact category, and the text holds "
+                <> T.pack (show (length methods))
+                <> " ("
+                <> T.intercalate ", " (map MT.methodName methods)
+                <> "): send each in a call of its own"
+  where
+    describe :: CsvDefect -> Text
+    describe d = "line " <> T.pack (show (cdLine d)) <> ": " <> cdReason d
 
 {- | What a change did: the journal line recording it, how many factors it
 touched, the one factor's value before and after, and the one category its

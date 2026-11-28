@@ -183,6 +183,27 @@ spec = describe "planning a change to a method collection" $ do
         fmap fst (planCategoryEdit (uuid 200) collection (NewCategory (CategoryDraft " Land use " "Pt" Nothing Nothing)))
             `shouldBe` Right (AddCategory Nothing ecotox{methodId = uuid 200, methodName = "Land use", methodUnit = "Pt", methodCategory = "Land use", methodFactors = []} Regionalized)
 
+    it "imports a category as one line that its inverse removes" $ do
+        let imported = landUse{methodFactors = [ammonia, turpentineA]}
+            plan = planCategoryEdit (uuid 300) collection (ImportCategory imported)
+            changed = plan >>= applyMethodOp collection . fst
+            undone = do
+                (op, _) <- plan
+                now <- changed
+                inverseOf now op >>= \case
+                    UndoWith inverse -> applyMethodOp now inverse
+                    UndoSelector _ -> Left "a category's change is never undone by a selector"
+        fmap fst plan `shouldBe` Right (AddCategory Nothing imported{methodId = uuid 300} Regionalized)
+        fmap snd plan `shouldBe` Right (EditEffect 2 Nothing Nothing)
+        fmap (map methodFactors . mcMethods) changed `shouldBe` Right [methodFactors ecotox, [ammonia, turpentineA]]
+        undone `shouldBe` Right collection
+
+    it "refuses to import a category with no factor" $
+        refusal (planCategoryEdit (uuid 300) collection (ImportCategory landUse{methodFactors = []})) `shouldContain` "no factor"
+
+    it "refuses to import a category whose name is in use" $
+        refusal (planCategoryEdit (uuid 300) collection (ImportCategory ecotox) >>= applyMethodOp collection . fst) `shouldContain` "already named"
+
     it "refuses a new category with no name, no unit, or a name already there once its edges are trimmed" $ do
         let draft name unit = NewCategory (CategoryDraft name unit Nothing Nothing)
         refusal (planCategoryEdit (uuid 200) collection (draft "  " "Pt")) `shouldContain` "name"

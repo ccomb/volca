@@ -138,6 +138,7 @@ data CategoryDraft = CategoryDraft
 -- | A change asked of a collection's categories.
 data CategoryEdit
     = NewCategory CategoryDraft
+    | ImportCategory Method
     | Rename UUID Text
     | ChangeUnit UUID Text
     | Delete UUID
@@ -145,8 +146,10 @@ data CategoryEdit
 
 {- | The line a change to a category records, or why it cannot be recorded. A
 new category takes the identifier it is given, drawn by the caller, so that
-planning stays pure. A name or a unit is read with its edges trimmed; a change
-that would change nothing is refused, as it would only crowd the history.
+planning stays pure; so does an imported one, in place of the identifier its
+table gave it, which only says which table it came from. A name or a unit is
+read with its edges trimmed; a change that would change nothing is refused, as
+it would only crowd the history.
 -}
 planCategoryEdit :: UUID -> MethodCollection -> CategoryEdit -> Either Text (MethodOp, EditEffect)
 planCategoryEdit fresh collection = \case
@@ -155,6 +158,9 @@ planCategoryEdit fresh collection = \case
         unit <- nonBlank "unit" (cdUnit draft)
         let method = Method fresh name Nothing unit (fromMaybe name (cdImpactCategory draft >>= given)) (cdMethodology draft) []
         pure (AddCategory Nothing method Regionalized, EditEffect 0 Nothing Nothing)
+    ImportCategory method -> do
+        when (null (methodFactors method)) $ Left (methodName method <> " has no factor")
+        pure (AddCategory Nothing method{methodId = fresh} Regionalized, EditEffect (length (methodFactors method)) Nothing Nothing)
     Rename category asked -> do
         method <- oneCategory collection category
         name <- nonBlank "name" asked
