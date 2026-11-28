@@ -19,6 +19,7 @@ module API.MCP.Enrich (
     impactsPath,
     sensitivityPath,
     groupsPagePath,
+    groupsDiagramQuery,
     groupsQuery,
     scoreActivityWebUrl,
 
@@ -116,6 +117,12 @@ impactsPath = activityPagePath "impacts"
 -- | The sensitivity page; a method id appended to it names the indicator it opens on.
 sensitivityPath :: Text -> Text -> CollectionName -> Text
 sensitivityPath = activityPagePath "sensitivity"
+
+{- | 'groupsQuery', on the page's diagram from the groups to the substances.
+The query always names a group or @groups=none@, so the word joins with @&@.
+-}
+groupsDiagramQuery :: GroupsRequest -> Text
+groupsDiagramQuery = (<> "&display=sankey") . groupsQuery
 
 -- | The groups page; a method id appended to it names the category it opens on, then 'groupsQuery'.
 groupsPagePath :: Text -> Text -> CollectionName -> Text
